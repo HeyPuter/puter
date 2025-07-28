@@ -3,9 +3,13 @@ const { GoogleGenerativeAI } = require('@google/generative-ai');
 const GeminiSquareHole = require("./lib/GeminiSquareHole");
 const { TypedValue } = require("../../services/drivers/meta/Runtime");
 const putility = require("@heyputer/putility");
-const FunctionCalling = require("./lib/FunctionCalling");
+
+let OpenAIToolsAdapter;
 
 class GeminiService extends BaseService {
+    async _construct () {
+        ({ OpenAIToolsAdapter } = await import("@heyputer/airouter.js"));
+    }
     async _init () {
         const svc_aiChat = this.services.get('ai-chat');
         svc_aiChat.register_provider({
@@ -32,7 +36,7 @@ class GeminiService extends BaseService {
             },
 
             async complete ({ messages, stream, model, tools, max_tokens, temperature }) {
-                tools = FunctionCalling.make_gemini_tools(tools);
+                tools = OpenAIToolsAdapter.adapt_tools(tools);
 
                 const genAI = new GoogleGenerativeAI(this.config.apiKey);
                 const genModel = genAI.getGenerativeModel({

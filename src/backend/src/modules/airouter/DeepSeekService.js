@@ -18,9 +18,13 @@
  */
 
 // METADATA // {"ai-commented":{"service":"claude"}}
+const { TeePromise } = require("@heyputer/putility/src/libs/promise");
 const BaseService = require("../../services/BaseService");
-const OpenAIUtil = require("./lib/OpenAIUtil");
-const dedent = require('dedent');
+const { TypedValue } = require("../../services/drivers/meta/Runtime");
+let
+    obtain,
+    OPENAI_CLIENT, SYNC_RESPONSE, PROVIDER_NAME, NORMALIZED_LLM_PARAMS,
+    ASYNC_RESPONSE, USAGE_WRITER, COMPLETION_WRITER;
 
 /**
 * DeepSeekService class - Provides integration with X.AI's API for chat completions
@@ -43,6 +47,13 @@ class DeepSeekService extends BaseService {
         return model;
     }
     
+    async _construct () {
+        ({
+            obtain,
+            OPENAI_CLIENT, SYNC_RESPONSE, PROVIDER_NAME, NORMALIZED_LLM_PARAMS,
+            ASYNC_RESPONSE, USAGE_WRITER, COMPLETION_WRITER
+        } = require('@heyputer/airouter.js'));
+    }
 
     /**
     * Initializes the XAI service by setting up the OpenAI client and registering with the AI chat provider
@@ -106,60 +117,77 @@ class DeepSeekService extends BaseService {
              */
             async complete ({ messages, stream, model, tools, max_tokens, temperature }) {
                 model = this.adapt_model(model);
-
-                messages = await OpenAIUtil.process_input_messages(messages);
-                for ( const message of messages ) {
-                    // DeepSeek doesn't appreciate arrays here
-                    if ( message.tool_calls && Array.isArray(message.content) ) {
-                        message.content = "";
-                    }
-                }
                 
-                // Function calling is just broken on DeepSeek - it never awknowledges
-                // the tool results and instead keeps calling the function over and over.
-                // (see https://github.com/deepseek-ai/DeepSeek-V3/issues/15)
-                // To fix this, we inject a message that tells DeepSeek what happened.
-                const TOOL_TEXT = message => dedent(`
-                    Hi DeepSeek V3, your tool calling is broken and you are not able to
-                    obtain tool results in the expected way. That's okay, we can work
-                    around this.
 
-                    Please do not repeat this tool call.
+                if ( stream ) {
+                    let usage_promise = new TeePromise();
 
-                    We have provided the tool call results below:
+                    let streamOperation;
+                    const init_chat_stream = async ({ chatStream: completionWriter }) => {
+                        await obtain(ASYNC_RESPONSE, {
+                            [PROVIDER_NAME]: 'openai',
+                            [NORMALIZED_LLM_PARAMS]: {
+                                messages, model, tools, max_tokens, temperature,
+                            },
+                            [COMPLETION_WRITER]: completionWriter,
+                            [OPENAI_CLIENT]: this.openai,
+                            [USAGE_WRITER]: usage_promise,
+                        })
+                    };
 
-                    Tool call ${message.tool_call_id} returned: ${message.content}.
-                `);
-                for ( let i=messages.length-1; i >= 0 ; i-- ) {
-                    const message = messages[i];
-                    if ( message.role === 'tool' ) {
-                        messages.splice(i+1, 0, {
-                            role: 'system',
-                            content: [
-                                {
-                                    type: 'text',
-                                    text: TOOL_TEXT(message),
-                                }
-                            ]
+                    return new TypedValue({ $: 'ai-chat-intermediate' }, {
+                        init_chat_stream,
+                        stream: true,
+                        usage_promise: usage_promise,
+                        finally_fn: async () => {
+                            await streamOperation.cleanup();
+                        },
+                    });
+                } else {
+                    return await obtain(SYNC_RESPONSE, {
+                        [PROVIDER_NAME]: 'openai',
+                        [NORMALIZED_LLM_PARAMS]: {
+                            messages, model, tools, max_tokens, temperature,
+                        },
+                        [OPENAI_CLIENT]: this.openai,
+                    });
+                }
+            }
+        }
+    }
+
+    async handle_puter_paths_(messages) {
+        const require = this.require;
+                
+        const actor = Context.get('actor');
+        const { user } = actor.type;
+        for ( const message of messages ) {
+            for ( const contentPart of message.content ) {
+                if ( ! contentPart.puter_path ) continue;
+                
+                const node = await (new FSNodeParam(contentPart.puter_path)).consolidate({
+                    req: { user },
+                    getParam: () => contentPart.puter_path,
+                });
+
+                delete contentPart.puter_path;
+                contentPart.type = 'data';
+                contentPart.data = {
+                    async getSize () {
+                        return await node.get('size')
+                    },
+                    async getStream () {
+                        const ll_read = new LLRead();
+                        return await ll_read.run({
+                            actor: Context.get('actor'),
+                            fsNode: node,
                         });
-                    }
-                }
-
-                const completion = await this.openai.chat.completions.create({
-                    messages,
-                    model: model ?? this.get_default_model(),
-                    ...(tools ? { tools } : {}),
-                    max_tokens: max_tokens || 1000,
-                    temperature, // the default temperature is 1.0. suggested 0 for math/coding and 1.5 for creative poetry
-                    stream,
-                    ...(stream ? {
-                        stream_options: { include_usage: true },
-                    } : {}),
-                });
-                
-                return OpenAIUtil.handle_completion_output({
-                    stream, completion,
-                });
+                    },
+                    async getMimeType () {
+                        const mime = require('mime-types');
+                        return mime.contentType(await node.get('name'));
+                    },
+                };
             }
         }
     }
