@@ -26,7 +26,7 @@ class IdentifierUtil extends AdvancedBase {
         new WeakConstructorFeature(),
     ]
 
-    async detect_identifier (object) {
+    async detect_identifier (object, allow_mutation = false) {
         const redundant_identifiers = this.om.redundant_identifiers ?? [];
 
         let match_found = null;
@@ -60,9 +60,9 @@ class IdentifierUtil extends AdvancedBase {
                     await object.get(key) : object[key],
             }));
             if ( object instanceof Entity ) {
-                await object.del(key);
+                if ( allow_mutation ) await object.del(key);
             } else {
-                delete object[key];
+                if ( allow_mutation ) delete object[key];
             }
         }
         let predicate = new And({ children: key_eqs });
