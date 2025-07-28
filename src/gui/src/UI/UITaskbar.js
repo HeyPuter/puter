@@ -213,6 +213,25 @@ async function UITaskbar(options){
     })
 
     //---------------------------------------------
+    // add separator before trash
+    //---------------------------------------------
+    UITaskbarItem({
+        icon: '', // No icon for separator
+        name: 'separator',
+        app: 'separator',
+        sortable: false,
+        keep_in_taskbar: true,
+        lock_keep_in_taskbar: true,
+        disable_context_menu: true,
+        style: 'pointer-events: none;', // Make it non-interactive
+        onClick: function(){
+            // Separator is non-interactive
+            return false;
+        }
+    });
+
+
+    //---------------------------------------------
     // Add other useful apps to the taskbar
     //---------------------------------------------
     if(window.user.taskbar_items && window.user.taskbar_items.length > 0){
@@ -266,6 +285,24 @@ async function UITaskbar(options){
         }
     })
 
+    //---------------------------------------------
+    // add separator before trash
+    //---------------------------------------------
+    UITaskbarItem({
+        icon: '', // No icon for separator
+        name: 'separator',
+        app: 'separator',
+        sortable: false,
+        keep_in_taskbar: true,
+        lock_keep_in_taskbar: true,
+        disable_context_menu: true,
+        style: 'pointer-events: none;', // Make it non-interactive
+        onClick: function(){
+            // Separator is non-interactive
+            return false;
+        }
+    });
+
     window.make_taskbar_sortable();
 }
 
@@ -278,7 +315,7 @@ window.make_taskbar_sortable = function(){
 
     $('.taskbar-sortable').sortable({
         axis: axis,
-        items: '.taskbar-item-sortable:not(.has-open-contextmenu)',
+        items: '.taskbar-item-sortable:not(.has-open-contextmenu):not([data-app="separator"])',
         cancel: '.has-open-contextmenu',
         placeholder: "taskbar-item-sortable-placeholder",
         helper : 'clone',
@@ -422,7 +459,7 @@ window.update_taskbar_position = async function(new_position) {
         
         // Reinitialize tooltip with new position
         $item.tooltip({
-            items: ".taskbar:not(.children-have-open-contextmenu) .taskbar-item",
+            items: ".taskbar:not(.children-have-open-contextmenu) .taskbar-item:not([data-app='separator'])",
             position: {
                 my: tooltipPosition.my,
                 at: tooltipPosition.at,

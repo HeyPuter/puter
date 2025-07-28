@@ -2536,6 +2536,71 @@ label {
     height: 40px;
 }
 
+/* Taskbar separator styling */
+.taskbar-item[data-app="separator"] {
+    pointer-events: none !important;
+    background: none !important;
+    border: none !important;
+    box-shadow: none !important;
+}
+
+.taskbar-item[data-app="separator"] .taskbar-icon {
+    background: none !important;
+    border: none !important;
+    box-shadow: none !important;
+    display: flex !important;
+    align-items: center !important;
+    justify-content: center !important;
+}
+
+/* Vertical separator for bottom taskbar */
+.taskbar.taskbar-position-bottom .taskbar-item[data-app="separator"] .taskbar-icon::after {
+    content: '';
+    width: 1px;
+    height: 35px;
+    max-height: 35px;
+    background-color: rgba(0, 0, 0, 0.3);
+    border-radius: 0.5px;
+}
+
+/* Horizontal separator for left/right taskbar */
+.taskbar.taskbar-position-left .taskbar-item[data-app="separator"] .taskbar-icon::after,
+.taskbar.taskbar-position-right .taskbar-item[data-app="separator"] .taskbar-icon::after {
+    content: '';
+    width: 35px;
+    height: 1px;
+    background-color: rgba(0, 0, 0, 0.3);
+    border-radius: 0.5px;
+}
+
+/* Hide separator on mobile devices */
+.device-phone .taskbar-item[data-app="separator"],
+.device-tablet .taskbar-item[data-app="separator"] {
+    display: none !important;
+}
+
+.taskbar.taskbar-position-bottom .taskbar-item[data-app="separator"]{
+    max-width: 10px;
+    min-width: 10px !important;
+}
+
+.taskbar.taskbar-position-bottom .taskbar-item[data-app="separator"] .taskbar-icon{
+    width: 100% !important;
+}
+
+.taskbar.taskbar-position-left .taskbar-item[data-app="separator"],
+.taskbar.taskbar-position-right .taskbar-item[data-app="separator"]{
+    max-height: 10px;
+    min-height: 10px !important;
+    padding: 5px !important;
+}
+.taskbar.taskbar-position-left .taskbar-item[data-app="separator"] .taskbar-icon,
+.taskbar.taskbar-position-right .taskbar-item[data-app="separator"] .taskbar-icon{
+    max-height: 10px;
+    min-height: 10px !important;
+    padding-bottom: 5px !important;
+}
+
 /*****************************************************
  * Task Manager
  *****************************************************/

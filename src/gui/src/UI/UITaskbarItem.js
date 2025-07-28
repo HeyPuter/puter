@@ -51,7 +51,10 @@ function UITaskbarItem(options){
 
         // taskbar icon
         h += `<div class="taskbar-icon">`;
-            h += `<img src="${html_encode(icon)}" style="${options.group === 'apps' ? 'filter:none;' : ''}">`;
+            // Don't add img tag for separator
+            if(options.app !== 'separator') {
+                h += `<img src="${html_encode(icon)}" style="${options.group === 'apps' ? 'filter:none;' : ''}">`;
+            }
         h += `</div>`;
 
         // active indicator
@@ -93,6 +96,11 @@ function UITaskbarItem(options){
         e.preventDefault();
         e.stopPropagation();
         
+        // Don't handle clicks for separators
+        if(options.app === 'separator') {
+            return;
+        }
+        
         // if this is for the launcher popover, and it's mobile, and has-open-popover, close the popover
         if( $(el_taskbar_item).attr('data-name') === 'Start'
              && (isMobile.phone || isMobile.tablet) && $(el_taskbar_item).hasClass('has-open-popover')){
@@ -130,6 +138,11 @@ function UITaskbarItem(options){
 
         e.preventDefault();
         e.stopPropagation();
+
+        // Don't show context menu for separators
+        if(options.app === 'separator') {
+            return;
+        }
 
         // If context menu is disabled on this item, return
         if(options.disable_context_menu)
@@ -348,7 +361,7 @@ function UITaskbarItem(options){
     
     $( el_taskbar_item ).tooltip({
         // only show tooltip if desktop is not selectable active
-        items: ".desktop:not(.desktop-selectable-active) .taskbar:not(.children-have-open-contextmenu) .taskbar-item",
+        items: ".desktop:not(.desktop-selectable-active) .taskbar:not(.children-have-open-contextmenu) .taskbar-item:not([data-app='separator'])",
         position: {
             my: tooltipPosition.my,
             at: tooltipPosition.at,
@@ -366,7 +379,9 @@ function UITaskbarItem(options){
     // --------------------------------------------------------
     // Droppable
     // --------------------------------------------------------
-    $(el_taskbar_item).droppable({
+    // Don't make separators droppable
+    if(options.app !== 'separator') {
+        $(el_taskbar_item).droppable({
         accept: '.item',
         // 'pointer' is very important because of active window tracking is based on the position of cursor.
         tolerance: 'pointer',
@@ -483,6 +498,7 @@ function UITaskbarItem(options){
             $('.item-container').droppable( 'enable' )    
         }
     });
+    }
 
     return el_taskbar_item;
 }
