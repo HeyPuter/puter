@@ -82,7 +82,14 @@ function inits2w() {
                     const results = mapping[0](url.pathname)
                     if (results) {
                         event.params = results.params;
-                        const response = await mapping[1](event);
+                        let response = await mapping[1](event);
+                        if (!(response instanceof Response)) {
+                            try {
+                                response = new Response(response);
+                            } catch(e) {
+                                throw new Error("Returned response by handler was neither a Response object nor an object which can implicitly be converted into a Response object");
+                            }
+                        }
                         if (this.handleCors && !response.headers.has("access-control-allow-origin")) {
                             response.headers.set("Access-Control-Allow-Origin", "*");
                         }
