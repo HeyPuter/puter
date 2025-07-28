@@ -1273,11 +1273,18 @@ async function UIWindow(options) {
     // Selectable
     // only for Desktop screens
     // --------------------------------------------------------
+    let selection_area = null;
     if(options.is_dir && options.selectable_body && !isMobile.phone && !isMobile.tablet){
         let selected_ctrl_items = [];
+
+        // selection area
+        let selection_area_start_x = 0;
+        let selection_area_start_y = 0;
+
         // init viselect
         const selection = new SelectionArea({
-            selectionContainerClass: '.selection-area-container',
+            selectionContainerClass: 'selection-area-container',
+            selectionAreaClass: 'hidden-selection-area',
             container: `#window-body-${win_id}`,
             selectables: [`#window-body-${win_id} .item`],
             startareas: [`#window-body-${win_id}`],
@@ -1304,13 +1311,25 @@ async function UIWindow(options) {
         
         selection.on('beforestart', ({store, event}) => {
             selected_ctrl_items = [];
+            // create a selection area div element in selection_area
+            selection_area = document.createElement('div');
+            $('.desktop').append(selection_area);
+            $(selection_area).addClass('window-selection-area');
+            $(selection_area).css({
+                'top': window.mouseY,
+                'left': window.mouseX,
+                'z-index': $(el_window).css('z-index') + 1, 
+                'display': 'block', 
+            });
+
             return $(event.target).is(`#window-body-${win_id}`)
         })
         .on('beforedrag', evt => {
         })
         .on('start', ({store, event}) => {
             if (!event.ctrlKey && !event.metaKey) {
-        
+                selection_area_start_x = window.mouseX;
+                selection_area_start_y = window.mouseY;
                 for (const el of store.stored) {
                     el.classList.remove('item-selected');
                 }
@@ -1319,6 +1338,38 @@ async function UIWindow(options) {
             }
         })
         .on('move', ({store: {changed: {added, removed}}, event}) => {
+            // Get window bounds to constrain selection area
+            const windowRect = el_window_body.getBoundingClientRect();
+            const windowLeft = windowRect.left;
+            const windowTop = windowRect.top;
+            const windowRight = windowRect.right;
+            const windowBottom = windowRect.bottom;
+            
+            // Constrain mouse position to window bounds
+            const constrainedMouseX = Math.max(windowLeft, Math.min(windowRight, window.mouseX));
+            const constrainedMouseY = Math.max(windowTop, Math.min(windowBottom, window.mouseY));
+            
+            // Calculate the dimensions and position for bidirectional expansion
+            const width = Math.abs(constrainedMouseX - selection_area_start_x);
+            const height = Math.abs(constrainedMouseY - selection_area_start_y);
+            
+            // Calculate position - if dragging left/up, adjust the position
+            let left = constrainedMouseX < selection_area_start_x ? constrainedMouseX : selection_area_start_x;
+            let top = constrainedMouseY < selection_area_start_y ? constrainedMouseY : selection_area_start_y;
+            
+            // Ensure selection area doesn't go outside window bounds
+            left = Math.max(windowLeft, Math.min(windowRight - width, left));
+            top = Math.max(windowTop, Math.min(windowBottom - height, top));
+            
+            // update selection area size and position for bidirectional expansion
+            $(selection_area).css({
+                'width': width,
+                'height': height,
+                'left': left,
+                'top': top,
+                'display': 'block',
+            });
+
             for (const el of added) {
                 // if ctrl or meta key is pressed and the item is already selected, then unselect it
                 if((event.ctrlKey || event.metaKey) && $(el).hasClass('item-selected')){
@@ -2532,6 +2583,14 @@ async function UIWindow(options) {
             $(this).removeClass('grabbing');
         });
     }
+
+    $(document).on('mouseup', function(e){
+        if(selection_area){
+            $(selection_area).hide();
+            $(selection_area).remove();
+            selection_area = null;
+        }
+    })
 
     //set styles
     $(el_window_body).css(options.body_css);

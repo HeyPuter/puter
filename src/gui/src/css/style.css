@@ -1751,9 +1751,20 @@ span.header-sort-icon img {
     line-height: 22px;
 }
 
-.selection-area {
+.selection-area, .window-selection-area {
     background-color: #afafaf36;
     border: 1px solid #CCC;
+}
+
+.window-selection-area{
+    position: absolute;
+    pointer-events: none;
+    display: block;
+}
+
+.hidden-selection-area{
+    background-color: none;
+    border: none;
 }
 
 .container {
