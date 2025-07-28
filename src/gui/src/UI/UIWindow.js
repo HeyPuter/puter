@@ -1274,6 +1274,8 @@ async function UIWindow(options) {
     // only for Desktop screens
     // --------------------------------------------------------
     let selection_area = null;
+    let initial_body_scroll_width = 0;
+    let initial_body_scroll_height = 0;
     if(options.is_dir && options.selectable_body && !isMobile.phone && !isMobile.tablet){
         let selected_ctrl_items = [];
 
@@ -1324,16 +1326,16 @@ async function UIWindow(options) {
             const windowBodyRect = el_window_body.getBoundingClientRect();
             
             // Get the window body's content dimensions
-            const windowBodyWidth = el_window_body.scrollWidth;
-            const windowBodyHeight = el_window_body.scrollHeight;
+            initial_body_scroll_width = el_window_body.scrollWidth ;
+            initial_body_scroll_height = el_window_body.scrollHeight;
             
             // Calculate position relative to the window body (accounting for scroll)
             let relativeX = window.mouseX - windowBodyRect.left + scrollLeft;
             let relativeY = window.mouseY - windowBodyRect.top + scrollTop;
             
             // Constrain initial position to window body content bounds
-            relativeX = Math.max(0, Math.min(windowBodyWidth, relativeX));
-            relativeY = Math.max(0, Math.min(windowBodyHeight, relativeY));
+            relativeX = Math.max(0, Math.min(initial_body_scroll_width, relativeX));
+            relativeY = Math.max(0, Math.min(initial_body_scroll_height, relativeY));
             
             $(selection_area).css({
                 'position': 'absolute',
@@ -1396,8 +1398,8 @@ async function UIWindow(options) {
             let top = constrainedMouseY < selection_area_start_y ? constrainedMouseY : selection_area_start_y;
             
             // Ensure selection area doesn't go outside window body content bounds
-            left = Math.max(0, Math.min(windowBodyWidth - width, left));
-            top = Math.max(0, Math.min(windowBodyHeight - height, top));
+            left = Math.max(0, Math.min(initial_body_scroll_width - width, left));
+            top = Math.max(0, Math.min(initial_body_scroll_height - height, top));
             
             // update selection area size and position for bidirectional expansion
             $(selection_area).css({
