@@ -216,18 +216,19 @@ class PuterHomepageService extends BaseService {
 
         const bundled = env != 'dev' || use_bundled_gui;
 
-        // if social media image is not a valid absolute URL, set it to null
+        // check if social media image is a valid absolute URL
+        let is_social_media_image_valid = true;
         if (social_media_image && !is_valid_url(social_media_image)) {
-            social_media_image = null;
+            is_social_media_image_valid = false;
         }
 
-        // social media image must end with a valid image extension
+        // check if social media image ends with a valid image extension
         if (social_media_image && !/\.(png|jpg|jpeg|gif|webp)$/.test(social_media_image.toLowerCase())) {
-            social_media_image = null;
+            is_social_media_image_valid = false;
         }
 
         // set social media image to default if it is not valid
-        const social_media_image_url = social_media_image || `${asset_dir}/images/screenshot.png`;
+        const social_media_image_url = is_social_media_image_valid ? social_media_image : `${asset_dir}/images/screenshot.png`;
 
         // Custom script tags to be added to the homepage by extensions
         // an event is emitted to allow extensions to add their own script tags
