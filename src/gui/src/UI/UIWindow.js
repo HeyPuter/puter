@@ -1313,12 +1313,33 @@ async function UIWindow(options) {
             selected_ctrl_items = [];
             // create a selection area div element in selection_area
             selection_area = document.createElement('div');
-            $('.desktop').append(selection_area);
+            $(el_window_body).append(selection_area);
             $(selection_area).addClass('window-selection-area');
+            
+            // Get the scroll position of the window body
+            const scrollLeft = $(el_window_body).scrollLeft();
+            const scrollTop = $(el_window_body).scrollTop();
+            
+            // Get the window body's bounding rect relative to the viewport
+            const windowBodyRect = el_window_body.getBoundingClientRect();
+            
+            // Get the window body's content dimensions
+            const windowBodyWidth = el_window_body.scrollWidth;
+            const windowBodyHeight = el_window_body.scrollHeight;
+            
+            // Calculate position relative to the window body (accounting for scroll)
+            let relativeX = window.mouseX - windowBodyRect.left + scrollLeft;
+            let relativeY = window.mouseY - windowBodyRect.top + scrollTop;
+            
+            // Constrain initial position to window body content bounds
+            relativeX = Math.max(0, Math.min(windowBodyWidth, relativeX));
+            relativeY = Math.max(0, Math.min(windowBodyHeight, relativeY));
+            
             $(selection_area).css({
-                'top': window.mouseY,
-                'left': window.mouseX,
-                'z-index': $(el_window).css('z-index') + 1, 
+                'position': 'absolute',
+                'top': relativeY,
+                'left': relativeX,
+                'z-index': 1000,
                 'display': 'block', 
             });
 
@@ -1328,8 +1349,17 @@ async function UIWindow(options) {
         })
         .on('start', ({store, event}) => {
             if (!event.ctrlKey && !event.metaKey) {
-                selection_area_start_x = window.mouseX;
-                selection_area_start_y = window.mouseY;
+                // Get the scroll position of the window body
+                const scrollLeft = $(el_window_body).scrollLeft();
+                const scrollTop = $(el_window_body).scrollTop();
+                
+                // Get the window body's bounding rect relative to the viewport
+                const windowBodyRect = el_window_body.getBoundingClientRect();
+                
+                // Calculate position relative to the window body (accounting for scroll)
+                selection_area_start_x = window.mouseX - windowBodyRect.left + scrollLeft;
+                selection_area_start_y = window.mouseY - windowBodyRect.top + scrollTop;
+                
                 for (const el of store.stored) {
                     el.classList.remove('item-selected');
                 }
@@ -1338,16 +1368,24 @@ async function UIWindow(options) {
             }
         })
         .on('move', ({store: {changed: {added, removed}}, event}) => {
-            // Get window bounds to constrain selection area
-            const windowRect = el_window_body.getBoundingClientRect();
-            const windowLeft = windowRect.left;
-            const windowTop = windowRect.top;
-            const windowRight = windowRect.right;
-            const windowBottom = windowRect.bottom;
+            // Get the scroll position of the window body
+            const scrollLeft = $(el_window_body).scrollLeft();
+            const scrollTop = $(el_window_body).scrollTop();
             
-            // Constrain mouse position to window bounds
-            const constrainedMouseX = Math.max(windowLeft, Math.min(windowRight, window.mouseX));
-            const constrainedMouseY = Math.max(windowTop, Math.min(windowBottom, window.mouseY));
+            // Get the window body's bounding rect relative to the viewport
+            const windowBodyRect = el_window_body.getBoundingClientRect();
+            
+            // Calculate current mouse position relative to the window body (accounting for scroll)
+            const currentMouseX = window.mouseX - windowBodyRect.left + scrollLeft;
+            const currentMouseY = window.mouseY - windowBodyRect.top + scrollTop;
+            
+            // Get the window body's content dimensions
+            const windowBodyWidth = el_window_body.scrollWidth;
+            const windowBodyHeight = el_window_body.scrollHeight;
+            
+            // Constrain mouse position to window body content bounds
+            const constrainedMouseX = Math.max(0, Math.min(windowBodyWidth, currentMouseX));
+            const constrainedMouseY = Math.max(0, Math.min(windowBodyHeight, currentMouseY));
             
             // Calculate the dimensions and position for bidirectional expansion
             const width = Math.abs(constrainedMouseX - selection_area_start_x);
@@ -1357,9 +1395,9 @@ async function UIWindow(options) {
             let left = constrainedMouseX < selection_area_start_x ? constrainedMouseX : selection_area_start_x;
             let top = constrainedMouseY < selection_area_start_y ? constrainedMouseY : selection_area_start_y;
             
-            // Ensure selection area doesn't go outside window bounds
-            left = Math.max(windowLeft, Math.min(windowRight - width, left));
-            top = Math.max(windowTop, Math.min(windowBottom - height, top));
+            // Ensure selection area doesn't go outside window body content bounds
+            left = Math.max(0, Math.min(windowBodyWidth - width, left));
+            top = Math.max(0, Math.min(windowBodyHeight - height, top));
             
             // update selection area size and position for bidirectional expansion
             $(selection_area).css({
