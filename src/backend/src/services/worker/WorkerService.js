@@ -104,7 +104,6 @@ class WorkerService extends BaseService {
             const appOwner = await result[0].get("app_owner");
             if (appOwner) { // If the deployer is an app...
                 const appID = await appOwner.get("uid");
-                console.log("appID", appID)
                 authToken = await svc_su.sudo(await data.node.get("owner"), async () => {
                     return await svc_auth.get_user_app_token(appID);
                 })
@@ -211,12 +210,10 @@ class WorkerService extends BaseService {
                     const cfData = await deleteWorker(userData, authorization, workerName);
 
                     const es_subdomain = this.services.get('es:subdomain');
-                    console.log("workers.puter." + calculateWorkerNameNew(userData.uuid, workerName))
                     const result = await svc_su.sudo(async () => {
                         const row = (await es_subdomain.select({ predicate: new Eq({ key: "subdomain", value: "workers.puter." + calculateWorkerNameNew(userData.uuid, workerName) }) }));
                         return row;
                     })
-                    console.log("search result: ", result)
 
                     await es_subdomain.delete(await result[0].get("uid"));
                     return cfData;
