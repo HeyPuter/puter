@@ -1,5 +1,5 @@
 const fs = require('fs')
-const { calculateWorkerName } = require("./nameUtils.js");
+const { calculateWorkerNameNew } = require("./nameUtils.js");
 let config = {};
 // Constants
 const CF_BASE_URL = "https://api.cloudflare.com/"
@@ -16,9 +16,9 @@ function cfFetch(url, method = "GET", body, givenHeaders) {
     return fetch(url, { headers, method, body })
 }
 async function getWorker(userData, authorization, workerId) {
-    await cfFetch(`${WORKERS_BASE_URL}/scripts/${calculateWorkerName(userData.username, workerId)}`, "GET");
+    await cfFetch(`${WORKERS_BASE_URL}/scripts/${calculateWorkerNameNew(userData.uuid, workerId)}`, "GET");
 }
-async function createWorker(userData, authorization, workerId, body, PREAMBLE_LENGTH) {
+async function createWorker(userData, authorization, workerName, body, PREAMBLE_LENGTH) {
     const formData = new FormData();
 
     const workerMetaData = {
@@ -42,10 +42,10 @@ async function createWorker(userData, authorization, workerId, body, PREAMBLE_LE
     }
     formData.append("metadata", JSON.stringify(workerMetaData));
     formData.append("swCode", body);
-    const cfReturnCodes = await (await cfFetch(`${WORKERS_BASE_URL}/scripts/${calculateWorkerName(userData.username, workerId)}/`, "PUT", formData)).json();
+    const cfReturnCodes = await (await cfFetch(`${WORKERS_BASE_URL}/scripts/${workerName}/`, "PUT", formData)).json();
 
     if (cfReturnCodes.success) {
-        return JSON.stringify({ success: true, errors: [], url: `${calculateWorkerName(userData.username, workerId)}.puter.work` });
+        return { success: true, errors: [], url: `${workerName}.puter.work` };
     } else {
         const parsedErrors = [];
         for (const error of cfReturnCodes.errors) {
@@ -71,7 +71,7 @@ async function createWorker(userData, authorization, workerId, body, PREAMBLE_LE
 
             parsedErrors.push(finalMessage)
         }
-        return JSON.stringify({ success: false, errors: parsedErrors, url: null, body });
+        return { success: false, errors: parsedErrors, url: null, body };
     }
 }
 function setPreambleLength(length) {
@@ -87,7 +87,7 @@ function setCloudflareKeys(givenConfig) {
 }
 
 async function deleteWorker(userData, authorization, workerId) {
-    return await (await cfFetch(`${WORKERS_BASE_URL}/scripts/${calculateWorkerName(userData.username, workerId)}/`, "DELETE")).json();
+    return await (await cfFetch(`${WORKERS_BASE_URL}/scripts/${calculateWorkerNameNew(userData.uuid, workerId)}/`, "DELETE")).json();
 
 }
 

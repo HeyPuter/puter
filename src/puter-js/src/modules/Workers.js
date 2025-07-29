@@ -5,13 +5,14 @@ export class WorkersHandler {
     }
 
     async create(workerName, filePath) {
+        workerName = workerName.toLocaleLowerCase(); // just incase
         let currentWorkers = await puter.kv.get("user-workers");
         if (!currentWorkers) {
             currentWorkers = {};
         }
 
         const driverCall = await puter.drivers.call("workers", "worker-service", "create", { authorization: puter.authToken, filePath, workerName });
-        const driverResult = JSON.parse(driverCall.result);
+        const driverResult = driverCall.result;
         if (!driverCall.success || !driverResult.success) {
             throw new Error(driverResult?.errors || "Driver failed to execute, do you have the necessary permissions?");
         }
@@ -21,17 +22,12 @@ export class WorkersHandler {
         return driverResult;
     }
 
-    // This is temporary until FS stuff is hooked properly
-    async update(workerName) {
-        let filePath = (await puter.kv.get("user-workers"))[workerName]["filePath"];
-        return this.create(workerName, filePath);
-    }
-
     async list() {
         return await puter.kv.get("user-workers");
     }
 
     async get(workerName) {
+        workerName = workerName.toLocaleLowerCase(); // just incase
         try {
             return (await puter.kv.get("user-workers"))[workerName].url;
         } catch (e) {
@@ -40,6 +36,7 @@ export class WorkersHandler {
     }
 
     async delete(workerName) {
+        workerName = workerName.toLocaleLowerCase(); // just incase
         const driverCall = await puter.drivers.call("workers", "worker-service", "destroy", { authorization: puter.authToken, workerName });
 
         if (!driverCall.success || !driverCall.result.result) {
