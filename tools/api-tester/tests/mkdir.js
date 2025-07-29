@@ -127,10 +127,32 @@ module.exports = {
                     stat = await t.stat('a/b/c');
                     expect(stat.name).equal('c');
                 });
+
+                await t.case('mkdir in memoryfs', async () => {
+                    t.cd('/tmp');
+
+                    await t.mkdir('a/b/c', {
+                        create_missing_parents: true,
+                    });
+                    let stat = await t.stat('/tmp');
+                    expect(stat.name).equal('tmp');
+
+                    stat = await t.stat('/tmp/a');
+                    expect(stat.name).equal('a');
+
+                    stat = await t.stat('/tmp/a/b');
+                    expect(stat.name).equal('b');
+
+                    stat = await t.stat('/tmp/a/b/c');
+                    expect(stat.name).equal('c');
+
+                    t.resetCwd();
+                });
             });
         });
 
         await t.case('parent + path api', async () => {
+            t.resetCwd();
             t.cd('parent_path_api');
 
             await t.case('parent directory does not exist', async () => {

@@ -97,6 +97,11 @@ async function is_user_signup_disabled() {
 }
 
 const chkperm = spanify('chkperm', async (target_fsentry, requester_user_id, action) => {
+    // TODO (xiaochen): remove this branch after the related ACL permission logic is implemented for "MemoryFSProvider".
+    if (target_fsentry.is_public) {
+        return true;
+    }
+
     // basic cases where false is the default response
     if(!target_fsentry)
         return false;

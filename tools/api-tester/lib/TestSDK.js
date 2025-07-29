@@ -12,7 +12,9 @@ module.exports = class TestSDK {
     constructor (conf, context) {
         this.conf = conf;
         this.context = context;
-        this.cwd = `/${conf.username}`;
+
+        this.cwd = path_.posix.join('/', context.mountpoint.path, conf.username);
+
         this.httpsAgent = new https.Agent({
             rejectUnauthorized: false
         })
@@ -171,7 +173,11 @@ module.exports = class TestSDK {
     // === path related methods ===
 
     cd (path) {
-        this.cwd = path_.posix.join(this.cwd, path);
+        if ( path.startsWith('/') ) {
+            this.cwd = path;
+        } else {
+            this.cwd = path_.posix.join(this.cwd, path);
+        }
     }
 
     resetCwd () {
