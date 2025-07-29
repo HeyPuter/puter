@@ -33,6 +33,7 @@ const { SKIP_ES_VALIDATION } = require("../../om/entitystorage/consts");
 const { Eq } = require("../../om/query/query");
 const { get_app } = require("../../helpers");
 const { UsernameNotifSelector } = require("../NotificationService");
+const APIError = require("../../api/APIError");
 
 async function readPuterFile(actor, filePath) {
     try {
@@ -44,12 +45,19 @@ async function readPuterFile(actor, filePath) {
             actor,
         });
         const chunks = [];
+        let bytes = 0;
         stream.on("data", (data) => {
             chunks.push(data)
+            bytes += data.byteLength
+            if (bytes > 10**7) {
+                const err = Error("Worker source code must not exceed 10MB");
+                stream.emit("error", err);
+                throw err;
+            }
         });
         return new Promise((res, rej) => {
             stream.on("error", (e) => {
-                rej(e);
+                rej(e.toString());
             });
             stream.on("end", () => {
                 res(Buffer.concat(chunks));
@@ -199,7 +207,7 @@ class WorkerService extends BaseService {
                     return cfData;
                 } catch (e) {
                     console.error(e)
-                    return { success: false, e }
+                    return { success: false, errors: e }
                 }
             },
             async destroy({ workerName, authorization }) {
