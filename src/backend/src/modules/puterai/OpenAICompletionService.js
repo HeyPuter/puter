@@ -282,9 +282,10 @@ class OpenAICompletionService extends BaseService {
     async check_moderation (text) {
         // create moderation
         const results = await this.openai.moderations.create({
+            model: 'omni-moderation-latest',
             input: text,
         });
-
+        
         let flagged = false;
 
         for ( const result of results?.results ?? [] ) {
