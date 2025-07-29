@@ -2463,7 +2463,11 @@ async function UIWindow(options) {
                             let top = window.mouseY;
                             top = top > (window.innerHeight - (window_height + window.taskbar_height + window.toolbar_height))? (window.innerHeight - (window_height + window.taskbar_height + window.toolbar_height)) : top;
 
-                            UIWindowItemProperties(options.title, options.path, options.uid, left, top, window_width, window_height);
+                            UIWindowItemProperties(
+                                options.title, 
+                                $(el_window).attr('data-path'), 
+                                $(el_window).attr('data-uid'), 
+                                left, top, window_width, window_height);
                         }
                     })
                 }
