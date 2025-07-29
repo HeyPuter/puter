@@ -1802,7 +1802,7 @@ $(document).on('contextmenu taphold', '.taskbar', function (event) {
     
     // Add the "Show open windows" option for all devices
     menuItems.push({
-        html: "Show open windows",
+        html: i18n('desktop_show_open_windows'),
         onClick: function () {
             $(`.window`).showWindow();
         }
@@ -1810,7 +1810,7 @@ $(document).on('contextmenu taphold', '.taskbar', function (event) {
     
     // Add the "Show the desktop" option for all devices
     menuItems.push({
-        html: "Show the desktop",
+        html: i18n('desktop_show_desktop'),
         onClick: function () {
             $(`.window`).hideWindow();
         }

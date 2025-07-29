@@ -462,6 +462,7 @@ const en = {
         
         // Desktop UI
         'desktop_show_desktop': 'Show Desktop',
+        'desktop_show_open_windows': 'Show Open Windows',
         'desktop_exit_full_screen': 'Exit Full Screen',
         'desktop_enter_full_screen': 'Enter Full Screen',
         
