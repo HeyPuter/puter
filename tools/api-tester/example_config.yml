@@ -1,3 +1,8 @@
-url: http://puter.localhost:4001/
-username: lavender_hat_6100
+url: http://api.puter.localhost:4100/
+username: admin
 token: ---
+mountpoints:
+  - path: /
+    provider: puterfs
+  - path: /admin/tmp
+    provider: memoryfs
