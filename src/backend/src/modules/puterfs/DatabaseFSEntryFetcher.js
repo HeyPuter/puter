@@ -222,4 +222,12 @@ module.exports = class DatabaseFSEntryFetcher extends BaseService {
         );
         return !! check_dupe[0];
     }
+
+    async nameExistsUnderParentID (parent_id, name) {
+        const parent = await this.findByID(parent_id);
+        if ( ! parent ) {
+            return false;
+        }
+        return this.nameExistsUnderParent(parent.uuid, name);
+    }
 }

@@ -18,6 +18,7 @@
  */
 const APIError = require("../../api/APIError");
 const { Sequence } = require("../../codex/Sequence");
+const { MemoryFSProvider } = require("../../modules/puterfs/customfs/MemoryFSProvider");
 
 const { DB_WRITE } = require("../../services/database/consts");
 const { buffer_to_stream } = require("../../util/streamutil");
@@ -115,9 +116,12 @@ class LLRead extends LLFilesystemOperation {
             },
             async function create_S3_read_stream (a) {
                 const context = a.iget('context');
-                const storage = context.get('storage');
 
                 const { fsNode, version_id, offset, length, has_range } = a.values();
+
+                const svc_mountpoint = context.get('services').get('mountpoint');
+                const provider = await svc_mountpoint.get_provider(fsNode.selector);
+                const storage = svc_mountpoint.get_storage(provider.constructor);
 
                 // Empty object here is in the case of local fiesystem,
                 // where s3:location will return null.
@@ -133,6 +137,8 @@ class LLRead extends LLFilesystemOperation {
                     ...(has_range ? {
                         range: `bytes=${offset}-${offset+length-1}`
                     } : {}),
+
+                    memory_file: fsNode.entry,
                 }));
 
                 a.set('stream', stream);
@@ -144,8 +150,11 @@ class LLRead extends LLFilesystemOperation {
                 const { fsNode, stream, has_range } = a.values();
 
                 if ( ! has_range ) {
-                    const res = await svc_fileCache.maybe_store(fsNode, stream);
-                    if ( res.stream ) a.set('stream', res.stream);
+                    // only cache for non-memoryfs providers
+                    if ( ! (fsNode.provider instanceof MemoryFSProvider) ) {
+                        const res = await svc_fileCache.maybe_store(fsNode, stream);
+                        if ( res.stream ) a.set('stream', res.stream);
+                    }
                 }
             },
             async function return_stream (a) {
