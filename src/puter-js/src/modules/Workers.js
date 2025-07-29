@@ -25,6 +25,14 @@ export class WorkersHandler {
         return driverResult;
     }
 
+    async exec(...args) {
+        const req = new Request(...args);
+        if (!req.headers.get("puter-auth")) {
+            req.headers.set("puter-auth", this.authToken);
+        }
+        return fetch(req);
+    }
+
     async list() {
         return await puter.kv.get("user-workers");
     }
