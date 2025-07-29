@@ -1175,7 +1175,6 @@ span.header-sort-icon img {
     box-sizing: border-box;
     width: initial;
     padding-left: 10px;
-    border: 3px solid rgba(255, 255, 255, 0);
     position: relative;
 }
 
@@ -1335,7 +1334,7 @@ span.header-sort-icon img {
     line-height: 28px;
     padding-left: 10px;
     background-color: #fafafa;
-    border-top: 1px solid #e3e3e3;
+    border-top: 1px solid #e3e3e35c;
     color: #505050;
     user-select: none !important;
     -moz-user-select: none !important;
