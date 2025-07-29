@@ -220,7 +220,7 @@ class AuthService extends BaseService {
                 version: '0.0.0',
                 user_uid: actor_type.user.uuid,
                 app_uid,
-                session: this.uuid_fpe.encrypt(actor_type.session),
+                ...(actor_type.session ? { session: this.uuid_fpe.encrypt(actor_type.session) } : {}),
             },
             this.global_config.jwt_secret,
         );
