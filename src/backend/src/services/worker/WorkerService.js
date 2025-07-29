@@ -34,6 +34,7 @@ const { Eq } = require("../../om/query/query");
 const { get_app } = require("../../helpers");
 const { UsernameNotifSelector } = require("../NotificationService");
 const APIError = require("../../api/APIError");
+const FSNodeParam = require("../../api/filesystem/FSNodeParam");
 
 async function readPuterFile(actor, filePath) {
     try {
@@ -189,7 +190,11 @@ class WorkerService extends BaseService {
                 try {
                     workerName = workerName.toLocaleLowerCase(); // just incase
                     if(!(/^[a-zA-Z0-9_]+$/.test(workerName))) return;
-                    
+
+                    filePath = await (await (new FSNodeParam('path')).consolidate({
+                        req: { user: Context.get("actor").type.user },
+                        getParam: () => filePath,
+                    })).get("path");
                     const userData = await getUserInfo(authorization, this.global_config.api_base_url);
                     const actor = Context.get("actor");
                     const es_subdomain = this.services.get('es:subdomain');

@@ -1,3 +1,5 @@
+import getAbsolutePathForApp from "./FileSystem/utils/getAbsolutePathForApp.js";
+
 export class WorkersHandler {
 
     constructor(authToken) {
@@ -10,6 +12,7 @@ export class WorkersHandler {
         if (!currentWorkers) {
             currentWorkers = {};
         }
+        filePath = getAbsolutePathForApp(filePath);
 
         const driverCall = await puter.drivers.call("workers", "worker-service", "create", { authorization: puter.authToken, filePath, workerName });
         const driverResult = driverCall.result;
