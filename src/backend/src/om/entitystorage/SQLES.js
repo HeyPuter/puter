@@ -269,7 +269,6 @@ class SQLES extends BaseES {
         },
         async update_ (entity, old_entity) {
             const sql_data = await this.get_sql_data_(entity);
-            console.log(sql_data);
             const id_value = await entity.get(this.om.primary_identifier);
             delete sql_data[this.om.primary_identifier];
 

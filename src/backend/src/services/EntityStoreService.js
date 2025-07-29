@@ -122,7 +122,6 @@ class EntityStoreService extends BaseService {
                 if ( id && ! uid ) {
                     const entity = await this.fetch_based_on_complex_id_(id);
                     if ( ! entity ) {
-                        console.log("API Error ID ",id)
                         throw APIError.create('entity_not_found', null, {
                             identifier: id
                         });
