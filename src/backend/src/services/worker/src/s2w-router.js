@@ -67,8 +67,8 @@ function inits2w() {
             if (!globalThis.puter) {
                 const success = init_puter_portable(globalThis.puter_auth, globalThis.puter_endpoint || "https://api.puter.com");
             }
-            if (event.request.headers.has("puter-authorization")) {
-                event.puter = init_puter_portable(event.request.headers.get("puter-authorization"), globalThis.puter_endpoint || "https://api.puter.com", "userPuter");
+            if (event.request.headers.has("puter-auth")) {
+                event.puter = init_puter_portable(event.request.headers.get("puter-auth"), globalThis.puter_endpoint || "https://api.puter.com", "userPuter");
             }
 
             const mappings = this.map.get(event.request.method);
