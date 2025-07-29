@@ -419,7 +419,71 @@ const en = {
         'billing.enjoy_msg': 'Enjoy %% of Cloud Storage plus other benefits.',
         'too_many_attempts': 'Too many attempts. Please try again later.',
         'server_timeout': 'The server took too long to respond. Please try again.',
-        'signup_error': 'An error occurred during signup. Please try again.'
+        'signup_error': 'An error occurred during signup. Please try again.',
+        
+        // Welcome Window
+        'welcome_title': 'Welcome to your Personal Internet Computer',
+        'welcome_description': 'Store files, play games, find awesome apps, and much more! All in one place, accessible from anywhere at any time.',
+        'welcome_get_started': 'Get Started',
+        'welcome_terms': 'Terms',
+        'welcome_privacy': 'Privacy',
+        'welcome_developers': 'Developers',
+        'welcome_open_source': 'Open Source',
+        'welcome_instant_login_title': 'Instant Login!',
+        
+        // Alert Window
+        'alert_error_title': 'Error!',
+        'alert_warning_title': 'Warning!',
+        'alert_info_title': 'Info',
+        'alert_success_title': 'Success!',
+        'alert_confirm_title': 'Are you sure?',
+        'alert_yes': 'Yes',
+        'alert_no': 'No',
+        'alert_retry': 'Retry',
+        'alert_cancel': 'Cancel',
+        
+        // Signup Window
+        'signup_confirm_password': 'Confirm Password',
+        
+        // Login Window
+        'login_email_username_required': 'Email or username is required',
+        'login_password_required': 'Password is required',
+        
+        // Various Window Titles
+        'window_title_open': 'Open',
+        'window_title_change_password': 'Change Password',
+        'window_title_select_font': 'Select font…',
+        'window_title_session_list': 'Session List!',
+        'window_title_set_new_password': 'Set New Password',
+        'window_title_instant_login': 'Instant Login!',
+        'window_title_publish_website': 'Publish Website',
+        'window_title_authenticating': 'Authenticating...',
+        'window_title_refer_friend': 'Refer a friend!',
+        
+        // Desktop UI
+        'desktop_show_desktop': 'Show Desktop',
+        'desktop_exit_full_screen': 'Exit Full Screen',
+        'desktop_enter_full_screen': 'Enter Full Screen',
+        
+        // Item UI
+        'item_shared_with_you': 'A user has shared this item with you.',
+        'item_shared_by_you': 'You have shared this item with at least one other user.',
+        'item_shortcut': 'Shortcut',
+        'item_associated_websites': 'Associated website',
+        'item_associated_websites_plural': 'Associated websites',
+        
+        // Window UI
+        'window_click_to_go_back': 'Click to go back.',
+        'window_click_to_go_forward': 'Click to go forward.',
+        'window_click_to_go_up': 'Click to go one directory up.',
+        'window_title_public': 'Public',
+        'window_title_videos': 'Videos',
+        'window_title_pictures': 'Pictures',
+        'window_title_puter': 'Puter',
+        'window_folder_empty': 'This folder is empty',
+        
+        // Website Management
+        'manage_your_subdomains': 'Manage Your Subdomains'
     }
 };
 

@@ -48,7 +48,7 @@ async function UIWindowPublishWebsite(target_dir_uid, target_dir_name, target_di
     h += `</div>`;
 
     const el_window = await UIWindow({
-        title: 'Publish Website',
+        title: i18n('window_title_publish_website'),
         icon: null,
         uid: null,
         is_dir: false,
@@ -114,7 +114,7 @@ async function UIWindowPublishWebsite(target_dir_uid, target_dir_name, target_di
                 $(el_window).find('.publish-website-error-msg').html(
                     err.message + (
                         err.code === 'subdomain_limit_reached' ? 
-                            ' <span class="manage-your-websites-link">Manage Your Subdomains</span>' : ''
+                            ' <span class="manage-your-websites-link">' + i18n('manage_your_subdomains') + '</span>' : ''
                     )
                 );
                 $(el_window).find('.publish-website-error-msg').fadeIn();

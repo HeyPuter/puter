@@ -1163,7 +1163,7 @@ async function UIDesktop(options) {
     ht += `</div>`;
 
     // 'Show Desktop'
-    ht += `<a href="/" class="show-desktop-btn toolbar-btn antialiased hidden" target="_blank" title="Show Desktop">Show Desktop <img src="${window.icons['launch-white.svg']}" style="width: 10px; height: 10px; margin-left: 5px;"></a>`;
+    ht += `<a href="/" class="show-desktop-btn toolbar-btn antialiased hidden" target="_blank" title="${i18n('desktop_show_desktop')}">${i18n('desktop_show_desktop')} <img src="${window.icons['launch-white.svg']}" style="width: 10px; height: 10px; margin-left: 5px;"></a>`;
 
     // refer
     if (window.user.referral_code) {
@@ -2209,11 +2209,11 @@ document.addEventListener('fullscreenchange', (event) => {
 
     if (document.fullscreenElement) {
         $('.fullscreen-btn').css('background-image', `url(${window.icons['shrink.svg']})`);
-        $('.fullscreen-btn').attr('title', 'Exit Full Screen');
+        $('.fullscreen-btn').attr('title', i18n('desktop_exit_full_screen'));
         window.user_preferences.clock_visible === 'auto' && $('#clock').show();
     } else {
         $('.fullscreen-btn').css('background-image', `url(${window.icons['fullscreen.svg']})`);
-        $('.fullscreen-btn').attr('title', 'Enter Full Screen');
+        $('.fullscreen-btn').attr('title', i18n('desktop_enter_full_screen'));
         window.user_preferences.clock_visible === 'auto' && $('#clock').hide();
     }
 })

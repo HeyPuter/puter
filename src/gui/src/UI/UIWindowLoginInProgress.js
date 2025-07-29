@@ -47,7 +47,7 @@ async function UIWindowLoginInProgress(options){
         h += `</div>`;
 
         const el_window = await UIWindow({
-            title: 'Authenticating...',
+            title: i18n('window_title_authenticating'),
             app: 'change-passowrd',
             single_instance: true,
             icon: null,

@@ -51,7 +51,7 @@ async function UIWindowChangePassword(options){
     h += `</div>`;
 
     const el_window = await UIWindow({
-        title: 'Change Password',
+        title: i18n('window_title_change_password'),
         app: 'change-passowrd',
         single_instance: true,
         icon: null,

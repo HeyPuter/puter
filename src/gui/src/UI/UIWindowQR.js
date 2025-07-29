@@ -40,7 +40,7 @@ async function UIWindowQR(options){
     h += placeholder_qr.html;
 
     const el_window = await UIWindow({
-        title: 'Instant Login!',
+        title: i18n('window_title_instant_login'),
         app: 'instant-login',
         single_instance: true,
         icon: null,

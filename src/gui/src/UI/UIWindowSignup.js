@@ -69,7 +69,7 @@ function UIWindowSignup(options){
                     h += `</div>`;
                     // confirm password
                     h += `<div style="overflow: hidden; margin-top: 20px; margin-bottom: 20px; position: relative">`;
-                        h += `<label for="confirm-password-${internal_id}">${i18n('Confirm Password')}</label>`;
+                        h += `<label for="confirm-password-${internal_id}">${i18n('signup_confirm_password')}</label>`;
                         h += `<input id="confirm-password-${internal_id}" class="confirm-password" type="${options.show_password ? "text" : "password"}" name="confirm-password" autocomplete="new-password" />`;
                     // show/hide icon
                         h += `<span style="position: absolute; right: 5%; top: 50%; cursor: pointer;" id="toggle-show-password-${internal_id}">

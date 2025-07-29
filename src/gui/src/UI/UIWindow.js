@@ -340,11 +340,11 @@ async function UIWindow(options) {
             h += `<div class="window-navbar">`;
                 h += `<div style="float:left; margin-left:5px; margin-right:5px;">`;
                     // Back
-                    h += `<img draggable="false" class="window-navbar-btn window-navbar-btn-back window-navbar-btn-disabled" src="${html_encode(window.icons['arrow-left.svg'])}" title="Click to go back.">`;
+                    h += `<img draggable="false" class="window-navbar-btn window-navbar-btn-back window-navbar-btn-disabled" src="${html_encode(window.icons['arrow-left.svg'])}" title="${i18n('window_click_to_go_back')}">`;
                     // Forward
-                    h += `<img draggable="false" class="window-navbar-btn window-navbar-btn-forward window-navbar-btn-disabled" src="${html_encode(window.icons['arrow-right.svg'])}" title="Click to go forward.">`;
+                    h += `<img draggable="false" class="window-navbar-btn window-navbar-btn-forward window-navbar-btn-disabled" src="${html_encode(window.icons['arrow-right.svg'])}" title="${i18n('window_click_to_go_forward')}">`;
                     // Up
-                    h += `<img draggable="false" class="window-navbar-btn window-navbar-btn-up ${options.path === '/' ? 'window-navbar-btn-disabled' : ''}" src="${html_encode(window.icons['arrow-up.svg'])}" title="Click to go one directory up.">`;
+                    h += `<img draggable="false" class="window-navbar-btn window-navbar-btn-up ${options.path === '/' ? 'window-navbar-btn-disabled' : ''}" src="${html_encode(window.icons['arrow-up.svg'])}" title="${i18n('window_click_to_go_up')}">`;
                 h += `</div>`;
                 // Path
                 h += `<div class="window-navbar-path">${window.navbar_path(options.path, window.user.username)}</div>`;
@@ -403,7 +403,7 @@ async function UIWindow(options) {
                 h += window.explore_table_headers();
                 
                 // Add 'This folder is empty' message by default
-                h += `<div class="explorer-empty-message">This folder is empty</div>`;
+                h += `<div class="explorer-empty-message">${i18n('window_folder_empty')}</div>`;
 
                 h += `<div class="explorer-error-message">${i18n('error_message_is_missing')}</div>`;
 
@@ -3133,13 +3133,13 @@ window.update_window_path = async function(el_window, target_path){
             $(el_window).find('.window-head-title').text(i18n('documents'))
         }else if (target_path === window.public_path){
             $(el_window).find('.window-head-icon').attr('src', window.icons['folder-public.svg']);
-            $(el_window).find('.window-head-title').text('Public')
+            $(el_window).find('.window-head-title').text(i18n('window_title_public'))
         }else if (target_path === window.videos_path){
             $(el_window).find('.window-head-icon').attr('src', window.icons['folder-videos.svg']);
-            $(el_window).find('.window-head-title').text('Videos')
+            $(el_window).find('.window-head-title').text(i18n('window_title_videos'))
         }else if (target_path === window.pictures_path){
             $(el_window).find('.window-head-icon').attr('src', window.icons['folder-pictures.svg']);
-            $(el_window).find('.window-head-title').text('Pictures')
+            $(el_window).find('.window-head-title').text(i18n('window_title_pictures'))
         }// root folder of a shared user?
         else if((target_path.split('/').length - 1) === 1 && target_path !== '/'+window.user.username)
             $(el_window).find('.window-head-icon').attr('src', window.icons['shared.svg']);
@@ -3360,18 +3360,18 @@ $.fn.close = async function(options) {
                     // otherwise, change URL/Title to desktop
                     else{
                         window.history.replaceState(null, document.title, '/');
-                        document.title = 'Puter';
+                        document.title = i18n('window_title_puter');
                     }
                     // if it's explore 
                     if($last_window_in_stack.attr('data-app') && $last_window_in_stack.attr('data-app').toLowerCase() === 'explorer'){
                         window.history.replaceState(null, document.title, '/');
-                        document.title = 'Puter';
+                        document.title = i18n('window_title_puter');
                     }
                 }
                 // otherwise, change URL/Title to desktop
                 else{
                     window.history.replaceState(null, document.title, '/');
-                    document.title = 'Puter';
+                    document.title = i18n('window_title_puter');
                 }
             }
             // close child windows
@@ -3753,7 +3753,7 @@ $.fn.hideWindow = async function(options) {
 
             // update title and window URL
             window.history.replaceState(null, document.title, '/');
-            document.title = 'Puter';
+            document.title = i18n('window_title_puter');
         }
     })
     return this;
