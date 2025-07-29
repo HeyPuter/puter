@@ -19,7 +19,7 @@
  */
 // const Mountpoint = o => ({ ...o });
 
-const { RootNodeSelector, NodeUIDSelector } = require("../../filesystem/node/selectors");
+const { RootNodeSelector, NodeUIDSelector, NodeChildSelector, NodePathSelector, NodeInternalIDSelector } = require("../../filesystem/node/selectors");
 const BaseService = require("../../services/BaseService");
 
 /**
@@ -87,12 +87,39 @@ class MountpointService extends BaseService {
     }
     
     async get_provider (selector) {
+        // type check
+        if ( ! (selector instanceof RootNodeSelector) &&
+            ! (selector instanceof NodeUIDSelector) &&
+            ! (selector instanceof NodeChildSelector) &&
+            ! (selector instanceof NodePathSelector) &&
+            ! (selector instanceof NodeInternalIDSelector)
+        ) {
+            throw new Error('Invalid selector type');
+        }
+
         if ( selector instanceof RootNodeSelector ) {
             return this.mountpoints_['/'].provider;
         }
 
         if ( selector instanceof NodeUIDSelector ) {
-            return this.mountpoints_['/'].provider;
+            for ( const [path, { provider }] of Object.entries(this.mountpoints_) ) {
+                const result = await provider._stat_by_uid({
+                    uid: selector.value,
+                });
+                if ( result ) {
+                    return provider;
+                }
+            }
+            console.log('no provider found');
+        }
+
+        if ( selector instanceof NodeChildSelector ) {
+            const path = selector.try_infer_path();
+            if ( path ) {
+                return this.get_provider(new NodePathSelector(path));
+            } else {
+                return this.get_provider(selector.parent);
+            }
         }
 
         const probe = {};

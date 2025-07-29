@@ -9,10 +9,14 @@ const Assert = require('./Assert');
 const log_error = require('./log_error');
 
 module.exports = class TestSDK {
-    constructor (conf, context) {
+    constructor (conf, context, options = {}) {
         this.conf = conf;
         this.context = context;
-        this.cwd = `/${conf.username}`;
+        this.options = options;
+
+        this.default_cwd = path_.posix.join('/', context.mountpoint.path, conf.username, 'api_test');
+        this.cwd = this.default_cwd;
+
         this.httpsAgent = new https.Agent({
             rejectUnauthorized: false
         })
@@ -36,6 +40,15 @@ module.exports = class TestSDK {
         this.packageResults = [];
 
         this.benchmarkResults = [];
+    }
+
+    async init_working_directory () {
+        try {
+            await this.delete(this.default_cwd, { recursive: true });
+        } catch (e) {
+        }
+        await this.mkdir(this.default_cwd, { overwrite: true, create_missing_parents: true });
+        this.cd(this.default_cwd);
     }
 
     async get_sdk (name) {
@@ -116,6 +129,13 @@ module.exports = class TestSDK {
                 success: false,
             });
             log_error(e);
+            
+            // Check if we should stop on failure
+            if (this.options.stopOnFailure) {
+                console.log('\x1B[31;1m[STOPPING] Test execution stopped due to failure and --stop-on-failure flag\x1B[0m');
+                process.exit(1);
+            }
+            
             return;
         } finally {
             this.nameStack.pop();
@@ -171,12 +191,15 @@ module.exports = class TestSDK {
     // === path related methods ===
 
     cd (path) {
-        this.cwd = path_.posix.join(this.cwd, path);
+        if ( path.startsWith('/') ) {
+            this.cwd = path;
+        } else {
+            this.cwd = path_.posix.join(this.cwd, path);
+        }
     }
 
     resetCwd () {
-        // TODO (xiaochen): update the hardcoded path to a global constant
-        this.cwd = '/admin/api_test';
+        this.cwd = this.default_cwd;
     }
 
     resolve (path) {

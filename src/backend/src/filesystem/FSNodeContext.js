@@ -121,6 +121,12 @@ module.exports = class FSNodeContext {
                 return result;
             }
         }
+
+        if ( (! this.path) && (! this.uid) ) {
+            console.log('no path or uid');
+            selector.setPropertiesKnownBySelector(this);
+            console.log('no path or uid');
+        }
     }
 
     set selector (new_selector) {
@@ -288,10 +294,18 @@ module.exports = class FSNodeContext {
             controls,
         });
 
+        if ( entry === undefined ) {
+            console.error('entry is undefined');
+            this.found = false;
+            this.entry = false;
+            return;
+        }
+
         if ( entry === null ) {
             this.found = false;
             this.entry = false;
         } else {
+
             this.found = true;
 
             if ( ! this.uid && entry.uuid ) {

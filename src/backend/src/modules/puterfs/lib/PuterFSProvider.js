@@ -378,10 +378,14 @@ class PuterFSProvider extends putility.AdvancedBase {
     }
 
     async rmdir ({ context, node, options = {} }) {
+        // // TODO (xiaochen): remove/refactor this branch, or this function, it's weird since
+        // // `TYPE_DIRECTORY` is `undefined`
+        // if ( TYPE_DIRECTORY ) {
         if ( await node.get('type') !== TYPE_DIRECTORY ) {
             console.log(`\x1B[31;1m===D1====${await node.get('path')}=========\x1B[0m`)
             throw new APIError(409, 'Cannot rmdir a file.');
         }
+        // }
 
         if ( await node.get('immutable') ) {
             console.log(`\x1B[31;1m===D2====${await node.get('path')}=========\x1B[0m`)
@@ -655,9 +659,9 @@ class PuterFSProvider extends putility.AdvancedBase {
      * 
      * @param {Object} param
      * @param {Context} param.context
-     * @param {FSNode} param.node: The node to write to.
+     * @param {FSNodeContext} param.node: The node to write to.
      * @param {File} param.file: The file to write.
-     * @returns {Promise<FSNode>}
+     * @returns {Promise<FSNodeContext>}
      */
     async write_overwrite({ context, node, file }) {
         const {
@@ -848,6 +852,20 @@ class PuterFSProvider extends putility.AdvancedBase {
         }
 
         return state_upload;
+    }
+
+    /**
+     * Stat a node by its uid.
+     * 
+     * @param {Object} param
+     * @param {string} param.uid 
+     * @returns {Promise<Object|null>} - The result of the stat operation, or `null` if the node doesn't exist.
+     */
+    async _stat_by_uid ({ uid }) {
+        const svc = Context.get('services');
+        const svc_fsEntry = svc.get('fsEntryService');
+        const entry = await svc_fsEntry.get(uid);
+        return entry;
     }
 }
 

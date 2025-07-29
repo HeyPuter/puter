@@ -169,6 +169,7 @@ module.exports = function eggspress (route, settings, handler) {
         return next();
       }
     }
+    console.log(`request url: ${req.url}, body: ${JSON.stringify(req.body)}`);
     try {
       const expected_ctx = res.locals.ctx;
       const received_ctx = Context.get(undefined, { allow_fallback: true });
@@ -179,13 +180,9 @@ module.exports = function eggspress (route, settings, handler) {
         });
       } else await handler(req, res, next);
     } catch (e) {
-        if (e instanceof TypeError || e instanceof ReferenceError) {
-          // We add a dedicated branch for TypeError/ReferenceError since it usually
-          // indicates a bug in the backend. And it's pretty convenient to debug if we
-          // set a breakpoint here.
-          //
-          // Typical TypeError:
-          // - read properties of undefined
+        if (! (e instanceof APIError)) {
+          // Any non-APIError indicates an unhandled error from the backend.
+          // We add a dedicated branch to facilitate debugging.
           console.error(e);
           api_error_handler(e, req, res, next);
         } else {

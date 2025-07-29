@@ -24,6 +24,7 @@ try {
             bench: { type: 'boolean' },
             unit: { type: 'boolean' },
             suite: { type: 'string' },
+            'stop-on-failure': { type: 'boolean' },
         },
         allowPositionals: true,
     });
@@ -35,6 +36,7 @@ try {
         bench,
         unit,
         suite: suiteName,
+        'stop-on-failure': stopOnFailure,
     }, positionals: [id] } = parsed);
 
     onlycase = onlycase !== undefined ? Number.parseInt(onlycase) : undefined;
@@ -49,6 +51,7 @@ try {
         '  --config=<path>  (required)  Path to configuration file\n' +
         '  --report=<path>  (optional)  Output file for full test results\n' +
         '  --suite=<name>   (optional)  Run only tests with matching suite name\n' +
+        '  --stop-on-failure (optional)  Stop execution on first test failure\n' +
         ''
     );
     process.exit(1);
@@ -58,19 +61,19 @@ const conf = YAML.parse(fs.readFileSync(config).toString());
 
 
 const main = async () => {
-    const context = {
-        options: {
-            onlycase,
-            suite: suiteName,
-        }
-    };
-    const ts = new TestSDK(conf, context);
-    try {
-        await ts.delete('api_test', { recursive: true });
-    } catch (e) {
+    for (const mountpoint of conf.mountpoints) {
+        // console.log(`Testing ${mountpoint.path}`);
+        await test({ mountpoint });
     }
-    await ts.mkdir('api_test', { overwrite: true });
-    ts.cd('api_test');
+}
+
+async function test({ mountpoint }) {
+    const context = {
+        mountpoint
+    };
+
+    const ts = new TestSDK(conf, context, { stopOnFailure });
+    await ts.init_working_directory();
 
     const registry = new TestRegistry(ts);
 
@@ -100,17 +103,6 @@ const main = async () => {
         await registry.run_all();
     }
 
-
-    // await ts.runTestPackage(require('./tests/write_cart'));
-    // await ts.runTestPackage(require('./tests/move_cart'));
-    // await ts.runTestPackage(require('./tests/copy_cart'));
-    // await ts.runTestPackage(require('./tests/write_and_read'));
-    // await ts.runTestPackage(require('./tests/move'));
-    // await ts.runTestPackage(require('./tests/stat'));
-    // await ts.runTestPackage(require('./tests/readdir'));
-    // await ts.runTestPackage(require('./tests/mkdir'));
-    // await ts.runTestPackage(require('./tests/batch'));
-    // await ts.runTestPackage(require('./tests/delete'));
     const all = unit && bench;
     if ( all || unit ) ts.printTestResults();
     if ( all || bench ) ts.printBenchmarkResults();

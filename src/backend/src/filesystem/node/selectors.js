@@ -87,9 +87,45 @@ class NodeChildSelector {
         this.name = name;
     }
 
+    /**
+     * Try to infer the absolute path of the node.
+     *
+     * @returns {string|null} the absolute path of the node, or null if the path cannot be inferred
+     */
+    try_infer_path () {
+        // try to get the full path recursively
+        //
+        // TODO (xiaochen): this is a hack to get the absolute path and should be removed once
+        // we have a better solution. We need the absolute path so that `MountpointService`
+        // can determine the mountpoint and provider for the node.
+        const stack = [this.name];
+        let current = this.parent;
+        while ( current ) {
+            if ( current instanceof NodeChildSelector ) {
+                stack.push(current.name);
+                current = current.parent;
+            } else if ( current instanceof NodePathSelector ) {
+                stack.push(current.value);
+                current = null;
+            } else if ( current instanceof RootNodeSelector ) {
+                current = null;
+            } else {
+                // for other selectors, we can't determine the absolute path
+                return null;
+            }
+        }
+
+        let path = '/';
+        stack.reverse().forEach(item => {
+            path = _path.join(path, item);
+        });
+
+        return path;
+    }
+
     setPropertiesKnownBySelector (node) {
         node.name = this.name;
-        // no properties known
+        node.path = this.try_infer_path();
     }
 
     describe () {
@@ -145,6 +181,30 @@ class NodeRawEntrySelector {
     }
 }
 
+/**
+ * Try to infer following attributes for a selector:
+ * - path
+ * - uid
+ *
+ * @param {NodePathSelector|NodeUIDSelector|NodeChildSelector|RootNodeSelector} selector
+ */
+function try_infer_attributes (selector) {
+    if ( selector instanceof NodePathSelector ) {
+        selector.path = selector.value;
+    } else if ( selector instanceof NodeUIDSelector ) {
+        selector.uid = selector.value;
+    } else if ( selector instanceof NodeChildSelector ) {
+        try_infer_attributes(selector.parent);
+        if ( selector.parent.path ) {
+            selector.path = _path.join(selector.parent.path, selector.name);
+        }
+    } else if ( selector instanceof RootNodeSelector ) {
+        selector.path = '/';
+    } else {
+        throw new Error('invalid selector');
+    }
+}
+
 const relativeSelector = (parent, path) => {
     if ( path === '.' ) return parent;
     if ( path.startsWith('..') ) {
@@ -169,4 +229,5 @@ module.exports = {
     RootNodeSelector,
     NodeRawEntrySelector,
     relativeSelector,
+    try_infer_attributes,
 };
