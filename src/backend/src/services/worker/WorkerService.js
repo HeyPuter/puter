@@ -27,9 +27,12 @@ const { getUserInfo } = require("./workerUtils/puterUtils");
 const { LLRead } = require("../../filesystem/ll_operations/ll_read");
 const { Context } = require("../../util/context");
 const { NodePathSelector } = require("../../filesystem/node/selectors");
-const { calculateWorkerName } = require("./workerUtils/nameUtils");
+const { calculateWorkerNameNew } = require("./workerUtils/nameUtils");
 const { Entity } = require("../../om/entitystorage/Entity");
 const { SKIP_ES_VALIDATION } = require("../../om/entitystorage/consts");
+const { Eq } = require("../../om/query/query");
+const { get_app } = require("../../helpers");
+const { UsernameNotifSelector } = require("../NotificationService");
 
 async function readPuterFile(actor, filePath) {
     try {
@@ -68,28 +71,127 @@ try {
 }
 const PREAMBLE_LENGTH = preamble.split("\n").length - 1
 class WorkerService extends BaseService {
-    ['__on_install.routes'](_, { app }) {
+    _init() {
         setCloudflareKeys(this.config);
+        
+        // Services used
         const svc_event = this.services.get('event');
-        svc_event.on('fs.write.*', (_key, data, meta) => {
+        const svc_su = this.services.get("su");
+        const es_subdomain = this.services.get('es:subdomain');
+        const svc_auth = this.services.get("auth");
+        const svc_notification = this.services.get('notification');
+
+        svc_event.on('fs.written.file', async (_key, data, meta) => {
+            // Code should only run on the same server as the write
             if (meta.from_outside) return;
+
+            // Check if the file that was written correlates to a worker
+            const result = await svc_su.sudo(async ()=> {
+                return await es_subdomain.select({ predicate: new Eq({ key: "root_dir", value: data.node }) });
+            });
+            if (!result) 
+                return;
+
+            // Person who just wrote file (not necessarily file owner)
+            const actor = Context.get("actor");
+
+            // Worker data
+            const fileData = (await readPuterFile(Context.get("actor"), data.node.path)).toString();
+            const workerName = (await result[0].get("subdomain")).split(".").pop();
+            
+            // Get appropriate deploy time auth token to give to the worker 
+            let authToken;
+            const appOwner = await result[0].get("app_owner");
+            if (appOwner) { // If the deployer is an app...
+                const appID = await appOwner.get("uid");
+                console.log("appID", appID)
+                authToken = await svc_su.sudo(await data.node.get("owner"), async () => {
+                    return await svc_auth.get_user_app_token(appID);
+                })
+            } else { // If the deployer is not attached to any application
+                authToken = (await svc_auth.create_session_token((await data.node.get("owner")).type.user)).token
+            }
+            
+
+            svc_notification.notify(
+                UsernameNotifSelector(actor.type.user.username),
+                {
+                    source: 'worker',
+                    title: `Deploying CF worker ${workerName}`,
+                    template: 'user-requesting-share',
+                    fields: {
+                        username: actor.type.user.username,
+                    },
+                }
+            );
+            try {
+                // Create the worker
+                const cfData = await createWorker((await data.node.get("owner")).type.user, authToken, workerName, preamble + fileData, PREAMBLE_LENGTH);
+
+                // Send user the appropriate notification
+                if (cfData.success) {
+                    svc_notification.notify(
+                        UsernameNotifSelector(actor.type.user.username),
+                        {
+                            source: 'worker',
+                            title: `Succesfully deployed ${cfData.url}`,
+                            template: 'user-requesting-share',
+                            fields: {
+                                username: actor.type.user.username,
+                            },
+                        }
+                    );
+                } else {
+                    svc_notification.notify(
+                        UsernameNotifSelector(actor.type.user.username),
+                        {
+                            source: 'worker',
+                            title: `Failed to deploy ${workerName}! ${cfData.errors}`,
+                            template: 'user-requesting-share',
+                            fields: {
+                                username: actor.type.user.username,
+                            },
+                        }
+                    );
+                }
+
+
+            } catch (e) {
+                svc_notification.notify(
+                    UsernameNotifSelector(actor.type.user.username),
+                    {
+                        source: 'worker',
+                        title: `Failed to deploy ${workerName}!!\n ${e}`,
+                        template: 'user-requesting-share',
+                        fields: {
+                            username: actor.type.user.username,
+                        },
+                    }
+                );
+            }
         });
     }
     static IMPLEMENTS = {
         ['workers']: {
+            /**
+             * 
+             * @param {{filePath: string, workerName: string, authorization: string}} param0 
+             * @returns {any}
+             */
             async create({ filePath, workerName, authorization }) {
                 try {
+                    workerName = workerName.toLocaleLowerCase(); // just incase
+                    if(!(/^[a-zA-Z0-9_]+$/.test(workerName))) return;
+                    
                     const userData = await getUserInfo(authorization, this.global_config.api_base_url);
                     const actor = Context.get("actor");
                     const es_subdomain = this.services.get('es:subdomain');
-                    console.log(actor)
                     const fileData = (await readPuterFile(actor, filePath)).toString();
-                    const cfData = await createWorker(userData, authorization, workerName, preamble + fileData, PREAMBLE_LENGTH);
+                    const cfData = await createWorker(userData, authorization, calculateWorkerNameNew(userData.uuid, workerName), preamble + fileData, PREAMBLE_LENGTH);
 
                     await Context.sub({ [SKIP_ES_VALIDATION]: true }).arun(async () => {
                         const entity = await Entity.create({ om: es_subdomain.om }, {
-                            subdomain: "workers.puter." + calculateWorkerName(userData.username, workerName),
-                            owner: userData.id,
+                            subdomain: "workers.puter." + calculateWorkerNameNew(userData.uuid, workerName),
                             root_dir: filePath
                         });
                         await es_subdomain.upsert(entity);
@@ -103,16 +205,25 @@ class WorkerService extends BaseService {
             },
             async destroy({ workerName, authorization }) {
                 try {
+                    workerName = workerName.toLocaleLowerCase(); // just incase
+                    const svc_su = this.services.get("su");
                     const userData = await getUserInfo(authorization, this.global_config.api_base_url);
                     const cfData = await deleteWorker(userData, authorization, workerName);
 
                     const es_subdomain = this.services.get('es:subdomain');
-                    const crudqSubdomain = es_subdomain.as('crud-q');
-                    await crudq_subdomain.delete({ id: { subdomain: "workers.puter." + calculateWorkerName(userData.username, workerName) } })
+                    console.log("workers.puter." + calculateWorkerNameNew(userData.uuid, workerName))
+                    const result = await svc_su.sudo(async () => {
+                        const row = (await es_subdomain.select({ predicate: new Eq({ key: "subdomain", value: "workers.puter." + calculateWorkerNameNew(userData.uuid, workerName) }) }));
+                        return row;
+                    })
+                    console.log("search result: ", result)
+
+                    await es_subdomain.delete(await result[0].get("uid"));
                     return cfData;
 
 
                 } catch (e) {
+                    console.error(e);
                     return { success: false, e }
                 }
             },
