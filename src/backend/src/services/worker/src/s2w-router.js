@@ -2,7 +2,7 @@ import { match } from 'path-to-regexp';
 
 function inits2w() {
     // s2w router itself: Not part of any package, just a simple router.
-    const s2w = {
+    const router = {
         routing: true,
         handleCors: true,
         map: new Map(),
@@ -103,11 +103,11 @@ function inits2w() {
             return new Response("Path not found", { status: 404, statusText: "Not found" });
         }
     }
-    globalThis.s2w = s2w;
+    globalThis.router = router;
     self.addEventListener("fetch", (event) => {
-        if (!s2w.routing)
+        if (!router.routing)
             return false;
-        event.respondWith(s2w.route(event));
+        event.respondWith(router.route(event));
     })
 }
 
