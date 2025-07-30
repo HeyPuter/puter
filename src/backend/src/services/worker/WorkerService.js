@@ -50,7 +50,7 @@ async function readPuterFile(actor, filePath) {
         stream.on("data", (data) => {
             chunks.push(data)
             bytes += data.byteLength
-            if (bytes > 10**7) {
+            if (bytes > 10 ** 7) {
                 const err = Error("Worker source code must not exceed 10MB");
                 stream.emit("error", err);
                 throw err;
@@ -82,79 +82,95 @@ const PREAMBLE_LENGTH = preamble.split("\n").length - 1
 class WorkerService extends BaseService {
     _init() {
         setCloudflareKeys(this.config);
-        
+
         // Services used
         const svc_event = this.services.get('event');
         const svc_su = this.services.get("su");
         const es_subdomain = this.services.get('es:subdomain');
         const svc_auth = this.services.get("auth");
         const svc_notification = this.services.get('notification');
-        
+
         svc_event.on('fs.written.file', async (_key, data, meta) => {
             // Code should only run on the same server as the write
             if (meta.from_outside) return;
 
             // Check if the file that was written correlates to a worker
-            const result = await svc_su.sudo(async ()=> {
+            const results = await svc_su.sudo(async () => {
                 return await es_subdomain.select({ predicate: new Eq({ key: "root_dir", value: data.node }) });
             });
-            if (!result || result.length === 0)
+            if (!results || results.length === 0)
                 return;
 
-            // Person who just wrote file (not necessarily file owner)
-            const actor = Context.get("actor");
+            for (const result of results) {
+                // Person who just wrote file (not necessarily file owner)
+                const actor = Context.get("actor");
 
-            // Worker data
-            const fileData = (await readPuterFile(Context.get("actor"), data.node.path)).toString();
-            const workerName = (await result[0].get("subdomain")).split(".").pop();
-            
-            // Get appropriate deploy time auth token to give to the worker 
-            let authToken;
-            const appOwner = await result[0].get("app_owner");
-            if (appOwner) { // If the deployer is an app...
-                const appID = await appOwner.get("uid");
-                authToken = await svc_su.sudo(await data.node.get("owner"), async () => {
-                    return await svc_auth.get_user_app_token(appID);
-                })
-            } else { // If the deployer is not attached to any application
-                authToken = (await svc_auth.create_session_token((await data.node.get("owner")).type.user)).token
-            }
-            
+                // Worker data
+                const fileData = (await readPuterFile(Context.get("actor"), data.node.path)).toString();
+                const workerName = (await result.get("subdomain")).split(".").pop();
 
-            // svc_notification.notify(
-            //     UsernameNotifSelector(actor.type.user.username),
-            //     {
-            //         source: 'worker',
-            //         title: `Deploying CF worker ${workerName}`,
-            //         template: 'user-requesting-share',
-            //         fields: {
-            //             username: actor.type.user.username,
-            //         },
-            //     }
-            // );
-            try {
-                // Create the worker
-                const cfData = await createWorker((await data.node.get("owner")).type.user, authToken, workerName, preamble + fileData, PREAMBLE_LENGTH);
+                // Get appropriate deploy time auth token to give to the worker 
+                let authToken;
+                const appOwner = await result.get("app_owner");
+                if (appOwner) { // If the deployer is an app...
+                    const appID = await appOwner.get("uid");
+                    authToken = await svc_su.sudo(await data.node.get("owner"), async () => {
+                        return await svc_auth.get_user_app_token(appID);
+                    })
+                } else { // If the deployer is not attached to any application
+                    authToken = (await svc_auth.create_session_token((await data.node.get("owner")).type.user)).token
+                }
 
-                // Send user the appropriate notification
-                if (cfData.success) {
-                    // svc_notification.notify(
-                    //     UsernameNotifSelector(actor.type.user.username),
-                    //     {
-                    //         source: 'worker',
-                    //         title: `Succesfully deployed ${cfData.url}`,
-                    //         template: 'user-requesting-share',
-                    //         fields: {
-                    //             username: actor.type.user.username,
-                    //         },
-                    //     }
-                    // );
-                } else {
+
+                // svc_notification.notify(
+                //     UsernameNotifSelector(actor.type.user.username),
+                //     {
+                //         source: 'worker',
+                //         title: `Deploying CF worker ${workerName}`,
+                //         template: 'user-requesting-share',
+                //         fields: {
+                //             username: actor.type.user.username,
+                //         },
+                //     }
+                // );
+                try {
+                    // Create the worker
+                    const cfData = await createWorker((await data.node.get("owner")).type.user, authToken, workerName, preamble + fileData, PREAMBLE_LENGTH);
+
+                    // Send user the appropriate notification
+                    if (cfData.success) {
+                        // svc_notification.notify(
+                        //     UsernameNotifSelector(actor.type.user.username),
+                        //     {
+                        //         source: 'worker',
+                        //         title: `Succesfully deployed ${cfData.url}`,
+                        //         template: 'user-requesting-share',
+                        //         fields: {
+                        //             username: actor.type.user.username,
+                        //         },
+                        //     }
+                        // );
+                    } else {
+                        svc_notification.notify(
+                            UsernameNotifSelector(actor.type.user.username),
+                            {
+                                source: 'worker',
+                                title: `Failed to deploy ${workerName}! ${cfData.errors}`,
+                                template: 'user-requesting-share',
+                                fields: {
+                                    username: actor.type.user.username,
+                                },
+                            }
+                        );
+                    }
+
+
+                } catch (e) {
                     svc_notification.notify(
                         UsernameNotifSelector(actor.type.user.username),
                         {
                             source: 'worker',
-                            title: `Failed to deploy ${workerName}! ${cfData.errors}`,
+                            title: `Failed to deploy ${workerName}!!\n ${e}`,
                             template: 'user-requesting-share',
                             fields: {
                                 username: actor.type.user.username,
@@ -162,20 +178,6 @@ class WorkerService extends BaseService {
                         }
                     );
                 }
-
-
-            } catch (e) {
-                svc_notification.notify(
-                    UsernameNotifSelector(actor.type.user.username),
-                    {
-                        source: 'worker',
-                        title: `Failed to deploy ${workerName}!!\n ${e}`,
-                        template: 'user-requesting-share',
-                        fields: {
-                            username: actor.type.user.username,
-                        },
-                    }
-                );
             }
         });
     }
@@ -189,7 +191,14 @@ class WorkerService extends BaseService {
             async create({ filePath, workerName, authorization }) {
                 try {
                     workerName = workerName.toLocaleLowerCase(); // just incase
-                    if(!(/^[a-zA-Z0-9_-]+$/.test(workerName))) return;
+
+                    if (this.global_config.reserved_words.includes(workerName)) {
+                        return APIError.create('subdomain_reserved', null, {
+                            subdomain: workerName,
+                        });
+                    }
+
+                    if (!(/^[a-zA-Z0-9_-]+$/.test(workerName))) return;
 
                     filePath = await (await (new FSNodeParam('path')).consolidate({
                         req: { user: Context.get("actor").type.user },
@@ -206,11 +215,11 @@ class WorkerService extends BaseService {
                         });
                         await es_subdomain.upsert(entity);
                     });
-                    
+
                     const fileData = (await readPuterFile(actor, filePath)).toString();
                     const cfData = await createWorker(userData, authorization, calculateWorkerNameNew(userData.uuid, workerName), preamble + fileData, PREAMBLE_LENGTH);
 
-                    
+
                     return cfData;
                 } catch (e) {
                     if (e instanceof APIError)
