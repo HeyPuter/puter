@@ -89,7 +89,7 @@ class WorkerService extends BaseService {
         const es_subdomain = this.services.get('es:subdomain');
         const svc_auth = this.services.get("auth");
         const svc_notification = this.services.get('notification');
-
+        
         svc_event.on('fs.written.file', async (_key, data, meta) => {
             // Code should only run on the same server as the write
             if (meta.from_outside) return;
@@ -121,34 +121,34 @@ class WorkerService extends BaseService {
             }
             
 
-            svc_notification.notify(
-                UsernameNotifSelector(actor.type.user.username),
-                {
-                    source: 'worker',
-                    title: `Deploying CF worker ${workerName}`,
-                    template: 'user-requesting-share',
-                    fields: {
-                        username: actor.type.user.username,
-                    },
-                }
-            );
+            // svc_notification.notify(
+            //     UsernameNotifSelector(actor.type.user.username),
+            //     {
+            //         source: 'worker',
+            //         title: `Deploying CF worker ${workerName}`,
+            //         template: 'user-requesting-share',
+            //         fields: {
+            //             username: actor.type.user.username,
+            //         },
+            //     }
+            // );
             try {
                 // Create the worker
                 const cfData = await createWorker((await data.node.get("owner")).type.user, authToken, workerName, preamble + fileData, PREAMBLE_LENGTH);
 
                 // Send user the appropriate notification
                 if (cfData.success) {
-                    svc_notification.notify(
-                        UsernameNotifSelector(actor.type.user.username),
-                        {
-                            source: 'worker',
-                            title: `Succesfully deployed ${cfData.url}`,
-                            template: 'user-requesting-share',
-                            fields: {
-                                username: actor.type.user.username,
-                            },
-                        }
-                    );
+                    // svc_notification.notify(
+                    //     UsernameNotifSelector(actor.type.user.username),
+                    //     {
+                    //         source: 'worker',
+                    //         title: `Succesfully deployed ${cfData.url}`,
+                    //         template: 'user-requesting-share',
+                    //         fields: {
+                    //             username: actor.type.user.username,
+                    //         },
+                    //     }
+                    // );
                 } else {
                     svc_notification.notify(
                         UsernameNotifSelector(actor.type.user.username),
@@ -195,22 +195,26 @@ class WorkerService extends BaseService {
                         req: { user: Context.get("actor").type.user },
                         getParam: () => filePath,
                     })).get("path");
+                    const es_subdomain = this.services.get('es:subdomain');
+
                     const userData = await getUserInfo(authorization, this.global_config.api_base_url);
                     const actor = Context.get("actor");
-                    const es_subdomain = this.services.get('es:subdomain');
-                    const fileData = (await readPuterFile(actor, filePath)).toString();
-                    const cfData = await createWorker(userData, authorization, calculateWorkerNameNew(userData.uuid, workerName), preamble + fileData, PREAMBLE_LENGTH);
-
                     await Context.sub({ [SKIP_ES_VALIDATION]: true }).arun(async () => {
                         const entity = await Entity.create({ om: es_subdomain.om }, {
-                            subdomain: "workers.puter." + calculateWorkerNameNew(userData.uuid, workerName),
+                            subdomain: "workers.puter." + calculateWorkerNameNew(userData, workerName),
                             root_dir: filePath
                         });
                         await es_subdomain.upsert(entity);
                     });
                     
+                    const fileData = (await readPuterFile(actor, filePath)).toString();
+                    const cfData = await createWorker(userData, authorization, calculateWorkerNameNew(userData.uuid, workerName), preamble + fileData, PREAMBLE_LENGTH);
+
+                    
                     return cfData;
                 } catch (e) {
+                    if (e instanceof APIError)
+                        throw e;
                     console.error(e)
                     return { success: false, errors: e }
                 }
@@ -219,20 +223,26 @@ class WorkerService extends BaseService {
                 try {
                     workerName = workerName.toLocaleLowerCase(); // just incase
                     const svc_su = this.services.get("su");
+                    const es_subdomain = this.services.get('es:subdomain');
+
                     const userData = await getUserInfo(authorization, this.global_config.api_base_url);
+
+                    const [result] = (await es_subdomain.select({ predicate: new Eq({ key: "subdomain", value: "workers.puter." + calculateWorkerNameNew(undefined, workerName) }) }));
+
+                    if (result.values_.owner.uuid !== userData.uuid) {
+                        throw new Error("This is not your worker!");
+                    }
+
                     const cfData = await deleteWorker(userData, authorization, workerName);
 
-                    const es_subdomain = this.services.get('es:subdomain');
-                    const result = await svc_su.sudo(async () => {
-                        const row = (await es_subdomain.select({ predicate: new Eq({ key: "subdomain", value: "workers.puter." + calculateWorkerNameNew(userData.uuid, workerName) }) }));
-                        return row;
-                    })
 
-                    await es_subdomain.delete(await result[0].get("uid"));
+                    await es_subdomain.delete(await result.get("uid"));
                     return cfData;
 
 
                 } catch (e) {
+                    if (e instanceof APIError)
+                        throw e;
                     console.error(e);
                     return { success: false, e }
                 }
