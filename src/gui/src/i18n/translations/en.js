@@ -465,13 +465,17 @@ const en = {
         'desktop_show_open_windows': 'Show Open Windows',
         'desktop_exit_full_screen': 'Exit Full Screen',
         'desktop_enter_full_screen': 'Enter Full Screen',
-        
+        'desktop_position': 'Position',
+        'desktop_position_left': 'Left',
+        'desktop_position_bottom': 'Bottom',
+        'desktop_position_right': 'Right',
         // Item UI
         'item_shared_with_you': 'A user has shared this item with you.',
         'item_shared_by_you': 'You have shared this item with at least one other user.',
         'item_shortcut': 'Shortcut',
         'item_associated_websites': 'Associated website',
         'item_associated_websites_plural': 'Associated websites',
+        'no_suitable_apps_found': 'No suitable apps found',
         
         // Window UI
         'window_click_to_go_back': 'Click to go back.',

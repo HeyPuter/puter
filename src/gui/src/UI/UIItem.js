@@ -784,7 +784,7 @@ function UIItem(options){
             }
             if(!are_trashed){
                 menu_items.push({
-                    html: 'Share With…',
+                    html: i18n('Share With…'),
                     onClick: async function(){
                         if(window.user.is_temp && 
                             !await UIWindowSaveAccount({
@@ -1050,7 +1050,7 @@ function UIItem(options){
                     }
                 }else{                    
                     items.push({
-                        html: 'No suitable apps found',
+                        html: i18n('no_suitable_apps_found'),
                         disabled: true,
                     });
                 }
@@ -1090,7 +1090,7 @@ function UIItem(options){
             // -------------------------------------------
             if(!is_trashed && !is_trash){
                 menu_items.push({
-                    html: 'Share With…',
+                    html: i18n('Share With…'),
                     onClick: async function(){
                         if(window.user.is_temp && 
                             !await UIWindowSaveAccount({

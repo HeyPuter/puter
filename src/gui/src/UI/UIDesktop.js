@@ -1772,24 +1772,24 @@ $(document).on('contextmenu taphold', '.taskbar', function (event) {
     // Only show position submenu on desktop devices
     if (!isMobile.phone && !isMobile.tablet) {
         menuItems.push({
-            html: "Position",
+            html: i18n('desktop_position'),
             items: [
                 {
-                    html: "Left",
+                    html: i18n('desktop_position_left'),
                     checked: currentPosition === 'left',
                     onClick: function() {
                         window.update_taskbar_position('left');
                     }
                 },
                 {
-                    html: "Bottom",
+                    html: i18n('desktop_position_bottom'),
                     checked: currentPosition === 'bottom',
                     onClick: function() {
                         window.update_taskbar_position('bottom');
                     }
                 },
                 {
-                    html: "Right",
+                    html: i18n('desktop_position_right'),
                     checked: currentPosition === 'right',
                     onClick: function() {
                         window.update_taskbar_position('right');
