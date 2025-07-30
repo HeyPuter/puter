@@ -85,8 +85,17 @@ function inits2w() {
                         let response = await mapping[1](event);
                         if (!(response instanceof Response)) {
                             try {
-                                response = new Response(response);
-                            } catch(e) {
+                                if (response instanceof Blob ||
+                                    response instanceof ArrayBuffer ||
+                                    response instanceof Uint8Array.__proto__ ||
+                                    response instanceof ReadableStream ||
+                                    response instanceof URLSearchParams ||
+                                    typeof (response) === "string") {
+                                    response = new Response(response);
+                                } else {
+                                    response = new Response(JSON.stringify(response), { headers: { 'content-type': 'application/json' } })
+                                }
+                            } catch (e) {
                                 throw new Error("Returned response by handler was neither a Response object nor an object which can implicitly be converted into a Response object");
                             }
                         }
@@ -97,7 +106,11 @@ function inits2w() {
                     }
                 }
             } catch (e) {
-                return new Response(e, { status: 500, statusText: "Server Error" })
+                const response = new Response(e, { status: 500, statusText: "Server Error" })
+                if (this.handleCors && !response.headers.has("access-control-allow-origin")) {
+                    response.headers.set("Access-Control-Allow-Origin", "*");
+                }
+                return response;
             }
 
             return new Response("Path not found", { status: 404, statusText: "Not found" });
