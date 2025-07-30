@@ -2206,7 +2206,7 @@ async function UIWindow(options) {
                 }
             });
             menu_items.push({
-                html: 'Minimize',
+                html: i18n('minimize'),
                 onClick: function(){
                     $(el_window).hideWindow();
                 }
@@ -2219,7 +2219,7 @@ async function UIWindow(options) {
         //-------------------------------------------
         if(el_window_app_iframe !== null){
             menu_items.push({
-                html: 'Reload App',
+                html: i18n('reload_app'),
                 onClick: function(){
                     $(el_window_app_iframe).attr('src', $(el_window_app_iframe).attr('src'));
                 }
@@ -2231,7 +2231,7 @@ async function UIWindow(options) {
         // Close
         // -------------------------------------------
         menu_items.push({
-            html: 'Close',
+            html: i18n('close'),
             onClick: function(){
                 $(el_window).close();
             }
@@ -2901,7 +2901,7 @@ $(document).on('contextmenu taphold', '.window-navbar-path-dirname', function(ev
     // Open
     // -------------------------------------------
     menu_items.push({
-        html: 'Open',
+        html: i18n('open'),
         onClick: ()=>{
             $(this).trigger('click');
         }
@@ -2911,7 +2911,7 @@ $(document).on('contextmenu taphold', '.window-navbar-path-dirname', function(ev
     // (only if the item is on a window)
     // -------------------------------------------
     menu_items.push({
-        html: 'Open in New Window',
+        html: i18n('open_in_new_window'),
         onClick: function(){
             UIWindow({
                 path: $(el).attr('data-path'),
