@@ -98,7 +98,7 @@ class WorkerService extends BaseService {
             const result = await svc_su.sudo(async ()=> {
                 return await es_subdomain.select({ predicate: new Eq({ key: "root_dir", value: data.node }) });
             });
-            if (!result) 
+            if (!result || result.length === 0)
                 return;
 
             // Person who just wrote file (not necessarily file owner)
