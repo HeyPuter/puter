@@ -722,6 +722,10 @@ class PuterFSProvider extends putility.AdvancedBase {
         (async () => {
             await entryOp.awaitDone();
             resourceService.free(uid);
+            svc_event.emit('fs.written.file', {
+                node,
+                context: this.context,
+            });
         })();
 
         state_upload.post_insert({
