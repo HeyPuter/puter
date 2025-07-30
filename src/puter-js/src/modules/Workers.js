@@ -26,7 +26,7 @@ export class WorkersHandler {
         const driverCall = await puter.drivers.call("workers", "worker-service", "create", { authorization: puter.authToken, filePath, workerName });
         const driverResult = driverCall.result;
         if (!driverCall.success || !driverResult.success) {
-            throw new Error(driverResult?.errors || "Driver failed to execute, do you have the necessary permissions?");
+            throw driverCall.error || new Error(driverResult?.errors || "Driver failed to execute, do you have the necessary permissions?");
         }
         currentWorkers[workerName] = { filePath, url: driverResult["url"], deployTime: Date.now() };
         await puter.kv.set("user-workers", currentWorkers);
@@ -97,9 +97,9 @@ export class WorkersHandler {
 
         if (!driverCall.success || !driverCall.result.result) {
             if (!driverCall.result.result) {
-                throw new Error("Worker doesn't exist");
+                new Error("Worker doesn't exist");
             }
-            throw new Error(driverResult?.errors || "Driver failed to execute, do you have the necessary permissions?");
+            throw driverCall.error || new Error(driverResult?.errors || "Driver failed to execute, do you have the necessary permissions?");
         } else {
             let currentWorkers = await puter.kv.get("user-workers");
             
