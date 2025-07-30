@@ -91,7 +91,7 @@ class WorkerService extends BaseService {
         const svc_auth = this.services.get("auth");
         const svc_notification = this.services.get('notification');
 
-        svc_event.on('fs.written.file', async (_key, data, meta) => {
+        svc_event.on('fs.write.file', async (_key, data, meta) => {
             // Code should only run on the same server as the write
             if (meta.from_outside) return;
 

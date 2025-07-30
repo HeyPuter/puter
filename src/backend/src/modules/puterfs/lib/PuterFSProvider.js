@@ -20,6 +20,7 @@
 const putility = require('@heyputer/putility');
 const { MultiDetachable } = putility.libs.listener;
 const { TDetachable } = putility.traits;
+const { TeePromise } = putility.libs.promise;
 
 const { NodeInternalIDSelector, NodeChildSelector, NodeUIDSelector, RootNodeSelector, NodePathSelector } = require("../../../filesystem/node/selectors");
 const { Context } = require("../../../util/context");
@@ -719,26 +720,32 @@ class PuterFSProvider extends putility.AdvancedBase {
         const entryOp = await svc_fsEntry.update(uid, raw_fsentry_delta);
 
         // depends on fsentry, does not depend on S3
-        (async () => {
+        const entryOpPromise = (async () => {
             await entryOp.awaitDone();
             resourceService.free(uid);
-            svc_event.emit('fs.written.file', {
+        })();
+
+        const cachePromise = (async () => {
+            const svc_fileCache = context.get('services').get('file-cache');
+            await svc_fileCache.invalidate(node);
+        })();
+
+        (async () => {
+            await Promise.all([entryOpPromise, cachePromise]);
+            svc_event.emit('fs.write.file', {
                 node,
-                context: this.context,
+                context,
             });
         })();
 
+        // TODO (xiaochen): determine if this can be removed, post_insert handler need
+        // to skip events from other servers (why? 1. current write logic is inside 
+        // the local server 2. broadcast system conduct "fire-and-forget" behavior)
         state_upload.post_insert({
             db, user: actor.type.user, node, uid, message, ts,
         });
 
-        const svc_fileCache = context.get('services').get('file-cache');
-        await svc_fileCache.invalidate(node);
-
-        svc_event.emit('fs.write.file', {
-            node,
-            context,
-        });
+        await cachePromise;
 
         return node;
     }
