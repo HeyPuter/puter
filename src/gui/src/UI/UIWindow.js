@@ -2720,7 +2720,7 @@ $(document).on('contextmenu taphold', '.window-sidebar-item', function(event){
             // Open
             //--------------------------------------------------
             {
-                html: "Open",
+                html: i18n('open'),
                 onClick: function(){
                     $(item).trigger('click');
                 }
@@ -2729,7 +2729,7 @@ $(document).on('contextmenu taphold', '.window-sidebar-item', function(event){
             // Open in New Window
             //--------------------------------------------------
             {
-                html: "Open in New Window",
+                html: i18n('open_in_new_window'),
                 onClick: async function(){
                     let item_path = $(item).attr('data-path');
 
@@ -2931,7 +2931,7 @@ $(document).on('contextmenu taphold', '.window-navbar-path-dirname', function(ev
     // Paste
     // -------------------------------------------
     menu_items.push({
-        html: "Paste",
+        html: i18n('paste'),
         disabled: window.clipboard.length > 0 ? false : true,
         onClick: function(){
             if(window.clipboard_op === 'copy')
