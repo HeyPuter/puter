@@ -76,7 +76,7 @@ export class WorkersHandler {
 
         workerName = workerName.toLocaleLowerCase(); // just incase
         try {
-            return (await puter.kv.get("user-workers"))[workerName].url;
+            return (await puter.kv.get("user-workers"))[workerName];
         } catch (e) {
             throw new Error("Failed to get worker");
         }
