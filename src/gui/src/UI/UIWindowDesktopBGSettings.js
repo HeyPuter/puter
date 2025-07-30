@@ -199,7 +199,7 @@ async function UIWindowDesktopBGSettings(options){
                 allowed_file_types: ['image/*'],
                 show_maximize_button: false,
                 show_minimize_button: false,
-                title: 'Open',
+                title: i18n('window_title_open'),
                 is_dir: true,
                 is_openFileDialog: true,
                 selectable_body: false,

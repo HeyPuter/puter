@@ -1163,7 +1163,7 @@ async function UIDesktop(options) {
     ht += `</div>`;
 
     // 'Show Desktop'
-    ht += `<a href="/" class="show-desktop-btn toolbar-btn antialiased hidden" target="_blank" title="Show Desktop">Show Desktop <img src="${window.icons['launch-white.svg']}" style="width: 10px; height: 10px; margin-left: 5px;"></a>`;
+    ht += `<a href="/" class="show-desktop-btn toolbar-btn antialiased hidden" target="_blank" title="${i18n('desktop_show_desktop')}">${i18n('desktop_show_desktop')} <img src="${window.icons['launch-white.svg']}" style="width: 10px; height: 10px; margin-left: 5px;"></a>`;
 
     // refer
     if (window.user.referral_code) {
@@ -1772,24 +1772,24 @@ $(document).on('contextmenu taphold', '.taskbar', function (event) {
     // Only show position submenu on desktop devices
     if (!isMobile.phone && !isMobile.tablet) {
         menuItems.push({
-            html: "Position",
+            html: i18n('desktop_position'),
             items: [
                 {
-                    html: "Left",
+                    html: i18n('desktop_position_left'),
                     checked: currentPosition === 'left',
                     onClick: function() {
                         window.update_taskbar_position('left');
                     }
                 },
                 {
-                    html: "Bottom",
+                    html: i18n('desktop_position_bottom'),
                     checked: currentPosition === 'bottom',
                     onClick: function() {
                         window.update_taskbar_position('bottom');
                     }
                 },
                 {
-                    html: "Right",
+                    html: i18n('desktop_position_right'),
                     checked: currentPosition === 'right',
                     onClick: function() {
                         window.update_taskbar_position('right');
@@ -1802,7 +1802,7 @@ $(document).on('contextmenu taphold', '.taskbar', function (event) {
     
     // Add the "Show open windows" option for all devices
     menuItems.push({
-        html: "Show open windows",
+        html: i18n('desktop_show_open_windows'),
         onClick: function () {
             $(`.window`).showWindow();
         }
@@ -1810,7 +1810,7 @@ $(document).on('contextmenu taphold', '.taskbar', function (event) {
     
     // Add the "Show the desktop" option for all devices
     menuItems.push({
-        html: "Show the desktop",
+        html: i18n('desktop_show_desktop'),
         onClick: function () {
             $(`.window`).hideWindow();
         }
@@ -2209,11 +2209,11 @@ document.addEventListener('fullscreenchange', (event) => {
 
     if (document.fullscreenElement) {
         $('.fullscreen-btn').css('background-image', `url(${window.icons['shrink.svg']})`);
-        $('.fullscreen-btn').attr('title', 'Exit Full Screen');
+        $('.fullscreen-btn').attr('title', i18n('desktop_exit_full_screen'));
         window.user_preferences.clock_visible === 'auto' && $('#clock').show();
     } else {
         $('.fullscreen-btn').css('background-image', `url(${window.icons['fullscreen.svg']})`);
-        $('.fullscreen-btn').attr('title', 'Enter Full Screen');
+        $('.fullscreen-btn').attr('title', i18n('desktop_enter_full_screen'));
         window.user_preferences.clock_visible === 'auto' && $('#clock').hide();
     }
 })

@@ -42,11 +42,11 @@ function UIAlert(options) {
         }
         // Define alert types
         const alertTypes = {
-            error: { icon: "danger.svg", title: "Error!", color: "#D32F2F" },
-            warning: { icon: "warning-sign.svg", title: "Warning!", color: "#FFA000" },
-            info: { icon: "reminder.svg", title: "Info", color: "#1976D2" },
-            success: { icon: "c-check.svg", title: "Success!", color: "#388E3C" },
-            confirm: { icon: "question.svg", title: "Are you sure?", color: "#555555" }
+            error: { icon: "danger.svg", title: i18n('alert_error_title'), color: "#D32F2F" },
+            warning: { icon: "warning-sign.svg", title: i18n('alert_warning_title'), color: "#FFA000" },
+            info: { icon: "reminder.svg", title: i18n('alert_info_title'), color: "#1976D2" },
+            success: { icon: "c-check.svg", title: i18n('alert_success_title'), color: "#388E3C" },
+            confirm: { icon: "question.svg", title: i18n('alert_confirm_title'), color: "#555555" }
         };
 
         // Set default values
@@ -60,14 +60,14 @@ function UIAlert(options) {
             switch (options.type) {
                 case "confirm":
                     options.buttons = [
-                        { label: "Yes", value: true, type: "primary" },
-                        { label: "No", value: false, type: "secondary" }
+                        { label: i18n('alert_yes'), value: true, type: "primary" },
+                        { label: i18n('alert_no'), value: false, type: "secondary" }
                     ];
                     break;
                 case "error":
                     options.buttons = [
-                        { label: "Retry", value: "retry", type: "danger" },
-                        { label: "Cancel", value: "cancel", type: "secondary" }
+                        { label: i18n('alert_retry'), value: "retry", type: "danger" },
+                        { label: i18n('alert_cancel'), value: "cancel", type: "secondary" }
                     ];
                     break;
                 default:

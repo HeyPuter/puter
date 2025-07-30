@@ -176,7 +176,7 @@ function UITaskbarItem(options){
         //------------------------------------------
         if(options.app && options.app !== 'trash'){
             menu_items.push({
-                html: 'New Window',
+                html: i18n('new_window'),
                 val: $(this).attr('data-id'),
                 onClick: function(){
                     // is trash?
@@ -192,7 +192,7 @@ function UITaskbarItem(options){
         //------------------------------------------
         else if(options.app && options.app === 'trash'){
             menu_items.push({
-                html: 'Open Trash',
+                html: i18n('open_trash'),
                 val: $(this).attr('data-id'),
                 onClick: function(){
                     launch_app({

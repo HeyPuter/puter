@@ -47,7 +47,7 @@ async function UIWindowSessionList(options){
         h += `</div>`;
 
         const el_window = await UIWindow({
-            title: 'Session List!',
+            title: i18n('window_title_session_list'),
             app: 'session-list',
             single_instance: true,
             icon: null,
