@@ -30,11 +30,12 @@ const { NodePathSelector } = require("../../filesystem/node/selectors");
 const { calculateWorkerNameNew } = require("./workerUtils/nameUtils");
 const { Entity } = require("../../om/entitystorage/Entity");
 const { SKIP_ES_VALIDATION } = require("../../om/entitystorage/consts");
-const { Eq } = require("../../om/query/query");
+const { Eq, StartsWith } = require("../../om/query/query");
 const { get_app } = require("../../helpers");
 const { UsernameNotifSelector } = require("../NotificationService");
 const APIError = require("../../api/APIError");
 const FSNodeParam = require("../../api/filesystem/FSNodeParam");
+const { UserActorType } = require("../auth/Actor");
 
 async function readPuterFile(actor, filePath) {
     try {
@@ -191,9 +192,18 @@ class WorkerService extends BaseService {
             async create({ filePath, workerName, authorization }) {
                 try {
                     workerName = workerName.toLocaleLowerCase(); // just incase
+                    const svc_su = this.services.get("su");
+                    const es_subdomain = this.services.get('es:subdomain');
+                    
+                    const currentDomains = await svc_su.sudo(Context.get("actor").get_related_actor(UserActorType), async () => {
+                        return (await es_subdomain.select({ predicate: new StartsWith({ key: "subdomain", value: "workers.puter." }) }));
+                    });
+                    if (currentDomains.length >= 10) {
+                        throw APIError.create('subdomain_limit_reached', null, {isWorker: true, limit: 10});
+                    }
 
                     if (this.global_config.reserved_words.includes(workerName)) {
-                        return APIError.create('subdomain_reserved', null, {
+                        throw APIError.create('subdomain_reserved', null, {
                             subdomain: workerName,
                         });
                     }
@@ -204,7 +214,6 @@ class WorkerService extends BaseService {
                         req: { user: Context.get("actor").type.user },
                         getParam: () => filePath,
                     })).get("path");
-                    const es_subdomain = this.services.get('es:subdomain');
 
                     const userData = await getUserInfo(authorization, this.global_config.api_base_url);
                     const actor = Context.get("actor");
