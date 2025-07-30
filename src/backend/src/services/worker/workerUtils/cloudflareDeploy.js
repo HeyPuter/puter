@@ -45,7 +45,7 @@ async function createWorker(userData, authorization, workerName, body, PREAMBLE_
     const cfReturnCodes = await (await cfFetch(`${WORKERS_BASE_URL}/scripts/${workerName}/`, "PUT", formData)).json();
 
     if (cfReturnCodes.success) {
-        return { success: true, errors: [], url: `${workerName}.puter.work` };
+        return { success: true, errors: [], url: `https://${workerName}.puter.work` };
     } else {
         const parsedErrors = [];
         for (const error of cfReturnCodes.errors) {
