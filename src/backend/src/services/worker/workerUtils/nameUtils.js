@@ -7,7 +7,7 @@ function sha1(input) {
 
 function calculateWorkerNameNew(uuid, workerId) {
 
-    return `${workerId}-${uuid.replaceAll("-", "")}`
+    return `${workerId}`; // Used to be ${workerId}-${uuid.replaceAll("-", "")}
 }
 module.exports = {
     sha1,
