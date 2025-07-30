@@ -7,6 +7,15 @@ export class WorkersHandler {
     }
 
     async create(workerName, filePath) {
+        if (!puter.authToken && puter.env === 'web') {
+            try {
+                await puter.ui.authenticateWithPuter();
+            } catch (e) {
+                // if authentication fails, throw an error
+                throw 'Authentication failed.';
+            }
+        }
+
         workerName = workerName.toLocaleLowerCase(); // just incase
         let currentWorkers = await puter.kv.get("user-workers");
         if (!currentWorkers) {
@@ -26,18 +35,45 @@ export class WorkersHandler {
     }
 
     async exec(...args) {
+        if (!puter.authToken && puter.env === 'web') {
+            try {
+                await puter.ui.authenticateWithPuter();
+            } catch (e) {
+                // if authentication fails, throw an error
+                throw 'Authentication failed.';
+            }
+        }
+
         const req = new Request(...args);
         if (!req.headers.get("puter-auth")) {
-            req.headers.set("puter-auth", this.authToken);
+            req.headers.set("puter-auth", puter.authToken);
         }
         return fetch(req);
     }
 
     async list() {
+        if (!puter.authToken && puter.env === 'web') {
+            try {
+                await puter.ui.authenticateWithPuter();
+            } catch (e) {
+                // if authentication fails, throw an error
+                throw 'Authentication failed.';
+            }
+        }
+
         return await puter.kv.get("user-workers");
     }
 
     async get(workerName) {
+        if (!puter.authToken && puter.env === 'web') {
+            try {
+                await puter.ui.authenticateWithPuter();
+            } catch (e) {
+                // if authentication fails, throw an error
+                throw 'Authentication failed.';
+            }
+        }
+
         workerName = workerName.toLocaleLowerCase(); // just incase
         try {
             return (await puter.kv.get("user-workers"))[workerName].url;
@@ -47,6 +83,15 @@ export class WorkersHandler {
     }
 
     async delete(workerName) {
+        if (!puter.authToken && puter.env === 'web') {
+            try {
+                await puter.ui.authenticateWithPuter();
+            } catch (e) {
+                // if authentication fails, throw an error
+                throw 'Authentication failed.';
+            }
+        }
+        
         workerName = workerName.toLocaleLowerCase(); // just incase
         const driverCall = await puter.drivers.call("workers", "worker-service", "destroy", { authorization: puter.authToken, workerName });
 
