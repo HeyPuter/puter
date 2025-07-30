@@ -386,7 +386,7 @@ window.update_taskbar_position = async function(new_position) {
     }
     
     // Store the new position
-    await puter.kv.set('taskbar_position', new_position);
+    puter.kv.set('taskbar_position', new_position);
     window.taskbar_position = new_position;
     
     // Remove old position classes and add new one
