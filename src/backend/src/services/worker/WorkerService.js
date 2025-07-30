@@ -189,7 +189,7 @@ class WorkerService extends BaseService {
             async create({ filePath, workerName, authorization }) {
                 try {
                     workerName = workerName.toLocaleLowerCase(); // just incase
-                    if(!(/^[a-zA-Z0-9_]+$/.test(workerName))) return;
+                    if(!(/^[a-zA-Z0-9_-]+$/.test(workerName))) return;
 
                     filePath = await (await (new FSNodeParam('path')).consolidate({
                         req: { user: Context.get("actor").type.user },
