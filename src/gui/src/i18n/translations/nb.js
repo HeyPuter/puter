@@ -413,6 +413,18 @@ const nb = {
         'billing.expanded': "Utvidet",
         'billing.accelerated': "Akselerert",
         'billing.enjoy_msg': "Nyt %% med skylagring og andre fordeler.",
+        'terms_and_conditions': "Vilkår og betingelser",
+        'privacy_policy': "Personvernerklæring",
+        'cookies_agree': "Ved å bruke dette nettstedet samtykker du i vår bruk av informasjonskapsler.",
+        'learn_more': "Lær mer",
+        'languages': "Språk",
+        'contribute': "Bidra",
+        'join_us': "Bli med oss",
+        'description': "Åpen kildekode-app for å organisere tankene dine",
+        'source_code': "Kildekode",
+        'not_found': "Fant ikke siden",
+        'not_found_description': "Beklager, vi finner ikke siden du leter etter.",
+
 
     }
 };
