@@ -125,12 +125,12 @@ export default globalThis.puter = (function() {
             this.context = context;
             context.services = this.services;
 
+            
             // Holds the query parameters found in the current URL
-            let URLParams = new URLSearchParams(globalThis.sessionStorage?.getItem("puter_search_params") || globalThis.location?.search);
+            let URLParams = new URLSearchParams(globalThis.location?.search);
 
             // Figure out the environment in which the SDK is running
             if (URLParams.has('puter.app_instance_id')) {
-                globalThis.sessionStorage?.setItem("puter_search_params", globalThis.sessionStorage?.getItem("puter_search_params") || globalThis.location?.search)
                 this.env = 'app';
             } else if(globalThis.puter_gui_enabled === true)
                 this.env = 'gui';
