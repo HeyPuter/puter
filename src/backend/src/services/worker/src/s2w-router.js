@@ -70,6 +70,7 @@ function inits2w() {
             }
             if (event.request.headers.has("puter-auth")) {
                 event.requestor = { puter: init_puter_portable(event.request.headers.get("puter-auth"), globalThis.puter_endpoint || "https://api.puter.com", "userPuter") };
+                event.user = event.requestor;
             }
 
             const mappings = this.map.get(event.request.method);
