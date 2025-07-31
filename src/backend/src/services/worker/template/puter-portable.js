@@ -27,6 +27,9 @@ globalThis.init_puter_portable = (auth, apiOrigin, type) => {
         const goodContext = {}
         Object.getOwnPropertyNames(globalThis).forEach(name => { try { goodContext[name] = globalThis[name]; } catch {} })
         goodContext.globalThis = goodContext;
+        goodContext.WorkerGlobalScope = WorkerGlobalScope;
+        goodContext.ServiceWorkerGlobalScope = ServiceWorkerGlobalScope;
+        goodContext.location = new URL("https://puter.work");
         goodContext.addEventListener = ()=>{};
         // @ts-ignore
         with (goodContext) {
@@ -37,9 +40,10 @@ globalThis.init_puter_portable = (auth, apiOrigin, type) => {
         return goodContext.puter;
     } else {
         #include "../../../../../puter-js/dist/puter.js"
+
+        puter.setAPIOrigin(apiOrigin);
+        puter.setAuthToken(auth);
     }
-    puter.setAPIOrigin(apiOrigin);
-    puter.setAuthToken(auth);
 }
 #include "../dist/webpackPreamplePart.js"
 
