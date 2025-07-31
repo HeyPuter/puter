@@ -40,6 +40,8 @@ module.exports = eggspress('/read', {
     const line_count    = !req.query.line_count ? undefined : parseInt(req.query.line_count);
     const byte_count    = !req.query.byte_count ? undefined : parseInt(req.query.byte_count);
     const offset        = !req.query.offset ? undefined : parseInt(req.query.offset);
+    
+    const range_header = req.headers.range || undefined;
 
     if (line_count && (!Number.isInteger(line_count) || line_count < 1)) {
         throw new APIError(400, '`line_count` must be a positive integer');
@@ -67,6 +69,7 @@ module.exports = eggspress('/read', {
         user: req.user,
         line_count,
         byte_count,
+        range_header,
         offset,
         version_id: req.query.version_id,
     });

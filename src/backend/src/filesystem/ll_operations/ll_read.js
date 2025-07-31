@@ -67,7 +67,15 @@ class LLRead extends LLFilesystemOperation {
                 a.set('fsNode', fsNode);
             },
             ...dry_checks,
-            async function calculate_has_range (a) {
+            async function create_range_header (a) {
+                    //     has_range ? {
+                    //     range: `bytes=${offset}-${offset+length-1}`
+                    // } : {}),
+                // Simply case: range header passed directly
+                const { range_header } = a.values();
+                if ( range_header ) return;
+                    
+                // Backwards compatibility with offset and length
                 const { offset, length } = a.values();
                 const fsNode = a.get('fsNode');
                 const has_range = (
@@ -77,7 +85,9 @@ class LLRead extends LLFilesystemOperation {
                     length !== undefined &&
                     length != await fsNode.get('size')
                 );
-                a.set('has_range', has_range);
+                if ( has_range ) {
+                    a.set('range_header', `bytes=${offset}-${offset+length-1}`);
+                }
             },
             async function update_accessed (a) {
                 const context = a.iget('context');
@@ -117,7 +127,7 @@ class LLRead extends LLFilesystemOperation {
                 const context = a.iget('context');
                 const storage = context.get('storage');
 
-                const { fsNode, version_id, offset, length, has_range } = a.values();
+                const { fsNode, version_id, range_header } = a.values();
 
                 // Empty object here is in the case of local fiesystem,
                 // where s3:location will return null.
@@ -130,9 +140,7 @@ class LLRead extends LLFilesystemOperation {
                     bucket_region: location.bucket_region,
                     version_id,
                     key: location.key,
-                    ...(has_range ? {
-                        range: `bytes=${offset}-${offset+length-1}`
-                    } : {}),
+                    ...(range_header ? { range: range_header } : {}),
                 }));
 
                 a.set('stream', stream);
