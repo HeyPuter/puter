@@ -198,8 +198,8 @@ class WorkerService extends BaseService {
                     const currentDomains = await svc_su.sudo(Context.get("actor").get_related_actor(UserActorType), async () => {
                         return (await es_subdomain.select({ predicate: new StartsWith({ key: "subdomain", value: "workers.puter." }) }));
                     });
-                    if (currentDomains.length >= 10) {
-                        throw APIError.create('subdomain_limit_reached', null, {isWorker: true, limit: 10});
+                    if (currentDomains.length >= 100) {
+                        throw APIError.create('subdomain_limit_reached', null, {isWorker: true, limit: 100});
                     }
 
                     if (this.global_config.reserved_words.includes(workerName)) {
