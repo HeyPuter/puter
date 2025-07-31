@@ -841,7 +841,7 @@ window.initgui = async function(options){
         // if this is a popup, show a spinner
         let spinner_init_ts = Date.now();
         if(window.embedded_in_popup){
-            puter.ui.showSpinner('Setting up your <a href="https://puter.com" target="_blank">Puter</a> account for secure AI and Cloud features...');
+            puter.ui.showSpinner('<span style="-webkit-font-smoothing: antialiased;">Setting up your <a href="https://puter.com" target="_blank">Puter.com</a> account for secure AI and Cloud features</span>');
         }
 
         $.ajax({
