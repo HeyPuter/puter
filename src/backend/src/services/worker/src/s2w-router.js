@@ -78,6 +78,9 @@ function inits2w() {
             if (this.handleCors && event.request.method === "OPTIONS" && !mappings) {
                 return this.handleOptions(event.request);
             }
+            if (!mappings) {
+                return new Response(`No routes for given request type ${event.request.method}`, {status: 404});
+            }
             const url = new URL(event.request.url);
             try {
                 for (const mapping of mappings) {
