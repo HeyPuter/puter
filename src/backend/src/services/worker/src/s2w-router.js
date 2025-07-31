@@ -66,6 +66,7 @@ function inits2w() {
         async route(event) {
             if (!globalThis.me) {
                 globalThis.me = { puter: init_puter_portable(globalThis.puter_auth, globalThis.puter_endpoint || "https://api.puter.com", "userPuter") }
+                globalThis.my = me;
             }
             if (event.request.headers.has("puter-auth")) {
                 event.requestor = { puter: init_puter_portable(event.request.headers.get("puter-auth"), globalThis.puter_endpoint || "https://api.puter.com", "userPuter") };
