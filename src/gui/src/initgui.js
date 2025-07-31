@@ -226,6 +226,14 @@ window.initgui = async function(options){
     await launch_services(options);
 
     //--------------------------------------------------------------------------------------
+    // Is attempt_temp_user_creation?
+    // i.e. https://puter.com/?attempt_temp_user_creation=true
+    //--------------------------------------------------------------------------------------
+    if(window.url_query_params.has('attempt_temp_user_creation') && (window.url_query_params.get('attempt_temp_user_creation') === 'true' || window.url_query_params.get('attempt_temp_user_creation') === '1')){
+        window.attempt_temp_user_creation = true;
+    }
+
+    //--------------------------------------------------------------------------------------
     // Is GUI embedded in a popup?
     // i.e. https://puter.com/?embedded_in_popup=true
     //--------------------------------------------------------------------------------------
@@ -248,7 +256,7 @@ window.initgui = async function(options){
         // this is the referrer in terms of user acquisition
         window.referrerStr = window.openerOrigin;
 
-        if(action === 'sign-in' && !window.is_auth()){
+        if(action === 'sign-in' && !window.is_auth() && !(window.attempt_temp_user_creation && window.first_visit_ever)){
             // show signup window
             if(await UIWindowSignup({
                 reload_on_success: false,
@@ -261,7 +269,7 @@ window.initgui = async function(options){
             }))
                 await window.getUserAppToken(window.openerOrigin);
         }
-        else if(action === 'sign-in' && window.is_auth()){
+        else if(action === 'sign-in' && window.is_auth() && !(window.attempt_temp_user_creation && window.first_visit_ever)){
             picked_a_user_for_sdk_login = await UIWindowSessionList({
                 reload_on_success: false,
                 draggable_body: false,

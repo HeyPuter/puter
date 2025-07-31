@@ -42,7 +42,9 @@ class Auth{
         this.APIOrigin = APIOrigin;
     }
     
-    signIn = () =>{
+    signIn = (options) =>{
+        options = options || {};
+
         return new Promise((resolve, reject) => {
             let msg_id = this.#messageID++;
             let w = 600;
@@ -52,7 +54,7 @@ class Auth{
             var top = (screen.height/2)-(h/2);
             
             // Store reference to the popup window
-            const popup = window.open(puter.defaultGUIOrigin + '/action/sign-in?embedded_in_popup=true&msg_id=' + msg_id + (window.crossOriginIsolated ? '&cross_origin_isolated=true' : ''), 
+            const popup = window.open(puter.defaultGUIOrigin + '/action/sign-in?embedded_in_popup=true&msg_id=' + msg_id + (window.crossOriginIsolated ? '&cross_origin_isolated=true' : '') +(options.attempt_temp_user_creation ? '&attempt_temp_user_creation=true' : ''), 
             title, 
             'toolbar=no, location=no, directories=no, status=no, menubar=no, scrollbars=no, resizable=no, copyhistory=no, width='+w+', height='+h+', top='+top+', left='+left);
 
