@@ -38,7 +38,7 @@ async function UIWindowPublishWorker(target_dir_uid, target_dir_name, target_dir
             h += `<div style="overflow: hidden;">`;
     h += `<label style="margin-bottom: 10px;">${i18n('pick_name_for_worker')}</label>`;
     
-                h += `<div style="font-family: monospace;">${html_encode(window.extractProtocol(window.url))}://<input class="publish-website-subdomain" style="width:235px;" type="text" autocomplete="subdomain" spellcheck="false" autocorrect="off" autocapitalize="off" data-gramm_editor="false"/>${html_encode('.puter.work')}</div>`;
+                h += `<div style="font-family: monospace;">${html_encode(window.extractProtocol(window.url))}://<input class="publish-worker-name" style="width:235px;" type="text" autocomplete="subdomain" spellcheck="false" autocorrect="off" autocapitalize="off" data-gramm_editor="false"/>${html_encode('.puter.work')}</div>`;
             h += `</div>`;
             // uid
             h += `<input class="publishWebsiteTargetDirUID" type="hidden" value="${html_encode(target_dir_uid)}"/>`;
@@ -65,8 +65,8 @@ async function UIWindowPublishWorker(target_dir_uid, target_dir_name, target_dir
         width: 450,
         dominant: true,
         onAppend: function(this_window){
-            $(this_window).find(`.publish-website-subdomain`).val(window.generate_identifier());
-            $(this_window).find(`.publish-website-subdomain`).get(0).focus({preventScroll:true});
+            $(this_window).find(`.publish-worker-name`).val(window.generate_identifier());
+            $(this_window).find(`.publish-worker-name`).get(0).focus({preventScroll:true});
         },
         window_class: 'window-publishWorker',
         window_css:{
@@ -83,16 +83,16 @@ async function UIWindowPublishWorker(target_dir_uid, target_dir_name, target_dir
     $(el_window).find('.publish-btn').on('click', function(e){
         // todo do some basic validation client-side
 
-        //Subdomain
-        let subdomain = $(el_window).find('.publish-website-subdomain').val();
+        //Worker name
+        let worker_name = $(el_window).find('.publish-worker-name').val();
     
         // disable 'Publish' button
         $(el_window).find('.publish-btn').prop('disabled', true);
 
         puter.workers.create(
-            subdomain, 
+            worker_name, 
             target_dir_path).then((res)=>{
-                let url = 'https://' + subdomain + '.puter.work';
+                let url = 'https://' + worker_name + '.puter.work';
                 $(el_window).find('.window-publishWorker-form').hide(100, function(){
                     $(el_window).find('.publishWorker-published-link').attr('href', url);
                     $(el_window).find('.publishWorker-published-link').text(url);
@@ -107,8 +107,6 @@ async function UIWindowPublishWorker(target_dir_uid, target_dir_name, target_dir
                     // update item's website_url attribute
                     $(this).attr('data-website_url', url + $(this).attr('data-path').substring(target_dir_path.length));
                 })
-
-                window.update_sites_cache();
             }).catch((err)=>{
                 err = err.error;
                 $(el_window).find('.publish-website-error-msg').html(
