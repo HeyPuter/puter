@@ -164,8 +164,16 @@ const new_context_menu_item = function(dirname, append_to_element){
                     dirname: dirname, 
                     append_to_element: append_to_element, 
                     name: 'New Worker.js',
-                    content: `router.get('/', (req, res) => {
-    return 'Hello World';
+                    content: `// This is an example application for Puter Workers
+
+router.get('/', ({request}) => {
+    return 'Hello World'; // returns a string
+});
+router.get('/api/hello', ({request}) => {
+    return {'msg': 'hello'}; // returns a JSON object    
+});
+router.get('/*page', ({request, params}) => {
+    return new Response(\`Page \${params.page} not found\`, {status: 404});
 });
                     `
                 });
