@@ -25,6 +25,7 @@ import UIPopover from './UIPopover.js';
 import UIWindowEmailConfirmationRequired from './UIWindowEmailConfirmationRequired.js';
 import UIContextMenu from './UIContextMenu.js'
 import UIAlert from './UIAlert.js'
+import UIWindowPublishWorker from './UIWindowPublishWorker.js';
 import path from "../lib/path.js"
 import truncate_filename from '../helpers/truncate_filename.js';
 import launch_app from "../helpers/launch_app.js"
@@ -1137,6 +1138,17 @@ function UIItem(options){
                 });
 
             }
+            //-------------------------------------------
+            // Publish as Worker
+            // -------------------------------------------
+            if(!is_trashed && !is_trash && !options.is_dir && $(el_item).attr('data-name').toLowerCase().endsWith('.js')){
+                menu_items.push({
+                    html: i18n('publish_as_serverless_worker'),
+                    onClick: async function(){
+                        UIWindowPublishWorker(options.uid, $(el_item).attr('data-name'), $(el_item).attr('data-path'));
+                    }
+                });
+            }
             // -------------------------------------------
             // Deploy As App
             // -------------------------------------------
@@ -1158,7 +1170,6 @@ function UIItem(options){
 
                 menu_items.push('-');
             }
-
             // -------------------------------------------
             // Empty Trash
             // -------------------------------------------

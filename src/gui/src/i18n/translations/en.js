@@ -211,6 +211,7 @@ const en = {
         path: 'Path',
         personalization: "Personalization",
         pick_name_for_website: "Pick a name for your website:",
+        pick_name_for_worker: "Pick a name for your worker:",
         picture: "Picture",
         pictures: 'Pictures',
         plural_suffix: 's',
@@ -230,6 +231,7 @@ const en = {
         public: 'Public',
         publish: "Publish",
         publish_as_website: 'Publish as website',
+        publish_as_serverless_worker: 'Publish as Worker',
         puter_description: `Puter is a privacy-first personal cloud to keep all your files, apps, and games in one secure place, accessible from anywhere at any time.`,
         reading: "Reading %strong%",
         writing: "Writing %strong%",
@@ -461,6 +463,7 @@ const en = {
         'window_title_set_new_password': 'Set New Password',
         'window_title_instant_login': 'Instant Login!',
         'window_title_publish_website': 'Publish Website',
+        'window_title_publish_worker': 'Publish Worker',
         'window_title_authenticating': 'Authenticating...',
         'window_title_refer_friend': 'Refer a friend!',
         
