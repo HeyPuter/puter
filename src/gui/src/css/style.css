@@ -1900,7 +1900,7 @@ label {
 }
 /***************************************************/
 
-.login-error-msg, .signup-error-msg, .publish-website-error-msg, .form-error-msg {
+.login-error-msg, .signup-error-msg, .publish-website-error-msg, .form-error-msg, .publish-worker-error-msg {
     display: none;
     color: red;
     border: 1px solid red;

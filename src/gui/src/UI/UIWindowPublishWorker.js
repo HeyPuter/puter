@@ -27,17 +27,16 @@ async function UIWindowPublishWorker(target_dir_uid, target_dir_name, target_dir
         h += `<div class="window-publishWorker-success">`;
             h += `<img src="${html_encode(window.icons['c-check.svg'])}" style="width:80px; height:80px; display: block; margin:10px auto;">`;
             h += `<p style="text-align:center;">${i18n('dir_published_as_website', `<strong>${html_encode(target_dir_name)}</strong>`, false)}<p>`;
-            h += `<p style="text-align:center;"><a class="publishWebsite-published-link" target="_blank"></a><img class="publishWebsite-published-link-icon" src="${html_encode(window.icons['launch.svg'])}"></p>`;
+            h += `<p style="text-align:center;"><a class="publishWorker-published-link" target="_blank"></a><img class="publishWorker-published-link-icon" src="${html_encode(window.icons['launch.svg'])}"></p>`;
             h += `<button class="button button-normal button-block button-primary publish-window-ok-btn" style="margin-top:20px;">${i18n('ok')}</button>`;
         h+= `</div>`;
         // form
         h += `<form class="window-publishWorker-form">`;
             // error msg
-            h += `<div class="publish-website-error-msg"></div>`;
-            // subdomain
+            h += `<div class="publish-worker-error-msg"></div>`;
+            // worker name
             h += `<div style="overflow: hidden;">`;
-    h += `<label style="margin-bottom: 10px;">${i18n('pick_name_for_worker')}</label>`;
-    
+                h += `<label style="margin-bottom: 10px;">${i18n('pick_name_for_worker')}</label>`;
                 h += `<div style="font-family: monospace;">${html_encode(window.extractProtocol(window.url))}://<input class="publish-worker-name" style="width:235px;" type="text" autocomplete="subdomain" spellcheck="false" autocorrect="off" autocapitalize="off" data-gramm_editor="false"/>${html_encode('.puter.work')}</div>`;
             h += `</div>`;
             // uid
@@ -109,13 +108,13 @@ async function UIWindowPublishWorker(target_dir_uid, target_dir_name, target_dir
                 })
             }).catch((err)=>{
                 err = err.error;
-                $(el_window).find('.publish-website-error-msg').html(
+                $(el_window).find('.publish-worker-error-msg').html(
                     err.message + (
                         err.code === 'subdomain_limit_reached' ? 
                             ' <span class="manage-your-websites-link">' + i18n('manage_your_subdomains') + '</span>' : ''
                     )
                 );
-                $(el_window).find('.publish-website-error-msg').fadeIn();
+                $(el_window).find('.publish-worker-error-msg').fadeIn();
                 // re-enable 'Publish' button
                 $(el_window).find('.publish-btn').prop('disabled', false);
             })

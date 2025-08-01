@@ -99,7 +99,7 @@ export class WorkersHandler {
             if (!driverCall.result.result) {
                 new Error("Worker doesn't exist");
             }
-            throw driverCall.error || new Error(driverResult?.errors || "Driver failed to execute, do you have the necessary permissions?");
+            throw driverCall.error || new Error(driverCall.result?.errors || "Driver failed to execute, do you have the necessary permissions?");
         } else {
             let currentWorkers = await puter.kv.get("user-workers");
             
