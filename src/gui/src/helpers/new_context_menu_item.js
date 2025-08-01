@@ -155,6 +155,22 @@ const new_context_menu_item = function(dirname, append_to_element){
                 });
             }
         },
+        // Worker
+        {
+            html: i18n('worker'),
+            icon: `<img src="${html_encode(window.icons['worker.svg'])}" class="ctx-item-icon">`,
+            onClick: async function() {
+                await window.create_file({
+                    dirname: dirname, 
+                    append_to_element: append_to_element, 
+                    name: 'New Worker.js',
+                    content: `router.get('/', (req, res) => {
+    return 'Hello World';
+});
+                    `
+                });
+            }
+        }
     ];
 
     //Show file_templates on the lower part of "New"
