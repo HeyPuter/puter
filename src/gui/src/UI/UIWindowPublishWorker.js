@@ -85,8 +85,11 @@ async function UIWindowPublishWorker(target_dir_uid, target_dir_name, target_dir
         //Worker name
         let worker_name = $(el_window).find('.publish-worker-name').val();
     
-        // disable 'Publish' button
-        $(el_window).find('.publish-btn').prop('disabled', true);
+        // Store original text and replace with spinner
+        const originalText = $(el_window).find('.publish-btn').text();
+        $(el_window).find('.publish-btn').prop('disabled', true).html(`
+            <div style="display: inline-block; margin-top: 10px; width: 16px; height: 16px; border: 2px solid #ffffff; border-radius: 50%; border-top: 2px solid transparent; animation: spin 1s linear infinite;"></div>
+        `);
 
         puter.workers.create(
             worker_name, 
@@ -115,8 +118,8 @@ async function UIWindowPublishWorker(target_dir_uid, target_dir_name, target_dir
                     )
                 );
                 $(el_window).find('.publish-worker-error-msg').fadeIn();
-                // re-enable 'Publish' button
-                $(el_window).find('.publish-btn').prop('disabled', false);
+                // re-enable 'Publish' button and restore original text
+                $(el_window).find('.publish-btn').prop('disabled', false).text(originalText);
             })
     })
 
