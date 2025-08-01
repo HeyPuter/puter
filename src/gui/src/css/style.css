@@ -1900,7 +1900,7 @@ label {
 }
 /***************************************************/
 
-.login-error-msg, .signup-error-msg, .publish-website-error-msg, .form-error-msg {
+.login-error-msg, .signup-error-msg, .publish-website-error-msg, .form-error-msg, .publish-worker-error-msg {
     display: none;
     color: red;
     border: 1px solid red;
@@ -1937,7 +1937,7 @@ label {
     margin-top: 20px;
 }
 
-.window-publishWebsite-success, .window-give-item-access-success {
+.window-publishWebsite-success, .window-give-item-access-success, .window-publishWorker-success {
     display: none;
     -webkit-font-smoothing: antialiased;
     -moz-osx-font-smoothing: grayscale;
@@ -1950,16 +1950,16 @@ label {
     cursor: pointer;
 }
 
-.publishWebsite-published-link {
+.publishWebsite-published-link, .publishWorker-published-link {
     text-decoration: none;
     color: #007cff;
 }
 
-.publishWebsite-published-link:hover {
+.publishWebsite-published-link:hover, .publishWorker-published-link:hover {
     text-decoration: underline;
 }
 
-.publishWebsite-published-link-icon {
+.publishWebsite-published-link-icon, .publishWorker-published-link-icon {
     display: inline-block;
     width: 12px;
     margin-left: 5px;
