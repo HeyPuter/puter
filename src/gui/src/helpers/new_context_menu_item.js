@@ -158,7 +158,7 @@ const new_context_menu_item = function(dirname, append_to_element){
         // Worker
         {
             html: i18n('worker'),
-            icon: `<img src="${html_encode(window.icons['worker.svg'])}" class="ctx-item-icon">`,
+            icon: `<img src="${html_encode(window.icons['file-js.svg'])}" class="ctx-item-icon">`,
             onClick: async function() {
                 await window.create_file({
                     dirname: dirname, 
