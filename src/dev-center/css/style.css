@@ -227,14 +227,14 @@ section {
     padding-left: 20px;
     box-sizing: border-box;
 }
-#app-list{
+#app-list, #website-list, #worker-list {
     display: none;
 }
-#app-list-table > thead{
+#app-list-table > thead, #website-list-table > thead, #worker-list-table > thead{
     font-size:14px; background-color: #f7fafc; border-top: 1px solid #DDD; text-transform: uppercase; color: #6d767d;
     cursor: default;
 }
-.app-card {
+.app-card, .website-card, .worker-card {
     padding: 12px;
     border-top: 1px solid #d8dce5;
     border-radius: 0;
@@ -245,33 +245,33 @@ section {
 
 }
 
-.app-card:hover {
+.app-card:hover, .website-card:hover, .worker-card:hover {
     background-color: #e8eff66e;
 }
-.app-card.active {
+.app-card.active, .website-card.active, .worker-card.active {
     background-color: #e8eff6;
 }
 
 
-.app-card:hover .app-row-toolbar {
+.app-card:hover .app-row-toolbar, .website-card:hover .website-row-toolbar, .worker-card:hover .worker-row-toolbar {
     visibility: visible;
     opacity: 1;
 }
 
-.app-toolbar-container {
+.app-toolbar-container, .website-toolbar-container, .worker-toolbar-container {
   height: 16px;
   overflow: hidden;
   position: relative;
 }
 
-.app-card h1 {
+.app-card h1, .website-card h1, .worker-card h1 {
     margin-top: 0;
     color: #657188;
     font-weight: 400;
     font-size: 25px;
 }
 
-#create-app-success {
+#create-app-success, #create-website-success, #create-worker-success {
     height: calc(100vh - 40px);
     overflow: hidden;
     text-align: center;
@@ -286,7 +286,7 @@ label, input[type="text"] {
     user-select: none;
 }
 
-#delete-app {
+#delete-app, #delete-website, #delete-worker {
     cursor: pointer;
     float: left;
     margin-top: 30px;
@@ -294,7 +294,7 @@ label, input[type="text"] {
     font-size: 13px;
 }
 
-#delete-app:hover {
+#delete-app:hover, #delete-website:hover, #delete-worker:hover {
     text-decoration: underline;
 }
 
@@ -568,6 +568,14 @@ label {
 .tab-btn[data-tab="apps"] {
     background-image: url(../img/apps-outline-black.svg);
 }
+
+.tab-btn[data-tab="websites"] {
+    background-image: url(../img/website.svg);
+}
+.tab-btn.active[data-tab="websites"] {
+    background-image: url(../img/website-white.svg);
+}
+
 .tab-btn[data-tab="workers"] {
     background-image: url(../img/workers.svg);
 }
