@@ -16,26 +16,26 @@
  * You should have received a copy of the GNU Affero General Public License
  * along with this program.  If not, see <https://www.gnu.org/licenses/>.
  */
-const BaseService = require("../../services/BaseService");
-const { CLink } = require("./connection/CLink");
-const { SLink } = require("./connection/SLink");
-const { Context } = require("../../util/context");
+const BaseService = require('../../services/BaseService');
+const { CLink } = require('./connection/CLink');
+const { SLink } = require('./connection/SLink');
+const { Context } = require('../../util/context');
 
 class BroadcastService extends BaseService {
     static MODULES = {
         express: require('express'),
         // ['socket.io']: require('socket.io'),
     };
-    
-    _construct () {
+
+    _construct() {
         this.peers_ = [];
         this.connections_ = [];
         this.trustedPublicKeys_ = {};
     }
-    
-    async _init () {
+
+    async _init() {
         const peers = this.config.peers ?? [];
-        for ( const peer_config of peers ) {
+        for (const peer_config of peers) {
             this.trustedPublicKeys_[peer_config.key] = true;
             const peer = new CLink({
                 keys: this.config.keys,
@@ -45,17 +45,17 @@ class BroadcastService extends BaseService {
             this.peers_.push(peer);
             peer.connect();
         }
-        
+
         this._register_commands(this.services.get('commands'));
-        
+
         const svc_event = this.services.get('event');
         svc_event.on('outer.*', this.on_event.bind(this));
     }
-    
-    async on_event (key, data, meta) {
-        if ( meta.from_outside ) return;
-        
-        for ( const peer of this.peers_ ) {
+
+    async on_event(key, data, meta) {
+        if (meta.from_outside) return;
+
+        for (const peer of this.peers_) {
             try {
                 peer.send({ key, data, meta });
             } catch (e) {
@@ -63,64 +63,63 @@ class BroadcastService extends BaseService {
             }
         }
     }
-    
-    async ['__on_install.websockets'] () {
+
+    async ['__on_install.websockets']() {
         const svc_event = this.services.get('event');
         const svc_webServer = this.services.get('web-server');
-        
+
         const server = svc_webServer.get_server();
 
         const io = require('socket.io')(server, {
             cors: { origin: '*' },
             path: '/wssinternal',
         });
-        
-        io.on('connection', async socket => {
+
+        io.on('connection', async(socket) => {
             const conn = new SLink({
                 keys: this.config.keys,
                 trustedKeys: this.trustedPublicKeys_,
                 socket,
             });
             this.connections_.push(conn);
-            
+
             conn.channels.message.on(({ key, data, meta }) => {
-                if ( meta.from_outside ) {
+                if (meta.from_outside) {
                     this.log.noticeme('possible over-sending');
                     return;
                 }
-                
-                if ( key === 'test' ) {
-                    this.log.noticeme(`test message: ` +
-                        JSON.stringify(data)
-                    );
+
+                if (key === 'test') {
+                    this.log.noticeme('test message: ' + JSON.stringify(data));
                 }
 
                 meta.from_outside = true;
                 const context = Context.get(undefined, { allow_fallback: true });
-                context.arun(async () => {
+                context.arun(async() => {
                     await svc_event.emit(key, data, meta);
                 });
             });
         });
-        
-        
-        this.log.noticeme(
-            require('node:util').inspect(this.config)
-        );
+
+        this.log.noticeme(require('node:util').inspect(this.config));
     }
-    
-    _register_commands (commands) {
+
+    _register_commands(commands) {
         commands.registerCommands('broadcast', [
             {
                 id: 'test',
                 description: 'send a test message',
-                handler: async (args, ctx) => {
-                    this.on_event('test', {
-                        contents: 'I am a test message',
-                    }, {})
-                }
-            }
-        ])
+                handler: async(args, ctx) => {
+                    this.on_event(
+                        'test',
+                        {
+                            contents: 'I am a test message',
+                        },
+                        {},
+                    );
+                },
+            },
+        ]);
     }
 }
 
