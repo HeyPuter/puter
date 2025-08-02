@@ -568,7 +568,12 @@ label {
 .tab-btn[data-tab="apps"] {
     background-image: url(../img/apps-outline-black.svg);
 }
-
+.tab-btn[data-tab="workers"] {
+    background-image: url(../img/workers.svg);
+}
+.tab-btn.active[data-tab="workers"] {
+    background-image: url(../img/workers-white.svg);
+}
 .tab-btn[data-tab="payout-method"] {
     background-image: url(../img/wallet.svg);
 }
@@ -590,7 +595,7 @@ label {
     box-sizing: border-box;
 }
 
-#no-apps-notice, #loading {
+#no-apps-notice, #no-workers-notice, #loading {
     display: flex;
     flex-direction: column;
     justify-content: center;
@@ -923,6 +928,14 @@ ol li:before {
     width: 20px;
     margin-bottom: -5px; 
     margin-right: 10px;
+}
+.create-a-worker-btn{
+    float:right; margin-bottom: 10px;
+}
+.create-a-worker-btn img{
+    width: 20px;
+    margin-bottom: -5px; 
+    margin-right: 5px;
 }
 .jip-submit-btn{
     float: left; 

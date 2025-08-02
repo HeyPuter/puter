@@ -79,6 +79,7 @@
         <div class="sidebar-content">
             <ul class="sidebar-nav disable-user-select">
                 <li class="tab-btn active" data-tab="apps">My Apps<span class="app-count"></span></li>
+                <li class="tab-btn" data-tab="workers">My Workers<span class="worker-count"></span></li>
                 <li class="tab-btn" data-tab="payout-method" style="display:none;">Payout Method</li>
             </ul>
 
@@ -178,6 +179,14 @@
     </section>
 
     <!---------------------------------------->
+    <!-- No Workers Message                  -->
+    <!---------------------------------------->
+    <section id="no-workers-notice" style="display:none;">
+        <img src="./img/workers-placeholder.svg" style="width: 64px; opacity: 0.62; filter: grayscale(100%); transform: rotate(-20deg);">
+        <p style="color: #606062;">You haven't created any workers yet.</p>
+        <button class="create-a-worker-btn button button-primary"><img src="./img/workers-white.svg">Create a Worker</button>
+    </section>
+    <!---------------------------------------->
     <!-- Edit App                           -->
     <!---------------------------------------->
     <section id="edit-app" style="margin-bottom: 100px;">
@@ -238,6 +247,13 @@
         </div>
     </section>
     </div>
+
+    <!---------------------------------------->
+    <!-- Worker List                        -->
+    <!---------------------------------------->
+    <section id="worker-list">
+        <h1>My Workers</h1>
+    </section>
 
     <script src="./js/jquery-3.6.0.min.js"></script>
     <script src="./js/jquery.dragster.js"></script>

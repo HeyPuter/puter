@@ -21,6 +21,7 @@ let URLParams = new URLSearchParams(window.location.search);
 let domain = 'puter.com', authUsername;
 let source_path
 let apps = [];
+let workers = [];
 let sortBy = 'created_at';
 let sortDirection = 'desc';
 const dev_center_uid = puter.appID;
@@ -210,6 +211,18 @@ function refresh_app_list(show_loading = false) {
     }, show_loading ? 1000 : 0);
 }
 
+function refresh_worker_list(show_loading = false) {
+    if (show_loading)
+        puter.ui.showSpinner();
+    // get workers
+    setTimeout(function () {
+        puter.workers.list().then((workers_res) => {
+            workers = workers_res;
+            puter.ui.hideSpinner();
+        })
+    }, 1000);
+}
+
 $(document).on('click', '.tab-btn', function (e) {
     puter.ui.showSpinner();
     $('section:not(.sidebar)').hide();
@@ -223,6 +236,26 @@ $(document).on('click', '.tab-btn', function (e) {
     if ($(this).attr('data-tab') === 'apps') {
         refresh_app_list();
         activeTab = 'apps';
+    }
+    // ---------------------------------------------------------------
+    // Workers tab
+    // ---------------------------------------------------------------
+    else if ($(this).attr('data-tab') === 'workers') {
+        // Get workers
+        puter.workers.list().then((resp) => {
+            workers = resp || [];
+            if (activeTab === 'workers' && workers.length > 0) {
+                $('#no-workers-notice').hide();
+                $('#worker-list').show();
+                workers.forEach(worker => {
+                    $('#worker-list-table > tbody').append(generate_worker_card(worker));
+                });
+            } else {
+                $('#no-workers-notice').show();
+                $('#worker-list').hide();
+            }
+        })
+        activeTab = 'workers';
     }
     // ---------------------------------------------------------------
     // Payout Method tab
@@ -260,6 +293,14 @@ $(document).on('click', '.create-an-app-btn', async function (e) {
     }
     else if (title) {
         create_app(title);
+    }
+})
+
+$(document).on('click', '.create-a-worker-btn', async function (e) {
+    let name = await puter.ui.prompt('Please enter a name for your worker:', 'My Awesome Worker');
+
+    if (name) {
+        create_worker(name);
     }
 })
 
@@ -375,6 +416,11 @@ async function create_app(title, source_path = null, items = null) {
         })
 }
 
+async function create_worker(name) {
+    let worker = await puter.workers.create({
+        name: name,
+    });
+}
 
 $(document).on('click', '.deploy-btn', function (e) {
     deploy(currently_editing_app, dropped_items);
