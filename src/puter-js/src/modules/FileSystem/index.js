@@ -14,10 +14,7 @@ import symlink from './operations/symlink.js';
 // Why is this called deleteFSEntry instead of just delete? because delete is 
 // a reserved keyword in javascript
 import deleteFSEntry from "./operations/deleteFSEntry.js";
-import { ProxyFilesystem, TFilesystem } from '../../lib/filesystem/definitions.js';
 import { AdvancedBase } from '../../../../putility/index.js';
-import { CachedFilesystem } from '../../lib/filesystem/CacheFS.js';
-import { PuterAPIFilesystem } from '../../lib/filesystem/APIFS.js';
 
 export class PuterJSFileSystemModule extends AdvancedBase {
 

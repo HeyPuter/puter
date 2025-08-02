@@ -748,6 +748,9 @@ async function UIDesktop(options) {
     // ---------------------------------------------------------------
     UITaskbar();
 
+    // Update desktop dimensions after taskbar is initialized with position
+    window.update_desktop_dimensions_for_taskbar();
+
     const el_desktop = document.querySelector('.desktop');
 
     window.active_element = el_desktop;
@@ -1100,6 +1103,9 @@ async function UIDesktop(options) {
 
                     selection.clearSelection();
                 }
+
+                // mark desktop as selectable active
+                $('.desktop').addClass('desktop-selectable-active');
             })
             .on('move', ({ store: { changed: { added, removed } }, event }) => {
                 window.desktop_selectable_is_active = true;
@@ -1125,6 +1131,7 @@ async function UIDesktop(options) {
             })
             .on('stop', evt => {
                 window.desktop_selectable_is_active = false;
+                $('.desktop').removeClass('desktop-selectable-active');
             });
     }
     // ----------------------------------------------------
@@ -1156,7 +1163,7 @@ async function UIDesktop(options) {
     ht += `</div>`;
 
     // 'Show Desktop'
-    ht += `<a href="/" class="show-desktop-btn toolbar-btn antialiased hidden" target="_blank" title="Show Desktop">Show Desktop <img src="${window.icons['launch-white.svg']}" style="width: 10px; height: 10px; margin-left: 5px;"></a>`;
+    ht += `<a href="/" class="show-desktop-btn toolbar-btn antialiased hidden" target="_blank" title="${i18n('desktop_show_desktop')}">${i18n('desktop_show_desktop')} <img src="${window.icons['launch-white.svg']}" style="width: 10px; height: 10px; margin-left: 5px;"></a>`;
 
     // refer
     if (window.user.referral_code) {
@@ -1755,31 +1762,66 @@ $(document).on('contextmenu taphold', '.taskbar', function (event) {
 
     event.preventDefault();
     event.stopPropagation();
+    
+    // Get current taskbar position
+    const currentPosition = window.taskbar_position || 'bottom';
+    
+    // Create base menu items
+    let menuItems = [];
+    
+    // Only show position submenu on desktop devices
+    if (!isMobile.phone && !isMobile.tablet) {
+        menuItems.push({
+            html: i18n('desktop_position'),
+            items: [
+                {
+                    html: i18n('desktop_position_left'),
+                    checked: currentPosition === 'left',
+                    onClick: function() {
+                        window.update_taskbar_position('left');
+                    }
+                },
+                {
+                    html: i18n('desktop_position_bottom'),
+                    checked: currentPosition === 'bottom',
+                    onClick: function() {
+                        window.update_taskbar_position('bottom');
+                    }
+                },
+                {
+                    html: i18n('desktop_position_right'),
+                    checked: currentPosition === 'right',
+                    onClick: function() {
+                        window.update_taskbar_position('right');
+                    }
+                }
+            ]
+        });
+        menuItems.push('-'); // divider
+    }
+    
+    // Add the "Show open windows" option for all devices
+    menuItems.push({
+        html: i18n('desktop_show_open_windows'),
+        onClick: function () {
+            $(`.window`).showWindow();
+        }
+    });
+    
+    // Add the "Show the desktop" option for all devices
+    menuItems.push({
+        html: i18n('desktop_show_desktop'),
+        onClick: function () {
+            $(`.window`).hideWindow();
+        }
+    });
+    
     UIContextMenu({
         parent_element: $('.taskbar'),
-        items: [
-            //--------------------------------------------------
-            // Show open windows
-            //--------------------------------------------------
-            {
-                html: "Show open windows",
-                onClick: function () {
-                    $(`.window`).showWindow();
-                }
-            },
-            //--------------------------------------------------
-            // Show the desktop
-            //--------------------------------------------------
-            {
-                html: "Show the desktop",
-                onClick: function () {
-                    $(`.window`).hideWindow();
-                }
-            }
-        ]
+        items: menuItems
     });
     return false;
-})
+});
 
 // Toolbar context menu
 $(document).on('contextmenu taphold', '.toolbar', function (event) {
@@ -2167,11 +2209,11 @@ document.addEventListener('fullscreenchange', (event) => {
 
     if (document.fullscreenElement) {
         $('.fullscreen-btn').css('background-image', `url(${window.icons['shrink.svg']})`);
-        $('.fullscreen-btn').attr('title', 'Exit Full Screen');
+        $('.fullscreen-btn').attr('title', i18n('desktop_exit_full_screen'));
         window.user_preferences.clock_visible === 'auto' && $('#clock').show();
     } else {
         $('.fullscreen-btn').css('background-image', `url(${window.icons['fullscreen.svg']})`);
-        $('.fullscreen-btn').attr('title', 'Enter Full Screen');
+        $('.fullscreen-btn').attr('title', i18n('desktop_enter_full_screen'));
         window.user_preferences.clock_visible === 'auto' && $('#clock').hide();
     }
 })
@@ -2241,6 +2283,13 @@ window.remove_taskbar_item = function (item) {
 
     $(item).animate({ width: 0 }, 200, function () {
         $(item).remove();
+        
+        // Adjust taskbar item sizes after removing an item
+        if (window.adjust_taskbar_item_sizes) {
+            setTimeout(() => {
+                window.adjust_taskbar_item_sizes();
+            }, 10);
+        }
     })
 }
 

@@ -18,8 +18,17 @@ module.exports = class TestRegistry {
         this.benches[id] = benchDefinition;
     }
 
-    async run_all_tests () {
+    async run_all_tests(suiteName) {
+        // check if "suiteName" is valid
+        if (suiteName && !Object.keys(this.tests).includes(suiteName)) {
+            throw new Error(`Suite not found: ${suiteName}, valid suites are: ${Object.keys(this.tests).join(', ')}`);
+        }
+
         for ( const id in this.tests ) {
+            if (suiteName && id !== suiteName) {
+                continue;
+            }
+
             const testDefinition = this.tests[id];
             await this.t.runTestPackage(testDefinition);
         }

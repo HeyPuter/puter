@@ -63,6 +63,7 @@ class ExtensionServiceState extends AdvancedBase {
             mw,
             route: path,
             handler: handler,
+            ...(options.subdomain ? { subdomain: options.subdomain } : {}),
         });
     
         this.endpoints_.push(endpoint);

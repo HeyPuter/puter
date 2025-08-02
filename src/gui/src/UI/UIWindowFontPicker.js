@@ -66,7 +66,7 @@ async function UIWindowFontPicker(options){
         h += `</div>`;
         
         const el_window = await UIWindow({
-            title: 'Select font…',
+            title: i18n('window_title_select_font'),
             app: 'font-picker',
             single_instance: true,
             icon: null,

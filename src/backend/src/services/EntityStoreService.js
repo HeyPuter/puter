@@ -194,7 +194,7 @@ class EntityStoreService extends BaseService {
                 om: this.om,
             });
 
-            const predicate = await idu.detect_identifier(id ?? {});
+            const predicate = await idu.detect_identifier(id ?? {}, true);
             if ( predicate ) {
                 const maybe_entity = await this.select({ predicate, limit: 1 });
                 if ( maybe_entity.length ) {

@@ -15,9 +15,7 @@ if (globalThis.Cloudflare) {
     }
 }
 
-globalThis.init_puter_portable = (auth, apiOrigin) => {
-    console.log("Starting puter.js initialization");
-
+globalThis.init_puter_portable = (auth, apiOrigin, type) => {
     // Who put C in my JS??
     /*
      *  This is a hack to include the puter.js file.
@@ -25,9 +23,27 @@ globalThis.init_puter_portable = (auth, apiOrigin) => {
      *  The puter.js file is handled by the C preprocessor here because webpack cant behave with already minified files.
      * The C preprocessor basically just includes the file and then we can use the puter.js file in the worker.
      */
-    #include "../../../../../puter-js/dist/puter.js"
-    puter.setAPIOrigin(apiOrigin);
-    puter.setAuthToken(auth);
+    if (type === "userPuter") {
+        const goodContext = {}
+        Object.getOwnPropertyNames(globalThis).forEach(name => { try { goodContext[name] = globalThis[name]; } catch {} })
+        goodContext.globalThis = goodContext;
+        goodContext.WorkerGlobalScope = WorkerGlobalScope;
+        goodContext.ServiceWorkerGlobalScope = ServiceWorkerGlobalScope;
+        goodContext.location = new URL("https://puter.work");
+        goodContext.addEventListener = ()=>{};
+        // @ts-ignore
+        with (goodContext) {
+            #include "../../../../../puter-js/dist/puter.js"
+        }
+        goodContext.puter.setAPIOrigin(apiOrigin);
+        goodContext.puter.setAuthToken(auth);
+        return goodContext.puter;
+    } else {
+        #include "../../../../../puter-js/dist/puter.js"
+
+        puter.setAPIOrigin(apiOrigin);
+        puter.setAuthToken(auth);
+    }
 }
 #include "../dist/webpackPreamplePart.js"
 

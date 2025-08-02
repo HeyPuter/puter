@@ -155,6 +155,30 @@ const new_context_menu_item = function(dirname, append_to_element){
                 });
             }
         },
+        // Worker
+        {
+            html: i18n('worker'),
+            icon: `<img src="${html_encode(window.icons['file-js.svg'])}" class="ctx-item-icon">`,
+            onClick: async function() {
+                await window.create_file({
+                    dirname: dirname, 
+                    append_to_element: append_to_element, 
+                    name: 'New Worker.js',
+                    content: `// This is an example application for Puter Workers
+
+router.get('/', ({request}) => {
+    return 'Hello World'; // returns a string
+});
+router.get('/api/hello', ({request}) => {
+    return {'msg': 'hello'}; // returns a JSON object    
+});
+router.get('/*page', ({request, params}) => {
+    return new Response(\`Page \${params.page} not found\`, {status: 404});
+});
+                    `
+                });
+            }
+        }
     ];
 
     //Show file_templates on the lower part of "New"

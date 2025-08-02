@@ -25,7 +25,7 @@ const { NodeInternalIDSelector, NodeChildSelector, NodeUIDSelector, RootNodeSele
 const { Context } = require("../util/context");
 const { NodeRawEntrySelector } = require("./node/selectors");
 const { DB_READ } = require("../services/database/consts");
-const { UserActorType } = require("../services/auth/Actor");
+const { UserActorType, AppUnderUserActorType, Actor } = require("../services/auth/Actor");
 const { PermissionUtil } = require("../services/auth/PermissionService");
 
 /**
@@ -564,6 +564,16 @@ module.exports = class FSNodeContext {
             await this.fetchEntry();
             return this.mysql_id;
         }
+        
+        if ( key === 'owner' ) {
+            const user_id = await this.get('user_id');
+            const actor = new Actor({
+                type: new UserActorType({
+                    user: await get_user({ id: user_id }),
+                }),
+            });
+            return actor;
+        }
 
         const values_from_entry = ['immutable', 'user_id', 'name', 'size', 'parent_uid', 'metadata'];
         for ( const k of values_from_entry ) {
@@ -745,6 +755,9 @@ module.exports = class FSNodeContext {
             fsentry.owner = {
                 username: res.owner?.username,
             };
+        }
+        if ( ! ( actor.type === AppUnderUserActorType ) ) {
+            if ( fsentry.owner ) delete fsentry.owner.email;
         }
 
         const info = this.services.get('information');

@@ -417,8 +417,9 @@ class AI{
         //      google/
         //      deepseek/
         //      x-ai/
+        //      qwen/
         // prepend it with openrouter:
-        if ( requestParams.model.startsWith('meta-llama/') || requestParams.model.startsWith('google/') || requestParams.model.startsWith('deepseek/') || requestParams.model.startsWith('x-ai/') ) {
+        if ( requestParams.model.startsWith('meta-llama/') || requestParams.model.startsWith('google/') || requestParams.model.startsWith('deepseek/') || requestParams.model.startsWith('x-ai/') || requestParams.model.startsWith('qwen/') ) {
             requestParams.model = 'openrouter:' + requestParams.model;
         }
 
@@ -450,6 +451,9 @@ class AI{
             driver = 'groq';
         }else if(requestParams.model === 'grok-beta') {
             driver = 'xai';
+        }
+        else if(requestParams.model.startsWith('grok-')){
+            driver = 'openrouter';
         }
         else if(
             requestParams.model === 'deepseek-chat' ||

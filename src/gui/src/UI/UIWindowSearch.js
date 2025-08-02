@@ -51,8 +51,6 @@ async function UIWindowSearch(options){
         window_class: 'window-search',
         backdrop: true,
         center: isMobile.phone,
-        onAppend: function(el_window){
-        },
         width: 500,
         dominant: true,
 

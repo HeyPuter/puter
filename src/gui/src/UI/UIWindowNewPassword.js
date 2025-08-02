@@ -82,7 +82,7 @@ async function UIWindowNewPassword(options){
 
 
         const el_window = await UIWindow({
-            title: 'Set New Password',
+            title: i18n('window_title_set_new_password'),
             app: 'change-passowrd',
             single_instance: true,
             icon: null,

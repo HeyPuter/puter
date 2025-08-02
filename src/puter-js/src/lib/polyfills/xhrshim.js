@@ -1,4 +1,4 @@
-// https://www.npmjs.com/package/xhr-shim under MIT
+// Originally from https://www.npmjs.com/package/xhr-shim under MIT, heavily modified since
 
 /* global module */
 /* global EventTarget, AbortController, DOMException */
@@ -16,12 +16,51 @@ const sTimeout = Symbol("timeout");
 const sTimedOut = Symbol("timedOut");
 const sIsResponseText = Symbol("isResponseText");
 
+// SO: https://stackoverflow.com/questions/49129643/how-do-i-merge-an-array-of-uint8arrays
+function mergeUint8Arrays(...arrays) {
+  const totalSize = arrays.reduce((acc, e) => acc + e.length, 0);
+  const merged = new Uint8Array(totalSize);
+
+  arrays.forEach((array, i, arrays) => {
+    const offset = arrays.slice(0, i).reduce((acc, e) => acc + e.length, 0);
+    merged.set(array, offset);
+  });
+
+  return merged;
+}
+
+/**
+ * Exposes incoming data
+ * @this {XMLHttpRequest}
+ * @param {Uint8Array} bytes
+ */
+async function parseBody(bytes) {
+  const responseType = this.responseType || "text";
+  const textde = new TextDecoder();
+  const finalMIME = this[sMIME] || this[sRespHeaders].get("content-type") || "text/plain";
+  switch (responseType) {
+    case "text":
+      this.response = textde.decode(bytes)
+      break;
+    case "blob":
+      this.response = new Blob([bytes], { type: finalMIME });
+      break;
+    case "arraybuffer":
+      this.response = bytes.buffer;
+      break;
+    case "json":
+      this.response = JSON.parse(textde.decode(bytes));
+      break;
+  }
+}
+
 const XMLHttpRequestShim = class XMLHttpRequest extends EventTarget {
   onreadystatechange() {
 
   }
 
   set readyState(value) {
+    if (this[sReadyState] === value) return; // dont do anything if "value" is already the internal value
     this[sReadyState] = value;
     this.dispatchEvent(new Event("readystatechange"));
     this.onreadystatechange(new Event("readystatechange"));
@@ -146,21 +185,26 @@ const XMLHttpRequestShim = class XMLHttpRequest extends EventTarget {
       this.status = resp.status;
       this.statusText = resp.statusText;
       this[sRespHeaders] = resp.headers;
-      const finalMIME = this[sMIME] || this[sRespHeaders].get("content-type") || "text/plain";
-      switch (responseType) {
-        case "text":
-          this.response = await resp.text();
-          break;
-        case "blob":
-          this.response = new Blob([await resp.arrayBuffer()], { type: finalMIME });
-          break;
-        case "arraybuffer":
-          this.response = await resp.arrayBuffer();
-          break;
-        case "json":
-          this.response = await resp.json();
-          break;
+      this.readyState = this.constructor.HEADERS_RECEIVED;
+
+      if (resp.headers.get("content-type").includes("application/x-ndjson") || this.streamRequestBadForPerformance) {
+        let bytes = new Uint8Array();
+        for await (const chunk of resp.body) {
+          this.readyState = this.constructor.LOADING;
+
+          bytes = mergeUint8Arrays(bytes, chunk);
+          parseBody.call(this, bytes);
+          this[sDispatch](new CustomEvent("progress"));
+        }
+      } else {
+        const bytesChunks = [];
+        for await (const chunk of resp.body) {
+          bytesChunks.push(chunk)
+        }
+        parseBody.call(this, mergeUint8Arrays(...bytesChunks));
       }
+
+
       this.readyState = this.constructor.DONE;
       this[sDispatch](new CustomEvent("load"));
     }, err => {

@@ -50,6 +50,12 @@ class Eq extends Predicate {
     }
 }
 
+class StartsWith extends Predicate {
+    async check(entity) {
+        return (await entity.get(this.key)).startsWith(this.value);
+    }
+}
+
 class IsNotNull extends Predicate {
     async check (entity) {
         return (await entity.get(this.key)) !== null;
@@ -122,4 +128,5 @@ module.exports = {
     Eq,
     IsNotNull,
     Like,
+    StartsWith
 };

@@ -74,8 +74,6 @@ async function UIWindowItemProperties(item_name, item_path, item_uid, left, top,
         left: left,
         top: top,
         height: height,
-        onAppend: function(el_window){
-        },
         width: 450,
         window_class: 'window-item-properties',
         window_css:{

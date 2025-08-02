@@ -153,13 +153,13 @@ async function UIWindowLogin(options){
             
             // Basic validation for email/username and password
             if(!email_username) {
-                $(el_window).find('.login-error-msg').html(i18n('email_or_username_required') || 'Email or username is required');
+                $(el_window).find('.login-error-msg').html(i18n('login_email_username_required'));
                 $(el_window).find('.login-error-msg').fadeIn();
                 return;
             }
             
             if(!password) {
-                $(el_window).find('.login-error-msg').html(i18n('password_required') || 'Password is required');
+                $(el_window).find('.login-error-msg').html(i18n('login_password_required'));
                 $(el_window).find('.login-error-msg').fadeIn();
                 return;
             }

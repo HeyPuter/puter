@@ -51,7 +51,10 @@ function UITaskbarItem(options){
 
         // taskbar icon
         h += `<div class="taskbar-icon">`;
-            h += `<img src="${html_encode(icon)}" style="${options.group === 'apps' ? 'filter:none;' : ''}">`;
+            // Don't add img tag for separator
+            if(options.app !== 'separator') {
+                h += `<img src="${html_encode(icon)}" style="${options.group === 'apps' ? 'filter:none;' : ''}">`;
+            }
         h += `</div>`;
 
         // active indicator
@@ -82,9 +85,21 @@ function UITaskbarItem(options){
     // fade in the taskbar item
     $(el_taskbar_item).show(50);
 
+    // Adjust taskbar item sizes after adding new item
+    if (window.adjust_taskbar_item_sizes) {
+        setTimeout(() => {
+            window.adjust_taskbar_item_sizes();
+        }, 100);
+    }
+
     $(el_taskbar_item).on("click", function(e){
         e.preventDefault();
         e.stopPropagation();
+        
+        // Don't handle clicks for separators
+        if(options.app === 'separator') {
+            return;
+        }
         
         // if this is for the launcher popover, and it's mobile, and has-open-popover, close the popover
         if( $(el_taskbar_item).attr('data-name') === 'Start'
@@ -124,6 +139,11 @@ function UITaskbarItem(options){
         e.preventDefault();
         e.stopPropagation();
 
+        // Don't show context menu for separators
+        if(options.app === 'separator') {
+            return;
+        }
+
         // If context menu is disabled on this item, return
         if(options.disable_context_menu)
             return;
@@ -156,7 +176,7 @@ function UITaskbarItem(options){
         //------------------------------------------
         if(options.app && options.app !== 'trash'){
             menu_items.push({
-                html: 'New Window',
+                html: i18n('new_window'),
                 val: $(this).attr('data-id'),
                 onClick: function(){
                     // is trash?
@@ -172,7 +192,7 @@ function UITaskbarItem(options){
         //------------------------------------------
         else if(options.app && options.app === 'trash'){
             menu_items.push({
-                html: 'Open Trash',
+                html: i18n('open_trash'),
                 val: $(this).attr('data-id'),
                 onClick: function(){
                     launch_app({
@@ -268,33 +288,100 @@ function UITaskbarItem(options){
         const pos = el_taskbar_item.getBoundingClientRect();
         UIContextMenu({
             parent_element: el_taskbar_item,
-            position: {top: pos.top - 15, left: pos.left+5},
+            position: getContextMenuPosition(pos),
             items: menu_items
         });
 
         return false;
     });
 
-    $( el_taskbar_item ).tooltip({
-        items: ".taskbar:not(.children-have-open-contextmenu) .taskbar-item",
-        position: {
+    // Helper function to get tooltip position based on taskbar position
+    function getTooltipPosition() {
+        const taskbarPosition = window.taskbar_position || 'bottom';
+        
+        if (taskbarPosition === 'bottom') {
+            return {
+                my: "center bottom-20",
+                at: "center top"
+            };
+        } else if (taskbarPosition === 'top') {
+            return {
+                my: "center top+20",
+                at: "center bottom"
+            };
+        } else if (taskbarPosition === 'left') {
+            return {
+                my: "left+20 center",
+                at: "right center"
+            };
+        } else if (taskbarPosition === 'right') {
+            return {
+                my: "right-20 center",
+                at: "left center"
+            };
+        }
+        return {
             my: "center bottom-20",
-            at: "center top",
+            at: "center top"
+        }; // fallback
+    }
+
+    // Helper function to get context menu position based on taskbar position
+    function getContextMenuPosition(pos) {
+        const taskbarPosition = window.taskbar_position || 'bottom';
+        
+        if (taskbarPosition === 'bottom') {
+            return {
+                top: pos.top - 15,
+                left: pos.left + 5
+            };
+        } else if (taskbarPosition === 'top') {
+            return {
+                top: pos.bottom + 15,
+                left: pos.left + 5
+            };
+        } else if (taskbarPosition === 'left') {
+            return {
+                top: pos.top + 5,
+                left: pos.right + 5
+            };
+        } else if (taskbarPosition === 'right') {
+            return {
+                top: pos.top + 5,
+                left: pos.left - 20
+            };
+        }
+        return {
+            top: pos.top - 15,
+            left: pos.left + 5
+        }; // fallback
+    }
+
+    const tooltipPosition = getTooltipPosition();
+    
+    $( el_taskbar_item ).tooltip({
+        // only show tooltip if desktop is not selectable active
+        items: ".desktop:not(.desktop-selectable-active) .taskbar:not(.children-have-open-contextmenu) .taskbar-item:not([data-app='separator'])",
+        position: {
+            my: tooltipPosition.my,
+            at: tooltipPosition.at,
             using: function( position, feedback ) {
-              $( this ).css( position );
-              $( "<div>" )
-                .addClass( "arrow" )
-                .addClass( feedback.vertical )
-                .addClass( feedback.horizontal )
-                .appendTo( this );
+                $( this ).css( position );
+                $( "<div>" )
+                    .addClass( "arrow" )
+                    .addClass( feedback.vertical )
+                    .addClass( feedback.horizontal )
+                    .appendTo( this );
             }
-        }    
+        },
     });
 
     // --------------------------------------------------------
     // Droppable
     // --------------------------------------------------------
-    $(el_taskbar_item).droppable({
+    // Don't make separators droppable
+    if(options.app !== 'separator') {
+        $(el_taskbar_item).droppable({
         accept: '.item',
         // 'pointer' is very important because of active window tracking is based on the position of cursor.
         tolerance: 'pointer',
@@ -411,6 +498,7 @@ function UITaskbarItem(options){
             $('.item-container').droppable( 'enable' )    
         }
     });
+    }
 
     return el_taskbar_item;
 }

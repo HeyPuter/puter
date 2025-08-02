@@ -34,6 +34,37 @@ import item_icon from '../helpers/item_icon.js';
 
 const el_body = document.getElementsByTagName('body')[0];
 
+// Function to get snap dimensions and positions based on taskbar position
+function getSnapDimensions() {
+    const taskbar_position = window.taskbar_position || 'bottom';
+    
+    let available_width, available_height, start_x, start_y;
+    
+    if (taskbar_position === 'left') {
+        available_width = window.innerWidth - window.taskbar_height;
+        available_height = window.innerHeight - window.toolbar_height;
+        start_x = window.taskbar_height;
+        start_y = window.toolbar_height;
+    } else if (taskbar_position === 'right') {
+        available_width = window.innerWidth - window.taskbar_height;
+        available_height = window.innerHeight - window.toolbar_height;
+        start_x = 0;
+        start_y = window.toolbar_height;
+    } else { // bottom (default)
+        available_width = window.innerWidth;
+        available_height = window.innerHeight - window.toolbar_height - window.taskbar_height;
+        start_x = 0;
+        start_y = window.toolbar_height;
+    }
+    
+    return {
+        available_width,
+        available_height,
+        start_x,
+        start_y
+    };
+}
+
 async function UIWindow(options) {
     const win_id = window.global_element_id++;
     window.last_window_zindex++;
@@ -309,11 +340,11 @@ async function UIWindow(options) {
             h += `<div class="window-navbar">`;
                 h += `<div style="float:left; margin-left:5px; margin-right:5px;">`;
                     // Back
-                    h += `<img draggable="false" class="window-navbar-btn window-navbar-btn-back window-navbar-btn-disabled" src="${html_encode(window.icons['arrow-left.svg'])}" title="Click to go back.">`;
+                    h += `<img draggable="false" class="window-navbar-btn window-navbar-btn-back window-navbar-btn-disabled" src="${html_encode(window.icons['arrow-left.svg'])}" title="${i18n('window_click_to_go_back')}">`;
                     // Forward
-                    h += `<img draggable="false" class="window-navbar-btn window-navbar-btn-forward window-navbar-btn-disabled" src="${html_encode(window.icons['arrow-right.svg'])}" title="Click to go forward.">`;
+                    h += `<img draggable="false" class="window-navbar-btn window-navbar-btn-forward window-navbar-btn-disabled" src="${html_encode(window.icons['arrow-right.svg'])}" title="${i18n('window_click_to_go_forward')}">`;
                     // Up
-                    h += `<img draggable="false" class="window-navbar-btn window-navbar-btn-up ${options.path === '/' ? 'window-navbar-btn-disabled' : ''}" src="${html_encode(window.icons['arrow-up.svg'])}" title="Click to go one directory up.">`;
+                    h += `<img draggable="false" class="window-navbar-btn window-navbar-btn-up ${options.path === '/' ? 'window-navbar-btn-disabled' : ''}" src="${html_encode(window.icons['arrow-up.svg'])}" title="${i18n('window_click_to_go_up')}">`;
                 h += `</div>`;
                 // Path
                 h += `<div class="window-navbar-path">${window.navbar_path(options.path, window.user.username)}</div>`;
@@ -372,7 +403,7 @@ async function UIWindow(options) {
                 h += window.explore_table_headers();
                 
                 // Add 'This folder is empty' message by default
-                h += `<div class="explorer-empty-message">This folder is empty</div>`;
+                h += `<div class="explorer-empty-message">${i18n('window_folder_empty')}</div>`;
 
                 h += `<div class="explorer-error-message">${i18n('error_message_is_missing')}</div>`;
 
@@ -549,14 +580,8 @@ async function UIWindow(options) {
         // shrink icon
         $(el_window).find('.window-scale-btn>img').attr('src', window.icons['scale-down-3.svg']);
 
-        // set new size and position
-        $(el_window).css({
-            'top': window.toolbar_height + 'px',
-            'left': '0',
-            'width': '100%',
-            'height': `calc(100% - ${window.taskbar_height + window.toolbar_height + 6}px)`,
-            'transform': 'none',
-        });
+        // Use taskbar position-aware window positioning
+        window.update_maximized_window_for_taskbar(el_window);
     }
 
     // when a window is created, focus is brought to it and 
@@ -1248,11 +1273,20 @@ async function UIWindow(options) {
     // Selectable
     // only for Desktop screens
     // --------------------------------------------------------
+    let selection_area = null;
+    let initial_body_scroll_width = 0;
+    let initial_body_scroll_height = 0;
     if(options.is_dir && options.selectable_body && !isMobile.phone && !isMobile.tablet){
         let selected_ctrl_items = [];
+
+        // selection area
+        let selection_area_start_x = 0;
+        let selection_area_start_y = 0;
+
         // init viselect
         const selection = new SelectionArea({
-            selectionContainerClass: '.selection-area-container',
+            selectionContainerClass: 'selection-area-container',
+            selectionAreaClass: 'hidden-selection-area',
             container: `#window-body-${win_id}`,
             selectables: [`#window-body-${win_id} .item`],
             startareas: [`#window-body-${win_id}`],
@@ -1279,13 +1313,55 @@ async function UIWindow(options) {
         
         selection.on('beforestart', ({store, event}) => {
             selected_ctrl_items = [];
+            // create a selection area div element in selection_area
+            selection_area = document.createElement('div');
+            $(el_window_body).append(selection_area);
+            $(selection_area).addClass('window-selection-area');
+            
+            // Get the scroll position of the window body
+            const scrollLeft = $(el_window_body).scrollLeft();
+            const scrollTop = $(el_window_body).scrollTop();
+            
+            // Get the window body's bounding rect relative to the viewport
+            const windowBodyRect = el_window_body.getBoundingClientRect();
+            
+            // Get the window body's content dimensions
+            initial_body_scroll_width = el_window_body.scrollWidth ;
+            initial_body_scroll_height = el_window_body.scrollHeight;
+            
+            // Calculate position relative to the window body (accounting for scroll)
+            let relativeX = window.mouseX - windowBodyRect.left + scrollLeft;
+            let relativeY = window.mouseY - windowBodyRect.top + scrollTop;
+            
+            // Constrain initial position to window body content bounds
+            relativeX = Math.max(0, Math.min(initial_body_scroll_width, relativeX));
+            relativeY = Math.max(0, Math.min(initial_body_scroll_height, relativeY));
+            
+            $(selection_area).css({
+                'position': 'absolute',
+                'top': relativeY,
+                'left': relativeX,
+                'z-index': 1000,
+                'display': 'block', 
+            });
+
             return $(event.target).is(`#window-body-${win_id}`)
         })
         .on('beforedrag', evt => {
         })
         .on('start', ({store, event}) => {
             if (!event.ctrlKey && !event.metaKey) {
-        
+                // Get the scroll position of the window body
+                const scrollLeft = $(el_window_body).scrollLeft();
+                const scrollTop = $(el_window_body).scrollTop();
+                
+                // Get the window body's bounding rect relative to the viewport
+                const windowBodyRect = el_window_body.getBoundingClientRect();
+                
+                // Calculate position relative to the window body (accounting for scroll)
+                selection_area_start_x = window.mouseX - windowBodyRect.left + scrollLeft;
+                selection_area_start_y = window.mouseY - windowBodyRect.top + scrollTop;
+                
                 for (const el of store.stored) {
                     el.classList.remove('item-selected');
                 }
@@ -1294,6 +1370,46 @@ async function UIWindow(options) {
             }
         })
         .on('move', ({store: {changed: {added, removed}}, event}) => {
+            // Get the scroll position of the window body
+            const scrollLeft = $(el_window_body).scrollLeft();
+            const scrollTop = $(el_window_body).scrollTop();
+            
+            // Get the window body's bounding rect relative to the viewport
+            const windowBodyRect = el_window_body.getBoundingClientRect();
+            
+            // Calculate current mouse position relative to the window body (accounting for scroll)
+            const currentMouseX = window.mouseX - windowBodyRect.left + scrollLeft;
+            const currentMouseY = window.mouseY - windowBodyRect.top + scrollTop;
+            
+            // Get the window body's content dimensions
+            const windowBodyWidth = el_window_body.scrollWidth;
+            const windowBodyHeight = el_window_body.scrollHeight;
+            
+            // Constrain mouse position to window body content bounds
+            const constrainedMouseX = Math.max(0, Math.min(windowBodyWidth, currentMouseX));
+            const constrainedMouseY = Math.max(0, Math.min(windowBodyHeight, currentMouseY));
+            
+            // Calculate the dimensions and position for bidirectional expansion
+            const width = Math.abs(constrainedMouseX - selection_area_start_x);
+            const height = Math.abs(constrainedMouseY - selection_area_start_y);
+            
+            // Calculate position - if dragging left/up, adjust the position
+            let left = constrainedMouseX < selection_area_start_x ? constrainedMouseX : selection_area_start_x;
+            let top = constrainedMouseY < selection_area_start_y ? constrainedMouseY : selection_area_start_y;
+            
+            // Ensure selection area doesn't go outside window body content bounds
+            left = Math.max(0, Math.min(initial_body_scroll_width - width, left));
+            top = Math.max(0, Math.min(initial_body_scroll_height - height, top));
+            
+            // update selection area size and position for bidirectional expansion
+            $(selection_area).css({
+                'width': width,
+                'height': height,
+                'left': left,
+                'top': top,
+                'display': 'block',
+            });
+
             for (const el of added) {
                 // if ctrl or meta key is pressed and the item is already selected, then unselect it
                 if((event.ctrlKey || event.metaKey) && $(el).hasClass('item-selected')){
@@ -1701,14 +1817,17 @@ async function UIWindow(options) {
                             return;
                         }
 
+                        // Get taskbar-aware snap dimensions
+                        const snapDims = getSnapDimensions();
+
                         // W
                         if(!window_is_snapped && window.current_active_snap_zone === 'w'){
                             window_snap_placeholder.css({
                                 'display': 'block',
-                                'width': '50%',
-                                'height': window.desktop_height,
-                                'top': window.toolbar_height,
-                                'left': 0,
+                                'width': snapDims.available_width / 2,
+                                'height': snapDims.available_height,
+                                'top': snapDims.start_y,
+                                'left': snapDims.start_x,
                                 'z-index': window.last_window_zindex - 1,
                             })
                         }
@@ -1716,10 +1835,10 @@ async function UIWindow(options) {
                         else if(!window_is_snapped && window.current_active_snap_zone === 'nw'){
                             window_snap_placeholder.css({
                                 'display': 'block',
-                                'width': '50%',
-                                'height': window.desktop_height/2,
-                                'top': window.toolbar_height,
-                                'left': 0,
+                                'width': snapDims.available_width / 2,
+                                'height': snapDims.available_height / 2,
+                                'top': snapDims.start_y,
+                                'left': snapDims.start_x,
                                 'z-index': window.last_window_zindex - 1,
                             })
                         }
@@ -1727,10 +1846,10 @@ async function UIWindow(options) {
                         else if(!window_is_snapped && window.current_active_snap_zone ==='ne'){
                             window_snap_placeholder.css({
                                 'display': 'block',
-                                'width': '50%',
-                                'height': window.desktop_height/2,
-                                'top': window.toolbar_height,
-                                'left': window.desktop_width/2,
+                                'width': snapDims.available_width / 2,
+                                'height': snapDims.available_height / 2,
+                                'top': snapDims.start_y,
+                                'left': snapDims.start_x + snapDims.available_width / 2,
                                 'z-index': window.last_window_zindex - 1,
                             })
                         }
@@ -1738,11 +1857,10 @@ async function UIWindow(options) {
                         else if(!window_is_snapped && window.current_active_snap_zone ==='e'){
                             window_snap_placeholder.css({
                                 'display': 'block',
-                                'width': '50%',
-                                'height': window.desktop_height,
-                                'top': window.toolbar_height,
-                                'left': 'initial',
-                                'right': 0,
+                                'width': snapDims.available_width / 2,
+                                'height': snapDims.available_height,
+                                'top': snapDims.start_y,
+                                'left': snapDims.start_x + snapDims.available_width / 2,
                                 'z-index': window.last_window_zindex - 1,
                             })
                         }
@@ -1750,10 +1868,10 @@ async function UIWindow(options) {
                         else if(!window_is_snapped && window.current_active_snap_zone ==='n'){
                             window_snap_placeholder.css({
                                 'display': 'block',
-                                'width': window.desktop_width,
-                                'height': window.desktop_height,
-                                'top': window.toolbar_height,
-                                'left': 0,
+                                'width': snapDims.available_width,
+                                'height': snapDims.available_height,
+                                'top': snapDims.start_y,
+                                'left': snapDims.start_x,
                                 'z-index': window.last_window_zindex - 1,
                             })
                         }
@@ -1761,10 +1879,10 @@ async function UIWindow(options) {
                         else if(!window_is_snapped && window.current_active_snap_zone ==='sw'){
                             window_snap_placeholder.css({
                                 'display': 'block',
-                                'top': window.toolbar_height + window.desktop_height/2,
-                                'left': 0,
-                                'width': '50%',
-                                'height': window.desktop_height/2,
+                                'top': snapDims.start_y + snapDims.available_height / 2,
+                                'left': snapDims.start_x,
+                                'width': snapDims.available_width / 2,
+                                'height': snapDims.available_height / 2,
                                 'z-index': window.last_window_zindex - 1,
                             })
                         }
@@ -1772,10 +1890,10 @@ async function UIWindow(options) {
                         else if(!window_is_snapped && window.current_active_snap_zone ==='se'){
                             window_snap_placeholder.css({
                                 'display': 'block',
-                                'top': window.toolbar_height + window.desktop_height/2,
-                                'left': window.desktop_width/2,
-                                'width': '50%',
-                                'height': window.desktop_height/2,
+                                'top': snapDims.start_y + snapDims.available_height / 2,
+                                'left': snapDims.start_x + snapDims.available_width / 2,
+                                'width': snapDims.available_width / 2,
+                                'height': snapDims.available_height / 2,
                                 'z-index': window.last_window_zindex - 1,
                             })
                         }
@@ -1823,58 +1941,61 @@ async function UIWindow(options) {
                     $(window_snap_placeholder).css('padding', 0);
 
                     setTimeout(function(){
+                        // Get taskbar-aware snap dimensions for final positioning
+                        const snapDims = getSnapDimensions();
+                        
                         // snap to w
                         if(window.current_active_snap_zone === 'w'){
                             $(el_window).css({
-                                'top': window.toolbar_height,
-                                'left': 0,
-                                'width': '50%',
-                                'height': window.desktop_height - 6,
+                                'top': snapDims.start_y,
+                                'left': snapDims.start_x,
+                                'width': snapDims.available_width / 2,
+                                'height': snapDims.available_height - 6,
                             })
                         }
                         // snap to nw
                         else if(window.current_active_snap_zone === 'nw'){
                             $(el_window).css({
-                                'top': window.toolbar_height,
-                                'left': 0,
-                                'width': '50%',
-                                'height': window.desktop_height/2,
+                                'top': snapDims.start_y,
+                                'left': snapDims.start_x,
+                                'width': snapDims.available_width / 2,
+                                'height': snapDims.available_height / 2,
                             })
                         }
                         // snap to ne
                         else if(window.current_active_snap_zone === 'ne'){
                             $(el_window).css({
-                                'top': window.toolbar_height,
-                                'left': '50%',
-                                'width': '50%',
-                                'height': window.desktop_height/2,
+                                'top': snapDims.start_y,
+                                'left': snapDims.start_x + snapDims.available_width / 2,
+                                'width': snapDims.available_width / 2,
+                                'height': snapDims.available_height / 2,
                             })
                         }
                         // snap to sw
                         else if(window.current_active_snap_zone === 'sw'){
                             $(el_window).css({
-                                'top': window.toolbar_height + window.desktop_height/2,
-                                'left': 0,
-                                'width': '50%',
-                                'height': window.desktop_height/2,
+                                'top': snapDims.start_y + snapDims.available_height / 2,
+                                'left': snapDims.start_x,
+                                'width': snapDims.available_width / 2,
+                                'height': snapDims.available_height / 2,
                             })
                         }
                         // snap to se
                         else if(window.current_active_snap_zone === 'se'){
                             $(el_window).css({
-                                'top': window.toolbar_height + window.desktop_height/2,
-                                'left': window.desktop_width/2,
-                                'width': '50%',
-                                'height': window.desktop_height/2,
+                                'top': snapDims.start_y + snapDims.available_height / 2,
+                                'left': snapDims.start_x + snapDims.available_width / 2,
+                                'width': snapDims.available_width / 2,
+                                'height': snapDims.available_height / 2,
                             })
                         }
                         // snap to e
                         else if(window.current_active_snap_zone === 'e'){
                             $(el_window).css({
-                                'top': window.toolbar_height,
-                                'left': '50%',
-                                'width': '50%',
-                                'height': window.desktop_height - 6,
+                                'top': snapDims.start_y,
+                                'left': snapDims.start_x + snapDims.available_width / 2,
+                                'width': snapDims.available_width / 2,
+                                'height': snapDims.available_height - 6,
                             })
                         }
                         // snap to n
@@ -1906,23 +2027,43 @@ async function UIWindow(options) {
                     }, 100);
                 }
 
-                // if window is dropped below the taskbar, move it up
+                // if window is dropped outside the available area, move it back in
+                // Bottom boundary (account for taskbar position)
+                const taskbar_position = window.taskbar_position || 'bottom';
+                let maxTop;
+                if(taskbar_position === 'bottom'){
+                    maxTop = window.innerHeight - window.taskbar_height - 30;
+                } else {
+                    maxTop = window.innerHeight - 30;
+                }
                 // the lst '- 30' is to account for the window head
-                if($(el_window).position().top > window.innerHeight - window.taskbar_height - 30 && !window_will_snap){
+                if($(el_window).position().top > maxTop && !window_will_snap){
                     $(el_window).animate({
-                        top: window.innerHeight - window.taskbar_height - 60,
+                        top: maxTop - 30,
                     }, 100);
                 }
                 // if window is dropped too far to the right, move it left
-                if($(el_window).position().left > window.innerWidth - 50 && !window_will_snap){
+                let maxLeft;
+                if(taskbar_position === 'right'){
+                    maxLeft = window.innerWidth - window.taskbar_height - 50;
+                } else {
+                    maxLeft = window.innerWidth - 50;
+                }
+                if($(el_window).position().left > maxLeft && !window_will_snap){
                     $(el_window).animate({
-                        left: window.innerWidth - 50,
+                        left: maxLeft,
                     }, 100);
                 }
                 // if window is dropped too far to the left, move it right
-                if(($(el_window).position().left + $(el_window).width() - 150 )< 0 && !window_will_snap){
+                let minLeft;
+                if(taskbar_position === 'left'){
+                    minLeft = window.taskbar_height - $(el_window).width() + 150;
+                } else {
+                    minLeft = -$(el_window).width() + 150;
+                }
+                if($(el_window).position().left < minLeft && !window_will_snap){
                     $(el_window).animate({
-                        left: -1 * ($(el_window).width() - 150),
+                        left: minLeft,
                     }, 100);
                 }
             },
@@ -2065,7 +2206,7 @@ async function UIWindow(options) {
                 }
             });
             menu_items.push({
-                html: 'Minimize',
+                html: i18n('minimize'),
                 onClick: function(){
                     $(el_window).hideWindow();
                 }
@@ -2078,7 +2219,7 @@ async function UIWindow(options) {
         //-------------------------------------------
         if(el_window_app_iframe !== null){
             menu_items.push({
-                html: 'Reload App',
+                html: i18n('reload_app'),
                 onClick: function(){
                     $(el_window_app_iframe).attr('src', $(el_window_app_iframe).attr('src'));
                 }
@@ -2090,7 +2231,7 @@ async function UIWindow(options) {
         // Close
         // -------------------------------------------
         menu_items.push({
-            html: 'Close',
+            html: i18n('close'),
             onClick: function(){
                 $(el_window).close();
             }
@@ -2122,208 +2263,221 @@ async function UIWindow(options) {
         if(options.allow_context_menu && event.target === el_window_body){
             // Regular directories
             if($(el_window).attr('data-path') !== window.trash_path){
+                let menu_items = [];
+
+                // -------------------------------------------
+                // Sort by
+                // -------------------------------------------
+                menu_items.push(
+                {
+                    html: i18n('sort_by'),
+                    items: [
+                        {
+                            html: i18n('name'),
+                            icon: $(el_window).attr('data-sort_by') === 'name' ? '✓' : '',
+                            onClick: async function(){
+                                window.sort_items(el_window_body, 'name', $(el_window).attr('data-sort_order'));
+                                window.set_sort_by($(el_window).attr('data-uid'), 'name', $(el_window).attr('data-sort_order'))
+                            }
+                        },
+                        {
+                            html: i18n('date_modified'),
+                            icon: $(el_window).attr('data-sort_by') === 'modified' ? '✓' : '',
+                            onClick: async function(){
+                                window.sort_items(el_window_body, 'modified', $(el_window).attr('data-sort_order'));
+                                window.set_sort_by($(el_window).attr('data-uid'), 'modified', $(el_window).attr('data-sort_order'))
+                            }
+                        },
+                        {
+                            html: i18n('type'),
+                            icon: $(el_window).attr('data-sort_by') === 'type' ? '✓' : '',
+                            onClick: async function(){
+                                window.sort_items(el_window_body, 'type', $(el_window).attr('data-sort_order'));
+                                window.set_sort_by($(el_window).attr('data-uid'), 'type', $(el_window).attr('data-sort_order'))
+                            }
+                        },
+                        {
+                            html: i18n('size'),
+                            icon: $(el_window).attr('data-sort_by') === 'size' ? '✓' : '',
+                            onClick: async function(){
+                                window.sort_items(el_window_body, 'size', $(el_window).attr('data-sort_order'));
+                                window.set_sort_by($(el_window).attr('data-uid'), 'size', $(el_window).attr('data-sort_order'))
+                            }
+                        },
+                        // -------------------------------------------
+                        // -
+                        // -------------------------------------------
+                        '-',
+                        {
+                            html: i18n('ascending'),
+                            icon: $(el_window).attr('data-sort_order') === 'asc' ? '✓' : '',
+                            onClick: async function(){
+                                const sort_by = $(el_window).attr('data-sort_by')
+                                window.sort_items(el_window_body, sort_by, 'asc');
+                                window.set_sort_by($(el_window).attr('data-uid'), sort_by, 'asc')
+                            }
+                        },
+                        {
+                            html: i18n('descending'),
+                            icon: $(el_window).attr('data-sort_order') === 'desc' ? '✓' : '',
+                            onClick: async function(){
+                                const sort_by = $(el_window).attr('data-sort_by')
+                                window.sort_items(el_window_body, sort_by, 'desc');
+                                window.set_sort_by($(el_window).attr('data-uid'), sort_by, 'desc')
+                            }
+                        },
+
+                    ]
+                })
+                // -------------------------------------------
+                // Refresh
+                // -------------------------------------------
+                menu_items.push({
+                    html: i18n('refresh'),
+                    onClick: function(){
+                        refresh_item_container(el_window_body, options);
+                    }
+                })
+                // -------------------------------------------
+                // Show/Hide hidden files
+                // -------------------------------------------
+                menu_items.push({
+                    html: i18n('show_hidden'),
+                    icon: window.user_preferences.show_hidden_files ? '✓' : '',
+                    onClick: function(){
+                        window.mutate_user_preferences({
+                            show_hidden_files : !window.user_preferences.show_hidden_files,
+                        });
+                        window.show_or_hide_files(document.querySelectorAll('.item-container'));
+                    }
+                })
+
+                if($(el_window).attr('data-path') !== '/'){
+                    // -------------------------------------------
+                    // -
+                    // -------------------------------------------
+                    menu_items.push('-');
+                    // -------------------------------------------
+                    // New
+                    // -------------------------------------------
+                    menu_items.push(new_context_menu_item($(el_window).attr('data-path'), el_window_body))
+                    // -------------------------------------------
+                    // -
+                    // -------------------------------------------
+                    menu_items.push('-');
+                    // -------------------------------------------
+                    // Paste
+                    // -------------------------------------------
+                    menu_items.push({
+                        html: i18n('paste'),
+                        disabled: (window.clipboard.length === 0 || $(el_window).attr('data-path') === '/') ? true : false,
+                        onClick: function(){
+                            if(window.clipboard_op === 'copy')
+                                window.copy_clipboard_items($(el_window).attr('data-path'), el_window_body);
+                            else if(window.clipboard_op === 'move')
+                                window.move_clipboard_items(el_window_body)
+                        }
+                    })
+                    // -------------------------------------------
+                    // Undo
+                    // -------------------------------------------
+                    menu_items.push({
+                        html: i18n('undo'),
+                        disabled: window.actions_history.length > 0 ? false : true,
+                        onClick: function(){
+                            window.undo_last_action();
+                        }
+                    })
+                    // -------------------------------------------
+                    // Upload Here
+                    // -------------------------------------------
+                    menu_items.push({
+                        html: i18n('upload_here'),
+                        disabled: $(el_window).attr('data-path') === '/' ? true : false,
+                        onClick: function(){
+                            window.init_upload_using_dialog(el_window_body, $(el_window).attr('data-path') + '/');
+                        }
+                    })
+                    // -------------------------------------------
+                    // -
+                    // -------------------------------------------
+                    menu_items.push('-');
+                    // -------------------------------------------
+                    // Publish As Website
+                    // -------------------------------------------
+                    menu_items.push({
+                        html: i18n('publish_as_website'),
+                        disabled: !options.is_dir,
+                        onClick: async function () {
+                            if (window.require_email_verification_to_publish_website) {
+                                if (window.user.is_temp &&
+                                    !await UIWindowSaveAccount({
+                                        send_confirmation_code: true,
+                                        message: i18n('save_account_to_publish'),
+                                        window_options: {
+                                            backdrop: true,
+                                            close_on_backdrop_click: false,
+                                        }
+                                    }))
+                                    return;
+                                else if (!window.user.email_confirmed && !await UIWindowEmailConfirmationRequired())
+                                    return;
+                            }
+                            UIWindowPublishWebsite($(el_window).attr('data-uid'), $(el_window).attr('data-name'), $(el_window).attr('data-path'));
+                        }
+                    })
+                    // -------------------------------------------
+                    // Deploy as App
+                    // -------------------------------------------
+                    menu_items.push({
+                        html: i18n('deploy_as_app'),
+                        disabled: !options.is_dir,
+                        onClick: async function () {
+                            launch_app({
+                                name: 'dev-center',
+                                file_path: $(el_window).attr('data-path'),
+                                file_uid: $(el_window).attr('data-uid'),
+                                params: {
+                                    source_path: $(el_window).attr('data-path'),
+                                }
+                            })
+                        }
+                    })
+                    // -------------------------------------------
+                    // -
+                    // -------------------------------------------
+                    menu_items.push('-');                      
+                    // -------------------------------------------
+                    // Properties
+                    // -------------------------------------------
+                    menu_items.push({
+                        html: i18n('properties'),
+                        onClick: function(){
+                            let window_height = 500;
+                            let window_width = 450;
+
+                            let left = window.mouseX;
+                            left -= 200;
+                            left = left > (window.innerWidth - window_width)? (window.innerWidth - window_width) : left;
+
+                            let top = window.mouseY;
+                            top = top > (window.innerHeight - (window_height + window.taskbar_height + window.toolbar_height))? (window.innerHeight - (window_height + window.taskbar_height + window.toolbar_height)) : top;
+
+                            UIWindowItemProperties(
+                                options.title, 
+                                $(el_window).attr('data-path'), 
+                                $(el_window).attr('data-uid'), 
+                                left, top, window_width, window_height);
+                        }
+                    })
+                }
+
+                // -------------------------------------------
+                // Context Menu
+                // -------------------------------------------
                 UIContextMenu({
                     parent_element: el_window_body,
-                    items: [
-                        // -------------------------------------------
-                        // Sort by
-                        // -------------------------------------------
-                        {
-                            html: i18n('sort_by'),
-                            items: [
-                                {
-                                    html: i18n('name'),
-                                    icon: $(el_window).attr('data-sort_by') === 'name' ? '✓' : '',
-                                    onClick: async function(){
-                                        window.sort_items(el_window_body, 'name', $(el_window).attr('data-sort_order'));
-                                        window.set_sort_by($(el_window).attr('data-uid'), 'name', $(el_window).attr('data-sort_order'))
-                                    }
-                                },
-                                {
-                                    html: i18n('date_modified'),
-                                    icon: $(el_window).attr('data-sort_by') === 'modified' ? '✓' : '',
-                                    onClick: async function(){
-                                        window.sort_items(el_window_body, 'modified', $(el_window).attr('data-sort_order'));
-                                        window.set_sort_by($(el_window).attr('data-uid'), 'modified', $(el_window).attr('data-sort_order'))
-                                    }
-                                },
-                                {
-                                    html: i18n('type'),
-                                    icon: $(el_window).attr('data-sort_by') === 'type' ? '✓' : '',
-                                    onClick: async function(){
-                                        window.sort_items(el_window_body, 'type', $(el_window).attr('data-sort_order'));
-                                        window.set_sort_by($(el_window).attr('data-uid'), 'type', $(el_window).attr('data-sort_order'))
-                                    }
-                                },
-                                {
-                                    html: i18n('size'),
-                                    icon: $(el_window).attr('data-sort_by') === 'size' ? '✓' : '',
-                                    onClick: async function(){
-                                        window.sort_items(el_window_body, 'size', $(el_window).attr('data-sort_order'));
-                                        window.set_sort_by($(el_window).attr('data-uid'), 'size', $(el_window).attr('data-sort_order'))
-                                    }
-                                },
-                                // -------------------------------------------
-                                // -
-                                // -------------------------------------------
-                                '-',
-                                {
-                                    html: i18n('ascending'),
-                                    icon: $(el_window).attr('data-sort_order') === 'asc' ? '✓' : '',
-                                    onClick: async function(){
-                                        const sort_by = $(el_window).attr('data-sort_by')
-                                        window.sort_items(el_window_body, sort_by, 'asc');
-                                        window.set_sort_by($(el_window).attr('data-uid'), sort_by, 'asc')
-                                    }
-                                },
-                                {
-                                    html: i18n('descending'),
-                                    icon: $(el_window).attr('data-sort_order') === 'desc' ? '✓' : '',
-                                    onClick: async function(){
-                                        const sort_by = $(el_window).attr('data-sort_by')
-                                        window.sort_items(el_window_body, sort_by, 'desc');
-                                        window.set_sort_by($(el_window).attr('data-uid'), sort_by, 'desc')
-                                    }
-                                },
-
-                            ]
-                        },
-                        // -------------------------------------------
-                        // Refresh
-                        // -------------------------------------------
-                        {
-                            html: i18n('refresh'),
-                            onClick: function(){
-                                refresh_item_container(el_window_body, options);
-                            }
-                        },
-                        // -------------------------------------------
-                        // Show/Hide hidden files
-                        // -------------------------------------------
-                        {
-                            html: i18n('show_hidden'),
-                            icon: window.user_preferences.show_hidden_files ? '✓' : '',
-                            onClick: function(){
-                                window.mutate_user_preferences({
-                                    show_hidden_files : !window.user_preferences.show_hidden_files,
-                                });
-                                window.show_or_hide_files(document.querySelectorAll('.item-container'));
-                            }
-                        },
-                        // -------------------------------------------
-                        // -
-                        // -------------------------------------------
-                        '-',
-                        // -------------------------------------------
-                        // New
-                        // -------------------------------------------
-                        new_context_menu_item($(el_window).attr('data-path'), el_window_body),
-                        // -------------------------------------------
-                        // -
-                        // -------------------------------------------
-                        '-',
-                        // -------------------------------------------
-                        // Paste
-                        // -------------------------------------------
-                        {
-                            html: i18n('paste'),
-                            disabled: (window.clipboard.length === 0 || $(el_window).attr('data-path') === '/') ? true : false,
-                            onClick: function(){
-                                if(window.clipboard_op === 'copy')
-                                    window.copy_clipboard_items($(el_window).attr('data-path'), el_window_body);
-                                else if(window.clipboard_op === 'move')
-                                    window.move_clipboard_items(el_window_body)
-                            }
-                        },
-                        // -------------------------------------------
-                        // Undo
-                        // -------------------------------------------
-                        {
-                            html: i18n('undo'),
-                            disabled: window.actions_history.length > 0 ? false : true,
-                            onClick: function(){
-                                window.undo_last_action();
-                            }
-                        },
-                        // -------------------------------------------
-                        // Upload Here
-                        // -------------------------------------------
-                        {
-                            html: i18n('upload_here'),
-                            disabled: $(el_window).attr('data-path') === '/' ? true : false,
-                            onClick: function(){
-                                window.init_upload_using_dialog(el_window_body, $(el_window).attr('data-path') + '/');
-                            }
-                        },
-                        // -------------------------------------------
-                        // -
-                        // -------------------------------------------
-                        '-',
-                        // -------------------------------------------
-                        // Publish As Website
-                        // -------------------------------------------
-                        {
-                            html: i18n('publish_as_website'),
-                            disabled: !options.is_dir,
-                            onClick: async function () {
-                                if (window.require_email_verification_to_publish_website) {
-                                    if (window.user.is_temp &&
-                                        !await UIWindowSaveAccount({
-                                            send_confirmation_code: true,
-                                            message: i18n('save_account_to_publish'),
-                                            window_options: {
-                                                backdrop: true,
-                                                close_on_backdrop_click: false,
-                                            }
-                                        }))
-                                        return;
-                                    else if (!window.user.email_confirmed && !await UIWindowEmailConfirmationRequired())
-                                        return;
-                                }
-                                UIWindowPublishWebsite($(el_window).attr('data-uid'), $(el_window).attr('data-name'), $(el_window).attr('data-path'));
-                            }
-                        },
-                        // -------------------------------------------
-                        // Deploy as App
-                        // -------------------------------------------
-                        {
-                            html: i18n('deploy_as_app'),
-                            disabled: !options.is_dir,
-                            onClick: async function () {
-                                launch_app({
-                                    name: 'dev-center',
-                                    file_path: $(el_window).attr('data-path'),
-                                    file_uid: $(el_window).attr('data-uid'),
-                                    params: {
-                                        source_path: $(el_window).attr('data-path'),
-                                    }
-                                })
-                            }
-                        },
-                        // -------------------------------------------
-                        // -
-                        // -------------------------------------------
-                        '-',                        
-                        // -------------------------------------------
-                        // Properties
-                        // -------------------------------------------
-                        {
-                            html: i18n('properties'),
-                            onClick: function(){
-                                let window_height = 500;
-                                let window_width = 450;
-
-                                let left = window.mouseX;
-                                left -= 200;
-                                left = left > (window.innerWidth - window_width)? (window.innerWidth - window_width) : left;
-
-                                let top = window.mouseY;
-                                top = top > (window.innerHeight - (window_height + window.taskbar_height + window.toolbar_height))? (window.innerHeight - (window_height + window.taskbar_height + window.toolbar_height)) : top;
-
-                                UIWindowItemProperties(options.title, options.path, options.uid, left, top, window_width, window_height);
-                            }
-                        },
-                    ]
+                    items: menu_items,
                 });
             }
             // Trash conext menu
@@ -2474,6 +2628,14 @@ async function UIWindow(options) {
         });
     }
 
+    $(document).on('mouseup', function(e){
+        if(selection_area){
+            $(selection_area).hide();
+            $(selection_area).remove();
+            selection_area = null;
+        }
+    })
+
     //set styles
     $(el_window_body).css(options.body_css);
 
@@ -2558,7 +2720,7 @@ $(document).on('contextmenu taphold', '.window-sidebar-item', function(event){
             // Open
             //--------------------------------------------------
             {
-                html: "Open",
+                html: i18n('open'),
                 onClick: function(){
                     $(item).trigger('click');
                 }
@@ -2567,7 +2729,7 @@ $(document).on('contextmenu taphold', '.window-sidebar-item', function(event){
             // Open in New Window
             //--------------------------------------------------
             {
-                html: "Open in New Window",
+                html: i18n('open_in_new_window'),
                 onClick: async function(){
                     let item_path = $(item).attr('data-path');
 
@@ -2739,7 +2901,7 @@ $(document).on('contextmenu taphold', '.window-navbar-path-dirname', function(ev
     // Open
     // -------------------------------------------
     menu_items.push({
-        html: 'Open',
+        html: i18n('open'),
         onClick: ()=>{
             $(this).trigger('click');
         }
@@ -2749,7 +2911,7 @@ $(document).on('contextmenu taphold', '.window-navbar-path-dirname', function(ev
     // (only if the item is on a window)
     // -------------------------------------------
     menu_items.push({
-        html: 'Open in New Window',
+        html: i18n('open_in_new_window'),
         onClick: function(){
             UIWindow({
                 path: $(el).attr('data-path'),
@@ -2769,7 +2931,7 @@ $(document).on('contextmenu taphold', '.window-navbar-path-dirname', function(ev
     // Paste
     // -------------------------------------------
     menu_items.push({
-        html: "Paste",
+        html: i18n('paste'),
         disabled: window.clipboard.length > 0 ? false : true,
         onClick: function(){
             if(window.clipboard_op === 'copy')
@@ -2971,13 +3133,13 @@ window.update_window_path = async function(el_window, target_path){
             $(el_window).find('.window-head-title').text(i18n('documents'))
         }else if (target_path === window.public_path){
             $(el_window).find('.window-head-icon').attr('src', window.icons['folder-public.svg']);
-            $(el_window).find('.window-head-title').text('Public')
+            $(el_window).find('.window-head-title').text(i18n('window_title_public'))
         }else if (target_path === window.videos_path){
             $(el_window).find('.window-head-icon').attr('src', window.icons['folder-videos.svg']);
-            $(el_window).find('.window-head-title').text('Videos')
+            $(el_window).find('.window-head-title').text(i18n('window_title_videos'))
         }else if (target_path === window.pictures_path){
             $(el_window).find('.window-head-icon').attr('src', window.icons['folder-pictures.svg']);
-            $(el_window).find('.window-head-title').text('Pictures')
+            $(el_window).find('.window-head-title').text(i18n('window_title_pictures'))
         }// root folder of a shared user?
         else if((target_path.split('/').length - 1) === 1 && target_path !== '/'+window.user.username)
             $(el_window).find('.window-head-icon').attr('src', window.icons['shared.svg']);
@@ -3198,18 +3360,18 @@ $.fn.close = async function(options) {
                     // otherwise, change URL/Title to desktop
                     else{
                         window.history.replaceState(null, document.title, '/');
-                        document.title = 'Puter';
+                        document.title = i18n('window_title_puter');
                     }
                     // if it's explore 
                     if($last_window_in_stack.attr('data-app') && $last_window_in_stack.attr('data-app').toLowerCase() === 'explorer'){
                         window.history.replaceState(null, document.title, '/');
-                        document.title = 'Puter';
+                        document.title = i18n('window_title_puter');
                     }
                 }
                 // otherwise, change URL/Title to desktop
                 else{
                     window.history.replaceState(null, document.title, '/');
-                    document.title = 'Puter';
+                    document.title = i18n('window_title_puter');
                 }
             }
             // close child windows
@@ -3287,22 +3449,8 @@ window.scale_window = (el_window)=>{
         // shrink icon
         $(el_window).find('.window-scale-btn>img').attr('src', window.icons['scale-down-3.svg']);
 
-        // calculate height
-        let height;
-        if(window.is_fullpage_mode){
-            height = `calc(100% - ${ window.toolbar_height}px)`;
-        }else{
-            height = `calc(100% - ${window.taskbar_height + window.toolbar_height + 6}px)`;
-        }
-
-        // set new size and position
-        $(el_window).css({
-            'top': window.toolbar_height+'px',
-            'left': '0',
-            'width': '100%',
-            'height': height,
-            'transform': 'none',
-        });
+        // Use taskbar position-aware window positioning
+        window.update_maximized_window_for_taskbar(el_window);
 
         // hide toolbar
         if(!isMobile.phone && !isMobile.tablet){
@@ -3553,9 +3701,29 @@ $.fn.hideWindow = async function(options) {
         if($(this).hasClass('window')){
             // get taskbar item location
             let taskbar_item_pos = $(`.taskbar .taskbar-item[data-app="${$(this).attr('data-app')}"]`).position();
-
-            // taskbar position is center of window minus half of taskbar item width
-            taskbar_item_pos.left = taskbar_item_pos.left + ($( window ).width()/ 2) - ($(`.taskbar`).width() / 2);
+            
+            // Calculate animation target based on taskbar position
+            let animationTarget = {};
+            const taskbarPosition = window.taskbar_position || 'bottom';
+            
+            if (taskbarPosition === 'bottom') {
+                // taskbar position is center of window minus half of taskbar item width  
+                taskbar_item_pos.left = taskbar_item_pos.left + ($( window ).width()/ 2) - ($(`.taskbar`).width() / 2);
+                animationTarget = {
+                    top: 'calc(100% - 60px)',
+                    left: taskbar_item_pos.left + 14.5,
+                };
+            } else if (taskbarPosition === 'left') {
+                animationTarget = {
+                    top: taskbar_item_pos.top + ($( window ).height()/ 2) - ($(`.taskbar`).height() / 2) + 14.5,
+                    left: '5px',
+                };
+            } else if (taskbarPosition === 'right') {
+                animationTarget = {
+                    top: taskbar_item_pos.top + ($( window ).height()/ 2) - ($(`.taskbar`).height() / 2) + 14.5,
+                    left: 'calc(100% - 60px)',
+                };
+            }
 
             $(this).attr({
                 'data-orig-width': $(this).width(), 
@@ -3571,8 +3739,7 @@ $.fn.hideWindow = async function(options) {
                 } : {}),
                 width: `0`,
                 height: `0`,
-                top: 'calc(100% - 60px)',
-                left: taskbar_item_pos.left + 14.5,
+                ...animationTarget,
             });
 
             // remove transitions a good while after setting css to make sure 
@@ -3586,7 +3753,7 @@ $.fn.hideWindow = async function(options) {
 
             // update title and window URL
             window.history.replaceState(null, document.title, '/');
-            document.title = 'Puter';
+            document.title = i18n('window_title_puter');
         }
     })
     return this;

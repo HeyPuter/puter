@@ -20,25 +20,24 @@
 import UIWindow from './UIWindow.js'
 import UIWindowMyWebsites from './UIWindowMyWebsites.js'
 
-async function UIWindowPublishWebsite(target_dir_uid, target_dir_name, target_dir_path){
+async function UIWindowPublishWorker(target_dir_uid, target_dir_name, target_dir_path){
     let h = '';
-    h += `<div class="window-publishWebsite-content" style="padding: 20px; border-bottom: 1px solid #ced7e1;">`;
+    h += `<div class="window-publishWorker-content" style="padding: 20px; border-bottom: 1px solid #ced7e1;">`;
         // success
-        h += `<div class="window-publishWebsite-success">`;
+        h += `<div class="window-publishWorker-success">`;
             h += `<img src="${html_encode(window.icons['c-check.svg'])}" style="width:80px; height:80px; display: block; margin:10px auto;">`;
             h += `<p style="text-align:center;">${i18n('dir_published_as_website', `<strong>${html_encode(target_dir_name)}</strong>`, false)}<p>`;
-            h += `<p style="text-align:center;"><a class="publishWebsite-published-link" target="_blank"></a><img class="publishWebsite-published-link-icon" src="${html_encode(window.icons['launch.svg'])}"></p>`;
+            h += `<p style="text-align:center;"><a class="publishWorker-published-link" target="_blank"></a><img class="publishWorker-published-link-icon" src="${html_encode(window.icons['launch.svg'])}"></p>`;
             h += `<button class="button button-normal button-block button-primary publish-window-ok-btn" style="margin-top:20px;">${i18n('ok')}</button>`;
         h+= `</div>`;
         // form
-        h += `<form class="window-publishWebsite-form">`;
+        h += `<form class="window-publishWorker-form">`;
             // error msg
-            h += `<div class="publish-website-error-msg"></div>`;
-            // subdomain
+            h += `<div class="publish-worker-error-msg"></div>`;
+            // worker name
             h += `<div style="overflow: hidden;">`;
-    h += `<label style="margin-bottom: 10px;">${i18n('pick_name_for_website')}</label>`;
-    
-                h += `<div style="font-family: monospace;">${html_encode(window.extractProtocol(window.url))}://<input class="publish-website-subdomain" style="width:235px;" type="text" autocomplete="subdomain" spellcheck="false" autocorrect="off" autocapitalize="off" data-gramm_editor="false"/>.${html_encode(window.hosting_domain)}</div>`;
+                h += `<label style="margin-bottom: 10px;">${i18n('pick_name_for_worker')}</label>`;
+                h += `<div style="font-family: monospace;">${html_encode(window.extractProtocol(window.url))}://<input class="publish-worker-name" style="width:235px;" type="text" autocomplete="subdomain" spellcheck="false" autocorrect="off" autocapitalize="off" data-gramm_editor="false"/>${html_encode('.puter.work')}</div>`;
             h += `</div>`;
             // uid
             h += `<input class="publishWebsiteTargetDirUID" type="hidden" value="${html_encode(target_dir_uid)}"/>`;
@@ -48,7 +47,7 @@ async function UIWindowPublishWebsite(target_dir_uid, target_dir_name, target_di
     h += `</div>`;
 
     const el_window = await UIWindow({
-        title: i18n('window_title_publish_website'),
+        title: i18n('window_title_publish_worker'),
         icon: null,
         uid: null,
         is_dir: false,
@@ -65,10 +64,10 @@ async function UIWindowPublishWebsite(target_dir_uid, target_dir_name, target_di
         width: 450,
         dominant: true,
         onAppend: function(this_window){
-            $(this_window).find(`.publish-website-subdomain`).val(window.generate_identifier());
-            $(this_window).find(`.publish-website-subdomain`).get(0).focus({preventScroll:true});
+            $(this_window).find(`.publish-worker-name`).val(window.generate_identifier());
+            $(this_window).find(`.publish-worker-name`).get(0).focus({preventScroll:true});
         },
-        window_class: 'window-publishWebsite',
+        window_class: 'window-publishWorker',
         window_css:{
             height: 'initial'
         },
@@ -83,20 +82,23 @@ async function UIWindowPublishWebsite(target_dir_uid, target_dir_name, target_di
     $(el_window).find('.publish-btn').on('click', function(e){
         // todo do some basic validation client-side
 
-        //Subdomain
-        let subdomain = $(el_window).find('.publish-website-subdomain').val();
+        //Worker name
+        let worker_name = $(el_window).find('.publish-worker-name').val();
     
-        // disable 'Publish' button
-        $(el_window).find('.publish-btn').prop('disabled', true);
+        // Store original text and replace with spinner
+        const originalText = $(el_window).find('.publish-btn').text();
+        $(el_window).find('.publish-btn').prop('disabled', true).html(`
+            <div style="display: inline-block; margin-top: 10px; width: 16px; height: 16px; border: 2px solid #ffffff; border-radius: 50%; border-top: 2px solid transparent; animation: spin 1s linear infinite;"></div>
+        `);
 
-        puter.hosting.create(
-            subdomain, 
+        puter.workers.create(
+            worker_name, 
             target_dir_path).then((res)=>{
-                let url = 'https://' + subdomain + '.' + window.hosting_domain + '/';
-                $(el_window).find('.window-publishWebsite-form').hide(100, function(){
-                    $(el_window).find('.publishWebsite-published-link').attr('href', url);
-                    $(el_window).find('.publishWebsite-published-link').text(url);
-                    $(el_window).find('.window-publishWebsite-success').show(100)
+                let url = 'https://' + worker_name + '.puter.work';
+                $(el_window).find('.window-publishWorker-form').hide(100, function(){
+                    $(el_window).find('.publishWorker-published-link').attr('href', url);
+                    $(el_window).find('.publishWorker-published-link').text(url);
+                    $(el_window).find('.window-publishWorker-success').show(100)
                     $(`.item[data-uid="${target_dir_uid}"] .item-has-website-badge`).show();
                 });
 
@@ -107,19 +109,17 @@ async function UIWindowPublishWebsite(target_dir_uid, target_dir_name, target_di
                     // update item's website_url attribute
                     $(this).attr('data-website_url', url + $(this).attr('data-path').substring(target_dir_path.length));
                 })
-
-                window.update_sites_cache();
             }).catch((err)=>{
                 err = err.error;
-                $(el_window).find('.publish-website-error-msg').html(
+                $(el_window).find('.publish-worker-error-msg').html(
                     err.message + (
                         err.code === 'subdomain_limit_reached' ? 
                             ' <span class="manage-your-websites-link">' + i18n('manage_your_subdomains') + '</span>' : ''
                     )
                 );
-                $(el_window).find('.publish-website-error-msg').fadeIn();
-                // re-enable 'Publish' button
-                $(el_window).find('.publish-btn').prop('disabled', false);
+                $(el_window).find('.publish-worker-error-msg').fadeIn();
+                // re-enable 'Publish' button and restore original text
+                $(el_window).find('.publish-btn').prop('disabled', false).text(originalText);
             })
     })
 
@@ -133,4 +133,4 @@ $(document).on('click', '.manage-your-websites-link', async function(e){
 })
 
 
-export default UIWindowPublishWebsite
+export default UIWindowPublishWorker

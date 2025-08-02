@@ -300,7 +300,7 @@ module.exports = class APIError {
         // Subdomains
         'subdomain_limit_reached': {
             status: 400,
-            message: ({ limit }) => `You have exceeded the number of subdomains under your current plan (${limit}).`,
+            message: ({ limit, isWorker }) => isWorker ? `You have exceeded the maximum number of workers for your plan! (${limit})`:`You have exceeded the number of subdomains under your current plan (${limit}).`,
         },
         'subdomain_reserved': {
             status: 400,
