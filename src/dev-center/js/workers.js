@@ -58,6 +58,44 @@ return new Response(\`Page \${params.page} not found\`, {status: 404});
 
 }
 
+$(document).on('change', '.worker-checkbox', function (e) {
+    // determine if select-all checkbox should be checked, indeterminate, or unchecked
+    if ($('.worker-checkbox:checked').length === $('.worker-checkbox').length) {
+        $('.select-all-workers').prop('indeterminate', false);
+        $('.select-all-workers').prop('checked', true);
+    } else if ($('.worker-checkbox:checked').length > 0) {
+        $('.select-all-workers').prop('indeterminate', true);
+        $('.select-all-workers').prop('checked', false);
+    }
+    else {
+        $('.select-all-workers').prop('indeterminate', false);
+        $('.select-all-workers').prop('checked', false);
+    }
+
+    // activate row
+    if ($(this).is(':checked'))
+        $(this).closest('tr').addClass('active');
+    else
+        $(this).closest('tr').removeClass('active');
+
+    // enable delete button if at least one checkbox is checked
+    if ($('.worker-checkbox:checked').length > 0)
+        $('.delete-workers-btn').removeClass('disabled');
+    else
+        $('.delete-workers-btn').addClass('disabled');
+})
+
+$(document).on('change', '.select-all-workers', function (e) {
+    if ($(this).is(':checked')) {
+        $('.worker-checkbox').prop('checked', true);
+        $('.worker-card').addClass('active');
+        $('.delete-workers-btn').removeClass('disabled');
+    } else {
+        $('.worker-checkbox').prop('checked', false);
+        $('.worker-card').removeClass('active');
+        $('.delete-workers-btn').addClass('disabled');
+    }
+})
 
 
 export default init_workers;

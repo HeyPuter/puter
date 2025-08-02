@@ -1230,6 +1230,17 @@ dialog{
     display: inline-block;
     background-color: #e3f2fd;
     color: #1976d2;
+    background-color: #f3f4f6;
+    color: #374151;
+    padding: 1px 6px;
+    border-radius: 4px;
+    font-size: 12px;
+    font-weight: 500;
+    margin: 1px 0 0 0;
+    max-width: fit-content;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
 }
 
 .category-select {
@@ -1254,28 +1265,28 @@ dialog{
     width: 18px; margin-right: 5px; margin-bottom: -4px;
 }
 .category-badge {
-  display: inline-block;
-  background-color: #f2f2f2;
-  color: #555;
-  font-size: 12px;
-  font-weight: 500;
-  padding: 2px 6px;
-  margin-left: 8px;
-  border-radius: 6px;
-  vertical-align: middle;
+    display: inline-block;
+    background-color: #f2f2f2;
+    color: #555;
+    font-size: 12px;
+    font-weight: 500;
+    padding: 2px 6px;
+    margin-left: 8px;
+    border-radius: 6px;
+    vertical-align: middle;
 }
 .app-category {
-  display: inline-block;
-  background-color: #f3f4f6;
-  color: #374151;
-  padding: 1px 6px;
-  border-radius: 4px;
-  font-size: 11px;
-  font-weight: 500;
-  margin-top: 2px;
-  max-height: 18px;
-  line-height: 1.2;
-  white-space: nowrap;
+    display: inline-block;
+    background-color: #f3f4f6;
+    color: #374151;
+    padding: 1px 6px;
+    border-radius: 4px;
+    font-size: 11px;
+    font-weight: 500;
+    margin-top: 2px;
+    max-height: 18px;
+    line-height: 1.2;
+    white-space: nowrap;
 }
 
 .app-row-toolbar span {

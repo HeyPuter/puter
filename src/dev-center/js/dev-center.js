@@ -123,9 +123,14 @@ $(document).on('click', '.tab-btn', async function (e) {
                 // append row to worker-list-table
                 $('#worker-list-table > tbody').append(`
                     <tr>
+                        <td style="height: 60px; width: 20px; display: flex ; align-items: center;">
+                            <input type="checkbox" class="worker-checkbox" data-worker-name="${name}" style="width: 20px; height: 20px;">
+                        </td>
                         <td>${name}</td>
+                        <td>${worker.deployed_at}</td>
                         <td>
                             <button class="button button-default">Edit</button>
+                            <button class="button button-danger">Delete</button>
                         </td>
                     </tr>
                 `);
