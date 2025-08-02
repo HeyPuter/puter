@@ -26,12 +26,12 @@ const { createWorker, setCloudflareKeys, deleteWorker } = require("./workerUtils
 const { getUserInfo } = require("./workerUtils/puterUtils");
 const { LLRead } = require("../../filesystem/ll_operations/ll_read");
 const { Context } = require("../../util/context");
-const { NodePathSelector } = require("../../filesystem/node/selectors");
+const { NodePathSelector, NodeUIDSelector } = require("../../filesystem/node/selectors");
 const { calculateWorkerNameNew } = require("./workerUtils/nameUtils");
 const { Entity } = require("../../om/entitystorage/Entity");
 const { SKIP_ES_VALIDATION } = require("../../om/entitystorage/consts");
 const { Eq, StartsWith } = require("../../om/query/query");
-const { get_app } = require("../../helpers");
+const { get_app, subdomain } = require("../../helpers");
 const { UsernameNotifSelector } = require("../NotificationService");
 const APIError = require("../../api/APIError");
 const FSNodeParam = require("../../api/filesystem/FSNodeParam");
@@ -265,6 +265,29 @@ class WorkerService extends BaseService {
                     return { success: false, e }
                 }
             },
+            async getFilePaths({workerName}) {
+                try {
+                    const es_subdomain = this.services.get('es:subdomain');
+                    let currentDomains;
+                    if (typeof(workerName) !== "string") {
+                        currentDomains = (await es_subdomain.select({ predicate: new StartsWith({ key: "subdomain", value: "workers.puter." }) }));
+                    } else {
+                        currentDomains = (await es_subdomain.select({ predicate: new Eq({ key: "subdomain", value: "workers.puter." + workerName}) }));
+                    }
+                    const svc_fs = this.services.get('filesystem');
+
+                    const domainToPath = []
+                    for (const domain of currentDomains) {
+                        const node = await domain.get("root_dir")
+                        const subdomainString = (await domain.get("subdomain"))
+                        domainToPath.push({ name: subdomainString.split(".").pop(), url: `https://${subdomainString}`, path: await node.get("path"), created_at: await domain.get("created_at") });
+                    }
+                    return domainToPath;
+                } catch (e) {
+                    console.error(e)
+                }
+
+            },
             async startLogs({ workerName, authorization }) {
                 return await this.exec_({ runtime, code });
             },
@@ -280,6 +303,16 @@ class WorkerService extends BaseService {
         col_interfaces.set('workers', {
             description: 'Execute code with various languages.',
             methods: {
+                getFilePaths: {
+                    description: 'get paths for your workers',
+                    parameters: {
+                        workerName: {
+                            type: "string",
+                            description: "Optionally, the name of the worker you want the path for"
+                        }
+                    },
+                    result: {type: 'json'}
+                },
                 create: {
                     description: 'Create a backend worker',
                     parameters: {

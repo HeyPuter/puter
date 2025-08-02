@@ -61,11 +61,11 @@ export class WorkersHandler {
             }
         }
 
-        return Object.entries(await puter.kv.get("user-workers")).map((e, r) => {
-            e[1].name = e[0];
-
-            return { name: e[1].name, created_at: new Date(e[1].createTime || e[1].deployTime).toISOString(), /*deployed_at: new Date(e[1].deployTime).toISOString(),*/ url: e[1].url };
-        });
+        const driverCall = await puter.drivers.call("workers", "worker-service", "getFilePaths", {});
+        if (!driverCall.success) {
+            throw driverCall.error;
+        }
+        return driverCall.result
     }
 
     async get(workerName) {
@@ -79,12 +79,11 @@ export class WorkersHandler {
         }
 
         workerName = workerName.toLocaleLowerCase(); // just incase
-        try {
-            const data = (await puter.kv.get("user-workers"))[workerName];
-            return { name: workerName, created_at: new Date(data.createTime || data.deployTime).toISOString(), /*deployed_at: new Date(data.deployTime).toISOString(),*/ url: data.url };
-        } catch (e) {
-            throw new Error("Failed to get worker");
+        const driverCall = await puter.drivers.call("workers", "worker-service", "getFilePaths", {workerName});
+        if (!driverCall.success) {
+            throw driverCall.error;
         }
+        return driverCall.result[0];
     }
 
     async delete(workerName) {
