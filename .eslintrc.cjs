@@ -1,0 +1,45 @@
+module.exports = {
+    root: true,
+    parser: '@babel/eslint-parser',
+    parserOptions: {
+        ecmaVersion: 2022,
+        sourceType: 'module',
+        requireConfigFile: false,
+    },
+    extends: [
+        'eslint:recommended',
+        'plugin:import/recommended',
+        'plugin:jsdoc/recommended',
+        'prettier',
+    ],
+    plugins: ['import', 'jsdoc'],
+    env: {
+        node: true,
+        es2021: true,
+    },
+    rules: {
+        indent: ['error', 4],
+        quotes: ['error', 'single'],
+        semi: ['error', 'always'],
+        'comma-dangle': ['error', 'always-multiline'],
+        'max-len': ['warn', { code: 100 }],
+        'object-curly-spacing': ['error', 'always'],
+        'array-bracket-spacing': ['error', 'never'],
+        'keyword-spacing': ['error', { before: true, after: true }],
+        'space-before-blocks': ['error', 'always'],
+        'space-before-function-paren': ['error', 'never'],
+        'space-in-parens': ['error', 'never'],
+        'arrow-parens': ['error', 'always'],
+        'import/order': [
+            'warn',
+            {
+                groups: ['builtin', 'external', 'internal'],
+                'newlines-between': 'always',
+            },
+        ],
+        'no-trailing-spaces': 'error',
+        'jsdoc/require-jsdoc': 'warn',
+        'jsdoc/require-param': 'warn',
+        'jsdoc/require-returns': 'warn',
+    },
+};
