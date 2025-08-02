@@ -58,12 +58,16 @@ const conf = YAML.parse(fs.readFileSync(config).toString());
 
 
 const main = async () => {
+    for (const mountpoint of conf.mountpoints) {
+        await test({ mountpoint });
+    }
+}
+
+async function test({ mountpoint }) {
     const context = {
-        options: {
-            onlycase,
-            suite: suiteName,
-        }
+        mountpoint
     };
+
     const ts = new TestSDK(conf, context);
     try {
         await ts.delete('api_test', { recursive: true });
@@ -100,17 +104,6 @@ const main = async () => {
         await registry.run_all();
     }
 
-
-    // await ts.runTestPackage(require('./tests/write_cart'));
-    // await ts.runTestPackage(require('./tests/move_cart'));
-    // await ts.runTestPackage(require('./tests/copy_cart'));
-    // await ts.runTestPackage(require('./tests/write_and_read'));
-    // await ts.runTestPackage(require('./tests/move'));
-    // await ts.runTestPackage(require('./tests/stat'));
-    // await ts.runTestPackage(require('./tests/readdir'));
-    // await ts.runTestPackage(require('./tests/mkdir'));
-    // await ts.runTestPackage(require('./tests/batch'));
-    // await ts.runTestPackage(require('./tests/delete'));
     const all = unit && bench;
     if ( all || unit ) ts.printTestResults();
     if ( all || bench ) ts.printBenchmarkResults();

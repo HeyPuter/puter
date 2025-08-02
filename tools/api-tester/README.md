@@ -37,7 +37,7 @@ All commands below should be run from the root directory of puter.
     - username: The username of the admin user. (e.g. admin)
     - token: The token of the user. (can be obtained by typing `puter.authToken` in Developer Tools's console)
 
-3. Run the tests:
+3. Run all tests (unit tests and benchmarks):
 
     ```bash
     node ./tools/api-tester/apitest.js --config=./tools/api-tester/config.yml
@@ -57,7 +57,17 @@ All commands below should be run from the root directory of puter.
     node ./tools/api-tester/apitest.js --config=./tools/api-tester/config.yml --unit --suite=mkdir
     ```
 
-- Rerun failed tests in the last run:
+- (unimplemented) Filter tests by test name:
+
+    ```bash
+    # (wildcard matching) Run tests containing "memoryfs" in the name
+    node ./tools/api-tester/apitest.js --config=./tools/api-tester/config.yml --unit --test='*memoryfs*'
+
+    # (exact matching) Run the test "mkdir in memoryfs"
+    node ./tools/api-tester/apitest.js --config=./tools/api-tester/config.yml --unit --test='mkdir in memoryfs'
+    ```
+
+- (unimplemented) Rerun failed tests in the last run:
 
     ```bash
     node ./tools/api-tester/apitest.js --config=./tools/api-tester/config.yml --rerun-failed
@@ -126,5 +136,5 @@ module.exports = {
 
 ## TODO
 
-- [ ] Update usage of apitest.js. (Is it possible to generate the usage automatically?)
-- [ ] Integrate it into CI, optionally running it only in specific scenarios (e.g., when backend code changes).
+- [ ] Reset `t.cwd` if a test case fails. Currently, `t.cwd` is not reset if a test case fails.
+- [ ] Integrate apitest into CI, optionally running it only in specific scenarios (e.g., when backend code changes).

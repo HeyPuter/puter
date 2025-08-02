@@ -89,7 +89,33 @@ class NodeChildSelector {
 
     setPropertiesKnownBySelector (node) {
         node.name = this.name;
-        // no properties known
+
+        // try to get the full path recursively
+        //
+        // TODO (xiaochen): this is a hack to get the absolute path and should be removed once
+        // we have a better solution. We need the absolute path so that `MountpointService`
+        // can determine the mountpoint and provider for the node.
+        const stack = [this.name];
+        let current = this.parent;
+        while ( current ) {
+            if ( current instanceof NodeChildSelector ) {
+                stack.push(current.name);
+                current = current.parent;
+            } else if ( current instanceof NodePathSelector ) {
+                stack.push(current.value);
+                current = null;
+            } else if ( current instanceof RootNodeSelector ) {
+                current = null;
+            } else {
+                // for other selectors, we can't determine the absolute path
+                return;
+            }
+        }
+
+        node.path = '/';
+        stack.reverse().forEach(item => {
+            node.path = _path.join(node.path, item);
+        });
     }
 
     describe () {
