@@ -1,4 +1,7 @@
+let sortBy = 'created_at';
+let sortDirection = 'desc';
 window.workers = [];
+let search_query;
 
 window.create_worker = async (name) => {
     let worker = await puter.workers.create(name, window.default_worker_file);
@@ -6,16 +9,26 @@ window.create_worker = async (name) => {
     return worker;
 }
 
-window.refresh_worker_list = (show_loading = false) => {
+window.refresh_worker_list = async (show_loading = false) => {
     if (show_loading)
         puter.ui.showSpinner();
-    // get workers
-    setTimeout(function () {
-        puter.workers.list().then((workers_res) => {
-            workers = workers_res;
-            puter.ui.hideSpinner();
-        })
-    }, 1000);
+
+    // puter.workers.list() returns an array of worker objects
+    window.workers = await puter.workers.list();
+
+    // Get workers
+    if (window.activeTab === 'workers' && window.workers.length > 0) {
+        $('.worker-card').remove();
+        $('#no-workers-notice').hide();
+        $('#worker-list').show();
+        window.workers.forEach((worker) => {
+            // append row to worker-list-table
+            $('#worker-list-table > tbody').append(generate_worker_card(worker));
+        });
+    } else {
+        $('#no-workers-notice').show();
+        $('#worker-list').hide();
+    }
 }
 
 
@@ -96,6 +109,276 @@ $(document).on('change', '.select-all-workers', function (e) {
         $('.delete-workers-btn').addClass('disabled');
     }
 })
+
+$('.refresh-worker-list').on('click', function (e) {
+    puter.ui.showSpinner();
+    refresh_worker_list();
+
+    puter.ui.hideSpinner();
+})
+
+$('th.sort').on('click', function (e) {
+    // determine what column to sort by
+    const sortByColumn = $(this).attr('data-column');
+
+    // toggle sort direction
+    if (sortByColumn === sortBy) {
+        if (sortDirection === 'asc')
+            sortDirection = 'desc';
+        else
+            sortDirection = 'asc';
+    }
+    else {
+        sortBy = sortByColumn;
+        sortDirection = 'desc';
+    }
+
+    // update arrow
+    $('.sort-arrow').css('display', 'none');
+    $('#worker-list-table').find('th').removeClass('sorted');
+    $(this).find('.sort-arrow-' + sortDirection).css('display', 'inline');
+    $(this).addClass('sorted');
+
+    sort_workers();
+});
+
+function sort_workers() {
+    let sorted_workers;
+
+    // sort
+    if (sortDirection === 'asc'){
+        sorted_workers = workers.sort((a, b) => {
+            if(sortBy === 'name'){
+                return a[sortBy].localeCompare(b[sortBy]);
+            }else if(sortBy === 'created_at'){
+                return new Date(a[sortBy]) - new Date(b[sortBy]);
+            } else if(sortBy === 'user_count' || sortBy === 'open_count'){
+                return a.stats[sortBy] - b.stats[sortBy];
+            }else{
+                a[sortBy] > b[sortBy] ? 1 : -1
+            }
+        });
+    }else{
+        sorted_workers = workers.sort((a, b) => {
+            if(sortBy === 'name'){
+                return b[sortBy].localeCompare(a[sortBy]);
+            }else if(sortBy === 'created_at'){
+                return new Date(b[sortBy]) - new Date(a[sortBy]);
+            } else if(sortBy === 'user_count' || sortBy === 'open_count'){
+                return b.stats[sortBy] - a.stats[sortBy];
+            }else{
+                b[sortBy] > a[sortBy] ? 1 : -1
+            }
+        });
+    }
+    // refresh worker list
+    $('.worker-card').remove();
+    sorted_workers.forEach(worker => {
+        $('#worker-list-table > tbody').append(generate_worker_card(worker));
+    });
+
+    count_workers();
+
+    // show workers that match search_query and hide workers that don't
+    if (search_query) {
+        // show workers that match search_query and hide workers that don't
+        workers.forEach((worker) => {
+            if (worker.name.toLowerCase().includes(search_query.toLowerCase())) {
+                $(`.worker-card[data-name="${html_encode(worker.name)}"]`).show();
+            } else {
+                $(`.worker-card[data-name="${html_encode(worker.name)}"]`).hide();
+            }
+        })
+    }
+}
+
+function count_workers() {
+    let count = 0;
+    $('.worker-card').each(function () {
+        count++;
+    })
+    $('.worker-count').html(count);
+    return count;
+}
+
+function generate_worker_card(worker) {
+    return `
+        <tr class="worker-card" data-name="${html_encode(worker.name)}">
+            <td style="width:50px; vertical-align: middle;">
+                <input type="checkbox" class="worker-checkbox" data-worker-name="${worker.name}" style="width: 20px; height: 20px;">
+            </td>
+            <td style="font-family: monospace; font-size: 14px; vertical-align: middle;">${worker.name}</td>
+            <td style="font-size: 14px; vertical-align: middle;">${worker.created_at}</td>
+            <td style="vertical-align: middle;">
+                <button class="button button-danger delete-worker-btn" data-worker-name="${worker.name}">Delete</button>
+            </td>
+        </tr>
+    `;
+}
+
+$(document).on('input change keyup keypress keydown paste cut', '.search', function (e) {
+    // search apps for query
+    search_query = $(this).val().toLowerCase();
+    if (search_query === '') {
+        // hide 'clear search' button
+        $('.search-clear').hide();
+        // show all apps again
+        $(`.worker-card`).show();
+    } else {
+        // show 'clear search' button
+        $('.search-clear').show();
+        // show apps that match search_query and hide apps that don't
+        workers.forEach((worker) => {
+            if (
+                worker.name.toLowerCase().includes(search_query.toLowerCase())
+            )
+            {
+                $(`.worker-card[data-name="${worker.name}"]`).show();
+            } else {
+                $(`.worker-card[data-name="${worker.name}"]`).hide();
+            }
+        })
+    }
+})
+
+$(document).on('click', '.delete-workers-btn', async function (e) {
+    // show confirmation alert
+    let resp = await puter.ui.alert(`Are you sure you want to delete the selected workers?`, [
+        {
+            label: 'Delete',
+            type: 'danger',
+            value: 'delete',
+        },
+        {
+            label: 'Cancel',
+        },
+    ], {
+        type: 'warning',
+    });
+
+    if (resp === 'delete') {
+        // disable delete button
+        $('.delete-workers-btn').addClass('disabled');
+
+        // show 'deleting' modal
+        puter.ui.showSpinner();
+
+        let start_ts = Date.now();
+        const workers = $('.worker-checkbox:checked').toArray();
+
+        // delete all checked workers
+        for (let worker of workers) {
+            let worker_name = $(worker).attr('data-worker-name');
+            // delete worker
+            await puter.workers.delete(worker_name)
+
+            // remove worker card
+            $(`.worker-card[data-name="${worker_name}"]`).fadeOut(200, function name(params) {
+                $(this).remove();
+                if ($(`.worker-card`).length === 0) {
+                    $('section:not(.sidebar)').hide();
+                    $('#no-workers-notice').show();
+                } else {
+                    $('section:not(.sidebar)').hide();
+                    $('#worker-list').show();
+                }
+                count_workers();
+            });
+
+            try{
+                count_workers();
+            } catch(err) {
+                console.log(err);
+            }
+        }
+
+        // close 'deleting' modal
+        setTimeout(() => {
+            puter.ui.hideSpinner();
+            if($('.worker-checkbox:checked').length === 0){
+                // disable delete button
+                $('.delete-workers-btn').addClass('disabled');
+                // reset the 'select all' checkbox
+                $('.select-all-workers').prop('indeterminate', false);
+                $('.select-all-workers').prop('checked', false);
+            }
+        }, (start_ts - Date.now()) > 500 ? 0 : 500);
+    }
+})
+
+$(document).on('click', '.delete-worker-btn', async function (e) {
+    let worker_name = $(this).attr('data-worker-name');
+
+    // get worker
+    const worker_data = await puter.workers.get(worker_name);
+
+    if(worker_data.metadata?.locked){
+        puter.ui.alert(`<strong>${worker_data.name}</strong> is locked and cannot be deleted.`, [
+            {
+                label: 'Ok',
+            },
+        ], {
+            type: 'warning',
+        });
+        return;
+    }
+
+    // confirm delete
+    const alert_resp = await puter.ui.alert(`Are you sure you want to premanently delete <strong>${html_encode(worker_data.name)}</strong>?`,
+        [
+            {
+                label: 'Yes, delete permanently',
+                value: 'delete',
+                type: 'danger',
+            },
+            {
+                label: 'Cancel'
+            },
+        ]
+    );
+
+    if (alert_resp === 'delete') {
+        let init_ts = Date.now();
+        puter.ui.showSpinner();
+        puter.workers.delete(worker_name).then(async (worker) => {
+                setTimeout(() => {
+                    puter.ui.hideSpinner();
+                    $(`.worker-card[data-name="${worker_name}"]`).fadeOut(200, function name(params) {
+                        $(this).remove();
+                        if ($(`.worker-card`).length === 0) {
+                            $('section:not(.sidebar)').hide();
+                            $('#no-workers-notice').show();
+                        } else {
+                            $('section:not(.sidebar)').hide();
+                            $('#worker-list').show();
+                        }
+                        count_workers();
+                    });
+                },
+                    // make sure the modal was shown for at least 2 seconds
+                    (Date.now() - init_ts) > 2000 ? 1 : 2000 - (Date.now() - init_ts));
+
+                // delete worker directory
+                puter.fs.delete(
+                    `/${auth_username}/AppData/${dev_center_uid}/${worker_name}`,
+                    { recursive: true }
+                )
+
+            }).catch(async (err) => {
+                setTimeout(() => {
+                    puter.ui.hideSpinner();
+                    puter.ui.alert(err?.message, [
+                        {
+                            label: 'Ok',
+                        },
+                    ]);
+                },
+                    // make sure the modal was shown for at least 2 seconds
+                    (Date.now() - init_ts) > 2000 ? 1 : 2000 - (Date.now() - init_ts));
+            })
+    }
+})
+
 
 
 export default init_workers;

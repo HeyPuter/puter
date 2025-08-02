@@ -267,10 +267,10 @@
         <div style="overflow-x: auto; clear: both;">
             <table class="table" id="worker-list-table">
                 <thead class="disable-user-select">
-                    <tr></tr>
+                    <tr>
                         <th><input type="checkbox" class="select-all-workers" style="width: 20px; height: 20px; margin-left:3px;"></th>
                         <th class="sort th-name" data-column="name" style="padding-left: 10px !important;">Worker<span class="sort-arrow sort-arrow-desc">▼</span><span class="sort-arrow sort-arrow-asc">▲</span></th>
-                        <th class="sort th-deployed sorted" data-column="deployed_at">Deployed<span class="sort-arrow sort-arrow-desc" style="display:inline;">▼</span><span class="sort-arrow sort-arrow-asc">▲</span></th>
+                        <th class="sort th-created sorted" data-column="created_at">Created<span class="sort-arrow sort-arrow-desc" style="display:inline;">▼</span><span class="sort-arrow sort-arrow-asc">▲</span></th>
                         <th></th>
                     </tr>
                 </thead>
@@ -281,10 +281,36 @@
         </div>
     </section>
     <!---------------------------------------->
-    <!-- Websites List                       -->
+    <!-- Websites List                      -->
     <!---------------------------------------->
     <section id="website-list">
-        <h1>My Websites</h1>
+        <div class="website-list-nav">
+            <h1 class="my-websites-title">My Websites<span class="website-count"></span></h1>
+            <button class="create-a-website-btn button button-primary"><img src="./img/website-white.svg"> New Website</button>
+            <button class="refresh-website-list button button-default" style="width:40px; padding: 10px; float: right; margin-right: 10px;" title="Refresh"><svg style="width: 18px; height: 18px; margin-top: -2px; display: block;" xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.1999/xlink" x="0px" y="0px" width="32px" height="32px" viewBox="0 0 32 32" stroke-width="2"><g stroke-width="2" transform="translate(0.5, 0.5)"><path data-cap="butt" d="M29.382,9.217A15,15,0,0,0,1,16" fill="none" stroke="#444444" stroke-miterlimit="10" stroke-width="2" stroke-linecap="butt" stroke-linejoin="miter"></path><polyline points="28.383 1.22 29.383 9.22 21.383 8.22" fill="none" stroke="#444444" stroke-linecap="square" stroke-miterlimit="10" stroke-width="2" stroke-linejoin="miter"></polyline><path data-cap="butt" data-color="color-2" d="M2.618,22.783A15,15,0,0,0,31,16" fill="none" stroke="#444444" stroke-miterlimit="10" stroke-width="2" stroke-linecap="butt" stroke-linejoin="miter"></path><polyline data-color="color-2" points="3.617 30.78 2.617 22.78 10.617 23.78" fill="none" stroke="#444444" stroke-linecap="square" stroke-miterlimit="10" stroke-width="2" stroke-linejoin="miter"></polyline></g></svg></button>
+        </div>
+
+        <div style="margin-bottom: 10px; position: relative; width: 300px; float:left;">
+            <input style="background-image:url(./img/magnifier-outline.svg);" class="search">
+            <img class="search-clear" src="./img/close.svg">
+        </div>
+
+        <button class="button button-danger disabled delete-websites-btn" style="float:right;">Delete</button>
+        <div style="overflow-x: auto; clear: both;">
+            <table class="table" id="website-list-table">
+                <thead class="disable-user-select">
+                    <tr>
+                        <th><input type="checkbox" class="select-all-websites" style="width: 20px; height: 20px; margin-left:3px;"></th>
+                        <th class="sort th-name" data-column="name" style="padding-left: 10px !important;">Website<span class="sort-arrow sort-arrow-desc">▼</span><span class="sort-arrow sort-arrow-asc">▲</span></th>
+                        <th class="sort th-created sorted" data-column="created_at">Created<span class="sort-arrow sort-arrow-desc" style="display:inline;">▼</span><span class="sort-arrow sort-arrow-asc">▲</span></th>
+                        <th></th>
+                    </tr>
+                </thead>
+                <tbody>
+
+                </tbody>
+            </table>
+        </div>
     </section>
     
     </div>

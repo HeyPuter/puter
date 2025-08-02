@@ -111,34 +111,8 @@ $(document).on('click', '.tab-btn', async function (e) {
     // Workers tab
     // ---------------------------------------------------------------
     else if ($(this).attr('data-tab') === 'workers') {
+        refresh_worker_list();
         activeTab = 'workers';
-        // puter.workers.list() returns an object with each worker as a key and the worker object as the value
-        // so we need to convert it to an array, key is the worker name and value is the worker object
-        window.workers = Object.entries(await puter.workers.list());
-        // Get workers
-        if (activeTab === 'workers' && window.workers.length > 0) {
-            $('#no-workers-notice').hide();
-            $('#worker-list').show();
-            window.workers.forEach(([name, worker]) => {
-                // append row to worker-list-table
-                $('#worker-list-table > tbody').append(`
-                    <tr>
-                        <td style="height: 60px; width: 20px; display: flex ; align-items: center;">
-                            <input type="checkbox" class="worker-checkbox" data-worker-name="${name}" style="width: 20px; height: 20px;">
-                        </td>
-                        <td>${name}</td>
-                        <td>${worker.deployed_at}</td>
-                        <td>
-                            <button class="button button-default">Edit</button>
-                            <button class="button button-danger">Delete</button>
-                        </td>
-                    </tr>
-                `);
-            });
-        } else {
-            $('#no-workers-notice').show();
-            $('#worker-list').hide();
-        }
     }
     // ---------------------------------------------------------------
     // Payout Method tab
