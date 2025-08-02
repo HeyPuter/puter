@@ -28,7 +28,7 @@ export class WorkersHandler {
         if (!driverCall.success || !driverResult.success) {
             throw driverCall.error || new Error(driverResult?.errors || "Driver failed to execute, do you have the necessary permissions?");
         }
-        currentWorkers[workerName] = { filePath, url: driverResult["url"], deployTime: Date.now() };
+        currentWorkers[workerName] = { filePath, url: driverResult["url"], deployTime: Date.now(), createTime: Date.now() };
         await puter.kv.set("user-workers", currentWorkers);
 
         return driverResult;
@@ -61,7 +61,11 @@ export class WorkersHandler {
             }
         }
 
-        return await puter.kv.get("user-workers");
+        return Object.entries(await puter.kv.get("user-workers")).map((e, r) => {
+            e[1].name = e[0];
+
+            return { name: e[1].name, created_at: new Date(e[1].createTime || e[1].deployTime).toISOString(), /*deployed_at: new Date(e[1].deployTime).toISOString(),*/ url: e[1].url };
+        });
     }
 
     async get(workerName) {
@@ -76,7 +80,8 @@ export class WorkersHandler {
 
         workerName = workerName.toLocaleLowerCase(); // just incase
         try {
-            return (await puter.kv.get("user-workers"))[workerName];
+            const data = (await puter.kv.get("user-workers"))[workerName];
+            return { name: workerName, created_at: new Date(data.createTime || data.deployTime).toISOString(), /*deployed_at: new Date(data.deployTime).toISOString(),*/ url: data.url };
         } catch (e) {
             throw new Error("Failed to get worker");
         }
@@ -91,7 +96,7 @@ export class WorkersHandler {
                 throw 'Authentication failed.';
             }
         }
-        
+
         workerName = workerName.toLocaleLowerCase(); // just incase
         const driverCall = await puter.drivers.call("workers", "worker-service", "destroy", { authorization: puter.authToken, workerName });
 
@@ -102,7 +107,7 @@ export class WorkersHandler {
             throw driverCall.error || new Error(driverCall.result?.errors || "Driver failed to execute, do you have the necessary permissions?");
         } else {
             let currentWorkers = await puter.kv.get("user-workers");
-            
+
             if (!currentWorkers) {
                 currentWorkers = {};
             }
