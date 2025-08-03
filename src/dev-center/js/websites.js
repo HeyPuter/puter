@@ -209,7 +209,8 @@ $(document).on('input change keyup keypress keydown paste cut', '.search', funct
         // show apps that match search_query and hide apps that don't
         websites.forEach((website) => {
             if (
-                website.subdomain.toLowerCase().includes(search_query.toLowerCase())
+                website.subdomain.toLowerCase().includes(search_query.toLowerCase()) ||
+                website.root_dir?.name?.toLowerCase().includes(search_query.toLowerCase())
             )
             {
                 $(`.website-card[data-name="${website.subdomain}"]`).show();
