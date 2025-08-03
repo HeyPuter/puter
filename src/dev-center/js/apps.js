@@ -188,7 +188,6 @@ async function create_app(title, source_path = null, items = null) {
                 window_resizable: true,
                 fullpage_on_landing: true,
             },
-    
         })
         .then(async (app) => {
             let app_dir;
@@ -209,27 +208,26 @@ async function create_app(title, source_path = null, items = null) {
             // Update the app with the new hostname
             // ----------------------------------------------------
             puter.apps.update(app.name, {
-    title: title,
-    indexURL: source_path ? protocol + `://${subdomain}.` + static_hosting_domain : 'https://dev-center.puter.com/coming-soon.html',
-    icon: icon,
-    description: ' ',
-    maximizeOnStart: false,
-    background: false,
-    metadata: {
-        category: null, // default category on creation
-        window_resizable: true,
-        fullpage_on_landing: true,
-    }
-}).then(async (app) => {
+                title: title,
+                indexURL: source_path ? protocol + `://${subdomain}.` + static_hosting_domain : 'https://dev-center.puter.com/coming-soon.html',
+                icon: icon,
+                description: ' ',
+                maximizeOnStart: false,
+                background: false,
+                metadata: {
+                    category: null, // default category on creation
+                    window_resizable: true,
+                    fullpage_on_landing: true,
+                }
+            }).then(async (app) => {
                 // refresh app list
                 puter.apps.list({ icon_size: 64 }).then(async (resp) => {
                     apps = resp;
-                    // Close the 'Creting new app...' modal
+                    // Close the 'Creating new app...' modal
                     // but make sure it was shown for at least 2 seconds
                     setTimeout(() => {
                         // open edit app section
                         edit_app_section(app.name);
-                        refresh_app_list(); // ✅ Refreshes main app list
 
                         // set drop area if source_path was provided or items were dropped
                         if (source_path || items) {
