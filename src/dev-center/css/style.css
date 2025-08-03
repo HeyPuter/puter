@@ -26,7 +26,6 @@
 html {
     width: 100vw;
     height: 100vh;
-    background-color: #eff1f5
 }
 
 body{
@@ -206,6 +205,23 @@ h1 .app-count, h1 .worker-count{
     padding: 0 24px;
 }
 
+.refresh-app-list, .refresh-worker-list {
+    width:40px; 
+    padding: 10px; 
+    float: right; 
+    margin-right: 10px;
+    background-color: white;
+    border: none;
+    color: #0d6efd;
+    font-size: 13px;
+    cursor: pointer;
+    opacity: 0.9;
+}
+
+.refresh-app-list:hover, .refresh-worker-list:hover {
+    opacity: 1;
+}
+
 a {
     color: #0d6efd;
     text-decoration: none;
@@ -231,12 +247,15 @@ section {
     display: none;
 }
 #app-list-table > thead, #website-list-table > thead, #worker-list-table > thead{
-    font-size:14px; background-color: #f7fafc; border-top: 1px solid #DDD; text-transform: uppercase; color: #6d767d;
+    font-size:14px; 
+    border-top: 1px solid #DDD; 
+    text-transform: uppercase; 
+    color: #6d767d;
     cursor: default;
 }
 .app-card, .website-card, .worker-card {
     padding: 12px;
-    border-top: 1px solid #d8dce5;
+    border-top: 1px solid #f1f2f5;
     border-radius: 0;
     clear: both;
     background: white;
@@ -246,10 +265,10 @@ section {
 }
 
 .app-card:hover, .website-card:hover, .worker-card:hover {
-    background-color: #e8eff66e;
+    background-color: #f0f5fb6e;
 }
 .app-card.active, .website-card.active, .worker-card.active {
-    background-color: #e8eff6;
+    background-color: #ebeff39a;
 }
 
 
@@ -442,14 +461,16 @@ label {
     padding: 30px 16px;
     overflow-x: hidden;
     overflow-y: auto;
-    background-color: white;
-    border-right: 1px solid #e1e1e1;
+    background-color: rgb(249, 249, 249);
+    border-right: 1px solid #eeeeee;
     color: rgb(51, 51, 51);
     font-weight: 400;
     width: 25px;
 }
 .sidebar .sidebar-content{
     display: none;
+    position: relative;
+    height: 100%;
 }
 .sidebar.open{
     width: 250px;
@@ -492,11 +513,16 @@ label {
     display: block;
     padding: 10px 20px;
     cursor: pointer;
+    margin-bottom: 15px;
+}
+
+.sidebar-nav>li:hover {
+    background-color: #656c771b;
 }
 
 .sidebar-nav>li.active {
     color: #fff;
-    background-color: #3273dc;
+    background-color: #3a85ff;
 }
 
 .sidebar-nav > li .app-count, .sidebar-nav > li .worker-count {
@@ -537,14 +563,12 @@ label {
 
 .main>section {
     background-color: white;
-    box-shadow: 0px 0px 3px #E1E1E1;
-    border: 1px solid #e1e1e1;
     border-radius: 3px;
 }
 
 .link-to-docs{
     color: #586373; 
-    font-size: 15px;
+    font-size: 14px;
 }
 .link-to-docs, .link-to-docs:hover {
     text-decoration: none;
@@ -640,7 +664,7 @@ table {
 
 .table>thead>tr>th {
     vertical-align: bottom;
-    border-bottom: 2px solid #ddd;
+    border-bottom: 1px solid #ddd;
 }
 
 .table>thead>tr>th, .table>tbody>tr>th, .table>tfoot>tr>th, .table>thead>tr>td, .table>tbody>tr>td, .table>tfoot>tr>td {
@@ -730,7 +754,7 @@ th.sorted{
     user-select: none !important;
 }
 
-.my-apps-title {
+.my-apps-title, .my-workers-title {
     font-size: 27px;
     margin-top: 0px;
     float: left;
@@ -953,7 +977,7 @@ ol li:before {
 .ip-terms-notice{
     font-size: 12px; margin-top: 20px; margin-bottom: 0;
 }
-.app-list-nav{
+.app-list-nav, .worker-list-nav{
     overflow: hidden; margin-bottom: 40px; margin-top: 10px;
 }
 .back-to-main-btn{
@@ -1114,9 +1138,15 @@ dialog{
     background-position-x: 5px;
     padding-left: 35px;
     padding-right: 35px;
-    border: 2px solid #CCC;
+    border: 2px solid #ebebeb;
 }
-
+.search:focus, .search:focus-within, .search:active, .search:focus-visible {
+    border: 2px solid #cbcbcb !important;
+    outline: none !important;
+}
+.search.has-value{
+    border: 2px solid #0066d2 !important;
+}
 .search-clear {
     display: none;
     position: absolute;

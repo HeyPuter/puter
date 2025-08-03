@@ -2241,6 +2241,8 @@ $(document).on('input change keyup keypress keydown paste cut', '.search', funct
         $('.search-clear').hide();
         // show all apps again
         $(`.app-card`).show();
+        // remove 'has-value' class from search input
+        $('.search').removeClass('has-value');
     } else {
         // show 'clear search' button
         $('.search-clear').show();
@@ -2258,6 +2260,8 @@ $(document).on('input change keyup keypress keydown paste cut', '.search', funct
                 $(`.app-card[data-name="${app.name}"]`).hide();
             }
         })
+        // add 'has-value' class to search input
+        $('.search').addClass('has-value');
     }
 })
 
