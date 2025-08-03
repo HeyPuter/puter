@@ -163,10 +163,10 @@ function sort_websites() {
     if (search_query) {
         // show websites that match search_query and hide websites that don't
         websites.forEach((website) => {
-            if (website.name.toLowerCase().includes(search_query.toLowerCase())) {
-                $(`.website-card[data-name="${html_encode(website.name)}"]`).show();
+            if (website.subdomain.toLowerCase().includes(search_query.toLowerCase())) {
+                $(`.website-card[data-name="${html_encode(website.subdomain)}"]`).show();
             } else {
-                $(`.website-card[data-name="${html_encode(website.name)}"]`).hide();
+                $(`.website-card[data-name="${html_encode(website.subdomain)}"]`).hide();
             }
         })
     }
@@ -184,10 +184,11 @@ function count_websites() {
 function generate_website_card(website) {
     return `
         <tr class="website-card" data-name="${html_encode(website.subdomain)}">
-            <td style="width:50px; vertical-align: middle; line-height: 1;">
+            <td style="width:30px; vertical-align: middle; line-height: 1;">
                 <input type="checkbox" class="website-checkbox" data-website-name="${website.subdomain}">
             </td>
             <td style="font-family: monospace; font-size: 14px; vertical-align: middle;"><a href="https://${website.subdomain}.puter.site" target="_blank">${website.subdomain}.puter.site</a></td>
+            <td style="font-size: 14px; vertical-align: middle;">${website.root_dir ? website.root_dir.name : ''}</td>
             <td style="font-size: 14px; vertical-align: middle;">${website.created_at}</td>
             <td style="vertical-align: middle;"><img class="options-icon options-icon-website" data-website-name="${website.subdomain}" src="./img/options.svg"></td>
         </tr>
@@ -208,12 +209,12 @@ $(document).on('input change keyup keypress keydown paste cut', '.search', funct
         // show apps that match search_query and hide apps that don't
         websites.forEach((website) => {
             if (
-                website.name.toLowerCase().includes(search_query.toLowerCase())
+                website.subdomain.toLowerCase().includes(search_query.toLowerCase())
             )
             {
-                $(`.website-card[data-name="${website.name}"]`).show();
+                $(`.website-card[data-name="${website.subdomain}"]`).show();
             } else {
-                $(`.website-card[data-name="${website.name}"]`).hide();
+                $(`.website-card[data-name="${website.subdomain}"]`).hide();
             }
         })
     }
