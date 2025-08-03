@@ -279,85 +279,6 @@ $(document).on('click', '.edit-app, .go-to-edit-app', function (e) {
 })
 
 $(document).on('click', '.delete-app', async function (e) {
-    let app_uid = $(this).attr('data-app-uid');
-    let app_title = $(this).attr('data-app-title');
-    let app_name = $(this).attr('data-app-name');
-
-    // get app
-    const app_data = await puter.apps.get(app_name, { icon_size: 16 });
-
-    if(app_data.metadata?.locked){
-        puter.ui.alert(`<strong>${app_data.title}</strong> is locked and cannot be deleted.`, [
-            {
-                label: 'Ok',
-            },
-        ], {
-            type: 'warning',
-        });
-        return;
-    }
-
-    // confirm delete
-    const alert_resp = await puter.ui.alert(`Are you sure you want to premanently delete <strong>${html_encode(app_title)}</strong>?`,
-        [
-            {
-                label: 'Yes, delete permanently',
-                value: 'delete',
-                type: 'danger',
-            },
-            {
-                label: 'Cancel'
-            },
-        ]
-    );
-
-    if (alert_resp === 'delete') {
-        let init_ts = Date.now();
-        puter.ui.showSpinner();
-        puter.apps.delete(app_name).then(async (app) => {
-                setTimeout(() => {
-                    puter.ui.hideSpinner();
-                    $(`.app-card[data-uid="${app_uid}"]`).fadeOut(200, function name(params) {
-                        $(this).remove();
-                        if ($(`.app-card`).length === 0) {
-                            $('section:not(.sidebar)').hide();
-                            $('#no-apps-notice').show();
-                        } else {
-                            $('section:not(.sidebar)').hide();
-                            $('#app-list').show();
-                        }
-                        count_apps();
-                    });
-                },
-                    // make sure the modal was shown for at least 2 seconds
-                    (Date.now() - init_ts) > 2000 ? 1 : 2000 - (Date.now() - init_ts));
-
-                // get app directory
-                puter.fs.stat({
-                    path: `/${auth_username}/AppData/${dev_center_uid}/${app_uid}`,
-                    returnSubdomains: true,
-                }).then(async (stat) => {
-                    // delete subdomain associated with the app dir
-                    puter.hosting.delete(stat.subdomains[0].subdomain)
-                    // delete app directory
-                    puter.fs.delete(
-                        `/${auth_username}/AppData/${dev_center_uid}/${app_uid}`,
-                        { recursive: true }
-                    )
-                })
-            }).catch(async (err) => {
-                setTimeout(() => {
-                    puter.ui.hideSpinner();
-                    puter.ui.alert(err?.message, [
-                        {
-                            label: 'Ok',
-                        },
-                    ]);
-                },
-                    // make sure the modal was shown for at least 2 seconds
-                    (Date.now() - init_ts) > 2000 ? 1 : 2000 - (Date.now() - init_ts));
-            })
-    }
 })
 
 // generate app link
@@ -1532,15 +1453,6 @@ h += `</div>`;
 
 
 
-    // Toolbar
-    h += `<div class="app-toolbar-container" style="height: 16px; overflow: visible;">`;
-        h += `<div class="app-row-toolbar disable-user-select">`; // remove inline styles
-            h += `<span title="Open app" class="open-app-btn" data-app-uid="${html_encode(app.uid)}" data-app-name="${html_encode(app.name)}">Open</span>`;
-            h += `<span title="Edit app" class="edit-app" data-app-name="${html_encode(app.name)}" data-app-title="${html_encode(app.title)}" data-app-uid="${html_encode(app.uid)}">Settings</span>`;
-            h += `<span class="add-app-to-desktop" data-app-uid="${html_encode(app.uid)}" data-app-title="${html_encode(app.title)}">Add Shortcut to Desktop</span>`;
-            h += `<span title="Delete app" class="delete-app" data-app-name="${html_encode(app.name)}" data-app-title="${html_encode(app.title)}" data-app-uid="${html_encode(app.uid)}">Delete</span>`;
-        h += `</div>`;
-    h += `</div>`;
     h += `</div>`; // end info column
     h += `</div>`; // end row
 h += `</td>`;
@@ -1573,6 +1485,10 @@ h += `</td>`;
             h += `<span class="tippy approval-badge approval-badge-incentive ${app.approved_for_incentive_program ? 'active' : ''}" title="${app.approved_for_incentive_program ? '✅ Approved for the incentive program' : '❌ Not approved for the incentive program'}"></span>`;
         h += `</div>`;
     h += `</td>`;
+
+    // options
+    h += `<td style="vertical-align: middle;"><img class="options-icon options-icon-app" data-app-name="${html_encode(app.name)}" data-app-uid="${html_encode(app.uid)}" data-app-title="${html_encode(app.title)}" src="./img/options.svg"></td>`;
+
     h += `</tr>`;
     return h;
 }
@@ -2161,32 +2077,6 @@ $(document).on('click', '.insta-deploy-existing-app-back', function (e) {
 
 
 
-$(document).on('click', '.add-app-to-desktop', function (e) {
-    let app_title = $(this).attr('data-app-title');
-    let app_uid = $(this).attr('data-app-uid');
-
-    puter.fs.upload(
-        new File([], app_title),
-        `/${auth_username}/Desktop`,
-        {
-            name: app_title,
-            dedupeName: true,
-            overwrite: false,
-            appUID: app_uid,
-        }).then(async (uploaded) => {
-            puter.ui.alert(`<strong>${app_title}</strong> shortcut has been added to your desktop.`, [
-                {
-                    label: 'Ok',
-                    type: 'primary',
-                },
-            ], {
-                type: 'success',
-            });
-        })
-
-})
-
-
 $('.insta-deploy-existing-app-select').on('close', function (e) {
     $('.insta-deploy-existing-app-list').html('');
 })
@@ -2706,4 +2596,160 @@ async function render_analytics(period){
 $(document).on('click', '.stats-cell', function(e) {
     edit_app_section($(this).attr('data-app-name'), 'analytics');
 })
+
+function app_context_menu(app_name, app_title, app_uid) {
+    puter.ui.contextMenu({
+        items: [
+            {
+                label: 'Open',
+                type: 'primary',
+                action: () => {
+                    puter.ui.launchApp(app_name);
+                },
+            },
+            {
+                label: 'Edit',
+                type: 'primary',
+                action: () => {
+                    edit_app_section(app_name, 'edit');
+                },
+            },
+            {
+                label: 'Add Shortcut to Desktop',
+                type: 'primary',
+                action: () => {
+                    puter.fs.upload(
+                        new File([], app_title),
+                        `/${auth_username}/Desktop`,
+                        {
+                            name: app_title,
+                            dedupeName: true,
+                            overwrite: false,
+                            appUID: app_uid,
+                        }).then(async (uploaded) => {
+                            puter.ui.alert(`<strong>${app_title}</strong> shortcut has been added to your desktop.`, [
+                                {
+                                    label: 'Ok',
+                                    type: 'primary',
+                                },
+                            ], {
+                                type: 'success',
+                            });
+                        })
+                
+                },
+            },
+            '-',
+            {
+                label: 'Delete',
+                type: 'danger',
+                action: () => {
+                    attempt_delete_app(app_name, app_title, app_uid);
+                },
+            },
+        ],
+    });
+
+}
+$(document).on('click', '.options-icon-app', function(e) {
+    let app_name = $(this).attr('data-app-name');
+    let app_title = $(this).attr('data-app-title');
+    let app_uid = $(this).attr('data-app-uid');
+
+    e.preventDefault();
+    e.stopPropagation();
+    e.stopImmediatePropagation();
+    app_context_menu(app_name, app_title, app_uid);
+})
+
+$(document).on('contextmenu', '.app-card', function(e) {
+    let app_name = $(this).attr('data-name');
+    let app_title = $(this).attr('data-title');
+    let app_uid = $(this).attr('data-uid');
+
+    e.preventDefault();
+    e.stopPropagation();
+    e.stopImmediatePropagation();
+    app_context_menu(app_name, app_title, app_uid);
+})
+
+async function attempt_delete_app(app_name, app_title, app_uid) {
+    // get app
+    const app_data = await puter.apps.get(app_name, { icon_size: 16 });
+
+    if(app_data.metadata?.locked){
+        puter.ui.alert(`<strong>${app_data.title}</strong> is locked and cannot be deleted.`, [
+            {
+                label: 'Ok',
+            },
+        ], {
+            type: 'warning',
+        });
+        return;
+    }
+
+    // confirm delete
+    const alert_resp = await puter.ui.alert(`Are you sure you want to premanently delete <strong>${html_encode(app_title)}</strong>?`,
+        [
+            {
+                label: 'Yes, delete permanently',
+                value: 'delete',
+                type: 'danger',
+            },
+            {
+                label: 'Cancel'
+            },
+        ]
+    );
+
+    if (alert_resp === 'delete') {
+        let init_ts = Date.now();
+        puter.ui.showSpinner();
+        puter.apps.delete(app_name).then(async (app) => {
+                setTimeout(() => {
+                    puter.ui.hideSpinner();
+                    $(`.app-card[data-uid="${app_uid}"]`).fadeOut(200, function name(params) {
+                        $(this).remove();
+                        if ($(`.app-card`).length === 0) {
+                            $('section:not(.sidebar)').hide();
+                            $('#no-apps-notice').show();
+                        } else {
+                            $('section:not(.sidebar)').hide();
+                            $('#app-list').show();
+                        }
+                        count_apps();
+                    });
+                },
+                    // make sure the modal was shown for at least 2 seconds
+                    (Date.now() - init_ts) > 2000 ? 1 : 2000 - (Date.now() - init_ts));
+
+                // get app directory
+                puter.fs.stat({
+                    path: `/${auth_username}/AppData/${dev_center_uid}/${app_uid}`,
+                    returnSubdomains: true,
+                }).then(async (stat) => {
+                    // delete subdomain associated with the app dir
+                    puter.hosting.delete(stat.subdomains[0].subdomain)
+                    // delete app directory
+                    puter.fs.delete(
+                        `/${auth_username}/AppData/${dev_center_uid}/${app_uid}`,
+                        { recursive: true }
+                    )
+                })
+            }).catch(async (err) => {
+                setTimeout(() => {
+                    puter.ui.hideSpinner();
+                    puter.ui.alert(err?.message, [
+                        {
+                            label: 'Ok',
+                        },
+                    ]);
+                },
+                    // make sure the modal was shown for at least 2 seconds
+                    (Date.now() - init_ts) > 2000 ? 1 : 2000 - (Date.now() - init_ts));
+            })
+    }
+
+}
+
 export default init_apps;

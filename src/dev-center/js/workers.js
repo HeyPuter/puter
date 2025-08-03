@@ -41,7 +41,6 @@ $(document).on('click', '.create-a-worker-btn', async function (e) {
     let name = await puter.ui.prompt('Please enter a name for your worker:', 'my-awesome-worker');
 
     if (name) {
-        console.log(name);
         await create_worker(name);
     }
 })
@@ -207,13 +206,11 @@ function generate_worker_card(worker) {
     return `
         <tr class="worker-card" data-name="${html_encode(worker.name)}">
             <td style="width:50px; vertical-align: middle;">
-                <input type="checkbox" class="worker-checkbox" data-worker-name="${worker.name}" style="width: 20px; height: 20px;">
+                <input type="checkbox" class="worker-checkbox" data-worker-name="${worker.name}">
             </td>
             <td style="font-family: monospace; font-size: 14px; vertical-align: middle;">${worker.name}</td>
             <td style="font-size: 14px; vertical-align: middle;">${worker.created_at}</td>
-            <td style="vertical-align: middle;">
-                <button class="button button-danger delete-worker-btn" data-worker-name="${worker.name}">Delete</button>
-            </td>
+            <td style="vertical-align: middle;"><img class="options-icon options-icon-worker" data-worker-name="${worker.name}" src="./img/options.svg"></td>
         </tr>
     `;
 }
@@ -308,8 +305,41 @@ $(document).on('click', '.delete-workers-btn', async function (e) {
     }
 })
 
-$(document).on('click', '.delete-worker-btn', async function (e) {
-    let worker_name = $(this).attr('data-worker-name');
+$(document).on('contextmenu', '.worker-card', function (e) {
+    e.preventDefault();
+    e.stopPropagation();
+    e.stopImmediatePropagation();
+    puter.ui.contextMenu({
+        items: [
+            {
+                label: 'Delete',
+                type: 'danger',
+                action: () => {
+                    attempt_delete_worker($(this).attr('data-name'));
+                },
+            },
+        ],
+    });
+})
+
+$(document).on('click', '.options-icon-worker', function (e) {
+    e.preventDefault();
+    e.stopPropagation();
+    e.stopImmediatePropagation();
+    puter.ui.contextMenu({
+        items: [
+            {
+                label: 'Delete',
+                type: 'danger',
+                action: () => {
+                    attempt_delete_worker($(this).attr('data-worker-name'));
+                },
+            },
+        ],
+    });
+})
+
+async function attempt_delete_worker(worker_name) {
 
     // get worker
     const worker_data = await puter.workers.get(worker_name);
@@ -357,15 +387,8 @@ $(document).on('click', '.delete-worker-btn', async function (e) {
                         count_workers();
                     });
                 },
-                    // make sure the modal was shown for at least 2 seconds
-                    (Date.now() - init_ts) > 2000 ? 1 : 2000 - (Date.now() - init_ts));
-
-                // delete worker directory
-                puter.fs.delete(
-                    `/${auth_username}/AppData/${dev_center_uid}/${worker_name}`,
-                    { recursive: true }
-                )
-
+                // make sure the modal was shown for at least 2 seconds
+                (Date.now() - init_ts) > 2000 ? 1 : 2000 - (Date.now() - init_ts));
             }).catch(async (err) => {
                 setTimeout(() => {
                     puter.ui.hideSpinner();
@@ -379,8 +402,6 @@ $(document).on('click', '.delete-worker-btn', async function (e) {
                     (Date.now() - init_ts) > 2000 ? 1 : 2000 - (Date.now() - init_ts));
             })
     }
-})
-
-
+}
 
 export default init_workers;

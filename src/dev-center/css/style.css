@@ -24,7 +24,6 @@
 }
 
 html {
-    width: 100vw;
     height: 100vh;
 }
 
@@ -439,7 +438,7 @@ label {
 }
 
 .app-card-link:hover{
-    text-decoration: underline;
+    text-decoration: underline !important;
 }
 
 .edit-app img {
@@ -1334,4 +1333,24 @@ dialog{
     color: #000; /* Optional: darken on hover */
 }
 
+.options-icon {
+    cursor: pointer;
+    opacity: 0.7;
+    width: 30px;
+    height: 30px;
+    border-radius: 3px;
+}
 
+.options-icon:hover {
+    opacity: 1;
+    background-color: #ededed;
+}
+
+.worker-checkbox, .app-checkbox {
+    width: 20px;
+    height: 20px;
+}
+
+.no-hover:hover {
+    background-color: transparent !important;
+}
