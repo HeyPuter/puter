@@ -185,7 +185,6 @@ async function UIWindowLogin(options){
             // Disable the login button to prevent multiple submissions
             $(el_window).find('.login-btn').prop('disabled', true);
     
-            console.log('Sending login AJAX request with async: true');
             $.ajax({
                 url: window.gui_origin + "/login",
                 type: 'POST',
@@ -194,7 +193,6 @@ async function UIWindowLogin(options){
                 contentType: "application/json",
                 data: data,				
                 success: async function (data){
-                    console.log('Login request successful');
                     // Keep the button disabled on success since we're redirecting or closing
                     let p = Promise.resolve();
                     if ( data.next_step === 'otp' ) {
@@ -252,7 +250,6 @@ async function UIWindowLogin(options){
                                             p.resolve();
                                         } catch (e) {
                                             // keeping this log; useful in screenshots
-                                            console.log('2FA Login Error', e);
                                             component.set('error', i18n(error_i18n_key));
                                             component.set('is_checking_code', false);
                                         }
@@ -319,7 +316,6 @@ async function UIWindowLogin(options){
                                             p.resolve();
                                         } catch (e) {
                                             // keeping this log; useful in screenshots
-                                            console.log('2FA Recovery Error', e);
                                             component.set('error', i18n(error_i18n_key));
                                         }
                                     }
@@ -366,7 +362,6 @@ async function UIWindowLogin(options){
                     if(options.reload_on_success){
                         sessionStorage.setItem('playChimeNextUpdate', 'yes');
                         window.onbeforeunload = null;
-                        console.log('About to redirect, checking URL parameters:', window.location.search);
                         // Replace with a clean URL to prevent password leakage
                         const cleanUrl = window.location.origin + window.location.pathname;
                         window.location.replace(cleanUrl);
