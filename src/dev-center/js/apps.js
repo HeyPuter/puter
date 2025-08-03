@@ -2608,8 +2608,8 @@ function app_context_menu(app_name, app_title, app_uid) {
             {
                 label: 'Edit',
                 type: 'primary',
-                action: () => {
-                    edit_app_section(app_name, 'edit');
+                action: () => {                
+                    edit_app_section(app_name);
                 },
             },
             {

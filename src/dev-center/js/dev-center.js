@@ -310,7 +310,7 @@ $(document).on('click', '.section-tab-btn', function (e) {
     // hide all tabs
     $('.section-tab').hide();
     // show section
-    $('.section-tab[data-tab="' + $(this).attr('data-tab') + '"]').show();
+    $(`.section-tab[data-tab="${$(this).attr('data-tab')}"]`).show();
     // remove active class from all tab buttons
     $('.section-tab-btn').removeClass('active');
     // add active class to clicked tab button
