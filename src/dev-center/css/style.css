@@ -1287,6 +1287,7 @@ dialog{
     max-height: 18px;
     line-height: 1.2;
     white-space: nowrap;
+    border: 1px solid #CCC;
 }
 
 .app-row-toolbar span {
