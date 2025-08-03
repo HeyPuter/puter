@@ -37,7 +37,7 @@ body{
     flex: 1;
 }
 
-h1 .app-count{
+h1 .app-count, h1 .worker-count{
     font-size: 20px;
     color: #6d767d;
     font-weight: 400;
@@ -499,7 +499,7 @@ label {
     background-color: #3273dc;
 }
 
-.sidebar-nav > li .app-count{
+.sidebar-nav > li .app-count, .sidebar-nav > li .worker-count {
     font-size: 14px;
     color: #6d767d;
     font-weight: 400;
@@ -507,7 +507,7 @@ label {
     float: right;
 }
 
-.tab-btn.active .app-count{
+.tab-btn.active .app-count, .tab-btn.active .worker-count{
     color: #f6f6f6;
 }
 

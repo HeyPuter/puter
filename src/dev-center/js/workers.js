@@ -29,6 +29,8 @@ window.refresh_worker_list = async (show_loading = false) => {
         $('#no-workers-notice').show();
         $('#worker-list').hide();
     }
+
+    count_workers();
 }
 
 
