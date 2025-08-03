@@ -4,7 +4,12 @@ window.websites = [];
 let search_query;
 
 window.create_website = async (name) => {
-    let website = await puter.hosting.create(name, window.default_website_file);
+    let website
+    try {
+        website = await puter.hosting.create(name, window.default_website_file);
+    } catch (error) {
+        puter.ui.alert(`Error creating website: ${error.error.message}`);
+    }
 
     return website;
 }

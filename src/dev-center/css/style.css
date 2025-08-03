@@ -511,6 +511,9 @@ label {
     padding: 10px 20px;
     cursor: pointer;
     margin-bottom: 10px;
+    margin-left: 10px;
+    margin-right: 10px;
+    border-radius: 7px;
 }
 
 .sidebar-nav>li:hover {
