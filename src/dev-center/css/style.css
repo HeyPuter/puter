@@ -621,7 +621,7 @@ label {
     box-sizing: border-box;
 }
 
-#no-apps-notice, #no-workers-notice, #loading {
+#no-apps-notice, #no-workers-notice, #no-websites-notice, #loading {
     display: flex;
     flex-direction: column;
     justify-content: center;
@@ -1127,13 +1127,17 @@ dialog{
     width: 100%;
     box-sizing: border-box;
     background-color: white;
-    padding: 5px;
-    background-size: 20px;
+    padding: 8px;
+    background-size: 15px;
     background-position-y: center;
-    background-position-x: 5px;
+    background-position-x: 9px;
     padding-left: 35px;
     padding-right: 35px;
     border: 2px solid #ebebeb;
+    font-size: 14px;
+}
+.search::placeholder {
+    opacity: 0.7;
 }
 .search:focus, .search:focus-within, .search:active, .search:focus-visible {
     border: 2px solid #cbcbcb !important;
@@ -1146,7 +1150,7 @@ dialog{
     display: none;
     position: absolute;
     right: 6px;
-    top: 6px;
+    top: 8px;
     opacity: 0.3;
     height: 20px;
 }
