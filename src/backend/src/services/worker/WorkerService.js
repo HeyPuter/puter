@@ -280,7 +280,14 @@ class WorkerService extends BaseService {
                     for (const domain of currentDomains) {
                         const node = await domain.get("root_dir")
                         const subdomainString = (await domain.get("subdomain"))
-                        domainToPath.push({ name: subdomainString.split(".").pop(), url: `https://${subdomainString}`, file_path: await node.get("path"), file_uid: await node.get("uid"), created_at: (new Date(await domain.get("created_at"))).toISOString() });
+                        let file_path = null;
+                        let file_uid = null;
+                        try {
+                            file_path = await node.get("path");
+                            file_uid = await node.get("uid");
+                        } catch (e) {
+                        }
+                        domainToPath.push({ name: subdomainString.split(".").pop(), url: `https://${subdomainString}`, file_path, file_uid, created_at: (new Date(await domain.get("created_at"))).toISOString() });
                     }
                     return domainToPath;
                 } catch (e) {
