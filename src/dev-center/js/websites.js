@@ -188,7 +188,7 @@ function generate_website_card(website) {
                 <input type="checkbox" class="website-checkbox" data-website-name="${website.subdomain}">
             </td>
             <td style="font-family: monospace; font-size: 14px; vertical-align: middle;"><a href="https://${website.subdomain}.puter.site" target="_blank">${website.subdomain}.puter.site</a></td>
-            <td style="font-size: 14px; vertical-align: middle;">${website.root_dir ? website.root_dir.name : ''}</td>
+            <td style="font-size: 14px; vertical-align: middle;"> <span class="root-dir-name" data-root-dir-path="${website.root_dir ? html_encode(website.root_dir.path) : ''}">${website.root_dir ? website.root_dir.name : ''}</span></td>
             <td style="font-size: 14px; vertical-align: middle;">${website.created_at}</td>
             <td style="vertical-align: middle;"><img class="options-icon options-icon-website" data-website-name="${website.subdomain}" src="./img/options.svg"></td>
         </tr>
@@ -353,4 +353,17 @@ async function attempt_delete_website(website_name) {
     }
 }
 
+$(document).on('click', '.root-dir-name', function (e) {
+    e.preventDefault();
+    e.stopPropagation();
+    e.stopImmediatePropagation();
+    
+    const root_dir_path = $(this).attr('data-root-dir-path');
+
+    if(root_dir_path){
+        puter.ui.launchApp('explorer', {
+            path: root_dir_path,
+        });
+    }
+})
 export default init_websites;

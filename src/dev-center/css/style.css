@@ -1366,3 +1366,7 @@ dialog{
 .no-hover:hover {
     background-color: transparent !important;
 }
+
+.root-dir-name{
+    cursor: pointer;
+}
