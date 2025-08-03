@@ -115,6 +115,13 @@ $(document).on('click', '.tab-btn', async function (e) {
         activeTab = 'workers';
     }
     // ---------------------------------------------------------------
+    // Websites tab
+    // ---------------------------------------------------------------
+    else if ($(this).attr('data-tab') === 'websites') {
+        refresh_websites_list();
+        activeTab = 'websites';
+    }
+    // ---------------------------------------------------------------
     // Payout Method tab
     // ---------------------------------------------------------------
     else if ($(this).attr('data-tab') === 'payout-method') {

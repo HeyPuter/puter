@@ -2601,12 +2601,13 @@ function app_context_menu(app_name, app_title, app_uid) {
     puter.ui.contextMenu({
         items: [
             {
-                label: 'Open',
+                label: 'Open App',
                 type: 'primary',
                 action: () => {
                     puter.ui.launchApp(app_name);
                 },
             },
+            '-',
             {
                 label: 'Edit',
                 type: 'primary',

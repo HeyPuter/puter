@@ -35,7 +35,7 @@ body{
     flex: 1;
 }
 
-h1 .app-count, h1 .worker-count{
+h1 .app-count, h1 .worker-count, h1 .website-count{
     font-size: 20px;
     color: #6d767d;
     font-weight: 400;
@@ -70,10 +70,6 @@ h1 .app-count, h1 .worker-count{
     border-style: solid;
     border-width: 1px;
     line-height: 35px;
-    background: -webkit-gradient(linear, left top, left bottom, from(#f6f6f6), to(#e1e1e1));
-    background: linear-gradient(#f6f6f6, #e1e1e1);
-    -webkit-box-shadow: inset 0px 1px 0px rgb(255 255 255 / 30%), 0 1px 2px rgb(0 0 0 / 15%);
-    box-shadow: inset 0px 1px 0px rgb(255 255 255 / 30%), 0 1px 2px rgb(0 0 0 / 15%);
     border-radius: 4px;
     outline: none;
 
@@ -204,7 +200,7 @@ h1 .app-count, h1 .worker-count{
     padding: 0 24px;
 }
 
-.refresh-app-list, .refresh-worker-list {
+.refresh-app-list, .refresh-worker-list, .refresh-website-list {
     width:40px; 
     padding: 10px; 
     float: right; 
@@ -217,7 +213,7 @@ h1 .app-count, h1 .worker-count{
     opacity: 0.9;
 }
 
-.refresh-app-list:hover, .refresh-worker-list:hover {
+.refresh-app-list:hover, .refresh-worker-list:hover, .refresh-website-list:hover {
     opacity: 1;
 }
 
@@ -260,7 +256,6 @@ section {
     background: white;
     overflow: hidden;
     position: relative;
-
 }
 
 .app-card:hover, .website-card:hover, .worker-card:hover {
@@ -457,7 +452,7 @@ label {
     left: 0;
     z-index: 1000;
     display: block;
-    padding: 30px 16px;
+    padding: 30px 16px 0;
     overflow-x: hidden;
     overflow-y: auto;
     background-color: rgb(249, 249, 249);
@@ -524,15 +519,15 @@ label {
     background-color: #3a85ff;
 }
 
-.sidebar-nav > li .app-count, .sidebar-nav > li .worker-count {
-    font-size: 14px;
+.sidebar-nav > li .app-count, .sidebar-nav > li .worker-count, .sidebar-nav > li .website-count {
+    font-size: 16px;
     color: #6d767d;
     font-weight: 400;
     margin-left: 10px;
     float: right;
 }
 
-.tab-btn.active .app-count, .tab-btn.active .worker-count{
+.tab-btn.active .app-count, .tab-btn.active .worker-count, .tab-btn.active .website-count{
     color: #f6f6f6;
 }
 
@@ -753,7 +748,7 @@ th.sorted{
     user-select: none !important;
 }
 
-.my-apps-title, .my-workers-title {
+.my-apps-title, .my-workers-title, .my-websites-title {
     font-size: 27px;
     margin-top: 0px;
     float: left;
@@ -952,18 +947,19 @@ ol li:before {
     background-color: rgba(0, 0, 0, 0.4);
 }
   
-.create-an-app-btn{
-    float:right; margin-bottom: 10px;
+.create-an-app-btn, .create-a-website-btn{
+    float:right; 
+    margin-bottom: 10px;
 }
-.create-an-app-btn img{
+.create-an-app-btn img, .create-a-website-btn img{
     width: 20px;
     margin-bottom: -5px; 
     margin-right: 10px;
 }
-.create-a-worker-btn{
+.create-a-worker-btn, .create-a-website-btn{
     float:right; margin-bottom: 10px;
 }
-.create-a-worker-btn img{
+.create-a-worker-btn img, .create-a-website-btn img{
     width: 20px;
     margin-bottom: -5px; 
     margin-right: 5px;
@@ -976,7 +972,7 @@ ol li:before {
 .ip-terms-notice{
     font-size: 12px; margin-top: 20px; margin-bottom: 0;
 }
-.app-list-nav, .worker-list-nav{
+.app-list-nav, .worker-list-nav, .website-list-nav{
     overflow: hidden; margin-bottom: 40px; margin-top: 10px;
 }
 .back-to-main-btn{
@@ -989,7 +985,7 @@ ol li:before {
     display: flex;
     align-items: center;
 }
-.app-title{
+.app-title, .website-title{
     margin-top:0px; 
     margin-bottom: 0;
 }
@@ -1346,7 +1342,7 @@ dialog{
     background-color: #ededed;
 }
 
-.worker-checkbox, .app-checkbox {
+.worker-checkbox, .app-checkbox, .website-checkbox {
     width: 20px;
     height: 20px;
 }

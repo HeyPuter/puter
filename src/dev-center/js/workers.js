@@ -205,7 +205,7 @@ function count_workers() {
 function generate_worker_card(worker) {
     return `
         <tr class="worker-card" data-name="${html_encode(worker.name)}">
-            <td style="width:50px; vertical-align: middle;">
+            <td style="width:50px; vertical-align: middle; line-height: 1;">
                 <input type="checkbox" class="worker-checkbox" data-worker-name="${worker.name}">
             </td>
             <td style="font-family: monospace; font-size: 14px; vertical-align: middle;">${worker.name}</td>
