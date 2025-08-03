@@ -216,7 +216,9 @@ h1 .app-count, h1 .worker-count, h1 .website-count{
 .refresh-app-list:hover, .refresh-worker-list:hover, .refresh-website-list:hover {
     opacity: 1;
 }
-
+.refresh-icon{
+    width: 18px; height: 18px; margin-top: -2px; display: block;
+}
 a {
     color: #0d6efd;
     text-decoration: none;
@@ -952,19 +954,18 @@ ol li:before {
     float:right; 
     margin-bottom: 10px;
 }
-.create-an-app-btn img, .create-a-website-btn img{
-    width: 20px;
+.create-an-app-btn img, .create-a-website-btn img, .create-a-worker-btn img{
+    width: 25px;
+    height: 25px;
     margin-bottom: -5px; 
     margin-right: 10px;
+    margin-bottom: -7px;
+    margin-right: 4px;
 }
 .create-a-worker-btn, .create-a-website-btn{
     float:right; margin-bottom: 10px;
 }
-.create-a-worker-btn img, .create-a-website-btn img{
-    width: 20px;
-    margin-bottom: -5px; 
-    margin-right: 5px;
-}
+
 .jip-submit-btn{
     float: left; 
     margin-top: 10px; 
@@ -1136,6 +1137,12 @@ dialog{
     padding-right: 35px;
     border: 2px solid #ebebeb;
     font-size: 14px;
+}
+.search-container{
+    margin-bottom: 10px; 
+    position: relative; 
+    width: 300px; 
+    float:left;
 }
 .search::placeholder {
     opacity: 0.7;
@@ -1339,12 +1346,12 @@ dialog{
     opacity: 0.7;
     width: 30px;
     height: 30px;
-    border-radius: 3px;
+    border-radius: 5px;
 }
 
 .options-icon:hover {
     opacity: 1;
-    background-color: #ededed;
+    background-color: #edededb4;
 }
 
 .worker-checkbox, .app-checkbox, .website-checkbox {

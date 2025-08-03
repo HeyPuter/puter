@@ -14,7 +14,11 @@ window.refresh_worker_list = async (show_loading = false) => {
         puter.ui.showSpinner();
 
     // puter.workers.list() returns an array of worker objects
-    window.workers = await puter.workers.list();
+    try {
+        window.workers = await puter.workers.list();
+    } catch (err) {
+        console.error('Error refreshing worker list:', err);
+    }
 
     // Get workers
     if (window.activeTab === 'workers' && window.workers.length > 0) {
@@ -198,7 +202,7 @@ function count_workers() {
     $('.worker-card').each(function () {
         count++;
     })
-    $('.worker-count').html(count);
+    $('.worker-count').html(count ? count : '');
     return count;
 }
 

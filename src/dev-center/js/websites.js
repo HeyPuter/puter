@@ -172,7 +172,7 @@ function count_websites() {
     $('.website-card').each(function () {
         count++;
     })
-    $('.website-count').html(count);
+    $('.website-count').html(count ? count : '');
     return count;
 }
 

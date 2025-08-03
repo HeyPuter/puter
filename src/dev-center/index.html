@@ -19,6 +19,9 @@
     <link rel="preload" as="image" href="./img/wallet.svg">
     <link rel="preload" as="image" href="./img/wallet-white.svg">
     <link rel="preload" as="image" href="./img/paypal.svg">
+    <link rel="preload" as="image" href="./img/plus.svg">
+    <link rel="preload" as="image" href="./img/workers-placeholder.svg">
+    <link rel="preload" as="image" href="./img/websites-placeholder.svg">
     <!-- For tooltip -->
     <script src="https://unpkg.com/@popperjs/core@2"></script>
     <script src="https://unpkg.com/tippy.js@6"></script>
@@ -178,7 +181,7 @@
     <section id="no-apps-notice" style="display:none;">
         <img src="./img/apps-black.svg" style="width: 64px; opacity: 0.12;">
         <p style="color: #606062;">You haven't created any apps yet.</p>
-        <button class="create-an-app-btn button button-primary">Create an App</button>
+        <button class="create-an-app-btn button button-primary"><img src="./img/plus.svg">Create an App</button>
     </section>
 
     <!---------------------------------------->
@@ -187,7 +190,7 @@
     <section id="no-workers-notice" style="display:none;">
         <img src="./img/workers-placeholder.svg" style="width: 64px; opacity: 0.62; filter: grayscale(100%); transform: rotate(-20deg);">
         <p style="color: #606062;">You haven't created any workers yet.</p>
-        <button class="create-a-worker-btn button button-primary">Create a Worker</button>
+        <button class="create-a-worker-btn button button-primary"><img src="./img/plus.svg">Create a Worker</button>
     </section>
 
     <!---------------------------------------->
@@ -196,7 +199,7 @@
     <section id="no-websites-notice" style="display:none;">
         <img src="./img/websites-placeholder.svg" style="width: 64px; opacity: 0.22; filter: grayscale(100%); transform: rotate(-20deg);">
         <p style="color: #606062;">You haven't created any websites yet.</p>
-        <button class="create-a-website-btn button button-primary">Create a Website</button>
+        <button class="create-a-website-btn button button-primary"><img src="./img/plus.svg">Create a Website</button>
     </section>
     <!---------------------------------------->
     <!-- Edit App                           -->
@@ -230,16 +233,16 @@
     <section id="app-list">
         <div class="app-list-nav">
             <h1 class="my-apps-title">My Apps<span class="app-count"></span></h1>
-            <button class="create-an-app-btn button button-primary"><img src="./img/app-outline-white.svg"> New App</button>
+            <button class="create-an-app-btn button button-primary"><img src="./img/plus.svg" style="width: 25px; height: 25px;">New App</button>
         </div>
 
-        <div style="margin-bottom: 10px; position: relative; width: 300px; float:left;">
+        <div class="search-container">
             <input style="background-image:url(./img/magnifier-outline.svg);" class="search" placeholder="Search apps">
             <img class="search-clear" src="./img/close.svg">
         </div>
 
         <button class="button button-danger disabled delete-apps-btn" style="float:right;">Delete</button>
-        <button class="refresh-app-list" title="Refresh"><svg style="width: 18px; height: 18px; margin-top: -2px; display: block;" xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink" x="0px" y="0px" width="32px" height="32px" viewBox="0 0 32 32" stroke-width="2"><g stroke-width="2" transform="translate(0.5, 0.5)"><path data-cap="butt" d="M29.382,9.217A15,15,0,0,0,1,16" fill="none" stroke="#444444" stroke-miterlimit="10" stroke-width="2" stroke-linecap="butt" stroke-linejoin="miter"></path><polyline points="28.383 1.22 29.383 9.22 21.383 8.22" fill="none" stroke="#444444" stroke-linecap="square" stroke-miterlimit="10" stroke-width="2" stroke-linejoin="miter"></polyline><path data-cap="butt" data-color="color-2" d="M2.618,22.783A15,15,0,0,0,31,16" fill="none" stroke="#444444" stroke-miterlimit="10" stroke-width="2" stroke-linecap="butt" stroke-linejoin="miter"></path><polyline data-color="color-2" points="3.617 30.78 2.617 22.78 10.617 23.78" fill="none" stroke="#444444" stroke-linecap="square" stroke-miterlimit="10" stroke-width="2" stroke-linejoin="miter"></polyline></g></svg></button>
+        <button class="refresh-app-list" title="Refresh"><svg class="refresh-icon" xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink" x="0px" y="0px" width="32px" height="32px" viewBox="0 0 32 32" stroke-width="2"><g stroke-width="2" transform="translate(0.5, 0.5)"><path data-cap="butt" d="M29.382,9.217A15,15,0,0,0,1,16" fill="none" stroke="#444444" stroke-miterlimit="10" stroke-width="2" stroke-linecap="butt" stroke-linejoin="miter"></path><polyline points="28.383 1.22 29.383 9.22 21.383 8.22" fill="none" stroke="#444444" stroke-linecap="square" stroke-miterlimit="10" stroke-width="2" stroke-linejoin="miter"></polyline><path data-cap="butt" data-color="color-2" d="M2.618,22.783A15,15,0,0,0,31,16" fill="none" stroke="#444444" stroke-miterlimit="10" stroke-width="2" stroke-linecap="butt" stroke-linejoin="miter"></path><polyline data-color="color-2" points="3.617 30.78 2.617 22.78 10.617 23.78" fill="none" stroke="#444444" stroke-linecap="square" stroke-miterlimit="10" stroke-width="2" stroke-linejoin="miter"></polyline></g></svg></button>
         <div style="overflow-x: auto; clear: both;">
             <table class="table" id="app-list-table">
                 <thead class="disable-user-select">
@@ -269,13 +272,13 @@
             <button class="create-a-worker-btn button button-primary"><img src="./img/workers-white.svg"> New Worker</button>
         </div>
 
-        <div style="margin-bottom: 10px; position: relative; width: 300px; float:left;">
+        <div class="search-container">
             <input style="background-image:url(./img/magnifier-outline.svg);" class="search" placeholder="Search workers">
             <img class="search-clear" src="./img/close.svg">
         </div>
 
         <button class="button button-danger disabled delete-workers-btn" style="float:right;">Delete</button>
-        <button class="refresh-worker-list" title="Refresh"><svg style="width: 18px; height: 18px; margin-top: -2px; display: block;" xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.1999/xlink" x="0px" y="0px" width="32px" height="32px" viewBox="0 0 32 32" stroke-width="2"><g stroke-width="2" transform="translate(0.5, 0.5)"><path data-cap="butt" d="M29.382,9.217A15,15,0,0,0,1,16" fill="none" stroke="#444444" stroke-miterlimit="10" stroke-width="2" stroke-linecap="butt" stroke-linejoin="miter"></path><polyline points="28.383 1.22 29.383 9.22 21.383 8.22" fill="none" stroke="#444444" stroke-linecap="square" stroke-miterlimit="10" stroke-width="2" stroke-linejoin="miter"></polyline><path data-cap="butt" data-color="color-2" d="M2.618,22.783A15,15,0,0,0,31,16" fill="none" stroke="#444444" stroke-miterlimit="10" stroke-width="2" stroke-linecap="butt" stroke-linejoin="miter"></path><polyline data-color="color-2" points="3.617 30.78 2.617 22.78 10.617 23.78" fill="none" stroke="#444444" stroke-linecap="square" stroke-miterlimit="10" stroke-width="2" stroke-linejoin="miter"></polyline></g></svg></button>
+        <button class="refresh-worker-list" title="Refresh"><svg class="refresh-icon" xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink" x="0px" y="0px" width="32px" height="32px" viewBox="0 0 32 32" stroke-width="2"><g stroke-width="2" transform="translate(0.5, 0.5)"><path data-cap="butt" d="M29.382,9.217A15,15,0,0,0,1,16" fill="none" stroke="#444444" stroke-miterlimit="10" stroke-width="2" stroke-linecap="butt" stroke-linejoin="miter"></path><polyline points="28.383 1.22 29.383 9.22 21.383 8.22" fill="none" stroke="#444444" stroke-linecap="square" stroke-miterlimit="10" stroke-width="2" stroke-linejoin="miter"></polyline><path data-cap="butt" data-color="color-2" d="M2.618,22.783A15,15,0,0,0,31,16" fill="none" stroke="#444444" stroke-miterlimit="10" stroke-width="2" stroke-linecap="butt" stroke-linejoin="miter"></path><polyline data-color="color-2" points="3.617 30.78 2.617 22.78 10.617 23.78" fill="none" stroke="#444444" stroke-linecap="square" stroke-miterlimit="10" stroke-width="2" stroke-linejoin="miter"></polyline></g></svg></button>
         <div style="overflow-x: auto; clear: both;">
             <table class="table" id="worker-list-table">
                 <thead class="disable-user-select">
@@ -298,16 +301,16 @@
     <section id="website-list">
         <div class="website-list-nav">
             <h1 class="my-websites-title">My Websites<span class="website-count"></span></h1>
-            <button class="create-a-website-btn button button-primary"><img src="./img/website-white.svg"> New Website</button>
+            <button class="create-a-website-btn button button-primary"><img src="./img/plus.svg" style="width: 25px; height: 25px;">New Website</button>
         </div>
 
-        <div style="margin-bottom: 10px; position: relative; width: 300px; float:left;">
+        <div class="search-container">
             <input style="background-image:url(./img/magnifier-outline.svg);" class="search" placeholder="Search websites">
             <img class="search-clear" src="./img/close.svg">
         </div>
 
         <button class="button button-danger disabled delete-websites-btn" style="float:right;">Delete</button>
-        <button class="refresh-website-list" style="width:40px; padding: 10px; float: right; margin-right: 10px;" title="Refresh"><svg style="width: 18px; height: 18px; margin-top: -2px; display: block;" xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.1999/xlink" x="0px" y="0px" width="32px" height="32px" viewBox="0 0 32 32" stroke-width="2"><g stroke-width="2" transform="translate(0.5, 0.5)"><path data-cap="butt" d="M29.382,9.217A15,15,0,0,0,1,16" fill="none" stroke="#444444" stroke-miterlimit="10" stroke-width="2" stroke-linecap="butt" stroke-linejoin="miter"></path><polyline points="28.383 1.22 29.383 9.22 21.383 8.22" fill="none" stroke="#444444" stroke-linecap="square" stroke-miterlimit="10" stroke-width="2" stroke-linejoin="miter"></polyline><path data-cap="butt" data-color="color-2" d="M2.618,22.783A15,15,0,0,0,31,16" fill="none" stroke="#444444" stroke-miterlimit="10" stroke-width="2" stroke-linecap="butt" stroke-linejoin="miter"></path><polyline data-color="color-2" points="3.617 30.78 2.617 22.78 10.617 23.78" fill="none" stroke="#444444" stroke-linecap="square" stroke-miterlimit="10" stroke-width="2" stroke-linejoin="miter"></polyline></g></svg></button>
+        <button class="refresh-website-list" style="width:40px; padding: 10px; float: right; margin-right: 10px;" title="Refresh"><svg class="refresh-icon" xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink" x="0px" y="0px" width="32px" height="32px" viewBox="0 0 32 32" stroke-width="2"><g stroke-width="2" transform="translate(0.5, 0.5)"><path data-cap="butt" d="M29.382,9.217A15,15,0,0,0,1,16" fill="none" stroke="#444444" stroke-miterlimit="10" stroke-width="2" stroke-linecap="butt" stroke-linejoin="miter"></path><polyline points="28.383 1.22 29.383 9.22 21.383 8.22" fill="none" stroke="#444444" stroke-linecap="square" stroke-miterlimit="10" stroke-width="2" stroke-linejoin="miter"></polyline><path data-cap="butt" data-color="color-2" d="M2.618,22.783A15,15,0,0,0,31,16" fill="none" stroke="#444444" stroke-miterlimit="10" stroke-width="2" stroke-linecap="butt" stroke-linejoin="miter"></path><polyline data-color="color-2" points="3.617 30.78 2.617 22.78 10.617 23.78" fill="none" stroke="#444444" stroke-linecap="square" stroke-miterlimit="10" stroke-width="2" stroke-linejoin="miter"></polyline></g></svg></button>
         <div style="overflow-x: auto; clear: both;">
             <table class="table" id="website-list-table">
                 <thead class="disable-user-select">
