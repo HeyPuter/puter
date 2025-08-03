@@ -334,12 +334,8 @@ $(document).on('click', '.options-icon-worker', function (e) {
 })
 
 async function attempt_delete_worker(worker_name) {
-
-    // get worker
-    const worker_data = await puter.workers.get(worker_name);
-
     // confirm delete
-    const alert_resp = await puter.ui.alert(`Are you sure you want to premanently delete <strong>${html_encode(worker_data.name)}</strong>?`,
+    const alert_resp = await puter.ui.alert(`Are you sure you want to premanently delete <strong>${html_encode(worker_name)}</strong>?`,
         [
             {
                 label: 'Yes, delete permanently',
