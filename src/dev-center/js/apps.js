@@ -2205,9 +2205,6 @@ $(document).on('click', '.delete-apps-btn', async function (e) {
     });
 
     if (resp === 'delete') {
-        // disable delete button
-        // $('.delete-apps-btn').addClass('disabled');
-
         // show 'deleting' modal
         puter.ui.showSpinner();
 
@@ -2704,26 +2701,20 @@ async function attempt_delete_app(app_name, app_title, app_uid) {
     );
 
     if (alert_resp === 'delete') {
-        let init_ts = Date.now();
-        puter.ui.showSpinner();
-        puter.apps.delete(app_name).then(async (app) => {
-                setTimeout(() => {
-                    puter.ui.hideSpinner();
-                    $(`.app-card[data-uid="${app_uid}"]`).fadeOut(200, function name(params) {
-                        $(this).remove();
-                        if ($(`.app-card`).length === 0) {
-                            $('section:not(.sidebar)').hide();
-                            $('#no-apps-notice').show();
-                        } else {
-                            $('section:not(.sidebar)').hide();
-                            $('#app-list').show();
-                        }
-                        count_apps();
-                    });
-                },
-                    // make sure the modal was shown for at least 2 seconds
-                    (Date.now() - init_ts) > 2000 ? 1 : 2000 - (Date.now() - init_ts));
+        $(`.app-card[data-uid="${app_uid}"]`).fadeOut(200, function name(params) {
+            $(this).remove();
+            if ($(`.app-card`).length === 0) {
+                $('section:not(.sidebar)').hide();
+                $('#no-apps-notice').show();
+            } else {
+                $('section:not(.sidebar)').hide();
+                $('#app-list').show();
+            }
+            count_apps();
+        });
 
+        // delete app
+        puter.apps.delete(app_name).then(async (app) => {
                 // get app directory
                 puter.fs.stat({
                     path: `/${auth_username}/AppData/${dev_center_uid}/${app_uid}`,
@@ -2738,16 +2729,12 @@ async function attempt_delete_app(app_name, app_title, app_uid) {
                     )
                 })
             }).catch(async (err) => {
-                setTimeout(() => {
                     puter.ui.hideSpinner();
                     puter.ui.alert(err?.message, [
                         {
                             label: 'Ok',
                         },
                     ]);
-                },
-                    // make sure the modal was shown for at least 2 seconds
-                    (Date.now() - init_ts) > 2000 ? 1 : 2000 - (Date.now() - init_ts));
             })
     }
 

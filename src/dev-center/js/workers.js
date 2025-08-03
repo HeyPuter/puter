@@ -344,17 +344,6 @@ async function attempt_delete_worker(worker_name) {
     // get worker
     const worker_data = await puter.workers.get(worker_name);
 
-    if(worker_data.metadata?.locked){
-        puter.ui.alert(`<strong>${worker_data.name}</strong> is locked and cannot be deleted.`, [
-            {
-                label: 'Ok',
-            },
-        ], {
-            type: 'warning',
-        });
-        return;
-    }
-
     // confirm delete
     const alert_resp = await puter.ui.alert(`Are you sure you want to premanently delete <strong>${html_encode(worker_data.name)}</strong>?`,
         [
@@ -370,37 +359,27 @@ async function attempt_delete_worker(worker_name) {
     );
 
     if (alert_resp === 'delete') {
-        let init_ts = Date.now();
-        puter.ui.showSpinner();
-        puter.workers.delete(worker_name).then(async (worker) => {
-                setTimeout(() => {
-                    puter.ui.hideSpinner();
-                    $(`.worker-card[data-name="${worker_name}"]`).fadeOut(200, function name(params) {
-                        $(this).remove();
-                        if ($(`.worker-card`).length === 0) {
-                            $('section:not(.sidebar)').hide();
-                            $('#no-workers-notice').show();
-                        } else {
-                            $('section:not(.sidebar)').hide();
-                            $('#worker-list').show();
-                        }
-                        count_workers();
-                    });
+        // remove worker card and update worker count
+        $(`.worker-card[data-name="${worker_name}"]`).fadeOut(200, function name(params) {
+            $(this).remove();
+            if ($(`.worker-card`).length === 0) {
+                $('section:not(.sidebar)').hide();
+                $('#no-workers-notice').show();
+            } else {
+                $('section:not(.sidebar)').hide();
+                $('#worker-list').show();
+            }
+            count_workers();
+        });
+
+        // delete worker
+        puter.workers.delete(worker_name).then().catch(async (err) => {
+            puter.ui.alert(err?.message, [
+                {
+                    label: 'Ok',
                 },
-                // make sure the modal was shown for at least 2 seconds
-                (Date.now() - init_ts) > 2000 ? 1 : 2000 - (Date.now() - init_ts));
-            }).catch(async (err) => {
-                setTimeout(() => {
-                    puter.ui.hideSpinner();
-                    puter.ui.alert(err?.message, [
-                        {
-                            label: 'Ok',
-                        },
-                    ]);
-                },
-                    // make sure the modal was shown for at least 2 seconds
-                    (Date.now() - init_ts) > 2000 ? 1 : 2000 - (Date.now() - init_ts));
-            })
+            ]);
+        })
     }
 }
 

@@ -42,6 +42,7 @@ $(document).on('click', '.create-a-website-btn', async function (e) {
 
     if (name) {
         await create_website(name);
+        refresh_websites_list();
     }
 })
 
@@ -86,7 +87,7 @@ $(document).on('change', '.select-all-websites', function (e) {
 
 $('.refresh-website-list').on('click', function (e) {
     puter.ui.showSpinner();
-    refresh_website_list();
+    refresh_websites_list();
 
     puter.ui.hideSpinner();
 })
