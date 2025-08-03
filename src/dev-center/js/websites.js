@@ -286,23 +286,6 @@ $(document).on('click', '.delete-websites-btn', async function (e) {
     }
 })
 
-$(document).on('contextmenu', '.website-card', function (e) {
-    e.preventDefault();
-    e.stopPropagation();
-    e.stopImmediatePropagation();
-    puter.ui.contextMenu({
-        items: [
-            {
-                label: 'Delete',
-                type: 'danger',
-                action: () => {
-                    attempt_delete_website($(this).attr('data-name'));
-                },
-            },
-        ],
-    });
-})
-
 $(document).on('click', '.options-icon-website', function (e) {
     e.preventDefault();
     e.stopPropagation();

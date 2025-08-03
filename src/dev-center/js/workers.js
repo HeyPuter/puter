@@ -4,7 +4,14 @@ window.workers = [];
 let search_query;
 
 window.create_worker = async (name) => {
-    let worker = await puter.workers.create(name, window.default_worker_file);
+    let worker;
+    
+    try {
+        worker = await puter.workers.create(name, window.default_worker_file);
+    } catch (err) {
+        console.log(err);
+        console.error('Error creating worker:', err.error);
+    }
 
     return worker;
 }
@@ -307,23 +314,6 @@ $(document).on('click', '.delete-workers-btn', async function (e) {
             }
         }, (start_ts - Date.now()) > 500 ? 0 : 500);
     }
-})
-
-$(document).on('contextmenu', '.worker-card', function (e) {
-    e.preventDefault();
-    e.stopPropagation();
-    e.stopImmediatePropagation();
-    puter.ui.contextMenu({
-        items: [
-            {
-                label: 'Delete',
-                type: 'danger',
-                action: () => {
-                    attempt_delete_worker($(this).attr('data-name'));
-                },
-            },
-        ],
-    });
 })
 
 $(document).on('click', '.options-icon-worker', function (e) {

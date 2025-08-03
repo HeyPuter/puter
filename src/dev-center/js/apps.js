@@ -2660,17 +2660,6 @@ $(document).on('click', '.options-icon-app', function(e) {
     app_context_menu(app_name, app_title, app_uid);
 })
 
-$(document).on('contextmenu', '.app-card', function(e) {
-    let app_name = $(this).attr('data-name');
-    let app_title = $(this).attr('data-title');
-    let app_uid = $(this).attr('data-uid');
-
-    e.preventDefault();
-    e.stopPropagation();
-    e.stopImmediatePropagation();
-    app_context_menu(app_name, app_title, app_uid);
-})
-
 async function attempt_delete_app(app_name, app_title, app_uid) {
     // get app
     const app_data = await puter.apps.get(app_name, { icon_size: 16 });
