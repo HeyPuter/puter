@@ -196,18 +196,22 @@ function generate_website_card(website) {
     `;
 }
 
-$(document).on('input change keyup keypress keydown paste cut', '.search', function (e) {
-    // search apps for query
-    search_query = $(this).val().toLowerCase();
+$(document).on('input change keyup keypress keydown paste cut', '.search-websites', function (e) {
+    search_websites();
+})
+
+window.search_websites = function() {
+    // search websites for query
+    search_query = $('.search-websites').val().toLowerCase();
     if (search_query === '') {
         // hide 'clear search' button
-        $('.search-clear').hide();
-        // show all apps again
+        $('.search-clear-websites').hide();
+        // show all websites again
         $(`.website-card`).show();
     } else {
         // show 'clear search' button
-        $('.search-clear').show();
-        // show apps that match search_query and hide apps that don't
+        $('.search-clear-websites').show();
+        // show websites that match search_query and hide websites that don't
         websites.forEach((website) => {
             if (
                 website.subdomain.toLowerCase().includes(search_query.toLowerCase()) ||
@@ -219,7 +223,19 @@ $(document).on('input change keyup keypress keydown paste cut', '.search', funct
                 $(`.website-card[data-name="${website.subdomain}"]`).hide();
             }
         })
+
+        // add 'has-value' class to search input
+        $('.search-websites').addClass('has-value');
     }
+}
+
+$(document).on('click', '.search-clear-websites', function (e) {
+    $('.search-websites').val('');
+    $('.search-websites').trigger('change');
+    $('.search-websites').focus();
+    search_query = '';
+    // remove 'has-value' class from search input
+    $('.search-websites').removeClass('has-value');
 })
 
 $(document).on('click', '.delete-websites-btn', async function (e) {

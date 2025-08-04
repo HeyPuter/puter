@@ -2114,26 +2114,30 @@ $('.refresh-app-list').on('click', function (e) {
     })
 })
 
-$(document).on('click', '.search', function (e) {
+$(document).on('click', '.search-apps', function (e) {
     e.stopPropagation();
     e.preventDefault();
     // don't let click bubble up to window
     e.stopImmediatePropagation();
 })
 
-$(document).on('input change keyup keypress keydown paste cut', '.search', function (e) {
+$(document).on('input change keyup keypress keydown paste cut', '.search-apps', function (e) {
+    search_apps();
+})
+
+window.search_apps = function() {
     // search apps for query
-    search_query = $(this).val().toLowerCase();
+    search_query = $('.search-apps').val().toLowerCase();
     if (search_query === '') {
         // hide 'clear search' button
-        $('.search-clear').hide();
+        $('.search-clear-apps').hide();
         // show all apps again
         $(`.app-card`).show();
         // remove 'has-value' class from search input
-        $('.search').removeClass('has-value');
+        $('.search-apps').removeClass('has-value');
     } else {
         // show 'clear search' button
-        $('.search-clear').show();
+        $('.search-clear-apps').show();
         // show apps that match search_query and hide apps that don't
         apps.forEach((app) => {
             if (
@@ -2149,15 +2153,17 @@ $(document).on('input change keyup keypress keydown paste cut', '.search', funct
             }
         })
         // add 'has-value' class to search input
-        $('.search').addClass('has-value');
-    }
-})
+        $('.search-apps').addClass('has-value');
+    }    
+}
 
-$(document).on('click', '.search-clear', function (e) {
-    $('.search').val('');
-    $('.search').trigger('change');
-    $('.search').focus();
+$(document).on('click', '.search-clear-apps', function (e) {
+    $('.search-apps').val('');
+    $('.search-apps').trigger('change');
+    $('.search-apps').focus();
     search_query = '';
+    // remove 'has-value' class from search input
+    $('.search-apps').removeClass('has-value');
 })
 
 $(document).on('change', '.app-checkbox', function (e) {

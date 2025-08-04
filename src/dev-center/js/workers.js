@@ -227,18 +227,22 @@ function generate_worker_card(worker) {
     `;
 }
 
-$(document).on('input change keyup keypress keydown paste cut', '.search', function (e) {
-    // search apps for query
-    search_query = $(this).val().toLowerCase();
+$(document).on('input change keyup keypress keydown paste cut', '.search-workers', function (e) {
+    search_workers();
+})
+
+window.search_workers = function() {
+    // search workers for query
+    search_query = $('.search-workers').val().toLowerCase();
     if (search_query === '') {
         // hide 'clear search' button
-        $('.search-clear').hide();
-        // show all apps again
+        $('.search-clear-workers').hide();
+        // show all workers again
         $(`.worker-card`).show();
     } else {
         // show 'clear search' button
-        $('.search-clear').show();
-        // show apps that match search_query and hide apps that don't
+        $('.search-clear-workers').show();
+        // show workers that match search_query and hide workers that don't
         workers.forEach((worker) => {
             if (
                 worker.name.toLowerCase().includes(search_query.toLowerCase())
@@ -249,7 +253,16 @@ $(document).on('input change keyup keypress keydown paste cut', '.search', funct
                 $(`.worker-card[data-name="${worker.name}"]`).hide();
             }
         })
-    }
+    }    
+}
+
+$(document).on('click', '.search-clear-workers', function (e) {
+    $('.search-workers').val('');
+    $('.search-workers').trigger('change');
+    $('.search-workers').focus();
+    search_query = '';
+    // remove 'has-value' class from search input
+    $('.search-workers').removeClass('has-value');
 })
 
 $(document).on('click', '.delete-workers-btn', async function (e) {

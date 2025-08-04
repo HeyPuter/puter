@@ -106,6 +106,8 @@ $(document).on('click', '.tab-btn', async function (e) {
     if ($(this).attr('data-tab') === 'apps') {
         refresh_app_list();
         activeTab = 'apps';
+        // Reset apps search when tab is activated
+        resetAppsSearch();
     }
     // ---------------------------------------------------------------
     // Workers tab
@@ -113,6 +115,8 @@ $(document).on('click', '.tab-btn', async function (e) {
     else if ($(this).attr('data-tab') === 'workers') {
         refresh_worker_list();
         activeTab = 'workers';
+        // Reset workers search when tab is activated
+        resetWorkersSearch();
     }
     // ---------------------------------------------------------------
     // Websites tab
@@ -120,6 +124,8 @@ $(document).on('click', '.tab-btn', async function (e) {
     else if ($(this).attr('data-tab') === 'websites') {
         refresh_websites_list();
         activeTab = 'websites';
+        // Reset websites search when tab is activated
+        resetWebsitesSearch();
     }
     // ---------------------------------------------------------------
     // Payout Method tab
@@ -438,6 +444,39 @@ $(document).on('click', '.sidebar-toggle', function (e) {
     $('.sidebar').toggleClass('open');
     $('body').toggleClass('sidebar-open');
 })
+
+// ---------------------------------------------------------------
+// Search Reset Functions
+// ---------------------------------------------------------------
+window.resetAppsSearch = () => {
+    $('.search-apps').val('');
+    $('.search-clear-apps').hide();
+    $('.search-apps').removeClass('has-value');
+    // Reset search query in apps.js scope if search_apps function is available
+    if (typeof search_apps === 'function') {
+        search_apps();
+    }
+}
+
+window.resetWorkersSearch = () => {
+    $('.search-workers').val('');
+    $('.search-clear-workers').hide();
+    $('.search-workers').removeClass('has-value');
+    // Reset search query in workers.js scope if search_workers function is available
+    if (typeof search_workers === 'function') {
+        search_workers();
+    }
+}
+
+window.resetWebsitesSearch = () => {
+    $('.search-websites').val('');
+    $('.search-clear-websites').hide();
+    $('.search-websites').removeClass('has-value');
+    // Reset search query in websites.js scope if search_websites function is available
+    if (typeof search_websites === 'function') {
+        search_websites();
+    }
+}
 
 window.activate_tippy = () => {
     tippy('.tippy', {
