@@ -1377,3 +1377,7 @@ dialog{
 .root-dir-name{
     cursor: pointer;
 }
+
+.worker-file-path{
+    cursor: pointer;
+}

@@ -164,9 +164,10 @@ function sort_workers() {
                 return a[sortBy].localeCompare(b[sortBy]);
             }else if(sortBy === 'created_at'){
                 return new Date(a[sortBy]) - new Date(b[sortBy]);
-            } else if(sortBy === 'user_count' || sortBy === 'open_count'){
-                return a.stats[sortBy] - b.stats[sortBy];
-            }else{
+            }else if(sortBy === 'file_path'){
+                return a[sortBy].localeCompare(b[sortBy]);
+            }
+            else{
                 a[sortBy] > b[sortBy] ? 1 : -1
             }
         });
@@ -176,9 +177,9 @@ function sort_workers() {
                 return b[sortBy].localeCompare(a[sortBy]);
             }else if(sortBy === 'created_at'){
                 return new Date(b[sortBy]) - new Date(a[sortBy]);
-            } else if(sortBy === 'user_count' || sortBy === 'open_count'){
-                return b.stats[sortBy] - a.stats[sortBy];
-            }else{
+            }else if(sortBy === 'file_path'){
+                return b[sortBy].localeCompare(a[sortBy]);
+            } else{
                 b[sortBy] > a[sortBy] ? 1 : -1
             }
         });
@@ -220,7 +221,7 @@ function generate_worker_card(worker) {
                 <input type="checkbox" class="worker-checkbox" data-worker-name="${worker.name}">
             </td>
             <td style="font-family: monospace; font-size: 14px; vertical-align: middle;">${worker.name}</td>
-            <td style="font-family: monospace; font-size: 14px; vertical-align: middle;"><span class="file-path" data-file-path="${html_encode(worker.file_path)}">${worker.file_path}</span></td>
+            <td style="font-family: monospace; font-size: 14px; vertical-align: middle;"><span class="worker-file-path" data-worker-file-path="${html_encode(worker.file_path)}">${worker.file_path}</span></td>
             <td style="font-size: 14px; vertical-align: middle;">${worker.created_at}</td>
             <td style="vertical-align: middle;"><img class="options-icon options-icon-worker" data-worker-name="${worker.name}" src="./img/options.svg"></td>
         </tr>
@@ -374,12 +375,12 @@ async function attempt_delete_worker(worker_name) {
     }
 }
 
-$(document).on('click', '.file-path', function (e) {
+$(document).on('click', '.worker-file-path', function (e) {
     e.preventDefault();
     e.stopPropagation();
     e.stopImmediatePropagation();
     
-    const file_path = $(this).attr('data-file-path');
+    const file_path = $(this).attr('data-worker-file-path');
 
     if(file_path){
         puter.ui.launchApp({
