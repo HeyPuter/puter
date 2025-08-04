@@ -259,6 +259,11 @@ async function create_app(title, source_path = null, items = null) {
                     appUID: app.uid,
                 }
             )
+            //----------------------------------------------------
+            // Increment app count
+            //----------------------------------------------------
+            $('.app-count').html(parseInt($('.app-count').html() ?? 0) + 1);
+
         }).catch(async (err) => {
             $('#create-app-error').show();
             $('#create-app-error').html(err.message);
@@ -1308,7 +1313,7 @@ function count_apps() {
     $('.app-card').each(function () {
         count++;
     })
-    $('.app-count').html(count);
+    $('.app-count').html(count ? count : '');
     return count;
 }
 
