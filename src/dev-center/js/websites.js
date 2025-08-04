@@ -234,6 +234,8 @@ window.search_websites = function() {
         $('.search-clear-websites').hide();
         // show all websites again
         $(`.website-card`).show();
+        // remove 'has-value' class from search input
+        $('.search-websites').removeClass('has-value');
     } else {
         // show 'clear search' button
         $('.search-clear-websites').show();

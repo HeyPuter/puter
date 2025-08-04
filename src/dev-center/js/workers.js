@@ -259,6 +259,8 @@ window.search_workers = function() {
         $('.search-clear-workers').hide();
         // show all workers again
         $(`.worker-card`).show();
+        // remove 'has-value' class from search input
+        $('.search-workers').removeClass('has-value');
     } else {
         // show 'clear search' button
         $('.search-clear-workers').show();
@@ -273,6 +275,8 @@ window.search_workers = function() {
                 $(`.worker-card[data-name="${worker.name}"]`).hide();
             }
         })
+        // add 'has-value' class to search input
+        $('.search-workers').addClass('has-value');
     }    
 }
 
