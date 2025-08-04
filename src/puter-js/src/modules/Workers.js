@@ -1,4 +1,5 @@
 import getAbsolutePathForApp from "./FileSystem/utils/getAbsolutePathForApp.js";
+import * as utils from '../lib/utils.js';
 
 export class WorkersHandler {
 
@@ -23,10 +24,10 @@ export class WorkersHandler {
         }
         filePath = getAbsolutePathForApp(filePath);
 
-        const driverCall = await puter.drivers.call("workers", "worker-service", "create", { authorization: puter.authToken, filePath, workerName });
-        const driverResult = driverCall.result;
-        if (!driverCall.success || !driverResult.success) {
-            throw driverCall.error || new Error(driverResult?.errors || "Driver failed to execute, do you have the necessary permissions?");
+        const driverResult = await utils.make_driver_method(['authorization', 'filePath', 'workerName'], 'workers', "worker-service", 'create')(puter.authToken, filePath, workerName);;
+
+        if (!driverResult.success) {
+            throw new Error(driverResult?.errors || "Driver failed to execute, do you have the necessary permissions?");
         }
         currentWorkers[workerName] = { filePath, url: driverResult["url"], deployTime: Date.now(), createTime: Date.now() };
         await puter.kv.set("user-workers", currentWorkers);
@@ -60,12 +61,8 @@ export class WorkersHandler {
                 throw 'Authentication failed.';
             }
         }
-
-        const driverCall = await puter.drivers.call("workers", "worker-service", "getFilePaths", {});
-        if (!driverCall.success) {
-            throw driverCall.error;
-        }
-        return driverCall.result
+        const driverCall = await utils.make_driver_method([], 'workers', "worker-service", 'getFilePaths')();
+        return driverCall;
     }
 
     async get(workerName) {
@@ -79,11 +76,8 @@ export class WorkersHandler {
         }
 
         workerName = workerName.toLocaleLowerCase(); // just incase
-        const driverCall = await puter.drivers.call("workers", "worker-service", "getFilePaths", {workerName});
-        if (!driverCall.success) {
-            throw driverCall.error;
-        }
-        return driverCall.result[0];
+        const driverCall = await utils.make_driver_method(['workerName'], 'workers', "worker-service", 'getFilePaths')(workerName);
+        return driverCall[0];
     }
 
     async delete(workerName) {
@@ -97,13 +91,14 @@ export class WorkersHandler {
         }
 
         workerName = workerName.toLocaleLowerCase(); // just incase
-        const driverCall = await puter.drivers.call("workers", "worker-service", "destroy", { authorization: puter.authToken, workerName });
+        // const driverCall = await puter.drivers.call("workers", "worker-service", "destroy", { authorization: puter.authToken, workerName });
+        const driverResult = await utils.make_driver_method(['authorization', 'workerName'], 'workers', "worker-service", 'destroy')(puter.authToken, workerName);;
 
-        if (!driverCall.success || !driverCall.result.result) {
-            if (!driverCall.result.result) {
+        if (!driverResult.result) {
+            if (!driverResult.result) {
                 new Error("Worker doesn't exist");
             }
-            throw driverCall.error || new Error(driverCall.result?.errors || "Driver failed to execute, do you have the necessary permissions?");
+            throw new Error(driverResult?.errors || "Driver failed to execute, do you have the necessary permissions?");
         } else {
             let currentWorkers = await puter.kv.get("user-workers");
 
