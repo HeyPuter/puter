@@ -53,6 +53,14 @@ async function init_workers() {
 }
 
 $(document).on('click', '.create-a-worker-btn', async function (e) {
+    // if user doesn't have an email, request it
+    if(!window.user?.email || !window.user?.email_confirmed){
+        const email_confirm_resp = await puter.ui.requestEmailConfirmation();
+        if(!email_confirm_resp)
+            UIAlert('Email confirmation required to create a worker.');
+            return;
+    }
+
     // Step 1: Show file picker limited to .js files
     let selectedFile;
     try {

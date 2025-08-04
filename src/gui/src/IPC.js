@@ -32,6 +32,8 @@ import update_mouse_position from './helpers/update_mouse_position.js';
 import item_icon from './helpers/item_icon.js';
 import UIPopover from './UI/UIPopover.js';
 import socialLink from './helpers/socialLink.js';
+import UIWindowEmailConfirmationRequired from './UI/UIWindowEmailConfirmationRequired.js';
+import UIWindowSaveAccount from './UI/UIWindowSaveAccount.js';
 
 import { PROCESS_IPC_ATTACHED } from './definitions.js';
 
@@ -155,6 +157,55 @@ const ipc_listener = async (event, handled) => {
     //-------------------------------------------------
     if(event.data.msg === 'windowFocused'){
         // TODO: Respond to this
+    }
+    //--------------------------------------------------------
+    // requestEmailConfirmation
+    //--------------------------------------------------------
+    else if(event.data.msg === 'requestEmailConfirmation'){
+        // If the user has an email and it is confirmed, respond with success
+        if(window.user.email && window.user.email_confirmed){
+            target_iframe.contentWindow.postMessage({
+                original_msg_id: msg_id,
+                msg: 'requestEmailConfirmationResponded',
+                response: true,
+            }, '*');
+        }
+
+        // If the user is a temporary user, show the save account window
+        if(window.user.is_temp && 
+            !await UIWindowSaveAccount({
+                send_confirmation_code: true,
+                message: 'Please create an account to proceed.',
+                window_options: {
+                    backdrop: true,
+                    close_on_backdrop_click: false,
+                }                                
+            })){
+            target_iframe.contentWindow.postMessage({
+                original_msg_id: msg_id,
+                msg: 'requestEmailConfirmationResponded',
+                response: false,
+            }, '*');
+            return;
+        }
+        else if(!window.user.email_confirmed && !await UIWindowEmailConfirmationRequired()){
+            target_iframe.contentWindow.postMessage({
+                original_msg_id: msg_id,
+                msg: 'requestEmailConfirmationResponded',
+                response: false,
+            }, '*');
+            return;
+        }
+
+        const email_confirm_resp = await UIWindowEmailConfirmationRequired({
+            email: window.user.email,
+        });
+
+        target_iframe.contentWindow.postMessage({
+            original_msg_id: msg_id,
+            msg: 'requestEmailConfirmationResponded',
+            response: email_confirm_resp,
+        }, '*');
     }
     //--------------------------------------------------------
     // ALERT

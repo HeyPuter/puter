@@ -629,6 +629,12 @@ class UI extends EventListener {
         this.#onLaunchedWithItems = callback;
     }
 
+    requestEmailConfirmation = function() {
+        return new Promise((resolve, reject) => {
+            this.#postMessageWithCallback('requestEmailConfirmation', resolve, {  });
+        });
+    }
+
     alert = function(message, buttons, options, callback) {
         return new Promise((resolve) => {
             this.#postMessageWithCallback('ALERT', resolve, { message, buttons, options });
