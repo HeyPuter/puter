@@ -1145,6 +1145,19 @@ function UIItem(options){
                 menu_items.push({
                     html: i18n('publish_as_serverless_worker'),
                     onClick: async function(){
+                        if(window.user.is_temp && 
+                            !await UIWindowSaveAccount({
+                                send_confirmation_code: true,
+                                message: 'Please create an account to proceed.',
+                                window_options: {
+                                    backdrop: true,
+                                    close_on_backdrop_click: false,
+                                }                                
+                            }))
+                            return;
+                        else if(!window.user.email_confirmed && !await UIWindowEmailConfirmationRequired())
+                            return;
+
                         UIWindowPublishWorker(options.uid, $(el_item).attr('data-name'), $(el_item).attr('data-path'));
                     }
                 });
