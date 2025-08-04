@@ -12,8 +12,7 @@ window.create_worker = async (name, filePath = null) => {
     try {
         worker = await puter.workers.create(name, workerFile);
     } catch (err) {
-        console.log(err);
-        console.error('Error creating worker:', err.error);
+        puter.ui.alert(`Error creating worker: ${err.error?.message}`);
     }
 
     return worker;
