@@ -1047,7 +1047,19 @@ class UI extends EventListener {
     // Returns a Promise<AppConnection>
     launchApp = async function launchApp(app_name, args, callback) {
         let pseudonym = undefined;
-        if ( app_name.includes('#(as)') ) {
+        let file_paths = undefined;
+        
+        // Handle case where app_name is an options object
+        if (typeof app_name === 'object' && app_name !== null) {
+            const options = app_name;
+            app_name = options.name || options.app_name;
+            file_paths = options.file_paths;
+            args = args || options.args;
+            callback = callback || options.callback;
+            pseudonym = options.pseudonym;
+        }
+        
+        if ( app_name && app_name.includes('#(as)') ) {
             [app_name, pseudonym] = app_name.split('#(as)');
         }
         const app_info = await this.#ipc_stub({
@@ -1055,6 +1067,7 @@ class UI extends EventListener {
             callback,
             parameters: {
                 app_name,
+                file_paths,
                 pseudonym,
                 args,
             },
