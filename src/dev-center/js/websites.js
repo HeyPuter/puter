@@ -151,25 +151,33 @@ function sort_websites() {
     if (sortDirection === 'asc'){
         sorted_websites = websites.sort((a, b) => {
             if(sortBy === 'name'){
-                return a[sortBy].localeCompare(b[sortBy]);
+                return a.subdomain.localeCompare(b.subdomain);
             }else if(sortBy === 'created_at'){
                 return new Date(a[sortBy]) - new Date(b[sortBy]);
             } else if(sortBy === 'user_count' || sortBy === 'open_count'){
                 return a.stats[sortBy] - b.stats[sortBy];
+            } else if(sortBy === 'root_dir'){
+                const aRootDir = a.root_dir?.name || '';
+                const bRootDir = b.root_dir?.name || '';
+                return aRootDir.localeCompare(bRootDir);
             }else{
-                a[sortBy] > b[sortBy] ? 1 : -1
+                return a[sortBy] > b[sortBy] ? 1 : -1;
             }
         });
     }else{
         sorted_websites = websites.sort((a, b) => {
             if(sortBy === 'name'){
-                return b[sortBy].localeCompare(a[sortBy]);
+                return b.subdomain.localeCompare(a.subdomain);
             }else if(sortBy === 'created_at'){
                 return new Date(b[sortBy]) - new Date(a[sortBy]);
             } else if(sortBy === 'user_count' || sortBy === 'open_count'){
                 return b.stats[sortBy] - a.stats[sortBy];
+            } else if(sortBy === 'root_dir'){
+                const aRootDir = a.root_dir?.name || '';
+                const bRootDir = b.root_dir?.name || '';
+                return bRootDir.localeCompare(aRootDir);
             }else{
-                b[sortBy] > a[sortBy] ? 1 : -1
+                return b[sortBy] > a[sortBy] ? 1 : -1;
             }
         });
     }
