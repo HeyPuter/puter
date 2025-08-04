@@ -46,6 +46,8 @@ window.refresh_worker_list = async (show_loading = false) => {
 
 
 async function init_workers() {
+    window.workers = await puter.workers.list();
+    count_workers();
 }
 
 $(document).on('click', '.create-a-worker-btn', async function (e) {
@@ -206,10 +208,7 @@ function sort_workers() {
 }
 
 function count_workers() {
-    let count = 0;
-    $('.worker-card').each(function () {
-        count++;
-    })
+    let count = window.workers.length;
     $('.worker-count').html(count ? count : '');
     return count;
 }

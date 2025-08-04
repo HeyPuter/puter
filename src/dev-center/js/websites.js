@@ -40,6 +40,10 @@ window.refresh_websites_list = async (show_loading = false) => {
 
 
 async function init_websites() {
+    puter.hosting.list().then((websites) => {
+        window.websites = websites;
+        count_websites();
+    });
 }
 
 $(document).on('click', '.create-a-website-btn', async function (e) {
@@ -173,10 +177,7 @@ function sort_websites() {
 }
 
 function count_websites() {
-    let count = 0;
-    $('.website-card').each(function () {
-        count++;
-    })
+    let count = window.websites.length;
     $('.website-count').html(count ? count : '');
     return count;
 }
