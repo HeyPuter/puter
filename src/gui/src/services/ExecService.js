@@ -49,7 +49,6 @@ export class ExecService extends Service {
     
     // This method is exposed to apps via IPCService.
     async launchApp ({ app_name, args, pseudonym, file_paths }, { ipc_context, msg_id } = {}) {
-        console.log('launchApp', { app_name, args, pseudonym, file_paths });
         const app = ipc_context?.caller?.app;
         const process = ipc_context?.caller?.process;
 
@@ -85,7 +84,6 @@ export class ExecService extends Service {
 
         // Check if file_paths are provided and caller has godmode permissions
         if (file_paths && Array.isArray(file_paths) && file_paths.length > 0 && process) {
-            console.log('file_paths', file_paths);
             try {
                 // Get caller app info to check godmode status
                 const caller_app_name = process.name;
