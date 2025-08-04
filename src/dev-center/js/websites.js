@@ -3,10 +3,14 @@ let sortDirection = 'desc';
 window.websites = [];
 let search_query;
 
-window.create_website = async (name) => {
+window.create_website = async (name, directoryPath = null) => {
     let website
+    
+    // Use provided directory path or default to the default website file
+    const websiteDir = directoryPath || window.default_website_file;
+    
     try {
-        website = await puter.hosting.create(name, window.default_website_file);
+        website = await puter.hosting.create(name, websiteDir);
     } catch (error) {
         puter.ui.alert(`Error creating website: ${error.error.message}`);
     }
@@ -47,11 +51,25 @@ async function init_websites() {
 }
 
 $(document).on('click', '.create-a-website-btn', async function (e) {
-    let name = await puter.ui.prompt('Please enter a name for your website:', 'my-awesome-website');
+    // Step 1: Show directory picker
+    let selectedDirectory;
+    try {
+        selectedDirectory = await puter.ui.showDirectoryPicker();
+    } catch (err) {
+        // User cancelled directory picker or there was an error
+        console.log('Directory picker cancelled or error:', err);
+        return;
+    }
 
-    if (name) {
-        await create_website(name);
-        refresh_websites_list();
+    // Step 2: Ask for website name
+    if (selectedDirectory && selectedDirectory.path) {
+        let name = await puter.ui.prompt('Please enter a name for your website:', 'my-awesome-website');
+
+        // Step 3: Create website with selected directory
+        if (name) {
+            await create_website(name, selectedDirectory.path);
+            refresh_websites_list();
+        }
     }
 })
 

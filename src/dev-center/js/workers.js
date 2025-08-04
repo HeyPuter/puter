@@ -3,11 +3,14 @@ let sortDirection = 'desc';
 window.workers = [];
 let search_query;
 
-window.create_worker = async (name) => {
+window.create_worker = async (name, filePath = null) => {
     let worker;
     
+    // Use provided file path or default to the default worker file
+    const workerFile = filePath || window.default_worker_file;
+    
     try {
-        worker = await puter.workers.create(name, window.default_worker_file);
+        worker = await puter.workers.create(name, workerFile);
     } catch (err) {
         console.log(err);
         console.error('Error creating worker:', err.error);
@@ -51,10 +54,28 @@ async function init_workers() {
 }
 
 $(document).on('click', '.create-a-worker-btn', async function (e) {
-    let name = await puter.ui.prompt('Please enter a name for your worker:', 'my-awesome-worker');
+    // Step 1: Show file picker limited to .js files
+    let selectedFile;
+    try {
+        selectedFile = await puter.ui.showOpenFilePicker({
+            accept: ".js",
+        });
+    } catch (err) {
+        // User cancelled file picker or there was an error
+        console.log('File picker cancelled or error:', err);
+        return;
+    }
 
-    if (name) {
-        await create_worker(name);
+    // Step 2: Ask for worker name
+    if (selectedFile && selectedFile.path) {
+        let name = await puter.ui.prompt('Please enter a name for your worker:', 'my-awesome-worker');
+
+        // Step 3: Create worker with selected file
+        if (name) {
+            await create_worker(name, selectedFile.path);
+            // Refresh the worker list to show the new worker
+            await refresh_worker_list();
+        }
     }
 })
 
