@@ -61,6 +61,9 @@ $(document).on('click', '.create-a-worker-btn', async function (e) {
             return;
     }
 
+    // refresh user data
+    window.user = await puter.auth.getUser();
+
     // Step 1: Show file picker limited to .js files
     let selectedFile;
     try {

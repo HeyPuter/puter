@@ -27,10 +27,11 @@ window.auth_username = null;
 window.dev_center_uid = puter.appID;
 window.developer;
 window.activeTab = 'apps';
+window.user = null;
 
 // auth_username
 (async () => {
-    let user = await puter.auth.getUser();
+    window.user = await puter.auth.getUser();
 
     if (user?.username) {
         window.auth_username = user.username;
@@ -198,6 +199,8 @@ $('.jip-submit-btn').on('click', async function (e) {
             $('.jip-submit-btn').prop('disabled', false);
             // update dev profile
             $('#payout-method-email').html(paypal);
+            // show separator
+            $('.tab-btn-separator').show();
             // show payout method tab
             $('.tab-btn[data-tab="payout-method"]').show();
         },
