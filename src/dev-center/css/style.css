@@ -578,6 +578,7 @@ label {
 .link-to-docs img{
     width: 12px; 
     margin-bottom: -1px;
+    margin-left: 5px;
 }
 .tab-btn {
     background-size: 20px;
@@ -1381,4 +1382,8 @@ dialog{
 
 .worker-file-path{
     cursor: pointer;
+}
+
+.tab-btn-separator{
+    display: none;
 }
