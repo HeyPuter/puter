@@ -116,7 +116,27 @@ return new Response(\`Page \${params.page} not found\`, {status: 404});
 
 }
 
-$(document).on('change', '.worker-checkbox', function (e) {
+$(document).on('click', '.worker-checkbox', function (e) {
+    // was shift key pressed?
+    if (e.originalEvent && e.originalEvent.shiftKey) {
+        // select all checkboxes in range
+        const currentIndex = $('.worker-checkbox').index(this);
+        const startIndex = Math.min(window.last_clicked_worker_checkbox_index, currentIndex);
+        const endIndex = Math.max(window.last_clicked_worker_checkbox_index, currentIndex);
+
+        // set all checkboxes in range to the same state as current checkbox
+        for (let i = startIndex; i <= endIndex; i++) {
+            const checkbox = $('.worker-checkbox').eq(i);
+            checkbox.prop('checked', $(this).is(':checked'));
+
+            // activate row
+            if ($(checkbox).is(':checked'))
+                $(checkbox).closest('tr').addClass('active');
+            else
+                $(checkbox).closest('tr').removeClass('active');
+        }
+    }
+
     // determine if select-all checkbox should be checked, indeterminate, or unchecked
     if ($('.worker-checkbox:checked').length === $('.worker-checkbox').length) {
         $('.select-all-workers').prop('indeterminate', false);
@@ -141,6 +161,9 @@ $(document).on('change', '.worker-checkbox', function (e) {
         $('.delete-workers-btn').removeClass('disabled');
     else
         $('.delete-workers-btn').addClass('disabled');
+
+    // store the index of the last clicked checkbox
+    window.last_clicked_worker_checkbox_index = $('.worker-checkbox').index(this);
 })
 
 $(document).on('change', '.select-all-workers', function (e) {

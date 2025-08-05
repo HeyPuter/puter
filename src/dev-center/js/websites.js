@@ -73,7 +73,26 @@ $(document).on('click', '.create-a-website-btn', async function (e) {
     }
 })
 
-$(document).on('change', '.website-checkbox', function (e) {
+$(document).on('click', '.website-checkbox', function (e) {
+    // was shift key pressed?
+    if (e.originalEvent && e.originalEvent.shiftKey) {
+        // select all checkboxes in range
+        const currentIndex = $('.website-checkbox').index(this);
+        const startIndex = Math.min(window.last_clicked_website_checkbox_index, currentIndex);
+        const endIndex = Math.max(window.last_clicked_website_checkbox_index, currentIndex);
+
+        // set all checkboxes in range to the same state as current checkbox
+        for (let i = startIndex; i <= endIndex; i++) {
+            const checkbox = $('.website-checkbox').eq(i);
+            checkbox.prop('checked', $(this).is(':checked'));
+            // activate row
+            if ($(checkbox).is(':checked'))
+                $(checkbox).closest('tr').addClass('active');
+            else
+                $(checkbox).closest('tr').removeClass('active');
+        }
+    }
+
     // determine if select-all checkbox should be checked, indeterminate, or unchecked
     if ($('.website-checkbox:checked').length === $('.website-checkbox').length) {
         $('.select-all-websites').prop('indeterminate', false);
@@ -98,6 +117,9 @@ $(document).on('change', '.website-checkbox', function (e) {
         $('.delete-websites-btn').removeClass('disabled');
     else
         $('.delete-websites-btn').addClass('disabled');
+
+    // store the index of the last clicked checkbox
+    window.last_clicked_website_checkbox_index = $('.website-checkbox').index(this);
 })
 
 $(document).on('change', '.select-all-websites', function (e) {

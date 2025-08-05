@@ -2171,7 +2171,26 @@ $(document).on('click', '.search-clear-apps', function (e) {
     $('.search-apps').removeClass('has-value');
 })
 
-$(document).on('change', '.app-checkbox', function (e) {
+$(document).on('click', '.app-checkbox', function (e) {
+    // was shift key pressed?
+    if (e.originalEvent && e.originalEvent.shiftKey) {
+        // select all checkboxes in range
+        const currentIndex = $('.app-checkbox').index(this);
+        const startIndex = Math.min(window.last_clicked_app_checkbox_index, currentIndex);
+        const endIndex = Math.max(window.last_clicked_app_checkbox_index, currentIndex);
+
+        // set all checkboxes in range to the same state as current checkbox
+        for (let i = startIndex; i <= endIndex; i++) {
+            const checkbox = $('.app-checkbox').eq(i);
+            checkbox.prop('checked', $(this).is(':checked'));
+            // activate row
+            if ($(checkbox).is(':checked'))
+                $(checkbox).closest('tr').addClass('active');
+            else
+                $(checkbox).closest('tr').removeClass('active');
+        }
+    }
+
     // determine if select-all checkbox should be checked, indeterminate, or unchecked
     if ($('.app-checkbox:checked').length === $('.app-checkbox').length) {
         $('.select-all-apps').prop('indeterminate', false);
@@ -2196,6 +2215,9 @@ $(document).on('change', '.app-checkbox', function (e) {
         $('.delete-apps-btn').removeClass('disabled');
     else
         $('.delete-apps-btn').addClass('disabled');
+
+    // store the index of the last clicked checkbox
+    window.last_clicked_app_checkbox_index = $('.app-checkbox').index(this);
 })
 
 $(document).on('click', '.delete-apps-btn', async function (e) {
