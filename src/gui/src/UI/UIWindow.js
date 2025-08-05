@@ -824,7 +824,7 @@ async function UIWindow(options) {
             // No item selected, return current directory
             // ------------------------------------------------
             if(selected_els.length === 0){
-                selected_dirs = await puter.fs.sign(options.initiating_app_uuid, {uid: $(el_window).attr('data-uid'), action: 'write'})
+                selected_dirs = await puter.fs.sign(options.initiating_app_uuid, {uid: $(el_window).attr('data-uid'), action: 'write', path: $(el_window).attr('data-path')})
                 selected_dirs = selected_dirs.items;
             }             
 
