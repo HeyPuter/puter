@@ -677,10 +677,17 @@ table {
 }
 .table>thead>tr>th{
     padding: 5px;
+    background-color: #f8f9fa;
+    font-weight: 600;
+    color: #676e77;
+    text-transform: uppercase;
+    font-size: 0.75rem;
+    letter-spacing: 0.05em;
 }
 th {
     text-align: left;
     padding-bottom: 0 !important;
+    font-size: 12px;
 }
 
 td, th {
@@ -1368,8 +1375,7 @@ dialog{
 }
 
 .worker-checkbox, .app-checkbox, .website-checkbox {
-    width: 20px;
-    height: 20px;
+    width: 15px; height: 20px;
 }
 
 .no-hover:hover {
