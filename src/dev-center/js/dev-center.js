@@ -351,14 +351,14 @@ $('body').on('drop', async function (event) {
 
     // retrieve puter items from the event
     if (event.detail?.items?.length > 0) {
-        dropped_items = event.detail.items;
-        source_path = dropped_items[0].path;
+        window.dropped_items = event.detail.items;
+        window.source_path = window.dropped_items[0].path;
         // by deploying an existing Puter folder. So we create the app and deploy it.
-        if (source_path) {
+        if (window.source_path) {
             // todo if there are no apps, go straight to creating a new app
             $('.insta-deploy-modal').get(0).showModal();
             // set item name
-            $('.insta-deploy-item-name').html(html_encode(dropped_items[0].name));
+            $('.insta-deploy-item-name').html(html_encode(window.dropped_items[0].name));
         }
     }
     //-----------------------------------------------------------------------------
@@ -369,18 +369,18 @@ $('body').on('drop', async function (event) {
         return;
 
     // Get dropped items
-    dropped_items = await puter.ui.getEntriesFromDataTransferItems(e.dataTransfer.items);
+    window.dropped_items = await puter.ui.getEntriesFromDataTransferItems(e.dataTransfer.items);
 
     // Generate a flat array of full paths from the dropped items
     let paths = [];
-    for (let item of dropped_items) {
+    for (let item of window.dropped_items) {
         paths.push('/' + (item.fullPath ?? item.filepath));
     }
 
     // Generate a directory tree from the paths
     let tree = generateDirTree(paths);
 
-    dropped_items = setRootDirTree(tree, dropped_items);
+    window.dropped_items = setRootDirTree(tree, window.dropped_items);
 
     // Alert if no index.html in root
     if (!hasRootIndexHtml(tree)) {
@@ -391,7 +391,7 @@ $('body').on('drop', async function (event) {
         ]);
         $('.drop-area').removeClass('drop-area-ready-to-deploy');
         $('.deploy-btn').addClass('disabled');
-        dropped_items = [];
+        window.dropped_items = [];
         return;
     }
 

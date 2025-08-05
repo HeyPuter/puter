@@ -343,6 +343,7 @@ $(document).on('click', '.options-icon-website', function (e) {
                     change_website_directory($(this).attr('data-website-name'));
                 },
             },
+            '-',
             {
                 label: 'Delete',
                 type: 'danger',

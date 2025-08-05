@@ -251,7 +251,7 @@ function generate_worker_card(worker) {
                 <input type="checkbox" class="worker-checkbox" data-worker-name="${worker.name}">
             </td>
             <td style="font-family: monospace; font-size: 14px; vertical-align: middle;">${worker.name}</td>
-            <td style="font-family: monospace; font-size: 14px; vertical-align: middle;"><span class="worker-file-path" data-worker-file-path="${html_encode(worker.file_path)}">${worker.file_path}</span></td>
+            <td style="font-family: monospace; font-size: 14px; vertical-align: middle;"><span class="worker-file-path" data-worker-file-path="${html_encode(worker.file_path)}">${worker.file_path ? worker.file_path : ''}</span></td>
             <td style="font-size: 14px; vertical-align: middle;">${worker.created_at}</td>
             <td style="vertical-align: middle;"><img class="options-icon options-icon-worker" data-worker-name="${worker.name}" src="./img/options.svg"></td>
         </tr>
