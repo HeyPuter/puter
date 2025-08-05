@@ -570,9 +570,10 @@ label {
 .link-to-docs{
     color: #586373; 
     font-size: 14px;
-}
-.link-to-docs, .link-to-docs:hover {
     text-decoration: none;
+}
+.link-to-docs:hover {
+    text-decoration: underline !important;
 }
 .link-to-docs img{
     width: 12px; 
