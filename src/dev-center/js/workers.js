@@ -7,7 +7,7 @@ window.create_worker = async (name, filePath = null) => {
     let worker;
     
     // Use provided file path or default to the default worker file
-    const workerFile = filePath || window.default_worker_file;
+    const workerFile = filePath;
     
     try {
         worker = await puter.workers.create(name, workerFile);
@@ -88,33 +88,6 @@ $(document).on('click', '.create-a-worker-btn', async function (e) {
         }
     }
 })
-
-window.createDefaultWorkerFile = async () => {
-    window.default_worker_file = `/${auth_username}/AppData/${dev_center_uid}/default_worker_file.js`;
-    let existingFile;
-    try {
-        // Check if default_worker_file exists
-        existingFile = await puter.fs.read(default_worker_file);
-    } catch (err) {
-        console.error('Error creating default worker file:', err);
-    }
-
-    if (!existingFile) {
-        // Create default_worker_file
-        await puter.fs.write(default_worker_file, `// This is an example application for Puter Workers
-
-router.get('/', ({request}) => {
-return 'Hello World'; // returns a string
-});
-router.get('/api/hello', ({request}) => {
-return {'msg': 'hello'}; // returns a JSON object    
-});
-router.get('/*page', ({request, params}) => {
-return new Response(\`Page \${params.page} not found\`, {status: 404});
-});`);
-    }
-
-}
 
 $(document).on('click', '.worker-checkbox', function (e) {
     // was shift key pressed?
@@ -323,6 +296,35 @@ $(document).on('click', '.search-clear-workers', function (e) {
     $('.search-workers').removeClass('has-value');
 })
 
+function remove_worker_card(worker_name, callback = null) {
+    $(`.worker-card[data-name="${worker_name}"]`).fadeOut(200, function() {
+        $(this).remove();
+        if ($(`.worker-card`).length === 0) {
+            $('section:not(.sidebar)').hide();
+            $('#no-workers-notice').show();
+        } else {
+            $('section:not(.sidebar)').hide();
+            $('#worker-list').show();
+        }
+
+        // update select-all-workers checkbox's state
+        if($('.worker-checkbox:checked').length === 0){
+            $('.select-all-workers').prop('indeterminate', false);
+            $('.select-all-workers').prop('checked', false);
+        }
+        else if($('.worker-checkbox:checked').length === $('.worker-card').length){
+            $('.select-all-workers').prop('indeterminate', false);
+            $('.select-all-workers').prop('checked', true);
+        }
+        else{
+            $('.select-all-workers').prop('indeterminate', true);
+        }
+
+        count_workers();
+        if (callback) callback();
+    });
+}
+
 $(document).on('click', '.delete-workers-btn', async function (e) {
     // show confirmation alert
     let resp = await puter.ui.alert(`Are you sure you want to delete the selected workers?`, [
@@ -355,17 +357,7 @@ $(document).on('click', '.delete-workers-btn', async function (e) {
             await puter.workers.delete(worker_name)
 
             // remove worker card
-            $(`.worker-card[data-name="${worker_name}"]`).fadeOut(200, function name(params) {
-                $(this).remove();
-                if ($(`.worker-card`).length === 0) {
-                    $('section:not(.sidebar)').hide();
-                    $('#no-workers-notice').show();
-                } else {
-                    $('section:not(.sidebar)').hide();
-                    $('#worker-list').show();
-                }
-                count_workers();
-            });
+            remove_worker_card(worker_name);
 
             try{
                 count_workers();
@@ -398,14 +390,14 @@ $(document).on('click', '.options-icon-worker', function (e) {
                 label: 'Delete',
                 type: 'danger',
                 action: () => {
-                    attempt_delete_worker($(this).attr('data-worker-name'));
+                    attempt_worker_deletion($(this).attr('data-worker-name'));
                 },
             },
         ],
     });
 })
 
-async function attempt_delete_worker(worker_name) {
+async function attempt_worker_deletion(worker_name) {
     // confirm delete
     const alert_resp = await puter.ui.alert(`Are you sure you want to premanently delete <strong>${html_encode(worker_name)}</strong>?`,
         [
@@ -422,17 +414,7 @@ async function attempt_delete_worker(worker_name) {
 
     if (alert_resp === 'delete') {
         // remove worker card and update worker count
-        $(`.worker-card[data-name="${worker_name}"]`).fadeOut(200, function name(params) {
-            $(this).remove();
-            if ($(`.worker-card`).length === 0) {
-                $('section:not(.sidebar)').hide();
-                $('#no-workers-notice').show();
-            } else {
-                $('section:not(.sidebar)').hide();
-                $('#worker-list').show();
-            }
-            count_workers();
-        });
+        remove_worker_card(worker_name);
 
         // delete worker
         puter.workers.delete(worker_name).then().catch(async (err) => {

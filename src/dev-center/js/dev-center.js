@@ -79,9 +79,6 @@ $(document).ready(async function () {
     // initialize assets directory
     await initializeAssetsDirectory();
 
-    // create default worker file
-    await createDefaultWorkerFile();
-
     puter.ui.showSpinner();
 
     init_apps();

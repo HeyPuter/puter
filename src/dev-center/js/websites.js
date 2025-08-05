@@ -4,7 +4,7 @@ window.websites = [];
 let search_query;
 
 window.create_website = async (name, directoryPath = null) => {
-    let website
+    let website;
     
     // Use provided directory path or default to the default website file
     const websiteDir = directoryPath || window.default_website_file;
@@ -41,7 +41,6 @@ window.refresh_websites_list = async (show_loading = false) => {
 
     count_websites();
 }
-
 
 async function init_websites() {
     puter.hosting.list().then((websites) => {
@@ -288,6 +287,35 @@ $(document).on('click', '.search-clear-websites', function (e) {
     $('.search-websites').removeClass('has-value');
 })
 
+function remove_website_card(website_name, callback = null) {
+    $(`.website-card[data-name="${website_name}"]`).fadeOut(200, function() {
+        $(this).remove();
+        if ($(`.website-card`).length === 0) {
+            $('section:not(.sidebar)').hide();
+            $('#no-websites-notice').show();
+        } else {
+            $('section:not(.sidebar)').hide();
+            $('#website-list').show();
+        }
+
+        // update select-all-websites checkbox's state
+        if($('.website-checkbox:checked').length === 0){
+            $('.select-all-websites').prop('indeterminate', false);
+            $('.select-all-websites').prop('checked', false);
+        }
+        else if($('.website-checkbox:checked').length === $('.website-card').length){
+            $('.select-all-websites').prop('indeterminate', false);
+            $('.select-all-websites').prop('checked', true);
+        }
+        else{
+            $('.select-all-websites').prop('indeterminate', true);
+        }
+
+        count_websites();
+        if (callback) callback();
+    });
+}
+
 $(document).on('click', '.delete-websites-btn', async function (e) {
     // show confirmation alert
     let resp = await puter.ui.alert(`Are you sure you want to delete the selected websites?`, [
@@ -320,17 +348,7 @@ $(document).on('click', '.delete-websites-btn', async function (e) {
             await puter.hosting.delete(website_name)
 
             // remove website card
-            $(`.website-card[data-name="${website_name}"]`).fadeOut(200, function name(params) {
-                $(this).remove();
-                if ($(`.website-card`).length === 0) {
-                    $('section:not(.sidebar)').hide();
-                    $('#no-websites-notice').show();
-                } else {
-                    $('section:not(.sidebar)').hide();
-                    $('#website-list').show();
-                }
-                count_websites();
-            });
+            remove_website_card(website_name);
 
             try{
                 count_websites();
@@ -370,14 +388,14 @@ $(document).on('click', '.options-icon-website', function (e) {
                 label: 'Delete',
                 type: 'danger',
                 action: () => {
-                    attempt_delete_website($(this).attr('data-website-name'));
+                    attempt_website_deletion($(this).attr('data-website-name'));
                 },
             },
         ],
     });
 })
 
-async function attempt_delete_website(website_name) {
+async function attempt_website_deletion(website_name) {
     // confirm delete
     const alert_resp = await puter.ui.alert(`Are you sure you want to premanently delete <strong>${html_encode(website_name)}.puter.site</strong>?`,
         [
@@ -394,17 +412,7 @@ async function attempt_delete_website(website_name) {
 
     if (alert_resp === 'delete') {
         // remove website card and update website count
-        $(`.website-card[data-name="${website_name}"]`).fadeOut(200, function name(params) {
-            $(this).remove();
-            if ($(`.website-card`).length === 0) {
-                $('section:not(.sidebar)').hide();
-                $('#no-websites-notice').show();
-            } else {
-                $('section:not(.sidebar)').hide();
-                $('#website-list').show();
-            }
-            count_websites();
-        });
+        remove_website_card(website_name);
 
         // delete website
         puter.hosting.delete(website_name);
@@ -489,4 +497,5 @@ $(document).on('click', '.root-dir-name', function (e) {
         });
     }
 })
+
 export default init_websites;
