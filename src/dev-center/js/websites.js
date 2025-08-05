@@ -338,6 +338,12 @@ $(document).on('click', '.options-icon-website', function (e) {
     puter.ui.contextMenu({
         items: [
             {
+                label: 'Change Directory',
+                action: () => {
+                    change_website_directory($(this).attr('data-website-name'));
+                },
+            },
+            {
                 label: 'Delete',
                 type: 'danger',
                 action: () => {
@@ -379,6 +385,71 @@ async function attempt_delete_website(website_name) {
 
         // delete website
         puter.hosting.delete(website_name);
+    }
+}
+
+async function change_website_directory(website_name) {
+    try {
+        // Step 1: Show directory picker
+        const selectedDirectory = await puter.ui.showDirectoryPicker();
+        
+        if (!selectedDirectory || !selectedDirectory.path) {
+            return; // User cancelled
+        }
+
+        // Step 2: Confirm the change since it will replace the current website
+        const confirmResp = await puter.ui.alert(
+            `Are you sure you want to change the directory for <strong>${html_encode(website_name)}.puter.site</strong>?<br><br>This will update the website to serve files from the new directory.`,
+            [
+                {
+                    label: 'Yes, change directory',
+                    value: 'change',
+                    type: 'primary',
+                },
+                {
+                    label: 'Cancel'
+                },
+            ],
+            {
+                type: 'info',
+            }
+        );
+
+        if (confirmResp !== 'change') {
+            return;
+        }
+
+        // Step 3: Show loading spinner
+        puter.ui.showSpinner();
+
+        try {
+            // Step 4: Delete the existing website
+            await puter.hosting.delete(website_name);
+
+            // Step 5: Create a new website with the same name but new directory
+            await puter.hosting.create(website_name, selectedDirectory.path);
+
+            // Step 6: Refresh the websites list to show the updated directory
+            await refresh_websites_list();
+
+            // Step 7: Show success message
+            puter.ui.alert(`Website directory changed successfully! <strong>${html_encode(website_name)}.puter.site</strong> now serves files from the new directory.`, [], {
+                type: 'success',
+            });
+
+        } catch (error) {
+            // If there's an error, show error message
+            puter.ui.alert(`Error changing website directory: ${error.error?.message || error.message || 'Unknown error'}`, [], {
+                type: 'error',
+            });
+        } finally {
+            // Hide loading spinner
+            puter.ui.hideSpinner();
+        }
+
+    } catch (error) {
+        // Handle directory picker error
+        console.log('Directory picker cancelled or error:', error);
     }
 }
 
