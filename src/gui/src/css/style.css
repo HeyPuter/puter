@@ -2591,7 +2591,7 @@ label {
 .taskbar.taskbar-position-right .taskbar-item[data-app="separator"]{
     max-height: 10px;
     min-height: 10px !important;
-    padding: 5px !important;
+    padding: 5px 3px 5px 7px !important;
 }
 .taskbar.taskbar-position-left .taskbar-item[data-app="separator"] .taskbar-icon,
 .taskbar.taskbar-position-right .taskbar-item[data-app="separator"] .taskbar-icon{

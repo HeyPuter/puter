@@ -48,7 +48,7 @@ export class ExecService extends Service {
     }
     
     // This method is exposed to apps via IPCService.
-    async launchApp ({ app_name, args, pseudonym }, { ipc_context, msg_id } = {}) {
+    async launchApp ({ app_name, args, pseudonym, file_paths }, { ipc_context, msg_id } = {}) {
         const app = ipc_context?.caller?.app;
         const process = ipc_context?.caller?.process;
 
@@ -68,8 +68,8 @@ export class ExecService extends Service {
             Object.assign(params, provider());
         }
 
-        // The "body" of this method is in a separate file
-        const child_process = await launch_app({
+        // Handle file paths if provided and caller is in godmode
+        let launch_options = {
             launched_by_exec_service: true,
             name: app_name,
             pseudonym,
@@ -80,7 +80,62 @@ export class ExecService extends Service {
             ...(connection ? {
                 parent_pseudo_id: connection.backward.uuid,
             } : {}),
-        });
+        };
+
+        // Check if file_paths are provided and caller has godmode permissions
+        if (file_paths && Array.isArray(file_paths) && file_paths.length > 0 && process) {
+            try {
+                // Get caller app info to check godmode status
+                const caller_app_name = process.name;
+                const caller_app_info = await window.get_apps(caller_app_name);
+                
+                // Check if caller is in godmode
+                if (caller_app_info && caller_app_info.godmode === 1) {
+                    this.log.info(`⚠️ GODMODE app ${caller_app_name} launching ${app_name} with files:`, file_paths);
+                    
+                    // Get target app info to create file signatures
+                    const target_app_info = await puter.apps.get(app_name);
+                    
+                    // For the first file, create a file signature and set it up like opening a file
+                    if (file_paths.length > 0) {
+                        const first_file_path = file_paths[0];
+                        
+                        try {
+                            // Get file stats to verify it exists
+                            const file_stat = await puter.fs.stat(first_file_path);
+                            
+                            // Create file signature for the target app
+                            const file_signature_result = await puter.fs.sign(target_app_info.uuid, {
+                                path: first_file_path,
+                                action: 'write'
+                            });
+                            
+                            // Set up launch options with file information
+                            launch_options.file_signature = file_signature_result.items;
+                            launch_options.file_path = first_file_path;
+                            launch_options.token = file_signature_result.token;
+                            
+                            // Add all file paths to args for the target app
+                            launch_options.args.file_paths = file_paths;
+                            
+                        } catch (file_error) {
+                            this.log.warn(`Failed to process file ${first_file_path}:`, file_error);
+                            // Continue with launch but without file signature
+                        }
+                    }
+                    
+                } else {
+                    console.log(`⚠️ App ${caller_app_name} attempted to launch ${app_name} with files but does not have godmode permissions`);
+                    // Continue with normal launch, ignoring file_paths
+                }
+            } catch (error) {
+                console.log('Error checking godmode permissions:', error);
+                // Continue with normal launch
+            }
+        }
+
+        // The "body" of this method is in a separate file
+        const child_process = await launch_app(launch_options);
 
         const send_child_launched_msg = (...a) => {
             if ( ! process ) return;

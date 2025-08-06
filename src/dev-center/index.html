@@ -19,6 +19,9 @@
     <link rel="preload" as="image" href="./img/wallet.svg">
     <link rel="preload" as="image" href="./img/wallet-white.svg">
     <link rel="preload" as="image" href="./img/paypal.svg">
+    <link rel="preload" as="image" href="./img/plus.svg">
+    <link rel="preload" as="image" href="./img/workers-placeholder.svg">
+    <link rel="preload" as="image" href="./img/websites-placeholder.svg">
     <!-- For tooltip -->
     <script src="https://unpkg.com/@popperjs/core@2"></script>
     <script src="https://unpkg.com/tippy.js@6"></script>
@@ -77,23 +80,28 @@
     <section class="sidebar open">
         <div class="sidebar-toggle"></div>
         <div class="sidebar-content">
+            <!-- Main Sections -->
             <ul class="sidebar-nav disable-user-select">
-                <li class="tab-btn active" data-tab="apps">My Apps<span class="app-count"></span></li>
+                <li class="tab-btn active" data-tab="apps">Apps<span class="app-count"></span></li>
+                <li class="tab-btn" data-tab="websites">Websites<span class="website-count"></span></li>
+                <li class="tab-btn" data-tab="workers">Workers<span class="worker-count"></span></li>
+                <hr class="tab-btn-separator">
                 <li class="tab-btn" data-tab="payout-method" style="display:none;">Payout Method</li>
             </ul>
 
-            <hr>
+            <!-- Footer -->
+            <div style="overflow: hidden; position: absolute; bottom: 0; width: 100%;">
+                <ul class="sidebar-nav">
+                    <li class="no-hover" style="margin-left:0;"><a href="https://developer.puter.com/" class="link-to-docs" target="_blank">Developer Documentation<img src="img/external-link.svg"></a></li>
+                </ul>
 
-            <ul class="sidebar-nav">
-                <li><a href="https://docs.puter.com/" class="link-to-docs" target="_blank">Developer Documentation <img src="img/external-link.svg"></a></li>
-            </ul>
-
-            <ul class="sidebar-nav sidebar-nav-social">
-                <li><a href="https://github.com/HeyPuter/puter" class="social-link" target="_blank"><svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" fill="currentColor" class="bi bi-github" viewBox="0 0 16 16"> <path d="M8 0C3.58 0 0 3.58 0 8c0 3.54 2.29 6.53 5.47 7.59.4.07.55-.17.55-.38 0-.19-.01-.82-.01-1.49-2.01.37-2.53-.49-2.69-.94-.09-.23-.48-.94-.82-1.13-.28-.15-.68-.52-.01-.53.63-.01 1.08.58 1.23.82.72 1.21 1.87.87 2.33.66.07-.52.28-.87.51-1.07-1.78-.2-3.64-.89-3.64-3.95 0-.87.31-1.59.82-2.15-.08-.2-.36-1.02.08-2.12 0 0 .67-.21 2.2.82.64-.18 1.32-.27 2-.27s1.36.09 2 .27c1.53-1.04 2.2-.82 2.2-.82.44 1.1.16 1.92.08 2.12.51.56.82 1.27.82 2.15 0 3.07-1.87 3.75-3.65 3.95.29.25.54.73.54 1.48 0 1.07-.01 1.93-.01 2.2 0 .21.15.46.55.38A8.01 8.01 0 0 0 16 8c0-4.42-3.58-8-8-8"/> </svg></a></li>
-                <li><a href="https://dsc.gg/puter" class="social-link" target="_blank"><svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" fill="currentColor" class="bi bi-discord" viewBox="0 0 16 16"> <path d="M13.545 2.907a13.2 13.2 0 0 0-3.257-1.011.05.05 0 0 0-.052.025c-.141.25-.297.577-.406.833a12.2 12.2 0 0 0-3.658 0 8 8 0 0 0-.412-.833.05.05 0 0 0-.052-.025c-1.125.194-2.22.534-3.257 1.011a.04.04 0 0 0-.021.018C.356 6.024-.213 9.047.066 12.032q.003.022.021.037a13.3 13.3 0 0 0 3.995 2.02.05.05 0 0 0 .056-.019q.463-.63.818-1.329a.05.05 0 0 0-.01-.059l-.018-.011a9 9 0 0 1-1.248-.595.05.05 0 0 1-.02-.066l.015-.019q.127-.095.248-.195a.05.05 0 0 1 .051-.007c2.619 1.196 5.454 1.196 8.041 0a.05.05 0 0 1 .053.007q.121.1.248.195a.05.05 0 0 1-.004.085 8 8 0 0 1-1.249.594.05.05 0 0 0-.03.03.05.05 0 0 0 .003.041c.24.465.515.909.817 1.329a.05.05 0 0 0 .056.019 13.2 13.2 0 0 0 4.001-2.02.05.05 0 0 0 .021-.037c.334-3.451-.559-6.449-2.366-9.106a.03.03 0 0 0-.02-.019m-8.198 7.307c-.789 0-1.438-.724-1.438-1.612s.637-1.613 1.438-1.613c.807 0 1.45.73 1.438 1.613 0 .888-.637 1.612-1.438 1.612m5.316 0c-.788 0-1.438-.724-1.438-1.612s.637-1.613 1.438-1.613c.807 0 1.451.73 1.438 1.613 0 .888-.631 1.612-1.438 1.612"/> </svg></a></li>
-                <li><a href="https://x.com/HeyPuter" class="social-link" target="_blank"><svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" fill="currentColor" class="bi bi-twitter-x" viewBox="0 0 16 16"> <path d="M12.6.75h2.454l-5.36 6.142L16 15.25h-4.937l-3.867-5.07-4.425 5.07H.316l5.733-6.57L0 .75h5.063l3.495 4.633L12.601.75Zm-.86 13.028h1.36L4.323 2.145H2.865z"/> </svg></a></li>
-                <li><a href="https://reddit.com/r/puter" class="social-link" target="_blank"><svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" fill="currentColor" class="bi bi-reddit" viewBox="0 0 16 16"> <path d="M6.167 8a.83.83 0 0 0-.83.83c0 .459.372.84.83.831a.831.831 0 0 0 0-1.661m1.843 3.647c.315 0 1.403-.038 1.976-.611a.23.23 0 0 0 0-.306.213.213 0 0 0-.306 0c-.353.363-1.126.487-1.67.487-.545 0-1.308-.124-1.671-.487a.213.213 0 0 0-.306 0 .213.213 0 0 0 0 .306c.564.563 1.652.61 1.977.61zm.992-2.807c0 .458.373.83.831.83s.83-.381.83-.83a.831.831 0 0 0-1.66 0z"/> <path d="M16 8A8 8 0 1 1 0 8a8 8 0 0 1 16 0m-3.828-1.165c-.315 0-.602.124-.812.325-.801-.573-1.9-.945-3.121-.993l.534-2.501 1.738.372a.83.83 0 1 0 .83-.869.83.83 0 0 0-.744.468l-1.938-.41a.2.2 0 0 0-.153.028.2.2 0 0 0-.086.134l-.592 2.788c-1.24.038-2.358.41-3.17.992-.21-.2-.496-.324-.81-.324a1.163 1.163 0 0 0-.478 2.224q-.03.17-.029.353c0 1.795 2.091 3.256 4.669 3.256s4.668-1.451 4.668-3.256c0-.114-.01-.238-.029-.353.401-.181.688-.592.688-1.069 0-.65-.525-1.165-1.165-1.165"/> </svg></a></li>
-            </ul>
+                <ul class="sidebar-nav sidebar-nav-social">
+                    <li class="no-hover"><a href="https://github.com/HeyPuter/puter" class="social-link" target="_blank"><svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" fill="currentColor" class="bi bi-github" viewBox="0 0 16 16"> <path d="M8 0C3.58 0 0 3.58 0 8c0 3.54 2.29 6.53 5.47 7.59.4.07.55-.17.55-.38 0-.19-.01-.82-.01-1.49-2.01.37-2.53-.49-2.69-.94-.09-.23-.48-.94-.82-1.13-.28-.15-.68-.52-.01-.53.63-.01 1.08.58 1.23.82.72 1.21 1.87.87 2.33.66.07-.52.28-.87.51-1.07-1.78-.2-3.64-.89-3.64-3.95 0-.87.31-1.59.82-2.15-.08-.2-.36-1.02.08-2.12 0 0 .67-.21 2.2.82.64-.18 1.32-.27 2-.27s1.36.09 2 .27c1.53-1.04 2.2-.82 2.2-.82.44 1.1.16 1.92.08 2.12.51.56.82 1.27.82 2.15 0 3.07-1.87 3.75-3.65 3.95.29.25.54.73.54 1.48 0 1.07-.01 1.93-.01 2.2 0 .21.15.46.55.38A8.01 8.01 0 0 0 16 8c0-4.42-3.58-8-8-8"/> </svg></a></li>
+                    <li class="no-hover"><a href="https://dsc.gg/puter" class="social-link" target="_blank"><svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" fill="currentColor" class="bi bi-discord" viewBox="0 0 16 16"> <path d="M13.545 2.907a13.2 13.2 0 0 0-3.257-1.011.05.05 0 0 0-.052.025c-.141.25-.297.577-.406.833a12.2 12.2 0 0 0-3.658 0 8 8 0 0 0-.412-.833.05.05 0 0 0-.052-.025c-1.125.194-2.22.534-3.257 1.011a.04.04 0 0 0-.021.018C.356 6.024-.213 9.047.066 12.032q.003.022.021.037a13.3 13.3 0 0 0 3.995 2.02.05.05 0 0 0 .056-.019q.463-.63.818-1.329a.05.05 0 0 0-.01-.059l-.018-.011a9 9 0 0 1-1.248-.595.05.05 0 0 1-.02-.066l.015-.019q.127-.095.248-.195a.05.05 0 0 1 .051-.007c2.619 1.196 5.454 1.196 8.041 0a.05.05 0 0 1 .053.007q.121.1.248.195a.05.05 0 0 1-.004.085 8 8 0 0 1-1.249.594.05.05 0 0 0-.03.03.05.05 0 0 0 .003.041c.24.465.515.909.817 1.329a.05.05 0 0 0 .056.019 13.2 13.2 0 0 0 4.001-2.02.05.05 0 0 0 .021-.037c.334-3.451-.559-6.449-2.366-9.106a.03.03 0 0 0-.02-.019m-8.198 7.307c-.789 0-1.438-.724-1.438-1.612s.637-1.613 1.438-1.613c.807 0 1.45.73 1.438 1.613 0 .888-.637 1.612-1.438 1.612m5.316 0c-.788 0-1.438-.724-1.438-1.612s.637-1.613 1.438-1.613c.807 0 1.451.73 1.438 1.613 0 .888-.631 1.612-1.438 1.612"/> </svg></a></li>
+                    <li class="no-hover"><a href="https://x.com/HeyPuter" class="social-link" target="_blank"><svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" fill="currentColor" class="bi bi-twitter-x" viewBox="0 0 16 16"> <path d="M12.6.75h2.454l-5.36 6.142L16 15.25h-4.937l-3.867-5.07-4.425 5.07H.316l5.733-6.57L0 .75h5.063l3.495 4.633L12.601.75Zm-.86 13.028h1.36L4.323 2.145H2.865z"/> </svg></a></li>
+                    <li class="no-hover"><a href="https://reddit.com/r/puter" class="social-link" target="_blank"><svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" fill="currentColor" class="bi bi-reddit" viewBox="0 0 16 16"> <path d="M6.167 8a.83.83 0 0 0-.83.83c0 .459.372.84.83.831a.831.831 0 0 0 0-1.661m1.843 3.647c.315 0 1.403-.038 1.976-.611a.23.23 0 0 0 0-.306.213.213 0 0 0-.306 0c-.353.363-1.126.487-1.67.487-.545 0-1.308-.124-1.671-.487a.213.213 0 0 0-.306 0 .213.213 0 0 0 0 .306c.564.563 1.652.61 1.977.61zm.992-2.807c0 .458.373.83.831.83s.83-.381.83-.83a.831.831 0 0 0-1.66 0z"/> <path d="M16 8A8 8 0 1 1 0 8a8 8 0 0 1 16 0m-3.828-1.165c-.315 0-.602.124-.812.325-.801-.573-1.9-.945-3.121-.993l.534-2.501 1.738.372a.83.83 0 1 0 .83-.869.83.83 0 0 0-.744.468l-1.938-.41a.2.2 0 0 0-.153.028.2.2 0 0 0-.086.134l-.592 2.788c-1.24.038-2.358.41-3.17.992-.21-.2-.496-.324-.81-.324a1.163 1.163 0 0 0-.478 2.224q-.03.17-.029.353c0 1.795 2.091 3.256 4.669 3.256s4.668-1.451 4.668-3.256c0-.114-.01-.238-.029-.353.401-.181.688-.592.688-1.069 0-.65-.525-1.165-1.165-1.165"/> </svg></a></li>
+                </ul>
+            </div>
         </div>
     </section>
 
@@ -174,9 +182,26 @@
     <section id="no-apps-notice" style="display:none;">
         <img src="./img/apps-black.svg" style="width: 64px; opacity: 0.12;">
         <p style="color: #606062;">You haven't created any apps yet.</p>
-        <button class="create-an-app-btn button button-primary"><img src="./img/app-outline-white.svg">Create an App</button>
+        <button class="create-an-app-btn button button-primary"><img src="./img/plus.svg">Create an App</button>
     </section>
 
+    <!---------------------------------------->
+    <!-- No Workers Message                  -->
+    <!---------------------------------------->
+    <section id="no-workers-notice" style="display:none;">
+        <img src="./img/workers-placeholder.svg" style="width: 64px; height: 64px; opacity: 0.62; filter: grayscale(100%); transform: rotate(-20deg);">
+        <p style="color: #606062;">You haven't created any workers yet.</p>
+        <button class="create-a-worker-btn button button-primary"><img src="./img/plus.svg">Create a Worker</button>
+    </section>
+
+    <!---------------------------------------->
+    <!-- No Websites Message                  -->
+    <!---------------------------------------->
+    <section id="no-websites-notice" style="display:none;">
+        <img src="./img/websites-placeholder.svg" style="width: 64px; height: 64px; opacity: 0.22; filter: grayscale(100%);">
+        <p style="color: #606062;">You haven't created any websites yet.</p>
+        <button class="create-a-website-btn button button-primary"><img src="./img/plus.svg">Create a Website</button>
+    </section>
     <!---------------------------------------->
     <!-- Edit App                           -->
     <!---------------------------------------->
@@ -209,24 +234,59 @@
     <section id="app-list">
         <div class="app-list-nav">
             <h1 class="my-apps-title">My Apps<span class="app-count"></span></h1>
-            <button class="create-an-app-btn button button-primary"><img src="./img/app-outline-white.svg"> New App</button>
-            <button class="refresh-app-list button button-default" style="width:40px; padding: 10px; float: right; margin-right: 10px;" title="Refresh"><svg style="width: 18px; height: 18px; margin-top: -2px; display: block;" xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink" x="0px" y="0px" width="32px" height="32px" viewBox="0 0 32 32" stroke-width="2"><g stroke-width="2" transform="translate(0.5, 0.5)"><path data-cap="butt" d="M29.382,9.217A15,15,0,0,0,1,16" fill="none" stroke="#444444" stroke-miterlimit="10" stroke-width="2" stroke-linecap="butt" stroke-linejoin="miter"></path><polyline points="28.383 1.22 29.383 9.22 21.383 8.22" fill="none" stroke="#444444" stroke-linecap="square" stroke-miterlimit="10" stroke-width="2" stroke-linejoin="miter"></polyline><path data-cap="butt" data-color="color-2" d="M2.618,22.783A15,15,0,0,0,31,16" fill="none" stroke="#444444" stroke-miterlimit="10" stroke-width="2" stroke-linecap="butt" stroke-linejoin="miter"></path><polyline data-color="color-2" points="3.617 30.78 2.617 22.78 10.617 23.78" fill="none" stroke="#444444" stroke-linecap="square" stroke-miterlimit="10" stroke-width="2" stroke-linejoin="miter"></polyline></g></svg></button>
+            <button class="create-an-app-btn button button-primary"><img src="./img/plus.svg" style="width: 25px; height: 25px;">New App</button>
         </div>
 
-        <div style="margin-bottom: 10px; position: relative; width: 300px; float:left;">
-            <input style="background-image:url(./img/magnifier-outline.svg);" class="search">
-            <img class="search-clear" src="./img/close.svg">
+        <div class="search-container">
+            <input style="background-image:url(./img/magnifier-outline.svg);" class="search search-apps" placeholder="Search apps">
+            <img class="search-clear search-clear-apps" src="./img/close.svg">
         </div>
 
         <button class="button button-danger disabled delete-apps-btn" style="float:right;">Delete</button>
+        <button class="refresh-app-list" title="Refresh"><svg class="refresh-icon" xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink" x="0px" y="0px" width="32px" height="32px" viewBox="0 0 32 32" stroke-width="2"><g stroke-width="2" transform="translate(0.5, 0.5)"><path data-cap="butt" d="M29.382,9.217A15,15,0,0,0,1,16" fill="none" stroke="#444444" stroke-miterlimit="10" stroke-width="2" stroke-linecap="butt" stroke-linejoin="miter"></path><polyline points="28.383 1.22 29.383 9.22 21.383 8.22" fill="none" stroke="#444444" stroke-linecap="square" stroke-miterlimit="10" stroke-width="2" stroke-linejoin="miter"></polyline><path data-cap="butt" data-color="color-2" d="M2.618,22.783A15,15,0,0,0,31,16" fill="none" stroke="#444444" stroke-miterlimit="10" stroke-width="2" stroke-linecap="butt" stroke-linejoin="miter"></path><polyline data-color="color-2" points="3.617 30.78 2.617 22.78 10.617 23.78" fill="none" stroke="#444444" stroke-linecap="square" stroke-miterlimit="10" stroke-width="2" stroke-linejoin="miter"></polyline></g></svg></button>
         <div style="overflow-x: auto; clear: both;">
             <table class="table" id="app-list-table">
                 <thead class="disable-user-select">
                     <tr>
-                        <th><input type="checkbox" class="select-all-apps" style="width: 20px; height: 20px; margin-left:3px;"></th>
+                        <th><input type="checkbox" class="select-all-apps" style="width: 15px; height: 20px; margin-left:3px;"></th>
                         <th class="sort th-name" data-column="name" style="padding-left: 10px !important;">App<span class="sort-arrow sort-arrow-desc">▼</span><span class="sort-arrow sort-arrow-asc">▲</span></th>
                         <th class="sort th-users" data-column="user_count">Users<span class="sort-arrow sort-arrow-desc">▼</span><span class="sort-arrow sort-arrow-asc">▲</span></th>
                         <th class="sort th-opens" data-column="open_count">Opens<span class="sort-arrow sort-arrow-desc">▼</span><span class="sort-arrow sort-arrow-asc">▲</span></th>
+                        <th class="sort th-created sorted" data-column="created_at">Created<span class="sort-arrow sort-arrow-desc" style="display:inline;">▼</span><span class="sort-arrow sort-arrow-asc">▲</span></th>
+                        <th></th>
+                        <th></th>
+                    </tr>
+                </thead>
+                <tbody>
+
+                </tbody>
+            </table>
+        </div>
+    </section>
+
+    <!---------------------------------------->
+    <!-- Worker List                        -->
+    <!---------------------------------------->
+    <section id="worker-list">
+        <div class="worker-list-nav">
+            <h1 class="my-workers-title">My Workers<span class="worker-count"></span></h1>
+            <button class="create-a-worker-btn button button-primary"><img src="./img/plus.svg" style="width: 25px; height: 25px;"> New Worker</button>
+        </div>
+
+        <div class="search-container">
+            <input style="background-image:url(./img/magnifier-outline.svg);" class="search search-workers" placeholder="Search workers">
+            <img class="search-clear search-clear-workers" src="./img/close.svg">
+        </div>
+
+        <button class="button button-danger disabled delete-workers-btn" style="float:right;">Delete</button>
+        <button class="refresh-worker-list" title="Refresh"><svg class="refresh-icon" xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink" x="0px" y="0px" width="32px" height="32px" viewBox="0 0 32 32" stroke-width="2"><g stroke-width="2" transform="translate(0.5, 0.5)"><path data-cap="butt" d="M29.382,9.217A15,15,0,0,0,1,16" fill="none" stroke="#444444" stroke-miterlimit="10" stroke-width="2" stroke-linecap="butt" stroke-linejoin="miter"></path><polyline points="28.383 1.22 29.383 9.22 21.383 8.22" fill="none" stroke="#444444" stroke-linecap="square" stroke-miterlimit="10" stroke-width="2" stroke-linejoin="miter"></polyline><path data-cap="butt" data-color="color-2" d="M2.618,22.783A15,15,0,0,0,31,16" fill="none" stroke="#444444" stroke-miterlimit="10" stroke-width="2" stroke-linecap="butt" stroke-linejoin="miter"></path><polyline data-color="color-2" points="3.617 30.78 2.617 22.78 10.617 23.78" fill="none" stroke="#444444" stroke-linecap="square" stroke-miterlimit="10" stroke-width="2" stroke-linejoin="miter"></polyline></g></svg></button>
+        <div style="overflow-x: auto; clear: both;">
+            <table class="table" id="worker-list-table">
+                <thead class="disable-user-select">
+                    <tr>
+                        <th><input type="checkbox" class="select-all-workers" style="width: 15px; height: 20px; margin-left:3px;"></th>
+                        <th class="sort th-name" data-column="name" style="padding-left: 10px !important;">Worker<span class="sort-arrow sort-arrow-desc">▼</span><span class="sort-arrow sort-arrow-asc">▲</span></th>
+                        <th class="sort th-file" data-column="file_path">File<span class="sort-arrow sort-arrow-desc">▼</span><span class="sort-arrow sort-arrow-asc">▲</span></th>
                         <th class="sort th-created sorted" data-column="created_at">Created<span class="sort-arrow sort-arrow-desc" style="display:inline;">▼</span><span class="sort-arrow sort-arrow-asc">▲</span></th>
                         <th></th>
                     </tr>
@@ -237,14 +297,53 @@
             </table>
         </div>
     </section>
+    <!---------------------------------------->
+    <!-- Websites List                      -->
+    <!---------------------------------------->
+    <section id="website-list">
+        <div class="website-list-nav">
+            <h1 class="my-websites-title">My Websites<span class="website-count"></span></h1>
+            <button class="create-a-website-btn button button-primary"><img src="./img/plus.svg" style="width: 25px; height: 25px;">New Website</button>
+        </div>
+
+        <div class="search-container">
+            <input style="background-image:url(./img/magnifier-outline.svg);" class="search search-websites" placeholder="Search websites">
+            <img class="search-clear search-clear-websites" src="./img/close.svg">
+        </div>
+
+        <button class="button button-danger disabled delete-websites-btn" style="float:right;">Delete</button>
+        <button class="refresh-website-list" style="width:40px; padding: 10px; float: right; margin-right: 10px;" title="Refresh"><svg class="refresh-icon" xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink" x="0px" y="0px" width="32px" height="32px" viewBox="0 0 32 32" stroke-width="2"><g stroke-width="2" transform="translate(0.5, 0.5)"><path data-cap="butt" d="M29.382,9.217A15,15,0,0,0,1,16" fill="none" stroke="#444444" stroke-miterlimit="10" stroke-width="2" stroke-linecap="butt" stroke-linejoin="miter"></path><polyline points="28.383 1.22 29.383 9.22 21.383 8.22" fill="none" stroke="#444444" stroke-linecap="square" stroke-miterlimit="10" stroke-width="2" stroke-linejoin="miter"></polyline><path data-cap="butt" data-color="color-2" d="M2.618,22.783A15,15,0,0,0,31,16" fill="none" stroke="#444444" stroke-miterlimit="10" stroke-width="2" stroke-linecap="butt" stroke-linejoin="miter"></path><polyline data-color="color-2" points="3.617 30.78 2.617 22.78 10.617 23.78" fill="none" stroke="#444444" stroke-linecap="square" stroke-miterlimit="10" stroke-width="2" stroke-linejoin="miter"></polyline></g></svg></button>
+        <div style="overflow-x: auto; clear: both;">
+            <table class="table" id="website-list-table">
+                <thead class="disable-user-select">
+                    <tr>
+                        <th><input type="checkbox" class="select-all-websites" style="width: 15px; height: 20px; margin-left:3px;"></th>
+                        <th class="sort th-name" data-column="name" style="padding-left: 10px !important;">Website<span class="sort-arrow sort-arrow-desc">▼</span><span class="sort-arrow sort-arrow-asc">▲</span></th>
+                        <th class="sort th-root-dir" data-column="root_dir">Connected Directory<span class="sort-arrow sort-arrow-desc">▼</span><span class="sort-arrow sort-arrow-asc">▲</span></th>
+                        <th class="sort th-created sorted" data-column="created_at">Created<span class="sort-arrow sort-arrow-desc" style="display:inline;">▼</span><span class="sort-arrow sort-arrow-asc">▲</span></th>
+                        <th></th>
+                    </tr>
+                </thead>
+                <tbody>
+
+                </tbody>
+            </table>
+        </div>
+    </section>
+    
     </div>
 
-    <script src="./js/jquery-3.6.0.min.js"></script>
-    <script src="./js/jquery.dragster.js"></script>
-    <script src="http://puter.localhost:4100/puter.js/v2"></script>
-    <script src="./js/slugify.js"></script>
-    <script type="module" src="./js/html-entities.js"></script>
+    <!-- <script src="https://js.puter.com/v2/"></script> -->
+    <script src="http://puter.localhost:4100/sdk/puter.dev.js"></script>
+    <script src="./js/libs/jquery-3.6.0.min.js"></script>
+    <script src="./js/libs/jquery.dragster.js"></script>
+    <script src="./js/libs/slugify.js"></script>
+    <script type="module" src="./js/libs/html-entities.js"></script>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/moment.js/2.29.1/moment.min.js"></script>
+    <script src="./js/images.js"></script>
+    <script type="module" src="./js/apps.js"></script>
+    <script type="module" src="./js/workers.js"></script>
+    <script type="module" src="./js/websites.js"></script>
     <script type="module" src="./js/dev-center.js"></script>
 </body>
 
