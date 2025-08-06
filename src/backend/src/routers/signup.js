@@ -271,7 +271,7 @@ module.exports = eggspress(['/signup'], {
                 // referrer
                 req.body.referrer ?? null,
                 // email_confirm_code
-                email_confirm_code,
+                '' + email_confirm_code,
                 // email_confirm_token
                 email_confirm_token,
                 // free_storage

@@ -147,7 +147,7 @@ router.post('/save_account', auth, express.json(), async (req, res, next)=>{
                     // password
                     await bcrypt.hash(req.body.password, 8),
                     // email_confirm_code
-                    email_confirm_code,
+                    '' + email_confirm_code,
                     //email_confirm_token
                     email_confirm_token,
                     // referred_by
