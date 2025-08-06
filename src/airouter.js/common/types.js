@@ -1,0 +1,32 @@
+export const UNIVERSAL_LLM_MESSAGES = Symbol('UNIVERSAL_LLM_PARAMS');
+export const UNIVERSAL_LLM_PARAMS = Symbol('UNIVERSAL_LLM_PARAMS');
+
+export const NORMALIZED_LLM_MESSAGES = Symbol('NORMALIZED_LLM_MESSAGES');
+export const NORMALIZED_LLM_TOOLS = Symbol('NORMALIZED_LLM_TOOLS');
+export const NORMALIZED_LLM_PARAMS = Symbol('NORMALIZED_LLM_PARAMS');
+export const NORMALIZED_LLM_STREAM = Symbol('NORMALIZED_LLM_STREAM');
+
+export const UNIVERSAL_SINGLE_MESSAGE = Symbol('UNIVERSAL_SINGLE_MESSAGE');
+export const NORMALIZED_SINGLE_MESSAGE = Symbol('NORMALIZED_SINGLE_MESSAGE');
+
+export const USAGE_WRITER = Symbol('USAGE_WRITER');
+export const ASYNC_RESPONSE = Symbol('ASYNC_RESPONSE');
+export const STREAM = Symbol('STREAM');
+export const SYNC_RESPONSE = Symbol('SYNC_RESPONSE');
+export const PROVIDER_NAME = Symbol('PROVIDER_NAME');
+
+export const COERCED_PARAMS = Symbol('COERCED_TOOLS');
+export const COERCED_TOOLS = Symbol('COERCED_TOOLS');
+export const COERCED_MESSAGES = Symbol('COERCED_MESSAGES');
+export const COERCED_USAGE = Symbol('COERCED_USAGE');
+export const MODEL_DETAILS = Symbol('COERCED_USAGE');
+
+// SDK Styles
+export const SDK_STYLE = Symbol('SDK_STYLE');
+export const USAGE_SDK_STYLE = Symbol('USAGE_SDK_STYLE');
+
+// Puter Migration Intermediaries
+export const COMPLETION_WRITER = Symbol('COMPLETION_WRITER');
+
+// Awkward
+export const STREAM_WRITTEN_TO_COMPLETION_WRITER = Symbol('STREAM_WRITTEN_TO_COMPLETION_WRITER');

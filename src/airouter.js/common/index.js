@@ -1,10 +1,24 @@
-const { whatis } = require("../../../util/langutil");
+import { NORMALIZED_LLM_MESSAGES, NORMALIZED_LLM_PARAMS, NORMALIZED_SINGLE_MESSAGE, UNIVERSAL_LLM_MESSAGES, UNIVERSAL_LLM_PARAMS, UNIVERSAL_SINGLE_MESSAGE } from "./types.js"
+import { whatis } from "./util/lang.js";
 
-module.exports = class Messages {
-    static normalize_single_message (message, params = {}) {
-        params = Object.assign({
-            role: 'user',
-        }, params);
+export default define => {
+    define.howToGet(NORMALIZED_LLM_PARAMS).from(UNIVERSAL_LLM_PARAMS)
+    .as(async x => {
+        const universal_params = x.get(UNIVERSAL_LLM_PARAMS);
+        const normalized_params = {
+            ...universal_params,
+        };
+        
+        normalized_params.messages = await x.obtain(NORMALIZED_LLM_MESSAGES);
+        
+        return normalized_params;
+    });
+
+    define.howToGet(NORMALIZED_SINGLE_MESSAGE).from(UNIVERSAL_SINGLE_MESSAGE)
+    .as(async x => {
+        let message = x.get(UNIVERSAL_SINGLE_MESSAGE);
+        
+        const params = { role: 'user' };
 
         if ( typeof message === 'string' ) {
             message = {
@@ -64,10 +78,16 @@ module.exports = class Messages {
         }
 
         return message;
-    }
-    static normalize_messages (messages, params = {}) {
+    });
+
+    define.howToGet(NORMALIZED_LLM_MESSAGES).from(UNIVERSAL_LLM_MESSAGES)
+    .as(async x => {
+        let messages = [...x.get(UNIVERSAL_LLM_MESSAGES)];
+
         for ( let i=0 ; i < messages.length ; i++ ) {
-            messages[i] = this.normalize_single_message(messages[i], params);
+            messages[i] = await x.obtain(NORMALIZED_SINGLE_MESSAGE, {
+                [UNIVERSAL_SINGLE_MESSAGE]: messages[i],
+            })
         }
 
         // Split messages with tool_use content into separate messages
@@ -105,45 +125,5 @@ module.exports = class Messages {
         }
 
         return merged_messages;
-    }
-
-    static extract_and_remove_system_messages (messages) {
-        let system_messages = [];
-        let new_messages = [];
-        for ( let i=0 ; i < messages.length ; i++ ) {
-            if ( messages[i].role === 'system' ) {
-                system_messages.push(messages[i]);
-            } else {
-                new_messages.push(messages[i]);
-            }
-        }
-        return [system_messages, new_messages];
-    }
-
-    static extract_text (messages) {
-        return messages.map(m => {
-            if ( whatis(m) === 'string' ) {
-                return m;
-            }
-            if ( whatis(m) !== 'object' ) {
-                return '';
-            }
-            if ( whatis(m.content) === 'array' ) {
-                return m.content.map(c => c.text).join(' ');
-            }
-            if ( whatis(m.content) === 'string' ) {
-                return m.content;
-            } else {
-                const is_text_type = m.content.type === 'text' ||
-                    ! m.content.hasOwnProperty('type');
-                if ( is_text_type ) {
-                    if ( whatis(m.content.text) !== 'string' ) {
-                        throw new Error('text content must be a string');
-                    }
-                    return m.content.text;
-                }
-                return '';
-            }
-        }).join(' ');
-    }
+    });
 }

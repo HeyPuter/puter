@@ -1,4 +1,4 @@
-module.exports = class FunctionCalling {
+export class UniversalToolsNormalizer {
     /**
      * Normalizes the 'tools' object in-place.
      * 

@@ -28,13 +28,16 @@ const { TypeSpec } = require("../../services/drivers/meta/Construct");
 const { TypedValue } = require("../../services/drivers/meta/Runtime");
 const { Context } = require("../../util/context");
 const { AsModeration } = require("./lib/AsModeration");
-const FunctionCalling = require("./lib/FunctionCalling");
-const Messages = require("./lib/Messages");
-const Streaming = require("./lib/Streaming");
 
 // Maximum number of fallback attempts when a model fails, including the first attempt
 const MAX_FALLBACKS = 3 + 1; // includes first attempt
 
+// Imported in _construct bleow.
+let
+    obtain,
+    NORMALIZED_LLM_MESSAGES, UNIVERSAL_LLM_MESSAGES,
+    NORMALIZED_SINGLE_MESSAGE, UNIVERSAL_SINGLE_MESSAGE,
+    NormalizedPromptUtil, CompletionWriter;
 
 /**
 * AIChatService class extends BaseService to provide AI chat completion functionality.
@@ -50,6 +53,41 @@ class AIChatService extends BaseService {
         cuid2: require('@paralleldrive/cuid2').createId,
     }
 
+    async ['__on_driver.register.interfaces'] () {
+        const svc_registry = this.services.get('registry');
+        const col_interfaces = svc_registry.get('interfaces');
+        
+        col_interfaces.set('puter-chat-completion', {
+            description: 'Chatbot.',
+            methods: {
+                models: {
+                    description: 'List supported models and their details.',
+                    result: { type: 'json' },
+                    parameters: {},
+                },
+                list: {
+                    description: 'List supported models',
+                    result: { type: 'json' },
+                    parameters: {},
+                },
+                complete: {
+                    description: 'Get completions for a chat log.',
+                    parameters: {
+                        messages: { type: 'json' },
+                        tools: { type: 'json' },
+                        vision: { type: 'flag' },
+                        stream: { type: 'flag' },
+                        response: { type: 'json' },
+                        model: { type: 'string' },
+                        temperature: { type: 'number' },
+                        max_tokens: { type: 'number' },
+                    },
+                    result: { type: 'json' },
+                }
+            }
+        });
+    }
+
 
     /**
     * Initializes the service by setting up core properties.
@@ -58,12 +96,20 @@ class AIChatService extends BaseService {
     * Called during service instantiation.
     * @private
     */
-    _construct () {
+    async _construct () {
         this.providers = [];
 
         this.simple_model_list = [];
         this.detail_model_list = [];
         this.detail_model_map = {};
+        
+
+        ({
+            obtain,
+            NORMALIZED_LLM_MESSAGES, UNIVERSAL_LLM_MESSAGES,
+            NORMALIZED_SINGLE_MESSAGE, UNIVERSAL_SINGLE_MESSAGE,
+            NormalizedPromptUtil, CompletionWriter,
+        } = await import("@heyputer/airouter.js"));
     }
     
     get_model_details (model_name, context) {
@@ -396,8 +442,9 @@ class AIChatService extends BaseService {
                 }
 
                 if ( parameters.messages ) {
-                    parameters.messages =
-                        Messages.normalize_messages(parameters.messages);
+                    parameters.messages = await obtain(NORMALIZED_LLM_MESSAGES, {
+                        [UNIVERSAL_LLM_MESSAGES]: parameters.messages,
+                    });
                 }
 
                 if ( ! test_mode && ! await this.moderate(parameters) ) {
@@ -416,7 +463,7 @@ class AIChatService extends BaseService {
                 }
 
                 if ( parameters.tools ) {
-                    FunctionCalling.normalize_tools_object(parameters.tools);
+                    UniversalToolsNormalizer.normalize_tools_object(parameters.tools);
                 }
 
                 if ( intended_service === this.service_name ) {
@@ -452,7 +499,7 @@ class AIChatService extends BaseService {
                 const model_input_cost = model_details.cost.input;
                 const model_output_cost = model_details.cost.output;
                 const model_max_tokens = model_details.max_tokens;
-                const text = Messages.extract_text(parameters.messages);
+                const text = NormalizedPromptUtil.extract_text(parameters.messages);
                 const approximate_input_cost = text.length / 4 * model_input_cost;
                 const usageAllowed = await svc_cost.get_funding_allowed({
                     available,
@@ -668,7 +715,7 @@ class AIChatService extends BaseService {
                             chunked: true,
                         }, stream);
 
-                        const chatStream = new Streaming.AIChatStream({
+                        const chatStream = new CompletionWriter({
                             stream,
                         });
 
@@ -718,8 +765,9 @@ class AIChatService extends BaseService {
 
 
                 if ( parameters.response?.normalize ) {
-                    ret.result.message =
-                       Messages.normalize_single_message(ret.result.message);
+                    ret.result.message = await obtain(NORMALIZED_SINGLE_MESSAGE, {
+                        [UNIVERSAL_SINGLE_MESSAGE]: ret.result.message,
+                    });
                     ret.result = {
                         message: ret.result.message,
                         via_ai_chat_service: true,
