@@ -299,6 +299,10 @@ $(document).on('click', '.search-clear-workers', function (e) {
 function remove_worker_card(worker_name, callback = null) {
     $(`.worker-card[data-name="${worker_name}"]`).fadeOut(200, function() {
         $(this).remove();
+
+        // Update the global workers array to remove the deleted worker
+        window.workers = window.workers.filter(worker => worker.name !== worker_name);
+
         if ($(`.worker-card`).length === 0) {
             $('section:not(.sidebar)').hide();
             $('#no-workers-notice').show();

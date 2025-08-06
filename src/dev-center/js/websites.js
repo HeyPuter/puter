@@ -290,6 +290,10 @@ $(document).on('click', '.search-clear-websites', function (e) {
 function remove_website_card(website_name, callback = null) {
     $(`.website-card[data-name="${website_name}"]`).fadeOut(200, function() {
         $(this).remove();
+
+        // Update the global websites array to remove the deleted website
+        window.websites = window.websites.filter(website => website.subdomain !== website_name);
+
         if ($(`.website-card`).length === 0) {
             $('section:not(.sidebar)').hide();
             $('#no-websites-notice').show();
