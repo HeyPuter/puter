@@ -44,6 +44,8 @@ window.refresh_worker_list = async (show_loading = false) => {
     }
 
     count_workers();
+
+    puter.ui.hideSpinner();
 }
 
 

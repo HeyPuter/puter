@@ -143,8 +143,6 @@ $(document).on('click', '.tab-btn', async function (e) {
             })
         }, 1000);
     }
-
-    puter.ui.hideSpinner();
 })
 
 $('.jip-submit-btn').on('click', async function (e) {

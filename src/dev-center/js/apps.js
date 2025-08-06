@@ -128,6 +128,7 @@ window.refresh_app_list = (show_loading = false) => {
                 $('#app-list').hide()
             }
             activate_tippy();
+            puter.ui.hideSpinner();
         })
     }, show_loading ? 1000 : 0);
 }

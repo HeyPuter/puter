@@ -30,16 +30,18 @@ window.refresh_websites_list = async (show_loading = false) => {
         $('.website-card').remove();
         $('#no-websites-notice').hide();
         $('#website-list').show();
-        window.websites.forEach((website) => {
+        for (let i = 0; i < window.websites.length; i++) {
+            const website = window.websites[i];
             // append row to website-list-table
             $('#website-list-table > tbody').append(generate_website_card(website));
-        });
+        }
     } else {
         $('#no-websites-notice').show();
         $('#website-list').hide();
     }
 
     count_websites();
+    puter.ui.hideSpinner();
 }
 
 async function init_websites() {
