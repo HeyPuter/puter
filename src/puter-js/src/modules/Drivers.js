@@ -151,17 +151,17 @@ class Drivers {
         if ( ! service_name ) service_name = iface_name;
         const key = `${iface_name}:${service_name}`;
         if ( this.drivers_[key] ) return this.drivers_[key];
-        
-        const interfaces = await this.list();
-        if ( ! interfaces[iface_name] ) {
-            throw new Error(`Interface ${iface_name} not found`);
-        }
-        
+
+        // const interfaces = await this.list();
+        // if ( ! interfaces[iface_name] ) {
+        //     throw new Error(`Interface ${iface_name} not found`);
+        // }
+
         return this.drivers_[key] = new Driver ({
             call_backend: new FetchDriverCallBackend({
                 context: this.context,
             }),
-            iface: interfaces[iface_name],
+            // iface: interfaces[iface_name],
             iface_name,
             service_name,
         });
