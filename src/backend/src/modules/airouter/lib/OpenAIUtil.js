@@ -11,8 +11,10 @@ module.exports = class OpenAIUtil {
      * @returns {Array<Message>} - array of messages in OpenAI format
      */
     static process_input_messages = async (messages) => {
-        const { OpenAIStyleMessagesAdapter } = await import("@heyputer/airouter.js");
-        return (new OpenAIStyleMessagesAdapter()).adapt_messages(messages);
+        const { obtain, NORMALIZED_LLM_MESSAGES, UNIVERSAL_LLM_MESSAGES } = await import("@heyputer/airouter.js");
+        return await obtain(NORMALIZED_LLM_MESSAGES, {
+            [UNIVERSAL_LLM_MESSAGES]: messages,
+        });
     }
 
     static create_usage_calculator = ({ model_details }) => {
