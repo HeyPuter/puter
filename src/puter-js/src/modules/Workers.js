@@ -7,7 +7,7 @@ export class WorkersHandler {
         this.authToken = authToken;
     }
 
-    async create(workerName, filePath) {
+    async create(workerName, filePath, appId) {
         if (!puter.authToken && puter.env === 'web') {
             try {
                 await puter.ui.authenticateWithPuter();
@@ -24,7 +24,7 @@ export class WorkersHandler {
         }
         filePath = getAbsolutePathForApp(filePath);
 
-        const driverResult = await utils.make_driver_method(['authorization', 'filePath', 'workerName'], 'workers', "worker-service", 'create')(puter.authToken, filePath, workerName);;
+        const driverResult = await utils.make_driver_method(['authorization', 'filePath', 'workerName', 'appId'], 'workers', "worker-service", 'create')(puter.authToken, filePath, workerName, appId);;
 
         if (!driverResult.success) {
             throw new Error(driverResult?.errors || "Driver failed to execute, do you have the necessary permissions?");

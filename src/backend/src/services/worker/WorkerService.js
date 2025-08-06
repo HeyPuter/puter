@@ -189,15 +189,22 @@ class WorkerService extends BaseService {
              * @param {{filePath: string, workerName: string, authorization: string}} param0 
              * @returns {any}
              */
-            async create({ filePath, workerName, authorization }) {
+            async create({ filePath, workerName, authorization, appId }) {
                 try {
                     workerName = workerName.toLocaleLowerCase(); // just incase
                     const svc_su = this.services.get("su");
                     const es_subdomain = this.services.get('es:subdomain');
-                    
+                    const svc_auth = this.services.get("auth");
+
                     const currentDomains = await svc_su.sudo(Context.get("actor").get_related_actor(UserActorType), async () => {
                         return (await es_subdomain.select({ predicate: new StartsWith({ key: "subdomain", value: "workers.puter." }) }));
                     });
+
+                    // TODO//Urgent there needs to be a check here to make sure the user is god mode 
+                    if (appId) {
+                        authorization = await svc_auth.get_user_app_token(appId);
+                    }
+
                     if (currentDomains.length >= 100) {
                         throw APIError.create('subdomain_limit_reached', null, {isWorker: true, limit: 100});
                     }
@@ -217,13 +224,26 @@ class WorkerService extends BaseService {
 
                     const userData = await getUserInfo(authorization, this.global_config.api_base_url);
                     const actor = Context.get("actor");
-                    await Context.sub({ [SKIP_ES_VALIDATION]: true }).arun(async () => {
-                        const entity = await Entity.create({ om: es_subdomain.om }, {
-                            subdomain: "workers.puter." + calculateWorkerNameNew(userData, workerName),
-                            root_dir: filePath
+                    if (appId) {
+                        await svc_su.sudo(await svc_auth.authenticate_from_token(authorization), async()=> {
+                            await Context.sub({ [SKIP_ES_VALIDATION]: true }).arun(async () => {
+                                const entity = await Entity.create({ om: es_subdomain.om }, {
+                                    subdomain: "workers.puter." + calculateWorkerNameNew(userData, workerName),
+                                    root_dir: filePath
+                                });
+                                await es_subdomain.upsert(entity);
+                            });
                         });
-                        await es_subdomain.upsert(entity);
-                    });
+                    } else {
+                        await Context.sub({ [SKIP_ES_VALIDATION]: true }).arun(async () => {
+                            const entity = await Entity.create({ om: es_subdomain.om }, {
+                                subdomain: "workers.puter." + calculateWorkerNameNew(userData, workerName),
+                                root_dir: filePath
+                            });
+                            await es_subdomain.upsert(entity);
+                        });
+                    }
+
 
                     const fileData = (await readPuterFile(actor, filePath)).toString();
                     const cfData = await createWorker(userData, authorization, calculateWorkerNameNew(userData.uuid, workerName), preamble + fileData, PREAMBLE_LENGTH);
@@ -334,6 +354,10 @@ class WorkerService extends BaseService {
                         authorization: {
                             type: "string",
                             description: "Puter token"
+                        },
+                        appId: {
+                            type: "string",
+                            description: "App ID to tie a worker to"
                         }
                     },
                     result: { type: 'json' },
