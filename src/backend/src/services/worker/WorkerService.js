@@ -200,7 +200,6 @@ class WorkerService extends BaseService {
                         return (await es_subdomain.select({ predicate: new StartsWith({ key: "subdomain", value: "workers.puter." }) }));
                     });
 
-                    // TODO//Urgent there needs to be a check here to make sure the user is god mode 
                     if (appId) {
                         const app = await get_app({uid: appId});
                         if (Context.get("actor").type.user.id !== app.owner_user_id)
