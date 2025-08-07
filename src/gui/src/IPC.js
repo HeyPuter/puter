@@ -1382,22 +1382,50 @@ const ipc_listener = async (event, handled) => {
             $(el_filedialog_window).find('.window-disable-mask, .busy-indicator').hide();
         };
         
-        const handle_move_save = async ({ source_path, target_path, el_filedialog_window }) => {
+        const handle_move_save = async ({
+            // when 'source_path' has a value, 'save_type' is checked to determine
+            // if a fs.move() or fs.copy() needs to be performed.
+            save_type,
+            
+            source_path, target_path, el_filedialog_window,
+        }) => {
             // source path must be in appdata directory
             const stat_info = await puter.fs.stat(source_path);
-            if ( ! stat_info.appdata_app ) {
-                await puter.ui.alert(`the app ${app_uuid} attempted to ` +
-                    `move data owned by the user illegaly`);
-                return;
+            if ( ! stat_info.appdata_app || stat_info.appdata_app !== app_uuid ) {
+                const source_file_owner = stat_info?.appdata_app ?? 'the user';
+                if ( stat_info.appdata_app && stat_info.appdata_app !== app_uuid ) {
+                    await UIAlert({
+                        message: `apps are prohibited from accessing AppData of other apps`
+                    });
+                    return;
+                }
+                if ( save_type === 'move' ) {
+                    await UIAlert({
+                        message: `the app <b>${app_name}</b> tried to illegally move a file owned by ${source_file_owner}`,
+                    });
+                    return;
+                }
+                
+                const alert_resp = await UIAlert({
+                    message: `the app ${app_name} is trying to copy ${source_path}; is this okay?`,
+                    buttons: [
+                        {
+                            label: i18n('yes'),
+                            value: true,
+                            type: 'primary',
+                        },
+                        {
+                            label: i18n('no'),
+                            value: false,
+                            type: 'secondary',
+                        },
+                    ]
+                });
+
+                // `alert_resp` will be `"false"`, but this check is forward-compatible
+                // with a version of UIAlert that returns `false`.
+                if ( ! alert_resp || alert_resp === 'false' ) return;
             }
-            
-            if ( stat_info.appdata_app !== app_uuid ) {
-                await puter.ui.alert(`the app ${app_uuid} attempted to ` +
-                    `move data owned by ${stat_info.appdata_app}`);
-                return;
-            }
-            
-            console.log('supposedly we\'re writing this file now');
             
             let node;
             const written = await window.handle_same_name_exists({
@@ -1405,9 +1433,17 @@ const ipc_listener = async (event, handled) => {
                     if ( overwrite ) {
                         await puter.fs.delete(target_path);
                     }
-                    await puter.fs.move(source_path, target_path);
+                    
+                    if ( save_type === 'copy' ) {
+                        const target_dir = path.dirname(target_path);
+                        const new_name = path.basename(target_path);
+                        await puter.fs.copy(source_path, target_dir, {
+                            newName: new_name,
+                        });
+                    } else {
+                        await puter.fs.move(source_path, target_path);
+                    }
                     node = await puter.fs.stat(target_path);
-                    console.log('the move operation just happened', { node });
                 },
                 parent_uuid: $(el_filedialog_window).attr('data-element_uuid'),
             });
@@ -1441,6 +1477,7 @@ const ipc_listener = async (event, handled) => {
                     done = await handle_url_save({ target_path });
                 } else if ( event.data.source_path ) {
                     done = await handle_move_save({
+                        save_type: event.data.save_type,
                         source_path: event.data.source_path,
                         target_path,
                     });
