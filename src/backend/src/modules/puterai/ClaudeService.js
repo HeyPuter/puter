@@ -338,6 +338,19 @@ class ClaudeService extends BaseService {
     async models_ () {
         return [
             {
+                id: 'claude-opus-4-1-20250805',
+                aliases: ['claude-opus-4-1'],
+                name: 'Claude Opus 4.1',
+                context: 200000,
+                cost: {
+                    currency: 'usd-cents',
+                    tokens: 1_000_000,
+                    input: 1500,
+                    output: 7500,
+                },
+                max_tokens: 32000,
+            },
+            {
                 id: 'claude-opus-4-20250514',
                 aliases: ['claude-opus-4', 'claude-opus-4-latest'],
                 name: 'Claude Opus 4',
