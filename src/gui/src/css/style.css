@@ -1195,7 +1195,7 @@ span.header-sort-icon img {
     height: calc(100% - 28px);
     float: left;
     border-right: 0.5px solid #CCC;
-    padding: 15px 10px;
+    padding: 25px 10px 10px 15px;
     box-sizing: border-box;
     background-color: hsla(var(--window-sidebar-hue),
             var(--window-sidebar-saturation),
@@ -1244,7 +1244,7 @@ span.header-sort-icon img {
     margin: 0;
     font-weight: bold;
     font-size: 13px;
-    color: var(--primary-color);
+    color: #7a8187;
     text-shadow: 1px 1px rgb(247 247 247 / 15%);
     -webkit-font-smoothing: antialiased;
     -moz-osx-font-smoothing: grayscale;
@@ -1255,7 +1255,7 @@ span.header-sort-icon img {
 }
 
 .window-sidebar-title:first-child {
-    padding-left: 1px;
+    padding-left: 3px;
     margin-top: 0px;
 }
 
@@ -1265,7 +1265,7 @@ span.header-sort-icon img {
 }
 
 .window-sidebar-item, .window-sidebar-item.grabbing {
-    margin-bottom: 6px;
+    margin-bottom: 8px;
     margin-top: 2px;
     padding: 4px;
     border-radius: 3px;
