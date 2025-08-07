@@ -202,6 +202,10 @@ class WorkerService extends BaseService {
 
                     // TODO//Urgent there needs to be a check here to make sure the user is god mode 
                     if (appId) {
+                        const app = await get_app({uid: appId});
+                        if (Context.get("actor").type.user.id !== app.owner_user_id)
+                            throw APIError.create('no_suitable_app', null, { entry_name: workerName });
+
                         authorization = await svc_auth.get_user_app_token(appId);
                     }
 
