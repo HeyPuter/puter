@@ -6,6 +6,9 @@ let search_query;
 window.create_worker = async (name, filePath = null) => {
     let worker;
     
+    // show spinner
+    puter.ui.showSpinner();
+
     // Use provided file path or default to the default worker file
     const workerFile = filePath;
     
@@ -87,6 +90,9 @@ $(document).on('click', '.create-a-worker-btn', async function (e) {
             await create_worker(name, selectedFile.path);
             // Refresh the worker list to show the new worker
             await refresh_worker_list();
+
+            // hide spinner
+            puter.ui.hideSpinner();
         }
     }
 })
