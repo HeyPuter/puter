@@ -735,13 +735,14 @@ class UI extends EventListener {
                 type = 'url';
             }
             const url = type === 'url' ? content.toString() : undefined;
-            const source_path = type === 'move' ? content : undefined;
-
+            const source_path = ['move','copy'].includes(type) ? content : undefined;
+            
             if(this.env === 'app'){
                 this.messageTarget?.postMessage({
                     msg: "showSaveFilePicker",
                     appInstanceID: this.appInstanceID,
                     content: url ? undefined : content,
+                    save_type: type,
                     url,
                     source_path,
                     suggestedName: suggestedName ?? '',
