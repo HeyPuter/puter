@@ -22,12 +22,12 @@ const _path = require('path');
 const { Context } = require("../../../util/context");
 const { v4: uuidv4 } = require('uuid');
 const config = require("../../../config");
-const { try_infer_attributes, NodeChildSelector, NodePathSelector } = require("../../../filesystem/node/selectors");
+const { try_infer_attributes, NodeChildSelector, NodePathSelector, NodeSelector } = require("../../../filesystem/node/selectors");
 
 const path = require('path');
 const APIError = require("../../../api/APIError");
 
-class FileInfo {
+class MemoryFile {
     /**
      * @param {Object} param
      * @param {string} param.full_path
@@ -65,6 +65,8 @@ class FileInfo {
         this.created = 123;
         this.accessed = 123;
         this.modified = 123;
+
+        this.own
     }
 }
 
@@ -83,7 +85,7 @@ class MemoryFSProvider {
         // We declare 2 maps to support 2 lookup apis: by-path/by-uuid.
         this.entriesByUUID = new Map();
 
-        const root = new FileInfo({
+        const root = new MemoryFile({
             full_path: '/',
             is_dir: true,
             content: null,
@@ -117,28 +119,25 @@ class MemoryFSProvider {
     /**
      * Check the integrity of the whole memory filesystem and the input. Throws error if any violation is found.
      * 
-     * @param {FSNodeContext} node - The node to check.
+     * @param {MemoryFile} entry - The entry to check.
      * @returns {Promise<void>}
      */
-    _integrity_check (node) {
+    _integrity_check (entry) {
         if ( config.env !== 'dev' ) {
             // only check in debug mode since it's expensive
             return;
         }
 
-        // check the node's provider is "memory-fs"
-        if ( node.provider !== this ) {
-            throw new Error('Node provider mismatch');
-        }
-
-        // check all directories along the path are valid
-        const inner_path = this._inner_path(node.path);
-        const path_components = inner_path.split('/');
-        for ( let i = 2; i < path_components.length; i++ ) {
-            const path_component = path_components.slice(0, i).join('/');
-            const entry_uuid = this.entriesByPath.get(path_component);
-            if ( ! entry_uuid ) {
-                throw new Error(`Directory ${path_component} does not exist`);
+        if ( entry ) {
+            // check all directories along the path are valid
+            const inner_path = this._inner_path(entry.path);
+            const path_components = inner_path.split('/');
+            for ( let i = 2; i < path_components.length; i++ ) {
+                const path_component = path_components.slice(0, i).join('/');
+                const entry_uuid = this.entriesByPath.get(path_component);
+                if ( ! entry_uuid ) {
+                    throw new Error(`Directory ${path_component} does not exist`);
+                }
             }
         }
 
@@ -158,12 +157,11 @@ class MemoryFSProvider {
      * Performs a stat operation on the given FSNode.
      *
      * @param {Object} param
-     * @param {FSNodeContext} param.node - The node to stat.
-     * @returns {Promise<FileInfo|null>} - The result of the stat operation, or `null` if the node doesn't exist.
+     * @param {NodeSelector} param.selector - The selector to stat.
+     * @returns {Promise<MemoryFile|null>} - The result of the stat operation, or `null` if the node doesn't exist.
      */
     async stat ({
         selector,
-        node,
     }) {
         let entry_uuid = null;
 
@@ -226,7 +224,7 @@ class MemoryFSProvider {
         const full_path = _path.join(parent.path, name);
         const inner_path = this._inner_path(full_path);
 
-        const entry = new FileInfo({
+        const entry = new MemoryFile({
             full_path: full_path,
             is_dir: true,
             content: null,
@@ -285,6 +283,42 @@ class MemoryFSProvider {
     }
 
     /**
+     * Move a file.
+     * 
+     * @param {Object} param
+     * @param {Context} param.context
+     * @param {FSNodeContext} param.node: The file to move.
+     * @param {FSNodeContext} param.new_parent: The new parent directory of the file.   
+     * @param {string} param.new_name: The new name of the file.
+     * @param {Object} param.metadata: The metadata of the file.
+     * @returns {Promise<MemoryFile>}
+     */
+    async move({ context, node, new_parent, new_name, metadata }) {
+        this._integrity_check(null);
+
+        // create the new entry
+        const new_full_path = _path.join(new_parent.path, new_name);
+        const new_inner_path = this._inner_path(new_full_path);
+        const entry = new MemoryFile({
+            full_path: new_full_path,
+            is_dir: false,
+            content: node.entry.content,
+        });
+        entry.uuid = node.entry.uuid;
+        this.entriesByPath.set(new_inner_path, entry.uuid);
+        this.entriesByUUID.set(entry.uuid, entry);
+
+        // remove the old entry
+        const inner_path = this._inner_path(node.path);
+        this.entriesByPath.delete(inner_path);
+        // should not delete the entry by uuid because it's the same
+
+        this._integrity_check(entry);
+
+        return entry;
+    }
+
+    /**
      * Write a new file to the filesystem. Throws an error if the destination
      * already exists.
      * 
@@ -299,7 +333,7 @@ class MemoryFSProvider {
         const full_path = _path.join(parent.path, name);
         const inner_path = this._inner_path(full_path);
 
-        const entry = new FileInfo({
+        const entry = new MemoryFile({
             full_path: full_path,
             is_dir: false,
             content: file.stream.readableBuffer,
