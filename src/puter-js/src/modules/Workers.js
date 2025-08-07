@@ -7,7 +7,7 @@ export class WorkersHandler {
         this.authToken = authToken;
     }
 
-    async create(workerName, filePath, appId) {
+    async create(workerName, filePath, appName) {
         if (!puter.authToken && puter.env === 'web') {
             try {
                 await puter.ui.authenticateWithPuter();
@@ -15,6 +15,11 @@ export class WorkersHandler {
                 // if authentication fails, throw an error
                 throw 'Authentication failed.';
             }
+        }
+
+        let appId;
+        if (typeof (appName)=== "string") {
+            appId = ((await puter.apps.list()).find(el => el.name === appName)).uid;
         }
 
         workerName = workerName.toLocaleLowerCase(); // just incase
