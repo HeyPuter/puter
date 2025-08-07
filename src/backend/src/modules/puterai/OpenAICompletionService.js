@@ -106,12 +106,45 @@ class OpenAICompletionService extends BaseService {
     async models_ () {
         return [
             {
+                id: 'gpt-5-2025-08-07',
+                aliases: ['gpt-5'],
+                cost: {
+                    currency: 'usd-cents',
+                    tokens: 1_000_000,
+                    input: 125,
+                    output: 1000,
+                },
+                max_tokens: 128000,
+            },
+            {
+                id: 'gpt-5-mini-2025-08-07',
+                aliases: ['gpt-5-mini'],
+                cost: {
+                    currency: 'usd-cents',
+                    tokens: 1_000_000,
+                    input: 25,
+                    output: 200,
+                },
+                max_tokens: 128000,
+            },
+            {
+                id: 'gpt-5-nano-2025-08-07',
+                aliases: ['gpt-5-nano'],
+                cost: {
+                    currency: 'usd-cents',
+                    tokens: 1_000_000,
+                    input: 5,
+                    output: 40,
+                },
+                max_tokens: 128000,
+            },
+            {
                 id: 'gpt-4o',
                 cost: {
                     currency: 'usd-cents',
                     tokens: 1_000_000,
                     input: 250,
-                    output: 1000, // https://platform.openai.com/docs/pricing
+                    output: 1000,
                 },
                 max_tokens: 16384,
             },
