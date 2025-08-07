@@ -139,6 +139,16 @@ class OpenAICompletionService extends BaseService {
                 max_tokens: 128000,
             },
             {
+                id: 'gpt-5-chat-latest',
+                cost: {
+                    currency: 'usd-cents',
+                    tokens: 1_000_000,
+                    input: 125,
+                    output: 1000,
+                },
+                max_tokens: 128000,
+            },
+            {
                 id: 'gpt-4o',
                 cost: {
                     currency: 'usd-cents',
