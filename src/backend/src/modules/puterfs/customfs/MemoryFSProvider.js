@@ -296,17 +296,39 @@ class MemoryFSProvider {
     async rmdir({ context, node, options = {} }) {
         const inner_path = this._inner_path(node.path);
 
-        // remove all children
+        if ( inner_path.includes('del') ) {
+            console.log('inner_path: ', inner_path);
+        }
+
+        // for mode: non-recursive
+        if ( ! options.recursive ) {
+            const children = await this.readdir({ context, node });
+            if ( children.length > 0 ) {
+                throw APIError.create('not_empty');
+            }
+        }
+
+        // remove all descendants
         for ( const [other_inner_path, other_entry_uuid] of this.entriesByPath ) {
+            if ( other_entry_uuid === node.uid ) {
+                // skip the directory itself
+                continue;
+            }
+
+            console.log('other_inner_path: ', other_inner_path);
+
             if ( other_inner_path.startsWith(inner_path) ) {
                 this.entriesByPath.delete(other_inner_path);
                 this.entriesByUUID.delete(other_entry_uuid);
             }
         }
 
-        // remove the directory itself
-        this.entriesByPath.delete(inner_path);
-        this.entriesByUUID.delete(node.uid);
+        // for mode: non-descendants-only
+        if ( ! options.descendants_only ) {
+            // remove the directory itself
+            this.entriesByPath.delete(inner_path);
+            this.entriesByUUID.delete(node.uid);
+        }
 
         this._integrity_check(node);
     }
