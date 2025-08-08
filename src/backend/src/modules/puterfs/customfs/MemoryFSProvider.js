@@ -105,6 +105,7 @@ class MemoryFSProvider {
             fsCapabilities.UUID,
             fsCapabilities.READ,
             fsCapabilities.WRITE,
+            fsCapabilities.COPY_TREE,
         ]);
     }
 
@@ -371,6 +372,8 @@ class MemoryFSProvider {
      * @returns {Promise<FSNodeContext>} - The copied node.
      */
     async copy_tree({ context, source, parent, target_name }) {
+        console.log('copy_tree', source, parent, target_name);
+
         const fs = context.get('services').get('filesystem');
         
         if (source.entry.is_dir) {
@@ -380,8 +383,11 @@ class MemoryFSProvider {
             // Copy all children
             const children = await this.readdir({ context, node: source });
             for (const child_uuid of children) {
+                // const child_node = await fs.node(new NodeUIDSelector(child_uuid));
                 const child_node = await fs.node(new NodeUIDSelector(child_uuid));
+                await child_node.fetchEntry(); 
                 const child_name = child_node.entry.name;
+
                 await this.copy_tree({ 
                     context, 
                     source: child_node, 
@@ -393,6 +399,12 @@ class MemoryFSProvider {
             return new_dir;
         } else {
             // Copy the file
+            if ( ! parent?.path ) {
+                console.log('parent: ', parent);
+            }
+            if ( ! target_name ) {
+                console.log('target_name: ', target_name);
+            }
             const new_file = await this.write_new({ 
                 context, 
                 parent, 

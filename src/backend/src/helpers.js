@@ -1028,6 +1028,11 @@ async function is_ancestor_of(ancestor_uid, descendant_uid){
     let parent = await db.read("SELECT `uuid`, `parent_uid` FROM `fsentries` WHERE `uuid` = ? LIMIT 1", [descendant_uid]);
     if(parent[0] === undefined)
         parent = await db.pread("SELECT `uuid`, `parent_uid` FROM `fsentries` WHERE `uuid` = ? LIMIT 1", [descendant_uid]);
+
+    if ( ! parent[0]?.uuid ) {
+        console.log('parent[0].uuid is undefined', parent[0]);
+    }
+
     if(parent[0].uuid === ancestor_uid || parent[0].parent_uid === ancestor_uid){
         return true;
     }
