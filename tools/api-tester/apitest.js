@@ -61,12 +61,37 @@ const conf = YAML.parse(fs.readFileSync(config).toString());
 
 
 const main = async () => {
+    const results = [];
     for (const mountpoint of conf.mountpoints) {
-        // console.log(`Testing ${mountpoint.path}`);
-        await test({ mountpoint });
+        const result = await test({ mountpoint });
+        results.push(...result);
     }
+
+    let tbl = {};
+    for ( const result of results ) {
+        tbl[result.name + ' - ' + result.settings] = {
+            passed: result.caseCount - result.failCount,
+            failed: result.failCount,
+            total: result.caseCount,
+        }
+    }
+
+    // hard-coded identifier for ci script
+    console.log("==================== nightly build results begin ====================")
+
+    console.table(tbl);
+
+    // hard-coded identifier for ci script
+    console.log("==================== nightly build results end ====================")
 }
 
+/**
+ * Run test using the given config, and return the test results
+ * 
+ * @param {Object} options
+ * @param {Object} options.mountpoint
+ * @returns {Promise<Object>}
+ */
 async function test({ mountpoint }) {
     const context = {
         mountpoint
@@ -106,6 +131,8 @@ async function test({ mountpoint }) {
     const all = unit && bench;
     if ( all || unit ) ts.printTestResults();
     if ( all || bench ) ts.printBenchmarkResults();
+
+    return ts.packageResults;
 }
 
 const main_e = async () => {

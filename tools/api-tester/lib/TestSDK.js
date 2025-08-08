@@ -58,8 +58,12 @@ module.exports = class TestSDK {
     // === test related methods ===
 
     async runTestPackage (testDefinition) {
+        // display the fs provider name in the test results
+        const settings = this.context.mountpoint?.provider;
+
         this.nameStack.push(testDefinition.name);
         this.packageResults.push({
+            settings,
             name: testDefinition.name,
             failCount: 0,
             caseCount: 0,
@@ -160,6 +164,7 @@ module.exports = class TestSDK {
         let tbl = {};
         for ( const pkg of this.packageResults ) {
             tbl[pkg.name] = {
+                settings: pkg.settings,
                 passed: pkg.caseCount - pkg.failCount,
                 failed: pkg.failCount,
                 total: pkg.caseCount,
