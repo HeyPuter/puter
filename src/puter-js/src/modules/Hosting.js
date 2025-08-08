@@ -39,7 +39,9 @@ class Hosting{
     }
 
     // todo document the `Subdomain` object.
-    list = utils.make_driver_method([], 'puter-subdomains', undefined, 'select');
+    list = async (...args) => {
+        return (await utils.make_driver_method([], 'puter-subdomains', undefined, 'select')(...args)).filter(e => !e.subdomain.startsWith("workers.puter."));
+    }
 
     create = async (...args) => {
         let options = {};
