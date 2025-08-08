@@ -1573,6 +1573,7 @@ const ipc_listener = async (event, handled) => {
                             buttons:[
                                 {
                                     label: i18n('replace'),
+                                    value: 'replace',
                                     type: 'primary',
                                 },
                                 {
@@ -1582,8 +1583,7 @@ const ipc_listener = async (event, handled) => {
                             ],
                             parent_uuid: event.data.appInstanceID,
                         })
-                        // TODO: does this break in different languages?
-                        if(alert_resp === 'Replace'){
+                        if(alert_resp === 'replace'){
                             overwrite = true;
                         }else if(alert_resp === 'cancel'){
                             item_with_same_name_already_exists = false;
