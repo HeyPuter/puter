@@ -18,6 +18,8 @@
  * along with this program.  If not, see <https://www.gnu.org/licenses/>.
  */
 const { LocalDiskStorageStrategy } = require("../filesystem/strategies/storage_a/LocalDiskStorageStrategy");
+const { MemoryFSProvider } = require("../modules/puterfs/customfs/MemoryFSProvider");
+const { PuterFSProvider } = require("../modules/puterfs/lib/PuterFSProvider");
 const { TeePromise } = require('@heyputer/putility').libs.promise;
 const { progress_stream, size_limit_stream } = require("../util/streamutil");
 const BaseService = require("./BaseService");
@@ -52,7 +54,7 @@ class LocalDiskStorageService extends BaseService {
         svc_contextInit.register_value('storage', storage);
         
         const svc_mountpoint = this.services.get('mountpoint');
-        svc_mountpoint.set_storage(storage);
+        svc_mountpoint.set_storage(PuterFSProvider, storage);
     }
 
 
@@ -153,7 +155,8 @@ class LocalDiskStorageService extends BaseService {
         const fs = require('fs');
 
         const path = this._get_path(key);
-        return fs.createReadStream(path);
+        const stream = fs.createReadStream(path);
+        return stream;
     }
 
 
@@ -191,6 +194,42 @@ class LocalDiskStorageService extends BaseService {
 
         const path = this._get_path(key);
         await fs.promises.unlink(path);
+    }
+}
+
+class MemoryStorageService extends BaseService {
+    /**
+    * Initializes the context for the storage service.
+    *
+    * This method registers the LocalDiskStorageStrategy with the context
+    * initialization service and sets the storage for the mountpoint service.
+    *
+    * @returns {Promise<void>} A promise that resolves when the context is initialized.
+    */
+    async ['__on_install.context-initializers'] () {
+        const svc_contextInit = this.services.get('context-init');
+        const storage = this;
+        // svc_contextInit.register_value('storage', storage);
+        
+        const svc_mountpoint = this.services.get('mountpoint');
+        svc_mountpoint.set_storage(MemoryFSProvider, storage);
+    }
+
+    /**
+    * Creates a read stream for a given key.
+    *
+    * @param {Object} options - The options object.
+    * @param {string} options.key - The key for which to create the read stream.
+    * @returns {stream.Readable} The read stream for the given key.
+    */
+    async create_read_stream (obj) {
+        console.log(`MemoryStorageService.create_read_stream`, obj);
+
+        const require = this.require;
+        const fs = require('fs');
+
+        const path = this._get_path(key);
+        return fs.createReadStream(path);
     }
 }
 

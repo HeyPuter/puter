@@ -22,7 +22,8 @@ const _path = require('path');
 const { Context } = require("../../../util/context");
 const { v4: uuidv4 } = require('uuid');
 const config = require("../../../config");
-const { try_infer_attributes, NodeChildSelector, NodePathSelector, NodeSelector } = require("../../../filesystem/node/selectors");
+const { try_infer_attributes, NodeChildSelector, NodePathSelector, NodeUIDSelector, NodeSelector } = require("../../../filesystem/node/selectors");
+const fsCapabilities = require("../../../filesystem/definitions/capabilities");
 
 const path = require('path');
 const APIError = require("../../../api/APIError");
@@ -62,11 +63,10 @@ class MemoryFile {
         this.is_shortcut = 0;
         this.is_symlink = 0;
         this.symlink_path = null;
-        this.created = 123;
-        this.accessed = 123;
-        this.modified = 123;
-
-        this.own
+        this.created = Math.floor(Date.now() / 1000);
+        this.accessed = Math.floor(Date.now() / 1000);
+        this.modified = Math.floor(Date.now() / 1000);
+        this.size = is_dir ? 0 : (content ? content.length : 0);
     }
 }
 
@@ -95,6 +95,20 @@ class MemoryFSProvider {
     }
 
     /**
+     * Get the capabilities of this filesystem provider.
+     * 
+     * @returns {Set} - Set of capabilities supported by this provider.
+     */
+    get_capabilities() {
+        return new Set([
+            fsCapabilities.READDIR_UUID_MODE,
+            fsCapabilities.UUID,
+            fsCapabilities.READ,
+            fsCapabilities.WRITE,
+        ]);
+    }
+
+    /**
      * Normalize the path to be relative to the mountpoint. Returns `/` if the path is empty/undefined.
      * 
      * @param {string} path - The path to normalize.
@@ -119,7 +133,7 @@ class MemoryFSProvider {
     /**
      * Check the integrity of the whole memory filesystem and the input. Throws error if any violation is found.
      * 
-     * @param {MemoryFile} entry - The entry to check.
+     * @param {MemoryFile|FSNodeContext} entry - The entry to check.
      * @returns {Promise<void>}
      */
     _integrity_check (entry) {
@@ -130,7 +144,8 @@ class MemoryFSProvider {
 
         if ( entry ) {
             // check all directories along the path are valid
-            const inner_path = this._inner_path(entry.path);
+            const path_to_check = 'entry' in entry ? entry.entry?.path : entry.path;
+            const inner_path = this._inner_path(path_to_check);
             const path_components = inner_path.split('/');
             for ( let i = 2; i < path_components.length; i++ ) {
                 const path_component = path_components.slice(0, i).join('/');
@@ -209,6 +224,33 @@ class MemoryFSProvider {
             return null;
         }
         return entry;
+    }
+
+    /**
+     * Read directory contents.
+     * 
+     * @param {Object} param
+     * @param {Context} param.context - The context of the operation.
+     * @param {FSNodeContext} param.node - The directory node to read.
+     * @returns {Promise<string[]>} - Array of child UUIDs.
+     */
+    async readdir({ context, node }) {
+        const inner_path = this._inner_path(node.path);
+        const child_uuids = [];
+
+        // Find all entries that are direct children of this directory
+        for (const [path, uuid] of this.entriesByPath) {
+            if (path === inner_path) {
+                continue; // Skip the directory itself
+            }
+            
+            const dirname = _path.dirname(path);
+            if (dirname === inner_path) {
+                child_uuids.push(uuid);
+            }
+        }
+
+        return child_uuids;
     }
 
     /**
@@ -301,7 +343,7 @@ class MemoryFSProvider {
         const new_inner_path = this._inner_path(new_full_path);
         const entry = new MemoryFile({
             full_path: new_full_path,
-            is_dir: false,
+            is_dir: node.entry.is_dir,
             content: node.entry.content,
         });
         entry.uuid = node.entry.uuid;
@@ -316,6 +358,49 @@ class MemoryFSProvider {
         this._integrity_check(entry);
 
         return entry;
+    }
+
+    /**
+     * Copy a tree of files and directories.
+     * 
+     * @param {Object} param
+     * @param {Context} param.context
+     * @param {FSNodeContext} param.source - The source node to copy.
+     * @param {FSNodeContext} param.parent - The parent directory for the copy.
+     * @param {string} param.target_name - The name for the copied item.
+     * @returns {Promise<FSNodeContext>} - The copied node.
+     */
+    async copy_tree({ context, source, parent, target_name }) {
+        const fs = context.get('services').get('filesystem');
+        
+        if (source.entry.is_dir) {
+            // Create the directory
+            const new_dir = await this.mkdir({ context, parent, name: target_name });
+            
+            // Copy all children
+            const children = await this.readdir({ context, node: source });
+            for (const child_uuid of children) {
+                const child_node = await fs.node(new NodeUIDSelector(child_uuid));
+                const child_name = child_node.entry.name;
+                await this.copy_tree({ 
+                    context, 
+                    source: child_node, 
+                    parent: new_dir, 
+                    target_name: child_name 
+                });
+            }
+            
+            return new_dir;
+        } else {
+            // Copy the file
+            const new_file = await this.write_new({ 
+                context, 
+                parent, 
+                name: target_name, 
+                file: { stream: { read: () => source.entry.content } } 
+            });
+            return new_file;
+        }
     }
 
     /**
@@ -336,15 +421,14 @@ class MemoryFSProvider {
         const entry = new MemoryFile({
             full_path: full_path,
             is_dir: false,
-            content: file.stream.readableBuffer,
+            content: file.stream.read(),
         });
         this.entriesByPath.set(inner_path, entry.uuid);
         this.entriesByUUID.set(entry.uuid, entry);
 
         const fs = context.get('services').get('filesystem');
         const node = await fs.node(entry.path);
-
-        this._integrity_check(node);
+        await node.fetchEntry();
 
         return node;
     }
@@ -371,11 +455,18 @@ class MemoryFSProvider {
                 throw new Error(`Cannot overwrite a directory`);
             }
 
-            original_entry.content = file.stream.readableBuffer;
+            original_entry.content = file.stream.read();
+            original_entry.modified = Math.floor(Date.now() / 1000);
+            original_entry.size = original_entry.content ? original_entry.content.length : 0;
             this.entriesByUUID.set(node.uid, original_entry);
         }
 
         this._integrity_check(node);
+
+        // return node;
+        const fs = context.get('services').get('filesystem');
+        node = await fs.node(original_entry.path);
+        await node.fetchEntry();
 
         return node;
     }

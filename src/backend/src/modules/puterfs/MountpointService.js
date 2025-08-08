@@ -57,8 +57,9 @@ class MountpointService extends BaseService {
     * @returns {Promise<void>}
     */
     async _init () {
-        // Temporary solution - we'll develop this incrementally
-        this.storage_ = null;
+        // key: provider class (e.g: PuterFSProvider, MemoryFSProvider)
+        // value: storage instance
+        this.storage_ = {};
     }
 
     async ['__on_boot.consolidation'] () {
@@ -145,15 +146,16 @@ class MountpointService extends BaseService {
     }
     
     // Temporary solution - we'll develop this incrementally
-    set_storage (storage) {
-        this.storage_ = storage;
+    set_storage (provider, storage) {
+        this.storage_[provider] = storage;
     }
+
     /**
     * Gets the current storage backend instance
     * @returns {Object} The storage backend instance
     */
-    get_storage () {
-        return this.storage_;
+    get_storage (provider) {
+        return this.storage_[provider];
     }
 }
 

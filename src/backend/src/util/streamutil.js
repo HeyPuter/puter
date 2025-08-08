@@ -76,6 +76,10 @@ const pausing_tee = (source, n) => {
         });
     }
 
+    if ( ! source.on ) {
+        console.log('pausing_tee: source is not a stream');
+    }
+
     source.on('data', (chunk) => {
         ready_.forEach((v, i) => {
             ready_[i] = streams_[i].write(chunk);
