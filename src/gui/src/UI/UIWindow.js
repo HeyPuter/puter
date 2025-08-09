@@ -896,6 +896,7 @@ async function UIWindow(options) {
                 $(`.window[data-element_uuid="${options.parent_uuid}"]`).find('.window-disable-mask').hide();
                 $(el_window).close();
             })
+            if ( options.onDialogCancel ) options.onDialogCancel.call(el_window);
         })
     }
 

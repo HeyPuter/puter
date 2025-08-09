@@ -1315,6 +1315,13 @@ const ipc_listener = async (event, handled) => {
             $(el_filedialog_window).close();
             window.show_save_account_notice_if_needed();
         };
+
+        const tell_caller_its_cancelled = async () => {
+            target_iframe.contentWindow.postMessage({
+                msg: "fileSaveCancelled", 
+                original_msg_id: msg_id, 
+            }, '*');
+        };
         
         const write_file_tell_caller_and_update_views = async ({
             target_path, el_filedialog_window,
@@ -1468,6 +1475,7 @@ const ipc_listener = async (event, handled) => {
             iframe_msg_uid: msg_id,
             center: true,
             initiating_app_uuid: app_uuid,
+            onDialogCancel: () => tell_caller_its_cancelled(),
             onSaveFileDialogSave: async function(target_path, el_filedialog_window){
                 $(el_filedialog_window).find('.window-disable-mask, .busy-indicator').show();
                 let busy_init_ts = Date.now();
