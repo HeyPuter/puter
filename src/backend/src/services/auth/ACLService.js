@@ -22,7 +22,6 @@ const FSNodeParam = require("../../api/filesystem/FSNodeParam");
 const { NodePathSelector } = require("../../filesystem/node/selectors");
 const { get_user } = require("../../helpers");
 const configurable_auth = require("../../middleware/configurable_auth");
-const { MemoryFSProvider } = require("../../modules/puterfs/customfs/MemoryFSProvider");
 const { Context } = require("../../util/context");
 const { Endpoint } = require("../../util/expressutil");
 const BaseService = require("../BaseService");
@@ -345,15 +344,6 @@ class ACLService extends BaseService {
     * - Explicit permissions in the ACL hierarchy
     */
     async _check_fsNode (actor, fsNode, mode) {
-        // We currently need this ad-hoc check for "MemoryFSProvider" since the related
-        // ACL permission logic is not yet implemented for "MemoryFSProvider".
-        // 
-        // TODO (xiaochen): remove this branch after the related ACL permission logic is implemented for "MemoryFSProvider".
-        if ( fsNode.provider instanceof MemoryFSProvider && fsNode.entry.is_public ) {
-            console.log('TRUE BECAUSE MEMORYFSPROVIDER')
-            // return true;
-        }
-
         const context = Context.get();
 
         actor = Actor.adapt(actor);

@@ -96,45 +96,13 @@ class NodeChildSelector extends NodeSelector {
         this.name = name;
     }
 
-    /**
-     * Try to infer the absolute path of the node.
-     *
-     * @returns {string|null} the absolute path of the node, or null if the path cannot be inferred
-     */
-    try_infer_path () {
-        // try to get the full path recursively
-        //
-        // TODO (xiaochen): this is a hack to get the absolute path and should be removed once
-        // we have a better solution. We need the absolute path so that `MountpointService`
-        // can determine the mountpoint and provider for the node.
-        const stack = [this.name];
-        let current = this.parent;
-        while ( current ) {
-            if ( current instanceof NodeChildSelector ) {
-                stack.push(current.name);
-                current = current.parent;
-            } else if ( current instanceof NodePathSelector ) {
-                stack.push(current.value);
-                current = null;
-            } else if ( current instanceof RootNodeSelector ) {
-                current = null;
-            } else {
-                // for other selectors, we can't determine the absolute path
-                return null;
-            }
-        }
-
-        let path = '/';
-        stack.reverse().forEach(item => {
-            path = _path.join(path, item);
-        });
-
-        return path;
-    }
-
     setPropertiesKnownBySelector (node) {
         node.name = this.name;
-        node.path = this.try_infer_path();
+
+        try_infer_attributes(this);
+        if ( this.path ) {
+            node.path = this.path;
+        }
     }
 
     describe () {
@@ -212,7 +180,7 @@ function try_infer_attributes (selector) {
     } else if ( selector instanceof RootNodeSelector ) {
         selector.path = '/';
     } else {
-        throw new Error('invalid selector');
+        // give up
     }
 }
 

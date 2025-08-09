@@ -378,14 +378,10 @@ class PuterFSProvider extends putility.AdvancedBase {
     }
 
     async rmdir ({ context, node, options = {} }) {
-        // // TODO (xiaochen): remove/refactor this branch, or this function, it's weird since
-        // // `TYPE_DIRECTORY` is `undefined`
-        // if ( TYPE_DIRECTORY ) {
         if ( await node.get('type') !== TYPE_DIRECTORY ) {
             console.log(`\x1B[31;1m===D1====${await node.get('path')}=========\x1B[0m`)
             throw new APIError(409, 'Cannot rmdir a file.');
         }
-        // }
 
         if ( await node.get('immutable') ) {
             console.log(`\x1B[31;1m===D2====${await node.get('path')}=========\x1B[0m`)

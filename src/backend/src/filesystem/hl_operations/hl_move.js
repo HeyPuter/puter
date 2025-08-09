@@ -182,9 +182,6 @@ class HLMove extends HLFilesystemOperation {
         const old_path = await source.get('path');
 
         const ll_move = new LLMove();
-
-        console.log(`source: ${JSON.stringify(source.entry)}`);
-
         const source_new = await ll_move.run({
             source,
             parent,
@@ -192,8 +189,6 @@ class HLMove extends HLFilesystemOperation {
             user: values.user,
             metadata: metadata,
         });
-
-        console.log(`source_new: ${JSON.stringify(source_new.entry)}`);
 
         await source_new.awaitStableEntry();
         await source_new.fetchSuggestedApps();

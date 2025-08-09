@@ -34,10 +34,6 @@ class HLRead extends HLFilesystemOperation {
             version_id,
         } = this.values;
 
-        if ( fsNode.path.includes('tmp') ) {
-            console.log('tmp');
-        }
-
         if ( ! await fsNode.exists() ) {
             throw APIError.create('subject_does_not_exist');
         }

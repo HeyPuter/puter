@@ -19,7 +19,7 @@
  */
 // const Mountpoint = o => ({ ...o });
 
-const { RootNodeSelector, NodeUIDSelector, NodeChildSelector, NodePathSelector, NodeInternalIDSelector, NodeSelector } = require("../../filesystem/node/selectors");
+const { RootNodeSelector, NodeUIDSelector, NodeChildSelector, NodePathSelector, NodeInternalIDSelector, NodeSelector, try_infer_attributes } = require("../../filesystem/node/selectors");
 const BaseService = require("../../services/BaseService");
 
 /**
@@ -112,9 +112,9 @@ class MountpointService extends BaseService {
         }
 
         if ( selector instanceof NodeChildSelector ) {
-            const path = selector.try_infer_path();
-            if ( path ) {
-                return this.get_provider(new NodePathSelector(path));
+            try_infer_attributes(selector);
+            if ( selector.path ) {
+                return this.get_provider(new NodePathSelector(selector.path));
             } else {
                 return this.get_provider(selector.parent);
             }

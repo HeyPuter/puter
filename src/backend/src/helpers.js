@@ -97,12 +97,6 @@ async function is_user_signup_disabled() {
 }
 
 const chkperm = spanify('chkperm', async (target_fsentry, requester_user_id, action) => {
-    // TODO (xiaochen): remove this branch after the related ACL permission logic is implemented for "MemoryFSProvider".
-    if (target_fsentry.is_public) {
-        console.log('TRUE BECAUSE IS_PUBLIC')
-        // return true;
-    }
-
     // basic cases where false is the default response
     if(!target_fsentry)
         return false;
@@ -978,7 +972,7 @@ const body_parser_error_handler = (err, req, res, next) => {
  * TODO (xiaochen): It only works for MemoryFSProvider currently.
  * 
  * @param {string} uid - The uid of the file to get.
- * @returns {Promise<FileInfo|null>} The file node, or null if the file does not exist.
+ * @returns {Promise<MemoryFile|null>} The file node, or null if the file does not exist.
  */
 async function get_entry(uid) {
     const svc_mountpoint = Context.get('services').get('mountpoint');
@@ -996,14 +990,10 @@ async function get_entry(uid) {
 }
 
 async function is_ancestor_of(ancestor_uid, descendant_uid){
-    console.log('is_ancestor_of', ancestor_uid, descendant_uid);
-
     const ancestor = await get_entry(ancestor_uid);
     const descendant = await get_entry(descendant_uid);
 
     if ( ancestor && descendant ) {
-        console.log('ancestor', ancestor);
-        console.log('descendant', descendant);
         return descendant.path.startsWith(ancestor.path);
     }
 
@@ -1028,11 +1018,6 @@ async function is_ancestor_of(ancestor_uid, descendant_uid){
     let parent = await db.read("SELECT `uuid`, `parent_uid` FROM `fsentries` WHERE `uuid` = ? LIMIT 1", [descendant_uid]);
     if(parent[0] === undefined)
         parent = await db.pread("SELECT `uuid`, `parent_uid` FROM `fsentries` WHERE `uuid` = ? LIMIT 1", [descendant_uid]);
-
-    if ( ! parent[0]?.uuid ) {
-        console.log('parent[0].uuid is undefined', parent[0]);
-    }
-
     if(parent[0].uuid === ancestor_uid || parent[0].parent_uid === ancestor_uid){
         return true;
     }

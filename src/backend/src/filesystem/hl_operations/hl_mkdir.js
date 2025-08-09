@@ -31,7 +31,6 @@ const { HLFilesystemOperation } = require('./definitions');
 const { is_valid_path } = require('../validation');
 const { HLRemove } = require('./hl_remove');
 const { LLMkdir } = require('../ll_operations/ll_mkdir');
-const { MemoryFSService } = require('../../modules/puterfs/customfs/MemoryFSService');
 
 class MkTree extends HLFilesystemOperation {
     static DESCRIPTION = `
@@ -300,10 +299,6 @@ class HLMkdir extends HLFilesystemOperation {
             });
         }
 
-        if ( values.dedupe_name ) {
-            console.log('DEDUPE NAME', values.dedupe_name);
-        }
-
         // `parent_node` becomes the parent of the last directory name
         // specified under `path`.
         parent_node = await this._create_parents({
@@ -322,10 +317,6 @@ class HLMkdir extends HLFilesystemOperation {
 
         await existing.fetchEntry();
 
-        if ( values.dedupe_name ) {
-            console.log('DEDUPE NAME', values.dedupe_name);
-        }
-
         if ( existing.found ) {
             const { overwrite, dedupe_name, create_missing_parents } = values;
             if ( overwrite ) {
@@ -340,10 +331,6 @@ class HLMkdir extends HLFilesystemOperation {
                 });
             }
             else if ( dedupe_name ) {
-                if ( parent_node.provider instanceof MemoryFSService ) {
-                    console.log('MEMORYFS DEDUPE');
-                }
-
                 const fs = context.get('services').get('filesystem');
                 const parent_selector = parent_node.selector;
                 for ( let i=1 ;; i++ ) {
@@ -508,17 +495,9 @@ class HLMkdir extends HLFilesystemOperation {
 
         const fs = this.context.get('services').get('filesystem');
 
-        let parent = await fs.node(new RootNodeSelector());
-        // if ( mountpoint && mountpoint !== '/' ) {
-        //     parent = await fs.node(new NodePathSelector(mountpoint));
-
-        //     // remove the mountpoint from the path
-        //     path = path.replace(mountpoint, '');
-        // }
-
         const tree_op = new MkTree();
         await tree_op.run({
-            parent: parent,
+            parent: await fs.node(new RootNodeSelector()),
             tree: [path],
         });
 

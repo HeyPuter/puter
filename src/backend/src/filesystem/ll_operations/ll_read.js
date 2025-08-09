@@ -71,9 +71,6 @@ class LLRead extends LLFilesystemOperation {
             async function calculate_has_range (a) {
                 const { offset, length } = a.values();
                 const fsNode = a.get('fsNode');
-                if ( fsNode.entry.id === 123 ) {
-                    console.log('has_range', offset, length);
-                }
                 const has_range = (
                     offset !== undefined &&
                     offset !== 0
@@ -153,6 +150,7 @@ class LLRead extends LLFilesystemOperation {
                 const { fsNode, stream, has_range } = a.values();
 
                 if ( ! has_range ) {
+                    // only cache for non-memoryfs providers
                     if ( ! (fsNode.provider instanceof MemoryFSProvider) ) {
                         const res = await svc_fileCache.maybe_store(fsNode, stream);
                         if ( res.stream ) a.set('stream', res.stream);

@@ -159,18 +159,9 @@ class HLCopy extends HLFilesystemOperation {
             throw APIError.create('source_and_dest_are_the_same');
         }
 
-        if ( ! source.mysql_id ) {
-            console.log('source.mysql_id', source.mysql_id);
-            console.log('parent.mysql_id', parent.mysql_id);
-        }
-
         if ( await is_ancestor_of(source.uid, parent.uid) ) {
             throw APIError.create('cannot_copy_item_into_itself');
         }
-
-        // if ( await is_ancestor_of(source.mysql_id, parent.mysql_id) ) {
-        //     throw APIError('cannot_copy_item_into_itself');
-        // }
 
         let overwritten;
         if ( await dest.exists() ) {

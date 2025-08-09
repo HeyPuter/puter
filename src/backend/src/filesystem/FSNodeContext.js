@@ -121,12 +121,6 @@ module.exports = class FSNodeContext {
                 return result;
             }
         }
-
-        if ( (! this.path) && (! this.uid) ) {
-            console.log('no path or uid');
-            selector.setPropertiesKnownBySelector(this);
-            console.log('no path or uid');
-        }
     }
 
     set selector (new_selector) {
@@ -294,24 +288,10 @@ module.exports = class FSNodeContext {
             controls,
         });
 
-        if ( entry === undefined ) {
-            console.error('entry is undefined');
-            this.found = false;
-            this.entry = false;
-            let entry_1 = await this.provider.stat({
-                selector: this.selector,
-                options: fetch_entry_options,
-                node: this,
-                controls,
-            });
-            return;
-        }
-
-        if ( entry === null ) {
+        if ( ! entry ) {
             this.found = false;
             this.entry = false;
         } else {
-
             this.found = true;
 
             if ( ! this.uid && entry.uuid ) {
@@ -383,9 +363,6 @@ module.exports = class FSNodeContext {
     async fetchOwner (force) {
         if ( this.isRoot ) return;
         const owner = await get_user({ id: this.entry.user_id });
-        if ( ! owner ) {
-            console.error('owner is undefined', this.entry);
-        }
         this.entry.owner = {
             username: owner.username,
             email: owner.email,
@@ -755,16 +732,8 @@ module.exports = class FSNodeContext {
         }
         await this.fetchEntry(fetch_options);
 
-        if ( this.entry.id === 123 ) {
-            console.log('this.entry', this.entry);
-        }
-
         const res = this.entry;
         const fsentry = {};
-
-        if ( this.entry === false ) {
-            console.log('this.entry is false', this.entry);
-        }
 
         // This property will not be serialized, but it can be checked
         // by other code to verify that API calls do not send
@@ -776,10 +745,6 @@ module.exports = class FSNodeContext {
 
         for ( const k in res ) {
             fsentry[k] = res[k];
-        }
-
-        if ( this.entry === false ) {
-            console.log('this.entry is false', this.entry);
         }
 
         let actor; try {
