@@ -17,6 +17,7 @@
  * along with this program.  If not, see <https://www.gnu.org/licenses/>.
  */
 const APIError = require("../../api/APIError");
+const { MemoryFSProvider } = require("../../modules/puterfs/customfs/MemoryFSProvider");
 const { ParallelTasks } = require("../../util/otelutil");
 const FSNodeContext = require("../FSNodeContext");
 const { NodeUIDSelector } = require("../node/selectors");
@@ -24,14 +25,14 @@ const { LLFilesystemOperation } = require("./definitions");
 const { LLRmNode } = require('./ll_rmnode');
 
 class LLRmDir extends LLFilesystemOperation {
-    async _run () {
+    async _run() {
         const {
             target,
             user,
             actor,
             descendants_only,
             recursive,
-            
+
             // internal use only - not for clients
             ignore_not_empty,
 
@@ -48,12 +49,12 @@ class LLRmDir extends LLFilesystemOperation {
             this.checkpoint('remove :: access control');
 
             // Check write access to target
-            if ( ! await svc_acl.check(actor, target, 'write') ) {
+            if (! await svc_acl.check(actor, target, 'write')) {
                 throw await svc_acl.get_safe_acl_error(actor, target, 'write');
             }
         }
 
-        if ( await target.get('immutable') && ! descendants_only ) {
+        if (await target.get('immutable') && !descendants_only) {
             throw APIError.create('immutable');
         }
 
@@ -64,20 +65,20 @@ class LLRmDir extends LLFilesystemOperation {
             await target.get('uid')
         );
 
-        if ( children.length > 0 && ! recursive && ! ignore_not_empty ) {
+        if (children.length > 0 && !recursive && !ignore_not_empty) {
             throw APIError.create('not_empty');
         }
 
         const tracer = svc.get('traceService').tracer;
         const tasks = new ParallelTasks({ tracer, max: max_tasks });
 
-        for ( const child_uuid of children ) {
+        for (const child_uuid of children) {
             tasks.add(`fs:rm:rm-child`, async () => {
                 const child_node = await fs.node(
                     new NodeUIDSelector(child_uuid)
                 );
                 const type = await child_node.get('type');
-                if ( type === FSNodeContext.TYPE_DIRECTORY ) {
+                if (type === FSNodeContext.TYPE_DIRECTORY) {
                     const ll_rm = new LLRmDir();
                     await ll_rm.run({
                         target: await fs.node(
@@ -102,14 +103,25 @@ class LLRmDir extends LLFilesystemOperation {
         }
 
         await tasks.awaitAll();
-        if ( ! descendants_only ) {
+        if (target.provider instanceof MemoryFSProvider) {
             await target.provider.rmdir({
                 context,
                 node: target,
                 options: {
-                    ignore_not_empty: true,
+                    recursive,
+                    descendants_only,
                 },
             });
+        } else {
+            if (!descendants_only) {
+                await target.provider.rmdir({
+                    context,
+                    node: target,
+                    options: {
+                        ignore_not_empty: true,
+                    },
+                });
+            }
         }
     }
 }

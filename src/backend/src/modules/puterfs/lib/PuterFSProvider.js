@@ -655,9 +655,9 @@ class PuterFSProvider extends putility.AdvancedBase {
      * 
      * @param {Object} param
      * @param {Context} param.context
-     * @param {FSNode} param.node: The node to write to.
+     * @param {FSNodeContext} param.node: The node to write to.
      * @param {File} param.file: The file to write.
-     * @returns {Promise<FSNode>}
+     * @returns {Promise<FSNodeContext>}
      */
     async write_overwrite({ context, node, file }) {
         const {
@@ -757,7 +757,7 @@ class PuterFSProvider extends putility.AdvancedBase {
         const svc_event = svc.get('event');
 
         const svc_mountpoint = svc.get('mountpoint');
-        const storage = svc_mountpoint.get_storage();
+        const storage = svc_mountpoint.get_storage(this.constructor);
 
         bucket        ??= config.s3_bucket;
         bucket_region ??= config.s3_region ?? config.region;
@@ -848,6 +848,20 @@ class PuterFSProvider extends putility.AdvancedBase {
         }
 
         return state_upload;
+    }
+
+    /**
+     * Stat a node by its uid.
+     * 
+     * @param {Object} param
+     * @param {string} param.uid 
+     * @returns {Promise<Object|null>} - The result of the stat operation, or `null` if the node doesn't exist.
+     */
+    async stat_by_uid ({ uid }) {
+        const svc = Context.get('services');
+        const svc_fsEntry = svc.get('fsEntryService');
+        const entry = await svc_fsEntry.get(uid);
+        return entry;
     }
 }
 
