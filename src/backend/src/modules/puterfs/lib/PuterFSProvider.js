@@ -861,7 +861,7 @@ class PuterFSProvider extends putility.AdvancedBase {
      * @param {string} param.uid 
      * @returns {Promise<Object|null>} - The result of the stat operation, or `null` if the node doesn't exist.
      */
-    async _stat_by_uid ({ uid }) {
+    async stat_by_uid ({ uid }) {
         const svc = Context.get('services');
         const svc_fsEntry = svc.get('fsEntryService');
         const entry = await svc_fsEntry.get(uid);

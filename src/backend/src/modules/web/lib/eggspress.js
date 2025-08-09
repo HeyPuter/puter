@@ -181,7 +181,7 @@ module.exports = function eggspress (route, settings, handler) {
       } else await handler(req, res, next);
     } catch (e) {
         if (! (e instanceof APIError)) {
-          // Any non-APIError indicates an unhandled error from the backend.
+          // Any non-APIError indicates an unhandled error (i.e. a bug) from the backend.
           // We add a dedicated branch to facilitate debugging.
           console.error(e);
           api_error_handler(e, req, res, next);

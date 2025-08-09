@@ -33,12 +33,14 @@ class MemoryFile {
      * @param {Object} param
      * @param {string} param.full_path
      * @param {boolean} param.is_dir
-     * @param {Buffer} param.content - The content of the file, `null` if the file is a directory.
+     * @param {Buffer|null} param.content - The content of the file, `null` if the file is a directory.
+     * @param {string|null} [param.parent_uid] - UID of parent directory; null for root.
      */
     constructor({
         full_path,
         is_dir,
         content,
+        parent_uid = null,
     }) {
         this.uuid = uuidv4();
 
@@ -49,8 +51,8 @@ class MemoryFile {
 
         this.content = content;
 
-        // TODO (xiaochen): return consistent parent_uid
-        this.parent_uid = uuidv4();
+        // parent_uid should reflect the actual parent's uid; null for root
+        this.parent_uid = parent_uid;
 
         // TODO (xiaochen): return sensible values for "user_id", currently
         // it must be 2 (admin) to pass the test.
@@ -89,6 +91,7 @@ class MemoryFSProvider {
             full_path: '/',
             is_dir: true,
             content: null,
+            parent_uid: null,
         });
         this.entriesByPath.set('/', root.uuid);
         this.entriesByUUID.set(root.uuid, root);
@@ -132,39 +135,61 @@ class MemoryFSProvider {
     }
 
     /**
-     * Check the integrity of the whole memory filesystem and the input. Throws error if any violation is found.
+     * Check the integrity of the whole memory filesystem. Throws error if any violation is found.
      * 
-     * @param {MemoryFile|FSNodeContext} entry - The entry to check.
      * @returns {Promise<void>}
      */
-    _integrity_check (entry) {
+    _integrity_check () {
         if ( config.env !== 'dev' ) {
             // only check in debug mode since it's expensive
             return;
-        }
-
-        if ( entry ) {
-            // check all directories along the path are valid
-            const path_to_check = 'entry' in entry ? entry.entry?.path : entry.path;
-            const inner_path = this._inner_path(path_to_check);
-            const path_components = inner_path.split('/');
-            for ( let i = 2; i < path_components.length; i++ ) {
-                const path_component = path_components.slice(0, i).join('/');
-                const entry_uuid = this.entriesByPath.get(path_component);
-                if ( ! entry_uuid ) {
-                    throw new Error(`Directory ${path_component} does not exist`);
-                }
-            }
         }
 
         // check the 2 maps are consistent
         if ( this.entriesByPath.size !== this.entriesByUUID.size ) {
             throw new Error('Path map and UUID map have different sizes');
         }
+
         for ( const [inner_path, uuid] of this.entriesByPath ) {
             const entry = this.entriesByUUID.get(uuid);
-            if ( ! entry || this._inner_path(entry.path) !== inner_path ) {
+
+            // entry should exist
+            if ( ! entry ) {
+                throw new Error(`Entry ${uuid} does not exist`);
+            }
+
+            // path should match
+            if ( this._inner_path(entry.path) !== inner_path ) {
                 throw new Error(`Path ${inner_path} does not match entry ${uuid}`);
+            }
+
+            // uuid should match
+            if ( entry.uuid !== uuid ) {
+                throw new Error(`UUID ${uuid} does not match entry ${entry.uuid}`);
+            }
+
+            // parent should exist
+            if ( entry.parent_uid ) {
+                const parent_entry = this.entriesByUUID.get(entry.parent_uid);
+                if ( ! parent_entry ) {
+                    throw new Error(`Parent ${entry.parent_uid} does not exist`);
+                }
+            }
+
+            // parent's path should be a prefix of the entry's path
+            if ( entry.parent_uid ) {
+                const parent_entry = this.entriesByUUID.get(entry.parent_uid);
+                if ( ! entry.path.startsWith(parent_entry.path) ) {
+                    throw new Error(`Parent ${entry.parent_uid} path ${parent_entry.path} is not a prefix of entry ${entry.path}`);
+                }
+            }
+
+            // parent should be a directory
+            if ( entry.parent_uid ) {
+                const parent_entry = this.entriesByUUID.get(entry.parent_uid);
+                if ( ! parent_entry.is_dir ) {
+                    throw new Error(`Parent ${entry.parent_uid} is not a directory`);
+                }
             }
         }
     }
@@ -219,7 +244,7 @@ class MemoryFSProvider {
      * @param {string} param.uid 
      * @returns {Promise<Object|null>} - The result of the stat operation, or `null` if the node doesn't exist.
      */
-    async _stat_by_uid ({ uid }) {
+    async stat_by_uid ({ uid }) {
         const entry = this.entriesByUUID.get(uid);
         if ( ! entry ) {
             return null;
@@ -271,6 +296,7 @@ class MemoryFSProvider {
             full_path: full_path,
             is_dir: true,
             content: null,
+            parent_uid: parent.uid,
         });
         this.entriesByPath.set(inner_path, entry.uuid);
         this.entriesByUUID.set(entry.uuid, entry);
@@ -279,7 +305,7 @@ class MemoryFSProvider {
         const fs = context.get('services').get('filesystem');
         const node = await fs.node(entry.path);
 
-        this._integrity_check(node);
+        this._integrity_check();
 
         return node;
     }
@@ -330,7 +356,7 @@ class MemoryFSProvider {
             this.entriesByUUID.delete(node.uid);
         }
 
-        this._integrity_check(node);
+        this._integrity_check();
     }
 
     /**
@@ -359,8 +385,6 @@ class MemoryFSProvider {
      * @returns {Promise<MemoryFile>}
      */
     async move({ context, node, new_parent, new_name, metadata }) {
-        this._integrity_check(null);
-
         // create the new entry
         const new_full_path = _path.join(new_parent.path, new_name);
         const new_inner_path = this._inner_path(new_full_path);
@@ -368,6 +392,7 @@ class MemoryFSProvider {
             full_path: new_full_path,
             is_dir: node.entry.is_dir,
             content: node.entry.content,
+            parent_uid: new_parent.uid,
         });
         entry.uuid = node.entry.uuid;
         this.entriesByPath.set(new_inner_path, entry.uuid);
@@ -378,7 +403,7 @@ class MemoryFSProvider {
         this.entriesByPath.delete(inner_path);
         // should not delete the entry by uuid because it's the same
 
-        this._integrity_check(entry);
+        this._integrity_check();
 
         return entry;
     }
@@ -456,6 +481,7 @@ class MemoryFSProvider {
             full_path: full_path,
             is_dir: false,
             content: file.stream.read(),
+            parent_uid: parent.uid,
         });
         this.entriesByPath.set(inner_path, entry.uuid);
         this.entriesByUUID.set(entry.uuid, entry);
@@ -495,12 +521,11 @@ class MemoryFSProvider {
             this.entriesByUUID.set(node.uid, original_entry);
         }
 
-        this._integrity_check(node);
-
-        // return node;
         const fs = context.get('services').get('filesystem');
         node = await fs.node(original_entry.path);
         await node.fetchEntry();
+
+        this._integrity_check();
 
         return node;
     }

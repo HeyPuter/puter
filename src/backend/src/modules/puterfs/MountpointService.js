@@ -19,7 +19,7 @@
  */
 // const Mountpoint = o => ({ ...o });
 
-const { RootNodeSelector, NodeUIDSelector, NodeChildSelector, NodePathSelector, NodeInternalIDSelector } = require("../../filesystem/node/selectors");
+const { RootNodeSelector, NodeUIDSelector, NodeChildSelector, NodePathSelector, NodeInternalIDSelector, NodeSelector } = require("../../filesystem/node/selectors");
 const BaseService = require("../../services/BaseService");
 
 /**
@@ -89,12 +89,7 @@ class MountpointService extends BaseService {
     
     async get_provider (selector) {
         // type check
-        if ( ! (selector instanceof RootNodeSelector) &&
-            ! (selector instanceof NodeUIDSelector) &&
-            ! (selector instanceof NodeChildSelector) &&
-            ! (selector instanceof NodePathSelector) &&
-            ! (selector instanceof NodeInternalIDSelector)
-        ) {
+        if ( ! (selector instanceof NodeSelector) ) {
             throw new Error('Invalid selector type');
         }
 
@@ -104,14 +99,16 @@ class MountpointService extends BaseService {
 
         if ( selector instanceof NodeUIDSelector ) {
             for ( const [path, { provider }] of Object.entries(this.mountpoints_) ) {
-                const result = await provider._stat_by_uid({
+                const result = await provider.stat_by_uid({
                     uid: selector.value,
                 });
                 if ( result ) {
                     return provider;
                 }
             }
-            console.log('no provider found');
+
+            // No provider found, but we shouldn't throw an error here
+            // because it's a valid case for a node that doesn't exist.
         }
 
         if ( selector instanceof NodeChildSelector ) {
