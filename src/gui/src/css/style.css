@@ -84,11 +84,11 @@ pre {
 }
 
 :root {
-    --primary-hue: 210;
-    --primary-saturation: 41.18%;
-    --primary-lightness: 93.33%;
-    --primary-alpha: 0.8;
-    --primary-color: #373e44;
+    --primary-hue: 220;
+    --primary-saturation: 20%;
+    --primary-lightness: 95%;
+    --primary-alpha: 0.7;
+    --primary-color: #4a5568;
 
     --window-head-hue: var(--primary-hue);
     --window-head-saturation: var(--primary-saturation);
@@ -108,9 +108,9 @@ pre {
     --taskbar-alpha: calc(0.73 * var(--primary-alpha));
     --taskbar-color: var(--primary-color);
 
-    --select-hue: 213.05;
-    --select-saturation: 74.22%;
-    --select-lightness: 55.88%;
+    --select-hue: 220;
+    --select-saturation: 50%;
+    --select-lightness: 60%;
     --select-color: hsl(var(--select-hue), var(--select-saturation), var(--select-lightness));
 }
 
@@ -349,9 +349,10 @@ input[type=text]:focus, input[type=password]:focus, input[type=email]:focus, sel
     height: calc(100vh - 60px);
     width: 100%;
     display: grid;
-    grid-template-rows: repeat(auto-fill, 109px);
+    grid-template-rows: repeat(auto-fill, 120px);
     grid-auto-flow: column;
-    grid-template-columns: repeat(auto-fill, 120px);
+    grid-template-columns: repeat(auto-fill, 130px);
+    grid-gap: 10px;
 }
 
 .fullpage-mode .window-minimize-btn {
@@ -540,6 +541,21 @@ span.header-sort-icon img {
 .item-icon img {
     max-height: 45px;
     max-width: 45px;
+}
+
+.liquid-glass-icon {
+    background: rgba(255, 255, 255, 0.1);
+    border-radius: 50%;
+    box-shadow: 0 4px 30px rgba(0, 0, 0, 0.1);
+    backdrop-filter: blur(5px);
+    -webkit-backdrop-filter: blur(5px);
+    border: 1px solid rgba(255, 255, 255, 0.3);
+    transition: all 0.2s ease-in-out;
+}
+
+.liquid-glass-icon:hover {
+    background: rgba(255, 255, 255, 0.2);
+    box-shadow: 0 4px 30px rgba(0, 0, 0, 0.2);
 }
 
 .item-container-list .item-icon img {
@@ -911,12 +927,14 @@ span.header-sort-icon img {
     border: 1px solid #9a9a9a;
     box-shadow: 0px 0px 15px #00000066;
     overflow: hidden;
-    border-radius: 4px;
+    border-radius: 8px;
     border: none;
     transition: opacity .2s;
     user-select: none !important;
     -moz-user-select: none !important;
     -webkit-user-select: none;
+    min-width: 300px;
+    min-height: 200px;
 }
 
 .window.glassmorphism {
@@ -2311,11 +2329,11 @@ label {
     z-index: 99999;
     overflow: hidden !important;
 
-    height: 50px;
+    height: 60px;
     border-radius: 10px;
-    bottom: 5px;
-    padding-left: 7px;
-    padding-right: 7px;
+    bottom: 10px;
+    padding-left: 10px;
+    padding-right: 10px;
     width: auto;
     left: 50%;
     transform: translateX(-50%);
@@ -2324,7 +2342,7 @@ label {
     box-shadow: 
     inset 0 0 0 0.5px rgba(255, 255, 255, 0.2),
     0 0 0 0.5px rgba(0, 0, 0, 0.2),
-    0 4px 16px rgba(0, 0, 0, 0.2);
+    0 4px 30px rgba(0, 0, 0, 0.1);
 }
 
 .taskbar .taskbar-item {
@@ -2336,9 +2354,9 @@ label {
 }
 
 .taskbar .taskbar-item-sortable-placeholder, .taskbar .taskbar-item {
-    width: 40px;
-    height: 40px;
-    padding: 6px 5px 10px 5px;
+    width: 50px;
+    height: 50px;
+    padding: 5px;
 }
 
 .taskbar .taskbar-item .taskbar-icon {
@@ -2404,7 +2422,7 @@ label {
 }
 
 .taskbar-icon {
-    height: 40px;
+    height: 50px;
 }
 
 #clock {

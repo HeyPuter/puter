@@ -117,7 +117,7 @@ function UIItem(options){
 
 
         // icon
-        h += `<div class="item-icon">`;
+        h += `<div class="item-icon liquid-glass-icon">`;
             h += `<img src="${html_encode(options.icon.image)}" class="item-icon-${options.icon.type}" data-item-id="${item_id}">`;
         h += `</div>`;
         // badges
