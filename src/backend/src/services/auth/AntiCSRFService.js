@@ -30,6 +30,11 @@ const BaseService = require("../BaseService");
  * A token expires when it is evicted from the queue.
  */
 class CircularQueue {
+    /**
+     * Creates a new CircularQueue instance with the specified size.
+     * 
+     * @param {number} size - The maximum number of items the queue can hold
+     */
     constructor (size) {
         this.size = size;
         this.queue = [];
@@ -37,6 +42,11 @@ class CircularQueue {
         this.map = new Map();
     }
 
+    /**
+     * Adds an item to the queue. If the queue is full, the oldest item is removed.
+     * 
+     * @param {*} item - The item to add to the queue
+     */
     push (item) {
         if ( this.queue[this.index] ) {
             this.map.delete(this.queue[this.index]);
@@ -46,14 +56,32 @@ class CircularQueue {
         this.index = (this.index + 1) % this.size;
     }
 
+    /**
+     * Retrieves an item from the queue at the specified relative index.
+     * 
+     * @param {number} index - The relative index from the current position
+     * @returns {*} The item at the specified index
+     */
     get (index) {
         return this.queue[(this.index + index) % this.size];
     }
 
+    /**
+     * Checks if the queue contains the specified item.
+     * 
+     * @param {*} item - The item to check for
+     * @returns {boolean} True if the item exists in the queue, false otherwise
+     */
     has (item) {
         return this.map.has(item);
     }
 
+    /**
+     * Attempts to consume (remove) an item from the queue if it exists.
+     * 
+     * @param {*} item - The item to consume
+     * @returns {boolean} True if the item was found and consumed, false otherwise
+     */
     maybe_consume (item) {
         if ( this.has(item) ) {
             const index = this.map.get(item);
@@ -81,6 +109,12 @@ class AntiCSRFService extends BaseService {
         this.map_session_to_tokens = {};
     }
 
+    /**
+     * Sets up the route handler for getting anti-CSRF tokens.
+     * Registers the '/get-anticsrf-token' endpoint that returns a new token for authenticated users.
+     * 
+     * @returns {void}
+     */
     ['__on_install.routes'] () {
         const { app } = this.services.get('web-server');
 
@@ -106,6 +140,13 @@ class AntiCSRFService extends BaseService {
         }));
     }
 
+    /**
+     * Creates a new anti-CSRF token for the specified session.
+     * If no token queue exists for the session, a new one is created.
+     * 
+     * @param {string} session - The session identifier
+     * @returns {string} The newly created token
+     */
     create_token (session) {
         let tokens = this.map_session_to_tokens[session];
         if ( ! tokens ) {
@@ -117,6 +158,13 @@ class AntiCSRFService extends BaseService {
         return token;
     }
 
+    /**
+     * Attempts to consume (validate and remove) a token for the specified session.
+     * 
+     * @param {string} session - The session identifier
+     * @param {string} token - The token to consume
+     * @returns {boolean} True if the token was valid and consumed, false otherwise
+     */
     consume_token (session, token) {
         const tokens = this.map_session_to_tokens[session];
         if ( ! tokens ) return false;
@@ -135,6 +183,13 @@ class AntiCSRFService extends BaseService {
         return require('crypto').randomBytes(32).toString('hex');
     }
 
+    /**
+     * Runs unit tests for the AntiCSRFService functionality.
+     * Tests token generation, expiration, and consumption behavior.
+     * 
+     * @param {Object} params - Test parameters
+     * @param {Function} params.assert - Assertion function for testing
+     */
     _test ({ assert }) {
         // Do this several times, like a user would
         for ( let i=0 ; i < 30 ; i++ ) {
