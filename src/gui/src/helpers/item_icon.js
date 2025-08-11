@@ -83,6 +83,12 @@ const item_icon = async (fsentry)=>{
         return {image: trash_img, type: 'icon'};
     }
     // --------------------------------------------------
+    // Browser
+    // --------------------------------------------------
+    else if(fsentry.name === 'browser'){
+        return {image: window.icons['app-icon-browser.svg'], type: 'icon'};
+    }
+    // --------------------------------------------------
     // Directories
     // --------------------------------------------------
     else if(fsentry.is_dir){

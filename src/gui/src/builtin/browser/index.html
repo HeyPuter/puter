@@ -1,0 +1,49 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Browser</title>
+    <style>
+        body, html {
+            margin: 0;
+            padding: 0;
+            width: 100%;
+            height: 100%;
+            overflow: hidden;
+            font-family: sans-serif;
+        }
+        #toolbar {
+            display: flex;
+            align-items: center;
+            padding: 5px;
+            background-color: #f1f1f1;
+            border-bottom: 1px solid #ccc;
+        }
+        #address-bar {
+            flex-grow: 1;
+            padding: 5px;
+            border: 1px solid #ccc;
+            border-radius: 3px;
+        }
+        #nav-buttons button {
+            margin-right: 5px;
+        }
+        #content {
+            width: 100%;
+            height: calc(100% - 40px);
+            border: none;
+        }
+    </style>
+</head>
+<body>
+    <div id="toolbar">
+        <div id="nav-buttons">
+            <button id="back-btn">&larr;</button>
+            <button id="forward-btn">&rarr;</button>
+            <button id="reload-btn">&#x21bb;</button>
+        </div>
+        <input type="text" id="address-bar" placeholder="https://">
+    </div>
+    <iframe id="content" src="about:blank"></iframe>
+    <script src="main.js"></script>
+</body>
+</html>

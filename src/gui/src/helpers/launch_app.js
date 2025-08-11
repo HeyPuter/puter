@@ -187,7 +187,10 @@ const launch_app = async (options)=>{
         // This can be any trusted URL that won't be used for other apps
         const BUILTIN_PREFIX = 'https://builtins.namespaces.puter.com/';
 
-        if(!app_info.index_url){
+        if(options.name === 'browser'){
+            iframe_url = new URL(`${window.gui_origin}/src/builtin/browser/index.html`);
+        }
+        else if(!app_info.index_url){
             iframe_url = new URL('https://'+options.name+'.' + window.app_domain + `/index.html`);
         } else if ( app_info.index_url.startsWith(BUILTIN_PREFIX) ) {
             const name = app_info.index_url.slice(BUILTIN_PREFIX.length);

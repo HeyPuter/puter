@@ -1028,6 +1028,19 @@ async function UIDesktop(options){
         }
     }
 
+    // Add Browser app to desktop
+    UIItem({
+        appendTo: el_desktop,
+        uid: 'browser-app',
+        path: 'browser',
+        icon: await item_icon({name: 'browser'}),
+        name: 'Browser',
+        is_dir: false,
+        is_shortcut: true,
+        shortcut_to: 'browser',
+        app: 'browser'
+    });
+
     // -------------------------------------------
     // Selectable
     // Only for desktop

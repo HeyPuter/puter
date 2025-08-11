@@ -114,6 +114,14 @@ pre {
     --select-color: hsl(var(--select-hue), var(--select-saturation), var(--select-lightness));
 }
 
+.glassmorphism {
+    background: rgba(255, 255, 255, 0.2);
+    box-shadow: 0 4px 30px rgba(0, 0, 0, 0.1);
+    backdrop-filter: blur(5px);
+    -webkit-backdrop-filter: blur(5px);
+    border: 1px solid rgba(255, 255, 255, 0.3);
+}
+
 html, body {
     /* disables two fingers back/forward swipe */
     overscroll-behavior-x: none;
@@ -911,6 +919,13 @@ span.header-sort-icon img {
     -webkit-user-select: none;
 }
 
+.window.glassmorphism {
+    background: rgba(255, 255, 255, 0.1);
+    backdrop-filter: blur(10px);
+    -webkit-backdrop-filter: blur(10px);
+    border: 1px solid rgba(255, 255, 255, 0.2);
+}
+
 .window[data-is_maximized="1"] {
     transform: none;
     border-radius: 0;
@@ -969,10 +984,9 @@ span.header-sort-icon img {
 .window-head {
     overflow: hidden !important;
     padding: 0;
-    background-color: hsla(var(--window-head-hue),
-            var(--window-head-saturation),
-            var(--window-head-lightness),
-            calc(0.5 + 0.5 * var(--window-head-alpha)));
+    background-color: rgba(255, 255, 255, 0.1);
+    backdrop-filter: blur(10px);
+    -webkit-backdrop-filter: blur(10px);
     filter: grayscale(80%);
     box-shadow: inset 0px -4px 5px -7px rgb(0 0 0 / 64%);
     display: flex;
@@ -1566,13 +1580,14 @@ span.header-sort-icon img {
     overflow: hidden;
     white-space: nowrap;
     font-family: sans-serif;
-    background: #FFF;
     color: #333;
     border-radius: 2px;
     padding: 3px 0;
     min-width: 200px;
-    background-color: rgba(231, 238, 245, .98);
-    border: 1px solid #e6e4e466;
+    background-color: rgba(255, 255, 255, 0.1);
+    backdrop-filter: blur(10px);
+    -webkit-backdrop-filter: blur(10px);
+    border: 1px solid rgba(255, 255, 255, 0.2);
     box-shadow: 0px 0px 15px #00000066;
     padding-left: 6px;
     padding-right: 6px;
@@ -2288,10 +2303,9 @@ label {
     bottom: 0;
     left: 0;
     width: 100%;
-    background-color: hsla(var(--taskbar-hue),
-            var(--taskbar-saturation),
-            var(--taskbar-lightness),
-            calc(0.5 + 0.5*var(--taskbar-alpha)));
+    background-color: rgba(255, 255, 255, 0.1);
+    backdrop-filter: blur(10px);
+    -webkit-backdrop-filter: blur(10px);
     display: flex;
     justify-content: center;
     z-index: 99999;
@@ -3722,6 +3736,48 @@ fieldset[name=number-code] {
         width: 100% !important;
         margin: 0 !important;
         margin-bottom: 10px !important;
+    }
+}
+
+/* Responsive Design */
+@media (max-width: 1024px) {
+    .desktop {
+        grid-template-columns: repeat(auto-fill, 100px);
+    }
+}
+
+@media (max-width: 768px) {
+    .desktop {
+        grid-template-columns: repeat(auto-fill, 80px);
+        height: calc(100vh - 80px);
+    }
+
+    .taskbar {
+        height: 60px;
+    }
+
+    .window {
+        width: 90% !important;
+        height: 80% !important;
+    }
+}
+
+@media (max-width: 480px) {
+    .desktop {
+        grid-template-columns: repeat(auto-fill, 60px);
+        height: calc(100vh - 70px);
+    }
+
+    .taskbar {
+        height: 50px;
+    }
+
+    .window {
+        width: 100% !important;
+        height: 100% !important;
+        top: 0 !important;
+        left: 0 !important;
+        border-radius: 0;
     }
 }
 
