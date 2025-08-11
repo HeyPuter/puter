@@ -25,7 +25,16 @@ const { is_valid_path } = require("../../filesystem/validation");
 const FSNodeContext = require("../../filesystem/FSNodeContext");
 const { Entity } = require("../entitystorage/Entity");
 
+/**
+ * Error class for object mapping type validation failures
+ */
 class OMTypeError extends Error {
+    /**
+     * Creates a new OMTypeError instance
+     * @param {Object} options - Error options
+     * @param {string} options.expected - The expected type
+     * @param {string} options.got - The actual type received
+     */
     constructor ({ expected, got }) {
         const message = `expected ${expected}, got ${got}`;
         super(message);
@@ -35,6 +44,11 @@ class OMTypeError extends Error {
 
 module.exports = {
     base: {
+        /**
+         * Checks if a value is set (truthy)
+         * @param {*} value - The value to check
+         * @returns {boolean} True if value is truthy, false otherwise
+         */
         is_set (value) {
             return !! value;
         },
@@ -44,6 +58,12 @@ module.exports = {
     },
     string: {
         from: 'base',
+        /**
+         * Adapts a value to a string type
+         * @param {*} value - The value to adapt
+         * @returns {Promise<string>} The adapted string value
+         * @throws {OMTypeError} When value cannot be converted to string
+         */
         async adapt (value) {
             if ( value === undefined ) return '';
 
@@ -56,6 +76,15 @@ module.exports = {
             }
             return value;
         },
+        /**
+         * Validates a string value against descriptor constraints
+         * @param {string} value - The string value to validate
+         * @param {Object} options - Validation options
+         * @param {string} options.name - The field name
+         * @param {Object} options.descriptor - Field descriptor with validation rules
+         * @returns {boolean|Error} True if valid, Error object if invalid
+         * @throws {APIError} When string length constraints are violated
+         */
         validate (value, { name, descriptor }) {
             if ( typeof value !== 'string' ) {
                 return new OMTypeError({ expected: 'string', got: typeof value });
@@ -74,6 +103,15 @@ module.exports = {
     },
     array: {
         from: 'base',
+        /**
+         * Validates an array value against descriptor constraints
+         * @param {Array} value - The array value to validate
+         * @param {Object} options - Validation options
+         * @param {string} options.name - The field name
+         * @param {Object} options.descriptor - Field descriptor with validation rules
+         * @returns {boolean|OMTypeError} True if valid, OMTypeError if invalid
+         * @throws {APIError} When array length or modulo constraints are violated
+         */
         validate (value, { name, descriptor }) {
             if ( ! Array.isArray(value) ) {
                 return new OMTypeError({ expected: 'array', got: typeof value });
@@ -91,6 +129,12 @@ module.exports = {
         }
     },
     flag: {
+        /**
+         * Adapts various value types to boolean flags
+         * @param {*} value - The value to adapt to boolean
+         * @returns {boolean} The adapted boolean value
+         * @throws {OMTypeError} When value cannot be converted to boolean
+         */
         adapt: value => {
             if ( value === undefined ) return false;
             if ( value === 0 ) value = false;
@@ -105,12 +149,24 @@ module.exports = {
     },
     uuid: {
         from: 'string',
+        /**
+         * Validates that a string is a valid UUID v4
+         * @param {string} value - The UUID string to validate
+         * @returns {boolean} True if valid UUID v4, false otherwise
+         */
         validate (value) {
             return is_valid_uuid4(value);
         },
     },
     ['puter-uuid']: {
         from: 'string',
+        /**
+         * Validates that a string is a valid prefixed UUID
+         * @param {string} value - The prefixed UUID string to validate
+         * @param {Object} options - Validation options
+         * @param {Object} options.descriptor - Field descriptor containing prefix
+         * @returns {boolean|Error} True if valid, Error if invalid
+         */
         validate (value, { descriptor }) {
             const prefix = descriptor.prefix + '-';
             if ( ! value.startsWith(prefix) ) {
@@ -118,6 +174,12 @@ module.exports = {
             }
             return is_valid_uuid(value.slice(prefix.length));
         },
+        /**
+         * Creates a new prefixed UUID
+         * @param {Object} options - Factory options
+         * @param {Object} options.descriptor - Field descriptor containing prefix
+         * @returns {string} A new prefixed UUID string
+         */
         factory ({ descriptor }) {
             const prefix = descriptor.prefix + '-';
             const uuid = require('uuid').v4();
@@ -126,6 +188,11 @@ module.exports = {
     },
     ['image-base64']: {
         from: 'string',
+        /**
+         * Validates that a string is a valid base64 encoded image
+         * @param {string} value - The base64 image string to validate
+         * @returns {boolean|Error} True if valid, Error if invalid
+         */
         validate (value) {
             if ( ! value.startsWith('data:image/') ) {
                 return new Error('image must be base64 encoded');
@@ -139,6 +206,11 @@ module.exports = {
     },
     url: {
         from: 'string',
+        /**
+         * Validates that a string is a valid URL
+         * @param {string} value - The URL string to validate
+         * @returns {boolean} True if valid URL, false otherwise
+         */
         validate (value) {
             let valid = validator.isURL(value);
             if ( ! valid ) {
@@ -149,6 +221,13 @@ module.exports = {
     },
     reference: {
         from: 'base',
+        /**
+         * Converts an entity reference to its SQL representation
+         * @param {*} value - The entity or reference value
+         * @param {Object} options - Reference options
+         * @param {Object} options.descriptor - Field descriptor
+         * @returns {Promise<*>} The SQL reference value or original value
+         */
         async sql_reference (value, { descriptor }) {
             if ( ! descriptor.service ) return value;
             if ( ! value ) return null;
@@ -157,6 +236,13 @@ module.exports = {
             }
             return value.id;
         },
+        /**
+         * Converts a SQL reference back to an entity
+         * @param {*} value - The SQL reference value
+         * @param {Object} options - Dereference options
+         * @param {Object} options.descriptor - Field descriptor
+         * @returns {Promise<*>} The dereferenced entity or original value
+         */
         async sql_dereference (value, { descriptor }) {
             if ( ! descriptor.service ) return value;
             if ( ! value ) return null;
@@ -164,6 +250,13 @@ module.exports = {
             const entity = await svc.read(value);
             return entity;
         },
+        /**
+         * Adapts a value to an entity reference
+         * @param {*} value - The value to adapt
+         * @param {Object} options - Adaptation options
+         * @param {Object} options.descriptor - Field descriptor
+         * @returns {Promise<*>} The adapted entity or original value
+         */
         async adapt (value, { descriptor }) {
             if ( descriptor.debug ) {
                 debugger; // eslint-disable-line no-debugger
@@ -182,6 +275,12 @@ module.exports = {
     },
     ['puter-node']: {
         // from: 'base',
+        /**
+         * Converts a filesystem node to its SQL reference
+         * @param {FSNodeContext|null} value - The filesystem node context
+         * @returns {Promise<number|null>} The MySQL ID or null
+         * @throws {Error} When value is not an FSNodeContext
+         */
         async sql_reference (value) {
             if ( value === null ) return null;
             if ( ! (value instanceof FSNodeContext) ) {
@@ -190,9 +289,20 @@ module.exports = {
             await value.fetchEntry();
             return value.mysql_id ?? null;
         },
+        /**
+         * Checks if a filesystem node value is set
+         * @param {*} value - The value to check
+         * @returns {Promise<boolean>} True if value is set or explicitly null
+         */
         async is_set (value) {
             return ( !! value ) || value === null;
         },
+        /**
+         * Converts a SQL reference back to a filesystem node
+         * @param {number|null} value - The MySQL ID reference
+         * @returns {Promise<FSNodeContext|null>} The filesystem node context or null
+         * @throws {Error} When value is not a number
+         */
         async sql_dereference (value) {
             if ( value === null ) return null;
             if ( typeof value !== 'number' ) {
@@ -205,6 +315,15 @@ module.exports = {
                 new NodeInternalIDSelector('mysql', value)
             );
         },
+        /**
+         * Adapts a string path or UUID to a filesystem node context
+         * @param {string|FSNodeContext|null} value - The path, UUID, or node context
+         * @param {Object} options - Adaptation options
+         * @param {string} options.name - The field name
+         * @returns {Promise<FSNodeContext|null>} The filesystem node context or null
+         * @throws {Error} When user context is missing for ~ paths
+         * @throws {APIError} When path is invalid
+         */
         async adapt (value, { name }) {
             if ( value === null ) return null;
 
@@ -244,6 +363,14 @@ module.exports = {
             const node = await svc_fs.node(selector);
             return node;
         },
+        /**
+         * Validates filesystem node access permissions
+         * @param {FSNodeContext|null} value - The filesystem node to validate
+         * @param {Object} options - Validation options
+         * @param {string} options.name - The field name
+         * @param {Object} options.descriptor - Field descriptor with permission settings
+         * @returns {Promise<void|APIError>} Nothing if valid, APIError if access denied
+         */
         async validate (value, { name, descriptor }) {
             if ( value === null ) return;
             const actor = Context.get('actor');
