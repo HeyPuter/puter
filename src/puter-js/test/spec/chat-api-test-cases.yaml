@@ -1,0 +1,400 @@
+# Puter.js AI Chat API Test Cases
+# This file contains test cases for regression testing of the puter.ai.chat() method
+
+test_suite:
+  name: "AI Chat API Regression Tests"
+  description: "Comprehensive test cases for puter.ai.chat() method"
+  version: "1.0.0"
+
+test_categories:
+  - name: "Basic Text Chat"
+    description: "Simple text prompt functionality"
+    tests:
+      - name: "simple_string_prompt"
+        description: "Basic string prompt without parameters"
+        input: "Hello, how are you?"
+        expected:
+          type: "string"
+          driver: "openai-completion"
+          vision: false
+          test_mode: false
+        validation:
+          - "Should accept string input"
+          - "Should default to openai-completion driver"
+          - "Should not enable vision mode"
+          - "Should not enable test mode"
+
+      - name: "string_with_test_mode"
+        description: "String prompt with test mode boolean"
+        input: ["Hello", true]
+        expected:
+          type: "array"
+          driver: "openai-completion"
+          vision: false
+          test_mode: true
+        validation:
+          - "Should accept string + boolean array"
+          - "Should enable test mode"
+          - "Should not enable vision mode"
+
+  - name: "Vision Capabilities"
+    description: "Image processing and vision functionality"
+    tests:
+      - name: "single_image_file"
+        description: "Text prompt with single image file"
+        input: ["Describe this image", "imageFile"]
+        expected:
+          type: "array"
+          vision: true
+          driver: "openai-completion"
+          test_mode: false
+        validation:
+          - "Should auto-detect vision mode"
+          - "Should convert File to data URI"
+          - "Should structure content as array"
+          - "Should set vision flag to true"
+
+      - name: "single_image_url"
+        description: "Text prompt with single image URL"
+        input: ["Analyze this image", "https://example.com/image.jpg"]
+        expected:
+          type: "array"
+          vision: true
+          driver: "openai-completion"
+          test_mode: false
+        validation:
+          - "Should auto-detect vision mode"
+          - "Should handle URL strings"
+          - "Should set vision flag to true"
+
+      - name: "multiple_images"
+        description: "Text prompt with multiple images"
+        input: ["Compare these images", ["image1", "image2", "image3"]]
+        expected:
+          type: "array"
+          vision: true
+          driver: "openai-completion"
+          test_mode: false
+        validation:
+          - "Should auto-detect vision mode"
+          - "Should handle image arrays"
+          - "Should convert all images to image_url objects"
+
+      - name: "vision_with_test_mode"
+        description: "Vision with test mode enabled"
+        input: ["Describe this image", "imageFile", true]
+        expected:
+          type: "array"
+          vision: true
+          driver: "openai-completion"
+          test_mode: true
+        validation:
+          - "Should enable both vision and test mode"
+          - "Should maintain vision structure"
+
+  - name: "Conversation Arrays"
+    description: "Message array and conversation functionality"
+    tests:
+      - name: "message_objects_array"
+        description: "Array of message objects with roles"
+        input:
+          - role: "user"
+            content: "What is AI?"
+          - role: "assistant"
+            content: "AI stands for Artificial Intelligence..."
+          - role: "user"
+            content: "Can you give me examples?"
+        expected:
+          type: "array"
+          vision: false
+          driver: "openai-completion"
+          test_mode: false
+        validation:
+          - "Should accept message object arrays"
+          - "Should preserve role and content structure"
+          - "Should not enable vision mode"
+
+      - name: "string_array_conversion"
+        description: "Array of strings (auto-converted to messages)"
+        input: ["hi", "how are you?", "tell me a joke"]
+        expected:
+          type: "array"
+          vision: false
+          driver: "openai-completion"
+          test_mode: false
+        validation:
+          - "Should accept string arrays"
+          - "Should auto-convert to message format"
+          - "Should not enable vision mode"
+
+  - name: "Full Parameters Object"
+    description: "Complete parameter specification"
+    tests:
+      - name: "basic_parameters"
+        description: "Basic parameters with messages and model"
+        input:
+          messages:
+            - role: "user"
+              content: "Hello"
+          model: "gpt-4o"
+          temperature: 0.7
+        expected:
+          type: "object"
+          vision: false
+          driver: "openai-completion"
+          test_mode: false
+        validation:
+          - "Should accept parameter objects"
+          - "Should use specified model"
+          - "Should apply temperature setting"
+
+      - name: "vision_parameters"
+        description: "Parameters with vision enabled"
+        input:
+          messages:
+            - content: ["Describe this", { image_url: { url: "data:image/..." } }]
+          model: "claude-3-opus"
+          vision: true
+        expected:
+          type: "object"
+          vision: true
+          driver: "claude"
+          test_mode: false
+        validation:
+          - "Should respect explicit vision setting"
+          - "Should map to correct driver"
+          - "Should maintain vision content structure"
+
+      - name: "function_calling"
+        description: "Parameters with function calling tools"
+        input:
+          messages:
+            - role: "user"
+              content: "Get the weather for London"
+          tools:
+            - type: "function"
+              function:
+                name: "get_weather"
+                description: "Get weather for a location"
+                parameters:
+                  type: "object"
+                  properties:
+                    location:
+                      type: "string"
+                  required: ["location"]
+        expected:
+          type: "object"
+          vision: false
+          driver: "openai-completion"
+          test_mode: false
+        validation:
+          - "Should include tools in request"
+          - "Should preserve tool structure"
+          - "Should not enable vision mode"
+
+  - name: "Mixed Parameters"
+    description: "Mixed parameter combinations"
+    tests:
+      - name: "text_with_parameters"
+        description: "Text prompt with parameter object"
+        input: ["Hello", { model: "claude-3-opus", temperature: 0.8 }]
+        expected:
+          type: "array"
+          vision: false
+          driver: "claude"
+          test_mode: false
+        validation:
+          - "Should merge text with parameters"
+          - "Should use specified model"
+          - "Should apply temperature setting"
+
+      - name: "vision_with_parameters"
+        description: "Vision with parameter object"
+        input: ["Describe this", "imageFile", { model: "gpt-4o", stream: true }]
+        expected:
+          type: "array"
+          vision: true
+          driver: "openai-completion"
+          test_mode: false
+        validation:
+          - "Should enable vision mode"
+          - "Should use specified model"
+          - "Should enable streaming"
+
+      - name: "complex_mixed"
+        description: "Complex mixed parameters with test mode"
+        input: ["Hello", "imageFile", true, { model: "claude-3-opus", driver: "openai-completion" }]
+        expected:
+          type: "array"
+          vision: true
+          driver: "openai-completion"
+          test_mode: true
+        validation:
+          - "Should enable vision mode"
+          - "Should enable test mode"
+          - "Should override driver selection"
+          - "Should use specified model"
+
+  - name: "Model Mapping"
+    description: "Automatic model name conversion and driver selection"
+    tests:
+      - name: "openai_models"
+        description: "OpenAI model detection"
+        input: ["Hello", { model: "gpt-4o" }]
+        expected:
+          driver: "openai-completion"
+          model: "gpt-4o"
+        validation:
+          - "Should map gpt-* models to openai-completion"
+          - "Should preserve model name"
+
+      - name: "claude_models"
+        description: "Claude model detection"
+        input: ["Hello", { model: "claude-3-opus" }]
+        expected:
+          driver: "claude"
+          model: "claude-3-opus"
+        validation:
+          - "Should map claude-* models to claude driver"
+          - "Should preserve model name"
+
+      - name: "model_aliases"
+        description: "Model alias conversion"
+        input: ["Hello", { model: "claude" }]
+        expected:
+          driver: "claude"
+          model: "claude-3-7-sonnet-latest"
+        validation:
+          - "Should convert 'claude' to 'claude-3-7-sonnet-latest'"
+          - "Should map to claude driver"
+
+      - name: "vendor_prefix_removal"
+        description: "Vendor prefix handling"
+        input: ["Hello", { model: "anthropic/claude-3-opus" }]
+        expected:
+          driver: "claude"
+          model: "claude-3-opus"
+        validation:
+          - "Should remove 'anthropic/' prefix"
+          - "Should map to claude driver"
+
+      - name: "openrouter_prefixing"
+        description: "OpenRouter prefix addition"
+        input: ["Hello", { model: "meta-llama/Llama-3.1-8B" }]
+        expected:
+          driver: "openrouter"
+          model: "openrouter:meta-llama/Llama-3.1-8B"
+        validation:
+          - "Should add 'openrouter:' prefix"
+          - "Should map to openrouter driver"
+
+  - name: "Driver Override"
+    description: "Manual driver selection override"
+    tests:
+      - name: "force_driver"
+        description: "Force specific driver regardless of model"
+        input: ["Hello", { model: "gpt-4o", driver: "claude" }]
+        expected:
+          driver: "claude"
+          model: "gpt-4o"
+        validation:
+          - "Should use specified driver"
+          - "Should ignore automatic mapping"
+          - "Should preserve model name"
+
+  - name: "Response Handling"
+    description: "Response transformation and structure"
+    tests:
+      - name: "response_structure"
+        description: "Standard response structure"
+        input: "Hello"
+        expected_response:
+          message:
+            role: "assistant"
+            content: "string"
+          usage:
+            prompt_tokens: "number"
+            completion_tokens: "number"
+            total_tokens: "number"
+        validation:
+          - "Should return message object"
+          - "Should include usage information"
+          - "Should have toString() method"
+          - "Should have valueOf() method"
+
+      - name: "response_methods"
+        description: "Response convenience methods"
+        input: "Hello"
+        expected_methods:
+          - "toString()"
+          - "valueOf()"
+        validation:
+          - "toString() should return message content"
+          - "valueOf() should return message content"
+
+  - name: "Error Handling"
+    description: "Error cases and validation"
+    tests:
+      - name: "no_arguments"
+        description: "Call without arguments"
+        input: null
+        expected_error:
+          code: "arguments_required"
+          message: "Arguments are required"
+        validation:
+          - "Should throw error for missing arguments"
+          - "Should have correct error code"
+          - "Should have descriptive message"
+
+      - name: "invalid_model"
+        description: "Invalid model specification"
+        input: ["Hello", { model: "invalid-model" }]
+        expected:
+          driver: "openai-completion"
+        validation:
+          - "Should fall back to default driver"
+          - "Should not crash with invalid model"
+
+  - name: "Performance Tests"
+    description: "Performance and efficiency tests"
+    tests:
+      - name: "large_message_array"
+        description: "Handle large message arrays"
+        input: "Generate large array of 1000 messages"
+        expected:
+          performance: "acceptable"
+          memory: "stable"
+        validation:
+          - "Should handle large inputs efficiently"
+          - "Should not cause memory leaks"
+          - "Should complete within reasonable time"
+
+      - name: "concurrent_calls"
+        description: "Multiple concurrent chat calls"
+        input: "Make 10 concurrent chat calls"
+        expected:
+          concurrency: "supported"
+          isolation: "maintained"
+        validation:
+          - "Should handle concurrent calls"
+          - "Should maintain request isolation"
+          - "Should not interfere between calls"
+
+test_configuration:
+  timeout: 30000  # 30 seconds
+  retries: 3
+  parallel: false  # Run tests sequentially for stability
+  
+validation_rules:
+  - "All test cases must validate input/output structure"
+  - "Driver selection must match expected mapping"
+  - "Vision mode must be correctly detected"
+  - "Test mode must be properly enabled"
+  - "Response structure must match specification"
+  - "Error cases must be properly handled"
+
+reporting:
+  format: ["json", "html", "junit"]
+  output_dir: "./test-results"
+  include_screenshots: false
+  include_logs: true

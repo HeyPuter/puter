@@ -1,0 +1,236 @@
+{
+  "test_data": {
+    "basic_text": {
+      "input": "Hello, how are you?",
+      "expected": {
+        "driver": "openai-completion",
+        "vision": false,
+        "test_mode": false,
+        "messages": [{ "content": "Hello, how are you?" }]
+      }
+    },
+    "text_with_test_mode": {
+      "input": ["Hello", true],
+      "expected": {
+        "driver": "openai-completion",
+        "vision": false,
+        "test_mode": true,
+        "messages": [{ "content": "Hello" }]
+      }
+    },
+    "vision_single_image": {
+      "input": ["Describe this image", "https://example.com/image.jpg"],
+      "expected": {
+        "driver": "openai-completion",
+        "vision": true,
+        "test_mode": false,
+        "messages": [{
+          "content": [
+            "Describe this image",
+            { "image_url": { "url": "https://example.com/image.jpg" } }
+          ]
+        }]
+      }
+    },
+    "vision_multiple_images": {
+      "input": ["Compare these images", ["url1", "url2", "url3"]],
+      "expected": {
+        "driver": "openai-completion",
+        "vision": true,
+        "test_mode": false,
+        "messages": [{
+          "content": [
+            "Compare these images",
+            { "image_url": { "url": "url1" } },
+            { "image_url": { "url": "url2" } },
+            { "image_url": { "url": "url3" } }
+          ]
+        }]
+      }
+    },
+    "message_array": {
+      "input": [
+        { "role": "user", "content": "What is AI?" },
+        { "role": "assistant", "content": "AI stands for Artificial Intelligence..." },
+        { "role": "user", "content": "Can you give me examples?" }
+      ],
+      "expected": {
+        "driver": "openai-completion",
+        "vision": false,
+        "test_mode": false,
+        "messages": [
+          { "role": "user", "content": "What is AI?" },
+          { "role": "assistant", "content": "AI stands for Artificial Intelligence..." },
+          { "role": "user", "content": "Can you give me examples?" }
+        ]
+      }
+    },
+    "string_array": {
+      "input": ["hi", "how are you?", "tell me a joke"],
+      "expected": {
+        "driver": "openai-completion",
+        "vision": false,
+        "test_mode": false,
+        "messages": [
+          { "content": "hi" },
+          { "content": "how are you?" },
+          { "content": "tell me a joke" }
+        ]
+      }
+    },
+    "full_parameters": {
+      "input": {
+        "messages": [{ "role": "user", "content": "Hello" }],
+        "model": "gpt-4o",
+        "temperature": 0.7,
+        "max_tokens": 1000
+      },
+      "expected": {
+        "driver": "openai-completion",
+        "vision": false,
+        "test_mode": false,
+        "model": "gpt-4o",
+        "temperature": 0.7,
+        "max_tokens": 1000,
+        "messages": [{ "role": "user", "content": "Hello" }]
+      }
+    },
+    "mixed_parameters": {
+      "input": ["Hello", { "model": "claude-3-opus", "temperature": 0.8 }],
+      "expected": {
+        "driver": "claude",
+        "vision": false,
+        "test_mode": false,
+        "model": "claude-3-opus",
+        "temperature": 0.8,
+        "messages": [{ "content": "Hello" }]
+      }
+    },
+    "vision_with_parameters": {
+      "input": ["Describe this", "imageFile", { "model": "gpt-4o", "stream": true }],
+      "expected": {
+        "driver": "openai-completion",
+        "vision": true,
+        "test_mode": false,
+        "model": "gpt-4o",
+        "stream": true,
+        "messages": [{
+          "content": [
+            "Describe this",
+            { "image_url": { "url": "imageFile" } }
+          ]
+        }]
+      }
+    },
+    "function_calling": {
+      "input": {
+        "messages": [{ "role": "user", "content": "Get the weather for London" }],
+        "tools": [{
+          "type": "function",
+          "function": {
+            "name": "get_weather",
+            "description": "Get weather for a location",
+            "parameters": {
+              "type": "object",
+              "properties": {
+                "location": { "type": "string" }
+              },
+              "required": ["location"]
+            }
+          }
+        }]
+      },
+      "expected": {
+        "driver": "openai-completion",
+        "vision": false,
+        "test_mode": false,
+        "tools": [{
+          "type": "function",
+          "function": {
+            "name": "get_weather",
+            "description": "Get weather for a location",
+            "parameters": {
+              "type": "object",
+              "properties": {
+                "location": { "type": "string" }
+              },
+              "required": ["location"]
+            }
+          }
+        }],
+        "messages": [{ "role": "user", "content": "Get the weather for London" }]
+      }
+    },
+    "driver_override": {
+      "input": ["Hello", { "model": "gpt-4o", "driver": "claude" }],
+      "expected": {
+        "driver": "claude",
+        "vision": false,
+        "test_mode": false,
+        "model": "gpt-4o",
+        "messages": [{ "content": "Hello" }]
+      }
+    }
+  },
+  "model_mapping": {
+    "openai_models": {
+      "gpt-4o": "openai-completion",
+      "gpt-3.5-turbo": "openai-completion",
+      "openai/gpt-4o": "openai-completion"
+    },
+    "claude_models": {
+      "claude-3-opus": "claude",
+      "claude-3-sonnet": "claude",
+      "claude": "claude",
+      "anthropic/claude-3-opus": "claude"
+    },
+    "special_models": {
+      "mistral": "mistral",
+      "groq": "groq",
+      "deepseek": "deepseek",
+      "o1-mini": "openrouter"
+    }
+  },
+  "expected_responses": {
+    "success": {
+      "message": {
+        "role": "assistant",
+        "content": "Hello! How can I help you today?"
+      },
+      "usage": {
+        "prompt_tokens": 10,
+        "completion_tokens": 25,
+        "total_tokens": 35
+      }
+    },
+    "error": {
+      "success": false,
+      "error": {
+        "code": "rate_limit_exceeded",
+        "message": "Rate limit exceeded. Please try again later."
+      }
+    }
+  },
+  "validation_rules": {
+    "required_fields": ["messages"],
+    "optional_fields": ["model", "temperature", "max_tokens", "stream", "tools", "vision", "response", "driver", "testMode"],
+    "type_constraints": {
+      "temperature": { "min": 0, "max": 2 },
+      "max_tokens": { "min": 1 },
+      "stream": "boolean",
+      "vision": "boolean",
+      "testMode": "boolean"
+    },
+    "driver_enum": [
+      "openai-completion",
+      "claude",
+      "gemini",
+      "groq",
+      "deepseek",
+      "xai",
+      "mistral",
+      "together-ai",
+      "openrouter"
+    ]
+  }
+}

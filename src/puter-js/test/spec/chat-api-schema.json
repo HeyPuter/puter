@@ -1,0 +1,229 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "Puter.js AI Chat API Schema",
+  "description": "JSON Schema for the puter.ai.chat() method",
+  "type": "object",
+  "definitions": {
+    "Message": {
+      "type": "object",
+      "properties": {
+        "role": {
+          "type": "string",
+          "enum": ["user", "assistant", "system"],
+          "description": "Role of the message sender"
+        },
+        "content": {
+          "oneOf": [
+            { "type": "string" },
+            {
+              "type": "array",
+              "items": {
+                "oneOf": [
+                  { "type": "string" },
+                  {
+                    "type": "object",
+                    "properties": {
+                      "image_url": {
+                        "type": "object",
+                        "properties": {
+                          "url": { "type": "string" }
+                        },
+                        "required": ["url"]
+                      }
+                    },
+                    "required": ["image_url"]
+                  }
+                ]
+              }
+            }
+          ],
+          "description": "Content of the message (text or vision content array)"
+        }
+      },
+      "required": ["content"]
+    },
+    "ImageContent": {
+      "type": "object",
+      "properties": {
+        "image_url": {
+          "type": "object",
+          "properties": {
+            "url": { "type": "string" }
+          },
+          "required": ["url"]
+        }
+      },
+      "required": ["image_url"]
+    },
+    "Tool": {
+      "type": "object",
+      "properties": {
+        "type": {
+          "type": "string",
+          "enum": ["function"],
+          "description": "Type of tool"
+        },
+        "function": {
+          "type": "object",
+          "properties": {
+            "name": { "type": "string" },
+            "description": { "type": "string" },
+            "parameters": {
+              "type": "object",
+              "properties": {
+                "type": { "type": "string" },
+                "properties": { "type": "object" },
+                "required": {
+                  "type": "array",
+                  "items": { "type": "string" }
+                }
+              },
+              "required": ["type", "properties"]
+            }
+          },
+          "required": ["name", "description", "parameters"]
+        }
+      },
+      "required": ["type", "function"]
+    },
+    "ResponseFormat": {
+      "type": "object",
+      "description": "Response format specification"
+    }
+  },
+  "oneOf": [
+    {
+      "title": "String Prompt",
+      "type": "string",
+      "description": "Simple text prompt"
+    },
+    {
+      "title": "String Prompt with Test Mode",
+      "type": "array",
+      "minItems": 2,
+      "maxItems": 2,
+      "items": [
+        { "type": "string" },
+        { "type": "boolean" }
+      ],
+      "description": "Text prompt with test mode boolean"
+    },
+    {
+      "title": "String Prompt with Image",
+      "type": "array",
+      "minItems": 2,
+      "maxItems": 3,
+      "items": [
+        { "type": "string" },
+        { "oneOf": [{ "type": "string" }, { "type": "object" }] },
+        { "type": "boolean" }
+      ],
+      "description": "Text prompt with image (File/URL) and optional test mode"
+    },
+    {
+      "title": "String Prompt with Image Array",
+      "type": "array",
+      "minItems": 2,
+      "maxItems": 3,
+      "items": [
+        { "type": "string" },
+        {
+          "type": "array",
+          "items": { "oneOf": [{ "type": "string" }, { "type": "object" }] }
+        },
+        { "type": "boolean" }
+      ],
+      "description": "Text prompt with array of images and optional test mode"
+    },
+    {
+      "title": "Message Array",
+      "type": "array",
+      "items": { "$ref": "#/definitions/Message" },
+      "description": "Array of message objects"
+    },
+    {
+      "title": "String Array",
+      "type": "array",
+      "items": { "type": "string" },
+      "description": "Array of strings (auto-converted to messages)"
+    },
+    {
+      "title": "Full Parameters Object",
+      "type": "object",
+      "properties": {
+        "messages": {
+          "oneOf": [
+            { "type": "array", "items": { "$ref": "#/definitions/Message" } },
+            { "type": "array", "items": { "type": "string" } }
+          ],
+          "description": "Array of messages or strings"
+        },
+        "model": {
+          "type": "string",
+          "description": "Model identifier (e.g., gpt-4o, claude-3-opus)"
+        },
+        "temperature": {
+          "type": "number",
+          "minimum": 0,
+          "maximum": 2,
+          "description": "Controls randomness (0.0 to 2.0)"
+        },
+        "max_tokens": {
+          "type": "integer",
+          "minimum": 1,
+          "description": "Maximum number of tokens to generate"
+        },
+        "stream": {
+          "type": "boolean",
+          "description": "Whether to stream the response"
+        },
+        "tools": {
+          "type": "array",
+          "items": { "$ref": "#/definitions/Tool" },
+          "description": "Function calling tools"
+        },
+        "vision": {
+          "type": "boolean",
+          "description": "Whether to enable vision capabilities (auto-detected)"
+        },
+        "response": {
+          "$ref": "#/definitions/ResponseFormat",
+          "description": "Response format specification"
+        },
+        "driver": {
+          "type": "string",
+          "enum": [
+            "openai-completion",
+            "claude",
+            "gemini",
+            "groq",
+            "deepseek",
+            "xai",
+            "mistral",
+            "together-ai",
+            "openrouter"
+          ],
+          "description": "Override automatic driver selection"
+        },
+        "testMode": {
+          "type": "boolean",
+          "description": "Enable test mode (bypasses actual API calls)"
+        }
+      },
+      "required": ["messages"]
+    },
+    {
+      "title": "Mixed Parameters",
+      "type": "array",
+      "minItems": 2,
+      "maxItems": 4,
+      "items": [
+        { "type": "string" },
+        { "oneOf": [{ "type": "string" }, { "type": "object" }, { "type": "array" }] },
+        { "oneOf": [{ "type": "boolean" }, { "type": "object" }] },
+        { "type": "object" }
+      ],
+      "description": "Mixed parameters with text, image, test mode, and options"
+    }
+  ]
+}
