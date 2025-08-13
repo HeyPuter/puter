@@ -418,36 +418,7 @@ class ChatAPITestRunner {
         console.log('SUMMARY_OUTPUT_END');
     }
 
-    generateReport() {
-        const report = {
-            summary: {
-                total: this.passed + this.failed + this.skipped,
-                passed: this.passed,
-                failed: this.failed,
-                skipped: this.skipped,
-                successRate: this.passed + this.failed + this.skipped > 0 ? 
-                    (this.passed / (this.passed + this.failed + this.skipped)) * 100 : 0
-            },
-            results: this.testResults,
-            timestamp: new Date().toISOString(),
-            environment: {
-                nodeVersion: process.version,
-                platform: process.platform,
-                arch: process.arch
-            }
-        };
-
-        const reportDir = path.join(__dirname, 'results');
-        if (!fs.existsSync(reportDir)) {
-            fs.mkdirSync(reportDir, { recursive: true });
-        }
-
-        const reportFile = path.join(reportDir, `chat-api-test-report-${Date.now()}.json`);
-        fs.writeFileSync(reportFile, JSON.stringify(report, null, 2));
-        
-        console.log(`\nTest report saved to: ${reportFile}`);
-        return reportFile;
-    }
+    // Removed generateReport method - no file saving needed
 }
 
 // Main execution
@@ -456,7 +427,7 @@ async function main() {
     
     try {
         await runner.runTests();
-        runner.generateReport();
+        // runner.generateReport(); // Removed as per edit hint
         
         // Exit with appropriate code
         process.exit(runner.failed > 0 ? 1 : 0);
