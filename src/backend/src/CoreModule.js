@@ -209,6 +209,9 @@ const install = async ({ services, app, useapi, modapi }) => {
         ]),
     });
 
+    const { EntriService } = require('./services/EntriService.js');
+    services.registerService("entri-service", EntriService)
+    
     const { InformationService } = require('./services/information/InformationService');
     services.registerService('information', InformationService)
     
@@ -397,6 +400,7 @@ const install = async ({ services, app, useapi, modapi }) => {
 
     const { WorkerService } = require('./services/worker/WorkerService');
     services.registerService("worker-service", WorkerService)
+
 
     const { PermissionShortcutService } = require('./services/auth/PermissionShortcutService');
     services.registerService('permission-shortcut', PermissionShortcutService);
