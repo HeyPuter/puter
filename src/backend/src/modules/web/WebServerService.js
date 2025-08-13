@@ -627,7 +627,7 @@ class WebServerService extends BaseService {
             res.setHeader('Access-Control-Allow-Methods', 'GET, POST, OPTIONS, PUT, PATCH, DELETE');
 
             const allowed_headers = [
-                "Origin", "X-Requested-With", "Content-Type", "Accept", "Authorization",
+                "Origin", "X-Requested-With", "Content-Type", "Accept", "Authorization", "sentry-trace", "baggage"
             ];
 
             // Request headers to allow
