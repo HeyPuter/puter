@@ -7,25 +7,10 @@ const yaml = require('js-yaml');
 const fs = require('fs');
 const path = require('path');
 
-// Mock puter.ai.chat for testing
-class MockPuterAI {
+// Simulate the real puter.ai.chat behavior for testing
+class TestPuterAI {
     constructor() {
         this.lastCall = null;
-        this.mockResponse = {
-            message: {
-                role: "assistant",
-                content: "Mock response for testing"
-            },
-            usage: {
-                prompt_tokens: 10,
-                completion_tokens: 25,
-                total_tokens: 35
-            }
-        };
-        
-        // Add convenience methods
-        this.mockResponse.toString = () => this.mockResponse.message.content;
-        this.mockResponse.valueOf = () => this.mockResponse.message.content;
     }
 
     async chat(...args) {
@@ -37,12 +22,25 @@ class MockPuterAI {
         // Simulate the actual chat method's parameter processing
         const result = this.processParameters(args);
         
-        // Return mock response
-        return Promise.resolve(this.mockResponse);
+        // Return a mock response that mimics the real structure
+        return {
+            message: {
+                role: "assistant",
+                content: `Test response for: ${result.messages[0]?.content || 'unknown input'}`
+            },
+            usage: {
+                prompt_tokens: 10,
+                completion_tokens: 25,
+                total_tokens: 35
+            },
+            // Add convenience methods like the real implementation
+            toString: function() { return this.message.content; },
+            valueOf: function() { return this.message.content; }
+        };
     }
 
     processParameters(args) {
-        // This simulates the actual parameter processing logic
+        // This simulates the actual parameter processing logic from the real implementation
         const result = {
             messages: [],
             vision: false,
@@ -59,7 +57,7 @@ class MockPuterAI {
             throw { message: 'Arguments are required', code: 'arguments_required' };
         }
 
-        // Process different input formats
+        // Process different input formats (matching the real implementation)
         if (typeof args[0] === 'string') {
             result.messages = [{ content: args[0] }];
             
@@ -103,7 +101,7 @@ class MockPuterAI {
             }
         }
 
-        // Model mapping logic
+        // Model mapping logic (matching the real implementation)
         if (result.model) {
             if (result.model.startsWith('gpt-')) {
                 result.driver = 'openai-completion';
@@ -126,14 +124,18 @@ class MockPuterAI {
     }
 }
 
+// Create test instance
+const puter = { ai: new TestPuterAI() };
+
 // Test runner class
 class ChatAPITestRunner {
     constructor() {
-        this.puter = new MockPuterAI();
         this.testResults = [];
         this.passed = 0;
         this.failed = 0;
         this.skipped = 0;
+        this.testTimeout = 30000; // 30 seconds per test
+        this.stopOnFirstFailure = true; // Stop at first failure
     }
 
     async loadTestCases() {
@@ -148,76 +150,85 @@ class ChatAPITestRunner {
     }
 
     async runTests() {
-        console.log('🚀 Starting Puter.js AI Chat API Test Suite\n');
+        console.log('Starting Puter.js AI Chat API Test Suite\n');
         
         const testCases = await this.loadTestCases();
         if (!testCases) {
-            console.error('❌ Failed to load test cases');
+            console.error('Failed to load test cases');
             return;
         }
 
-        console.log(`📋 Test Suite: ${testCases.test_suite.name}`);
-        console.log(`📝 Description: ${testCases.test_suite.description}`);
-        console.log(`🔢 Version: ${testCases.test_suite.version}\n`);
+        console.log(`Test Suite: ${testCases.test_suite.name}`);
+        console.log(`Description: ${testCases.test_suite.description}`);
+        console.log(`Version: ${testCases.test_suite.version}`);
+        console.log(`Test Timeout: ${this.testTimeout}ms`);
+        console.log(`Stop on first failure: ${this.stopOnFirstFailure}\n`);
 
         for (const category of testCases.test_categories) {
-            await this.runTestCategory(category);
+            const shouldContinue = await this.runTestCategory(category);
+            if (!shouldContinue) {
+                break; // Stop if requested
+            }
         }
 
         this.printSummary();
     }
 
     async runTestCategory(category) {
-        console.log(`\n📁 Category: ${category.name}`);
+        console.log(`\nCategory: ${category.name}`);
         console.log(`   ${category.description}`);
-        console.log(`   ${'─'.repeat(50)}`);
+        console.log(`   ${'-'.repeat(50)}`);
 
         for (const test of category.tests) {
-            await this.runTest(test, category.name);
+            const shouldContinue = await this.runTest(test, category.name);
+            if (!shouldContinue) {
+                return false; // Stop execution
+            }
         }
+        return true; // Continue execution
     }
 
     async runTest(test, categoryName) {
         const testName = `${categoryName} - ${test.name}`;
-        console.log(`\n🧪 Running: ${test.name}`);
+        console.log(`\nRunning: ${test.name}`);
         console.log(`   ${test.description}`);
 
         try {
             // Reset mock state
-            this.puter.reset();
+            puter.ai.reset();
 
-            // Run the test
-            let result;
-            if (test.input === null) {
-                // Test error case
-                try {
-                    await this.puter.chat();
-                    result = { success: false, error: 'Expected error but none thrown' };
-                } catch (error) {
-                    result = { success: true, error };
-                }
-            } else {
-                // Test normal case
-                result = await this.puter.chat(...(Array.isArray(test.input) ? test.input : [test.input]));
-            }
+            // Set up test timeout
+            const testPromise = this.executeTest(test);
+            const timeoutPromise = new Promise((_, reject) => {
+                setTimeout(() => reject(new Error(`Test timeout after ${this.testTimeout}ms`)), this.testTimeout);
+            });
+
+            // Run test with timeout
+            const result = await Promise.race([testPromise, timeoutPromise]);
 
             // Validate results
             const validationResult = this.validateTest(test, result);
             
             if (validationResult.passed) {
-                console.log(`   ✅ PASSED`);
+                console.log(`   PASSED`);
                 this.passed++;
                 this.testResults.push({
                     name: testName,
                     status: 'PASSED',
                     category: categoryName,
-                    description: test.description
+                    description: test.description,
+                    result: result
                 });
+                return true; // Continue execution
             } else {
-                console.log(`   ❌ FAILED`);
+                console.log(`   FAILED`);
                 console.log(`      Expected: ${JSON.stringify(test.expected, null, 2)}`);
                 console.log(`      Got: ${JSON.stringify(validationResult.actual, null, 2)}`);
                 console.log(`      Issues: ${validationResult.issues.join(', ')}`);
+                
+                // Print detailed failure information
+                this.printDetailedFailure(test, validationResult, result);
+                
                 this.failed++;
                 this.testResults.push({
                     name: testName,
@@ -226,12 +237,20 @@ class ChatAPITestRunner {
                     description: test.description,
                     expected: test.expected,
                     actual: validationResult.actual,
-                    issues: validationResult.issues
+                    issues: validationResult.issues,
+                    result: result
                 });
+                
+                // Stop execution if configured to stop on first failure
+                if (this.stopOnFirstFailure) {
+                    console.log('\nStopping test execution due to first failure.');
+                    return false; // Stop execution
+                }
+                return true; // Continue execution
             }
 
         } catch (error) {
-            console.log(`   ❌ ERROR: ${error.message}`);
+            console.log(`   ERROR: ${error.message}`);
             this.failed++;
             this.testResults.push({
                 name: testName,
@@ -240,6 +259,65 @@ class ChatAPITestRunner {
                 description: test.description,
                 error: error.message
             });
+            
+            // Stop execution if configured to stop on first failure
+            if (this.stopOnFirstFailure) {
+                console.log('\nStopping test execution due to first failure.');
+                return false; // Stop execution
+            }
+            return true; // Continue execution
+        }
+    }
+
+    printDetailedFailure(test, validationResult, result) {
+        console.log('\n   DETAILED FAILURE INFORMATION:');
+        console.log(`   Test: ${test.name}`);
+        console.log(`   Category: ${test.category || 'Unknown'}`);
+        console.log(`   Description: ${test.description}`);
+        console.log(`   Input: ${JSON.stringify(test.input, null, 2)}`);
+        console.log(`   Expected: ${JSON.stringify(test.expected, null, 2)}`);
+        console.log(`   Actual: ${JSON.stringify(validationResult.actual, null, 2)}`);
+        console.log(`   Issues: ${validationResult.issues.join(', ')}`);
+        
+        if (result && result.actualParams) {
+            console.log(`   Processed Parameters: ${JSON.stringify(result.actualParams, null, 2)}`);
+        }
+        
+        if (puter.ai.lastCall) {
+            console.log(`   Raw Arguments: ${JSON.stringify(puter.ai.lastCall.args, null, 2)}`);
+        }
+    }
+
+    async executeTest(test) {
+        if (test.input === null) {
+            // Test error case - expect an error to be thrown
+            try {
+                await puter.ai.chat();
+                throw new Error('Expected error but none thrown');
+            } catch (error) {
+                return { success: false, error };
+            }
+        }
+
+        // Test normal case - make simulated API call
+        try {
+            const args = Array.isArray(test.input) ? test.input : [test.input];
+            const result = await puter.ai.chat(...args);
+            
+            // Get the actual processed parameters from the mock
+            const actualParams = puter.ai.lastCall ? 
+                puter.ai.processParameters(puter.ai.lastCall.args) : {};
+
+            return {
+                success: true,
+                result: result,
+                actualParams: actualParams
+            };
+        } catch (error) {
+            return {
+                success: false,
+                error: error
+            };
         }
     }
 
@@ -251,8 +329,8 @@ class ChatAPITestRunner {
         };
 
         // Get the actual processed parameters
-        const actualParams = this.puter.lastCall ? 
-            this.puter.processParameters(this.puter.lastCall.args) : {};
+        const actualParams = puter.ai.lastCall ? 
+            puter.ai.processParameters(puter.ai.lastCall.args) : {};
 
         // Validate expected properties
         if (test.expected) {
@@ -272,8 +350,8 @@ class ChatAPITestRunner {
         }
 
         // Validate response structure if specified
-        if (test.expected_response && result) {
-            if (!result.message || !result.usage) {
+        if (test.expected_response && result.result) {
+            if (!result.result.message || !result.result.usage) {
                 validation.passed = false;
                 validation.issues.push('Response missing message or usage');
             }
@@ -297,16 +375,20 @@ class ChatAPITestRunner {
 
     printSummary() {
         console.log('\n' + '='.repeat(60));
-        console.log('📊 TEST SUMMARY');
+        console.log('TEST SUMMARY');
         console.log('='.repeat(60));
-        console.log(`✅ Passed: ${this.passed}`);
-        console.log(`❌ Failed: ${this.failed}`);
-        console.log(`⏭️  Skipped: ${this.skipped}`);
-        console.log(`📈 Total: ${this.passed + this.failed + this.skipped}`);
-        console.log(`📊 Success Rate: ${((this.passed / (this.passed + this.failed + this.skipped)) * 100).toFixed(1)}%`);
+        console.log(`Passed: ${this.passed}`);
+        console.log(`Failed: ${this.failed}`);
+        console.log(`Skipped: ${this.skipped}`);
+        console.log(`Total: ${this.passed + this.failed + this.skipped}`);
+        
+        const total = this.passed + this.failed + this.skipped;
+        if (total > 0) {
+            console.log(`Success Rate: ${((this.passed / total) * 100).toFixed(1)}%`);
+        }
 
         if (this.failed > 0) {
-            console.log('\n❌ FAILED TESTS:');
+            console.log('\nFAILED TESTS:');
             this.testResults
                 .filter(r => r.status === 'FAILED')
                 .forEach(result => {
@@ -315,13 +397,25 @@ class ChatAPITestRunner {
         }
 
         if (this.testResults.some(r => r.status === 'ERROR')) {
-            console.log('\n💥 TESTS WITH ERRORS:');
+            console.log('\nTESTS WITH ERRORS:');
             this.testResults
                 .filter(r => r.status === 'ERROR')
                 .forEach(result => {
                     console.log(`   - ${result.name}: ${result.error}`);
                 });
         }
+
+        // Print summary to stdout for easy parsing
+        console.log('\nSUMMARY_OUTPUT_START');
+        console.log(JSON.stringify({
+            passed: this.passed,
+            failed: this.failed,
+            skipped: this.skipped,
+            total: total,
+            successRate: total > 0 ? ((this.passed / total) * 100).toFixed(1) : 0,
+            results: this.testResults
+        }, null, 2));
+        console.log('SUMMARY_OUTPUT_END');
     }
 
     generateReport() {
@@ -331,10 +425,16 @@ class ChatAPITestRunner {
                 passed: this.passed,
                 failed: this.failed,
                 skipped: this.skipped,
-                successRate: (this.passed / (this.passed + this.failed + this.skipped)) * 100
+                successRate: this.passed + this.failed + this.skipped > 0 ? 
+                    (this.passed / (this.passed + this.failed + this.skipped)) * 100 : 0
             },
             results: this.testResults,
-            timestamp: new Date().toISOString()
+            timestamp: new Date().toISOString(),
+            environment: {
+                nodeVersion: process.version,
+                platform: process.platform,
+                arch: process.arch
+            }
         };
 
         const reportDir = path.join(__dirname, 'results');
@@ -345,7 +445,7 @@ class ChatAPITestRunner {
         const reportFile = path.join(reportDir, `chat-api-test-report-${Date.now()}.json`);
         fs.writeFileSync(reportFile, JSON.stringify(report, null, 2));
         
-        console.log(`\n📄 Test report saved to: ${reportFile}`);
+        console.log(`\nTest report saved to: ${reportFile}`);
         return reportFile;
     }
 }
@@ -361,7 +461,7 @@ async function main() {
         // Exit with appropriate code
         process.exit(runner.failed > 0 ? 1 : 0);
     } catch (error) {
-        console.error('❌ Test runner failed:', error);
+        console.error('Test runner failed:', error);
         process.exit(1);
     }
 }
@@ -369,7 +469,7 @@ async function main() {
 // Export for use in other test files
 module.exports = {
     ChatAPITestRunner,
-    MockPuterAI
+    TestPuterAI
 };
 
 // Run if this file is executed directly
