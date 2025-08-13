@@ -1,0 +1,426 @@
+openapi: 3.0.3
+info:
+  title: Puter.js AI Chat API
+  description: |
+    API specification for the puter.ai.chat() method in Puter.js.
+    This method provides a flexible interface for interacting with various AI language models.
+  version: 1.0.0
+  contact:
+    name: Puter.js Team
+
+servers:
+  - url: https://puter.com
+    description: Production server
+  - url: https://dev.puter.com
+    description: Development server
+
+paths:
+  /ai/chat:
+    post:
+      summary: Send chat message to AI model
+      description: |
+        Send messages to AI models and receive intelligent responses.
+        Supports multiple input formats, vision capabilities, and automatic driver selection.
+      operationId: aiChat
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              oneOf:
+                - $ref: '#/components/schemas/StringPrompt'
+                - $ref: '#/components/schemas/StringPromptWithTestMode'
+                - $ref: '#/components/schemas/StringPromptWithImage'
+                - $ref: '#/components/schemas/StringPromptWithImageArray'
+                - $ref: '#/components/schemas/MessageArray'
+                - $ref: '#/components/schemas/StringArray'
+                - $ref: '#/components/schemas/FullParametersObject'
+                - $ref: '#/components/schemas/MixedParameters'
+            examples:
+              simple_text:
+                summary: Simple text prompt
+                value: "Hello, how are you?"
+              text_with_test_mode:
+                summary: Text with test mode
+                value: ["Hello", true]
+              text_with_image:
+                summary: Text with image
+                value: ["Describe this image", "https://example.com/image.jpg"]
+              text_with_image_array:
+                summary: Text with multiple images
+                value: ["Compare these images", ["url1", "url2"]]
+              message_array:
+                summary: Message array
+                value:
+                  - role: "user"
+                    content: "What is AI?"
+                  - role: "assistant"
+                    content: "AI stands for Artificial Intelligence..."
+              string_array:
+                summary: String array
+                value: ["hi", "how are you?"]
+              full_parameters:
+                summary: Full parameters object
+                value:
+                  messages:
+                    - role: "user"
+                      content: "Hello"
+                  model: "gpt-4o"
+                  temperature: 0.7
+                  max_tokens: 1000
+              mixed_parameters:
+                summary: Mixed parameters
+                value: ["Hello", "image.jpg", true, { model: "claude-3-opus" }]
+      responses:
+        '200':
+          description: Successful response
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ChatResponse'
+              examples:
+                success:
+                  summary: Successful chat response
+                  value:
+                    message:
+                      role: "assistant"
+                      content: "Hello! How can I help you today?"
+                    usage:
+                      prompt_tokens: 10
+                      completion_tokens: 25
+                      total_tokens: 35
+        '400':
+          description: Bad request - invalid parameters
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '429':
+          description: Rate limit exceeded
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '500':
+          description: Internal server error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+
+components:
+  schemas:
+    StringPrompt:
+      type: string
+      title: String Prompt
+      description: Simple text prompt
+      example: "Hello, how are you?"
+
+    StringPromptWithTestMode:
+      type: array
+      title: String Prompt with Test Mode
+      description: Text prompt with test mode boolean
+      minItems: 2
+      maxItems: 2
+      items:
+        - type: string
+        - type: boolean
+      example: ["Hello", true]
+
+    StringPromptWithImage:
+      type: array
+      title: String Prompt with Image
+      description: Text prompt with image (File/URL) and optional test mode
+      minItems: 2
+      maxItems: 3
+      items:
+        - type: string
+        - oneOf:
+            - type: string
+            - type: object
+        - type: boolean
+      example: ["Describe this image", "https://example.com/image.jpg", true]
+
+    StringPromptWithImageArray:
+      type: array
+      title: String Prompt with Image Array
+      description: Text prompt with array of images and optional test mode
+      minItems: 2
+      maxItems: 3
+      items:
+        - type: string
+        - type: array
+          items:
+            oneOf:
+              - type: string
+              - type: object
+        - type: boolean
+      example: ["Compare these images", ["url1", "url2"], false]
+
+    MessageArray:
+      type: array
+      title: Message Array
+      description: Array of message objects
+      items:
+        $ref: '#/components/schemas/Message'
+      example:
+        - role: "user"
+          content: "What is AI?"
+        - role: "assistant"
+          content: "AI stands for Artificial Intelligence..."
+
+    StringArray:
+      type: array
+      title: String Array
+      description: Array of strings (auto-converted to messages)
+      items:
+        type: string
+      example: ["hi", "how are you?"]
+
+    FullParametersObject:
+      type: object
+      title: Full Parameters Object
+      description: Complete parameter specification
+      properties:
+        messages:
+          oneOf:
+            - type: array
+              items:
+                $ref: '#/components/schemas/Message'
+            - type: array
+              items:
+                type: string
+          description: Array of messages or strings
+        model:
+          type: string
+          description: Model identifier (e.g., gpt-4o, claude-3-opus)
+          example: "gpt-4o"
+        temperature:
+          type: number
+          minimum: 0
+          maximum: 2
+          description: Controls randomness (0.0 to 2.0)
+          example: 0.7
+        max_tokens:
+          type: integer
+          minimum: 1
+          description: Maximum number of tokens to generate
+          example: 1000
+        stream:
+          type: boolean
+          description: Whether to stream the response
+          example: false
+        tools:
+          type: array
+          items:
+            $ref: '#/components/schemas/Tool'
+          description: Function calling tools
+        vision:
+          type: boolean
+          description: Whether to enable vision capabilities (auto-detected)
+          example: false
+        response:
+          $ref: '#/components/schemas/ResponseFormat'
+          description: Response format specification
+        driver:
+          type: string
+          enum:
+            - openai-completion
+            - claude
+            - gemini
+            - groq
+            - deepseek
+            - xai
+            - mistral
+            - together-ai
+            - openrouter
+          description: Override automatic driver selection
+          example: "openai-completion"
+        testMode:
+          type: boolean
+          description: Enable test mode (bypasses actual API calls)
+          example: false
+      required:
+        - messages
+
+    MixedParameters:
+      type: array
+      title: Mixed Parameters
+      description: Mixed parameters with text, image, test mode, and options
+      minItems: 2
+      maxItems: 4
+      items:
+        - type: string
+        - oneOf:
+            - type: string
+            - type: object
+            - type: array
+        - oneOf:
+            - type: boolean
+            - type: object
+        - type: object
+      example: ["Hello", "image.jpg", true, { model: "claude-3-opus" }]
+
+    Message:
+      type: object
+      title: Message
+      description: Individual message in a conversation
+      properties:
+        role:
+          type: string
+          enum:
+            - user
+            - assistant
+            - system
+          description: Role of the message sender
+          example: "user"
+        content:
+          oneOf:
+            - type: string
+            - type: array
+              items:
+                oneOf:
+                  - type: string
+                  - $ref: '#/components/schemas/ImageContent'
+          description: Content of the message (text or vision content array)
+          example: "Hello, how are you?"
+      required:
+        - content
+
+    ImageContent:
+      type: object
+      title: Image Content
+      description: Image content for vision messages
+      properties:
+        image_url:
+          type: object
+          properties:
+            url:
+              type: string
+              description: URL or data URI of the image
+              example: "https://example.com/image.jpg"
+          required:
+            - url
+      required:
+        - image_url
+
+    Tool:
+      type: object
+      title: Tool
+      description: Function calling tool
+      properties:
+        type:
+          type: string
+          enum:
+            - function
+          description: Type of tool
+          example: "function"
+        function:
+          type: object
+          properties:
+            name:
+              type: string
+              description: Name of the function
+              example: "get_weather"
+            description:
+              type: string
+              description: Description of the function
+              example: "Get weather for a location"
+            parameters:
+              type: object
+              properties:
+                type:
+                  type: string
+                  description: Type of parameters object
+                  example: "object"
+                properties:
+                  type: object
+                  description: Parameter properties
+                  example:
+                    location:
+                      type: "string"
+                      description: "Location to get weather for"
+                required:
+                  type: array
+                  items:
+                    type: string
+                  description: Required parameter names
+                  example: ["location"]
+              required:
+                - type
+                - properties
+          required:
+            - name
+            - description
+            - parameters
+      required:
+        - type
+        - function
+
+    ResponseFormat:
+      type: object
+      title: Response Format
+      description: Response format specification
+      additionalProperties: true
+
+    ChatResponse:
+      type: object
+      title: Chat Response
+      description: Response from the AI chat completion
+      properties:
+        message:
+          $ref: '#/components/schemas/Message'
+        usage:
+          type: object
+          properties:
+            prompt_tokens:
+              type: integer
+              description: Number of tokens in the prompt
+              example: 10
+            completion_tokens:
+              type: integer
+              description: Number of tokens in the completion
+              example: 25
+            total_tokens:
+              type: integer
+              description: Total number of tokens used
+              example: 35
+          required:
+            - prompt_tokens
+            - completion_tokens
+            - total_tokens
+      required:
+        - message
+        - usage
+
+    ErrorResponse:
+      type: object
+      title: Error Response
+      description: Error response from the API
+      properties:
+        success:
+          type: boolean
+          example: false
+        error:
+          type: object
+          properties:
+            code:
+              type: string
+              description: Error code
+              example: "rate_limit_exceeded"
+            message:
+              type: string
+              description: Human-readable error message
+              example: "Rate limit exceeded. Please try again later."
+          required:
+            - code
+            - message
+      required:
+        - success
+        - error
+
+tags:
+  - name: AI
+    description: AI-related operations
+  - name: Chat
+    description: Chat completion operations
