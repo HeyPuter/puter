@@ -1,0 +1,29 @@
+{
+  "name": "puter-js-chat-api-tests",
+  "version": "1.0.0",
+  "description": "Test suite for Puter.js AI Chat API",
+  "main": "chat-api.test.js",
+  "scripts": {
+    "test": "node chat-api.test.js",
+    "test:watch": "nodemon chat-api.test.js",
+    "test:report": "node chat-api.test.js && open test-results/index.html"
+  },
+  "dependencies": {
+    "js-yaml": "^4.1.0"
+  },
+  "devDependencies": {
+    "nodemon": "^3.0.0"
+  },
+  "engines": {
+    "node": ">=16.0.0"
+  },
+  "keywords": [
+    "puter",
+    "ai",
+    "chat",
+    "testing",
+    "regression"
+  ],
+  "author": "Puter.js Team",
+  "license": "MIT"
+}
