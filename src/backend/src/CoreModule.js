@@ -367,6 +367,9 @@ const install = async ({ services, app, useapi, modapi }) => {
 
     const { ReferralCodeService } = require('./services/ReferralCodeService');
     services.registerService('referral-code', ReferralCodeService);
+
+    const { VerifiedGroupService } = require('./services/VerifiedGroupService');
+    services.registerService('__verified-group', VerifiedGroupService);
     
     const { UserService } = require('./services/UserService');
     services.registerService('user', UserService);
