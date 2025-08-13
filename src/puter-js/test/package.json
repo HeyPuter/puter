@@ -9,7 +9,11 @@
     "test:report": "node chat-api.test.js && open test-results/index.html"
   },
   "dependencies": {
-    "js-yaml": "^4.1.0"
+    "blob-polyfill": "^9.0.20240710",
+    "form-data": "^4.0.4",
+    "js-yaml": "^4.1.0",
+    "node-fetch": "^3.3.2",
+    "xmlhttprequest": "^1.8.0"
   },
   "devDependencies": {
     "nodemon": "^3.0.0"
