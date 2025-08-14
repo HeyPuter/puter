@@ -66,9 +66,8 @@ module.exports = {
         CaptchaModule,
         EntityStoreModule,
         KVStoreModule,
-        DomainModule,
     ],
-
+    
     // Pre-built modules
     CoreModule,
     WebModule,
@@ -82,6 +81,7 @@ module.exports = {
     CaptchaModule,
     KVStoreModule,
     DNSModule,
+    DomainModule,
     
     // Development modules
     PerfMonModule,
