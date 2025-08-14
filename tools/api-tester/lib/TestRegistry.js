@@ -46,9 +46,9 @@ module.exports = class TestRegistry {
     // and I think that's pretty cool
 
     async run_all_benches () {
-        for ( const id in this.benches ) {
-            const benchDefinition = this.benches[id];
-            await this.t.runBenchmark(benchDefinition);
+        for ( const [id, bench_definition] of Object.entries(this.benches) ) {
+            console.log(`running bench: ${id}`);
+            await this.t.runBenchmark(bench_definition);
         }
     }
 
