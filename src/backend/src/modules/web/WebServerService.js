@@ -646,7 +646,11 @@ class WebServerService extends BaseService {
                 res.setHeader('Cross-Origin-Embedder-Policy', 'require-corp');
             }
             res.setHeader('Cross-Origin-Resource-Policy', 'cross-origin');
+
+            // allow popups to be opened from any origin
             res.setHeader('Cross-Origin-Opener-Policy', 'unsafe-none');
+            res.setHeader('Cross-Origin-Embedder-Policy', 'unsafe-none');
+
             // Pass to next layer of middleware
 
             // disable iframes on the main domain
