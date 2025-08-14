@@ -215,6 +215,11 @@ export default globalThis.puter = (function() {
             if(URLParams.has('puter.app.id')){
                 this.appID = decodeURIComponent(URLParams.get('puter.app.id'));
             }
+            
+            // Extract app name (added later)
+            if(URLParams.has('puter.app.name')){
+                this.appName = decodeURIComponent(URLParams.get('puter.app.name'));
+            }
 
             // Construct this App's AppData path based on the appID. AppData path is used to store files that are specific to this app.
             // The default AppData path is `~/AppData/<appID>`.

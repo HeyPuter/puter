@@ -201,6 +201,7 @@ const launch_app = async (options)=>{
 
         // add app_id to URL
         iframe_url.searchParams.append('puter.app.id', app_info.uuid);
+        iframe_url.searchParams.append('puter.app.name', app_info.name);
 
         // add parent_app_instance_id to URL
         if (options.parent_instance_id) {
@@ -223,7 +224,7 @@ const launch_app = async (options)=>{
 
         if(file_signature){
             iframe_url.searchParams.append('puter.item.uid', file_signature.uid);
-            iframe_url.searchParams.append('puter.item.path', privacy_aware_path(options.file_path) || file_signature.path);
+            iframe_url.searchParams.append('puter.item.path', options.file_path ? privacy_aware_path(options.file_path) : file_signature.path);
             iframe_url.searchParams.append('puter.item.name', file_signature.fsentry_name);
             iframe_url.searchParams.append('puter.item.read_url', file_signature.read_url);
             iframe_url.searchParams.append('puter.item.write_url', file_signature.write_url);

@@ -48,7 +48,7 @@ export class ExecService extends Service {
     }
     
     // This method is exposed to apps via IPCService.
-    async launchApp ({ app_name, args, pseudonym, file_paths }, { ipc_context, msg_id } = {}) {
+    async launchApp ({ app_name, args, pseudonym, file_paths, items }, { ipc_context, msg_id } = {}) {
         const app = ipc_context?.caller?.app;
         const process = ipc_context?.caller?.process;
 
@@ -105,6 +105,13 @@ export class ExecService extends Service {
                 parent_pseudo_id: connection.backward.uuid,
             } : {}),
         };
+        
+        if ( items && items.length ) {
+            if ( items.length > 1 ) {
+                console.warn('launchApp does not support launch with multiple items (yet)');
+            }
+            launch_options.file_signature = items[0];
+        }
 
         // Check if file_paths are provided and caller has godmode permissions
         if (file_paths && Array.isArray(file_paths) && file_paths.length > 0 && process) {
