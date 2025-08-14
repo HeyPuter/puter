@@ -15,6 +15,7 @@ import symlink from './operations/symlink.js';
 // a reserved keyword in javascript
 import deleteFSEntry from "./operations/deleteFSEntry.js";
 import { AdvancedBase } from '../../../../putility/index.js';
+import FSItem from '../FSItem.js';
 
 export class PuterJSFileSystemModule extends AdvancedBase {
 
@@ -31,6 +32,8 @@ export class PuterJSFileSystemModule extends AdvancedBase {
     write = write;
     sign = sign;
     symlink = symlink;
+    
+    FSItem = FSItem
 
     static NARI_METHODS = {
         stat: {

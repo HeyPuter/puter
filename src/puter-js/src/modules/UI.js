@@ -1072,9 +1072,18 @@ class UI extends EventListener {
     }
 
     // Returns a Promise<AppConnection>
-    launchApp = async function launchApp(app_name, args, callback) {
+    /**
+     * launchApp opens the specified app in Puter with the specified argumets.
+     * @param {*} nameOrOptions - name of the app as a string, or an options object
+     * @param {*} args - named parameters that will be passed to the app as arguments
+     * @param {*} callback - in case you don't want to use `await` or `.then()`
+     * @returns 
+     */
+    launchApp = async function launchApp(nameOrOptions, args, callback) {
         let pseudonym = undefined;
         let file_paths = undefined;
+        let items = undefined;
+        let app_name = nameOrOptions; // becomes string after branch below
         
         // Handle case where app_name is an options object
         if (typeof app_name === 'object' && app_name !== null) {
@@ -1084,17 +1093,31 @@ class UI extends EventListener {
             args = args || options.args;
             callback = callback || options.callback;
             pseudonym = options.pseudonym;
+            items = options.items;
+        }
+        
+        if ( items ) {
+            if ( ! Array.isArray(items) ) items = [];
+            for ( let i=0 ; i < items.length ; i++ ) {
+                if ( items[i] instanceof FSItem ) {
+                    items[i] = items[i]._internalProperties.file_signature;
+                }
+            }
         }
         
         if ( app_name && app_name.includes('#(as)') ) {
             [app_name, pseudonym] = app_name.split('#(as)');
         }
+        
+        if ( ! app_name ) app_name = puter.appName;
+        
         const app_info = await this.#ipc_stub({
             method: 'launchApp',
             callback,
             parameters: {
                 app_name,
                 file_paths,
+                items,
                 pseudonym,
                 args,
             },
