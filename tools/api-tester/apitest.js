@@ -61,14 +61,20 @@ const conf = YAML.parse(fs.readFileSync(config).toString());
 
 
 const main = async () => {
-    const results = [];
+    const unit_test_results = [];
+    const benchmark_results = [];
     for (const mountpoint of conf.mountpoints) {
-        const result = await test({ mountpoint });
-        results.push(...result);
+        const { unit_test_results: results, benchmark_results: benchs } = await test({ mountpoint });
+        unit_test_results.push(...results);
+        benchmark_results.push(...benchs);
     }
 
+    // hard-coded identifier for ci script
+    console.log("==================== nightly build results begin ====================")
+
+    // print unit test results
     let tbl = {};
-    for ( const result of results ) {
+    for ( const result of unit_test_results ) {
         tbl[result.name + ' - ' + result.settings] = {
             passed: result.caseCount - result.failCount,
             failed: result.failCount,
@@ -76,11 +82,27 @@ const main = async () => {
             'duration (s)': result.duration ? result.duration.toFixed(2) : 'N/A',
         }
     }
-
-    // hard-coded identifier for ci script
-    console.log("==================== nightly build results begin ====================")
-
     console.table(tbl);
+
+    // print benchmark results
+    if (benchmark_results.length > 0) {
+        tbl = {};
+        for ( const result of benchmark_results ) {
+            const fs_provider = result.fs_provider || 'unknown';
+            tbl[result.name + ' - ' + fs_provider] = {
+                'duration (s)': result.duration ? (result.duration / 1000).toFixed(2) : 'N/A',
+            }
+        }
+        console.table(tbl);
+
+        // print description of each benchmark since it's too long to fit in the table
+        const seen = new Set();
+        for ( const result of benchmark_results ) {
+            if ( seen.has(result.name) ) continue;
+            seen.add(result.name);
+            console.log(result.name + ' - ' + result.description);
+        }
+    }
 
     // hard-coded identifier for ci script
     console.log("==================== nightly build results end ====================")
@@ -108,7 +130,7 @@ async function test({ mountpoint }) {
     }));
 
     require('./tests/__entry__.js')(registry);
-    require('./benches/simple.js')(registry);
+    require('./benches/__entry__.js')(registry);
 
     if ( id ) {
         if ( unit ) {
@@ -129,11 +151,13 @@ async function test({ mountpoint }) {
         await registry.run_all();
     }
 
-    const all = unit && bench;
-    if ( all || unit ) ts.printTestResults();
-    if ( all || bench ) ts.printBenchmarkResults();
+    if ( unit ) ts.printTestResults();
+    if ( bench ) ts.printBenchmarkResults();
 
-    return ts.packageResults;
+    return {
+        unit_test_results: ts.packageResults,
+        benchmark_results: ts.benchmarkResults,
+    };
 }
 
 const main_e = async () => {

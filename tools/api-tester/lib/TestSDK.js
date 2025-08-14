@@ -46,6 +46,7 @@ module.exports = class TestSDK {
         try {
             await this.delete(this.default_cwd, { recursive: true });
         } catch (e) {
+            // ignore
         }
         await this.mkdir(this.default_cwd, { overwrite: true, create_missing_parents: true });
         this.cd(this.default_cwd);
@@ -90,20 +91,27 @@ module.exports = class TestSDK {
         process.stdout.write(strid + ' ... \n');
 
         this.nameStack.push(benchDefinition.name);
-        let results;
-        this.benchmarkResults.push(results = {
-            name: benchDefinition.name,
-            start: Date.now(),
-        });
+        const start = Date.now();
         try {
             await benchDefinition.do(this);
         } catch (e) {
-            results.error = e;
-        } finally {
-            results.end = Date.now();
-            const dur = results.end - results.start;
-            process.stdout.write(`...\x1B[32;1m[${dur}]\x1B[0m\n`);
+            // we don't tolerate errors at the moment
+            console.error(e);
+            throw e;
         }
+
+        const results = {
+            name: benchDefinition.name,
+            description: benchDefinition.description,
+            duration: Date.now() - start,
+            fs_provider: this.context.mountpoint?.provider || 'unknown',
+        };
+
+        console.log(`duration: ${(results.duration / 1000).toFixed(2)}s`);
+
+        this.benchmarkResults.push(results);
+
+        this.nameStack.pop();
     }
 
     recordResult (result) {
@@ -193,8 +201,7 @@ module.exports = class TestSDK {
         let tbl = {};
         for ( const bench of this.benchmarkResults ) {
             tbl[bench.name] = {
-                time: bench.end - bench.start,
-                error: bench.error ? bench.error.message : '',
+                'duration (ms)': bench.duration,
             }
         }
         console.table(tbl);
