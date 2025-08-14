@@ -4,6 +4,7 @@ import EventListener  from '../lib/EventListener.js';
 import putility from '@heyputer/putility';
 
 const FILE_SAVE_CANCELLED = Symbol('FILE_SAVE_CANCELLED');
+const FILE_OPEN_CANCELLED = Symbol('FILE_OPEN_CANCELLED');
 
 // AppConnection provides an API for interacting with another app.
 // It's returned by UI methods, and cannot be constructed directly by user code.
@@ -474,6 +475,10 @@ class UI extends EventListener {
                     // execute callback
                     this.#callbackFunctions[e.data.original_msg_id](FILE_SAVE_CANCELLED);
                 }
+                else if(e.data.msg === "fileOpenCancelled"){
+                    // execute callback
+                    this.#callbackFunctions[e.data.original_msg_id](FILE_OPEN_CANCELLED);
+                }
                 else{
                     // execute callback
                     this.#callbackFunctions[e.data.original_msg_id](e.data);
@@ -691,7 +696,8 @@ class UI extends EventListener {
     }
 
     showOpenFilePicker = function(options, callback){
-        return new Promise((resolve, reject) => {
+        const undefinedOnCancel = new putility.libs.promise.TeePromise();
+        const resolveOnlyPromise = new Promise((resolve, reject) => {
             if (!globalThis.open) {
                 return reject("This API is not compatible in Web Workers.");
             }
@@ -716,8 +722,18 @@ class UI extends EventListener {
                 'toolbar=no, location=no, directories=no, status=no, menubar=no, scrollbars=no, resizable=no, copyhistory=no, width='+w+', height='+h+', top='+top+', left='+left);
             }
             //register callback
-            this.#callbackFunctions[msg_id] = resolve;
+            this.#callbackFunctions[msg_id] = (maybe_result) => {
+                // Only resolve cancel events if this was called with `.undefinedOnCancel`
+                if ( maybe_result === FILE_OPEN_CANCELLED ) {
+                    undefinedOnCancel.resolve(undefined);
+                    return;
+                }
+                undefinedOnCancel.resolve(maybe_result);
+                resolve(maybe_result);
+            };
         })
+        resolveOnlyPromise.undefinedOnCancel = undefinedOnCancel;
+        return resolveOnlyPromise;
     }
 
     showFontPicker = function(options){
