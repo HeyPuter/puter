@@ -27,6 +27,7 @@ const { Eq } = require("../om/query/query");
 const { Endpoint } = require("../util/expressutil");
 const { IncomingMessage } = require("node:http");
 const { Context } = require("../util/context");
+const { createHash } = require('crypto');
 
 // async function generateJWT(applicationId, secret, domain, ) {
 
@@ -48,6 +49,10 @@ class EntriService extends BaseService {
              * @param {*} res 
              */
             handler: async (req, res) => {
+                if (createHash('sha256').update(req.body.id + this.config.secret).digest('hex') !== req.headers["entri-signature"]) {
+                    res.status(401).send("Lol");
+                    return;
+                }
                 if (!req.body.data.records_propagated) {
                     console.log("Failed to set domain records")
                     return;
