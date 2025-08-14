@@ -22,7 +22,7 @@ const fs = require("node:fs");
 
 const { Entity } = require("../om/entitystorage/Entity");;
 // const { get_app, subdomain } = require("../helpers");
-const { parseDomain } = require("parse-domain");
+let  parseDomain ;
 const { Eq } = require("../om/query/query");
 const { Endpoint } = require("../util/expressutil");
 const { IncomingMessage } = require("node:http");
@@ -37,6 +37,10 @@ const { createHash } = require('crypto');
 class EntriService extends BaseService {
     _init() {
 
+    }
+
+    async _construct() {
+        parseDomain = (await import('parse-domain')).parseDomain;
     }
 
     ['__on_install.routes'](_, { app }) {
