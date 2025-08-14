@@ -80,8 +80,8 @@ class Service extends AdvancedBase {
         return ins;
     }
 
-    /** @type {Object} Implementation of the TService trait */
     static IMPLEMENTS = {
+        /** @type {Object} Implementation of the TService trait */
         [TService]: {
             /**
              * Initializes the service by running init hooks and calling _init if present
