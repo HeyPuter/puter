@@ -38,7 +38,9 @@ class BasicBase {
 
     /**
      * Merges static array properties from all classes in the inheritance chain.
-     * Avoids duplicating the same array reference multiple times.
+     * Avoids duplicating the same array reference from contiguous members
+     * of the inheritance chain (useful when using the decorator pattern with
+     * multiple classes sharing a common base)
      * @param {string} key - The name of the static property to merge
      * @returns {Array} Combined array containing all values from the inheritance chain
      */
