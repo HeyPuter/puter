@@ -4,13 +4,12 @@ A test framework for testing the backend API of puter.
 
 ## Table of Contents
 
-- [API Tester](#api-tester)
 - [How to use](#how-to-use)
   - [Workflow](#workflow)
   - [Shorthands](#shorthands)
 - [Basic Concepts](#basic-concepts)
 - [Behaviors](#behaviors)
-  - [Isolation of `t.cwd`](#isolation-of-t-cwd)
+  - [Working directory (`t.cwd`)](#working-directory-t-cwd)
 - [Implementation](#implementation)
 - [TODO](#todo)
 
@@ -50,6 +49,12 @@ All commands below should be run from the root directory of puter.
 
     ```bash
     node ./tools/api-tester/apitest.js --config=./tools/api-tester/config.yml --unit
+    ```
+
+- Run benchmarks only:
+
+    ```bash
+    node ./tools/api-tester/apitest.js --config=./tools/api-tester/config.yml --bench
     ```
 
 - Filter tests by suite name:

@@ -493,7 +493,7 @@ class HLMkdir extends HLFilesystemOperation {
             throw APIError.create('dest_does_not_exist');
         }
 
-        let path = maybe_path_selector.value;
+        const path = maybe_path_selector.value;
 
         const fs = this.context.get('services').get('filesystem');
 
