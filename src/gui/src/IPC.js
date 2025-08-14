@@ -437,6 +437,12 @@ const ipc_listener = async (event, handled) => {
             path: '/' + window.user.username + '/Desktop',
             // this is the uuid of the window to which this dialog will return
             parent_uuid: event.data.appInstanceID,
+            onDialogCancel: () => {
+                target_iframe.contentWindow.postMessage({
+                    msg: "fileOpenCancelled", 
+                    original_msg_id: msg_id, 
+                }, '*');
+            },
             show_maximize_button: false,
             show_minimize_button: false,
             title: 'Open',
