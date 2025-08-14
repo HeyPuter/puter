@@ -20,6 +20,8 @@ const APIError = require("../../api/APIError");
 const { Context } = require("../../util/context");
 const { BaseES } = require("./BaseES");
 
+const WRITE_ALL_OWNER_ES = 'system:es:write-all-owners';
+
 class WriteByOwnerOnlyES extends BaseES {
     static METHODS = {
         async upsert (entity, extra) {
@@ -41,11 +43,18 @@ class WriteByOwnerOnlyES extends BaseES {
         },
 
         async _check_allowed ({ old_entity }) {
+            const svc_permission = this.context.get('services').get('permission');
+            const has_permission_to_write_all = await svc_permission.check(Context.get("actor"), WRITE_ALL_OWNER_ES);
+            if (has_permission_to_write_all) {
+                return;
+            }
+            
             const owner = await old_entity.get('owner');
             if ( ! owner ) {
                 throw APIError.create('forbidden');
             }
             const user = Context.get('user');
+
             if ( user.id !== owner.id ) {
                 throw APIError.create('forbidden');
             }

@@ -22,7 +22,11 @@ const fs = require("node:fs");
 
 const { Entity } = require("../om/entitystorage/Entity");;
 // const { get_app, subdomain } = require("../helpers");
-const { parseDomain } = require("parse-domain")
+const { parseDomain } = require("parse-domain");
+const { Eq } = require("../om/query/query");
+const { Endpoint } = require("../util/expressutil");
+const { IncomingMessage } = require("node:http");
+const { Context } = require("../util/context");
 
 // async function generateJWT(applicationId, secret, domain, ) {
 
@@ -33,47 +37,96 @@ class EntriService extends BaseService {
     _init() {
 
     }
+
+    ['__on_install.routes'](_, { app }) {
+        Endpoint({
+            route: '/entri/webhook',
+            methods: ['POST', "GET"],
+            /**
+             * 
+             * @param {IncomingMessage} req 
+             * @param {*} res 
+             */
+            handler: async (req, res) => {
+                if (!req.body.data.records_propagated) {
+                    console.log("Failed to set domain records")
+                    return;
+                }
+                let rootDomain = false;
+                if (req.body.data.records_propagated[0].type === "A") {
+                    rootDomain = true;
+                }
+
+                let realDomain = (rootDomain ? "" : (req.body.subdomain + "."))  + req.body.domain;
+                const svc_su = this.services.get("su");
+
+                const es_subdomain = this.services.get('es:subdomain');
+
+                await svc_su.sudo(async () => {
+                    const rows = (await es_subdomain.select({ predicate: new Eq({ key: "domain", value: "in-progress:" + realDomain }) }));
+                    for (const row of rows) {
+                        const entity = await Entity.create({ om: es_subdomain.om }, {
+                            uid: row.values_.uid,
+                            domain: realDomain
+                        });
+                        await es_subdomain.upsert(entity);
+
+                    }
+                    return true;
+                });
+
+
+
+                res.end("ok")
+            },
+        }).attach(app);
+
+        const svc_web = this.services.get('web-server');
+        svc_web.allow_undefined_origin('/entri/webhook', '/entri/webhook');
+    }
+
     static IMPLEMENTS = {
         ['entri']: {
-            async getJWT ({ domain, userHostedSite}) {
+            async getConfig({ domain, userHostedSite }) {
                 const es_subdomain = this.services.get('es:subdomain');
                 let rootDomain = (parseDomain(domain)).icann.subDomains.length === 0;
+
+                const dnsRecords = rootDomain ? [{
+                    type: "A",
+                    host: "@",
+                    value: "{ENTRI_SERVERS}", //This will be automatically replaced for the Entri servers IPs
+                    ttl: 300,
+                    applicationUrl: userHostedSite,
+                }] : [{
+                    type: "CNAME",
+                    value: "power.goentri.com", // `{CNAME_TARGET}` will NOT automatically use the CNAME target as implied by the documentation
+                    host: "{SUBDOMAIN}", // This will use the user inputted subdomain. If hostRequired is set to true, then this will default to "www"
+                    ttl: 300,
+                    applicationUrl: userHostedSite
+                }];
+
                 const response = await fetch('https://api.goentri.com/token', {
                     method: 'POST',
                     body: JSON.stringify({
                         applicationId: this.config.applicationId,
                         secret: this.config.secret,
                         domain,
-                        dnsRecords: rootDomain ? [
-                            {
-                                type: "A",
-                                host: "@",
-                                value: "{ENTRI_SERVERS}", //This will be automatically replaced for the Entri servers IPs
-                                ttl: 300,
-                                applicationUrl: userHostedSite,
-                            }
-                        ] : [
-                            {
-                                type: "CNAME",
-                                value: "{CNAME_TARGET}", // `{CNAME_TARGET}` will automatically use the CNAME target entered in the dashboard
-                                host: "{SUBDOMAIN}", // This will use the user inputted subdomain. If hostRequired is set to true, then this will default to "www"
-                                ttl: 300,
-                                applicationUrl: userHostedSite
-                            }
-                        ]
-                    }),
+                        // dnsRecords 
+                    })
                 });
+
+                const row = (await es_subdomain.select({ predicate: new Eq({ key: "subdomain", value: userHostedSite.replace(".puter.site", "") }) }))[0];
                 const entity = await Entity.create({ om: es_subdomain.om }, {
-                    subdomain: userHostedSite.replace(".puter.site", ""),
+                    uid: row.values_.uid,
                     domain: "in-progress:" + domain
                 });
 
                 await es_subdomain.upsert(entity);
-                return { auth_token: (await response.json()).auth_token, rootDomain}
+                return { token: (await response.json()).auth_token, applicationId: this.config.applicationId, power: true, dnsRecords, prefilledDomain: domain }
 
-                
+
                 // let rootDomain = (parseDomain(domain)).icann.subDomains.length === 0;
-                
+
                 // const response = await fetch('https://api.goentri.com/power?' + new URLSearchParams({
                 //     domain,
                 //     rootDomain
@@ -90,10 +143,16 @@ class EntriService extends BaseService {
                 // if (!data.eligible) {
                 //     throw new APIError(); // figure this out later
                 // }
-                
 
-                
+
+
             },
+            async fullyRegistered({ domain, userHostedSite }) {
+                const es_subdomain = this.services.get('es:subdomain');
+                const row = (await es_subdomain.select({ predicate: new Eq({ key: "subdomain", value: userHostedSite.replace(".puter.site", "") }) }))[0];
+
+
+            }
         }
     }
     async ['__on_driver.register.interfaces']() {
@@ -103,7 +162,7 @@ class EntriService extends BaseService {
         col_interfaces.set('entri', {
             description: 'Execute code with various languages.',
             methods: {
-                getJWT: {
+                getConfig: {
                     description: 'get JWT for entri',
                     parameters: {
                         domain: {
