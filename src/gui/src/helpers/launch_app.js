@@ -207,6 +207,20 @@ const launch_app = async (options)=>{
             iframe_url.searchParams.append('puter.parent_instance_id', options.parent_pseudo_id);
         }
 
+        // add source app metadata to URL
+        if (options.source_app_title) {
+            iframe_url.searchParams.append('puter.source_app.title', options.source_app_title);
+        }
+        if (options.source_app_id) {
+            iframe_url.searchParams.append('puter.source_app.id', options.source_app_id);
+        }
+        if (options.source_app_icon) {
+            iframe_url.searchParams.append('puter.source_app.icon', options.source_app_icon);
+        }
+        if (options.source_app_name) {
+            iframe_url.searchParams.append('puter.source_app.name', options.source_app_name);
+        }
+
         if(file_signature){
             iframe_url.searchParams.append('puter.item.uid', file_signature.uid);
             iframe_url.searchParams.append('puter.item.path', privacy_aware_path(options.file_path) || file_signature.path);
