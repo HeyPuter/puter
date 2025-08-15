@@ -68,6 +68,29 @@ export class ExecService extends Service {
             Object.assign(params, provider());
         }
 
+        // Collect source app metadata if available
+        let source_app_metadata = {};
+        if (app) {
+            // Get the source app information
+            try {
+                const source_app_info = await window.get_apps(process?.name);
+                if (source_app_info && !Array.isArray(source_app_info)) {
+                    source_app_metadata = {
+                        source_app_title: source_app_info.title || process?.name,
+                        source_app_id: source_app_info.uuid || source_app_info.uid,
+                        source_app_icon: source_app_info.icon,
+                        source_app_name: process?.name,
+                    };
+                }
+            } catch (error) {
+                // If we can't get app info, use basic process info
+                source_app_metadata = {
+                    source_app_title: process?.name,
+                    source_app_name: process?.name,
+                };
+            }
+        }
+
         // Handle file paths if provided and caller is in godmode
         let launch_options = {
             launched_by_exec_service: true,
@@ -77,6 +100,7 @@ export class ExecService extends Service {
             parent_instance_id: app?.appInstanceID,
             uuid: child_instance_id,
             params,
+            ...source_app_metadata,
             ...(connection ? {
                 parent_pseudo_id: connection.backward.uuid,
             } : {}),
