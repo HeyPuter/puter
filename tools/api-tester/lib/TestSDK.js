@@ -90,6 +90,8 @@ module.exports = class TestSDK {
             this.nameStack.join(` \x1B[36;1m->\x1B[0m `);
         process.stdout.write(strid + ' ... \n');
 
+        this.resetCwd();
+
         this.nameStack.push(benchDefinition.name);
         const start = Date.now();
         try {
@@ -269,6 +271,13 @@ module.exports = class TestSDK {
         this.stat = async (path, params) => {
             path = p(path);
             const res = await this.post('stat', { ...params, path });
+            return res.data;
+        }
+        this.stat_uuid = async (uuid, params) => {
+            // for stat(uuid) api:
+            // - use "uid" for "uuid"
+            // - there have to be a "subject" field which is the same as "uid"
+            const res = await this.post('stat', { ...params, uid: uuid, subject: uuid });
             return res.data;
         }
         this.statu = async (uid, params) => {

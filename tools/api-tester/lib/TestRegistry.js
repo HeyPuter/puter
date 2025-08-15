@@ -45,9 +45,22 @@ module.exports = class TestRegistry {
     // copilot was able to write everything below this line
     // and I think that's pretty cool
 
-    async run_all_benches () {
+    async run_all_benches (suiteName) {
+        // check if "suiteName" is valid
+        if (suiteName && !Object.keys(this.benches).includes(suiteName)) {
+            throw new Error(`Suite not found: ${suiteName}, valid suites are: ${Object.keys(this.benches).join(', ')}`);
+        }
+
         for ( const [id, bench_definition] of Object.entries(this.benches) ) {
+            if (suiteName && id !== suiteName) {
+                continue;
+            }
+
             console.log(`running bench: ${id}`);
+
+            // reset the working directory
+            await this.t.init_working_directory();
+
             await this.t.runBenchmark(bench_definition);
         }
     }
