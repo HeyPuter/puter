@@ -86,6 +86,7 @@ export class ExecService extends Service {
                 // If we can't get app info, use basic process info
                 source_app_metadata = {
                     source_app_title: process?.name,
+                    source_app_id: process?.uuid,
                     source_app_name: process?.name,
                 };
             }
