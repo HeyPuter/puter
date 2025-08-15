@@ -12,7 +12,7 @@ module.exports = class TestFactory {
             for ( let i=0 ; i < states.length ; i++ ) {
                 const state = states[i];
 
-                if ( t.context.options.onlycase !== undefined ) {
+                if ( t.context.options?.onlycase !== undefined ) {
                     if ( i !== t.context.options.onlycase ) {
                         continue;
                     }

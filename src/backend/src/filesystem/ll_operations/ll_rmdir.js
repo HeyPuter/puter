@@ -17,6 +17,7 @@
  * along with this program.  If not, see <https://www.gnu.org/licenses/>.
  */
 const APIError = require("../../api/APIError");
+const { MemoryFSProvider } = require("../../modules/puterfs/customfs/MemoryFSProvider");
 const { ParallelTasks } = require("../../util/otelutil");
 const FSNodeContext = require("../FSNodeContext");
 const { NodeUIDSelector } = require("../node/selectors");
@@ -102,14 +103,27 @@ class LLRmDir extends LLFilesystemOperation {
         }
 
         await tasks.awaitAll();
-        if ( ! descendants_only ) {
-            await target.provider.rmdir({
+
+        // TODO (xiaochen): consolidate these two branches
+        if ( target.provider instanceof MemoryFSProvider ) {
+            await target.provider.rmdir( {
                 context,
                 node: target,
                 options: {
-                    ignore_not_empty: true,
+                    recursive,
+                    descendants_only,
                 },
-            });
+            } );
+        } else {
+            if ( ! descendants_only ) {
+                await target.provider.rmdir( {
+                    context,
+                    node: target,
+                    options: {
+                        ignore_not_empty: true,
+                    },
+                } );
+            }
         }
     }
 }

@@ -287,7 +287,7 @@ class HLMkdir extends HLFilesystemOperation {
         // "top_parent" is the immediate parent of the target directory
         // (e.g: /home/foo/bar -> /home/foo)
         const top_parent = values.create_missing_parents
-            ? await this._create_top_parent({ top_parent: parent_node })
+            ? await this._create_dir(parent_node)
             : await this._get_existing_top_parent({ top_parent: parent_node })
             ;
 
@@ -331,12 +331,14 @@ class HLMkdir extends HLFilesystemOperation {
                 });
             }
             else if ( dedupe_name ) {
-                const fsEntryFetcher = context.get('services').get('fsEntryFetcher');
+                const fs = context.get('services').get('filesystem');
+                const parent_selector = parent_node.selector;
                 for ( let i=1 ;; i++ ) {
                     let try_new_name = `${target_basename} (${i})`;
-                    const exists = await fsEntryFetcher.nameExistsUnderParent(
-                        existing.entry.parent_uid, try_new_name
-                    );
+                    const selector = new NodeChildSelector(parent_selector, try_new_name);
+                    const exists = await parent_node.provider.quick_check({
+                        selector,
+                    });
                     if ( ! exists ) {
                         target_basename = try_new_name;
                         break;
@@ -468,16 +470,24 @@ class HLMkdir extends HLFilesystemOperation {
         return node;
     }
 
-    async _create_top_parent ({ top_parent }) {
-        if ( await top_parent.exists() ) {
-            if ( ! top_parent.entry.is_dir ) {
+    /**
+     * Creates a directory and all its ancestors.
+     *
+     * @param {FSNodeContext} dir - The directory to create.
+     * @returns {Promise<FSNodeContext>} The created directory.
+     */
+    async _create_dir (dir) {
+        console.log('CREATING DIR', dir.selector.describe());
+
+        if ( await dir.exists() ) {
+            if ( ! dir.entry.is_dir ) {
                 throw APIError.create('dest_is_not_a_directory');
             }
-            return top_parent;
+            return dir;
         }
 
         const maybe_path_selector =
-            top_parent.get_selector_of_type(NodePathSelector);
+            dir.get_selector_of_type(NodePathSelector);
 
         if ( ! maybe_path_selector ) {
             throw APIError.create('dest_does_not_exist');
