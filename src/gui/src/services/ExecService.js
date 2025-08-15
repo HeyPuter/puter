@@ -79,7 +79,7 @@ export class ExecService extends Service {
                         source_app_title: source_app_info.title || process?.name,
                         source_app_id: source_app_info.uuid || source_app_info.uid,
                         source_app_icon: source_app_info.icon,
-                        source_app_name: process?.name,
+                        source_app_name: source_app_info?.name || process?.name,
                     };
                 }
             } catch (error) {
