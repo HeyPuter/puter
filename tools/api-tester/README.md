@@ -45,13 +45,19 @@ All commands below should be run from the root directory of puter.
 
 ### Shorthands
 
-- Run unit tests only:
+- Run all tests (unit tests and benchmarks):
+
+    ```bash
+    node ./tools/api-tester/apitest.js --config=./tools/api-tester/config.yml
+    ```
+
+- Run all unit tests:
 
     ```bash
     node ./tools/api-tester/apitest.js --config=./tools/api-tester/config.yml --unit
     ```
 
-- Run benchmarks only:
+- Run all benchmarks:
 
     ```bash
     node ./tools/api-tester/apitest.js --config=./tools/api-tester/config.yml --bench
@@ -61,6 +67,12 @@ All commands below should be run from the root directory of puter.
 
     ```bash
     node ./tools/api-tester/apitest.js --config=./tools/api-tester/config.yml --unit --suite=mkdir
+    ```
+
+- Filter benchmarks by name:
+
+    ```bash
+    node ./tools/api-tester/apitest.js --config=./tools/api-tester/config.yml --bench --suite=stat_intensive_1
     ```
 
 - Stop on first failure:
