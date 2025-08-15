@@ -4,12 +4,12 @@ const expect = chai.expect;
 
 module.exports = {
     name: 'stat intensive 1',
-    description: 'create 10 directories and 100 subdirectories in each, then stat them intensively',
+    description: 'create 10 directories and 1000 subdirectories in each, then stat them over and over',
     do: async t => {
         console.log('stat intensive 1');
 
         const dir_count = 10;
-        const subdir_count = 100;
+        const subdir_count = 1000;
 
         // key: uuid
         // value: path
@@ -23,6 +23,7 @@ module.exports = {
             }
         }
 
+        const start = Date.now();
         for (let i = 0; i < 10; i++) {
             for (const [uuid, path] of Object.entries(dirs)) {
                 const stat = await t.stat_uuid(uuid);
@@ -30,5 +31,7 @@ module.exports = {
                 expect(stat.path).equal(path);
             }
         }
+        const duration = Date.now() - start;
+        return { duration };
     }
 };

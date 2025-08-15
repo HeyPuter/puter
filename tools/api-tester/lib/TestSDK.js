@@ -94,12 +94,21 @@ module.exports = class TestSDK {
 
         this.nameStack.push(benchDefinition.name);
         const start = Date.now();
+        let duration = null;
         try {
-            await benchDefinition.do(this);
+            const res = await benchDefinition.do(this);
+            if ( res?.duration ) {
+                duration = res.duration;
+            }
         } catch (e) {
             // we don't tolerate errors at the moment
             console.error(e);
             throw e;
+        }
+
+        if ( ! duration ) {
+            // if the bench definition doesn't return the duration, we calculate it here
+            duration = Date.now() - start;
         }
 
         const results = {
