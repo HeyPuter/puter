@@ -382,18 +382,31 @@ class WebDavFS extends BaseService {
         const svc_auth = this.services.get('auth');
 
         const user = await services.get('get-user').get_user({ username: username, cached: false });
-        console.log("authing")
-        if (await bcrypt.compare(password, user.password)) {
+        let otpToken = null;
+        let real_password = password
+
+        if (user.otp_enabled) {
+            real_password = password.slice(0, -6);
+            otpToken = password.slice(-6);
+        }
+
+        if (await bcrypt.compare(real_password, user.password) ) {
             const { token } = await svc_auth.create_session_token(user);
+            if (user.otp_enabled) {
+                const svc_otp = req.services.get('otp');
+                const ok = svc_otp.verify(user.username, user.otp_secret, otpToken);
+                if (!ok) {
+                    return null;
+                }
+            }
+
             res.cookie(this.global_config.cookie_name, token, {
                 sameSite: 'none',
                 secure: true,
                 httpOnly: true,
             });
-            console.log("auth done!")
             return await svc_auth.authenticate_from_token(token);
         }
-        console.log("auth failed")
         return null;
     }
 
@@ -421,20 +434,16 @@ class WebDavFS extends BaseService {
                 const svc_su = this.services.get("su")
                 let actor = req.actor;
                 
-                console.log("actor: ", actor)
                 // Check if authentication is required (except for OPTIONS)
                 if (!actor) {
                     // Check for Basic Authentication header
                     const authHeader = req.headers.authorization;
-                    console.error('WebDAV authentication trying:', req.headers.authorization);
-                    console.log("all headers: ", req.headers)
                     if (authHeader && authHeader.startsWith('Basic ')) {
                         try {
                             // Parse Basic auth credentials
                             const base64Credentials = authHeader.split(' ')[1];
                             const credentials = Buffer.from(base64Credentials, 'base64').toString('ascii');
                             const [username, password] = credentials.split(':');
-                            console.log("waiting for auth!!")
                             // Call user's authentication function
                             actor = await this.authenticateWebDavUser(username, password, req, res);
                             
@@ -449,7 +458,6 @@ class WebDavFS extends BaseService {
                                 return;
                             }
                         } catch (error) {
-                            console.error('WebDAV authentication error:', error);
                             res.set({
                                 'WWW-Authenticate': 'Basic realm="WebDAV"',
                                 'DAV': '1, 2',
@@ -475,9 +483,6 @@ class WebDavFS extends BaseService {
                 if (filePath === "/" || filePath === "") {
                   filePath = "/";  // Keep as root for WebDAV
                 }
-                console.log("url: ", req.path)
-                console.log("actor: ", actor)
-                console.log("logged the actor")
                 svc_su.sudo(actor, async ()=> {
                     const fileNode = await svc_fs.node(new NodePathSelector(filePath));
                     const exists = await fileNode.exists();
@@ -541,9 +546,7 @@ class WebDavFS extends BaseService {
                                 res.status(500).end('Internal server error');
                             });
                             break;
-                        case "PROPFIND":
-                            console.log("PROPFIND FOR " + filePath + " and NODE " + fileNode);
-                            
+                        case "PROPFIND":                            
                             // Set proper headers for WebDAV XML response
                             res.set({
                                 'Content-Type': 'application/xml; charset=utf-8',
@@ -556,9 +559,7 @@ class WebDavFS extends BaseService {
                                 res.status(207);
                                 // res.end(createStaticDavRootResponse());
                                 const rootNode = await svc_fs.node(new NodePathSelector("/"));
-                                console.log("Current File Path: ", rootNode)
                                 res.end(convertMultipleToWebDAVPropfindXML(await operations.stat(rootNode), await operations.readdir(rootNode)));
-                                console.log("DONE! (static dav root)");
                                 return;
                             }
                             
@@ -574,11 +575,9 @@ class WebDavFS extends BaseService {
                             if (stat.is_dir && depth !== '0') {
                                 res.status(207);
                                 res.end(convertMultipleToWebDAVPropfindXML(stat, await operations.readdir(fileNode)));
-                                console.log("DONE!")
                             } else {
                                 res.status(207);
                                 res.end(convertToWebDAVPropfindXML(stat));
-                                console.log("DONE! (file)")
                             }
                             break;
                         case "PUT":
@@ -632,13 +631,8 @@ class WebDavFS extends BaseService {
                                     res.status(204).end(); // 204 No Content for updated file
                                 } else {
                                     res.status(201).end(); // 201 Created for new file
-                                }
-                                
-                                console.log("PUT completed successfully");
-                                
-                            } catch (error) {
-                                console.error("PUT error:", error);
-                                
+                                }                                
+                            } catch (error) {                                
                                 // Handle specific error types
                                 if (error.code === 'item_with_same_name_exists') {
                                     res.status(409).end('Conflict: Item already exists');
@@ -709,11 +703,7 @@ class WebDavFS extends BaseService {
                                 });
                                 
                                 res.status(201).end(); // 201 Created
-                                console.log("MKCOL completed successfully");
-                                
-                            } catch (error) {
-                                console.error("MKCOL error:", error);
-                                
+                            } catch (error) {                                
                                 // Handle specific error types
                                 if (error.code === 'item_with_same_name_exists') {
                                     res.status(405).end('Method Not Allowed');
@@ -756,10 +746,8 @@ class WebDavFS extends BaseService {
                                 
                                 res.status(207);
                                 res.end(stubResponse);
-                                console.log("PROPPATCH completed (stubbed)");
                                 
                             } catch (error) {
-                                console.error("PROPPATCH error:", error);
                                 res.status(500).end('Internal Server Error');
                             }
                             break;
@@ -776,11 +764,7 @@ class WebDavFS extends BaseService {
                                 
                                 // Return success response
                                 res.status(204).end(); // 204 No Content for successful deletion
-                                console.log("DELETE completed successfully");
-                                
-                            } catch (error) {
-                                console.error("DELETE error:", error);
-                                
+                            } catch (error) {                                
                                 // Handle specific error types
                                 if (error.code === 'permission_denied') {
                                     res.status(403).end('Forbidden');
@@ -872,13 +856,8 @@ class WebDavFS extends BaseService {
                                     res.status(204).end(); // 204 No Content for overwrite
                                 } else {
                                     res.status(201).end(); // 201 Created for new resource
-                                }
-                                
-                                console.log("MOVE completed successfully");
-                                
-                            } catch (error) {
-                                console.error("MOVE error:", error);
-                                
+                                }                                
+                            } catch (error) {                                
                                 // Handle specific error types
                                 if (error.code === 'permission_denied') {
                                     res.status(403).end('Forbidden');
@@ -971,13 +950,8 @@ class WebDavFS extends BaseService {
                                     res.status(204).end(); // 204 No Content for overwrite
                                 } else {
                                     res.status(201).end(); // 201 Created for new resource
-                                }
-                                
-                                console.log("COPY completed successfully");
-                                
-                            } catch (error) {
-                                console.error("COPY error:", error);
-                                
+                                }                                
+                            } catch (error) {                                
                                 // Handle specific error types
                                 if (error.code === 'permission_denied') {
                                     res.status(403).end('Forbidden');
@@ -1036,11 +1010,8 @@ class WebDavFS extends BaseService {
 </D:prop>`;
                                 
                                 res.status(200);
-                                res.end(lockResponse);
-                                console.log("LOCK completed (stubbed)");
-                                
+                                res.end(lockResponse);                                
                             } catch (error) {
-                                console.error("LOCK error:", error);
                                 res.status(500).end('Internal Server Error');
                             }
                             break;
@@ -1062,11 +1033,8 @@ class WebDavFS extends BaseService {
                                 }
                                 
                                 // Always return success since we don't actually track locks
-                                res.status(204).end(); // 204 No Content for successful unlock
-                                console.log("UNLOCK completed (stubbed)");
-                                
+                                res.status(204).end(); // 204 No Content for successful unlock                                
                             } catch (error) {
-                                console.error("UNLOCK error:", error);
                                 res.status(500).end('Internal Server Error');
                             }
                             break;
@@ -1102,7 +1070,6 @@ class WebDavFS extends BaseService {
              * @param {import("express").Response} res 
              */
             handler: async (req, res) => {
-                console.log("GOT A ROOT DAV REQ")
                 let actor = req.actor;
                 
                 // Check if authentication is required
@@ -1130,7 +1097,6 @@ class WebDavFS extends BaseService {
                                 return;
                             }
                         } catch (error) {
-                            console.error('WebDAV authentication error:', error);
                             res.set({
                                 'WWW-Authenticate': 'Basic realm="WebDAV"',
                                 'DAV': '1, 2',
