@@ -100,7 +100,7 @@ const main = async () => {
         for ( const result of benchmark_results ) {
             if ( seen.has(result.name) ) continue;
             seen.add(result.name);
-            console.log(result.name + ' - ' + result.description);
+            console.log(result.name + ': ' + result.description);
         }
     }
 
@@ -146,7 +146,7 @@ async function test({ mountpoint }) {
     if ( unit ) {
         await registry.run_all_tests(suiteName);
     } else if ( bench ) {
-        await registry.run_all_benches();
+        await registry.run_all_benches(suiteName);
     } else {
         await registry.run_all();
     }
