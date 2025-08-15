@@ -117,7 +117,7 @@ class LLRead extends LLFilesystemOperation {
                 const context = a.iget('context');
                 const storage = context.get('storage');
 
-                const { fsNode, version_id, offset, length, has_range } = a.values();
+                const { fsNode, version_id, offset, length, has_range, range } = a.values();
 
                 // Empty object here is in the case of local fiesystem,
                 // where s3:location will return null.
@@ -130,9 +130,9 @@ class LLRead extends LLFilesystemOperation {
                     bucket_region: location.bucket_region,
                     version_id,
                     key: location.key,
-                    ...(has_range ? {
+                    ...(range? {range} : (has_range ? {
                         range: `bytes=${offset}-${offset+length-1}`
-                    } : {}),
+                    } : {})),
                 }));
 
                 a.set('stream', stream);

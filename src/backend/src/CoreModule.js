@@ -388,6 +388,8 @@ const install = async ({ services, app, useapi, modapi }) => {
     
     const { WispService } = require('./services/WispService');
     services.registerService('wisp', WispService);
+    const { WebDavFS } = require('./services/WebDavFS');
+    services.registerService('dav', WebDavFS);
 
     const { RequestMeasureService } = require('./services/RequestMeasureService');
     services.registerService('request-measure', RequestMeasureService);

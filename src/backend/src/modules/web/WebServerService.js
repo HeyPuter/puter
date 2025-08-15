@@ -628,10 +628,11 @@ class WebServerService extends BaseService {
             }
 
             // Request methods to allow
-            res.setHeader('Access-Control-Allow-Methods', 'GET, POST, OPTIONS, PUT, PATCH, DELETE');
+            res.setHeader('Access-Control-Allow-Methods', 'GET, POST, OPTIONS, PUT, PATCH, DELETE, PROPFIND, PROPPATCH, MKCOL, COPY, MOVE, LOCK, UNLOCK');
 
             const allowed_headers = [
-                "Origin", "X-Requested-With", "Content-Type", "Accept", "Authorization", "sentry-trace", "baggage"
+                "Origin", "X-Requested-With", "Content-Type", "Accept", "Authorization", "sentry-trace", "baggage",
+                "Depth", "Destination", "Overwrite", "If", "Lock-Token", "DAV"
             ];
 
             // Request headers to allow
@@ -663,7 +664,22 @@ class WebServerService extends BaseService {
         });
 
         // Options for all requests (for CORS)
-        app.options('/*', (_, res) => {
+        app.options('/*', (req, res) => {
+            if (req.path.startsWith('/dav/')) {
+                res.set({
+                    'Allow': 'OPTIONS, GET, HEAD, POST, PUT, DELETE, TRACE, COPY, MOVE, MKCOL, PROPFIND, PROPPATCH, LOCK, UNLOCK, ORDERPATCH',
+                    'DAV': '1, 2, ordered-collections',  // WebDAV compliance classes with ordered-collections for macOS
+                    'MS-Author-Via': 'DAV',  // Microsoft compatibility
+                    'Server': 'Puter/WebDAV',  // Server identification
+                    'Accept-Ranges': 'bytes',
+                    'Content-Type': 'text/plain; charset=utf-8',  // Explicit content type
+                    'Content-Length': '0',
+                    'Cache-Control': 'no-cache',  // Prevent caching issues
+                    'Connection': 'Keep-Alive'  // Keep connection alive for macOS
+                });
+                res.status(200).end();
+                console.log("OPTIONS request completed for macOS compatibility");
+            }
             return res.sendStatus(200);
         });
     }

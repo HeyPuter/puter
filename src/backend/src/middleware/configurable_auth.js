@@ -74,7 +74,7 @@ const configurable_auth = options => async (req, res, next) => {
     else if(req.handshake && req.handshake.query && req.handshake.query.auth_token)
         token = req.handshake.query.auth_token;
     
-    if(!token) {
+    if(!token || token.startsWith("Basic ")) {
         if ( optional ) {
             next();
             return;
