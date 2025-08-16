@@ -431,14 +431,13 @@ async function authenticateWebDavUser(username, password, req, res) {
     let otpToken = null;
     let real_password = password
 
+    if (username === "-token") {
+        return await svc_auth.authenticate_from_token(password);
+    }
+
     if (user.otp_enabled) {
         real_password = password.slice(0, -6);
         otpToken = password.slice(-6);
-        console.log("creds")
-        console.log(real_password)
-        console.log(otpToken)
-        console.log("cookie")
-        console.log(req.headers.cookie)
     }
 
     if (await bcrypt.compare(real_password, user.password)) {
@@ -484,7 +483,7 @@ async function handleHttpBasicAuth(actor, req, res) {
             const credentials = Buffer.from(base64Credentials, 'base64').toString('ascii');
             let [username, ...password] = credentials.split(':');
             password = password.join(":");
-            
+
             // Call user's authentication function
             actor = await authenticateWebDavUser(username, password, req, res);
             if (!actor) {
