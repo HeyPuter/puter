@@ -27,9 +27,14 @@ import UIWindow from "../UI/UIWindow.js";
  * @param {*} options.name - The name of the app to launch.
  */
 const launch_app = async (options)=>{
-    // start a transaction
-    const transaction = new window.Transaction('app-is-ready');
-    transaction.start();
+    let transaction;
+    // A transaction to trace the time it takes to launch an app and 
+    // for it to be ready.
+    // Explorer is a special case, it's not an app per se, so it doesn't need a transaction.
+    if(options?.name !== 'explorer'){
+        transaction = new window.Transaction('app-is-ready');
+        transaction.start();
+    }
 
     const uuid = options.uuid ?? window.uuidv4();
     let icon, title, file_signature;
@@ -433,7 +438,8 @@ const launch_app = async (options)=>{
     });
 
     // end the transaction
-    transaction.end();
+    if(transaction)
+        transaction.end();
 
 
     return process;
