@@ -228,8 +228,21 @@ const refresh_item_container = function(el_item_container, options){
                 $(el_item_container).attr('data-sort_order')
             );
 
-            if(options.fadeInItems)
-                $(el_item_container).animate({'opacity': '1'});
+            if(options.fadeInItems) {
+                $(el_item_container).animate({'opacity': '1'}, {
+                    complete: () => {
+                        // Call onComplete callback when fade-in animation is done
+                        if(options.onComplete && typeof options.onComplete === 'function') {
+                            options.onComplete();
+                        }
+                    }
+                });
+            } else {
+                // If no fade-in animation, call onComplete immediately
+                if(options.onComplete && typeof options.onComplete === 'function') {
+                    options.onComplete();
+                }
+            }
 
             // update footer item count if this is an explorer window
             if(el_window)
@@ -249,6 +262,11 @@ const refresh_item_container = function(el_item_container, options){
         // show error message
         $(error_message).html('Failed to load directory' + html_encode((e && e.message ? ': ' + e.message : '')));
         $(error_message).show();
+
+        // Call onComplete callback even in error case, since the "loading" is technically complete
+        if(options.onComplete && typeof options.onComplete === 'function') {
+            options.onComplete();
+        }
     });
 }    
 

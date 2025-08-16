@@ -44,6 +44,13 @@ import item_icon from "../helpers/item_icon.js"
 import UIWindowSearch from "./UIWindowSearch.js"
 
 async function UIDesktop(options) {
+    // start a transaction if we're not in embedded or fullpage mode
+    let transaction;
+    if (!window.is_embedded && !window.is_fullpage_mode) {
+        transaction = new window.Transaction('desktop-load');
+        transaction.start();
+    }
+
     let h = '';
 
     // Set up the desktop channel for communication between different tabs in the same browser
@@ -1040,7 +1047,13 @@ async function UIDesktop(options) {
     // because the items aren't visible anyway and we don't need to waste bandwidth/server resources
     //-------------------------------------------
     if (!window.is_embedded && !window.is_fullpage_mode) {
-        refresh_item_container(el_desktop, { fadeInItems: true })
+        refresh_item_container(el_desktop, { 
+            fadeInItems: true,
+            onComplete: () => {
+                // End transaction when desktop is fully ready for user interaction
+                transaction.end();
+            }
+        })
 
         // Show welcome window if user hasn't already seen it and hasn't directly navigated to an app 
         if (!window.url_paths[0]?.toLocaleLowerCase() === 'app' || !window.url_paths[1]) {
