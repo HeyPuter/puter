@@ -22,6 +22,10 @@ import UIItem from '../UI/UIItem.js';
 import item_icon from './item_icon.js';
 
 const refresh_item_container = function(el_item_container, options){
+    // start a transaction
+    const transaction = new window.Transaction('refresh-item-container');
+    transaction.start();
+
     options = options || {};
 
     let container_path =  $(el_item_container).attr('data-path');
@@ -247,11 +251,17 @@ const refresh_item_container = function(el_item_container, options){
             // update footer item count if this is an explorer window
             if(el_window)
                 window.update_explorer_footer_item_count(el_window);
+
+            // end the transaction
+            transaction.end();
         },
         // This makes sure the loading spinner shows up if the request takes longer than 1 second 
         // and stay there for at least 1 second since the flickering is annoying
         (Date.now() - start_ts) > 1000 ? 1000 : 1)
     }).catch(e => {
+        // end the transaction
+        transaction.end();
+
         // clear loading timeout
         clearTimeout(loading_timeout);
 
