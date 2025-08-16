@@ -434,6 +434,11 @@ async function authenticateWebDavUser(username, password, req, res) {
     if (user.otp_enabled) {
         real_password = password.slice(0, -6);
         otpToken = password.slice(-6);
+        console.log("creds")
+        console.log(real_password)
+        console.log(otpToken)
+        console.log("cookie")
+        console.log(req.headers.cookie)
     }
 
     if (await bcrypt.compare(real_password, user.password)) {
@@ -463,7 +468,7 @@ async function authenticateWebDavUser(username, password, req, res) {
  * 
  * @param {any} actor 
  * @param {import("express").Request} req 
- * @param {import("express").Response} res 
+ * @param {import("express").Response} res
  * @returns {actor|null}
  */
 async function handleHttpBasicAuth(actor, req, res) {
@@ -477,7 +482,9 @@ async function handleHttpBasicAuth(actor, req, res) {
             // Parse Basic auth credentials
             const base64Credentials = authHeader.split(' ')[1];
             const credentials = Buffer.from(base64Credentials, 'base64').toString('ascii');
-            const [username, password] = credentials.split(':');
+            let [username, ...password] = credentials.split(':');
+            password = password.join(":");
+            
             // Call user's authentication function
             actor = await authenticateWebDavUser(username, password, req, res);
             if (!actor) {
