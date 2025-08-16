@@ -496,7 +496,9 @@ const en = {
         'window_folder_empty': 'This folder is empty',
         
         // Website Management
-        'manage_your_subdomains': 'Manage Your Subdomains'
+        'manage_your_subdomains': 'Manage Your Subdomains',
+
+        'open_containing_folder': 'Open Containing Folder',
     }
 };
 

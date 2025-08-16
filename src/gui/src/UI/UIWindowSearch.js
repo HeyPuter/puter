@@ -22,6 +22,7 @@ import path from "../lib/path.js"
 import UIAlert from './UIAlert.js'
 import launch_app from '../helpers/launch_app.js'
 import item_icon from '../helpers/item_icon.js'
+import UIContextMenu from './UIContextMenu.js'
 
 async function UIWindowSearch(options){
     let h = '';
@@ -251,6 +252,55 @@ $(document).on('click', '.search-result', async function(e){
 
     // close
     $(this).closest('.window').close();
+})
+
+// Context menu for search results
+$(document).on('contextmenu', '.search-result', async function(e){
+    e.preventDefault();
+    e.stopPropagation();
+    
+    const fspath = $(this).data('path');
+    const fsuid = $(this).data('uid');
+    const is_dir = $(this).attr('data-is_dir') === 'true' || $(this).data('is_dir') === '1';
+    
+    // Get the parent directory path
+    const parent_path = path.dirname(fspath);
+    
+    // Build context menu items
+    const menuItems = [
+        {
+            html: i18n('open'),
+            onClick: async function() {
+                // Trigger the same logic as clicking on the search result
+                $(e.target).trigger('click');
+            }
+        }
+    ];
+    
+    // Only add "Open enclosing folder" if we're not already at root
+    if (parent_path && parent_path !== fspath && parent_path !== '/') {
+        menuItems.push('-'); // divider
+        menuItems.push({
+            html: i18n('open_containing_folder'),
+            onClick: async function() {
+                // Open the enclosing folder
+                UIWindow({
+                    path: parent_path,
+                    title: path.basename(parent_path) || window.root_dirname,
+                    icon: window.icons['folder.svg'],
+                    is_dir: true,
+                    app: 'explorer',
+                });
+                
+                // Close search window
+                $(e.target).closest('.window').close();
+            }
+        });
+    }
+    
+    UIContextMenu({
+        items: menuItems
+    });
 })
 
 export default UIWindowSearch
