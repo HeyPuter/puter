@@ -36,6 +36,13 @@ const bcrypt = require('bcrypt')
 
 let COOKIE_NAME = null;
 
+/**
+ * Converts a puter fsitem (from stat) to the WebDav PROPFIND equivilent.
+ * Used for a singlefile PROPFIND.
+ * 
+ * @param {any} fsEntry 
+ * @returns 
+ */
 function convertToWebDAVPropfindXML(fsEntry) {
   const isDirectory = fsEntry.is_dir;
   const lastModified = new Date(fsEntry.modified * 1000).toUTCString();
@@ -85,6 +92,13 @@ function convertToWebDAVPropfindXML(fsEntry) {
   return xml;
 }
 
+/**
+ * Converts a puter fsitem (from readdir) to the WebDav PROPFIND equivilent.
+ * Used for a directory PROPFIND
+ * 
+ * @param {any} fsEntry 
+ * @returns 
+ */
 function convertMultipleToWebDAVPropfindXML(selfStat, fsEntries) {
   fsEntries = [selfStat, ...fsEntries];
   const responses = fsEntries.map(fsEntry => {
@@ -160,6 +174,12 @@ function getProperMimeType(originalType, filename) {
   }
 }
 
+/**
+ * Small utility function to escape XML
+ * 
+ * @param {string} text 
+ * @returns 
+ */
 function escapeXml(text) {
     if (typeof text !== 'string') return text;
     return text
@@ -286,7 +306,7 @@ function createRootWebDAVResponse() {
 </D:multistatus>`;
 }
 
-
+// Small operations wrapper to make my life a bit easier. Generally it takes a FileNode and returns what puter.fs in puter.js would return.
 const operations = {
     stat: (node)=>{
         const hl_stat = new HLStat();
@@ -393,6 +413,15 @@ const operations = {
 
 }
 
+/**
+ * Handles username/password && OTP login. Is used by and wrapped by handleHttpBasicAuth().
+ * 
+ * @param {string} username 
+ * @param {string} password 
+ * @param {import("express").Request} req 
+ * @param {import("express").Response} res 
+ * @returns {actor|null}
+ */
 async function authenticateWebDavUser(username, password, req, res) {
     // Default implementation - you should override this method
     // Return null to reject authentication
@@ -427,7 +456,16 @@ async function authenticateWebDavUser(username, password, req, res) {
     return null;
 }
 
-
+/**
+ * Handler for HTTP BASIC username/password authentication of a puter account.
+ * It sets a puter token cookie and then returns an actor if it could successfully get one.
+ * Otherwise, it returns null and responds with an HTTP BASIC authentication request with a 401.
+ * 
+ * @param {any} actor 
+ * @param {import("express").Request} req 
+ * @param {import("express").Response} res 
+ * @returns {actor|null}
+ */
 async function handleHttpBasicAuth(actor, req, res) {
 
     if (actor)
@@ -474,6 +512,15 @@ async function handleHttpBasicAuth(actor, req, res) {
         return;
     }
 }
+
+/**
+ * A full WebDav server in one function. Takes the requested filePath, and an express.js req, res. It responds for you. 
+ * 
+ * @param {string} filePath 
+ * @param {import("express").Request} req 
+ * @param {import("express").Response} res 
+ * @returns 
+ */
 
 async function handleWebDavServer(filePath, req, res) {
     const svc_fs = this.services.get('filesystem');
