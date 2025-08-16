@@ -454,6 +454,7 @@ async function authenticateWebDavUser(username, password, req, res) {
             sameSite: 'none',
             secure: true,
             httpOnly: true,
+            maxAge: 34560000000 // 400 days, chrome maximum
         });
         return await svc_auth.authenticate_from_token(token);
     }
