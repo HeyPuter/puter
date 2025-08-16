@@ -247,6 +247,16 @@ const ipc_listener = async (event, handled) => {
         }, '*');
     }
     //--------------------------------------------------------
+    // getLanguage
+    //--------------------------------------------------------
+    else if(event.data.msg === 'getLanguage'){
+        target_iframe.contentWindow.postMessage({
+            original_msg_id: msg_id,
+            msg: 'languageReceived',
+            language: window.locale || 'en',
+        }, '*');
+    }
+    //--------------------------------------------------------
     // socialShare
     //--------------------------------------------------------
     else if(event.data.msg === 'socialShare' && event.data.url !== undefined){

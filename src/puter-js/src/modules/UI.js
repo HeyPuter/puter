@@ -467,6 +467,10 @@ class UI extends EventListener {
                     // execute callback
                     this.#callbackFunctions[e.data.original_msg_id](e.data.response); 
                 }
+                else if(e.data.msg === 'languageReceived'){
+                    // execute callback
+                    this.#callbackFunctions[e.data.original_msg_id](e.data.language); 
+                }
                 else if(e.data.msg === "fileSaved"){
                     // execute callback
                     this.#callbackFunctions[e.data.original_msg_id](new FSItem(e.data.saved_file)); 
@@ -1525,6 +1529,21 @@ class UI extends EventListener {
 
     isWorkingActive() {
         return this.#overlayActive;
+    }
+
+    /**
+     * Gets the current language/locale code (e.g., 'en', 'fr', 'es').
+     * 
+     * @returns {Promise<string>} A promise that resolves with the current language code.
+     * 
+     * @example
+     * const currentLang = await puter.ui.getLanguage();
+     * console.log(`Current language: ${currentLang}`); // e.g., "Current language: fr"
+     */
+    getLanguage() {
+        return new Promise((resolve) => {
+            this.#postMessageWithCallback('getLanguage', resolve, {});
+        });
     }
 }
 
