@@ -19,6 +19,20 @@
 
 const APIError = require("../api/APIError");
 
+/**
+ * Creates an anti-CSRF middleware that validates CSRF tokens in incoming requests.
+ * This middleware protects against Cross-Site Request Forgery attacks by verifying
+ * that requests contain a valid anti-CSRF token in the request body.
+ * 
+ * @param {Object} options - Configuration options for the middleware
+ * @returns {Function} Express middleware function that validates CSRF tokens
+ * 
+ * @example
+ * // Apply anti-CSRF protection to a route
+ * app.post('/api/secure-endpoint', anticsrf(), (req, res) => {
+ *   // Route handler code
+ * });
+ */
 const anticsrf = options => async (req, res, next) => {
     const svc_antiCSRF = req.services.get('anti-csrf');
     if ( ! req.body.anti_csrf ) {
