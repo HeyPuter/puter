@@ -495,7 +495,9 @@ Shranite jih na varno mesto.
         'window_folder_empty': 'Ta mapa je prazna',
         
         // Website Management
-        'manage_your_subdomains': 'Upravljajte svoje poddomene'
+        'manage_your_subdomains': 'Upravljajte svoje poddomene',
+
+        'open_containing_folder': 'Odpri vsebujočo mapo',
     }
 };
 
