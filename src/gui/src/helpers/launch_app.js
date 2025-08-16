@@ -27,6 +27,10 @@ import UIWindow from "../UI/UIWindow.js";
  * @param {*} options.name - The name of the app to launch.
  */
 const launch_app = async (options)=>{
+    // start a transaction
+    const transaction = new window.Transaction('app-is-ready');
+    transaction.start();
+
     const uuid = options.uuid ?? window.uuidv4();
     let icon, title, file_signature;
     const window_options = options.window_options ?? {};
@@ -427,6 +431,9 @@ const launch_app = async (options)=>{
         const svc_process = globalThis.services.get('process');
         svc_process.unregister(process.uuid);
     });
+
+    // end the transaction
+    transaction.end();
 
 
     return process;

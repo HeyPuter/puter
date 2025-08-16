@@ -47,7 +47,7 @@ async function UIDesktop(options) {
     // start a transaction if we're not in embedded or fullpage mode
     let transaction;
     if (!window.is_embedded && !window.is_fullpage_mode) {
-        transaction = new window.Transaction('desktop-load');
+        transaction = new window.Transaction('desktop-is-ready');
         transaction.start();
     }
 
