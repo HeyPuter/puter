@@ -1541,6 +1541,11 @@ class UI extends EventListener {
      * console.log(`Current language: ${currentLang}`); // e.g., "Current language: fr"
      */
     getLanguage() {
+        // In GUI environment, access the global locale directly
+        if(this.env === 'gui'){
+            return window.locale;
+        }
+
         return new Promise((resolve) => {
             this.#postMessageWithCallback('getLanguage', resolve, {});
         });
