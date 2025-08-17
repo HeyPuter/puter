@@ -273,9 +273,6 @@ async function UIDesktop(options) {
      * It is not necessary to query unreads separately. If this stops working,
      * then this event should be fixed rather than querying unreads separately.
      */
-    // Ensure horizontal scroll na aaye
-    $('.desktop.item-container').css('overflow-x', 'hidden');
-
     window.__already_got_unreads = false;
     window.socket.on('notif.unreads', async ({ unreads }) => {
         if (window.__already_got_unreads) return;
@@ -770,23 +767,26 @@ async function UIDesktop(options) {
     // Allow dragging of local files onto desktop.
     // --------------------------------------------------------
     $(el_desktop).dragster({
-  enter: function(dragsterEvent, event) {
-    $('.context-menu').remove();
-  },
-  leave: function(dragsterEvent, event) {},
-  drop: async function (dragsterEvent, event) {
-    const e = event.originalEvent;
-    // ...existing drop logic...
-  },
+        enter: function (dragsterEvent, event) {
+            $('.context-menu').remove();
+        },
+        leave: function (dragsterEvent, event) {
+        },
+        drop: async function (dragsterEvent, event) {
+            const e = event.originalEvent;
+            // no drop on item
+            if ($(event.target).hasClass('item') || $(event.target).parent('.item').length > 0)
+                return false;
+            // recursively create directories and upload files
+            if (e.dataTransfer?.items?.length > 0) {
+                window.upload_items(e.dataTransfer.items, window.desktop_path);
+            }
 
-  drag: function (dragsterEvent, event) {
-  if (event && event.position && typeof event.position.left === 'number') {
-    if (event.position.left < 0) {
-      event.position.left = 0; // Only block left edge from going offscreen
-    }
-}
-
-});
+            e.stopPropagation();
+            e.preventDefault();
+            return false;
+        }
+    });
 
     // --------------------------------------------------------
     // Droppable
