@@ -36,7 +36,6 @@ const { AppsModule } = require("./src/modules/apps/AppsModule.js");
 const { DevelopmentModule } = require("./src/modules/development/DevelopmentModule.js");
 const { HostOSModule } = require("./src/modules/hostos/HostOSModule.js");
 const { InternetModule } = require("./src/modules/internet/InternetModule.js");
-const { CaptchaModule } = require("./src/modules/captcha/CaptchaModule.js");
 const { EntityStoreModule } = require("./src/modules/entitystore/EntityStoreModule.js");
 const { KVStoreModule } = require("./src/modules/kvstore/KVStoreModule.js");
 const { DomainModule } = require("./src/modules/domain/DomainModule.js");
@@ -63,7 +62,6 @@ module.exports = {
         WebModule,
         TemplateModule,
         AppsModule,
-        CaptchaModule,
         EntityStoreModule,
         KVStoreModule,
     ],
@@ -78,7 +76,6 @@ module.exports = {
     PuterAIModule,
     BroadcastModule,
     InternetModule,
-    CaptchaModule,
     KVStoreModule,
     DNSModule,
     DomainModule,
