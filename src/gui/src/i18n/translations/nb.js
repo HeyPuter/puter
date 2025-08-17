@@ -192,6 +192,7 @@ const nb = {
         no_websites_published: "Du har ikke publisert noen nettsteder ennå.",
         ok: "OK",
         open: "Åpne",
+        new_window: "Nytt vindu",
         open_in_new_tab: "Åpne i ny fane",
         open_in_new_window: "Åpne i nytt vindu",
         open_with: "Åpne med",
