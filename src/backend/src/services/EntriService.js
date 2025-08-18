@@ -28,6 +28,7 @@ const { Endpoint } = require("../util/expressutil");
 const { IncomingMessage } = require("node:http");
 const { Context } = require("../util/context");
 const { createHash } = require('crypto');
+const APIError = require("../api/APIError");
 
 // async function generateJWT(applicationId, secret, domain, ) {
 
@@ -123,6 +124,12 @@ class EntriService extends BaseService {
                         // dnsRecords 
                     })
                 });
+
+                const allDomains = (await es_subdomain.select()).filter((r) => r.domain);
+                if (allDomains.length >= 5) {
+                    throw APIError.create('subdomain_limit_reached', null, { isWorker: false, limit: 5 });
+                }
+
 
                 const row = (await es_subdomain.select({ predicate: new Eq({ key: "subdomain", value: userHostedSite.replace(".puter.site", "") }) }))[0];
                 const entity = await Entity.create({ om: es_subdomain.om }, {
