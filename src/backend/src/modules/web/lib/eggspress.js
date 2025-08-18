@@ -193,21 +193,56 @@ module.exports = function eggspress (route, settings, handler) {
         }
     }
   };
-
-  if ( settings.allowedMethods.includes('GET') ) {
+  if (settings.allowedMethods.includes('GET')) {
     router.get(route, ...mw, errorHandledHandler, ...afterMW);
   }
 
-  if ( settings.allowedMethods.includes('POST') ) {
+  if (settings.allowedMethods.includes('HEAD')) {
+    router.head(route, ...mw, errorHandledHandler, ...afterMW);
+  }
+
+  if (settings.allowedMethods.includes('POST')) {
     router.post(route, ...mw, errorHandledHandler, ...afterMW);
   }
 
-  if ( settings.allowedMethods.includes('PUT') ) {
+  if (settings.allowedMethods.includes('PUT')) {
     router.put(route, ...mw, errorHandledHandler, ...afterMW);
   }
 
-  if ( settings.allowedMethods.includes('DELETE') ) {
+  if (settings.allowedMethods.includes('DELETE')) {
     router.delete(route, ...mw, errorHandledHandler, ...afterMW);
+  }
+
+  if (settings.allowedMethods.includes('PROPFIND')) {
+    router.propfind(route, ...mw, errorHandledHandler, ...afterMW);
+  }
+
+  if (settings.allowedMethods.includes('PROPPATCH')) {
+    router.proppatch(route, ...mw, errorHandledHandler, ...afterMW);
+  }
+
+  if (settings.allowedMethods.includes('MKCOL')) {
+    router.mkcol(route, ...mw, errorHandledHandler, ...afterMW);
+  }
+
+  if (settings.allowedMethods.includes('COPY')) {
+    router.copy(route, ...mw, errorHandledHandler, ...afterMW);
+  }
+
+  if (settings.allowedMethods.includes('MOVE')) {
+    router.move(route, ...mw, errorHandledHandler, ...afterMW);
+  }
+
+  if (settings.allowedMethods.includes('LOCK')) {
+    router.lock(route, ...mw, errorHandledHandler, ...afterMW);
+  }
+
+  if (settings.allowedMethods.includes('UNLOCK')) {
+    router.unlock(route, ...mw, errorHandledHandler, ...afterMW);
+  }
+  
+  if (settings.allowedMethods.includes('OPTIONS')) {
+    router.options(route, ...mw, errorHandledHandler, ...afterMW);
   }
 
   return router;
