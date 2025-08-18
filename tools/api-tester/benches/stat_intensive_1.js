@@ -4,12 +4,12 @@ const expect = chai.expect;
 
 module.exports = {
     name: 'stat intensive 1',
-    description: 'create 10 directories and 1000 subdirectories in each, then stat them over and over',
+    description: 'create 10 directories and 100 subdirectories in each, then stat them over and over',
     do: async t => {
         console.log('stat intensive 1');
 
         const dir_count = 10;
-        const subdir_count = 1000;
+        const subdir_count = 100;
 
         // key: uuid
         // value: path
