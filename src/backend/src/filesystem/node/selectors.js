@@ -19,14 +19,8 @@
 const _path = require('path');
 const { PuterPath } = require('../lib/PuterPath');
 
-class NodeSelector {
-    path = null;
-    uid = null;
-}
-
-class NodePathSelector extends NodeSelector {
+class NodePathSelector {
     constructor (path) {
-        super();
         this.value = path;
     }
 
@@ -40,9 +34,8 @@ class NodePathSelector extends NodeSelector {
     }
 }
 
-class NodeUIDSelector extends NodeSelector {
+class NodeUIDSelector {
     constructor (uid) {
-        super();
         this.value = uid;
     }
 
@@ -65,9 +58,8 @@ class NodeUIDSelector extends NodeSelector {
     }
 }
 
-class NodeInternalIDSelector extends NodeSelector {
+class NodeInternalIDSelector {
     constructor (service, id, debugInfo) {
-        super();
         this.service = service;
         this.id = id;
         this.debugInfo = debugInfo;
@@ -89,9 +81,8 @@ class NodeInternalIDSelector extends NodeSelector {
     }
 }
 
-class NodeChildSelector extends NodeSelector {
+class NodeChildSelector {
     constructor (parent, name) {
-        super();
         this.parent = parent;
         this.name = name;
     }
@@ -110,7 +101,7 @@ class NodeChildSelector extends NodeSelector {
     }
 }
 
-class RootNodeSelector extends NodeSelector {
+class RootNodeSelector {
     static entry = {
         is_dir: true,
         is_root: true,
@@ -123,7 +114,6 @@ class RootNodeSelector extends NodeSelector {
         node.uid = PuterPath.NULL_UUID;
     }
     constructor () {
-        super();
         this.entry = this.constructor.entry;
     }
 
@@ -132,9 +122,8 @@ class RootNodeSelector extends NodeSelector {
     }
 }
 
-class NodeRawEntrySelector extends NodeSelector {
+class NodeRawEntrySelector {
     constructor (entry) {
-        super();
         // Fix entries from get_descendants
         if ( ! entry.uuid && entry.uid ) {
             entry.uuid = entry.uid;
@@ -165,7 +154,7 @@ class NodeRawEntrySelector extends NodeSelector {
  * - path
  * - uid
  *
- * @param {NodeSelector} selector
+ * @param {NodePathSelector | NodeUIDSelector | NodeChildSelector | RootNodeSelector | NodeRawEntrySelector} selector
  */
 function try_infer_attributes (selector) {
     if ( selector instanceof NodePathSelector ) {
@@ -201,7 +190,6 @@ const relativeSelector = (parent, path) => {
 }
 
 module.exports = {
-    NodeSelector,
     NodePathSelector,
     NodeUIDSelector,
     NodeInternalIDSelector,
