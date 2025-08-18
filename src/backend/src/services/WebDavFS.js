@@ -1100,8 +1100,10 @@ async function handleWebDavServer(filePath, req, res) {
 
 class WebDavFS extends BaseService {
     async _init() {
-        const svc_web = this.services('web');
+
+        const svc_web = this.services.get('web-server');
         svc_web.allow_undefined_origin(/^\/dav(\/.*)?$/);;
+
     }
 
     ['__on_install.routes'](_, { app }) {
