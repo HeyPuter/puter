@@ -528,10 +528,6 @@ module.exports = class APIError {
      * @returns
      */
     static create (status, source, fields = {}) {
-        if ( config.env === 'dev' ) {
-            console.trace('APIError.create', status, source, fields);
-        }
-
         // Just the error code
         if ( typeof status === 'string' ) {
             const code = this.codes[status];
