@@ -100,7 +100,10 @@ const main = async () => {
         for ( const result of benchmark_results ) {
             if ( seen.has(result.name) ) continue;
             seen.add(result.name);
-            console.log(result.name + ': ' + result.description);
+
+            if ( result.description ) {
+                console.log(result.name + ': ' + result.description);
+            }
         }
     }
 
