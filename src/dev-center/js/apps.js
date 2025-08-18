@@ -1142,8 +1142,6 @@ $(document).on('click', '.edit-app-save-btn', async function (e) {
         },
         filetypeAssociations: filetype_associations,
     }).then(async (app) => {
-        refresh_app_list();
-
         currently_editing_app = app;
         trackOriginalValues();  // Update original values after save
         toggleSaveButton();  //Disable Save Button after succesful save
