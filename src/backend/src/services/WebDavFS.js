@@ -1099,6 +1099,11 @@ async function handleWebDavServer(filePath, req, res) {
 
 
 class WebDavFS extends BaseService {
+    async init() {
+        const svc_web = this.services('web');
+        svc_web.allow_undefined_origin(/^\/dav(\/.*)?$/);;
+    }
+
     ['__on_install.routes'](_, { app }) {
         COOKIE_NAME = this.global_config.cookie_name
 
