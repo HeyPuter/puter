@@ -23,11 +23,12 @@ const { Context } = require('../../../util/context');
 const { v4: uuidv4 } = require('uuid');
 const config = require('../../../config');
 const {
-    try_infer_attributes,
     NodeChildSelector,
     NodePathSelector,
     NodeUIDSelector,
-    NodeSelector,
+    NodeRawEntrySelector,
+    RootNodeSelector,
+    try_infer_attributes,
 } = require('../../../filesystem/node/selectors');
 const fsCapabilities = require('../../../filesystem/definitions/capabilities');
 const APIError = require('../../../api/APIError');
@@ -198,46 +199,22 @@ class MemoryFSProvider {
      * Check if a given node exists.
      *
      * @param {Object} param
-     * @param {NodeSelector} param.selector - The selector used for checking.
+     * @param {NodePathSelector | NodeUIDSelector | NodeChildSelector | RootNodeSelector | NodeRawEntrySelector} param.selector - The selector used for checking.
      * @returns {Promise<boolean>} - True if the node exists, false otherwise.
      */
     async quick_check({ selector }) {
-        // memoryfs relies on attributes path/uid
-        try_infer_attributes(selector);
-
-        // shortcut: has full path
-        if (selector?.path) {
-            const inner_path = this._inner_path(selector.path);
+        if (selector instanceof NodePathSelector) {
+            const inner_path = this._inner_path(selector.value);
             return this.entriesByPath.has(inner_path);
         }
 
-        // shortcut: has uid
-        if (selector?.uid) {
-            return this.entriesByUUID.has(selector.uid);
+        if (selector instanceof NodeUIDSelector) {
+            return this.entriesByUUID.has(selector.value);
         }
 
-        if (selector instanceof NodeChildSelector) {
-            let parent_entry = null;
-            if (selector.parent instanceof NodeUIDSelector) {
-                // shortcut: uid parent + name child
-                parent_entry = this.entriesByUUID.get(selector.parent.uid);
-            } else {
-                // composite parent, has to stat it first
-                parent_entry = await this.stat({
-                    selector: selector.parent,
-                });
-            }
-
-            if (parent_entry) {
-                const full_path = _path.join(parent_entry.path, selector.name);
-                const path_selector = new NodePathSelector(full_path);
-                return this.quick_check({
-                    selector: path_selector,
-                });
-            }
-        }
-
-        return false;
+        // fallback to stat
+        const entry = await this.stat({ selector });
+        return !!entry;
     }
 
     /**
@@ -247,42 +224,47 @@ class MemoryFSProvider {
      * `path` of the absolute path from the root.
      *
      * @param {Object} param
-     * @param {NodeSelector} param.selector - The selector to stat.
+     * @param {NodePathSelector | NodeUIDSelector | NodeChildSelector | RootNodeSelector | NodeRawEntrySelector} param.selector - The selector to stat.
      * @returns {Promise<MemoryFile|null>} - The result of the stat operation, or `null` if the node doesn't exist.
      */
     async stat({ selector }) {
-        // memoryfs relies on attributes path/uid
         try_infer_attributes(selector);
 
         let entry_uuid = null;
 
-        if (selector?.path) {
+        if (selector instanceof NodePathSelector) {
             // stat by path
-            const inner_path = this._inner_path(selector.path);
+            const inner_path = this._inner_path(selector.value);
             entry_uuid = this.entriesByPath.get(inner_path);
-        } else if (selector?.uid) {
+        } else if (selector instanceof NodeUIDSelector) {
             // stat by uid
-            entry_uuid = selector.uid;
-        } else {
-            // the tricky case: selector has a composite (i.e. non path/uid) parent
-            if (selector instanceof NodeChildSelector) {
+            entry_uuid = selector.value;
+        } else if (selector instanceof NodeChildSelector) {
+            if (selector.path) {
+                // Shouldn't care about about parent when the "path" is present
+                // since it might have different provider.
+                return await this.stat({
+                    selector: new NodePathSelector(selector.path),
+                });
+            } else {
+                // recursively stat the parent and then stat the child
                 const parent_entry = await this.stat({
                     selector: selector.parent,
                 });
                 if (parent_entry) {
                     const full_path = _path.join(parent_entry.path, selector.name);
-                    const path_selector = new NodePathSelector(full_path);
                     return await this.stat({
-                        selector: path_selector,
+                        selector: new NodePathSelector(full_path),
                     });
                 }
             }
-
+        } else {
+            // other selectors shouldn't reach here, i.e., it's an internal logic error
             throw APIError.create('invalid_node');
         }
 
         const entry = this.entriesByUUID.get(entry_uuid);
-        if ( ! entry ) {
+        if (!entry) {
             return null;
         }
 
@@ -304,7 +286,7 @@ class MemoryFSProvider {
     async readdir({ context, node }) {
         // prerequistes: get required path via stat
         const entry = await this.stat({ selector: node.selector });
-        if ( ! entry ) {
+        if (!entry) {
             throw APIError.create('invalid_node');
         }
 
@@ -338,21 +320,28 @@ class MemoryFSProvider {
     async mkdir({ context, parent, name }) {
         // prerequistes: get required path via stat
         const parent_entry = await this.stat({ selector: parent.selector });
-        if ( ! parent_entry ) {
+        if (!parent_entry) {
             throw APIError.create('invalid_node');
         }
 
         const full_path = _path.join(parent_entry.path, name);
         const inner_path = this._inner_path(full_path);
 
-        const entry = new MemoryFile({
-            path: inner_path,
-            is_dir: true,
-            content: null,
-            parent_uid: parent_entry.uuid,
-        });
-        this.entriesByPath.set(inner_path, entry.uuid);
-        this.entriesByUUID.set(entry.uuid, entry);
+        let entry = null;
+        if (this.entriesByPath.has(inner_path)) {
+            throw APIError.create('item_with_same_name_exists', null, {
+                entry_name: full_path,
+            });
+        } else {
+            entry = new MemoryFile({
+                path: inner_path,
+                is_dir: true,
+                content: null,
+                parent_uid: parent_entry.uuid,
+            });
+            this.entriesByPath.set(inner_path, entry.uuid);
+            this.entriesByUUID.set(entry.uuid, entry);
+        }
 
         // create the node
         const fs = context.get('services').get('filesystem');
@@ -374,9 +363,11 @@ class MemoryFSProvider {
      * @returns {Promise<void>}
      */
     async rmdir({ context, node, options = {} }) {
+        this._integrity_check();
+
         // prerequistes: get required path via stat
         const entry = await this.stat({ selector: node.selector });
-        if ( ! entry ) {
+        if (!entry) {
             throw APIError.create('invalid_node');
         }
 
@@ -424,7 +415,7 @@ class MemoryFSProvider {
     async unlink({ context, node }) {
         // prerequistes: get required path via stat
         const entry = await this.stat({ selector: node.selector });
-        if ( ! entry ) {
+        if (!entry) {
             throw APIError.create('invalid_node');
         }
 
@@ -447,7 +438,7 @@ class MemoryFSProvider {
     async move({ context, node, new_parent, new_name, metadata }) {
         // prerequistes: get required path via stat
         const new_parent_entry = await this.stat({ selector: new_parent.selector });
-        if ( ! new_parent_entry ) {
+        if (!new_parent_entry) {
             throw APIError.create('invalid_node');
         }
 
@@ -534,20 +525,27 @@ class MemoryFSProvider {
     async write_new({ context, parent, name, file }) {
         // prerequistes: get required path via stat
         const parent_entry = await this.stat({ selector: parent.selector });
-        if ( ! parent_entry ) {
+        if (!parent_entry) {
             throw APIError.create('invalid_node');
         }
         const full_path = _path.join(parent_entry.path, name);
         const inner_path = this._inner_path(full_path);
 
-        const entry = new MemoryFile({
-            path: inner_path,
-            is_dir: false,
-            content: file.stream.read(),
-            parent_uid: parent_entry.uuid,
-        });
-        this.entriesByPath.set(inner_path, entry.uuid);
-        this.entriesByUUID.set(entry.uuid, entry);
+        let entry = null;
+        if (this.entriesByPath.has(inner_path)) {
+            throw APIError.create('item_with_same_name_exists', null, {
+                entry_name: full_path,
+            });
+        } else {
+            entry = new MemoryFile({
+                path: inner_path,
+                is_dir: false,
+                content: file.stream.read(),
+                parent_uid: parent_entry.uuid,
+            });
+            this.entriesByPath.set(inner_path, entry.uuid);
+            this.entriesByUUID.set(entry.uuid, entry);
+        }
 
         const fs = context.get('services').get('filesystem');
         const node = await fs.node(entry.uuid);
@@ -570,7 +568,7 @@ class MemoryFSProvider {
      */
     async write_overwrite({ context, node, file }) {
         const entry = await this.stat({ selector: node.selector });
-        if ( ! entry ) {
+        if (!entry) {
             throw APIError.create('invalid_node');
         }
         const inner_path = this._inner_path(entry.path);

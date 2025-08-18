@@ -129,6 +129,9 @@ async function test({ mountpoint }) {
         config: conf,
     }));
 
+    // TODO: merge it into the entry point
+    require('./benches/simple.js')(registry);
+
     require('./tests/__entry__.js')(registry);
     require('./benches/__entry__.js')(registry);
 

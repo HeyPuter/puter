@@ -88,11 +88,6 @@ class MountpointService extends BaseService {
     }
     
     async get_provider (selector) {
-        // type check
-        if ( ! (selector instanceof NodeSelector) ) {
-            throw new Error('Invalid selector type');
-        }
-
         try_infer_attributes(selector);
 
         if ( selector instanceof RootNodeSelector ) {
