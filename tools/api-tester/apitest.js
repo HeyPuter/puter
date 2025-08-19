@@ -9,13 +9,14 @@ const { parseArgs } = require('node:util');
 
 const args = process.argv.slice(2);
 
-let config, report, suiteName, onlycase, bench, unit, stopOnFailure, id;
+let config, report, suiteName, onlycase, bench, unit, stopOnFailure, id, puterjs;
 
 try {
     const parsed = parseArgs({
         options: {
             config: {
                 type: 'string',
+                default: './tools/api-tester/config.yml',
             },
             report: {
                 type: 'string',
@@ -25,6 +26,7 @@ try {
             unit: { type: 'boolean' },
             suite: { type: 'string' },
             'stop-on-failure': { type: 'boolean' },
+            puterjs: { type: 'boolean' },
         },
         allowPositionals: true,
     });
@@ -37,6 +39,7 @@ try {
         unit,
         suite: suiteName,
         'stop-on-failure': stopOnFailure,
+        puterjs,
     }, positionals: [id] } = parsed);
 
     onlycase = onlycase !== undefined ? Number.parseInt(onlycase) : undefined;
@@ -49,6 +52,7 @@ try {
         '\n' +
         'Options:\n' +
         '  --config=<path>  (required)  Path to configuration file\n' +
+        '  --puterjs         (optional)  Use puter-js puterjs\n' +
         '  --report=<path>  (optional)  Output file for full test results\n' +
         '  --suite=<name>   (optional)  Run only tests with matching suite name\n' +
         '  --stop-on-failure (optional)  Stop execution on first test failure\n' +
@@ -61,6 +65,29 @@ const conf = YAML.parse(fs.readFileSync(config).toString());
 
 
 const main = async () => {
+    if (puterjs) {
+        // const run = require('./puter_js/__entry__.js');
+
+        const context = {
+            mountpoint: {
+                path: '/',
+            }
+        };
+
+        const ts = new TestSDK(conf, context, {});
+        const registry = new TestRegistry(ts);
+
+        await require('./puter_js/__entry__.js')(registry);
+
+        await registry.run_all_tests();
+
+        // await run(conf);
+        ts.printTestResults();
+        ts.printBenchmarkResults();
+        process.exit(0);
+        return;
+    }
+
     const unit_test_results = [];
     const benchmark_results = [];
     for (const mountpoint of conf.mountpoints) {

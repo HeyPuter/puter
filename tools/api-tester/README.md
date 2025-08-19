@@ -1,6 +1,6 @@
 # API Tester
 
-A test framework for testing the backend API of puter.
+A test framework for testing the API of puter backend and puter-js client.
 
 ## Table of Contents
 
@@ -41,6 +41,12 @@ All commands below should be run from the root directory of puter.
 
     ```bash
     node ./tools/api-tester/apitest.js --config=./tools/api-tester/config.yml
+    ```
+
+4. (experimental) Run tests against the puter-js client:
+
+    ```bash
+    node ./tools/api-tester/apitest.js --config=./tools/api-tester/config.yml --client
     ```
 
 ### Shorthands

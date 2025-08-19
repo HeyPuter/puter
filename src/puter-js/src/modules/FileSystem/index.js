@@ -9,6 +9,7 @@ import upload from "./operations/upload.js";
 import read from "./operations/read.js";
 import move from "./operations/move.js";
 import write from "./operations/write.js";
+import share from "./operations/share.js";
 import sign from "./operations/sign.js";
 import symlink from './operations/symlink.js';
 // Why is this called deleteFSEntry instead of just delete? because delete is 
@@ -32,7 +33,7 @@ export class PuterJSFileSystemModule extends AdvancedBase {
     write = write;
     sign = sign;
     symlink = symlink;
-    
+    share = share;
     FSItem = FSItem
 
     static NARI_METHODS = {
