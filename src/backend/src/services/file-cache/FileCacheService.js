@@ -196,7 +196,7 @@ class FileCacheService extends AdvancedBase {
         // If the file is still in pending it means we waited too long;
         // it's possible that reading the file failed is is delayed.
         if ( tracker.phase === FileTracker.PHASE_PENDING ) {
-            return this._get_path(await fsNode.get('uid'));
+            return null;
         }
 
         // Since we waited for the file to be ready, it's not impossible
