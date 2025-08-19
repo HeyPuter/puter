@@ -55,7 +55,7 @@ const configurable_auth = options => async (req, res, next) => {
     if(req.body && req.body.auth_token)
         token = req.body.auth_token;
     // HTTML Auth header
-    else if(req.header && req.header('Authorization')) {
+    else if (req.header && req.header('Authorization') && !req.header('Authorization').startsWith("Basic ")) {
         token = req.header('Authorization');
         token = token.replace('Bearer ', '').trim();
         if ( token === 'undefined' ) {
@@ -74,7 +74,7 @@ const configurable_auth = options => async (req, res, next) => {
     else if(req.handshake && req.handshake.query && req.handshake.query.auth_token)
         token = req.handshake.query.auth_token;
     
-    if(!token) {
+    if(!token || token.startsWith("Basic ")) {
         if ( optional ) {
             next();
             return;

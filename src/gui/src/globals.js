@@ -257,3 +257,27 @@ window.file_templates = []
 
 // default language
 window.locale = 'en';
+
+// the transaction class
+window.Transaction = class {
+    constructor(name) {
+        this.name = name;
+        this.id = uuidv4();
+    }
+
+    start() {
+        this.start_ts = Date.now();
+    }
+
+    end() {
+        this.end_ts = Date.now();
+        this.duration = this.end_ts - this.start_ts;
+
+        // emit an event
+        window.dispatchEvent(new CustomEvent('transaction-ended', {
+            detail: {
+                transaction: this
+            }
+        }));
+    }
+}

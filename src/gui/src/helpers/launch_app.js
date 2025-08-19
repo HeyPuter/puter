@@ -27,6 +27,15 @@ import UIWindow from "../UI/UIWindow.js";
  * @param {*} options.name - The name of the app to launch.
  */
 const launch_app = async (options)=>{
+    let transaction;
+    // A transaction to trace the time it takes to launch an app and 
+    // for it to be ready.
+    // Explorer is a special case, it's not an app per se, so it doesn't need a transaction.
+    if(options?.name !== 'explorer'){
+        transaction = new window.Transaction('app-is-ready');
+        transaction.start();
+    }
+
     const uuid = options.uuid ?? window.uuidv4();
     let icon, title, file_signature;
     const window_options = options.window_options ?? {};
@@ -201,15 +210,30 @@ const launch_app = async (options)=>{
 
         // add app_id to URL
         iframe_url.searchParams.append('puter.app.id', app_info.uuid);
+        iframe_url.searchParams.append('puter.app.name', app_info.name);
 
         // add parent_app_instance_id to URL
         if (options.parent_instance_id) {
             iframe_url.searchParams.append('puter.parent_instance_id', options.parent_pseudo_id);
         }
 
+        // add source app metadata to URL
+        if (options.source_app_title) {
+            iframe_url.searchParams.append('puter.source_app.title', options.source_app_title);
+        }
+        if (options.source_app_id) {
+            iframe_url.searchParams.append('puter.source_app.id', options.source_app_id);
+        }
+        if (options.source_app_icon) {
+            iframe_url.searchParams.append('puter.source_app.icon', options.source_app_icon);
+        }
+        if (options.source_app_name) {
+            iframe_url.searchParams.append('puter.source_app.name', options.source_app_name);
+        }
+
         if(file_signature){
             iframe_url.searchParams.append('puter.item.uid', file_signature.uid);
-            iframe_url.searchParams.append('puter.item.path', privacy_aware_path(options.file_path) || file_signature.path);
+            iframe_url.searchParams.append('puter.item.path', options.file_path ? privacy_aware_path(options.file_path) : file_signature.path);
             iframe_url.searchParams.append('puter.item.name', file_signature.fsentry_name);
             iframe_url.searchParams.append('puter.item.read_url', file_signature.read_url);
             iframe_url.searchParams.append('puter.item.write_url', file_signature.write_url);
@@ -412,6 +436,10 @@ const launch_app = async (options)=>{
         const svc_process = globalThis.services.get('process');
         svc_process.unregister(process.uuid);
     });
+
+    // end the transaction
+    if(transaction)
+        transaction.end();
 
 
     return process;

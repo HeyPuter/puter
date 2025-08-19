@@ -1,6 +1,10 @@
 import FSItem from './FSItem.js';
 import PuterDialog from './PuterDialog.js';
 import EventListener  from '../lib/EventListener.js';
+import putility from '@heyputer/putility';
+
+const FILE_SAVE_CANCELLED = Symbol('FILE_SAVE_CANCELLED');
+const FILE_OPEN_CANCELLED = Symbol('FILE_OPEN_CANCELLED');
 
 // AppConnection provides an API for interacting with another app.
 // It's returned by UI methods, and cannot be constructed directly by user code.
@@ -463,9 +467,21 @@ class UI extends EventListener {
                     // execute callback
                     this.#callbackFunctions[e.data.original_msg_id](e.data.response); 
                 }
+                else if(e.data.msg === 'languageReceived'){
+                    // execute callback
+                    this.#callbackFunctions[e.data.original_msg_id](e.data.language); 
+                }
                 else if(e.data.msg === "fileSaved"){
                     // execute callback
                     this.#callbackFunctions[e.data.original_msg_id](new FSItem(e.data.saved_file)); 
+                }
+                else if(e.data.msg === "fileSaveCancelled"){
+                    // execute callback
+                    this.#callbackFunctions[e.data.original_msg_id](FILE_SAVE_CANCELLED);
+                }
+                else if(e.data.msg === "fileOpenCancelled"){
+                    // execute callback
+                    this.#callbackFunctions[e.data.original_msg_id](FILE_OPEN_CANCELLED);
                 }
                 else{
                     // execute callback
@@ -684,7 +700,8 @@ class UI extends EventListener {
     }
 
     showOpenFilePicker = function(options, callback){
-        return new Promise((resolve, reject) => {
+        const undefinedOnCancel = new putility.libs.promise.TeePromise();
+        const resolveOnlyPromise = new Promise((resolve, reject) => {
             if (!globalThis.open) {
                 return reject("This API is not compatible in Web Workers.");
             }
@@ -709,8 +726,18 @@ class UI extends EventListener {
                 'toolbar=no, location=no, directories=no, status=no, menubar=no, scrollbars=no, resizable=no, copyhistory=no, width='+w+', height='+h+', top='+top+', left='+left);
             }
             //register callback
-            this.#callbackFunctions[msg_id] = resolve;
+            this.#callbackFunctions[msg_id] = (maybe_result) => {
+                // Only resolve cancel events if this was called with `.undefinedOnCancel`
+                if ( maybe_result === FILE_OPEN_CANCELLED ) {
+                    undefinedOnCancel.resolve(undefined);
+                    return;
+                }
+                undefinedOnCancel.resolve(maybe_result);
+                resolve(maybe_result);
+            };
         })
+        resolveOnlyPromise.undefinedOnCancel = undefinedOnCancel;
+        return resolveOnlyPromise;
     }
 
     showFontPicker = function(options){
@@ -726,7 +753,8 @@ class UI extends EventListener {
     }
 
     showSaveFilePicker = function(content, suggestedName, type){
-        return new Promise((resolve, reject) => {
+        const undefinedOnCancel = new putility.libs.promise.TeePromise();
+        const resolveOnlyPromise = new Promise((resolve, reject) => {
             if (!globalThis.open) {
                 return reject("This API is not compatible in Web Workers.");
             }
@@ -735,13 +763,14 @@ class UI extends EventListener {
                 type = 'url';
             }
             const url = type === 'url' ? content.toString() : undefined;
-            const source_path = type === 'move' ? content : undefined;
-
+            const source_path = ['move','copy'].includes(type) ? content : undefined;
+            
             if(this.env === 'app'){
                 this.messageTarget?.postMessage({
                     msg: "showSaveFilePicker",
                     appInstanceID: this.appInstanceID,
                     content: url ? undefined : content,
+                    save_type: type,
                     url,
                     source_path,
                     suggestedName: suggestedName ?? '',
@@ -781,8 +810,20 @@ class UI extends EventListener {
                 'toolbar=no, location=no, directories=no, status=no, menubar=no, scrollbars=no, resizable=no, copyhistory=no, width='+w+', height='+h+', top='+top+', left='+left);
             }
             //register callback
-            this.#callbackFunctions[msg_id] = resolve;
-        })
+            this.#callbackFunctions[msg_id] = (maybe_result) => {
+                // Only resolve cancel events if this was called with `.undefinedOnCancel`
+                if ( maybe_result === FILE_SAVE_CANCELLED ) {
+                    undefinedOnCancel.resolve(undefined);
+                    return;
+                }
+                undefinedOnCancel.resolve(maybe_result);
+                resolve(maybe_result);
+            };
+        });
+        
+        resolveOnlyPromise.undefinedOnCancel = undefinedOnCancel;
+        
+        return resolveOnlyPromise;
     }
 
     setWindowTitle = function(title, window_id, callback) {
@@ -1051,9 +1092,18 @@ class UI extends EventListener {
     }
 
     // Returns a Promise<AppConnection>
-    launchApp = async function launchApp(app_name, args, callback) {
+    /**
+     * launchApp opens the specified app in Puter with the specified argumets.
+     * @param {*} nameOrOptions - name of the app as a string, or an options object
+     * @param {*} args - named parameters that will be passed to the app as arguments
+     * @param {*} callback - in case you don't want to use `await` or `.then()`
+     * @returns 
+     */
+    launchApp = async function launchApp(nameOrOptions, args, callback) {
         let pseudonym = undefined;
         let file_paths = undefined;
+        let items = undefined;
+        let app_name = nameOrOptions; // becomes string after branch below
         
         // Handle case where app_name is an options object
         if (typeof app_name === 'object' && app_name !== null) {
@@ -1063,17 +1113,31 @@ class UI extends EventListener {
             args = args || options.args;
             callback = callback || options.callback;
             pseudonym = options.pseudonym;
+            items = options.items;
+        }
+        
+        if ( items ) {
+            if ( ! Array.isArray(items) ) items = [];
+            for ( let i=0 ; i < items.length ; i++ ) {
+                if ( items[i] instanceof FSItem ) {
+                    items[i] = items[i]._internalProperties.file_signature;
+                }
+            }
         }
         
         if ( app_name && app_name.includes('#(as)') ) {
             [app_name, pseudonym] = app_name.split('#(as)');
         }
+        
+        if ( ! app_name ) app_name = puter.appName;
+        
         const app_info = await this.#ipc_stub({
             method: 'launchApp',
             callback,
             parameters: {
                 app_name,
                 file_paths,
+                items,
                 pseudonym,
                 args,
             },
@@ -1465,6 +1529,26 @@ class UI extends EventListener {
 
     isWorkingActive() {
         return this.#overlayActive;
+    }
+
+    /**
+     * Gets the current language/locale code (e.g., 'en', 'fr', 'es').
+     * 
+     * @returns {Promise<string>} A promise that resolves with the current language code.
+     * 
+     * @example
+     * const currentLang = await puter.ui.getLanguage();
+     * console.log(`Current language: ${currentLang}`); // e.g., "Current language: fr"
+     */
+    getLanguage() {
+        // In GUI environment, access the global locale directly
+        if(this.env === 'gui'){
+            return window.locale;
+        }
+
+        return new Promise((resolve) => {
+            this.#postMessageWithCallback('getLanguage', resolve, {});
+        });
     }
 }
 

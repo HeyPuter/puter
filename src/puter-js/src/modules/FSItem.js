@@ -15,8 +15,49 @@ class FSItem{
         this.modified       = options.modified ?? options.fsentry_modified;
         this.created        = options.created ?? options.fsentry_created;
         this.isDirectory    = (options.isDirectory || options.is_dir || options.fsentry_is_dir) ? true : false;
+        
+        // We add some properties to '_internalProperties' to make it clear
+        // that they are not meant to be accessed outside of puter.js;
+        // this permits us to change or remove these properties in the future.
+        const internalProperties = {};
+        Object.defineProperty(this, '_internalProperties', {
+            enumerable: false,
+            value: internalProperties,
+        });
+        
+        // Currently 'signature' and 'expires' are not provided in 'options',
+        // but they can be inferred by writeURL or readURL.
+        internalProperties.signature = options.signature ?? (() => {
+            const url = new URL(this.writeURL ?? this.readURL);
+            return url.searchParams.get('signature');
+        })();
+        internalProperties.expires = options.expires ?? (() => {
+            const url = new URL(this.writeURL ?? this.readURL);
+            return url.searchParams.get('expires');
+        })();
+        
+        // This computed property gives us an object in the format output by
+        // the `/sign` endpoint, which can be passed to `launch_app` to
+        // allow apps to open a file in another app or another instance.
+        Object.defineProperty(internalProperties, 'file_signature', {
+            get: () => ({
+                read_url: this.readURL,
+                write_url: this.writeURL,
+                metadata_url: this.metadataURL,
+                fsentry_accessed: this.accessed,
+                fsentry_modified: this.modified,
+                fsentry_created: this.created,
+                fsentry_is_dir: this.isDirectory,
+                fsentry_size: this.size,
+                fsentry_name: this.name,
+                path: this.path,
+                uid: this.uid,
+                // /sign outputs another property called "type", but we don't
+                // have that information here, so it's omitted.
+            })
+        });
     }
-
+    
     write = async function(data){
         return puter.fs.write( 
             this.path,

@@ -209,6 +209,9 @@ const install = async ({ services, app, useapi, modapi }) => {
         ]),
     });
 
+    const { EntriService } = require('./services/EntriService.js');
+    services.registerService("entri-service", EntriService)
+    
     const { InformationService } = require('./services/information/InformationService');
     services.registerService('information', InformationService)
     
@@ -367,6 +370,9 @@ const install = async ({ services, app, useapi, modapi }) => {
 
     const { ReferralCodeService } = require('./services/ReferralCodeService');
     services.registerService('referral-code', ReferralCodeService);
+
+    const { VerifiedGroupService } = require('./services/VerifiedGroupService');
+    services.registerService('__verified-group', VerifiedGroupService);
     
     const { UserService } = require('./services/UserService');
     services.registerService('user', UserService);
@@ -382,6 +388,8 @@ const install = async ({ services, app, useapi, modapi }) => {
     
     const { WispService } = require('./services/WispService');
     services.registerService('wisp', WispService);
+    const { WebDavFS } = require('./services/WebDavFS');
+    services.registerService('dav', WebDavFS);
 
     const { RequestMeasureService } = require('./services/RequestMeasureService');
     services.registerService('request-measure', RequestMeasureService);
@@ -394,6 +402,7 @@ const install = async ({ services, app, useapi, modapi }) => {
 
     const { WorkerService } = require('./services/worker/WorkerService');
     services.registerService("worker-service", WorkerService)
+
 
     const { PermissionShortcutService } = require('./services/auth/PermissionShortcutService');
     services.registerService('permission-shortcut', PermissionShortcutService);

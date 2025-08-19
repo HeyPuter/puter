@@ -45,6 +45,7 @@ import pl from './pl.js';
 import pt from './pt.js';
 import ro from './ro.js';
 import ru from './ru.js';
+import sl from './sl.js';
 import sv from './sv.js';
 import ta from './ta.js';
 import th from './th.js';
@@ -84,6 +85,7 @@ export default {
     pt,
     ro,
     ru,
+    sl,
     sv,
     ta,
     th,
