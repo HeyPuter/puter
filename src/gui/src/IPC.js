@@ -443,8 +443,10 @@ const ipc_listener = async (event, handled) => {
 
         // Open dialog
         let path = event.data.options?.path ??  '/' + window.user.username + '/Desktop';
-        if ( path.toLowerCase() === '%appdata%' ) {
-            path = '/' + window.user.username + '/AppData/' + app_uuid;
+        if ( (''+path).toLowerCase().startsWith('%appdata%') ) {
+            path = path.slice('%appdata%'.length);
+            if ( path !== '' && ! path.startsWith('/') ) path = '/' + path;
+            path = '/' + window.user.username + '/AppData/' + app_uuid + path;
         }
         UIWindow({
             allowed_file_types: allowed_file_types,
