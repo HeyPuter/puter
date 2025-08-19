@@ -19,8 +19,14 @@
 const _path = require('path');
 const { PuterPath } = require('../lib/PuterPath');
 
-class NodePathSelector {
+class NodeSelector {
+    path = null;
+    uid = null;
+}
+
+class NodePathSelector extends NodeSelector {
     constructor (path) {
+        super();
         this.value = path;
     }
 
@@ -34,8 +40,9 @@ class NodePathSelector {
     }
 }
 
-class NodeUIDSelector {
+class NodeUIDSelector extends NodeSelector {
     constructor (uid) {
+        super();
         this.value = uid;
     }
 
@@ -58,8 +65,9 @@ class NodeUIDSelector {
     }
 }
 
-class NodeInternalIDSelector {
+class NodeInternalIDSelector extends NodeSelector {
     constructor (service, id, debugInfo) {
+        super();
         this.service = service;
         this.id = id;
         this.debugInfo = debugInfo;
@@ -81,15 +89,20 @@ class NodeInternalIDSelector {
     }
 }
 
-class NodeChildSelector {
+class NodeChildSelector extends NodeSelector {
     constructor (parent, name) {
+        super();
         this.parent = parent;
         this.name = name;
     }
 
     setPropertiesKnownBySelector (node) {
         node.name = this.name;
-        // no properties known
+
+        try_infer_attributes(this);
+        if ( this.path ) {
+            node.path = this.path;
+        }
     }
 
     describe () {
@@ -97,7 +110,7 @@ class NodeChildSelector {
     }
 }
 
-class RootNodeSelector {
+class RootNodeSelector extends NodeSelector {
     static entry = {
         is_dir: true,
         is_root: true,
@@ -110,6 +123,7 @@ class RootNodeSelector {
         node.uid = PuterPath.NULL_UUID;
     }
     constructor () {
+        super();
         this.entry = this.constructor.entry;
     }
 
@@ -118,8 +132,9 @@ class RootNodeSelector {
     }
 }
 
-class NodeRawEntrySelector {
+class NodeRawEntrySelector extends NodeSelector {
     constructor (entry) {
+        super();
         // Fix entries from get_descendants
         if ( ! entry.uuid && entry.uid ) {
             entry.uuid = entry.uid;
@@ -145,6 +160,30 @@ class NodeRawEntrySelector {
     }
 }
 
+/**
+ * Try to infer following attributes for a selector:
+ * - path
+ * - uid
+ *
+ * @param {NodeSelector} selector
+ */
+function try_infer_attributes (selector) {
+    if ( selector instanceof NodePathSelector ) {
+        selector.path = selector.value;
+    } else if ( selector instanceof NodeUIDSelector ) {
+        selector.uid = selector.value;
+    } else if ( selector instanceof NodeChildSelector ) {
+        try_infer_attributes(selector.parent);
+        if ( selector.parent.path ) {
+            selector.path = _path.join(selector.parent.path, selector.name);
+        }
+    } else if ( selector instanceof RootNodeSelector ) {
+        selector.path = '/';
+    } else {
+        // give up
+    }
+}
+
 const relativeSelector = (parent, path) => {
     if ( path === '.' ) return parent;
     if ( path.startsWith('..') ) {
@@ -162,6 +201,7 @@ const relativeSelector = (parent, path) => {
 }
 
 module.exports = {
+    NodeSelector,
     NodePathSelector,
     NodeUIDSelector,
     NodeInternalIDSelector,
@@ -169,4 +209,5 @@ module.exports = {
     RootNodeSelector,
     NodeRawEntrySelector,
     relativeSelector,
+    try_infer_attributes,
 };
