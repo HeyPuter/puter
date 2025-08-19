@@ -34,10 +34,11 @@ All commands below should be run from the root directory of puter.
 
     Fields:
     - url: The endpoint of the backend server. (default: http://api.puter.localhost:4100/)
-    - username: The username of the admin user. (e.g. admin)
-    - token: The token of the user. (can be obtained by typing `puter.authToken` in Developer Tools's console)
+    - username: The username of the user to test. (e.g. `admin`)
+    - token: The token of the user. (can be obtained by logging in on the webpage and typing `puter.authToken` in Developer Tools's console)
+    - mountpoints: The mountpoints to test. (default config includes 2 mountpoints: `/` for "puter fs provider" and `/admin/tmp` for "memory fs provider")
 
-3. Run the tests:
+3. Run all tests (unit tests and benchmarks):
 
     ```bash
     node ./tools/api-tester/apitest.js --config=./tools/api-tester/config.yml
@@ -57,7 +58,23 @@ All commands below should be run from the root directory of puter.
     node ./tools/api-tester/apitest.js --config=./tools/api-tester/config.yml --unit --suite=mkdir
     ```
 
-- Rerun failed tests in the last run:
+- Stop on first failure:
+
+    ```bash
+    node ./tools/api-tester/apitest.js --config=./tools/api-tester/config.yml --unit --stop-on-failure
+    ```
+
+- (unimplemented) Filter tests by test name:
+
+    ```bash
+    # (wildcard matching) Run tests containing "memoryfs" in the name
+    node ./tools/api-tester/apitest.js --config=./tools/api-tester/config.yml --unit --test='*memoryfs*'
+
+    # (exact matching) Run the test "mkdir in memoryfs"
+    node ./tools/api-tester/apitest.js --config=./tools/api-tester/config.yml --unit --test='mkdir in memoryfs'
+    ```
+
+- (unimplemented) Rerun failed tests in the last run:
 
     ```bash
     node ./tools/api-tester/apitest.js --config=./tools/api-tester/config.yml --rerun-failed
@@ -98,10 +115,13 @@ module.exports = {
 
 ## Behaviors
 
-### Isolation of `t.cwd`
+### Working directory (`t.cwd`)
 
-- `t.cwd` is reset at the beginning of each test suite, since a test suite usually doesn't want to be affected by other test suites.
-- `t.cwd` will be inherited from the cases in the same test suite, since a leaf case might want to share the context with its parent/sibling cases.
+- The working directory is stored in `t.cwd`.
+- All filesystem operations are performed relative to the working directory, if the given path is not absolute. (e.g., `t.mkdir('foo')`, `t.cd('foo')`, `t.stat('foo')`, etc.)
+- Tests will be run under all mountpoints. The default working directory for a mountpoint is `${mountpoint.path}/{username}/api_test`. (This is subject to change in the future, the reason we include `admin` in the path is to ensure the test user `admin` has write access, see [Permission Documentation](https://github.com/HeyPuter/puter/blob/3290440f4bf7a263f37bc5233565f8fec146f17b/src/backend/doc/A-and-A/permission.md#permission-options) for details.)
+- The working directory is reset at the beginning of each test suite, since a test suite usually doesn't want to be affected by other test suites.
+- The working directory will be inherited from the cases in the same test suite, since a leaf case might want to share the context with its parent/sibling cases.
 
 ```js
 module.exports = {
@@ -126,5 +146,5 @@ module.exports = {
 
 ## TODO
 
-- [ ] Update usage of apitest.js. (Is it possible to generate the usage automatically?)
-- [ ] Integrate it into CI, optionally running it only in specific scenarios (e.g., when backend code changes).
+- [ ] Reset `t.cwd` if a test case fails. Currently, `t.cwd` is not reset if a test case fails.
+- [ ] Integrate apitest into CI, optionally running it only in specific scenarios (e.g., when backend code changes).

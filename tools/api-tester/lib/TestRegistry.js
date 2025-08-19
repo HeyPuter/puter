@@ -30,7 +30,15 @@ module.exports = class TestRegistry {
             }
 
             const testDefinition = this.tests[id];
-            await this.t.runTestPackage(testDefinition);
+            try {
+                await this.t.runTestPackage(testDefinition);
+            } catch (e) {
+                // If stopOnFailure is enabled, the process will have already exited
+                // This catch block is just for safety
+                if (this.t.options.stopOnFailure) {
+                    throw e;
+                }
+            }
         }
     }
 
