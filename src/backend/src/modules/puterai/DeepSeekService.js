@@ -179,24 +179,24 @@ class DeepSeekService extends BaseService {
             {
                 id: 'deepseek-chat',
                 name: 'DeepSeek Chat',
-                context: 64000,
+                context: 128000,
                 cost: {
                     currency: 'usd-cents',
                     tokens: 1_000_000,
-                    input: 14,
-                    output: 28,
+                    input: 56,
+                    output: 168,
                 },
                 max_tokens: 8000,
             },
             {
                 id: 'deepseek-reasoner',
                 name: 'DeepSeek Reasoner',
-                context: 64000,
+                context: 128000,
                 cost: {
                     currency: 'usd-cents',
                     tokens: 1_000_000,
-                    input: 55,
-                    output: 219,
+                    input: 56,
+                    output: 168,
                 },
                 max_tokens: 64000,
             }

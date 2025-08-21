@@ -612,6 +612,8 @@ function resetToOriginalValues() {
 }
 
 async function edit_app_section(cur_app_name, tab = 'deploy') {
+    puter.ui.showSpinner();
+
     $('section:not(.sidebar)').hide();
     $('.tab-btn').removeClass('active');
     $('.tab-btn[data-tab="apps"]').addClass('active');

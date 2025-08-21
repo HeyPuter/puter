@@ -442,9 +442,15 @@ const ipc_listener = async (event, handled) => {
             is_selectable_body = true;
 
         // Open dialog
+        let path = event.data.options?.path ??  '/' + window.user.username + '/Desktop';
+        if ( (''+path).toLowerCase().startsWith('%appdata%') ) {
+            path = path.slice('%appdata%'.length);
+            if ( path !== '' && ! path.startsWith('/') ) path = '/' + path;
+            path = '/' + window.user.username + '/AppData/' + app_uuid + path;
+        }
         UIWindow({
             allowed_file_types: allowed_file_types,
-            path: '/' + window.user.username + '/Desktop',
+            path,
             // this is the uuid of the window to which this dialog will return
             parent_uuid: event.data.appInstanceID,
             onDialogCancel: () => {
