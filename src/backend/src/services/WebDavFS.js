@@ -32,7 +32,7 @@ const { Endpoint } = require("../util/expressutil");
 const BaseService = require("./BaseService");
 const path = require('path');
 const { HLRemove } = require("../filesystem/hl_operations/hl_remove");
-const bcrypt = require('bcrypt')
+const bcrypt = require('bcrypt');
 
 let COOKIE_NAME = null;
 
@@ -629,8 +629,15 @@ async function handleWebDavServer(filePath, req, res) {
             break;
         case "PUT":
             try {
-                // Check Content-Length header
-                const contentLength = req.headers['content-length'];
+                // Handle Expect: 100-continue header
+                if (req.headers.expect && req.headers.expect.toLowerCase() === '100-continue') {
+                    res.writeContinue();
+                }
+
+                // Check Content-Length header to find length
+                // TODO: Allow partial uploads with Range header
+                // TODO: Allow uploads with no Content-Length
+                const contentLength = req.headers['content-length'] || req.headers['x-expected-entity-length']; // x-expected-entity-length is used by macOS Finder for some reason
                 if (!contentLength) {
                     res.status(400).end('Content-Length header required');
                     return;
@@ -1023,8 +1030,8 @@ async function handleWebDavServer(filePath, req, res) {
                     return;
                 }
 
-                // Generate a fake lock token
-                const lockToken = `opaquelocktoken:${Date.now()}-${Math.random().toString(36).substr(2, 9)}`;
+                // Generate a fake UUID lock token
+                const lockToken = `urn:uuid:${crypto.randomUUID()}`;
 
                 // Set proper headers for WebDAV XML response
                 res.set({
