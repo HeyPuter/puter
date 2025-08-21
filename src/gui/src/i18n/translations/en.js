@@ -72,6 +72,7 @@ const en = {
         confirm_delete_user_title: "Delete Account?",
         confirm_session_revoke: "Are you sure you want to revoke this session?",
         confirm_your_email_address: "Confirm Your Email Address",
+        choose_publishing_option: "Choose how you want to publish your website:",
         contact_us: "Contact Us",
         contact_us_verification_required: "You must have a verified email address to use this.",
         contain: 'Contain',
