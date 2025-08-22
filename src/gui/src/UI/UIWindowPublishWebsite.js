@@ -270,13 +270,6 @@ async function UIWindowPublishWebsite(target_dir_uid, target_dir_name, target_di
                 
                 // Step 5: Show success message with custom domain
                 let customUrl = 'https://' + customDomain + '/';
-                
-                $(el_window).find('.window-publishWebsite-form').hide(100, function(){
-                    $(el_window).find('.publishWebsite-published-link').attr('href', customUrl);
-                    $(el_window).find('.publishWebsite-published-link').text(customUrl);
-                    $(el_window).find('.window-publishWebsite-success').show(100)
-                    $(`.item[data-uid="${target_dir_uid}"] .item-has-website-badge`).show();
-                });
 
                 // Update items to show both the Puter subdomain and custom domain
                 $(`.item[data-path^="${target_dir_path}/"]`).each(function(){
@@ -289,6 +282,8 @@ async function UIWindowPublishWebsite(target_dir_uid, target_dir_name, target_di
                 })
 
                 window.update_sites_cache();
+
+                $(el_window).close();
             }
             
         } catch (err) {
