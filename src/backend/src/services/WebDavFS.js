@@ -1135,9 +1135,9 @@ class WebDavFS extends BaseService {
              */
             handler: async (req, res) => {
                 const svc_su = this.services.get("su")
+                res.set({ "Access-Control-Allow-Credentials": "true"}) // allow cors auth
                 let actor = await handleHttpBasicAuth(req.actor, req, res);
                 if (!actor) return;
-
                 let filePath = decodeURIComponent(req.path)
                 // Handle root path for WebDAV compatibility
                 if (filePath === "/" || filePath === "") {
