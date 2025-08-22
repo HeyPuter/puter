@@ -265,49 +265,30 @@ async function UIWindowPublishWebsite(target_dir_uid, target_dir_name, target_di
                     userHostedSite: subdomain + '.' + window.hosting_domain
                 });
                 
-                // Step 4: Set up event listeners for Entri completion
-                const handleEntriClose = (event) => {
-                    // Remove the event listener to prevent memory leaks
-                    window.removeEventListener('onEntriClose', handleEntriClose);
-                    
-                    if (event.detail.lastStatus === 'success' && event.detail.step === 'complete') {
-                        // Step 5: Show success message with custom domain only after successful completion
-                        let customUrl = 'https://' + customDomain + '/';
-                        
-                        $(el_window).find('.window-publishWebsite-form').hide(100, function(){
-                            $(el_window).find('.publishWebsite-published-link').attr('href', customUrl);
-                            $(el_window).find('.publishWebsite-published-link').text(customUrl);
-                            $(el_window).find('.window-publishWebsite-success').show(100)
-                            $(`.item[data-uid="${target_dir_uid}"] .item-has-website-badge`).show();
-                        });
-
-                        // Update items to show both the Puter subdomain and custom domain
-                        $(`.item[data-path^="${target_dir_path}/"]`).each(function(){
-                            // show the link badge
-                            $(this).find('.item-has-website-url-badge').show();
-                            // update item's website_url attribute to use custom domain
-                            $(this).attr('data-website_url', customUrl + $(this).attr('data-path').substring(target_dir_path.length));
-                            // Also store the puter subdomain URL as backup
-                            $(this).attr('data-puter_website_url', puterSiteUrl + $(this).attr('data-path').substring(target_dir_path.length));
-                        })
-
-                        window.update_sites_cache();
-                    } else if (event.detail.lastStatus === 'cancelled') {
-                        // User cancelled the setup - re-enable the publish button
-                        $(el_window).find('.publish-btn').prop('disabled', false);
-                    } else if (event.detail.lastStatus === 'error') {
-                        // There was an error during setup
-                        $(el_window).find('.publish-website-error-msg').html('There was an error setting up your custom domain. Please try again.');
-                        $(el_window).find('.publish-website-error-msg').fadeIn();
-                        $(el_window).find('.publish-btn').prop('disabled', false);
-                    }
-                };
-                
-                // Add event listener before showing Entri
-                window.addEventListener('onEntriClose', handleEntriClose);
-                
-                // Show Entri interface for custom domain setup (this only shows the modal)
+                // Step 4: Show Entri interface for custom domain setup
                 await entri.showEntri(entriConfig.result);
+                
+                // Step 5: Show success message with custom domain
+                let customUrl = 'https://' + customDomain + '/';
+                
+                $(el_window).find('.window-publishWebsite-form').hide(100, function(){
+                    $(el_window).find('.publishWebsite-published-link').attr('href', customUrl);
+                    $(el_window).find('.publishWebsite-published-link').text(customUrl);
+                    $(el_window).find('.window-publishWebsite-success').show(100)
+                    $(`.item[data-uid="${target_dir_uid}"] .item-has-website-badge`).show();
+                });
+
+                // Update items to show both the Puter subdomain and custom domain
+                $(`.item[data-path^="${target_dir_path}/"]`).each(function(){
+                    // show the link badge
+                    $(this).find('.item-has-website-url-badge').show();
+                    // update item's website_url attribute to use custom domain
+                    $(this).attr('data-website_url', customUrl + $(this).attr('data-path').substring(target_dir_path.length));
+                    // Also store the puter subdomain URL as backup
+                    $(this).attr('data-puter_website_url', puterSiteUrl + $(this).attr('data-path').substring(target_dir_path.length));
+                })
+
+                window.update_sites_cache();
             }
             
         } catch (err) {
