@@ -18,7 +18,7 @@
  */
 
 const ta = {
-    name: "ஆங்கிலம்",
+    name: "தமிழ்",
     english_name: "Tamil",
     code: "ta",
     dictionary: {
