@@ -672,13 +672,13 @@ class WebServerService extends BaseService {
                     'MS-Author-Via': 'DAV',  // Microsoft compatibility
                     'Server': 'Puter/WebDAV',  // Server identification
                     'Accept-Ranges': 'bytes',
+                    "Access-Control-Allow-Credentials": "true",
                     'Content-Type': 'text/plain; charset=utf-8',  // Explicit content type
                     'Content-Length': '0',
                     'Cache-Control': 'no-cache',  // Prevent caching issues
                     'Connection': 'Keep-Alive'  // Keep connection alive for macOS
                 });
                 res.status(200).end();
-                console.log("OPTIONS request completed for macOS compatibility");
             }
             return res.sendStatus(200);
         });

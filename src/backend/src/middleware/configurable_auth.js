@@ -55,7 +55,7 @@ const configurable_auth = options => async (req, res, next) => {
     if(req.body && req.body.auth_token)
         token = req.body.auth_token;
     // HTTML Auth header
-    else if (req.header && req.header('Authorization') && !req.header('Authorization').startsWith("Basic ")) {
+    else if (req.header && req.header('Authorization') && !req.header('Authorization').startsWith("Basic ") && req.header('Authorization') !== "Bearer") { // Bearer with no space is something office does
         token = req.header('Authorization');
         token = token.replace('Bearer ', '').trim();
         if ( token === 'undefined' ) {
