@@ -14,7 +14,7 @@ module.exports = TestFactory.cartesian('Cartesian Test for /write', write, {
             await t.mkdir('write_cart_' + i);
         }
 
-        const dir = `/${t.cwd}/write_cart_` + i;
+        const dir = t.resolve(`write_cart_` + i);
         const dirUID = (await t.stat('write_cart_' + i)).uid;
 
         const contents = new Blob(

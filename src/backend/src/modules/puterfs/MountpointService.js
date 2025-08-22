@@ -19,7 +19,7 @@
  */
 // const Mountpoint = o => ({ ...o });
 
-const { RootNodeSelector, NodeUIDSelector } = require("../../filesystem/node/selectors");
+const { RootNodeSelector, NodeUIDSelector, NodeChildSelector, NodePathSelector, NodeInternalIDSelector, NodeSelector, try_infer_attributes } = require("../../filesystem/node/selectors");
 const BaseService = require("../../services/BaseService");
 
 /**
@@ -57,8 +57,9 @@ class MountpointService extends BaseService {
     * @returns {Promise<void>}
     */
     async _init () {
-        // Temporary solution - we'll develop this incrementally
-        this.storage_ = null;
+        // key: provider class (e.g: PuterFSProvider, MemoryFSProvider)
+        // value: storage instance
+        this.storage_ = {};
     }
 
     async ['__on_boot.consolidation'] () {
@@ -87,12 +88,32 @@ class MountpointService extends BaseService {
     }
     
     async get_provider (selector) {
+        try_infer_attributes(selector);
+
         if ( selector instanceof RootNodeSelector ) {
             return this.mountpoints_['/'].provider;
         }
 
         if ( selector instanceof NodeUIDSelector ) {
-            return this.mountpoints_['/'].provider;
+            for ( const [path, { provider }] of Object.entries(this.mountpoints_) ) {
+                const result = await provider.quick_check({
+                    selector,
+                });
+                if ( result ) {
+                    return provider;
+                }
+            }
+
+            // No provider found, but we shouldn't throw an error here
+            // because it's a valid case for a node that doesn't exist.
+        }
+
+        if ( selector instanceof NodeChildSelector ) {
+            if ( selector.path ) {
+                return this.get_provider(new NodePathSelector(selector.path));
+            } else {
+                return this.get_provider(selector.parent);
+            }
         }
 
         const probe = {};
@@ -118,15 +139,16 @@ class MountpointService extends BaseService {
     }
     
     // Temporary solution - we'll develop this incrementally
-    set_storage (storage) {
-        this.storage_ = storage;
+    set_storage (provider, storage) {
+        this.storage_[provider] = storage;
     }
+
     /**
     * Gets the current storage backend instance
     * @returns {Object} The storage backend instance
     */
-    get_storage () {
-        return this.storage_;
+    get_storage (provider) {
+        return this.storage_[provider];
     }
 }
 
