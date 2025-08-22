@@ -641,6 +641,7 @@ async function handleWebDavServer(filePath, req, res) {
 <d:error xmlns:d="DAV:">
     <d:valid-resourcename>macOS metadata files not permitted</d:valid-resourcename>
 </d:error>`);
+                    return;
                 }
 
                 // Handle Expect: 100-continue header
