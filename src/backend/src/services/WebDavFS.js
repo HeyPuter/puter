@@ -629,6 +629,20 @@ async function handleWebDavServer(filePath, req, res) {
             break;
         case "PUT":
             try {
+                // macOS loves polluting webdav directories with metadata which would be stored regularly in HFS+ or APFS.
+                // We will 422 all of these, because no one actually wants to see them.
+                const fileName = path.basename(filePath);
+                if (req.headers["user-agent"].includes("Darwin/") && fileName.toLowerCase() === ".ds_store" || fileName.startsWith("._")) {
+                    res.writeHead(422, {
+                        'Content-Type': 'application/xml; charset=utf-8'
+                    });
+                    
+                    res.end(`<?xml version="1.0" encoding="utf-8" ?>
+<d:error xmlns:d="DAV:">
+    <d:valid-resourcename>macOS metadata files not permitted</d:valid-resourcename>
+</d:error>`);
+                }
+
                 // Handle Expect: 100-continue header
                 if (req.headers.expect && req.headers.expect.toLowerCase() === '100-continue') {
                     res.writeContinue();
