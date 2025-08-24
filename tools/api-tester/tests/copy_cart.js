@@ -16,6 +16,10 @@ const TestFactory = require("../lib/TestFactory");
 const PREFIX = 'copy_cart_';
 
 module.exports = TestFactory.cartesian('Cartesian Test for /copy', copy, {
+    init: async t => {
+        // this is a plackholder init function to comply with the interface
+        console.log('init');
+    },
     each: async (t, state, i) => {
         // 1. Common setup for all states
         await t.mkdir(`${PREFIX}${i}`);

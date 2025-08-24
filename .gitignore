@@ -29,3 +29,18 @@ dist/
 # Local Netlify folder
 .netlify
 src/emulator/release/
+
+# ======================================================================
+# vscode
+# ======================================================================
+# vscode configuration
+.vscode/
+
+# JS language server, ref: https://code.visualstudio.com/docs/languages/jsconfig
+jsconfig.json
+
+# ======================================================================
+# node js
+# ======================================================================
+# the exact tree installed in the node_modules folder
+package-lock.json
