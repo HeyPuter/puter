@@ -190,7 +190,7 @@ class PuterSiteMiddleware extends AdvancedBase {
         await target_node.fetchEntry();
 
         if ( ! await target_node.exists() ) {
-            return this.respond_html_error_({ path }, req, res, next);
+            return await this.respond_404_({ path }, req, res, next, subdomain_root_path);
         }
 
         const target_is_dir = await target_node.get('type') === TYPE_DIRECTORY;
@@ -200,7 +200,7 @@ class PuterSiteMiddleware extends AdvancedBase {
         }
 
         if ( target_is_dir ) {
-            return this.respond_html_error_({ path }, req, res, next);
+            return await this.respond_404_({ path }, req, res, next, subdomain_root_path);
         }
 
         const contentType = this.modules.mime.contentType(
@@ -335,6 +335,49 @@ class PuterSiteMiddleware extends AdvancedBase {
         } catch (e) {
             return res.status(500).send('Error reading file: ' + e.message);
         }
+    }
+
+    async respond_404_ ({ path, html }, req, res, next, subdomain_root_path) {
+        // Check for custom 404.html file in site root
+        if (subdomain_root_path) {
+            const context = Context.get();
+            const services = context.get('services');
+            const svc_fs = services.get('filesystem');
+            
+            const custom_404_filepath = subdomain_root_path + '/404.html';
+            const custom_404_node = await svc_fs.node(new NodePathSelector(custom_404_filepath));
+            await custom_404_node.fetchEntry();
+            
+            if (await custom_404_node.exists()) {
+                // Serve the custom 404.html file
+                res.status(404);
+                
+                const contentType = this.modules.mime.contentType('404.html');
+                res.set('Content-Type', contentType);
+                
+                const ll_read = new LLRead();
+                const stream = await ll_read.run({
+                    no_acl: true,
+                    actor: null,
+                    fsNode: custom_404_node,
+                });
+
+                // Destroy the stream if the client disconnects
+                req.on('close', () => {
+                    stream.destroy();
+                });
+
+                try {
+                    return stream.pipe(res);
+                } catch (e) {
+                    // If there's an error reading the custom 404 file, fall back to default
+                    return this.respond_html_error_({ path, html }, req, res, next);
+                }
+            }
+        }
+        
+        // Fall back to default error if no custom 404.html found
+        return this.respond_html_error_({ path, html }, req, res, next);
     }
 
     respond_html_error_ ({ path, html }, req, res, next) {
