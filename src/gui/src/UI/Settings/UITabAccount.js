@@ -14,14 +14,16 @@
  * GNU Affero General Public License for more details.
  *
  * You should have received a copy of the GNU Affero General Public License
- * along with this program.  If not, see <http://www.gnu.org/licenses/>.
+ * along with this program.  If not, see <https://www.gnu.org/licenses/>.
  */
+
 import UIWindowChangePassword from '../UIWindowChangePassword.js';
 import UIWindowChangeEmail from './UIWindowChangeEmail.js';
 import UIWindowChangeUsername from '../UIWindowChangeUsername.js';
 import UIWindowConfirmUserDeletion from './UIWindowConfirmUserDeletion.js';
 import UIWindowManageSessions from '../UIWindowManageSessions.js';
 import UIWindow from '../UIWindow.js';
+
 // About
 export default {
     id: 'account',
@@ -29,12 +31,12 @@ export default {
     icon: 'user.svg',
     html: () => {
         let h = '';
-        // h += `${i18n('account')}`;
         // profile picture
         h += `<div style="overflow: visible; display: flex; margin-bottom: 20px; flex-direction: column; align-items: center;">`;
             h += `<div class="profile-picture change-profile-picture" style="background-image: url('${html_encode(window.user?.profile?.picture ?? window.icons['profile.svg'])}');">`;
             h += `</div>`;
         h += `</div>`;
+
         // change password button
         if(!window.user.is_temp){
             h += `<div class="settings-card">`;
@@ -44,6 +46,7 @@ export default {
                 h += `</div>`;
             h += `</div>`;
         }
+
         // change username button
         h += `<div class="settings-card">`;
             h += `<div>`;
