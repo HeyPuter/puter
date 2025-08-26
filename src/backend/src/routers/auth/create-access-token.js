@@ -54,9 +54,13 @@ module.exports = eggspress('/auth/create-access-token', {
     }
 
     const actor = Context.get('actor');
+    
+    const options = {
+        ...(req.body.expiresIn ? { expiresIn: '' + req.body.expiresIn } : {}),
+    };
 
     const token = await svc_auth.create_access_token(
-        actor, permissions
+        actor, permissions, options
     );
 
     res.json({ token });
