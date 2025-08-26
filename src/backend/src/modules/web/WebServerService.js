@@ -390,7 +390,9 @@ class WebServerService extends BaseService {
                     concern: 'web'
                 });
                 try {
-                    log.info(message, fields);
+                    this.context.arun(() => {
+                        log.info(message, fields);
+                    });
                 } catch (e) {
                     console.log('failed to log this message properly:', message, fields);
                     console.error(e);
