@@ -16,6 +16,7 @@ import symlink from './operations/symlink.js';
 import deleteFSEntry from "./operations/deleteFSEntry.js";
 import { AdvancedBase } from '../../../../putility/index.js';
 import FSItem from '../FSItem.js';
+import getReadUrl from './operations/getReadUrl.js';
 
 export class PuterJSFileSystemModule extends AdvancedBase {
 
@@ -32,7 +33,8 @@ export class PuterJSFileSystemModule extends AdvancedBase {
     write = write;
     sign = sign;
     symlink = symlink;
-    
+    getReadUrl = getReadUrl;
+
     FSItem = FSItem
 
     static NARI_METHODS = {
