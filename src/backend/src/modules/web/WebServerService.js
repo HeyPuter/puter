@@ -672,7 +672,6 @@ class WebServerService extends BaseService {
                     'MS-Author-Via': 'DAV',  // Microsoft compatibility
                     'Server': 'Puter/WebDAV',  // Server identification
                     'Accept-Ranges': 'bytes',
-                    "Access-Control-Allow-Credentials": "true",
                     'Content-Type': 'text/plain; charset=utf-8',  // Explicit content type
                     'Content-Length': '0',
                     'Cache-Control': 'no-cache',  // Prevent caching issues
