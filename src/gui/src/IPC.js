@@ -1476,9 +1476,14 @@ const ipc_listener = async (event, handled) => {
                 parent_uuid: $(el_filedialog_window).attr('data-element_uuid'),
             });
 
-            await tell_caller_and_update_views({ res: node, el_filedialog_window, target_path });
+            if ( node ) {
+                await tell_caller_and_update_views({ res: node, el_filedialog_window, target_path });
+                if ( written ) return true;
+            } else {
+                await tell_caller_its_cancelled();
+                return true;
+            }
 
-            if ( written ) return true;
             $(el_filedialog_window).find('.window-disable-mask, .busy-indicator').hide();
         };
 
@@ -1500,23 +1505,19 @@ const ipc_listener = async (event, handled) => {
             onSaveFileDialogSave: async function(target_path, el_filedialog_window){
                 $(el_filedialog_window).find('.window-disable-mask, .busy-indicator').show();
                 let busy_init_ts = Date.now();
-                let done;
 
                 if (event.data.url){
-                    done = await handle_url_save({ target_path });
+                    await handle_url_save({ target_path });
                 } else if ( event.data.source_path ) {
-                    done = await handle_move_save({
+                    await handle_move_save({
                         save_type: event.data.save_type,
                         source_path: event.data.source_path,
                         target_path,
                     });
                 } else {
-                    done = await handle_data_save({ target_path, el_filedialog_window });
+                    await handle_data_save({ target_path, el_filedialog_window });
                 }
                 
-                if ( ! done ) return;
-
-                // done
                 let busy_duration = (Date.now() - busy_init_ts);
                 if( busy_duration >= window.busy_indicator_hide_delay){
                     $(el_filedialog_window).close();   
