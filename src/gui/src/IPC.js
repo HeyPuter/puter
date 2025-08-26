@@ -1398,7 +1398,6 @@ const ipc_listener = async (event, handled) => {
             let file_to_upload = new File([event.data.content], path.basename(target_path));
             const written = await window.handle_same_name_exists({
                 action: async ({ overwrite }) => {
-                    console.log('action with overwrite flag:', overwrite);
                     await write_file_tell_caller_and_update_views({
                         target_path, el_filedialog_window,
                         file_to_upload, overwrite,
