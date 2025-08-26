@@ -1,7 +1,7 @@
 import * as utils from '../../../lib/utils.js';
 import stat from "./stat.js";
 
-const getReadUrl = async function (path, expiresIn = "24h") {
+const getReadURL = async function (path, expiresIn = "24h") {
     return new Promise(async (resolve, reject) => {
         // If auth token is not provided and we are in the web environment, 
         // try to authenticate with Puter
@@ -39,4 +39,4 @@ const getReadUrl = async function (path, expiresIn = "24h") {
     });
 }
 
-export default getReadUrl;
+export default getReadURL;
