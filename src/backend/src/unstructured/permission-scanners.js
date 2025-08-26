@@ -23,7 +23,7 @@ const {
     hardcoded_user_group_permissions,
 } = require("../data/hardcoded-permissions");
 const { get_user } = require("../helpers");
-const { Actor, UserActorType, AppUnderUserActorType } = require("../services/auth/Actor");
+const { Actor, UserActorType, AppUnderUserActorType, AccessTokenActorType } = require("../services/auth/Actor");
 const { reading_has_terminal } = require("./permission-scan-lib");
 
 /*
@@ -86,6 +86,46 @@ const PERMISSION_SCANNERS = [
                         return;
                     }
                 }
+            }
+        }
+    },
+    {
+        name: 'access-token',
+        documentation: `
+            Permissoins for access tokens
+        `,
+        async scan (a) {
+            const { reading, actor, permission_options, state } = a.values();
+
+            if ( !(actor.type instanceof AccessTokenActorType) ) return;
+            
+            const { authorizer: issuer_actor, token } = actor.type;
+
+            for ( const permission of permission_options ) {
+                const issuer_reading =
+                    await a.icall('scan', issuer_actor, permission)
+                const has_terminal = reading_has_terminal({ reading: issuer_reading });
+
+                const db = a.iget('db');
+                const rows = await db.read(
+                    'SELECT * FROM `access_token_permissions` ' +
+                    'WHERE `token_uid` = ? AND `permission` = ?',
+                    [
+                        token,
+                        permission,
+                    ]
+                );
+
+                // Token must have permission
+                if ( ! rows[0] ) continue;
+
+                reading.push({
+                    $: 'path',
+                    via: 'access-token',
+                    has_terminal,
+                    permission,
+                    reading: issuer_reading,
+                });
             }
         }
     },
