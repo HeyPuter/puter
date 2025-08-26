@@ -1,4 +1,4 @@
-import path from "../../../lib/path.js"
+import path from "../../../lib/path.js";
 import getAbsolutePathForApp from '../utils/getAbsolutePathForApp.js';
 
 const write = async function (targetPath, data, options = {}) {
@@ -56,7 +56,35 @@ const write = async function (targetPath, data, options = {}) {
     }
 
     // perform upload
-    return this.upload(data, parent, options);
+    const result = await this.upload(data, parent, options);
+
+    if (options.share) {
+        try {
+            // Call the share API after successful write
+            let share_result = await this.share(result.path, {
+                recipients: options.share.recipients || [],
+                access: options.share.access || 'read'
+            });
+            console.log('share_result', share_result);
+            
+            // Add share information to the result
+            result.share = {
+                status: share_result.status,
+                recipients: share_result.recipients || [],
+                shares: share_result.shares || []
+            };
+        } catch (error) {
+            console.error('Failed to share file after write:', error);
+            // Add error information to the result
+            result.share = {
+                status: 'error',
+                error: error.message,
+                recipients: []
+            };
+        }
+    }
+    
+    return result;
 }
 
 export default write;
