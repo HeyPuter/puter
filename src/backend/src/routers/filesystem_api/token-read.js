@@ -82,12 +82,14 @@ module.exports = eggspress('/token-read', {
 
     const hl_read = new HLRead();
     const stream = await context.arun(async () => await hl_read.run({
+        ...(req.headers["range"] ? { range: req.headers["range"] } : {
+            line_count,
+            byte_count,
+            offset
+        }),
         fsNode: req.values.fsNode,
         user: req.user,
         actor,
-        line_count,
-        byte_count,
-        offset,
         version_id: req.query.version_id,
     }));
 
