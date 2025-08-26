@@ -1674,16 +1674,8 @@ const ipc_listener = async (event, handled) => {
         const conn = svc_ipc.get_connection(targetAppInstanceID);
         if ( conn ) {
             conn.send(contents);
-            // conn.send({
-            //     msg: 'messageToApp',
-            //     appInstanceID,
-            //     targetAppInstanceID,
-            //     contents,
-            // }, targetAppOrigin);
             return;
         }
-
-        console.log(`🔒 App ${appInstanceID} is sending to ${targetAppInstanceID} insecurely`);
 
         // pass on the message
         const target_iframe = window.iframe_for_app_instance(targetAppInstanceID);
