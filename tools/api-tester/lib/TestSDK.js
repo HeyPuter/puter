@@ -9,10 +9,14 @@ const Assert = require('./Assert');
 const log_error = require('./log_error');
 
 module.exports = class TestSDK {
-    constructor (conf, context) {
+    constructor (conf, context, options = {}) {
         this.conf = conf;
         this.context = context;
-        this.cwd = `/${conf.username}`;
+        this.options = options;
+
+        this.default_cwd = path_.posix.join('/', context.mountpoint.path, conf.username, 'api_test');
+        this.cwd = this.default_cwd;
+
         this.httpsAgent = new https.Agent({
             rejectUnauthorized: false
         })
@@ -38,6 +42,16 @@ module.exports = class TestSDK {
         this.benchmarkResults = [];
     }
 
+    async init_working_directory () {
+        try {
+            await this.delete(this.default_cwd, { recursive: true });
+        } catch (e) {
+            // ignore
+        }
+        await this.mkdir(this.default_cwd, { overwrite: true, create_missing_parents: true });
+        this.cd(this.default_cwd);
+    }
+
     async get_sdk (name) {
         return await this.sdks[name].create();
     }
@@ -45,17 +59,28 @@ module.exports = class TestSDK {
     // === test related methods ===
 
     async runTestPackage (testDefinition) {
+        // display the fs provider name in the test results
+        const settings = this.context.mountpoint?.provider;
+
         this.nameStack.push(testDefinition.name);
-        this.packageResults.push({
+        const packageResult = {
+            settings,
             name: testDefinition.name,
             failCount: 0,
             caseCount: 0,
-        });
+            start: Date.now(),
+        };
+        this.packageResults.push(packageResult);
         const imported = {};
         for ( const key of Object.keys(testDefinition.import ?? {}) ) {
             imported[key] = this.sdks[key];
         }
-        await testDefinition.do(this, imported);
+        try {
+            await testDefinition.do(this, imported);
+        } finally {
+            packageResult.end = Date.now();
+            packageResult.duration = (packageResult.end - packageResult.start) / 1000; // Convert to seconds
+        }
         this.nameStack.pop();
     }
 
@@ -65,21 +90,39 @@ module.exports = class TestSDK {
             this.nameStack.join(` \x1B[36;1m->\x1B[0m `);
         process.stdout.write(strid + ' ... \n');
 
+        this.resetCwd();
+
         this.nameStack.push(benchDefinition.name);
-        let results;
-        this.benchmarkResults.push(results = {
-            name: benchDefinition.name,
-            start: Date.now(),
-        });
+        const start = Date.now();
+        let duration = null;
         try {
-            await benchDefinition.do(this);
+            const res = await benchDefinition.do(this);
+            if ( res?.duration ) {
+                duration = res.duration;
+            }
         } catch (e) {
-            results.error = e;
-        } finally {
-            results.end = Date.now();
-            const dur = results.end - results.start;
-            process.stdout.write(`...\x1B[32;1m[${dur}]\x1B[0m\n`);
+            // we don't tolerate errors at the moment
+            console.error(e);
+            throw e;
         }
+
+        if ( ! duration ) {
+            // if the bench definition doesn't return the duration, we calculate it here
+            duration = Date.now() - start;
+        }
+
+        const results = {
+            name: benchDefinition.name,
+            description: benchDefinition.description,
+            duration: Date.now() - start,
+            fs_provider: this.context.mountpoint?.provider || 'unknown',
+        };
+
+        console.log(`duration: ${(results.duration / 1000).toFixed(2)}s`);
+
+        this.benchmarkResults.push(results);
+
+        this.nameStack.pop();
     }
 
     recordResult (result) {
@@ -116,6 +159,13 @@ module.exports = class TestSDK {
                 success: false,
             });
             log_error(e);
+            
+            // Check if we should stop on failure
+            if (this.options.stopOnFailure) {
+                console.log('\x1B[31;1m[STOPPING] Test execution stopped due to failure and --stop-on-failure flag\x1B[0m');
+                process.exit(1);
+            }
+            
             return;
         } finally {
             this.nameStack.pop();
@@ -140,6 +190,7 @@ module.exports = class TestSDK {
         let tbl = {};
         for ( const pkg of this.packageResults ) {
             tbl[pkg.name] = {
+                settings: pkg.settings,
                 passed: pkg.caseCount - pkg.failCount,
                 failed: pkg.failCount,
                 total: pkg.caseCount,
@@ -161,8 +212,7 @@ module.exports = class TestSDK {
         let tbl = {};
         for ( const bench of this.benchmarkResults ) {
             tbl[bench.name] = {
-                time: bench.end - bench.start,
-                error: bench.error ? bench.error.message : '',
+                'duration (ms)': bench.duration,
             }
         }
         console.table(tbl);
@@ -171,12 +221,15 @@ module.exports = class TestSDK {
     // === path related methods ===
 
     cd (path) {
-        this.cwd = path_.posix.join(this.cwd, path);
+        if ( path.startsWith('/') ) {
+            this.cwd = path;
+        } else {
+            this.cwd = path_.posix.join(this.cwd, path);
+        }
     }
 
     resetCwd () {
-        // TODO (xiaochen): update the hardcoded path to a global constant
-        this.cwd = '/admin/api_test';
+        this.cwd = this.default_cwd;
     }
 
     resolve (path) {
@@ -227,6 +280,13 @@ module.exports = class TestSDK {
         this.stat = async (path, params) => {
             path = p(path);
             const res = await this.post('stat', { ...params, path });
+            return res.data;
+        }
+        this.stat_uuid = async (uuid, params) => {
+            // for stat(uuid) api:
+            // - use "uid" for "uuid"
+            // - there have to be a "subject" field which is the same as "uid"
+            const res = await this.post('stat', { ...params, uid: uuid, subject: uuid });
             return res.data;
         }
         this.statu = async (uid, params) => {
