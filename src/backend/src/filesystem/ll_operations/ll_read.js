@@ -68,7 +68,7 @@ class LLRead extends LLFilesystemOperation {
             },
             ...dry_checks,
             async function calculate_has_range (a) {
-                const { offset, length } = a.values();
+                const { offset, length, range } = a.values();
                 const fsNode = a.get('fsNode');
                 const has_range = (
                     offset !== undefined &&
@@ -76,7 +76,7 @@ class LLRead extends LLFilesystemOperation {
                 ) || (
                     length !== undefined &&
                     length != await fsNode.get('size')
-                );
+                ) || range !== undefined;
                 a.set('has_range', has_range);
             },
             async function update_accessed (a) {
@@ -101,7 +101,7 @@ class LLRead extends LLFilesystemOperation {
                 if ( maybe_buffer ) {
                     a.log.cache(true, 'll_read');
                     const { has_range } = a.values();
-                    if ( has_range ) {
+                    if ( has_range && (length || offset) ) {
                         return a.stop(
                             buffer_to_stream(maybe_buffer.slice(offset, offset+length))
                         );
@@ -141,7 +141,7 @@ class LLRead extends LLFilesystemOperation {
                 const context = a.iget('context');
                 const svc_fileCache = context.get('services').get('file-cache');
 
-                const { fsNode, stream, has_range } = a.values();
+                const { fsNode, stream, has_range, range} = a.values();
 
                 if ( ! has_range ) {
                     const res = await svc_fileCache.maybe_store(fsNode, stream);
