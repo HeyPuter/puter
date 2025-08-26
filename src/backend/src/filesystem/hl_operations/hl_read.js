@@ -31,7 +31,7 @@ class HLRead extends HLFilesystemOperation {
             fsNode, actor,
             line_count, byte_count,
             offset,
-            version_id,
+            version_id, range
         } = this.values;
 
         if ( ! await fsNode.exists() ) {
@@ -42,6 +42,7 @@ class HLRead extends HLFilesystemOperation {
         let stream = await ll_read.run({
             fsNode, actor,
             version_id,
+            range,
             ...(byte_count !== undefined ? {
                 offset: offset ?? 0,
                 length: byte_count
