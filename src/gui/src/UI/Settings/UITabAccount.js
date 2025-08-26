@@ -31,10 +31,8 @@ export default {
     icon: 'user.svg',
     html: () => {
         let h = '';
-        // h += `<h1>${i18n('account')}</h1>`;
-
         // profile picture
-        h += `<div style="overflow: hidden; display: flex; margin-bottom: 20px; flex-direction: column; align-items: center;">`;
+        h += `<div style="overflow: visible; display: flex; margin-bottom: 20px; flex-direction: column; align-items: center;">`;
             h += `<div class="profile-picture change-profile-picture" style="background-image: url('${html_encode(window.user?.profile?.picture ?? window.icons['profile.svg'])}');">`;
             h += `</div>`;
         h += `</div>`;
@@ -59,7 +57,6 @@ export default {
                 h += `<button class="button change-username" style="float:right;">${i18n('change_username')}</button>`;
             h += `</div>`
         h += `</div>`;
-
         // change email button
         if(window.user.email){
             h += `<div class="settings-card">`;
@@ -72,7 +69,6 @@ export default {
                 h += `</div>`;
             h += `</div>`;
         }
-
         // 'Delete Account' button
         h += `<div class="settings-card settings-card-danger">`;
             h += `<strong style="display: inline-block;">${i18n("delete_account")}</strong>`;
@@ -80,7 +76,6 @@ export default {
                 h += `<button class="button button-danger delete-account" style="float:right;">${i18n("delete_account")}</button>`;
             h += `</div>`;
         h += `</div>`;
-
         return h;
     },
     init: ($el_window) => {
@@ -93,7 +88,6 @@ export default {
                 }
             });
         });
-
         $el_window.find('.change-username').on('click', function (e) {
             UIWindowChangeUsername({
                 window_options:{
@@ -103,7 +97,6 @@ export default {
                 }
             });
         });
-
         $el_window.find('.change-email').on('click', function (e) {
             UIWindowChangeEmail({
                 window_options:{
@@ -113,7 +106,6 @@ export default {
                 }
             });
         });
-
         $el_window.find('.manage-sessions').on('click', function (e) {
             UIWindowManageSessions({
                 window_options:{
@@ -123,7 +115,6 @@ export default {
                 }
             });
         });
-
         $el_window.find('.delete-account').on('click', function (e) {
             UIWindowConfirmUserDeletion({
                 window_options:{
@@ -133,7 +124,6 @@ export default {
                 }
             });
         });
-
         $el_window.find('.change-profile-picture').on('click', async function (e) {
             // open dialog
             UIWindow({
@@ -149,7 +139,6 @@ export default {
                 selectable_body: false,
             });    
         })
-
         $el_window.on('file_opened', async function(e){
             let selected_file = Array.isArray(e.detail) ? e.detail[0] : e.detail;
             // set profile picture
