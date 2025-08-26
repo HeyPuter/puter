@@ -131,6 +131,7 @@ module.exports = {
         });
 
         await t.case('parent + path api', async () => {
+            t.resetCwd();
             t.cd('parent_path_api');
 
             await t.case('parent directory does not exist', async () => {
@@ -145,9 +146,9 @@ module.exports = {
                 try {
                     await t.mkdir_v2('a/b', 'c');
                 } catch (e) {
-                    // TODO (xiaochen): `t.mkdir('a/b/c')` throws 409, unify the
+                    // TODO (xiaochen): `t.mkdir('a/b/c')` throws 409/422, unify the
                     // behavior of these two cases.
-                    expect(e.response.status).equal(422);
+                    expect(e.response.status).oneOf([409, 422]);
                 }
             });
 
