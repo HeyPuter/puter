@@ -78,6 +78,9 @@ window.gui = async (options) => {
         await window.loadCSS('/dist/bundle.min.css');
     }
 
+    // Load Cloudflare Turnstile script
+    await window.loadScript('https://challenges.cloudflare.com/turnstile/v0/api.js', { defer: true });
+
     // 🚀 Launch the GUI 🚀
     window.initgui(options);
 }

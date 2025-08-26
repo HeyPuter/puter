@@ -83,6 +83,23 @@ module.exports = eggspress(['/signup'], {
         return res.send();
 
 
+    // cloudflare turnstile validation
+    if (config.services?.['cloudflare-turnstile']?.enabled) {
+        const formData = new FormData();
+        formData.append('secret', config.services?.['cloudflare-turnstile']?.secret_key);
+        formData.append('response', req.body['cf-turnstile-response']);
+        formData.append('remoteip', req.headers['x-forwarded-for'] || req.connection.remoteAddress);
+
+        const response = await fetch('https://challenges.cloudflare.com/turnstile/v0/siteverify', {
+            method: 'POST',
+            body: formData
+        });
+
+        const result = await response.json();
+        if (!result.success)
+            return res.status(400).send('captcha verification failed');
+    }
+
     // send event
     let event = {
         allow: true,
