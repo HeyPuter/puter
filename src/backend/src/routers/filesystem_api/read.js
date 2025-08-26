@@ -60,6 +60,10 @@ module.exports = eggspress('/read', {
             other_key: 'byte_count',
         });
     }
+    if (req.headers["range"]) {
+        res.status(206);
+    }
+    res.set({"Accept-Ranges": "bytes"});
 
     const hl_read = new HLRead();
     const stream = await hl_read.run({
