@@ -40,8 +40,16 @@ class PuterSiteMiddleware extends AdvancedBase {
     install (app) {
         app.use(this.run.bind(this));
     }
+    /**
+     * function wraps run_ 
+     * 
+     * @param {import("express").Request} req 
+     * @param {import("express").Response} res 
+     * @param {any} next 
+     * @returns 
+     */
     async run (req, res, next) {
-        
+
         ! req.hostname.endsWith(config.static_hosting_domain)
         && ( req.subdomains[0] !== 'devtest' )
         
@@ -69,6 +77,14 @@ class PuterSiteMiddleware extends AdvancedBase {
             api_error_handler(e, req, res, next);
         }
     }
+    /**
+     * Mega function which handles all requests to "*.puter.site"
+     * 
+     * @param {import("express").Request} req 
+     * @param {import("express").Response} res 
+     * @param {any} next 
+     * @returns 
+     */
     async run_ (req, res, next) {
         const subdomain =
             req.is_custom_domain ? req.hostname :
@@ -315,6 +331,78 @@ class PuterSiteMiddleware extends AdvancedBase {
             Object.freeze(acl_config);
         }
 
+        // Helper function to parse Range header
+        const parseRangeHeader = (rangeHeader) => {
+            // Check if this is a multipart range request
+            if (rangeHeader.includes(',')) {
+                // For now, we'll only serve the first range in multipart requests
+                // as the underlying storage layer doesn't support multipart responses
+                const firstRange = rangeHeader.split(',')[0].trim();
+                const matches = firstRange.match(/bytes=(\d+)-(\d*)/);
+                if (!matches) return null;
+
+                const start = parseInt(matches[1], 10);
+                const end = matches[2] ? parseInt(matches[2], 10) : null;
+
+                return { start, end, isMultipart: true };
+            }
+
+            // Single range request
+            const matches = rangeHeader.match(/bytes=(\d+)-(\d*)/);
+            if (!matches) return null;
+
+            const start = parseInt(matches[1], 10);
+            const end = matches[2] ? parseInt(matches[2], 10) : null;
+
+            return { start, end, isMultipart: false };
+        };
+        if (req.headers["range"]) {
+            res.status(206);
+
+            // Parse the Range header and set Content-Range
+            const rangeInfo = parseRangeHeader(req.headers["range"]);
+            if (rangeInfo) {
+                const { start, end, isMultipart } = rangeInfo;
+
+                // For open-ended ranges, we need to calculate the actual end byte
+                let actualEnd = end;
+                let fileSize = null;
+
+                try {
+                    fileSize = await target_node.get('size');
+                    if (end === null) {
+                        actualEnd = fileSize - 1; // File size is 1-based, end byte is 0-based
+                    }
+                } catch (e) {
+                    // If we can't get file size, we'll let the storage layer handle it
+                    // and not set Content-Range header
+                    actualEnd = null;
+                    fileSize = null;
+                }
+
+                if (actualEnd !== null) {
+                    const totalSize = fileSize !== null ? fileSize : '*';
+                    const contentRange = `bytes ${start}-${actualEnd}/${totalSize}`;
+                    res.set("Content-Range", contentRange);
+                }
+
+                // If this was a multipart request, modify the range header to only include the first range
+                if (isMultipart) {
+                    req.headers["range"] = end !== null
+                        ? `bytes=${start}-${end}`
+                        : `bytes=${start}-`;
+                }
+            }
+            console.log("wow! range!!!: ", req.headers["range"], {
+                no_acl: acl_config.no_acl,
+                actor: acl_config.actor,
+                fsNode: target_node,
+                ...(req.headers['range'] ? { range: req.headers['range'] } : {})
+            })
+        }
+        res.set({ "Accept-Ranges": "bytes" });
+        
+
         const ll_read = new LLRead();
         // const actor = Actor.adapt(req.user);
         console.log('what user?', req.user);
@@ -323,6 +411,7 @@ class PuterSiteMiddleware extends AdvancedBase {
             no_acl: acl_config.no_acl,
             actor: acl_config.actor,
             fsNode: target_node,
+            ...(req.headers['range'] ? { range: req.headers['range'] } : { })
         });
 
         // Destroy the stream if the client disconnects
