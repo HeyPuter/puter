@@ -144,15 +144,37 @@ class LocalDiskStorageService extends BaseService {
     /**
     * Creates a read stream for a given key.
     *
+    * @param {string} uid - The unique identifier for the file.
     * @param {Object} options - The options object.
-    * @param {string} options.key - The key for which to create the read stream.
+    * @param {string} [options.range] - Optional range header (e.g., "bytes=0-1023").
     * @returns {stream.Readable} The read stream for the given key.
     */
-    async create_read_stream ({ key }) {
+    async create_read_stream (uid, options = {}) {
         const require = this.require;
         const fs = require('fs');
 
-        const path = this._get_path(key);
+        const path = this._get_path(uid);
+        
+        // Handle range requests for partial content
+        const { range } = options;
+        if (range) {
+            const rangeMatch = range.match(/bytes=(\d+)-(\d*)/);
+            if (rangeMatch) {
+                const start = parseInt(rangeMatch[1], 10);
+                const endStr = rangeMatch[2];
+                
+                const streamOptions = { start };
+                
+                // If end is specified, set it (fs.createReadStream end is inclusive)
+                if (endStr) {
+                    streamOptions.end = parseInt(endStr, 10);
+                }
+                
+                return fs.createReadStream(path, streamOptions);
+            }
+        }
+        
+        // Default: create stream for entire file
         return fs.createReadStream(path);
     }
 

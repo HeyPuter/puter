@@ -60,8 +60,52 @@ module.exports = eggspress('/read', {
             other_key: 'byte_count',
         });
     }
+
+    // Helper function to parse Range header
+    const parseRangeHeader = (rangeHeader) => {
+        // Check if this is a multipart range request
+        if (rangeHeader.includes(',')) {
+            // For now, we'll only serve the first range in multipart requests
+            // as the underlying storage layer doesn't support multipart responses
+            const firstRange = rangeHeader.split(',')[0].trim();
+            const matches = firstRange.match(/bytes=(\d+)-(\d*)/);
+            if (!matches) return null;
+            
+            const start = parseInt(matches[1], 10);
+            const end = matches[2] ? parseInt(matches[2], 10) : null;
+            
+            return { start, end, isMultipart: true };
+        }
+        
+        // Single range request
+        const matches = rangeHeader.match(/bytes=(\d+)-(\d*)/);
+        if (!matches) return null;
+        
+        const start = parseInt(matches[1], 10);
+        const end = matches[2] ? parseInt(matches[2], 10) : null;
+        
+        return { start, end, isMultipart: false };
+    };
+
     if (req.headers["range"]) {
         res.status(206);
+        
+        // Parse the Range header and set Content-Range
+        const rangeInfo = parseRangeHeader(req.headers["range"]);
+        if (rangeInfo) {
+            const { start, end, isMultipart } = rangeInfo;
+            const contentRange = end !== null 
+                ? `bytes ${start}-${end}/*`
+                : `bytes ${start}-*/*`;
+            res.set("Content-Range", contentRange);
+            
+            // If this was a multipart request, modify the range header to only include the first range
+            if (isMultipart) {
+                req.headers["range"] = end !== null 
+                    ? `bytes=${start}-${end}`
+                    : `bytes=${start}-`;
+            }
+        }
     }
     res.set({"Accept-Ranges": "bytes"});
 
