@@ -288,7 +288,7 @@ module.exports = class FSNodeContext {
             controls,
         });
 
-        if ( entry === null ) {
+        if ( ! entry ) {
             this.found = false;
             this.entry = false;
         } else {
