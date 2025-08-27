@@ -113,10 +113,28 @@ module.exports = eggspress('/token-read', {
         const rangeInfo = parseRangeHeader(req.headers["range"]);
         if (rangeInfo) {
             const { start, end, isMultipart } = rangeInfo;
-            const contentRange = end !== null 
-                ? `bytes ${start}-${end}/*`
-                : `bytes ${start}-*/*`;
-            res.set("Content-Range", contentRange);
+            
+            // For open-ended ranges, we need to calculate the actual end byte
+            let actualEnd = end;
+            let fileSize = null;
+            
+            try {
+                fileSize = await req.values.fsNode.get('size');
+                if (end === null) {
+                    actualEnd = fileSize - 1; // File size is 1-based, end byte is 0-based
+                }
+            } catch (e) {
+                // If we can't get file size, we'll let the storage layer handle it
+                // and not set Content-Range header
+                actualEnd = null;
+                fileSize = null;
+            }
+            
+            if (actualEnd !== null) {
+                const totalSize = fileSize !== null ? fileSize : '*';
+                const contentRange = `bytes ${start}-${actualEnd}/${totalSize}`;
+                res.set("Content-Range", contentRange);
+            }
             
             // If this was a multipart request, modify the range header to only include the first range
             if (isMultipart) {
