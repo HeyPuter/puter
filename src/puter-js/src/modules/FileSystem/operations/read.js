@@ -11,8 +11,10 @@ const read = function (...args) {
         // Otherwise, we assume separate arguments are provided
         options = {
             path: typeof args[0] === 'string' ? args[0] : (typeof args[0] === 'object' && args[0] !== null ? args[0].path : args[0]),
-            success: args[1],
-            error: args[2],
+            ...(typeof(args[1]) === "object" ? args[1]: {
+                success: args[1],
+                error: args[2],
+            })
         };
     }
 
@@ -32,7 +34,7 @@ const read = function (...args) {
         options.path = getAbsolutePathForApp(options.path);
 
         // create xhr object
-        const xhr = utils.initXhr('/read?file=' + encodeURIComponent(options.path), this.APIOrigin, this.authToken, 'get', "application/json;charset=UTF-8", 'blob');
+        const xhr = utils.initXhr('/read?' + new URLSearchParams({ file: options.path, ...(options.offset ? { offset: options.offset } : {}), ...(options.byte_count ? { byte_count: options.byte_count } : {}) }).toString(), this.APIOrigin, this.authToken, 'get', "application/json;charset=UTF-8", 'blob');
 
         // set up event handlers for load and error events
         utils.setupXhrEventHandlers(xhr, options.success, options.error, resolve, reject);
