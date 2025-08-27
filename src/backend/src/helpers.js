@@ -966,38 +966,7 @@ const body_parser_error_handler = (err, req, res, next) => {
     next();
 }
 
-/**
- * Given a uid, returns a file node.
- * 
- * TODO (xiaochen): It only works for MemoryFSProvider currently.
- * 
- * @param {string} uid - The uid of the file to get.
- * @returns {Promise<MemoryFile|null>} The file node, or null if the file does not exist.
- */
-async function get_entry(uid) {
-    const svc_mountpoint = Context.get('services').get('mountpoint');
-    const uid_selector = new NodeUIDSelector(uid);
-    const provider = await svc_mountpoint.get_provider(uid_selector);
-
-    // NB: We cannot import MemoryFSProvider here because it will cause a circular dependency.
-    if ( provider.constructor.name !== 'MemoryFSProvider' ) {
-        return null;
-    }
-
-    return provider.stat({
-        selector: uid_selector,
-    });
-}
-
 async function is_ancestor_of(ancestor_uid, descendant_uid){
-    const ancestor = await get_entry(ancestor_uid);
-    const descendant = await get_entry(descendant_uid);
-
-    if ( ancestor && descendant ) {
-        return descendant.path.startsWith(ancestor.path);
-    }
-
-
     /** @type BaseDatabaseAccessService */
     const db = services.get('database').get(DB_READ, 'filesystem');
 

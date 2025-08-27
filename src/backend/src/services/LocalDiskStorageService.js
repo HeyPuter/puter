@@ -18,7 +18,6 @@
  * along with this program.  If not, see <https://www.gnu.org/licenses/>.
  */
 const { LocalDiskStorageStrategy } = require("../filesystem/strategies/storage_a/LocalDiskStorageStrategy");
-const { PuterFSProvider } = require("../modules/puterfs/lib/PuterFSProvider");
 const { TeePromise } = require('@heyputer/putility').libs.promise;
 const { progress_stream, size_limit_stream } = require("../util/streamutil");
 const BaseService = require("./BaseService");
@@ -53,7 +52,7 @@ class LocalDiskStorageService extends BaseService {
         svc_contextInit.register_value('storage', storage);
         
         const svc_mountpoint = this.services.get('mountpoint');
-        svc_mountpoint.set_storage(PuterFSProvider, storage);
+        svc_mountpoint.set_storage(storage);
     }
 
 

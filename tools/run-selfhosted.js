@@ -83,7 +83,6 @@ const main = async () => {
         EssentialModules,
         DatabaseModule,
         LocalDiskStorageModule,
-        MemoryStorageModule,
         SelfHostedModule,
         BroadcastModule,
         TestDriversModule,
@@ -101,7 +100,6 @@ const main = async () => {
     }
     k.add_module(new DatabaseModule());
     k.add_module(new LocalDiskStorageModule());
-    k.add_module(new MemoryStorageModule());
     k.add_module(new SelfHostedModule());
     k.add_module(new BroadcastModule());
     k.add_module(new TestDriversModule());

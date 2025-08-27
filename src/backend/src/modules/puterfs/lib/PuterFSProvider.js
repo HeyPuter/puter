@@ -22,7 +22,7 @@ const { MultiDetachable } = putility.libs.listener;
 const { TDetachable } = putility.traits;
 const { TeePromise } = putility.libs.promise;
 
-const { NodeInternalIDSelector, NodeChildSelector, NodeUIDSelector, RootNodeSelector, NodePathSelector, NodeSelector } = require("../../../filesystem/node/selectors");
+const { NodeInternalIDSelector, NodeChildSelector, NodeUIDSelector, RootNodeSelector, NodePathSelector } = require("../../../filesystem/node/selectors");
 const { Context } = require("../../../util/context");
 const fsCapabilities = require('../../../filesystem/definitions/capabilities');
 const { UploadProgressTracker } = require('../../../filesystem/storage/UploadProgressTracker');
@@ -64,52 +64,6 @@ class PuterFSProvider extends putility.AdvancedBase {
             fsCapabilities.SYMLINK,
             fsCapabilities.TRASH,
         ]);
-    }
-
-    /**
-     * Check if a given node exists.
-     * 
-     * @param {Object} param
-     * @param {NodeSelector} param.selector - The selector used for checking.
-     * @returns {Promise<boolean>} - True if the node exists, false otherwise.
-     */
-    async quick_check ({
-        selector,
-    }) {
-        // a wrapper that access underlying database directly
-        const fsEntryFetcher = Context.get('services').get('fsEntryFetcher');
-
-        // shortcut: has full path
-        if ( selector?.path ) {
-            const entry = await fsEntryFetcher.findByPath(selector.path);
-            return Boolean(entry);
-        }
-
-        // shortcut: has uid
-        if ( selector?.uid ) {
-            const entry = await fsEntryFetcher.findByUID(selector.uid);
-            return Boolean(entry);
-        }
-
-        // shortcut: parent uid + child name
-        if ( selector instanceof NodeChildSelector && selector.parent instanceof NodeUIDSelector ) {
-            return await fsEntryFetcher.nameExistsUnderParent(
-                selector.parent.uid,
-                selector.name,
-            );
-        }
-
-        // shortcut: parent id + child name
-        if ( selector instanceof NodeChildSelector && selector.parent instanceof NodeInternalIDSelector ) {
-            return await fsEntryFetcher.nameExistsUnderParentID(
-                selector.parent.id,
-                selector.name,
-            );
-        }
-
-        // TODO (xiaochen): we should fallback to stat but we cannot at this moment
-        // since stat requires a valid `FSNodeContext` argument.
-        return false;
     }
 
     async stat ({
@@ -702,9 +656,9 @@ class PuterFSProvider extends putility.AdvancedBase {
      * 
      * @param {Object} param
      * @param {Context} param.context
-     * @param {FSNodeContext} param.node: The node to write to.
+     * @param {FSNode} param.node: The node to write to.
      * @param {File} param.file: The file to write.
-     * @returns {Promise<FSNodeContext>}
+     * @returns {Promise<FSNode>}
      */
     async write_overwrite({ context, node, file }) {
         const {
@@ -810,7 +764,7 @@ class PuterFSProvider extends putility.AdvancedBase {
         const svc_event = svc.get('event');
 
         const svc_mountpoint = svc.get('mountpoint');
-        const storage = svc_mountpoint.get_storage(this.constructor);
+        const storage = svc_mountpoint.get_storage();
 
         bucket        ??= config.s3_bucket;
         bucket_region ??= config.s3_region ?? config.region;

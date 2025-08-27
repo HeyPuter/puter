@@ -89,11 +89,7 @@ class NodeChildSelector {
 
     setPropertiesKnownBySelector (node) {
         node.name = this.name;
-
-        try_infer_attributes(this);
-        if ( this.path ) {
-            node.path = this.path;
-        }
+        // no properties known
     }
 
     describe () {
@@ -149,30 +145,6 @@ class NodeRawEntrySelector {
     }
 }
 
-/**
- * Try to infer following attributes for a selector:
- * - path
- * - uid
- *
- * @param {NodePathSelector | NodeUIDSelector | NodeChildSelector | RootNodeSelector | NodeRawEntrySelector} selector
- */
-function try_infer_attributes (selector) {
-    if ( selector instanceof NodePathSelector ) {
-        selector.path = selector.value;
-    } else if ( selector instanceof NodeUIDSelector ) {
-        selector.uid = selector.value;
-    } else if ( selector instanceof NodeChildSelector ) {
-        try_infer_attributes(selector.parent);
-        if ( selector.parent.path ) {
-            selector.path = _path.join(selector.parent.path, selector.name);
-        }
-    } else if ( selector instanceof RootNodeSelector ) {
-        selector.path = '/';
-    } else {
-        // give up
-    }
-}
-
 const relativeSelector = (parent, path) => {
     if ( path === '.' ) return parent;
     if ( path.startsWith('..') ) {
@@ -197,5 +169,4 @@ module.exports = {
     RootNodeSelector,
     NodeRawEntrySelector,
     relativeSelector,
-    try_infer_attributes,
 };
