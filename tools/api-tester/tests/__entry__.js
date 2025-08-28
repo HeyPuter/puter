@@ -1,4 +1,12 @@
 module.exports = registry => {
+    // ======================================================================
+    // Auth
+    // ======================================================================
+    registry.add_test('auth', require('./auth'));
+
+    // ======================================================================
+    // File System
+    // ======================================================================
     registry.add_test('write_cart', require('./write_cart'));
     registry.add_test('move_cart', require('./move_cart'));
     registry.add_test('copy_cart', require('./copy_cart'));

@@ -79,6 +79,15 @@ function UIWindowSignup(options){
                     // bot trap - if this value is submitted server will ignore the request
                     h += `<input type="text" name="p102xyzname" class="p102xyzname" value="">`;
 
+                    // Turnstile widget
+                    if(window.gui_params?.turnstileSiteKey){
+                        h += `<div style="margin-bottom: 20px; display: flex; justify-content: center;">`;
+                            // Get Turnstile site key from configuration, with fallback
+                            const turnstileSiteKey = window.gui_params?.turnstileSiteKey || '3x00000000000000000000FF';
+                            h += `<div class="cf-turnstile" data-sitekey="${turnstileSiteKey}"></div>`;
+                        h += `</div>`;
+                    }
+
                     // terms and privacy
                     h += `<p class="signup-terms">${i18n('tos_fineprint', [], false)}</p>`;
                     // Create Account
@@ -115,6 +124,48 @@ function UIWindowSignup(options){
             center: true,
             onAppend: function(el_window){
                 $(el_window).find(`.username`).get(0).focus({preventScroll:true});
+                
+                // Initialize Turnstile widget with callback to capture token
+                const initTurnstile = () => {
+                    if (window.turnstile) {
+                        // Get Turnstile site key from configuration, with fallback
+                        const turnstileSiteKey = window.gui_params?.turnstileSiteKey;
+                        window.turnstile.render('.cf-turnstile', {
+                            sitekey: turnstileSiteKey,
+                            callback: function(token) {
+                                // Store the token for the signup request
+                                $(el_window).find('.cf-turnstile').attr('data-token', token);
+                                // Enable the signup button once CAPTCHA is completed
+                                $(el_window).find('.signup-btn').prop('disabled', false);
+                                // Add visual feedback
+                                $(el_window).find('.cf-turnstile').addClass('captcha-completed');
+                            },
+                            'expired-callback': function() {
+                                // Reset when token expires
+                                $(el_window).find('.cf-turnstile').removeAttr('data-token');
+                                $(el_window).find('.cf-turnstile').removeClass('captcha-completed');
+                                $(el_window).find('.signup-btn').prop('disabled', true);
+                            }
+                        });
+                        // Initially disable signup button until CAPTCHA is completed
+                        $(el_window).find('.signup-btn').prop('disabled', true);
+                    } else {
+                        // If Turnstile isn't loaded yet, wait for it
+                        setTimeout(initTurnstile, 100);
+                    }
+                };
+                
+                // Helper function to reset Turnstile state
+                const resetTurnstile = () => {
+                    if (window.turnstile) {
+                        window.turnstile.reset('.cf-turnstile');
+                        $(el_window).find('.cf-turnstile').removeAttr('data-token');
+                        $(el_window).find('.cf-turnstile').removeClass('captcha-completed');
+                        $(el_window).find('.signup-btn').prop('disabled', true);
+                    }
+                };
+                
+                initTurnstile();
             },
             window_class: 'window-signup',
             window_css:{
@@ -129,7 +180,19 @@ function UIWindowSignup(options){
                 'justify-content': 'center',
                 'align-items': 'center',
                 padding: '30px 10px 10px 10px',
-            }
+            },
+            // Add custom CSS for CAPTCHA states
+            custom_css: `
+                .cf-turnstile.captcha-completed {
+                    border: 2px solid #4CAF50;
+                    border-radius: 4px;
+                    padding: 2px;
+                }
+                .signup-btn:disabled {
+                    opacity: 0.6;
+                    cursor: not-allowed;
+                }
+            `
         })
 
         $(el_window).find('.login-c2a-clickable').on('click', async function(e){
@@ -205,6 +268,14 @@ function UIWindowSignup(options){
                 return;
             }
             
+            // Check if CAPTCHA was completed
+            const turnstileToken = $(el_window).find('.cf-turnstile').attr('data-token');
+            if (!turnstileToken) {
+                $(el_window).find('.signup-error-msg').html(i18n('captcha_required') || 'Please complete the CAPTCHA verification');
+                $(el_window).find('.signup-error-msg').fadeIn();
+                return;
+            }
+            
             //xyzname
             let p102xyzname = $(el_window).find('.p102xyzname').val();
 
@@ -224,6 +295,7 @@ function UIWindowSignup(options){
                 referrer: options.referrer ?? window.referrerStr,
                 send_confirmation_code: options.send_confirmation_code,
                 p102xyzname: p102xyzname,
+                'cf-turnstile-response': turnstileToken
             };
 
             $.ajax({
@@ -253,6 +325,9 @@ function UIWindowSignup(options){
                 error: function (err){
                     // re-enable 'Create Account' button so user can try again
                     $(el_window).find('.signup-btn').prop('disabled', false);
+
+                    // Reset Turnstile widget for retry
+                    resetTurnstile();
 
                     // Process error response
                     const errorText = err.responseText || '';

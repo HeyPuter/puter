@@ -166,6 +166,8 @@ class PuterHomepageService extends BaseService {
                 co_isolation_enabled: req.co_isolation_enabled,
                 // Add captcha requirements to GUI parameters
                 captchaRequired: captchaRequired,
+                // Add Turnstile site key to GUI parameters
+                turnstileSiteKey: config.services?.['cloudflare-turnstile']?.site_key,
             },
         }));
     }
