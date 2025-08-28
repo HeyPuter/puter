@@ -17,6 +17,7 @@
  * along with this program.  If not, see <https://www.gnu.org/licenses/>.
  */
 const { AdvancedBase } = require("@heyputer/putility");
+const { PuterFSProvider } = require("./modules/puterfs/lib/PuterFSProvider");
 
 class LocalDiskStorageModule extends AdvancedBase {
     async install (context) {
@@ -26,6 +27,9 @@ class LocalDiskStorageModule extends AdvancedBase {
 
         const HostDiskUsageService = require('./services/HostDiskUsageService');
         services.registerService('host-disk-usage', HostDiskUsageService);
+        
+        const useapi = context.get('useapi');
+        useapi.def('core.fs.PuterFSProvider', PuterFSProvider);
     }
 }
 
