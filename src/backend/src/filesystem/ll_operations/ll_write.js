@@ -51,7 +51,8 @@ class LLWriteBase extends LLFilesystemOperation {
         const svc_event = svc.get('event');
 
         const svc_mountpoint = svc.get('mountpoint');
-        const storage = svc_mountpoint.get_storage();
+        // TODO (xiaochen): what if the provider is not PuterFSProvider?
+        const storage = svc_mountpoint.get_storage(PuterFSProvider.name);
 
         bucket        ??= config.s3_bucket;
         bucket_region ??= config.s3_region ?? config.region;

@@ -121,7 +121,7 @@ class LLRead extends LLFilesystemOperation {
 
                 const svc_mountpoint = context.get('services').get('mountpoint');
                 const provider = await svc_mountpoint.get_provider(fsNode.selector);
-                const storage = svc_mountpoint.get_storage(provider.constructor);
+                const storage = svc_mountpoint.get_storage(provider.constructor.name);
 
                 // Empty object here is in the case of local fiesystem,
                 // where s3:location will return null.

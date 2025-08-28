@@ -53,7 +53,7 @@ class LocalDiskStorageService extends BaseService {
         svc_contextInit.register_value('storage', storage);
         
         const svc_mountpoint = this.services.get('mountpoint');
-        svc_mountpoint.set_storage(PuterFSProvider, storage);
+        svc_mountpoint.set_storage(PuterFSProvider.name, storage);
     }
 
 
