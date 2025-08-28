@@ -125,6 +125,9 @@ class PuterHomepageService extends BaseService {
             login: req.captchaRequired,
             signup: req.captchaRequired,
         };
+
+        // cloudflare turnstile site key
+        const turnstileSiteKey = config.services?.['cloudflare-turnstile']?.enabled ? config.services?.['cloudflare-turnstile']?.site_key : null;
         
         return res.send(this.generate_puter_page_html({
             env: config.env,
@@ -166,8 +169,7 @@ class PuterHomepageService extends BaseService {
                 co_isolation_enabled: req.co_isolation_enabled,
                 // Add captcha requirements to GUI parameters
                 captchaRequired: captchaRequired,
-                // Add Turnstile site key to GUI parameters
-                turnstileSiteKey: config.services?.['cloudflare-turnstile']?.site_key,
+                turnstileSiteKey: turnstileSiteKey,
             },
         }));
     }

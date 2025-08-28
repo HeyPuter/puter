@@ -89,12 +89,10 @@ function UIWindowSignup(options){
                     // bot trap - if this value is submitted server will ignore the request
                     h += `<input type="text" name="p102xyzname" class="p102xyzname" value="">`;
 
-                    // Turnstile widget
+                    // Turnstile widget (only when enabled)
                     if(window.gui_params?.turnstileSiteKey){
                         h += `<div style="margin-bottom: 20px; display: flex; justify-content: center;">`;
-                            // Get Turnstile site key from configuration, with fallback
-                            const turnstileSiteKey = window.gui_params?.turnstileSiteKey || '3x00000000000000000000FF';
-                            h += `<div class="cf-turnstile" data-sitekey="${turnstileSiteKey}"></div>`;
+                            h += `<div class="cf-turnstile" data-sitekey="${window.gui_params.turnstileSiteKey}"></div>`;
                         h += `</div>`;
                     }
 
@@ -137,11 +135,9 @@ function UIWindowSignup(options){
                 
                 // Initialize Turnstile widget with callback to capture token
                 const initTurnstile = () => {
-                    if (window.turnstile) {
-                        // Get Turnstile site key from configuration, with fallback
-                        const turnstileSiteKey = window.gui_params?.turnstileSiteKey;
+                    if (window.turnstile && window.gui_params?.turnstileSiteKey) {
                         window.turnstile.render('.cf-turnstile', {
-                            sitekey: turnstileSiteKey,
+                            sitekey: window.gui_params.turnstileSiteKey,
                             callback: function(token) {
                                 // Store the token for the signup request
                                 $(el_window).find('.cf-turnstile').attr('data-token', token);
@@ -268,12 +264,15 @@ function UIWindowSignup(options){
                 return;
             }
             
-            // Check if CAPTCHA was completed
-            const turnstileToken = $(el_window).find('.cf-turnstile').attr('data-token');
-            if (!turnstileToken) {
-                $(el_window).find('.signup-error-msg').html(i18n('captcha_required') || 'Please complete the CAPTCHA verification');
-                $(el_window).find('.signup-error-msg').fadeIn();
-                return;
+            // Check if Cloudflare Turnstile CAPTCHA was completed
+            let turnstileToken = null;
+            if (window.turnstile && window.gui_params?.turnstileSiteKey) {
+                turnstileToken = $(el_window).find('.cf-turnstile').attr('data-token');
+                if (!turnstileToken) {
+                    $(el_window).find('.signup-error-msg').html(i18n('captcha_required') || 'Please complete the CAPTCHA verification');
+                    $(el_window).find('.signup-error-msg').fadeIn();
+                    return;
+                }
             }
             
             //xyzname
