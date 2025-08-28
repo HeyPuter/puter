@@ -198,8 +198,8 @@ window.showTurnstileChallenge = function(options) {
                             height: 40px; 
                             margin: 0 auto 15px; 
                             display: block; 
-                            padding: 10px; 
-                            background-color: #3b82f6; 
+                            padding: 15px; 
+                            background-color: blue; 
                             border-radius: 8px;
                         ">
                         <h2 style="
