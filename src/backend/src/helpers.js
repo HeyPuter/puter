@@ -1134,7 +1134,10 @@ async function deleteUser(user_id){
                 const svc_fs = Context.get('services').get('filesystem');
                 const svc_mountpoint =
                     Context.get('services').get('mountpoint');
-                const storage = svc_mountpoint.get_storage();
+                // NB: We use a hard-coded string to avoid circular dependency.
+                // 
+                // TODO (xiaochen): what if the provider is not PuterFSProvider?
+                const storage = svc_mountpoint.get_storage('PuterFSProvider');
                 const op_delete = storage.create_delete();
                 await op_delete.run({
                     node: await svc_fs.node(new NodeUIDSelector(files[i].uuid))

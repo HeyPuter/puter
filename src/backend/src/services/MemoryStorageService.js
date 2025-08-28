@@ -26,7 +26,7 @@ class MemoryStorageService extends BaseService {
         console.log('MemoryStorageService._init');
 
         const svc_mountpoint = this.services.get('mountpoint');
-        svc_mountpoint.set_storage(MemoryFSProvider, this);
+        svc_mountpoint.set_storage(MemoryFSProvider.name, this);
     }
 
     async create_read_stream (uuid, options) {

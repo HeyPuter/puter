@@ -57,7 +57,7 @@ class MountpointService extends BaseService {
     * @returns {Promise<void>}
     */
     async _init () {
-        // key: provider class (e.g: PuterFSProvider, MemoryFSProvider)
+        // key: name of provider class (e.g: "PuterFSProvider", "MemoryFSProvider")
         // value: storage instance
         this.storage_ = {};
     }
@@ -148,7 +148,11 @@ class MountpointService extends BaseService {
     * @returns {Object} The storage backend instance
     */
     get_storage (provider) {
-        return this.storage_[provider];
+        const storage = this.storage_[provider];
+        if ( ! storage ) {
+            throw new Error(`MountpointService.get_storage: storage for provider "${provider}" not found`);
+        }
+        return storage;
     }
 }
 
