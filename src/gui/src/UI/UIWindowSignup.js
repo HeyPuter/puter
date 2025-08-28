@@ -22,16 +22,6 @@ import UIWindowLogin from './UIWindowLogin.js'
 import UIWindowEmailConfirmationRequired from './UIWindowEmailConfirmationRequired.js'
 import check_password_strength from '../helpers/check_password_strength.js'
 
-// Helper function to reset Turnstile state
-const resetTurnstile = (el_window) => {
-    if (window.turnstile) {
-        window.turnstile.reset('.cf-turnstile');
-        $(el_window).find('.cf-turnstile').removeAttr('data-token');
-        $(el_window).find('.cf-turnstile').removeClass('captcha-completed');
-        $(el_window).find('.signup-btn').prop('disabled', true);
-    }
-};
-
 function UIWindowSignup(options){
     options = options ?? {};
     options.reload_on_success = options.reload_on_success ?? true;
@@ -326,7 +316,11 @@ function UIWindowSignup(options){
                     $(el_window).find('.signup-btn').prop('disabled', false);
 
                     // Reset Turnstile widget for retry
-                    resetTurnstile(el_window);
+                    if (window.turnstile) {
+                        window.turnstile.reset('.cf-turnstile');
+                        $(el_window).find('.cf-turnstile').removeAttr('data-token');
+                        $(el_window).find('.cf-turnstile').removeClass('captcha-completed');
+                    }
 
                     // Process error response
                     const errorText = err.responseText || '';
