@@ -84,7 +84,7 @@ function UIWindowSignup(options){
                         h += `<div style="margin-bottom: 20px; display: flex; justify-content: center;">`;
                             // appearance: always/execute/interaction-only
                             // docs: https://developers.cloudflare.com/turnstile/get-started/client-side-rendering/widget-configurations/?utm_source=chatgpt.com#appearance-modes
-                            h += `<div class="cf-turnstile" data-sitekey="${window.gui_params.turnstileSiteKey}" appearance="interaction-only"></div>`;
+                            h += `<div class="cf-turnstile" data-sitekey="${window.gui_params.turnstileSiteKey}" data-appearance="interaction-only"></div>`;
                         h += `</div>`;
                     }
 
