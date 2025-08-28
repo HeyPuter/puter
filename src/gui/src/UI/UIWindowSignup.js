@@ -91,10 +91,10 @@ function UIWindowSignup(options){
 
                     // Turnstile widget
                     if(window.gui_params?.turnstileSiteKey){
-                        h += `<div style="margin-bottom: 20px; display: flex; justify-content: center;">`;
-                            // Get Turnstile site key from configuration, with fallback
-                            const turnstileSiteKey = window.gui_params?.turnstileSiteKey || '3x00000000000000000000FF';
-                            h += `<div class="cf-turnstile" data-sitekey="${turnstileSiteKey}"></div>`;
+                        h += `<div style="min-height: 20px; display: flex; justify-content: center;">`;
+                            // appearance: always/execute/interaction-only
+                            // docs: https://developers.cloudflare.com/turnstile/get-started/client-side-rendering/widget-configurations/?utm_source=chatgpt.com#appearance-modes
+                            h += `<div class="cf-turnstile" data-sitekey="${window.gui_params.turnstileSiteKey}" data-appearance="interaction-only"></div>`;
                         h += `</div>`;
                     }
 
@@ -157,8 +157,6 @@ function UIWindowSignup(options){
                                 $(el_window).find('.signup-btn').prop('disabled', true);
                             }
                         });
-                        // Initially disable signup button until CAPTCHA is completed
-                        $(el_window).find('.signup-btn').prop('disabled', true);
                     } else {
                         // If Turnstile isn't loaded yet, wait for it
                         setTimeout(initTurnstile, 100);
