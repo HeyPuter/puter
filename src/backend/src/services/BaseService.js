@@ -54,7 +54,10 @@ class BaseService extends concepts.Service {
             this.global_config.server_id = 'local';
         }
     }
-
+    
+    async run_as_early_as_possible () {
+        await (this._run_as_early_as_possible || NOOP).call(this, this.args);
+    }
 
     /**
     * Creates the service's data structures and initial values.

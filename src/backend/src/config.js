@@ -219,8 +219,26 @@ const config_pointer = {};
     const config_runtime_values = {
         $: 'runtime-values'
     };
+    let initialPrototype = config_to_export;
     Object.setPrototypeOf(config_runtime_values, config_to_export);
     config_to_export = config_runtime_values
+    
+    config_to_export.__set_config_object__ = (object, options = {}) => {
+        // options for this method
+        const replacePrototype = options.replacePrototype ?? true;
+        const useInitialPrototype = options.useInitialPrototype ?? true;
+        
+        // maybe replace prototype
+        if ( replacePrototype ) {
+            const newProto = useInitialPrototype
+                ? initialPrototype
+                : Object.getPrototypeOf(config_runtime_values);
+            Object.setPrototypeOf(object, newProto);
+        }
+        
+        // use this object as the prototype
+        Object.setPrototypeOf(config_runtime_values, object);
+    };
 
     // These can be difficult to find and cause painful
     // confusing issues, so we log any time this happens

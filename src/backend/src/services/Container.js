@@ -174,6 +174,11 @@ class Container {
     */
     async init () {
         for ( const k in this.instances_ ) {
+            if ( ! this.instances_[k]._run_as_early_as_possible ) continue;
+            this.logger.info(`very early hooks for ${k}`);
+            await this.instances_[k].run_as_early_as_possible();
+        }
+        for ( const k in this.instances_ ) {
             this.logger.info(`constructing ${k}`);
             await this.instances_[k].construct();
         }

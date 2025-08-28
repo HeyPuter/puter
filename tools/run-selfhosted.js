@@ -87,6 +87,7 @@ const main = async () => {
         SelfHostedModule,
         BroadcastModule,
         TestDriversModule,
+        TestConfigModule,
         PuterAIModule,
         InternetModule,
         DevelopmentModule,
@@ -105,6 +106,7 @@ const main = async () => {
     k.add_module(new SelfHostedModule());
     k.add_module(new BroadcastModule());
     k.add_module(new TestDriversModule());
+    k.add_module(new TestConfigModule());
     k.add_module(new PuterAIModule());
     k.add_module(new InternetModule());
     k.add_module(new DNSModule());
