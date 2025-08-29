@@ -40,13 +40,20 @@ const NOOP = async () => {};
 */
 class BaseService extends concepts.Service {
     constructor (service_resources, ...a) {
-        const { services, config, my_config, name, args, context } = service_resources;
+        const { services, config, name, args, context } = service_resources;
         super(service_resources, ...a);
 
         this.args = args;
         this.service_name = name || this.constructor.name;
         this.services = services;
-        this.config = my_config;
+        let configOverride = undefined;
+        Object.defineProperty(this, 'config', {
+            get: () => configOverride ?? config.services?.[name] ?? {},
+            set: why => {
+                console.warn('replacing config like this is probably a bad idea');
+                configOverride = why;
+            },
+        });
         this.global_config = config;
         this.context = context;
 
