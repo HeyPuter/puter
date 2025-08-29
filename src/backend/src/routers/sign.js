@@ -151,7 +151,7 @@ module.exports = eggspress('/sign', {
         // sign
         try{
             let signature = await sign_file(node.entry, item.action)
-            signature.path = signature.path ?? item.path;
+            signature.path = signature.path ?? item.path ?? await node.get('path');
             signatures.push(signature);
         }
         catch(e){
