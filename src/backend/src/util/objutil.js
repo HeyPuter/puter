@@ -1,4 +1,3 @@
-const { config } = require("yargs");
 const { whatis } = require("./langutil");
 
 const DO_NOT_DEFINE = Symbol('DO_NOT_DEFINE');
@@ -15,7 +14,7 @@ const createTransformedValues = (input, options = {}, state = {}) => {
         for ( let i=0 ; i < input.length; i++ ) {
             const value = input[i];
             state.keys.push(i);
-            output.push(createTransformedValues(value, options));
+            output.push(createTransformedValues(value, options, state));
             state.keys.pop();
         }
         return output;
@@ -25,7 +24,7 @@ const createTransformedValues = (input, options = {}, state = {}) => {
         Object.setPrototypeOf(output, input);
         for ( const k in input ) {
             state.keys.push(k);
-            const new_value = createTransformedValues(input[k], options);
+            const new_value = createTransformedValues(input[k], options, state);
             if ( new_value !== DO_NOT_DEFINE ) {
                 output[k] = new_value;
             }
@@ -39,20 +38,6 @@ const createTransformedValues = (input, options = {}, state = {}) => {
     }
     return value;
 };
-
-
-config.__set_config_object__(createTransformedValues(config, {
-    mutateValue: (input, { state }) => {
-        const path = state.keys.join('.'); // or jq
-        // ....
-        if ( should_replace ) {
-            return 'replacement';
-        } else {
-            return DO_NOT_DEFINE;
-        }
-    }
-}))
-
 
 module.exports = {
     createTransformedValues,
