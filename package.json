@@ -47,6 +47,7 @@
     ]
   },
   "dependencies": {
+    "@aws-sdk/client-secrets-manager": "^3.879.0",
     "@heyputer/putility": "^1.0.2",
     "@paralleldrive/cuid2": "^2.2.2",
     "dedent": "^1.5.3",
