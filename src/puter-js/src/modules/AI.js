@@ -455,7 +455,6 @@ class AI{
         //      sophosympatheia/
         //      switchpoint/
         //      tencent/
-        //      tencent/
         //      thedrummer/
         //      thudm/
         //      tngtech/
@@ -506,7 +505,6 @@ class AI{
             requestParams.model.startsWith('shisa-ai/') ||
             requestParams.model.startsWith('sophosympatheia/') ||
             requestParams.model.startsWith('switchpoint/') ||
-            requestParams.model.startsWith('tencent/') ||
             requestParams.model.startsWith('tencent/') ||
             requestParams.model.startsWith('thedrummer/') ||
             requestParams.model.startsWith('thudm/') ||
