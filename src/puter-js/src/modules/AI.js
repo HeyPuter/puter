@@ -413,13 +413,108 @@ class AI{
         }
 
         // if model starts with: 
-        //      meta-llama/
-        //      google/
+        //      agentica-org/
+        //      ai21/
+        //      aion-labs/
+        //      alfredpros/
+        //      alpindale/
+        //      amazon/
+        //      anthracite-org/
+        //      arcee-ai/
+        //      arliai/
+        //      baidu/
+        //      bytedance/
+        //      cognitivecomputations/
+        //      cohere/
         //      deepseek/
-        //      x-ai/
+        //      eleutherai/
+        //      google/
+        //      gryphe/
+        //      inception/
+        //      infermatic/
+        //      liquid/
+        //      mancer/
+        //      meta-llama/
+        //      microsoft/
+        //      minimax/
+        //      mistralai/
+        //      moonshotai/
+        //      morph/
+        //      neversleep/
+        //      nousresearch/
+        //      nvidia/
+        //      perplexity/
+        //      pygmalionai/
         //      qwen/
+        //      raifle/
+        //      rekaai/
+        //      sao10k/
+        //      sarvamai/
+        //      scb10x/
+        //      shisa-ai/
+        //      sophosympatheia/
+        //      switchpoint/
+        //      tencent/
+        //      tencent/
+        //      thedrummer/
+        //      thudm/
+        //      tngtech/
+        //      undi95/
+        //      x-ai/
+        //      z-ai/   
+
         // prepend it with openrouter:
-        if ( requestParams.model.startsWith('meta-llama/') || requestParams.model.startsWith('google/') || requestParams.model.startsWith('deepseek/') || requestParams.model.startsWith('x-ai/') || requestParams.model.startsWith('qwen/') ) {
+        if ( 
+            requestParams.model.startsWith('agentica-org/') ||
+            requestParams.model.startsWith('ai21/') ||
+            requestParams.model.startsWith('aion-labs/') ||
+            requestParams.model.startsWith('alfredpros/') ||
+            requestParams.model.startsWith('alpindale/') ||
+            requestParams.model.startsWith('amazon/') ||
+            requestParams.model.startsWith('anthracite-org/') ||
+            requestParams.model.startsWith('arcee-ai/') ||
+            requestParams.model.startsWith('arliai/') ||
+            requestParams.model.startsWith('baidu/') ||
+            requestParams.model.startsWith('bytedance/') ||
+            requestParams.model.startsWith('cognitivecomputations/') ||
+            requestParams.model.startsWith('cohere/') ||
+            requestParams.model.startsWith('deepseek/') || 
+            requestParams.model.startsWith('eleutherai/') ||
+            requestParams.model.startsWith('google/') || 
+            requestParams.model.startsWith('gryphe/') ||
+            requestParams.model.startsWith('inception/') ||
+            requestParams.model.startsWith('infermatic/') ||
+            requestParams.model.startsWith('liquid/') ||
+            requestParams.model.startsWith('mancer/') ||
+            requestParams.model.startsWith('meta-llama/') ||
+            requestParams.model.startsWith('microsoft/') ||
+            requestParams.model.startsWith('minimax/') ||
+            requestParams.model.startsWith('mistralai/') ||
+            requestParams.model.startsWith('moonshotai/') ||
+            requestParams.model.startsWith('morph/') ||
+            requestParams.model.startsWith('neversleep/') ||
+            requestParams.model.startsWith('nousresearch/') ||
+            requestParams.model.startsWith('nvidia/') ||
+            requestParams.model.startsWith('perplexity/') ||
+            requestParams.model.startsWith('pygmalionai/') ||
+            requestParams.model.startsWith('qwen/') || 
+            requestParams.model.startsWith('raifle/') ||
+            requestParams.model.startsWith('rekaai/') ||
+            requestParams.model.startsWith('sao10k/') ||
+            requestParams.model.startsWith('sarvamai/') ||
+            requestParams.model.startsWith('scb10x/') ||
+            requestParams.model.startsWith('shisa-ai/') ||
+            requestParams.model.startsWith('sophosympatheia/') ||
+            requestParams.model.startsWith('switchpoint/') ||
+            requestParams.model.startsWith('tencent/') ||
+            requestParams.model.startsWith('tencent/') ||
+            requestParams.model.startsWith('thedrummer/') ||
+            requestParams.model.startsWith('thudm/') ||
+            requestParams.model.startsWith('tngtech/') ||
+            requestParams.model.startsWith('undi95/') ||
+            requestParams.model.startsWith('x-ai/') || 
+            requestParams.model.startsWith('z-ai/')
+        ) {
             requestParams.model = 'openrouter:' + requestParams.model;
         }
 
