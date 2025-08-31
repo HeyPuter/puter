@@ -146,7 +146,7 @@ class OpenAICompletionService extends BaseService {
                     input: 125,
                     output: 1000,
                 },
-                max_tokens: 128000,
+                max_tokens: 16384,
             },
             {
                 id: 'gpt-4o',
