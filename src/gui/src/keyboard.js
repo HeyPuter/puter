@@ -100,6 +100,7 @@ $(document).bind('keydown', async function(e){
                         $('.launch-popover .start-app-card.launch-app-selected').removeClass('launch-app-selected');
                         // move cursor to end of search input
                         $('.launch-popover .launch-search').val($('.launch-popover .launch-search').val());
+                        return false;
                     }
                     // if in Recommended first row: move to Recents (same column when possible)
                     else if(selected_item_row === 0){
@@ -119,6 +120,7 @@ $(document).bind('keydown', async function(e){
                             $('.launch-popover .launch-search').focus();
                             $('.launch-popover .start-app-card.launch-app-selected').removeClass('launch-app-selected');
                             $('.launch-popover .launch-search').val($('.launch-popover .launch-search').val());
+                            return false;
                         }
                     }
                     // otherwise, move selection up one row
