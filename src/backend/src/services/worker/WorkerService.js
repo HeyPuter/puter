@@ -297,8 +297,7 @@ class WorkerService extends BaseService {
                     } else {
                         currentDomains = (await es_subdomain.select({ predicate: new Eq({ key: "subdomain", value: "workers.puter." + workerName}) }));
                     }
-                    const svc_fs = this.services.get('filesystem');
-
+                    
                     const domainToPath = []
                     for (const domain of currentDomains) {
                         const node = await domain.get("root_dir")
@@ -310,8 +309,11 @@ class WorkerService extends BaseService {
                             file_uid = await node.get("uid");
                         } catch (e) {
                         }
-                        domainToPath.push({ name: subdomainString.split(".").pop(), url: `https://${subdomainString}`, file_path, file_uid, created_at: (new Date(await domain.get("created_at"))).toISOString() });
+                        const name = subdomainString.split(".").pop();
+                        const url = `https://${name}.puter.work`;
+                        domainToPath.push({ name, url, file_path, file_uid, created_at: (new Date(await domain.get("created_at"))).toISOString() });
                     }
+                    
                     return domainToPath;
                 } catch (e) {
                     console.error(e)
