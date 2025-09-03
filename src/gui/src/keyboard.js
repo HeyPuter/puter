@@ -58,14 +58,35 @@ $(document).bind('keydown', async function(e){
             else{
                 // If an item is already selected, move the selection up, down, left or right
                 let selected_item = $('.launch-popover .start-app-card.launch-app-selected').get(0);
-                let selected_item_index = $('.launch-popover .start-app-card:visible').index(selected_item);
+                // determine current selection's position in a 5-column grid
+                let selected_item_index;
+                // total number of rows across all visible items (5 items per row)
+                let total_item_row_count = Math.ceil($('.launch-popover .start-app-card:visible').length / 5);
+                // how many columns are in the active section (Recents may have < 5)
+                let selected_item_col_count;
+                // how many rows are in the active section (Recents may have < 5)
+                let selected_item_row_count;
+                if (selected_item && selected_item.parentElement.classList.contains('launch-apps-recent')){
+                    // current item is in Recents — compute index/rows/cols within Recents
+                    selected_item_index = $('.launch-popover .launch-apps-recent .start-app-card:visible').index(selected_item);
+                    selected_item_row_count = Math.ceil($('.launch-popover .launch-apps-recent .start-app-card:visible').length / 5);
+                    selected_item_col_count = Math.min(5, $('.launch-popover .launch-apps-recent .start-app-card:visible').length);
+                } else {
+                    // current item is in Recommended — 5 fixed columns
+                    selected_item_index = $('.launch-popover .launch-apps-recommended .start-app-card:visible').index(selected_item);
+                    selected_item_row_count = Math.ceil($('.launch-popover .launch-apps-recommended .start-app-card:visible').length / 5);
+                    selected_item_col_count = 5;
+                }
+
+                // derive zero-based row/col for current selection using 5 columns per row
                 let selected_item_row = Math.floor(selected_item_index / 5);
                 let selected_item_col = selected_item_index % 5;
-                let selected_item_row_count = Math.ceil($('.launch-popover .start-app-card:visible').length / 5);
-                let selected_item_col_count = 5;
+                
+                // initialize new selection to current; will be adjusted by arrow key handlers
                 let new_selected_item_index = selected_item_index;
                 let new_selected_item_row = selected_item_row;
                 let new_selected_item_col = selected_item_col;
+                // will hold the DOM node to select next
                 let new_selected_item;
 
                 // if up arrow is pressed
@@ -81,16 +102,16 @@ $(document).bind('keydown', async function(e){
                         return false;
                     }
                     // if this item is not in the first row, move the selection up
-                    else{
+                    else {
                         new_selected_item_row = selected_item_row - 1;
                         if(new_selected_item_row < 0)
-                            new_selected_item_row = selected_item_row_count - 1;
+                            new_selected_item_row = total_item_row_count - 1;
                     }
                 }
                 // if down arrow is pressed
                 else if(e.which === 40){
                     new_selected_item_row = selected_item_row + 1;
-                    if(new_selected_item_row >= selected_item_row_count)
+                    if(new_selected_item_row >= total_item_row_count)
                         new_selected_item_row = 0;
                 }
                 // if left arrow is pressed
@@ -106,7 +127,14 @@ $(document).bind('keydown', async function(e){
                         new_selected_item_col = 0;
                 }
                 new_selected_item_index = (new_selected_item_row * selected_item_col_count) + new_selected_item_col;
-                new_selected_item = $('.launch-popover .start-app-card:visible').get(new_selected_item_index);
+                if (selected_item && selected_item.parentElement.classList.contains('launch-apps-recent')) {
+                    // next item when starting from "Recents": pick from all visible cards
+                    // this allows moving from Recents into the next rows that may belong to Recommended
+                    new_selected_item = $('.launch-popover .start-app-card:visible').get(new_selected_item_index);
+                } else {
+                    // next item when starting from "Recommended": keep navigation scoped to Recommended
+                    new_selected_item = $('.launch-popover .launch-apps-recommended .start-app-card:visible').get(new_selected_item_index);
+                }
                 $(selected_item).removeClass('launch-app-selected');
                 $(new_selected_item).addClass('launch-app-selected');
 
