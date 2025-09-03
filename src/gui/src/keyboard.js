@@ -88,20 +88,40 @@ $(document).bind('keydown', async function(e){
                 let new_selected_item_col = selected_item_col;
                 // will hold the DOM node to select next
                 let new_selected_item;
+                // flag to force selecting from Recents (cross-section navigation)
+                let cross_to_recents = false;
 
                 // if up arrow is pressed
                 if(e.which === 38){
-                    // if this item is in the first row, up arrow should bring the focus back to the search input
-                    if(selected_item_row === 0){
+                    // if in Recents first row: focus search and clear selection
+                    if(selected_item && selected_item.parentElement.classList.contains('launch-apps-recent') && selected_item_row === 0){
                         $('.launch-popover .launch-search').focus();
-                        // unselect all items
+                        // clear selection
                         $('.launch-popover .start-app-card.launch-app-selected').removeClass('launch-app-selected');
-                        // bring cursor to the end of the search input
+                        // move cursor to end of search input
                         $('.launch-popover .launch-search').val($('.launch-popover .launch-search').val());
-
-                        return false;
                     }
-                    // if this item is not in the first row, move the selection up
+                    // if in Recommended first row: move to Recents (same column when possible)
+                    else if(selected_item_row === 0){
+                        if ($('.launch-popover .launch-apps-recent .start-app-card:visible').length > 0) {
+                            // compute target index in Recents (last row, same column when possible)
+                            const $recents = $('.launch-popover .launch-apps-recent .start-app-card:visible');
+                            const recentsCount = $recents.length;
+                            const recentsRows = Math.ceil(recentsCount / 5);
+                            const targetIndex = Math.min(recentsCount - 1, (recentsRows - 1) * 5 + selected_item_col);
+
+                            // update selection vars to pick from Recents
+                            cross_to_recents = true;
+                            new_selected_item_index = targetIndex;
+                            new_selected_item_row = Math.floor(targetIndex / 5);
+                            new_selected_item_col = targetIndex % 5;
+                        } else {
+                            $('.launch-popover .launch-search').focus();
+                            $('.launch-popover .start-app-card.launch-app-selected').removeClass('launch-app-selected');
+                            $('.launch-popover .launch-search').val($('.launch-popover .launch-search').val());
+                        }
+                    }
+                    // otherwise, move selection up one row
                     else {
                         new_selected_item_row = selected_item_row - 1;
                         if(new_selected_item_row < 0)
@@ -111,8 +131,13 @@ $(document).bind('keydown', async function(e){
                 // if down arrow is pressed
                 else if(e.which === 40){
                     new_selected_item_row = selected_item_row + 1;
-                    if(new_selected_item_row >= total_item_row_count)
+                    if(new_selected_item_row >= total_item_row_count) {
                         new_selected_item_row = 0;
+                        if ($('.launch-popover .launch-apps-recent .start-app-card:visible').length > 0) {
+                            cross_to_recents = true;
+                            new_selected_item_index = selected_item_col;
+                        }
+                    }
                 }
                 // if left arrow is pressed
                 else if(e.which === 37){
@@ -127,7 +152,10 @@ $(document).bind('keydown', async function(e){
                         new_selected_item_col = 0;
                 }
                 new_selected_item_index = (new_selected_item_row * selected_item_col_count) + new_selected_item_col;
-                if (selected_item && selected_item.parentElement.classList.contains('launch-apps-recent')) {
+                if (cross_to_recents) {
+                    // moving from Recommended into Recents: pick from Recents list using computed index
+                    new_selected_item = $('.launch-popover .launch-apps-recent .start-app-card:visible').get(new_selected_item_index);
+                } else if (selected_item && selected_item.parentElement.classList.contains('launch-apps-recent')) {
                     // next item when starting from "Recents": pick from all visible cards
                     // this allows moving from Recents into the next rows that may belong to Recommended
                     new_selected_item = $('.launch-popover .start-app-card:visible').get(new_selected_item_index);
