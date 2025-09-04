@@ -1429,8 +1429,8 @@ function UIItem(options){
         if(val !== ''){
             const w = $('.item-name-shadow').width();
             const h = $('.item-name-shadow').height();
-            $(el_item_name_editor).width(w + 4)
-            $(el_item_name_editor).height(h + 2)
+            $(el_item_name_editor).width(w)
+            $(el_item_name_editor).height(h)
         }
     })
 

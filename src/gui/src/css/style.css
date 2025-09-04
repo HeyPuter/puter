@@ -675,8 +675,11 @@ span.header-sort-icon img {
 }
 
 .item-name-shadow {
+    max-width: 109px;
+    text-align: center;
+    font-weight: 500;
+    font-size: 13px;
     display: none;
-    max-width: 110px;
 }
 
 .item-name-editor {
