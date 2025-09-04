@@ -7,7 +7,8 @@ We at **Puter** are committed to maintaining a secure experience for our users a
 The following are in scope for this program:
 
 * **The Puter open-source project** (available at [github.com/HeyPuter](https://github.com/HeyPuter/puter))
-* **Puter.com**
+* **`puter.com`**
+* **`api.puter.com`**
 
 Out-of-scope:
 
@@ -50,6 +51,7 @@ We offer monetary rewards based on the severity of the vulnerability, as determi
 * **Low: \$50 – \$100**
 
 Non-security issues, suggestions, and best practices feedback are always welcome, but may not qualify for a reward.
+If multiple researchers report the same issue, the bounty will be awarded to the first eligible report we receive.
 
 ## Payments Disclaimer
 
@@ -61,4 +63,4 @@ At this time, **payments will only be made via PayPal**. To be eligible to recei
 
 ## Legal Safe Harbor
 
-If you make a good-faith effort to comply with this policy, we will consider your research to be authorized, and we will not pursue legal action against you.
+If you make a good-faith effort to comply with this policy, we will consider your research to be authorized. If you inadvertently access data outside your own account, stop immediately and include details in your report so we can investigate and remediate.
