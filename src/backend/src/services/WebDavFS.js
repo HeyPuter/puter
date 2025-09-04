@@ -58,7 +58,7 @@ function convertToWebDAVPropfindXML(fsEntry) {
   const xml = `<?xml version="1.0" encoding="utf-8"?>
 <D:multistatus xmlns:D="DAV:">
   <D:response>
-    <D:href>/dav${escapeXml(href)}</D:href>
+    <D:href>/dav${escapeXml(encodeURI(href))}</D:href>
     <D:propstat>
       <D:prop>
         <D:displayname>${escapeXml(fsEntry.name)}</D:displayname>
@@ -113,7 +113,7 @@ function convertMultipleToWebDAVPropfindXML(selfStat, fsEntries) {
     }
 
     return `  <D:response>
-    <D:href>/dav${escapeXml(href)}</D:href>
+    <D:href>/dav${escapeXml(encodeURI(href))}</D:href>
     <D:propstat>
       <D:prop>
         <D:displayname>${escapeXml(fsEntry.name)}</D:displayname>
@@ -198,7 +198,7 @@ function createStaticDavRootResponse() {
   return `<?xml version="1.0" encoding="utf-8"?>
 <D:multistatus xmlns:D="DAV:">
   <D:response>
-    <D:href>/dav/</D:href>
+    <D:href>/dav${escapeXml(encodeURI('/'))}</D:href>
     <D:propstat>
       <D:prop>
         <D:displayname>dav</D:displayname>
@@ -223,7 +223,7 @@ function createStaticDavRootResponse() {
     </D:propstat>
   </D:response>
   <D:response>
-    <D:href>/dav/admin/</D:href>
+    <D:href>/dav${escapeXml(encodeURI('/admin/'))}</D:href>
     <D:propstat>
       <D:prop>
         <D:displayname>admin</D:displayname>
@@ -254,7 +254,7 @@ function createRootWebDAVResponse() {
   return `<?xml version="1.0" encoding="utf-8"?>
 <D:multistatus xmlns:D="DAV:">
   <D:response>
-    <D:href>/</D:href>
+    <D:href>${escapeXml(encodeURI('/'))}</D:href>
     <D:propstat>
       <D:prop>
         <D:displayname>/</D:displayname>
@@ -279,7 +279,7 @@ function createRootWebDAVResponse() {
     </D:propstat>
   </D:response>
   <D:response>
-    <D:href>/dav/</D:href>
+    <D:href>/dav${escapeXml(encodeURI('/'))}</D:href>
     <D:propstat>
       <D:prop>
         <D:displayname>dav</D:displayname>
@@ -805,7 +805,7 @@ async function handleWebDavServer(filePath, req, res) {
                 const stubResponse = `<?xml version="1.0" encoding="utf-8"?>
 <D:multistatus xmlns:D="DAV:">
   <D:response>
-    <D:href>/dav${escapeXml(filePath)}</D:href>
+    <D:href>/dav${escapeXml(encodeURI(filePath))}</D:href>
     <D:propstat>
       <D:prop/>
       <D:status>HTTP/1.1 200 OK</D:status>
@@ -1072,7 +1072,7 @@ async function handleWebDavServer(filePath, req, res) {
         <D:href>${lockToken}</D:href>
       </D:locktoken>
       <D:lockroot>
-        <D:href>/dav${escapeXml(filePath)}</D:href>
+        <D:href>/dav${escapeXml(encodeURI(filePath))}</D:href>
       </D:lockroot>
     </D:activelock>
   </D:lockdiscovery>
