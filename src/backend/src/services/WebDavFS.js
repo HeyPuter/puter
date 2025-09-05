@@ -198,7 +198,7 @@ function createStaticDavRootResponse() {
   return `<?xml version="1.0" encoding="utf-8"?>
 <D:multistatus xmlns:D="DAV:">
   <D:response>
-    <D:href>/dav${escapeXml(encodeURI('/'))}</D:href>
+    <D:href>/dav${escapeXml('/')}</D:href>
     <D:propstat>
       <D:prop>
         <D:displayname>dav</D:displayname>
@@ -223,7 +223,7 @@ function createStaticDavRootResponse() {
     </D:propstat>
   </D:response>
   <D:response>
-    <D:href>/dav${escapeXml(encodeURI('/admin/'))}</D:href>
+    <D:href>/dav${escapeXml('/admin/')}</D:href>
     <D:propstat>
       <D:prop>
         <D:displayname>admin</D:displayname>
@@ -254,7 +254,7 @@ function createRootWebDAVResponse() {
   return `<?xml version="1.0" encoding="utf-8"?>
 <D:multistatus xmlns:D="DAV:">
   <D:response>
-    <D:href>${escapeXml(encodeURI('/'))}</D:href>
+    <D:href>${escapeXml('/')}</D:href>
     <D:propstat>
       <D:prop>
         <D:displayname>/</D:displayname>
@@ -279,7 +279,7 @@ function createRootWebDAVResponse() {
     </D:propstat>
   </D:response>
   <D:response>
-    <D:href>/dav${escapeXml(encodeURI('/'))}</D:href>
+    <D:href>/dav${escapeXml('/')}</D:href>
     <D:propstat>
       <D:prop>
         <D:displayname>dav</D:displayname>
