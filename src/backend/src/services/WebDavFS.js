@@ -58,7 +58,7 @@ function convertToWebDAVPropfindXML(fsEntry) {
   const xml = `<?xml version="1.0" encoding="utf-8"?>
 <D:multistatus xmlns:D="DAV:">
   <D:response>
-    <D:href>/dav${escapeXml(href)}</D:href>
+    <D:href>/dav${escapeXml(encodeURI(href))}</D:href>
     <D:propstat>
       <D:prop>
         <D:displayname>${escapeXml(fsEntry.name)}</D:displayname>
@@ -113,7 +113,7 @@ function convertMultipleToWebDAVPropfindXML(selfStat, fsEntries) {
     }
 
     return `  <D:response>
-    <D:href>/dav${escapeXml(href)}</D:href>
+    <D:href>/dav${escapeXml(encodeURI(href))}</D:href>
     <D:propstat>
       <D:prop>
         <D:displayname>${escapeXml(fsEntry.name)}</D:displayname>
@@ -189,6 +189,31 @@ function escapeXml(text) {
         .replace(/"/g, '&quot;')
         .replace(/'/g, '&#39;');
 }
+
+const parseRangeHeader = (rangeHeader) => {
+    // Check if this is a multipart range request
+    if (rangeHeader.includes(',')) {
+        // For now, we'll only serve the first range in multipart requests
+        // as the underlying storage layer doesn't support multipart responses
+        const firstRange = rangeHeader.split(',')[0].trim();
+        const matches = firstRange.match(/bytes=(\d+)-(\d*)/);
+        if (!matches) return null;
+
+        const start = parseInt(matches[1], 10);
+        const end = matches[2] ? parseInt(matches[2], 10) : null;
+
+        return { start, end, isMultipart: true };
+    }
+
+    // Single range request
+    const matches = rangeHeader.match(/bytes=(\d+)-(\d*)/);
+    if (!matches) return null;
+
+    const start = parseInt(matches[1], 10);
+    const end = matches[2] ? parseInt(matches[2], 10) : null;
+
+    return { start, end, isMultipart: false };
+};
 
 function createStaticDavRootResponse() {
   const currentDate = new Date().toUTCString();
@@ -577,9 +602,46 @@ async function handleWebDavServer(filePath, req, res) {
                 return;
             }
 
-            const options = {
-                ...(req.headers["range"] ? { range: req.headers["range"] } : {})
-            };
+            const options = {};
+
+            if (req.headers["range"]) {
+                res.status(206);
+                options.range = req.headers["range"]
+                // Parse the Range header and set Content-Range
+                const rangeInfo = parseRangeHeader(req.headers["range"]);
+                if (rangeInfo) {
+                    const { start, end, isMultipart } = rangeInfo;
+
+                    // For open-ended ranges, we need to calculate the actual end byte
+                    let actualEnd = end;
+                    let fileSize = null;
+
+                    try {
+                        fileSize = fileStat.size;
+                        if (end === null) {
+                            actualEnd = fileSize - 1; // File size is 1-based, end byte is 0-based
+                        }
+                    } catch (e) {
+                        // If we can't get file size, we'll let the storage layer handle it
+                        // and not set Content-Range header
+                        actualEnd = null;
+                        fileSize = null;
+                    }
+
+                    if (actualEnd !== null) {
+                        const totalSize = fileSize !== null ? fileSize : '*';
+                        const contentRange = `bytes ${start}-${actualEnd}/${totalSize}`;
+                        res.set("Content-Range", contentRange);
+                    }
+
+                    // If this was a multipart request, modify the range header to only include the first range
+                    if (isMultipart) {
+                        req.headers["range"] = end !== null
+                            ? `bytes=${start}-${end}`
+                            : `bytes=${start}-`;
+                    }
+                }
+            }
 
             const stream = await operations.read(fileNode, options);
             stream.on("data", (data) => {
@@ -805,7 +867,7 @@ async function handleWebDavServer(filePath, req, res) {
                 const stubResponse = `<?xml version="1.0" encoding="utf-8"?>
 <D:multistatus xmlns:D="DAV:">
   <D:response>
-    <D:href>/dav${escapeXml(filePath)}</D:href>
+    <D:href>/dav${escapeXml(encodeURI(filePath))}</D:href>
     <D:propstat>
       <D:prop/>
       <D:status>HTTP/1.1 200 OK</D:status>
@@ -1072,7 +1134,7 @@ async function handleWebDavServer(filePath, req, res) {
         <D:href>${lockToken}</D:href>
       </D:locktoken>
       <D:lockroot>
-        <D:href>/dav${escapeXml(filePath)}</D:href>
+        <D:href>/dav${escapeXml(encodeURI(filePath))}</D:href>
       </D:lockroot>
     </D:activelock>
   </D:lockdiscovery>
