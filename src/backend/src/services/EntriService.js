@@ -28,8 +28,8 @@ const { Endpoint } = require("../util/expressutil");
 const { IncomingMessage } = require("node:http");
 const { Context } = require("../util/context");
 const { createHash } = require('crypto');
-const { APIError } = require("openai/error.mjs");
 const { NULL } = require("../om/proptypes/__all__");
+const APIError = require("../api/APIError");
 
 // async function generateJWT(applicationId, secret, domain, ) {
 
