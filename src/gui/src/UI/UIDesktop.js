@@ -1655,6 +1655,10 @@ async function UIDesktop(options) {
         if(window.desktop_selectable_is_active)
             return;
 
+        // if an item is being dragged, don't show the toolbar
+        if(window.an_item_is_being_dragged)
+            return;
+
         if(window.is_fullpage_mode)
             $('.window-app-iframe').css('pointer-events', 'none');
 

@@ -1754,6 +1754,7 @@ async function UIWindow(options) {
         $(el_window).draggable({
             start: function(e, ui){
                 window.a_window_is_being_dragged = true;
+                $('.toolbar').css('pointer-events', 'none');
                 // if window is snapped, unsnap it and reset its position to where it was before snapping
                 if(options.is_resizable && window_is_snapped){
                     window_is_snapped = false;
@@ -1930,7 +1931,7 @@ async function UIWindow(options) {
     
                 $(el_window_app_iframe).css('pointer-events', 'all');
                 $('.window').css('pointer-events', 'initial');
-
+                $('.toolbar').css('pointer-events', 'auto');
                 // jqueryui changes the z-index automatically, if the stay_on_top flag is set
                 // make sure window stays on top with the initial zindex though
                 $(`.window[data-stay_on_top="true"]`).each(function(){
