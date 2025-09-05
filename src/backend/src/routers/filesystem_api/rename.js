@@ -176,6 +176,21 @@ module.exports = eggspress('/rename', {
     // send realtime success msg to client
     const svc_socketio = req.services.get('socketio');
     svc_socketio.send({ room: req.user.id }, 'item.renamed', return_obj);
+    
+    (async () => { try {
+        const svc_event = req.services.get('event');
+        await svc_event.emit('fs.rename', {
+            uid: fsentry.uuid,
+            new_name: req.body.new_name,
+        })
+    } catch (e) {
+        const log = req.services.get('log-service').create('rename-endpoint');
+        const errors = req.services.get('error-service').create(log);
+        errors.report('emit.rename', {
+            alarm: true,
+            source: e,
+        });
+    }})();
 
     return res.send(return_obj);
 });

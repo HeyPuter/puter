@@ -246,11 +246,16 @@ class PuterFSProvider extends putility.AdvancedBase {
 
         const svc_event = services.get('event');
 
-        await svc_event.emit('fs.move.file', {
+        const promises = [];
+        promises.push(svc_event.emit('fs.move.file', {
             context,
             moved: node,
             old_path,
-        });
+        }));
+        promises.push(svc_event.emit('fs.rename', {
+            uid: await node.get('uid'),
+            new_name,
+        }));
 
         return node;
     }
