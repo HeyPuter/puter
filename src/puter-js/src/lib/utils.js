@@ -83,6 +83,17 @@ function initXhr(endpoint, APIOrigin, authToken, method= "post", contentType = "
     xhr.setRequestHeader("Authorization", "Bearer " + authToken);
     xhr.setRequestHeader("Content-Type", contentType);
     xhr.responseType = responseType ?? '';
+    
+    // Add API call logging if available
+    if (globalThis.puter?.apiCallLogger?.isEnabled()) {
+        xhr._puterRequestId = {
+            method,
+            service: 'xhr',
+            operation: endpoint.replace(/^\//, ''),
+            params: { endpoint, contentType, responseType }
+        };
+    }
+    
     return xhr;
 }
 
@@ -160,12 +171,35 @@ function handle_error(error_cb, reject_func, error){
 
 function setupXhrEventHandlers(xhr, success_cb, error_cb, resolve_func, reject_func) {
     // load: success or error
-    xhr.addEventListener('load', function(e){
+    xhr.addEventListener('load', async function(e){
+        // Log the response if API logging is enabled
+        if (globalThis.puter?.apiCallLogger?.isEnabled() && this._puterRequestId) {
+            const response = await parseResponse(this).catch(() => null);
+            globalThis.puter.apiCallLogger.logRequest({
+                service: this._puterRequestId.service,
+                operation: this._puterRequestId.operation,
+                params: this._puterRequestId.params,
+                result: this.status >= 400 ? null : response,
+                error: this.status >= 400 ? { message: this.statusText, status: this.status } : null
+            });
+        }
         return handle_resp(success_cb, error_cb, resolve_func, reject_func, this, xhr);
     });
 
     // error
     xhr.addEventListener('error', function(e){
+        // Log the error if API logging is enabled
+        if (globalThis.puter?.apiCallLogger?.isEnabled() && this._puterRequestId) {
+            globalThis.puter.apiCallLogger.logRequest({
+                service: this._puterRequestId.service,
+                operation: this._puterRequestId.operation,
+                params: this._puterRequestId.params,
+                error: {
+                    message: 'Network error occurred',
+                    event: e.type
+                }
+            });
+        }
         return handle_error(error_cb, reject_func, this);
     })
 }
@@ -247,11 +281,32 @@ async function driverCall_(
     contentType = 'application/json;charset=UTF-8',
     settings = {},
 ) {
+    // Generate request ID for logging
+    // Store request info for logging
+    let requestInfo = null;
+    if (globalThis.puter?.apiCallLogger?.isEnabled()) {
+        requestInfo = {
+            interface: driverInterface,
+            driver: driverName,
+            method: driverMethod,
+            args: driverArgs
+        };
+    }
+
     // If there is no authToken and the environment is web, try authenticating with Puter
     if(!puter.authToken && puter.env === 'web'){
         try{
             await puter.ui.authenticateWithPuter();
         }catch(e){
+            // Log authentication error
+            if (requestInfo && globalThis.puter?.apiCallLogger?.isEnabled()) {
+                globalThis.puter.apiCallLogger.logRequest({
+                    service: 'drivers',
+                    operation: `${driverInterface}::${driverMethod}`,
+                    params: { interface: driverInterface, driver: driverName, method: driverMethod, args: driverArgs },
+                    error: { code: 'auth_canceled', message: 'Authentication canceled' }
+                });
+            }
             return reject_func({
                 error: {
                     code: 'auth_canceled', message: 'Authentication canceled'
@@ -264,6 +319,11 @@ async function driverCall_(
     const error_cb = Valid.callback(options.error) ?? NOOP;
     // create xhr object
     const xhr = initXhr('/drivers/call', puter.APIOrigin, puter.authToken, 'POST', contentType);
+
+    // Store request info for later logging
+    if (requestInfo) {
+        xhr._puterDriverRequestInfo = requestInfo;
+    }
 
     if ( settings.responseType ) {
         xhr.responseType = settings.responseType;
@@ -370,6 +430,18 @@ async function driverCall_(
             return;
         }
         const resp = await parseResponse(response.target);
+        
+        // Log driver call response
+        if (this._puterDriverRequestInfo && globalThis.puter?.apiCallLogger?.isEnabled()) {
+            globalThis.puter.apiCallLogger.logRequest({
+                service: 'drivers',
+                operation: `${this._puterDriverRequestInfo.interface}::${this._puterDriverRequestInfo.method}`,
+                params: { interface: this._puterDriverRequestInfo.interface, driver: this._puterDriverRequestInfo.driver, method: this._puterDriverRequestInfo.method, args: this._puterDriverRequestInfo.args },
+                result: response.status >= 400 || resp?.success === false ? null : resp,
+                error: response.status >= 400 || resp?.success === false ? resp : null
+            });
+        }
+        
         // HTTP Error - unauthorized
         if(response.status === 401 || resp?.code === "token_auth_failed"){
             if(resp?.code === "token_auth_failed" && puter.env === 'web'){
@@ -436,6 +508,15 @@ async function driverCall_(
 
     // error
     xhr.addEventListener('error', function(e){
+        // Log driver call error
+        if (this._puterDriverRequestInfo && globalThis.puter?.apiCallLogger?.isEnabled()) {
+            globalThis.puter.apiCallLogger.logRequest({
+                service: 'drivers',
+                operation: `${this._puterDriverRequestInfo.interface}::${this._puterDriverRequestInfo.method}`,
+                params: { interface: this._puterDriverRequestInfo.interface, driver: this._puterDriverRequestInfo.driver, method: this._puterDriverRequestInfo.method, args: this._puterDriverRequestInfo.args },
+                error: { message: 'Network error occurred', event: e.type }
+            });
+        }
         return handle_error(error_cb, reject_func, this);
     })
 

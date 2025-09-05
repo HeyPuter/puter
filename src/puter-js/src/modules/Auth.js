@@ -130,12 +130,41 @@ class Auth{
     }
 
     async whoami () {
-        const resp = await fetch(this.APIOrigin + '/whoami', {
-            headers: {
-                Authorization: `Bearer ${this.authToken}`
+        try {
+            const resp = await fetch(this.APIOrigin + '/whoami', {
+                headers: {
+                    Authorization: `Bearer ${this.authToken}`
+                }
+            });
+            
+            const result = await resp.json();
+            
+            // Log the response
+            if (globalThis.puter?.apiCallLogger?.isEnabled()) {
+                globalThis.puter.apiCallLogger.logRequest({
+                    service: 'auth',
+                    operation: 'whoami',
+                    params: {},
+                    result: result
+                });
             }
-        });
-        return await resp.json();
+            
+            return result;
+        } catch (error) {
+            // Log the error
+            if (globalThis.puter?.apiCallLogger?.isEnabled()) {
+                globalThis.puter.apiCallLogger.logRequest({
+                    service: 'auth',
+                    operation: 'whoami',
+                    params: {},
+                    error: {
+                        message: error.message || error.toString(),
+                        stack: error.stack
+                    }
+                });
+            }
+            throw error;
+        }
     }
 }
 
