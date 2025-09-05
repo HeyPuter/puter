@@ -44,150 +44,158 @@ $(document).bind('keydown', async function(e){
         // Launch menu is open
         // ----------------------------------------------
         if($('.launch-popover').length > 0){
-            // If no item is selected and down arrow is pressed, select the first item
-            if($('.launch-popover .start-app-card.launch-app-selected').length === 0 && (e.which === 40)){
-                $('.launch-popover .start-app-card:visible').first().addClass('launch-app-selected');
-                // blur search input
-                $('.launch-popover .launch-search').blur();
-                return false;
+            // constants
+            const max_rows = $('body').hasClass('device-desktop') ? 5 : 4; // number of columns in the grid
+            const all_apps = $('.launch-popover .start-app-card:visible');
+            const recents = $('.launch-popover .launch-apps-recent .start-app-card:visible');
+            const recommended = $('.launch-popover .launch-apps-recommended .start-app-card:visible');
+            const search = $('.launch-popover .launch-search');
+            const selected_element = $('.launch-popover .start-app-card.launch-app-selected');
+
+            // helper functions for grid navigation
+
+            // get item at row/col in section (recents or recommended)
+            function item(row, col, section) {
+                let apps = (section === 'recents') ? recents : recommended;
+                const idx = row * max_rows + (col - 1);
+                if (idx < 0 || idx >= apps.length) return null;
+                return apps.get(idx);
             }
-            // if search input is focused and left or right arrow is pressed, return false
-            else if($('.launch-popover .launch-search').is(':focus') && (e.which === 37 || e.which === 39)){
-                return false;
+
+            // get row/col of item in all_apps
+            function coord(it) {
+                if (!it || it.length === 0) return null;
+                const index = all_apps.index(it);
+                if (index < 0) return null;
+                // row is 0-based; col is 1-based to match item(row,col)
+                return { row: Math.floor(index / max_rows), col: (index % max_rows) + 1 };
             }
-            else{
-                // If an item is already selected, move the selection up, down, left or right
-                let selected_item = $('.launch-popover .start-app-card.launch-app-selected').get(0);
-                // determine current selection's position in a 5-column grid
-                let selected_item_index;
-                // total number of rows across all visible items (5 items per row)
-                let total_item_row_count = Math.ceil($('.launch-popover .start-app-card:visible').length / 5);
-                // how many columns are in the active section (Recents may have < 5)
-                let selected_item_col_count;
-                // how many rows are in the active section (Recents may have < 5)
-                let selected_item_row_count;
-                if (selected_item && selected_item.parentElement.classList.contains('launch-apps-recent')){
-                    // current item is in Recents — compute index/rows/cols within Recents
-                    selected_item_index = $('.launch-popover .launch-apps-recent .start-app-card:visible').index(selected_item);
-                    selected_item_row_count = Math.ceil($('.launch-popover .launch-apps-recent .start-app-card:visible').length / 5);
-                    selected_item_col_count = Math.min(5, $('.launch-popover .launch-apps-recent .start-app-card:visible').length);
-                } else {
-                    // current item is in Recommended — 5 fixed columns
-                    selected_item_index = $('.launch-popover .launch-apps-recommended .start-app-card:visible').index(selected_item);
-                    selected_item_row_count = Math.ceil($('.launch-popover .launch-apps-recommended .start-app-card:visible').length / 5);
-                    selected_item_col_count = 5;
-                }
 
-                // derive zero-based row/col for current selection using 5 columns per row
-                let selected_item_row = Math.floor(selected_item_index / 5);
-                let selected_item_col = selected_item_index % 5;
-                
-                // initialize new selection to current; will be adjusted by arrow key handlers
-                let new_selected_item_index = selected_item_index;
-                let new_selected_item_row = selected_item_row;
-                let new_selected_item_col = selected_item_col;
-                // will hold the DOM node to select next
-                let new_selected_item;
-                // flag to force selecting from Recents (cross-section navigation)
-                let cross_to_recents = false;
+            // select an item
+            function select(el) {
+                // clear previous
+                all_apps.removeClass('launch-app-selected');
+                if (!el) return;
+                // add to new
+                $(el).addClass('launch-app-selected');
+                // ensure visible
+                if (el.scrollIntoView) {
+                    el.scrollIntoView({ block: 'nearest', inline: 'nearest' });
+                }
+            }
 
-                // if up arrow is pressed
-                if(e.which === 38){
-                    // if in Recents first row: focus search and clear selection
-                    if(selected_item && selected_item.parentElement.classList.contains('launch-apps-recent') && selected_item_row === 0){
-                        $('.launch-popover .launch-search').focus();
-                        // clear selection
-                        $('.launch-popover .start-app-card.launch-app-selected').removeClass('launch-app-selected');
-                        // move cursor to end of search input
-                        $('.launch-popover .launch-search').val($('.launch-popover .launch-search').val());
-                        return false;
-                    }
-                    // if in Recommended first row: move to Recents (same column when possible)
-                    else if(selected_item_row === 0){
-                        if ($('.launch-popover .launch-apps-recent .start-app-card:visible').length > 0) {
-                            // compute target index in Recents (last row, same column when possible)
-                            const $recents = $('.launch-popover .launch-apps-recent .start-app-card:visible');
-                            const recentsCount = $recents.length;
-                            const recentsRows = Math.ceil(recentsCount / 5);
-                            const targetIndex = Math.min(recentsCount - 1, (recentsRows - 1) * 5 + selected_item_col);
+            // helpers for section-local positioning and row/column counts
 
-                            // update selection vars to pick from Recents
-                            cross_to_recents = true;
-                            new_selected_item_index = targetIndex;
-                            new_selected_item_row = Math.floor(targetIndex / 5);
-                            new_selected_item_col = targetIndex % 5;
-                        } else {
-                            $('.launch-popover .launch-search').focus();
-                            $('.launch-popover .start-app-card.launch-app-selected').removeClass('launch-app-selected');
-                            $('.launch-popover .launch-search').val($('.launch-popover .launch-search').val());
-                            return false;
-                        }
-                    }
-                    // otherwise, move selection up one row
-                    else {
-                        new_selected_item_row = selected_item_row - 1;
-                        if(new_selected_item_row < 0)
-                            new_selected_item_row = total_item_row_count - 1;
-                    }
-                }
-                // if down arrow is pressed
-                else if(e.which === 40){
-                    new_selected_item_row = selected_item_row + 1;
-                    if(new_selected_item_row >= total_item_row_count) {
-                        new_selected_item_row = 0;
-                        if ($('.launch-popover .launch-apps-recent .start-app-card:visible').length > 0) {
-                            cross_to_recents = true;
-                            new_selected_item_index = selected_item_col;
-                        }
-                    }
-                }
-                // if left arrow is pressed
-                else if(e.which === 37){
-                    new_selected_item_col = selected_item_col - 1;
-                    if(new_selected_item_col < 0)
-                        new_selected_item_col = selected_item_col_count - 1;
-                }
-                // if right arrow is pressed
-                else if(e.which === 39){
-                    new_selected_item_col = selected_item_col + 1;
-                    if(new_selected_item_col >= selected_item_col_count)
-                        new_selected_item_col = 0;
-                }
-                new_selected_item_index = (new_selected_item_row * selected_item_col_count) + new_selected_item_col;
-                if (cross_to_recents) {
-                    // moving from Recommended into Recents: pick from Recents list using computed index
-                    new_selected_item = $('.launch-popover .launch-apps-recent .start-app-card:visible').get(new_selected_item_index);
-                } else if (selected_item && selected_item.parentElement.classList.contains('launch-apps-recent')) {
-                    // next item when starting from "Recents": pick from all visible cards
-                    // this allows moving from Recents into the next rows that may belong to Recommended
-                    new_selected_item = $('.launch-popover .start-app-card:visible').get(new_selected_item_index);
-                } else {
-                    // next item when starting from "Recommended": keep navigation scoped to Recommended
-                    new_selected_item = $('.launch-popover .launch-apps-recommended .start-app-card:visible').get(new_selected_item_index);
-                }
-                $(selected_item).removeClass('launch-app-selected');
-                $(new_selected_item).addClass('launch-app-selected');
+            // number of rows in a given section
+            function rows(section) {
+                const len = (section === 'recents' ? recents : recommended).length;
+                return Math.ceil(len / max_rows);
+            }
 
-                // make sure the selected item is visible in the popover by scrolling the popover
-                let popover = $('.launch-popover').get(0);
-                let popover_height = $('.launch-popover').height();
-                let popover_scroll_top = popover.getBoundingClientRect().top;
-                let popover_scroll_bottom = popover_scroll_top + popover_height;
-                let selected_item_top = new_selected_item.getBoundingClientRect().top;
-                let selected_item_bottom = new_selected_item.getBoundingClientRect().bottom;
-                let isVisible = (selected_item_top >= popover_scroll_top) && (selected_item_bottom <= popover_scroll_top + popover_height);
+            // number of columns in a given row of a section
+            function columns(section, row) {
+                const len = (section === 'recents' ? recents : recommended).length;
+                const full_rows = Math.floor(len / max_rows);
+                const remainder = len % max_rows;
+                if (row < full_rows) return max_rows;
+                if (row === full_rows) return remainder === 0 ? max_rows : remainder;
+                return 0;
+            }
 
-                if ( ! isVisible ) {
-                    const scrollTop = selected_item_top - popover_scroll_top;
-                    const scrollBot = selected_item_bottom - popover_scroll_bottom;
-                    if (Math.abs(scrollTop) < Math.abs(scrollBot)) {
-                        popover.scrollTop += scrollTop;
+            // get local row/col/index of element in section
+            function coords_local(section, el) {
+                const list = (section === 'recents' ? recents : recommended);
+                const idx = list.index(el);
+                if (idx < 0) return null;
+                return { index: idx, row: Math.floor(idx / max_rows), col: (idx % max_rows) + 1 };
+            }
+
+            const selected = coord(selected_element);
+
+            // states
+            const search_focused = search.is(':focus');
+            const selected_grid = (selected && selected_element.parent().hasClass('launch-apps-recent')) ? 'recents' : 'recommended';
+            
+
+            if (e.which === 38) { // up
+                if (selected_element.length === 0) return false;
+                if (selected_grid === 'recents') {
+                    const pos = coords_local('recents', selected_element);
+                    if (!pos) return false;
+                    if (pos.row === 0) {
+                        // move to search
+                        search.focus();
+                        all_apps.removeClass('launch-app-selected');
                     } else {
-                        popover.scrollTop += scrollBot;
+                        const targetCol = Math.min(pos.col, columns('recents', pos.row - 1));
+                        select(item(pos.row - 1, targetCol, 'recents'));
+                    }
+                } else { // recommended
+                    const pos = coords_local('recommended', selected_element);
+                    if (!pos) return false;
+                    if (pos.row === 0) {
+                        if (recents.length > 0) {
+                            const lastRow = rows('recents') - 1;
+                            const targetCol = Math.min(pos.col, columns('recents', lastRow));
+                            select(item(lastRow, targetCol, 'recents'));
+                        } else {
+                            // focus search if no recents exist
+                            search.focus();
+                            all_apps.removeClass('launch-app-selected');
+                        }
+                    } else {
+                        const targetCol = Math.min(pos.col, columns('recommended', pos.row - 1));
+                        select(item(pos.row - 1, targetCol, 'recommended'));
                     }
                 }
-                return false;
+            } else if (e.which === 40) { // down
+                // select first item if none selected
+                if (selected_element.length === 0) {
+                    // unfocus search
+                    search.blur();
+                    if (recents.length > 0) {
+                        select(item(0, 1, 'recents'));
+                    } else if (recommended.length > 0) {
+                        select(item(0, 1, 'recommended'));
+                    }
+                } else {
+                    if (selected_grid === 'recents') {
+                        const pos = coords_local('recents', selected_element);
+                        if (!pos) return false;
+                        const rc = rows('recents');
+                        if (pos.row + 1 < rc) {
+                            const tgt = Math.min(pos.col, columns('recents', pos.row + 1));
+                            select(item(pos.row + 1, tgt, 'recents'));
+                        } else if (recommended.length > 0) {
+                            const tgt = Math.min(pos.col, columns('recommended', 0));
+                            select(item(0, tgt, 'recommended'));
+                        }
+                    } else { // recommended
+                        const pos = coords_local('recommended', selected_element);
+                        if (!pos) return false;
+                        const rc = rows('recommended');
+                        if (pos.row + 1 < rc) {
+                            const tgt = Math.min(pos.col, columns('recommended', pos.row + 1));
+                            select(item(pos.row + 1, tgt, 'recommended'));
+                        }
+                    }
+                }
+            } else if (e.which === 37) { // left
+                if (selected_element.length === 0) return false;
+                const pos = coords_local(selected_grid, selected_element);
+                if (!pos) return false;
+                const count = columns(selected_grid, pos.row);
+                const next = pos.col > 1 ? pos.col - 1 : count;
+                select(item(pos.row, next, selected_grid));
+            } else if (e.which === 39) { // right
+                if (selected_element.length === 0) return false;
+                const pos = coords_local(selected_grid, selected_element);
+                if (!pos) return false;
+                const count = columns(selected_grid, pos.row);
+                const next = pos.col < count ? pos.col + 1 : 1;
+                select(item(pos.row, next, selected_grid));
             }
+            return false; 
         }
         // ----------------------------------------------
         // A context menu is open
