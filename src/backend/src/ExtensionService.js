@@ -141,7 +141,6 @@ class ExtensionService extends BaseService {
                 },
             });
         })();
-        console.log('set kv on', this.state.extension);
     }
 
     ['__on_install.routes'] (_, { app }) {

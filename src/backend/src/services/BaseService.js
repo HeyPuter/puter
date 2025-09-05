@@ -73,7 +73,6 @@ class BaseService extends concepts.Service {
     * @returns {Promise<void>} A promise that resolves when construction is complete.
     */
     async construct () {
-        console.log('CLASS', this.constructor.name);
         const useapi = this.context.get('useapi');
         const use = this._get_merged_static_object('USE');
         for ( const [key, value] of Object.entries(use) ) {
