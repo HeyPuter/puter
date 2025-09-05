@@ -28,6 +28,8 @@ const { Endpoint } = require("../util/expressutil");
 const { IncomingMessage } = require("node:http");
 const { Context } = require("../util/context");
 const { createHash } = require('crypto');
+const { APIError } = require("openai/error.mjs");
+const { NULL } = require("../om/proptypes/__all__");
 
 // async function generateJWT(applicationId, secret, domain, ) {
 
@@ -58,7 +60,6 @@ class EntriService extends BaseService {
                     return;
                 }
                 if (!req.body.data.records_propagated) {
-                    console.log("Failed to set domain records")
                     return;
                 }
                 let rootDomain = false;
@@ -98,7 +99,22 @@ class EntriService extends BaseService {
         ['entri']: {
             async getConfig({ domain, userHostedSite }) {
                 const es_subdomain = this.services.get('es:subdomain');
+                const svc_su = this.services.get("su");
+
                 let rootDomain = (parseDomain(domain)).icann.subDomains.length === 0;
+
+                const exists = await svc_su.sudo(async ()=>{
+                    const row = (await es_subdomain.select({ predicate: new Eq({ key: "domain", value: domain }) }))[0] || (await es_subdomain.select({ predicate: new Eq({ key: "domain", value: "in-progress:" + domain }) }))[0];
+                    if (!!row && row.values_.subdomain === userHostedSite.replace(".puter.site", "")) {
+                        return false;
+                    }
+                    return !!row;
+                });
+
+                if (exists) {
+                    throw new APIError("already_in_use", null, {what: "domain", value: domain});
+                }
+
 
                 const dnsRecords = rootDomain ? [{
                     type: "A",
@@ -131,7 +147,15 @@ class EntriService extends BaseService {
                 });
 
                 await es_subdomain.upsert(entity);
-                return { token: (await response.json()).auth_token, applicationId: this.config.applicationId, power: true, dnsRecords, prefilledDomain: domain }
+
+                return { 
+                    token: (await response.json()).auth_token, 
+                    applicationId: this.config.applicationId, 
+                    power: true, 
+                    dnsRecords, 
+                    prefilledDomain: domain,
+                    hostRequired: false
+                }
 
 
                 // let rootDomain = (parseDomain(domain)).icann.subDomains.length === 0;
@@ -154,6 +178,54 @@ class EntriService extends BaseService {
                 // }
 
 
+
+            },
+            async deleteMapping({domain}) {
+                if (domain.startsWith("in-progress"))
+                    throw new APIError('field_invalid', null, {key: "domain", expected: 'valid domain'});
+
+                /** @type {import("../om/entitystorage/SubdomainES")} */
+                const es_subdomain = this.services.get('es:subdomain');
+
+                const row = (await es_subdomain.select({ predicate: new Eq({ key: "domain", value: domain }) }))[0] || (await es_subdomain.select({ predicate: new Eq({ key: "domain", value: "in-progress:" + domain }) }))[0];
+                if (!row) {
+                    throw new APIError('forbidden', null, {});
+                }
+
+                let inProgress = false;
+                if (row.values_.domain.startsWith("in-progress:")) {                    
+                    inProgress = true;
+                }
+
+                // Get token from Entri
+                const { auth_token } = await (fetch('https://api.goentri.com/token', {
+                    method: 'POST',
+                    body: JSON.stringify({
+                        applicationId: this.config.applicationId,
+                        secret: this.config.secret,
+                    })
+                }).then(r => r.json()));
+                
+                const entity = await Entity.create({ om: es_subdomain.om }, {
+                    uid: row.values_.uid,
+                    domain: NULL
+                });
+                await es_subdomain.upsert(entity);
+                const errors = []
+                // Even if the domain is in progress, still send the delete incase it's just propgation taking a while
+                const deleteRequest = await (fetch('https://api.goentri.com/power', {
+                    method: 'DELETE',
+                    headers: {
+                        applicationId: this.config.applicationId,
+                        "Authorization": "Bearer " + auth_token
+                    },
+                    body: JSON.stringify({ domain })
+                }));
+                if (deleteRequest.status !== 200) {
+                    errors.push(await deleteRequest.text())
+                }
+
+                return {ok: true, errors};
 
             },
             async fullyRegistered({ domain, userHostedSite }) {
@@ -179,6 +251,16 @@ class EntriService extends BaseService {
                             optional: false
                         },
                         userHostedSite: {
+                            type: "string",
+                            optional: false
+                        }
+                    },
+                    result: { type: 'json' }
+                }, 
+                deleteMapping: {
+                    description: 'delete domain mapping from entri',
+                    parameters: {
+                        domain: {
                             type: "string",
                             optional: false
                         }

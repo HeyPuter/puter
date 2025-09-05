@@ -64,7 +64,9 @@ module.exports = {
 
             // TODO: can this 'adapt' be data instead?
             async adapt (value) {
-                return value.toLowerCase();
+                if (value !== null)
+                    return value.toLowerCase();
+                return null;
             },
         },
         root_dir: {
