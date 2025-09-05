@@ -291,6 +291,7 @@ function UIItem(options){
             const maxTop = window.desktop_height + window.toolbar_height - 50;
             
             // Apply constraints to ui.position
+            ui.position.left = Math.max(minLeft, Math.min(maxLeft, ui.position.left));
             ui.position.top = Math.max(minTop, Math.min(maxTop, ui.position.top));
             
             // Only show drag helpers if the item has been moved more than 5px
