@@ -44,3 +44,6 @@ jsconfig.json
 # ======================================================================
 # the exact tree installed in the node_modules folder
 package-lock.json
+
+.roo
+AGENTS.md
