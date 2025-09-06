@@ -288,7 +288,7 @@ function UIItem(options){
             const minLeft = -50;
             const maxLeft = window.desktop_width - 50;
             const minTop = window.toolbar_height;
-            const maxTop = window.desktop_height + window.toolbar_height - 50;
+            const maxTop = window.desktop_height + window.toolbar_height;
             
             // Apply constraints to ui.position
             ui.position.left = Math.max(minLeft, Math.min(maxLeft, ui.position.left));
