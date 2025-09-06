@@ -112,7 +112,7 @@ class EntriService extends BaseService {
                 });
 
                 if (exists) {
-                    throw new APIError("already_in_use", null, {what: "domain", value: domain});
+                    throw new APIError(409, "already_in_use", null, {what: "domain", value: domain});
                 }
 
 
@@ -182,14 +182,14 @@ class EntriService extends BaseService {
             },
             async deleteMapping({domain}) {
                 if (domain.startsWith("in-progress"))
-                    throw new APIError('field_invalid', null, {key: "domain", expected: 'valid domain'});
+                    throw new APIError(400, 'field_invalid', null, {key: "domain", expected: 'valid domain'});
 
                 /** @type {import("../om/entitystorage/SubdomainES")} */
                 const es_subdomain = this.services.get('es:subdomain');
 
                 const row = (await es_subdomain.select({ predicate: new Eq({ key: "domain", value: domain }) }))[0] || (await es_subdomain.select({ predicate: new Eq({ key: "domain", value: "in-progress:" + domain }) }))[0];
                 if (!row) {
-                    throw new APIError('forbidden', null, {});
+                    throw new APIError(403, 'forbidden', null, {});
                 }
 
                 let inProgress = false;
