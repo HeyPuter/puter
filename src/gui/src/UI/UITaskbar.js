@@ -20,6 +20,7 @@
 import UITaskbarItem from './UITaskbarItem.js'
 import UIPopover from './UIPopover.js'
 import launch_app from "../helpers/launch_app.js"
+import UIContextMenu from './UIContextMenu.js';
 
 async function UITaskbar(options){
     window.global_element_id++;
@@ -188,6 +189,22 @@ async function UITaskbar(options){
                 },
                 stop: function(){
                 }
+            });
+            
+            $(popover).on('contextmenu', '.start-app', (e) => {
+                e.preventDefault();
+                UIContextMenu({
+                    parent_element: e.currentTarget,
+                    position: {top: e.pageY, left: e.pageX},
+                    items: [
+                        {
+                            html: i18n('open'),
+                            onClick: function(){
+                                $(e.currentTarget).trigger('click');
+                            }
+                        }
+                    ]
+                })
             });
         }
     });
