@@ -88,7 +88,6 @@ async function UIWindowPublishWebsite(target_dir_uid, target_dir_name, target_di
             h += `<div class="custom-domain-section" style="display: none; margin-bottom: 20px;">`;
                 h += `<label style="margin-bottom: 10px; display: block;">Enter your custom domain</label>`;
                 h += `<input class="publish-website-custom-domain" style="width: 100%; padding: 10px; border: 1px solid #dee2e6; border-radius: 6px; font-family: monospace;" type="text" placeholder="example.com" spellcheck="false" autocorrect="off" autocapitalize="off" data-gramm_editor="false"/>`;
-                h += `<div style="font-size: 12px; color: #666; margin-top: 5px;">Make sure your domain's DNS points to your hosting provider</div>`;
             h += `</div>`;
             
             // uid
