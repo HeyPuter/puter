@@ -443,6 +443,7 @@ class AI{
         //      neversleep/
         //      nousresearch/
         //      nvidia/
+        //      openrouter/
         //      perplexity/
         //      pygmalionai/
         //      qwen/
@@ -494,6 +495,7 @@ class AI{
             requestParams.model.startsWith('neversleep/') ||
             requestParams.model.startsWith('nousresearch/') ||
             requestParams.model.startsWith('nvidia/') ||
+            requestParams.model.startsWith('openrouter/') ||
             requestParams.model.startsWith('perplexity/') ||
             requestParams.model.startsWith('pygmalionai/') ||
             requestParams.model.startsWith('qwen/') || 
