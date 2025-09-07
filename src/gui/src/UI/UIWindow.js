@@ -603,6 +603,10 @@ async function UIWindow(options) {
     // focus on this window and deactivate other windows
     if ( options.is_visible ) {
          if (!options.background) $(el_window).focusWindow()
+    // focus on this window and deactivate other windows only if it's visible
+    // and not a background app (background apps should never get focus)
+    if ( options.is_visible && !options.app_info?.background ) {
+        $(el_window).focusWindow();
     }
 
     if (window.animate_window_opening) {

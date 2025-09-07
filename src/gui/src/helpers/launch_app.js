@@ -168,6 +168,7 @@ const launch_app = async (options)=>{
             uid: null,
             is_dir: true,
             app: 'explorer',
+            app_info: app_info, // Pass app_info to UIWindow
             ...window_options,
             is_maximized: options.maximized,
         });
@@ -370,6 +371,7 @@ const launch_app = async (options)=>{
             is_visible: ! app_info.background,
             is_maximized: options.maximized,
             is_fullpage: options.is_fullpage,
+            app_info: app_info, // Pass app_info to UIWindow
             ...(options.pseudonym ? {pseudonym: options.pseudonym} : {}),
             ...window_options,
             is_resizable: window_resizable,
@@ -377,9 +379,11 @@ const launch_app = async (options)=>{
             show_in_taskbar: app_info.background ? false : window_options?.show_in_taskbar,
         });
 
-        // If the app is not in the background, show the window
+        // If the app is not in the background, show the window and focus it
         if ( ! app_info.background ) {
             $(el_win).show();
+            // Focus the window only if it's not a background app
+            $(el_win).focusWindow();
         }
 
         // send post request to /rao to record app open
@@ -422,9 +426,10 @@ const launch_app = async (options)=>{
             // Send any saved broadcasts to the new app
             globalThis.services.get('broadcast').sendSavedBroadcastsTo(uuid);
 
-            // If `window-active` is set (meanign the window is focused), focus the window one more time
+            // If `window-active` is set (meaning the window is focused), focus the window one more time
             // this is to ensure that the iframe is `definitely` focused and can receive keyboard events (e.g. keydown)
-            if($(process.references.el_win).hasClass('window-active')){
+            // But only do this for non-background apps
+            if(!app_info.background && $(process.references.el_win).hasClass('window-active')){
                 $(process.references.el_win).focusWindow();
             }
         });
