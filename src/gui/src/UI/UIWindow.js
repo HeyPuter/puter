@@ -601,7 +601,7 @@ async function UIWindow(options) {
     }
     // focus on this window and deactivate other windows
     if ( options.is_visible ) {
-        $(el_window).focusWindow();
+        $(el_window).focusWindow()
     }
 
     if (window.animate_window_opening) {
@@ -1523,7 +1523,9 @@ async function UIWindow(options) {
                 el_window_app_iframe.contentWindow.postMessage({msg: "drop", x: (window.mouseX - rect.left), y: (window.mouseY - rect.top), items: items}, '*');
 
                 // bring focus to this window
-                $(el_window).focusWindow();
+                if (options.is_visible) {
+                    $(el_window).focusWindow()
+                }
             }
 
             // if this window is not a directory, cancel drop.
@@ -1666,8 +1668,9 @@ async function UIWindow(options) {
             clearTimeout(drag_enter_timeout);
             // If items are dragged over this window long enough, bring it to front
             drag_enter_timeout = setTimeout(function(){
-                // focus window
-                $(el_window).focusWindow();
+                if (options.is_visible) {
+                    $(el_window).focusWindow()
+                }
             }, 1400);
         },
         leave: function (dragsterEvent, event) {
