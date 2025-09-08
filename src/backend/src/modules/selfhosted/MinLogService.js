@@ -14,6 +14,10 @@ class MinLogService extends BaseService {
     }
     
     _init () {
+        // On operating systems where low-level config (high customization) is
+        // expected, we can turn off minlog by default.
+        if ( this.global_config.os.refined ) this.on = false;
+
         // Show console widget so developer knows logs are hidden
         this.add_dev_console_widget_();
 
