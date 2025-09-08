@@ -939,6 +939,7 @@ async function handleWebDavServer(filePath, req, res) {
                     res.status(400).end('Bad Request: Invalid destination URI');
                     return;
                 }
+                destinationPath = decodeURI(destinationPath);
 
                 // Parse Overwrite header (T = true, F = false, default = T)
                 const overwriteHeader = req.headers.overwrite;
@@ -1034,6 +1035,7 @@ async function handleWebDavServer(filePath, req, res) {
                     res.status(400).end('Bad Request: Invalid destination URI');
                     return;
                 }
+                destinationPath = decodeURI(destinationPath);
 
                 // Parse Overwrite header (T = true, F = false, default = T)
                 const overwriteHeader = req.headers.overwrite;
