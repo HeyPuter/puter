@@ -210,15 +210,42 @@ async function UITaskbar(options){
                     $(this).remove();
                 });
 
-                UIContextMenu({
-                    items: [
-                        {
-                            html: i18n('open'),
-                            onClick: function(){
-                                $(e.currentTarget).trigger('click');
+                let items = [{
+                    html: i18n('open'),
+                    onClick: function(){
+                        $(e.currentTarget).trigger('click');
+                    }
+                }];
+                
+                if (window.user.taskbar_items.findIndex(app => app.name === e.currentTarget.dataset.appName) === -1) {
+                    items.push({
+                        html: i18n('keep_in_taskbar'),
+                        onClick: function(){
+                            if (!window.user.taskbar_items.some(app => app.name === e.currentTarget.dataset.appName)) {
+                                UITaskbarItem({
+                                    icon: e.currentTarget.dataset.appIcon,
+                                    app: e.currentTarget.dataset.appName,
+                                    name: e.currentTarget.dataset.appTitle,
+                                    keep_in_taskbar: true
+                                });
                             }
                         }
-                    ]
+                    });
+                } else {
+                    items.push({
+                        html: i18n('remove_from_taskbar'),
+                        onClick: function(){
+                            // remove from user settings
+                            window.user.taskbar_items = window.user.taskbar_items.filter(app => app.name !== e.currentTarget.dataset.appName);
+                            window.update_taskbar();
+                            // remove from taskbar
+                            $(`.taskbar-item[data-app="${e.currentTarget.dataset.appName}"]`).remove();
+                        }  
+                    });
+                }
+
+                UIContextMenu({
+                    items: items,
                 })
                 return false;
             });
