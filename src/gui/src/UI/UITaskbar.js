@@ -216,6 +216,9 @@ async function UITaskbar(options){
                         $(e.currentTarget).trigger('click');
                     }
                 }];
+
+                $('.launch-app-selected').removeClass('launch-app-selected');
+                $(e.currentTarget).parent().addClass('launch-app-selected');
                 
                 // Determine pin state
                 const $existingTaskbarItem = $(`.taskbar-item[data-app="${e.currentTarget.dataset.appName}"]`);
