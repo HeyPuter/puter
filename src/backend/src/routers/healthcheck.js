@@ -27,6 +27,8 @@ router.get('/healthcheck', async (req, res) => {
     const svc_serverHealth = req.services.get('server-health');
 
     const status = await svc_serverHealth.get_status();
-    res.json(status);
+    res.status(
+        (req.query['unhealthy-response'] && !status.ok) ? 500 : 200
+    ).json(status);
 })
 module.exports = router
