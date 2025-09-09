@@ -19,7 +19,13 @@
 const APIError = require("../api/APIError");
 const { Context } = require("../util/context");
 
+const config = puter.core.config;
+
 const abuse = options => (req, res, next) => {
+    if ( config.disable_abuse_checks ) {
+        next(); return;
+    }
+
     const requester = Context.get('requester');
 
     if ( options.no_bots ) {

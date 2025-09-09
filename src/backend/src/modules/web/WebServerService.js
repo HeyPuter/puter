@@ -524,7 +524,7 @@ class WebServerService extends BaseService {
             }
 
             // rules that don't apply to notification endpoints
-            const undefined_origin_allowed = this.undefined_origin_allowed.some(rule => {
+            const undefined_origin_allowed = config.undefined_origin_allowed || this.undefined_origin_allowed.some(rule => {
                 if ( typeof rule === 'string' ) return rule === req.path;
                 return rule.test(req.path);
             });
