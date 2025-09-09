@@ -190,8 +190,15 @@ async function UITaskbar(options){
                 stop: function(){
                 }
             });
+
+            $(popover).on('click', function(e){
+                // close other context menus
+                $(".context-menu").fadeOut(200, function(){
+                    $(this).remove();
+                });
+            });
             
-            $(popover).on('contextmenu taphold', '.start-app', (e) => {
+            $(document).on('contextmenu taphold', '.start-app', (e) => {
                 if (e.type === 'taphold' && !isMobile.phone && !isMobile.tablet)
                     return;
 
@@ -199,9 +206,8 @@ async function UITaskbar(options){
                 e.stopPropagation();
 
                 // close other context menus
-                const $ctxmenus = $(".context-menu");
-                $ctxmenus.fadeOut(200, function(){
-                    $ctxmenus.remove();
+                $(".context-menu").fadeOut(200, function(){
+                    $(this).remove();
                 });
 
                 UIContextMenu({
