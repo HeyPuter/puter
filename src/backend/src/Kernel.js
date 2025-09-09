@@ -28,6 +28,9 @@ const { spawn } = require("node:child_process");
 
 const fs = require('fs');
 const path_ = require('path');
+const { prependToJSFiles } = require("./kernel/modutil");
+
+const uuid = require('uuid');
 
 const { quot } = libs.string;
 
@@ -215,6 +218,14 @@ class Kernel extends AdvancedBase {
         }
         fs.mkdirSync('mod_packages');
         
+        // Initialize some globals that external mods depend on
+        globalThis.__puter_extension_globals__ = {
+            extensionObjectRegistry: {},
+            useapi: this.useapi,
+        };
+        
+        // Install the mods...
+        
         const mod_install_root_context = Context.get();
         
         const mod_installation_promises = [];
@@ -292,12 +303,23 @@ class Kernel extends AdvancedBase {
             });
         }
         
+        const extension_id = uuid.v4();
+        
+        await prependToJSFiles(mod_package_dir, [
+            `const { use, def } = globalThis.__puter_extension_globals__.useapi;`,
+            `const extension = globalThis.__puter_extension_globals__` +
+                `.extensionObjectRegistry[${JSON.stringify(extension_id)}];`,
+        ].join('\n') + '\n');
+
         const mod_require_dir = path_.join(process.cwd(), mod_package_dir);
         
         await this.run_npm_install(mod_require_dir);
         
         const mod = new ExtensionModule();
         mod.extension = new Extension();
+        
+        globalThis.__puter_extension_globals__.extensionObjectRegistry[extension_id]
+            = mod.extension;
 
         const mod_context = this._create_mod_context(mod_install_root_context, {
             name: mod_dirname,
@@ -306,20 +328,12 @@ class Kernel extends AdvancedBase {
             mod_path,
         });
 
-        // This is where the module gets the 'use' and 'def' globals
-        await this.useapi.awithuse(async () => {
-            // This is where the module gets the 'extension' global
-            await useapi.aglobalwith({
-                extension: mod.extension,
-            }, async () => {
-                const maybe_promise = require(mod_require_dir);
-                if ( maybe_promise && maybe_promise instanceof Promise ) {
-                    await maybe_promise;
-                }
-                // This is where the 'install' event gets triggered
-                await mod.install(mod_context);
-            });
-        });
+        const maybe_promise = require(mod_require_dir);
+        if ( maybe_promise && maybe_promise instanceof Promise ) {
+            await maybe_promise;
+        }
+        // This is where the 'install' event gets triggered
+        await mod.install(mod_context);
     };
 
     _create_mod_context (parent, options) {
