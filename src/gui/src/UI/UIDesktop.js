@@ -1255,7 +1255,7 @@ async function UIDesktop(options) {
                 $('.show-desktop-btn').removeClass('hidden');
             }
         } catch (e) {
-            console.error(e);
+            console.error('UIDesktop app path launch error', e);
         }
 
         // get query params, any param that doesn't start with 'puter.' will be passed to the app
