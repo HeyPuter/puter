@@ -375,18 +375,11 @@ window.initgui = async function(options){
     // Depending on the device type, it sets a class attribute on the body tag
     // to style or script the page differently for each device type.
     
-    // if(isMobile.phone)
-    //     $('body').attr('class', 'device-phone');
-    // else if(isMobile.tablet)
-    //     $('body').attr('class', 'device-tablet');
-    // else
-    //     $('body').attr('class', 'device-desktop');
-
     if (isMobile.phone) {
         $('body').attr('class', 'device-phone');
     } else if (isMobile.tablet) {
         // This is our new, smarter check for tablets
-        if (window.matchMedia('(hover: hover)').matches) {
+        if (window.matchMedia && typeof window.matchMedia === 'function' && window.matchMedia('(hover: hover)').matches) {
             // The user has a mouse/trackpad, so give them the desktop UI
             $('body').attr('class', 'device-desktop');
         } else {
