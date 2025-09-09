@@ -26,6 +26,9 @@ const { Extension } = require("./Extension");
 const { ExtensionModule } = require("./ExtensionModule");
 const { spawn } = require("node:child_process");
 
+const fs = require('fs');
+const path_ = require('path');
+
 const { quot } = libs.string;
 
 class Kernel extends AdvancedBase {
@@ -205,8 +208,6 @@ class Kernel extends AdvancedBase {
     }
 
     async install_extern_mods_ () {
-        const path_ = require('path');
-        const fs = require('fs');
         
         // In runtime directory, we'll create a `mod_packages` directory.`
         if ( fs.existsSync('mod_packages') ) {
@@ -215,27 +216,34 @@ class Kernel extends AdvancedBase {
         fs.mkdirSync('mod_packages');
         
         const mod_install_root_context = Context.get();
+        
+        const mod_installation_promises = [];
 
         const mod_paths = this.environment.mod_paths;
         for ( const mods_dirpath of mod_paths ) {
-            if ( ! fs.existsSync(mods_dirpath) ) {
-                this.services.logger.error(
-                    `mod directory not found: ${quot(mods_dirpath)}; skipping...`
-                );
-                // intentional delay so error is seen
-                this.services.logger.info('boot will continue in 4 seconds');
-                await new Promise(rslv => setTimeout(rslv, 4000));
-                continue;
-            }
-            const mod_dirnames = fs.readdirSync(mods_dirpath);
-            for ( const mod_dirname of mod_dirnames ) {
-                await this.install_extern_mod_({
-                    mod_install_root_context,
-                    mod_dirname,
-                    mod_path: path_.join(mods_dirpath, mod_dirname),
-                });
-            }
+            const p = (async () => {
+                if ( ! fs.existsSync(mods_dirpath) ) {
+                    this.services.logger.error(
+                        `mod directory not found: ${quot(mods_dirpath)}; skipping...`
+                    );
+                    // intentional delay so error is seen
+                    this.services.logger.info('boot will continue in 4 seconds');
+                    await new Promise(rslv => setTimeout(rslv, 4000));
+                    return;
+                }
+                const mod_dirnames = await fs.promises.readdir(mods_dirpath);
+                for ( const mod_dirname of mod_dirnames ) {
+                    await this.install_extern_mod_({
+                        mod_install_root_context,
+                        mod_dirname,
+                        mod_path: path_.join(mods_dirpath, mod_dirname),
+                    });
+                }
+            })();
+            mod_installation_promises.push(p);
         }
+        
+        await Promise.all(mod_installation_promises);
     }
         
     async install_extern_mod_({
@@ -243,9 +251,6 @@ class Kernel extends AdvancedBase {
         mod_dirname,
         mod_path,
     }) {
-        const path_ = require('path');
-        const fs = require('fs');
-
         let stat = fs.lstatSync(mod_path);
         while ( stat.isSymbolicLink() ) {
             mod_path = fs.readlinkSync(mod_path);
@@ -262,11 +267,11 @@ class Kernel extends AdvancedBase {
         fs.mkdirSync(mod_package_dir);
 
         if ( ! stat.isDirectory() ) {
-            this.create_mod_package_json(mod_package_dir, {
+            await this.create_mod_package_json(mod_package_dir, {
                 name: mod_name,
                 entry: 'main.js'
             });
-            fs.copyFileSync(mod_path, path_.join(mod_package_dir, 'main.js'));
+            await fs.promises.copyFile(mod_path, path_.join(mod_package_dir, 'main.js'));
         } else {
             // If directory is empty, we'll just skip it
             if ( fs.readdirSync(mod_path).length === 0 ) {
@@ -276,7 +281,7 @@ class Kernel extends AdvancedBase {
 
             // Create package.json if it doesn't exist
             if ( ! fs.existsSync(path_.join(mod_path, 'package.json')) ) {
-                this.create_mod_package_json(mod_package_dir, {
+                await this.create_mod_package_json(mod_package_dir, {
                     name: mod_name,
                 });
             }
@@ -318,9 +323,6 @@ class Kernel extends AdvancedBase {
     };
 
     _create_mod_context (parent, options) {
-        const path_ = require('path');
-        const fs = require('fs');
-
         const modapi = {};
 
         let mod_path = options.mod_path;
@@ -359,10 +361,7 @@ class Kernel extends AdvancedBase {
 
     }
     
-    create_mod_package_json (mod_path, { name, entry }) {
-        const fs = require('fs');
-        const path_ = require('path');
-
+    async create_mod_package_json (mod_path, { name, entry }) {
         // Expect main.js or index.js to exist
         const options = ['main.js', 'index.js'];
 
@@ -395,7 +394,7 @@ class Kernel extends AdvancedBase {
         
         console.log('WRITING TO', path_.join(mod_path, 'package.json'));
         
-        fs.writeFileSync(path_.join(mod_path, 'package.json'), data);
+        await fs.promises.writeFile(path_.join(mod_path, 'package.json'), data);
     }
     
     async run_npm_install (path) {
