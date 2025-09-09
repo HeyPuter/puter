@@ -191,11 +191,20 @@ async function UITaskbar(options){
                 }
             });
             
-            $(popover).on('contextmenu', '.start-app', (e) => {
+            $(popover).on('contextmenu taphold', '.start-app', (e) => {
+                if (e.type === 'taphold' && !isMobile.phone && !isMobile.tablet)
+                    return;
+
                 e.preventDefault();
+                e.stopPropagation();
+
+                // close other context menus
+                const $ctxmenus = $(".context-menu");
+                $ctxmenus.fadeOut(200, function(){
+                    $ctxmenus.remove();
+                });
+
                 UIContextMenu({
-                    parent_element: e.currentTarget,
-                    position: {top: e.pageY, left: e.pageX},
                     items: [
                         {
                             html: i18n('open'),
@@ -205,6 +214,7 @@ async function UITaskbar(options){
                         }
                     ]
                 })
+                return false;
             });
         }
     });
