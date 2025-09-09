@@ -217,29 +217,48 @@ async function UITaskbar(options){
                     }
                 }];
                 
-                if (window.user.taskbar_items.findIndex(app => app.name === e.currentTarget.dataset.appName) === -1) {
+                // Determine pin state
+                const $existingTaskbarItem = $(`.taskbar-item[data-app="${e.currentTarget.dataset.appName}"]`);
+                const isPinned = $existingTaskbarItem.length > 0 && $existingTaskbarItem.attr('data-keep-in-taskbar') === 'true';
+
+                if (!isPinned) {
                     items.push({
                         html: i18n('keep_in_taskbar'),
                         onClick: function(){
-                            if (!window.user.taskbar_items.some(app => app.name === e.currentTarget.dataset.appName)) {
+                            const $taskbarItem = $(`.taskbar-item[data-app="${e.currentTarget.dataset.appName}"]`);
+                            if ($taskbarItem.length === 0) {
+                                // No taskbar item yet: create a new pinned one
                                 UITaskbarItem({
                                     icon: e.currentTarget.dataset.appIcon,
                                     app: e.currentTarget.dataset.appName,
                                     name: e.currentTarget.dataset.appTitle,
                                     keep_in_taskbar: true
                                 });
+                            } else if ($taskbarItem.attr('data-keep-in-taskbar') !== 'true') {
+                                // mark as pinned
+                                $taskbarItem.attr('data-keep-in-taskbar', 'true');
                             }
+                            // Persist
+                            window.update_taskbar();
                         }
                     });
                 } else {
                     items.push({
                         html: i18n('remove_from_taskbar'),
                         onClick: function(){
-                            // remove from user settings
-                            window.user.taskbar_items = window.user.taskbar_items.filter(app => app.name !== e.currentTarget.dataset.appName);
+                            const $taskbarItem = $(`.taskbar-item[data-app="${e.currentTarget.dataset.appName}"]`);
+                            if ($taskbarItem.length === 0) return; // nothing to do
+                            // Unpin
+                            $taskbarItem.attr('data-keep-in-taskbar', 'false');
+                            // If no open windows for this app, remove the item
+                            if ($taskbarItem.attr('data-open-windows') === '0') {
+                                if (window.remove_taskbar_item) {
+                                    window.remove_taskbar_item($taskbarItem.get(0));
+                                } else {
+                                    $taskbarItem.remove();
+                                }
+                            }
                             window.update_taskbar();
-                            // remove from taskbar
-                            $(`.taskbar-item[data-app="${e.currentTarget.dataset.appName}"]`).remove();
                         }  
                     });
                 }
