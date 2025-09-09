@@ -104,7 +104,7 @@ class WSPushService  extends BaseService {
         {
             const svc_operationTrace = context.get('services').get('operationTrace');
             const frame = context.get(svc_operationTrace.ckey('frame'));
-            const gui_metadata = frame.get_attr('gui_metadata') || {};
+            const gui_metadata = frame?.get_attr?.('gui_metadata') || {};
             Object.assign(metadata, gui_metadata);
         }
 
