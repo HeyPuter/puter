@@ -75,6 +75,12 @@ $(document).bind('keydown', async function(e){
             function select(el) {
                 // clear previous
                 all_apps.removeClass('launch-app-selected');
+                
+                // close context menus
+                $(".context-menu").fadeOut(200, function(){
+                    $(this).remove();
+                });
+
                 if (!el) return;
                 // add to new
                 $(el).addClass('launch-app-selected');
