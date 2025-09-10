@@ -404,7 +404,7 @@ const da = {
         billing_enjoy_msg: 'Nyd %% af Cloud-lager plus andre fordele.', 
 
 		// =============================================================
-		// Missing translations
+		// Added translations
 		// =============================================================
 		"choose_publishing_option": 'Vælg hvordan du vil udgive din hjemmeside:', // In English: "Choose how you want to publish your website:"
 		"create_desktop_shortcut": 'Opret genvej (Desktop)', // In English: "Create Shortcut (Desktop)"
