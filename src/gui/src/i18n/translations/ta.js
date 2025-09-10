@@ -356,10 +356,6 @@ const ta = {
         "Owner": 'உரிமையாளர்', // In English: "Owner"
         "You can't share with yourself.": 'உங்களுடன் பகிர்ந்து கொள்ள முடியாது', // In English: "You can't share with yourself."
         "This user already has access to this item": 'இந்தப் பயனருக்கு ஏற்கனவே இந்த உருப்படிக்கான அணுகல் உள்ளது', // In English: "This user already has access to this item"
-
-        // ----------------------------------------
-        // Missing translations:
-        // ----------------------------------------
         "billing.change_payment_method": "மாற்று", // In English: "Change"
         "billing.cancel": "ரத்து செய்", // In English: "Cancel"
         "billing.download_invoice": "பதிவிறக்கு", // In English: "Download"

@@ -356,9 +356,6 @@ const pt = {
         'You_cant_share_with_yourself': 'Não podes partilhar contigo mesmo', // In English: "You can't share with yourself."
         'This_user_already_has_access_to_this_item': 'Este utilizador já tem acesso a este item', // In English: "This user already has access to this item"
 
-        // ----------------------------------------
-        // Missing translations:
-        // ----------------------------------------
         "People with access": "Pessoas com acesso", // In English: "People with access"
         "Share With…": "Partilhar com…", // In English: "Share With…"
         "You can't share with yourself.": "Não pode partilhar consigo mesmo.", // In English: "You can't share with yourself."
@@ -410,7 +407,6 @@ const pt = {
         "billing.expanded": "Expandido", // In English: "Expanded"
         "billing.accelerated": "Acelerado", // In English: "Accelerated"
         "billing.enjoy_msg": "Desfrute de %% de Armazenamento na Nuvem e outros benefícios.", // In English: "Enjoy %% of Cloud Storage plus other benefits."
-
     }
 };
 
