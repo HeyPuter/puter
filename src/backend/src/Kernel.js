@@ -307,6 +307,7 @@ class Kernel extends AdvancedBase {
         
         await prependToJSFiles(mod_package_dir, [
             `const { use, def } = globalThis.__puter_extension_globals__.useapi;`,
+            `const { use: puter } = globalThis.__puter_extension_globals__.useapi;`,
             `const extension = globalThis.__puter_extension_globals__` +
                 `.extensionObjectRegistry[${JSON.stringify(extension_id)}];`,
         ].join('\n') + '\n');

@@ -103,6 +103,7 @@ const install = async ({ services, app, useapi, modapi }) => {
         def('core.util.stream', require('./util/streamutil'));
         def('web', require('./util/expressutil'));
         def('core.validation', require('@heyputer/backend-core-0').validation);
+        dev('core.kv', globalThis.kv);
     });
     
     useapi.withuse(() => {
