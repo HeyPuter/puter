@@ -5,10 +5,6 @@ const { TypedValue } = require("../../services/drivers/meta/Runtime");
 const putility = require("@heyputer/putility");
 const FunctionCalling = require("./lib/FunctionCalling");
 
-// Constants
-const DEFAULT_MODEL = 'gemini-2.0-flash';
-const DEFAULT_TEMPERATURE = 0.7;
-
 class GeminiService extends BaseService {
     async _init () {
         const svc_aiChat = this.services.get('ai-chat');
@@ -23,116 +19,77 @@ class GeminiService extends BaseService {
             async models () {
                 return await this.models_();
             },
-
             async list () {
                 const models = await this.models_();
                 const model_names = [];
-                for (const model of models) {
+                for ( const model of models ) {
                     model_names.push(model.id);
-                    if (model.aliases) {
+                    if ( model.aliases ) {
                         model_names.push(...model.aliases);
                     }
                 }
                 return model_names;
             },
 
-            /**
-             * Handles chat completions (streaming and non-streaming).
-             * @param {Object} params
-             * @param {Array} params.messages
-             * @param {boolean} params.stream
-             * @param {string} params.model
-             * @param {Array} params.tools
-             * @param {number} params.max_tokens
-             * @param {number} params.temperature
-             */
-            async complete (params) {
-                try {
-                    const {
-                        messages,
-                        stream,
-                        model = DEFAULT_MODEL,
-                        tools = [],
-                        max_tokens,
-                        temperature = DEFAULT_TEMPERATURE
-                    } = params;
+            async complete ({ messages, stream, model, tools, max_tokens, temperature }) {
+                tools = FunctionCalling.make_gemini_tools(tools);
 
-                    const processedTools = FunctionCalling.make_gemini_tools(tools);
-                    const genModel = this.createGenerativeModel(model, processedTools, temperature, max_tokens);
+                const genAI = new GoogleGenerativeAI(this.config.apiKey);
+                const genModel = genAI.getGenerativeModel({
+                    model: model ?? 'gemini-2.0-flash',
+                    tools,
+                    generationConfig: {
+                        temperature: temperature,                   // Set temperature (0.0 to 1.0). Defaults to 0.7
+                        maxOutputTokens: max_tokens,       // Note: it's maxOutputTokens, not max_tokens
+                      }
+                });
 
-                    const processedMessages = await GeminiSquareHole.process_input_messages(messages);
-                    const lastMessageParts = this.extractLastMessageParts(processedMessages);
-                    const chat = genModel.startChat({ history: processedMessages });
+                messages = await GeminiSquareHole.process_input_messages(messages);
 
-                    const usage_calculator = this.createUsageCalculator(model);
+                // History is separate, so the last message gets special treatment.
+                const last_message = messages.pop();
+                const last_message_parts = last_message.parts.map(
+                    part => typeof part === 'string' ? part :
+                            typeof part.text === 'string' ? part.text :
+                            part
+                );
 
-                    if (stream) {
-                        return await this.handleStreamingResponse(chat, lastMessageParts, usage_calculator);
-                    } else {
-                        return await this.handleSingleResponse(chat, lastMessageParts, usage_calculator);
-                    }
-                } catch (error) {
-                    this.logger?.error('GeminiService: Error in complete()', error);
-                    throw error;
+                const chat = genModel.startChat({
+                    history: messages,
+                });
+                
+                const usage_calculator = GeminiSquareHole.create_usage_calculator({
+                    model_details: (await this.models_()).find(m => m.id === model),
+                });
+                    
+                if ( stream ) {
+                    const genResult = await chat.sendMessageStream(last_message_parts)
+                    const stream = genResult.stream;
+
+                    const usage_promise = new putility.libs.promise.TeePromise();
+                    return new TypedValue({ $: 'ai-chat-intermediate' }, {
+                        stream: true,
+                        init_chat_stream:
+                            GeminiSquareHole.create_chat_stream_handler({
+                                stream, usage_promise,
+                            }),
+                        usage_promise: usage_promise.then(usageMetadata => {
+                            return usage_calculator({ usageMetadata });
+                        }),
+                    })
+                } else {
+                    const genResult = await chat.sendMessage(last_message_parts)
+
+                    const message = genResult.response.candidates[0];
+                    message.content = message.content.parts;
+                    message.role = 'assistant';
+
+                    const result = { message };
+                    result.usage = usage_calculator(genResult.response);
+                    return result;
                 }
             }
         }
-    }
-
-    createGenerativeModel(model, tools, temperature, max_tokens) {
-        const genAI = new GoogleGenerativeAI(this.config.apiKey);
-        return genAI.getGenerativeModel({
-            model,
-            tools,
-            generationConfig: {
-                temperature,
-                maxOutputTokens: max_tokens
-            }
-        });
-    }
-
-    extractLastMessageParts(messages) {
-        const last_message = messages.pop();
-        return last_message.parts.map(part =>
-            typeof part === 'string' ? part :
-            typeof part.text === 'string' ? part.text :
-            part
-        );
-    }
-
-    createUsageCalculator(model_id) {
-        return GeminiSquareHole.create_usage_calculator({
-            model_details: this.models_().then(models => models.find(m => m.id === model_id)),
-        });
-    }
-
-    async handleStreamingResponse(chat, lastMessageParts, usage_calculator) {
-        const genResult = await chat.sendMessageStream(lastMessageParts);
-        const responseStream = genResult.stream;
-
-        const usage_promise = new putility.libs.promise.TeePromise();
-
-        return new TypedValue({ $: 'ai-chat-intermediate' }, {
-            stream: true,
-            init_chat_stream: GeminiSquareHole.create_chat_stream_handler({
-                stream: responseStream,
-                usage_promise,
-            }),
-            usage_promise: usage_promise.then(usageMetadata => usage_calculator({ usageMetadata })),
-        });
-    }
-
-    async handleSingleResponse(chat, lastMessageParts, usage_calculator) {
-        const genResult = await chat.sendMessage(lastMessageParts);
-
-        const message = genResult.response.candidates[0];
-        message.content = message.content.parts;
-        message.role = 'assistant';
-
-        return {
-            message,
-            usage: await usage_calculator(genResult.response)
-        };
     }
 
     async models_ () {
