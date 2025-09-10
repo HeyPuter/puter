@@ -16,7 +16,7 @@
  * You should have received a copy of the GNU Affero General Public License
  * along with this program.  If not, see <https://www.gnu.org/licenses/>.
  */
-"use strict"
+'use strict';
 const express = require('express');
 const router = express.Router();
 const auth = require('../../middleware/auth.js');
@@ -28,21 +28,29 @@ const { DB_READ } = require('../../services/database/consts.js');
 // -----------------------------------------------------------------------//
 // POST /getItem
 // -----------------------------------------------------------------------//
-router.post('/getItem', auth, express.json(), async (req, res, next)=>{
+router.post('/getItem', auth, express.json(), async (req, res, next) => {
     // check subdomain
-    if(require('../../helpers.js').subdomain(req) !== 'api')
+    if ( require('../../helpers.js').subdomain(req) !== 'api' )
+    {
         next();
+    }
 
     // check if user is verified
-    if((config.strict_email_verification_required || req.user.requires_email_confirmation) && !req.user.email_confirmed)
-        return res.status(400).send({code: 'account_is_not_verified', message: 'Account is not verified'});
+    if ( (config.strict_email_verification_required || req.user.requires_email_confirmation) && !req.user.email_confirmed )
+    {
+        return res.status(400).send({ code: 'account_is_not_verified', message: 'Account is not verified' });
+    }
 
     // validation
-    if(!req.body.key)
+    if ( !req.body.key )
+    {
         return res.status(400).send('`key` is required.');
+    }
     // check size of key, if it's too big then it's an invalid key and we don't want to waste time on it
-    else if(Buffer.byteLength(req.body.key, 'utf8') > config.kv_max_key_size)
+    else if ( Buffer.byteLength(req.body.key, 'utf8') > config.kv_max_key_size )
+    {
         return res.status(400).send('`key` is too long.');
+    }
 
     const actor = req.body.app
         ? await Actor.create(AppUnderUserActorType, {
@@ -69,7 +77,7 @@ router.post('/getItem', auth, express.json(), async (req, res, next)=>{
             throw new Error(driver_response.error?.message ?? 'Unknown error');
         }
         driver_result = driver_response.result;
-    } catch (e) {
+    } catch( e ) {
         return res.status(400).send('puter-kvstore driver error: ' + e.message);
     }
 
@@ -80,40 +88,40 @@ router.post('/getItem', auth, express.json(), async (req, res, next)=>{
     // modules
     const db = req.services.get('database').get(DB_READ, 'getItem-fallback');
     // get murmurhash module
-    const murmurhash = require('murmurhash')
+    const murmurhash = require('murmurhash');
     // hash key for faster search in DB
     const key_hash = murmurhash.v3(req.body.key);
 
     let kv;
     // Get value from DB
     // If app is specified, then get value for that app
-    if(req.body.app){
-        kv = await db.read(
-            `SELECT * FROM kv WHERE user_id=? AND app=? AND kkey_hash=? LIMIT 1`,
-            [
-                req.user.id,
-                req.body.app,
-                key_hash,
-            ]
-        )
+    if ( req.body.app ){
+        kv = await db.read('SELECT * FROM kv WHERE user_id=? AND app=? AND kkey_hash=? LIMIT 1',
+                        [
+                            req.user.id,
+                            req.body.app,
+                            key_hash,
+                        ]);
     // If app is not specified, then get value for global (i.e. system) variables which is app='global'
-    }else{
-        kv = await db.read(
-            `SELECT * FROM kv WHERE user_id=? AND (app IS NULL OR app = 'global') AND kkey_hash=? LIMIT 1`,
-            [
-                req.user.id,
-                key_hash,
-            ]
-        )
+    } else {
+        kv = await db.read('SELECT * FROM kv WHERE user_id=? AND (app IS NULL OR app = \'global\') AND kkey_hash=? LIMIT 1',
+                        [
+                            req.user.id,
+                            key_hash,
+                        ]);
     }
 
     // send results to client
-    if(kv[0])
+    if ( kv[0] )
+    {
         return res.send({
             key: kv[0].kkey,
             value: kv[0].value,
         });
+    }
     else
-        return res.send(null)
-})
-module.exports = router
+    {
+        return res.send(null);
+    }
+});
+module.exports = router;
