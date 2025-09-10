@@ -195,6 +195,7 @@ async function UITaskbar(options){
                 // close other context menus
                 $(".context-menu").fadeOut(200, function(){
                     $(this).remove();
+                    $('.launch-app-selected').removeClass('launch-app-selected');
                 });
             });
             
