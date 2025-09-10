@@ -374,12 +374,21 @@ window.initgui = async function(options){
     // Checks the type of device the user is on (phone, tablet, or desktop).
     // Depending on the device type, it sets a class attribute on the body tag
     // to style or script the page differently for each device type.
-    if(isMobile.phone)
+    
+    if (isMobile.phone) {
         $('body').attr('class', 'device-phone');
-    else if(isMobile.tablet)
-        $('body').attr('class', 'device-tablet');
-    else
+    } else if (isMobile.tablet) {
+        // This is our new, smarter check for tablets
+        if (window.matchMedia && typeof window.matchMedia === 'function' && window.matchMedia('(hover: hover)').matches) {
+            // The user has a mouse/trackpad, so give them the desktop UI
+            $('body').attr('class', 'device-desktop');
+        } else {
+            // The user is on a touch-only tablet, so give them the mobile UI
+            $('body').attr('class', 'device-tablet');
+        }
+    } else {
         $('body').attr('class', 'device-desktop');
+    }
 
     // Appends a meta tag to the head of the document specifying the character encoding to be UTF-8.
     // This ensures that special characters and symbols display correctly across various platforms and browsers.
