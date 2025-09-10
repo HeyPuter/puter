@@ -328,10 +328,22 @@ class Kernel extends AdvancedBase {
             mod_path,
         });
 
-        const maybe_promise = require(mod_require_dir);
+        let exportObject = null;
+        
+        const mod_packageJSON_bin = await fs.promises.readFile(path_.join(mod_package_dir, 'package.json'));
+        const mod_packageJSON_str = mod_packageJSON_bin.toString();
+        const mod_packageJSON = JSON.parse(mod_packageJSON_str);
+        
+        const maybe_promise = (typ => typ.trim().toLowerCase())(mod_packageJSON.type ?? '') === 'module'
+            ? await import(path_.join(mod_require_dir, mod_packageJSON.main ?? 'index.js'))
+            : require(mod_require_dir);
+
         if ( maybe_promise && maybe_promise instanceof Promise ) {
-            await maybe_promise;
-        }
+            exportObject = await maybe_promise;
+        } else exportObject = maybe_promise;
+        
+        // TODO: do something with exportObject
+        
         // This is where the 'install' event gets triggered
         await mod.install(mod_context);
     };
