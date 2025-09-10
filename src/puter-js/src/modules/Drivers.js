@@ -31,34 +31,73 @@ class FetchDriverCallBackend {
     }
     
     async call ({ driver, method_name, parameters }) {
-        const resp = await fetch(`${this.context.APIOrigin}/drivers/call`, {
-            headers: {
-                Authorization: `Bearer ${this.context.authToken}`,
-                'Content-Type': 'application/json',
-            },
-            method: 'POST',
-            body: JSON.stringify({
-                'interface': driver.iface_name,
-                ...(driver.service_name
-                    ? { service: driver.service_name }
-                    : {}),
-                method: method_name,
-                args: parameters,
-            }),
-        });
-        
-        const content_type = resp.headers.get('content-type')
-            .split(';')[0].trim(); // TODO: parser for Content-Type
-        const handler = this.response_handlers[content_type];
-        if ( ! handler ) {
-            const msg = `unrecognized content type: ${content_type}`;
-            console.error(msg);
-            console.error('creating blob so dev tools shows response...');
-            await resp.blob();
-            throw new Error(msg);
+        try {
+            const resp = await fetch(`${this.context.APIOrigin}/drivers/call`, {
+                headers: {
+                    Authorization: `Bearer ${this.context.authToken}`,
+                    'Content-Type': 'application/json',
+                },
+                method: 'POST',
+                body: JSON.stringify({
+                    'interface': driver.iface_name,
+                    ...(driver.service_name
+                        ? { service: driver.service_name }
+                        : {}),
+                    method: method_name,
+                    args: parameters,
+                }),
+            });
+            
+            const content_type = resp.headers.get('content-type')
+                .split(';')[0].trim(); // TODO: parser for Content-Type
+            const handler = this.response_handlers[content_type];
+            if ( ! handler ) {
+                const msg = `unrecognized content type: ${content_type}`;
+                console.error(msg);
+                console.error('creating blob so dev tools shows response...');
+                await resp.blob();
+                
+                // Log the error
+                if (globalThis.puter?.apiCallLogger?.isEnabled()) {
+                    globalThis.puter.apiCallLogger.logRequest({
+                        service: 'drivers',
+                        operation: `${driver.iface_name}::${method_name}`,
+                        params: { interface: driver.iface_name, driver: driver.service_name || driver.iface_name, method: method_name, args: parameters },
+                        error: { message: msg }
+                    });
+                }
+                
+                throw new Error(msg);
+            }
+            
+            const result = await handler(resp);
+            
+            // Log the successful response
+            if (globalThis.puter?.apiCallLogger?.isEnabled()) {
+                globalThis.puter.apiCallLogger.logRequest({
+                    service: 'drivers',
+                    operation: `${driver.iface_name}::${method_name}`,
+                    params: { interface: driver.iface_name, driver: driver.service_name || driver.iface_name, method: method_name, args: parameters },
+                    result: result
+                });
+            }
+            
+            return result;
+        } catch (error) {
+            // Log unexpected errors
+            if (globalThis.puter?.apiCallLogger?.isEnabled()) {
+                globalThis.puter.apiCallLogger.logRequest({
+                    service: 'drivers',
+                    operation: `${driver.iface_name}::${method_name}`,
+                    params: { interface: driver.iface_name, driver: driver.service_name || driver.iface_name, method: method_name, args: parameters },
+                    error: {
+                        message: error.message || error.toString(),
+                        stack: error.stack
+                    }
+                });
+            }
+            throw error;
         }
-        
-        return await handler(resp);
     }
 }
 
@@ -137,14 +176,42 @@ class Drivers {
     }
     
     async list () {
-        const resp = await fetch(`${this.APIOrigin}/lsmod`, {
-            headers: {
-                Authorization: 'Bearer ' + this.authToken,
-            },
-            method: 'POST'
-        });
-        const list = await resp.json();
-        return list.interfaces;
+        try {
+            const resp = await fetch(`${this.APIOrigin}/lsmod`, {
+                headers: {
+                    Authorization: 'Bearer ' + this.authToken,
+                },
+                method: 'POST'
+            });
+            
+            const list = await resp.json();
+            
+            // Log the response
+            if (globalThis.puter?.apiCallLogger?.isEnabled()) {
+                globalThis.puter.apiCallLogger.logRequest({
+                    service: 'drivers',
+                    operation: 'list',
+                    params: {},
+                    result: list.interfaces
+                });
+            }
+            
+            return list.interfaces;
+        } catch (error) {
+            // Log the error
+            if (globalThis.puter?.apiCallLogger?.isEnabled()) {
+                globalThis.puter.apiCallLogger.logRequest({
+                    service: 'drivers',
+                    operation: 'list',
+                    params: {},
+                    error: {
+                        message: error.message || error.toString(),
+                        stack: error.stack
+                    }
+                });
+            }
+            throw error;
+        }
     }
     
     async get (iface_name, service_name) {

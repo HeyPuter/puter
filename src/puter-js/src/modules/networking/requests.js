@@ -52,9 +52,20 @@ export function pFetch(...args) {
                     parsedURL.port || 443,
                 );
             } else {
-                rej(
-                    `Failed to fetch. URL scheme "${parsedURL.protocol}" is not supported.`,
-                );
+                const errorMsg = `Failed to fetch. URL scheme "${parsedURL.protocol}" is not supported.`;
+                
+                // Log the error
+                if (globalThis.puter?.apiCallLogger?.isEnabled()) {
+                    globalThis.puter.apiCallLogger.logRequest({
+                        service: 'network',
+                        operation: 'pFetch',
+                        params: { url: reqObj.url, method: reqObj.method },
+                        error: { message: errorMsg }
+                    });
+                }
+                
+                rej(errorMsg);
+                return;
             }
 
             // Sending default UA
@@ -198,6 +209,17 @@ export function pFetch(...args) {
                             chunkedTransfer =
                                 parsedHead.headers.get("transfer-encoding") ===
                                 "chunked";
+                            
+                            // Log the response
+                            if (globalThis.puter?.apiCallLogger?.isEnabled()) {
+                                globalThis.puter.apiCallLogger.logRequest({
+                                    service: 'network',
+                                    operation: 'pFetch',
+                                    params: { url: reqObj.url, method: reqObj.method },
+                                    result: { status: parsedHead.status, statusText: parsedHead.statusText }
+                                });
+                            }
+                            
                             // Return initial response object
                             res(new Response(outStream, parsedHead));
 
@@ -232,11 +254,29 @@ export function pFetch(...args) {
                         }
                     });
                     socket.on("error", (reason) => {
+                        // Log the error
+                        if (globalThis.puter?.apiCallLogger?.isEnabled()) {
+                            globalThis.puter.apiCallLogger.logRequest({
+                                service: 'network',
+                                operation: 'pFetch',
+                                params: { url: reqObj.url, method: reqObj.method },
+                                error: { message: "Socket errored with the following reason: " + reason }
+                            });
+                        }
                         rej("Socket errored with the following reason: " + reason);
                     });
                 },
             });
         } catch (e) {
+            // Log unexpected errors
+            if (globalThis.puter?.apiCallLogger?.isEnabled()) {
+                globalThis.puter.apiCallLogger.logRequest({
+                    service: 'network',
+                    operation: 'pFetch',
+                    params: { url: reqObj.url, method: reqObj.method },
+                    error: { message: e.message || e.toString(), stack: e.stack }
+                });
+            }
             rej(e);
         }});
 }
