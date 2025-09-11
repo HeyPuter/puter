@@ -438,9 +438,6 @@ const ar = {
     "billing.enjoy_msg":
       "استمتع بـ %% من Cloud Storage بالإضافة إلى مزايا أخرى.", // In English: "Enjoy %% of Cloud Storage plus other benefits."
 
-    // =============================================================
-    // Missing translations
-    // =============================================================
     choose_publishing_option:
       "اختر الطريقة التي تريد نشر موقع الويب الخاص بك بها", // In English: "Choose how you want to publish your website:"
     create_desktop_shortcut: "إنشاء اختصار (سطح المكتب)", // In English: "Create Shortcut (Desktop)"
