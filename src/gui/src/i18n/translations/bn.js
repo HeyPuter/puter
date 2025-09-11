@@ -412,86 +412,82 @@ const bn = {
     "billing.accelerated": "ত্বরান্বিত",
     "billing.enjoy_msg": "%% ক্লাউড স্টোরেজ এবং অন্যান্য সুবিধা উপভোগ করুন।",
 
-    // =============================================================
-    // Missing translations
-    // =============================================================
-    "choose_publishing_option": undefined, // In English: "Choose how you want to publish your website:"
-    "create_desktop_shortcut": undefined, // In English: "Create Shortcut (Desktop)"
-    "create_desktop_shortcut_s": undefined, // In English: "Create Shortcuts (Desktop)"
-    "create_shortcut_s": undefined, // In English: "Create Shortcuts"
-    "minimize": undefined, // In English: "Minimize"
-    "reload_app": undefined, // In English: "Reload App"
-    "new_window": undefined, // In English: "New Window"
-    "open_trash": undefined, // In English: "Open Trash"
-    "pick_name_for_worker": undefined, // In English: "Pick a name for your worker:"
-    "publish_as_serverless_worker": undefined, // In English: "Publish as Worker"
-    "toolbar.enter_fullscreen": undefined, // In English: "Enter Full Screen"
-    "toolbar.github": undefined, // In English: "GitHub"
-    "toolbar.refer": undefined, // In English: "Refer"
-    "toolbar.save_account": undefined, // In English: "Save Account"
-    "toolbar.search": undefined, // In English: "Search"
-    "toolbar.qrcode": undefined, // In English: "QR Code"
-    "used_of": undefined, // In English: "{{used}} used of {{available}}"
-    "worker": undefined, // In English: "Worker"
-    "billing.offering.basic": undefined, // In English: "Basic"
-    "too_many_attempts": undefined, // In English: "Too many attempts. Please try again later."
-    "server_timeout": undefined, // In English: "The server took too long to respond. Please try again."
-    "signup_error": undefined, // In English: "An error occurred during signup. Please try again."
-    "welcome_title": undefined, // In English: "Welcome to your Personal Internet Computer"
-    "welcome_description": undefined, // In English: "Store files, play games, find awesome apps, and much more! All in one place, accessible from anywhere at any time."
-    "welcome_get_started": undefined, // In English: "Get Started"
-    "welcome_terms": undefined, // In English: "Terms"
-    "welcome_privacy": undefined, // In English: "Privacy"
-    "welcome_developers": undefined, // In English: "Developers"
-    "welcome_open_source": undefined, // In English: "Open Source"
-    "welcome_instant_login_title": undefined, // In English: "Instant Login!"
-    "alert_error_title": undefined, // In English: "Error!"
-    "alert_warning_title": undefined, // In English: "Warning!"
-    "alert_info_title": undefined, // In English: "Info"
-    "alert_success_title": undefined, // In English: "Success!"
-    "alert_confirm_title": undefined, // In English: "Are you sure?"
-    "alert_yes": undefined, // In English: "Yes"
-    "alert_no": undefined, // In English: "No"
-    "alert_retry": undefined, // In English: "Retry"
-    "alert_cancel": undefined, // In English: "Cancel"
-    "signup_confirm_password": undefined, // In English: "Confirm Password"
-    "login_email_username_required": undefined, // In English: "Email or username is required"
-    "login_password_required": undefined, // In English: "Password is required"
-    "window_title_open": undefined, // In English: "Open"
-    "window_title_change_password": undefined, // In English: "Change Password"
-    "window_title_select_font": undefined, // In English: "Select font…"
-    "window_title_session_list": undefined, // In English: "Session List!"
-    "window_title_set_new_password": undefined, // In English: "Set New Password"
-    "window_title_instant_login": undefined, // In English: "Instant Login!"
-    "window_title_publish_website": undefined, // In English: "Publish Website"
-    "window_title_publish_worker": undefined, // In English: "Publish Worker"
-    "window_title_authenticating": undefined, // In English: "Authenticating..."
-    "window_title_refer_friend": undefined, // In English: "Refer a friend!"
-    "desktop_show_desktop": undefined, // In English: "Show Desktop"
-    "desktop_show_open_windows": undefined, // In English: "Show Open Windows"
-    "desktop_exit_full_screen": undefined, // In English: "Exit Full Screen"
-    "desktop_enter_full_screen": undefined, // In English: "Enter Full Screen"
-    "desktop_position": undefined, // In English: "Position"
-    "desktop_position_left": undefined, // In English: "Left"
-    "desktop_position_bottom": undefined, // In English: "Bottom"
-    "desktop_position_right": undefined, // In English: "Right"
-    "item_shared_with_you": undefined, // In English: "A user has shared this item with you."
-    "item_shared_by_you": undefined, // In English: "You have shared this item with at least one other user."
-    "item_shortcut": undefined, // In English: "Shortcut"
-    "item_associated_websites": undefined, // In English: "Associated website"
-    "item_associated_websites_plural": undefined, // In English: "Associated websites"
-    "no_suitable_apps_found": undefined, // In English: "No suitable apps found"
-    "window_click_to_go_back": undefined, // In English: "Click to go back."
-    "window_click_to_go_forward": undefined, // In English: "Click to go forward."
-    "window_click_to_go_up": undefined, // In English: "Click to go one directory up."
-    "window_title_public": undefined, // In English: "Public"
-    "window_title_videos": undefined, // In English: "Videos"
-    "window_title_pictures": undefined, // In English: "Pictures"
-    "window_title_puter": undefined, // In English: "Puter"
-    "window_folder_empty": undefined, // In English: "This folder is empty"
-    "manage_your_subdomains": undefined, // In English: "Manage Your Subdomains"
-    "open_containing_folder": undefined, // In English: "Open Containing Folder"
-
+    "choose_publishing_option": "কিভাবে আপনি ওয়েবসাইট পাবলিশ করবেন সেটা বেছে নিনঃ",
+    "create_desktop_shortcut": "শর্টকাট তৈরি করুন (ডেস্কটপ)",
+    "create_desktop_shortcut_s": "শর্টকাটগুলো তৈরি করুন (ডেস্কটপ)",
+    "create_shortcut_s": "শর্টকাটগুলো তৈরি করুন",
+    "minimize": "আড়াল করুন",
+    "reload_app": "অ্যাপ রিলোড করুন",
+    "new_window": "নতুন উইন্ডো",
+    "open_trash": "আবর্জনা বক্স খুলুন",
+    "pick_name_for_worker": "আপনার কর্মীর জন্য নাম বাছাই করুনঃ",
+    "publish_as_serverless_worker": "কর্মী হিসেবে পাবলিশ করুন",
+    "toolbar.enter_fullscreen": "পরিপূর্ণ পর্দায় প্রবেশ করুন",
+    "toolbar.github": "গিটহাব",
+    "toolbar.refer": "রেফার",
+    "toolbar.save_account": "অ্যাকাউন্ট সংরক্ষণ করুন",
+    "toolbar.search": "অনুসন্ধান",
+    "toolbar.qrcode": "কিউআর কোড",
+    "used_of": "{{used}} ব্যবহৃত হয়েছে {{available}} এর মধ্যে",
+    "worker": "কর্মী",
+    "billing.offering.basic": "মৌলিক",
+    "too_many_attempts": "অনেক বেশী প্রচেষ্টা করা হয়েছে। দয়া করে পরে আবার চেষ্টা করুন।",
+    "server_timeout": "সার্ভারটি অনেক বেশী সময় নিয়েছে উত্তর দিতে। দয়া করে আবার চেষ্টা করুন।",
+    "signup_error": "সাইনআপ করার সময় একটি ত্রুটি ঘটেছে। দয়া করে আবার চেষ্টা করুন।",
+    "welcome_title": "আপনার নিজস্ব ইন্টারনেট কম্পিউটারে স্বাগতম",
+    "welcome_description": "ফাইল সংরক্ষণ করুন, গেম খেলুন, দুর্দান্ত অ্যাপগুলো সন্ধান করুন, এবং আরও অনেক কিছু! সবকিছু এক জায়গায়, যেকোনো জায়গা থেকে যেকোনো সময় উপলভ্য।",
+    "welcome_get_started": "শুরু করুন",
+    "welcome_terms": "শর্তাবলী",
+    "welcome_privacy": "গোপনীয়তা",
+    "welcome_developers": "ডেভেলপারগণ",
+    "welcome_open_source": "মুক্ত সোর্স",
+    "welcome_instant_login_title": "তাৎক্ষণিক লগ-ইন!",
+    "alert_error_title": "ত্রুটি!",
+    "alert_warning_title": "সতর্কবার্তা!",
+    "alert_info_title": "তথ্য",
+    "alert_success_title": "সফল!",
+    "alert_confirm_title": "আপনি কি নিশ্চিত?",
+    "alert_yes": "হ্যাঁ",
+    "alert_no": "না",
+    "alert_retry": "আবার চেষ্টা করুন",
+    "alert_cancel": "বাতিল করুন",
+    "signup_confirm_password": "পাসওয়ার্ড নিশ্চিত করুন",
+    "login_email_username_required": "ইমেইল অথবা ব্যবহারকারীর নাম প্রয়োজন",
+    "login_password_required": "পাসওয়ার্ড প্রয়োজন",
+    "window_title_open": "খুলুন",
+    "window_title_change_password": "পাসওয়ার্ড পরিবর্তন করুন",
+    "window_title_select_font": "ফন্ট নির্বাচন করুন...",
+    "window_title_session_list": "সেশন তালিকা!",
+    "window_title_set_new_password": "নতুন পাসওয়ার্ড সেট করুন",
+    "window_title_instant_login": "তাৎক্ষণিক লগ-ইন!",
+    "window_title_publish_website": "ওয়েবসাইট পাবলিশ করুন",
+    "window_title_publish_worker": "কর্মী পাবলিশ করুন",
+    "window_title_authenticating": "প্রমানীকরণ চলমান...",
+    "window_title_refer_friend": "বন্ধুকে রেফার করুন!",
+    "desktop_show_desktop": "ডেস্কটপ দেখান",
+    "desktop_show_open_windows": "খোলা উইন্ডোগুলো দেখান",
+    "desktop_exit_full_screen": "পরিপূর্ণ পর্দা থেকে বের হয়ে যান",
+    "desktop_enter_full_screen": "পরিপূর্ণ পর্দায় প্রবেশ করুন",
+    "desktop_position": "অবস্থান",
+    "desktop_position_left": "বামে",
+    "desktop_position_bottom": "নিচে",
+    "desktop_position_right": "ডানে",
+    "item_shared_with_you": "একজন ব্যবহারকারী এটি আপনার সাথে শেয়ার করেছে।",
+    "item_shared_by_you": "আপনি এই বস্তুটি কমপক্ষে একজন ব্যবহারকারীর সাথে শেয়ার করেছেন।",
+    "item_shortcut": "শর্টকাট",
+    "item_associated_websites": "সংশ্লিষ্ট ওয়েবসাইট",
+    "item_associated_websites_plural": "সংশ্লিষ্ট ওয়েবসাইটগুলি",
+    "no_suitable_apps_found": "কোনো উপযুক্ত অ্যাপ পাওয়া যায়নি",
+    "window_click_to_go_back": "ফিরে যেতে ক্লিক করুন।",
+    "window_click_to_go_forward": "এগিয়ে যেতে ক্লিক করুন।",
+    "window_click_to_go_up": "এক ডিরেক্টরি উপরে যেতে ক্লিক করুন।",
+    "window_title_public": "প্রকাশ্য",
+    "window_title_videos": "ভিডিও",
+    "window_title_pictures": "ছবি",
+    "window_title_puter": "পিউটার",
+    "window_folder_empty": "এই ফোল্ডারটি খালি আছে",
+    "manage_your_subdomains": "আপনার সাবডোমেইনগুলো পরিচালনা করুন",
+    "open_containing_folder": "ধারণকৃত ফোল্ডারটি খুলুন",
 
   },
 };
