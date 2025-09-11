@@ -459,9 +459,6 @@ const es = {
     'billing.enjoy_msg':
       'Disfruta %% de almacenamiento en la nube junto con otros beneficios.', // In English: "Enjoy %% of Cloud Storage plus other benefits."
     
-    // =============================================================
-    // Missing translations
-    // =============================================================
     "choose_publishing_option": 'Elige cómo quieres publicar tu sitio web:', // In English: "Choose how you want to publish your website:"
     "create_desktop_shortcut": 'Crear un atajo (Escritorio)', // In English: "Create Shortcut (Desktop)"
     "create_desktop_shortcut_s": 'Crear atajos (Escritorio)', // In English: "Create Shortcuts (Desktop)"
