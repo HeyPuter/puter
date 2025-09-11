@@ -144,7 +144,9 @@ class OpenAIImageGenerationService extends BaseService {
             throw new Error('`ratio` must be a valid ratio for model ' + model);
         }
 
-        model = model ?? 'dall-e-3';
+        // Somewhat sane defaults
+        model = model ?? 'gpt-image-1';
+        quality = quality ?? 'low'
         
         if ( ! this.models_[model] ) {
             throw APIError.create('field_invalid', null, {
@@ -278,8 +280,8 @@ class OpenAIImageGenerationService extends BaseService {
      */
     _buildPriceKey(model, quality, size) {
         if (model === 'gpt-image-1') {
-            // gpt-image-1 uses format: "quality:size" - default to medium if not specified
-            const qualityLevel = quality || 'medium';
+            // gpt-image-1 uses format: "quality:size" - default to low if not specified
+            const qualityLevel = quality || 'low';
             return `${qualityLevel}:${size}`;
         } else {
             // dall-e models use format: "hd:size" or just "size"
@@ -304,8 +306,8 @@ class OpenAIImageGenerationService extends BaseService {
         if (model === 'gpt-image-1') {
             // gpt-image-1 requires the model parameter and uses different quality mapping
             apiParams.model = model;
-            // Default to medium quality if not specified, consistent with _buildPriceKey
-            apiParams.quality = baseParams.quality || 'medium';
+            // Default to low quality if not specified, consistent with _buildPriceKey
+            apiParams.quality = baseParams.quality || 'low';
         } else {
             // dall-e models
             apiParams.model = model;
