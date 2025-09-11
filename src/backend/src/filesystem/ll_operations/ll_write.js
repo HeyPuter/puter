@@ -32,12 +32,27 @@ const crypto = require('crypto');
 const STUCK_STATUS_TIMEOUT = 10 * 1000;
 const STUCK_ALARM_TIMEOUT = 20 * 1000;
 
+/**
+ * Base class for low-level write operations providing common storage upload functionality.
+ * @extends LLFilesystemOperation
+ */
 class LLWriteBase extends LLFilesystemOperation {
     static MODULES = {
         config: require('../../config.js'),
         simple_retry: require('../../util/retryutil.js').simple_retry,
     }
 
+    /**
+     * Uploads a file to storage with progress tracking and error handling.
+     * @param {Object} params - Upload parameters
+     * @param {string} params.uuid - Unique identifier for the file
+     * @param {string} [params.bucket] - Storage bucket name
+     * @param {string} [params.bucket_region] - Storage bucket region
+     * @param {Object} params.file - File object containing stream or buffer
+     * @param {Object} params.tmp - Temporary file information
+     * @returns {Promise<Object>} The upload state object
+     * @throws {APIError} When upload fails
+     */
     async _storage_upload ({
         uuid,
         bucket, bucket_region, file,
@@ -154,6 +169,11 @@ class LLWriteBase extends LLFilesystemOperation {
  * @extends LLWriteBase
  */
 class LLOWrite extends LLWriteBase {
+    /**
+     * Executes the overwrite operation by writing to an existing file node.
+     * @returns {Promise<Object>} Result of the write operation
+     * @throws {APIError} When the target node does not exist
+     */
     async _run () {
         const node = this.values.node;
 
@@ -193,6 +213,11 @@ class LLCWrite extends LLWriteBase {
         config: require('../../config.js'),
     }
 
+    /**
+     * Executes the create operation by writing a new file to the parent directory.
+     * @returns {Promise<Object>} Result of the write operation
+     * @throws {APIError} When the parent directory does not exist
+     */
     async _run () {
         const parent = this.values.parent;
 
