@@ -42,6 +42,7 @@ async function prependToJSFiles(directory, snippet) {
     async function prependToFile(filePath, snippet) {
         try {
             const content = await fs.readFile(filePath, 'utf8');
+            if ( content.startsWith('//!no-prepend') ) return;
             const newContent = snippet + content;
             await fs.writeFile(filePath, newContent, 'utf8');
         } catch (error) {
