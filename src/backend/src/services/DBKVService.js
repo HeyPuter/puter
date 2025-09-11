@@ -74,13 +74,12 @@ class DBKVService extends BaseService {
                     });
 
                     const expiredKeys = [];
-                    const validRows = {};
                     rows.forEach(row => {
-                        if ( row?.expireAt && row.expireAt < Date.now() ) {
+                        if ( row?.expireAt && row.expireAt < (Date.now() / 1000) ) {
                             expiredKeys.push(row);
-                            validRows[row.kkey] = null;
+                            kv[row.kkey] = null;
                         } else {
-                            validRows[row.kkey] = row.value ?? null;
+                            kv[row.kkey] = row.value ?? null;
                         }
                     });
 
@@ -146,11 +145,11 @@ class DBKVService extends BaseService {
 
                 try {
                     await this.db.write(`INSERT INTO kv (user_id, app, kkey_hash, kkey, value, expireAt)
-                        VALUES (?, ?, ?, ?, ?, ?) ` +
-                        this.db.case({
-                            mysql: 'ON DUPLICATE KEY UPDATE value = ?',
-                            sqlite: 'ON CONFLICT(user_id, app, kkey_hash) DO UPDATE SET value = excluded.value',
-                        }),
+                        VALUES (?, ?, ?, ?, ?, ?) ${
+    this.db.case({
+        mysql: 'ON DUPLICATE KEY UPDATE value = ?',
+        sqlite: 'ON CONFLICT(user_id, app, kkey_hash) DO UPDATE SET value = excluded.value',
+    })}`,
                     [
                         user.id, app?.uid ?? GLOBAL_APP_KEY, key_hash, key,
                         JSON.stringify(value), expireAt ?? null,
@@ -286,11 +285,11 @@ class DBKVService extends BaseService {
 
         try {
             await this.db.write(`INSERT INTO kv (user_id, app, kkey_hash, kkey, value, expireAt)
-                VALUES (?, ?, ?, ?, ?, ?) ` +
-                this.db.case({
-                    mysql: 'ON DUPLICATE KEY UPDATE expireAt = ?',
-                    sqlite: 'ON CONFLICT(user_id, app, kkey_hash) DO UPDATE SET expireAt = excluded.expireAt',
-                }),
+                VALUES (?, ?, ?, ?, ?, ?) ${
+    this.db.case({
+        mysql: 'ON DUPLICATE KEY UPDATE expireAt = ?',
+        sqlite: 'ON CONFLICT(user_id, app, kkey_hash) DO UPDATE SET expireAt = excluded.expireAt',
+    })}`,
             [
                 user.id,
                 app?.uid ?? GLOBAL_APP_KEY,
