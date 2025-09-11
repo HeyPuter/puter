@@ -1,5 +1,5 @@
 import { TeePromise } from '@heyputer/putility/src/libs/promise.js';
-import * as utils from '../lib/utils.js'
+import * as utils from '../lib/utils.js';
 
 const gui_cache_keys = [
     'has_set_default_app_user_permissions',
@@ -13,7 +13,6 @@ const gui_cache_keys = [
     'toolbar_auto_hide_enabled',
     'has_seen_welcome_window',
 ];
-
 class KV{
     MAX_KEY_SIZE = 1024;
     MAX_VALUE_SIZE = 400 * 1024;
@@ -26,7 +25,7 @@ class KV{
      * @param {string} APIOrigin - Origin of the API server. Used to build the API endpoint URLs.
      * @param {string} appID - ID of the app to use.
      */
-    constructor (context) {
+    constructor(context) {
         this.authToken = context.authToken;
         this.APIOrigin = context.APIOrigin;
         this.appID = context.appID;
@@ -59,7 +58,7 @@ class KV{
                 return;
             }
             const obj = {};
-            for (let i = 0; i < gui_cache_keys.length; i++) {
+            for ( let i = 0; i < gui_cache_keys.length; i++ ) {
                 obj[gui_cache_keys[i]] = arr_values.result[i];
             }
             this.gui_cached.resolve(obj);
@@ -76,50 +75,53 @@ class KV{
      * @memberof [KV]
      * @returns {void}
      */
-    setAuthToken (authToken) {
+    setAuthToken(authToken) {
         this.authToken = authToken;
     }
 
     /**
      * Sets the API origin.
-     * 
+     *
      * @param {string} APIOrigin - The new API origin.
      * @memberof [KV]
      * @returns {void}
      */
-    setAPIOrigin (APIOrigin) {
+    setAPIOrigin(APIOrigin) {
         this.APIOrigin = APIOrigin;
     }
 
     /**
      * Resolves to 'true' on success, or rejects with an error on failure
-     * 
+     *
      * `key` cannot be undefined or null.
      * `key` size cannot be larger than 1mb.
      * `value` size cannot be larger than 10mb.
+     * `expireAt` is a timestamp in sec since epoch. If provided, the key will expire at the given time.
      */
-    set = utils.make_driver_method(['key', 'value'], 'puter-kvstore', undefined, 'set',{
-        preprocess: (args)=>{
+    set = utils.make_driver_method(['key', 'value', 'expireAt'], 'puter-kvstore', undefined, 'set', {
+        preprocess: (args) => {
+            console.log(args);
+
             // key cannot be undefined or null
-            if(args.key === undefined || args.key === null){
-                throw { message: 'Key cannot be undefined', code: 'key_undefined'};
+            if ( args.key === undefined || args.key === null ){
+                throw { message: 'Key cannot be undefined', code: 'key_undefined' };
             }
             // key size cannot be larger than MAX_KEY_SIZE
-            if(args.key.length > this.MAX_KEY_SIZE){
-                throw {message: 'Key size cannot be larger than ' + this.MAX_KEY_SIZE, code: 'key_too_large'};
+            if ( args.key.length > this.MAX_KEY_SIZE ){
+                throw { message: 'Key size cannot be larger than ' + this.MAX_KEY_SIZE, code: 'key_too_large' };
             }
             // value size cannot be larger than MAX_VALUE_SIZE
-            if(args.value && args.value.length > this.MAX_VALUE_SIZE){
-                throw {message: 'Value size cannot be larger than ' + this.MAX_VALUE_SIZE, code: 'value_too_large'};
+            if ( args.value && args.value.length > this.MAX_VALUE_SIZE ){
+                throw { message: 'Value size cannot be larger than ' + this.MAX_VALUE_SIZE, code: 'value_too_large' };
             }
             return args;
-        }
-    })
+        },
+    });
 
     /**
      * Resolves to the value if the key exists, or `undefined` if the key does not exist. Rejects with an error on failure.
      */
-    async get (...args) {
+    async get(...args) {
         // Condition for gui boot cache
         if (
             typeof args[0] === 'string' &&
@@ -136,116 +138,129 @@ class KV{
     }
 
     get_ = utils.make_driver_method(['key'], 'puter-kvstore', undefined, 'get', {
-        preprocess: (args)=>{
+        preprocess: (args) => {
             // key size cannot be larger than MAX_KEY_SIZE
-            if(args.key.length > this.MAX_KEY_SIZE){
-                throw ({message: 'Key size cannot be larger than ' + this.MAX_KEY_SIZE, code: 'key_too_large'});
+            if ( args.key.length > this.MAX_KEY_SIZE ){
+                throw ({ message: 'Key size cannot be larger than ' + this.MAX_KEY_SIZE, code: 'key_too_large' });
             }
 
             return args;
         },
-        transform: (res)=>{
+        transform: (res) => {
             return res;
-        }
-    })
+        },
+    });
 
-    incr = async(...args) => {
+    incr = async (...args) => {
         let options = {};
 
         // arguments are required
-        if(!args || args.length === 0){
-            throw ({message: 'Arguments are required', code: 'arguments_required'});
+        if ( !args || args.length === 0 ){
+            throw ({ message: 'Arguments are required', code: 'arguments_required' });
         }
 
         options.key = args[0];
         options.amount = args[1] ?? 1;
 
         // key size cannot be larger than MAX_KEY_SIZE
-        if(options.key.length > this.MAX_KEY_SIZE){
-            throw ({message: 'Key size cannot be larger than ' + this.MAX_KEY_SIZE, code: 'key_too_large'});
+        if ( options.key.length > this.MAX_KEY_SIZE ){
+            throw ({ message: 'Key size cannot be larger than ' + this.MAX_KEY_SIZE, code: 'key_too_large' });
         }
 
         return utils.make_driver_method(['key'], 'puter-kvstore', undefined, 'incr').call(this, options);
-    }
+    };
 
-    decr = async(...args) => {
+    decr = async (...args) => {
         let options = {};
 
         // arguments are required
-        if(!args || args.length === 0){
-            throw ({message: 'Arguments are required', code: 'arguments_required'});
+        if ( !args || args.length === 0 ){
+            throw ({ message: 'Arguments are required', code: 'arguments_required' });
         }
 
         options.key = args[0];
         options.amount = args[1] ?? 1;
 
         // key size cannot be larger than MAX_KEY_SIZE
-        if(options.key.length > this.MAX_KEY_SIZE){
-            throw ({message: 'Key size cannot be larger than ' + this.MAX_KEY_SIZE, code: 'key_too_large'});
+        if ( options.key.length > this.MAX_KEY_SIZE ){
+            throw ({ message: 'Key size cannot be larger than ' + this.MAX_KEY_SIZE, code: 'key_too_large' });
         }
 
         return utils.make_driver_method(['key'], 'puter-kvstore', undefined, 'decr').call(this, options);
-    }
+    };
 
-    expire = async(...args) => {
+    expire = async (...args) => {
         let options = {};
         options.key = args[0];
-        options.seconds = args[1];
-        
+        options.ttl = args[1];
+
         // key size cannot be larger than MAX_KEY_SIZE
-        if(options.key.length > this.MAX_KEY_SIZE){
-            throw ({message: 'Key size cannot be larger than ' + this.MAX_KEY_SIZE, code: 'key_too_large'});
+        if ( options.key.length > this.MAX_KEY_SIZE ){
+            throw ({ message: 'Key size cannot be larger than ' + this.MAX_KEY_SIZE, code: 'key_too_large' });
         }
 
-        return utils.make_driver_method(['key'], 'puter-kvstore', undefined, 'expire').call(this, options);
-    }
+        return utils.make_driver_method(['key', 'ttl'], 'puter-kvstore', undefined, 'expire').call(this, options);
+    };
+
+    expireAt = async (...args) => {
+        let options = {};
+        options.key = args[0];
+        options.timestamp = args[1];
+
+        // key size cannot be larger than MAX_KEY_SIZE
+        if ( options.key.length > this.MAX_KEY_SIZE ){
+            throw ({ message: 'Key size cannot be larger than ' + this.MAX_KEY_SIZE, code: 'key_too_large' });
+        }
+
+        return utils.make_driver_method(['key', 'timestamp'], 'puter-kvstore', undefined, 'expireAt').call(this, options);
+    };
 
     // resolves to 'true' on success, or rejects with an error on failure
     // will still resolve to 'true' if the key does not exist
     del = utils.make_driver_method(['key'], 'puter-kvstore', undefined, 'del', {
-        preprocess: (args)=>{
+        preprocess: (args) => {
             // key size cannot be larger than this.MAX_KEY_SIZE
-            if(args.key.length > this.MAX_KEY_SIZE){
-                throw ({message: 'Key size cannot be larger than ' + this.MAX_KEY_SIZE, code: 'key_too_large'});
+            if ( args.key.length > this.MAX_KEY_SIZE ){
+                throw ({ message: 'Key size cannot be larger than ' + this.MAX_KEY_SIZE, code: 'key_too_large' });
             }
 
             return args;
-        }
+        },
     });
 
-    list = async(...args) => {
+    list = async (...args) => {
         let options = {};
         let pattern;
         let returnValues = false;
 
         // list(true) or list(pattern, true) will return the key-value pairs
-        if((args && args.length === 1 && args[0] === true) || (args && args.length === 2 && args[1] === true)){
+        if ( (args && args.length === 1 && args[0] === true) || (args && args.length === 2 && args[1] === true) ){
             options = {};
             returnValues = true;
         }
         // return only the keys, default behavior
-        else{
-            options = { as: 'keys'};
+        else {
+            options = { as: 'keys' };
         }
 
         // list(pattern)
         // list(pattern, true)
-        if((args && args.length === 1 && typeof args[0] === 'string') || (args && args.length === 2 && typeof args[0] === 'string' && args[1] === true)){
+        if ( (args && args.length === 1 && typeof args[0] === 'string') || (args && args.length === 2 && typeof args[0] === 'string' && args[1] === true) ){
             pattern = args[0];
         }
 
         return utils.make_driver_method([], 'puter-kvstore', undefined, 'list', {
-            transform: (res)=>{
+            transform: (res) => {
                 // glob pattern was provided
-                if(pattern){
-                    // consider both the key and the value 
-                    if(!returnValues) {                  
-                        let keys = res.filter((key)=>{
+                if ( pattern ){
+                    // consider both the key and the value
+                    if ( !returnValues ) {
+                        let keys = res.filter((key) => {
                             return globMatch(pattern, key);
                         });
                         return keys;
-                    }else{
-                        let keys = res.filter((key_value_pair)=>{
+                    } else {
+                        let keys = res.filter((key_value_pair) => {
                             return globMatch(pattern, key_value_pair.key);
                         });
                         return keys;
@@ -253,18 +268,17 @@ class KV{
                 }
 
                 return res;
-            }
+            },
         }).call(this, options);
-    }
+    };
 
     // resolve to 'true' on success, or rejects with an error on failure
     // will still resolve to 'true' if there are no keys
-    flush = utils.make_driver_method([], 'puter-kvstore', undefined, 'flush')
+    flush = utils.make_driver_method([], 'puter-kvstore', undefined, 'flush');
 
     // clear is an alias for flush
     clear = this.flush;
 }
-
 
 function globMatch(pattern, str) {
     const escapeRegExp = (string) => string.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
@@ -280,6 +294,4 @@ function globMatch(pattern, str) {
     return re.test(str);
 }
 
-
-
-export default KV
+export default KV;
