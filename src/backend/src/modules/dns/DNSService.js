@@ -1,7 +1,15 @@
 const BaseService = require("../../services/BaseService");
 const { sleep } = require("../../util/asyncutil");
 
+/**
+ * DNS service that provides DNS client functionality and optional test server
+ * @extends BaseService
+ */
 class DNSService extends BaseService {
+    /**
+     * Initializes the DNS service by creating a DNS client and optionally starting a test server
+     * @returns {Promise<void>}
+     */
     async _init () {
         const dns2 = require('dns2');
         // this.dns = new dns2(this.config.client);
@@ -15,10 +23,18 @@ class DNSService extends BaseService {
         }
     }
     
+    /**
+     * Returns the DNS client instance
+     * @returns {Object} The DNS client
+     */
     get_client () {
         return this.dns;
     }
     
+    /**
+     * Creates and starts a test DNS server that responds to A and TXT record queries
+     * The server listens on port 5300 and returns mock responses for testing purposes
+     */
     test_server_ () {
         const dns2 = require('dns2');
         const { Packet } = dns2
