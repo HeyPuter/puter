@@ -94,6 +94,7 @@ class FilesystemService extends BaseService {
         }));
         svc_permission.register_implicator(PermissionImplicator.create({
             id: 'is-owner',
+            shortcut: true,
             matcher: permission => {
                 return permission.startsWith('fs:');
             },
@@ -116,10 +117,6 @@ class FilesystemService extends BaseService {
                     throw new Error(
                         'something unexpected happened'
                     );
-                }
-
-                if ( owner_id === actor.type.user.id ) {
-                    return {};
                 }
 
                 return undefined;
