@@ -203,8 +203,8 @@ async function UITaskbar(options){
                 if (e.type === 'taphold' && !isMobile.phone && !isMobile.tablet)
                     return;
 
+                e.stopImmediatePropagation();
                 e.preventDefault();
-                e.stopPropagation();
 
                 // close other context menus
                 $(".context-menu").fadeOut(200, function(){
@@ -268,6 +268,7 @@ async function UITaskbar(options){
                 }
 
                 UIContextMenu({
+                    parent_element: popover,
                     items: items,
                 })
                 return false;
