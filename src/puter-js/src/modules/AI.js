@@ -621,6 +621,15 @@ class AI{
         if (typeof args[1] === 'boolean' && args[1] === true) {
             testMode = true;
         }
+
+        if (typeof args[0] === 'string' && typeof args[1] === "object") {
+            options = args[1];
+            options.prompt = args[0];
+        }
+
+        if (typeof args[0] === 'object') {
+            options = args[0]
+        }
     
         // Call the original chat.complete method
         return await utils.make_driver_method(['prompt'], 'puter-image-generation', undefined, 'generate', {

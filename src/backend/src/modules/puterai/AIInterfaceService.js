@@ -96,6 +96,8 @@ class AIInterfaceService extends BaseService {
                     parameters: {
                         prompt: { type: 'string' },
                         quality: { type: 'string' },
+                        model: { type: 'string' },
+                        ratio: { type: 'json' },
                     },
                     result_choices: [
                         {
