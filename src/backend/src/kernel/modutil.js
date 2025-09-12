@@ -33,6 +33,7 @@ async function prependToJSFiles(directory, snippet) {
     function shouldSkipDirectory(dirName) {
         const skipDirs = new Set([
             'node_modules',
+            'gui',
         ]);
         if ( skipDirs.has(dirName) ) return true;
         if ( dirName.startsWith('.') ) return true;
@@ -42,6 +43,7 @@ async function prependToJSFiles(directory, snippet) {
     async function prependToFile(filePath, snippet) {
         try {
             const content = await fs.readFile(filePath, 'utf8');
+            if ( content.startsWith('//!no-prepend') ) return;
             const newContent = snippet + content;
             await fs.writeFile(filePath, newContent, 'utf8');
         } catch (error) {
