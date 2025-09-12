@@ -737,8 +737,8 @@ async function UIDesktop(options) {
 
     // update default apps
     puter.kv.list('user_preferences.default_apps.*').then(async (default_app_keys) => {
-        for (let key in default_app_keys) {
-            user_preferences[default_app_keys[key].substring(17)] = await puter.kv.get(default_app_keys[key]);
+        for (const key of default_app_keys) {
+            user_preferences[key.substring(17)] = await puter.kv.get(key);
         }
 
         window.update_user_preferences(user_preferences);
