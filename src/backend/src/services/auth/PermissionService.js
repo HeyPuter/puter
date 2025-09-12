@@ -265,6 +265,10 @@ class PermissionUtil {
 * This service interacts with the database to manage permissions and logs actions for auditing purposes.
 */
 class PermissionService extends BaseService {
+    static MODULES = {
+        kv: globalThis.kv,
+    }
+
     static CONCERN = 'permissions';
     /**
     * Initializes the PermissionService by setting up internal arrays for permission handling.
@@ -369,6 +373,18 @@ class PermissionService extends BaseService {
         if ( ! Array.isArray(permission_options) ) {
             permission_options = [permission_options];
         }
+
+        const cache_str = PermissionUtil.join(
+            'permission-scan',
+            actor.uid,
+            'options-list',
+            ...permission_options,
+        );
+        
+        const cached = kv.get(cache_str);
+        if ( cached ) {
+            return cached;
+        }
         
         // TODO: command to enable these logs
         // const l = get_a_letter();
@@ -391,6 +407,8 @@ class PermissionService extends BaseService {
             $: 'time',
             value: end_ts - start_ts,
         });
+
+        kv.set(cache_str, reading, { EX: 20 });
 
         return reading;
     }
