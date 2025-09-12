@@ -110,9 +110,6 @@ class TrackSpendingService extends BaseService {
     */
     static ImageGenerationStrategy = class ImageGenerationStrategy {
         static models = {
-            'gemini-2.5-flash-image-preview': {
-                "1024x1024": 0.039,
-            },
             'gpt-image-1': {
                 "low:1024x1024": 0.011,
                 "low:1024x1536": 0.016,
