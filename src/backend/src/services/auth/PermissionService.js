@@ -19,7 +19,9 @@
  */
 
 const APIError = require("../../api/APIError");
+const { ECMAP } = require("../../filesystem/ECMAP");
 const { get_user, get_app } = require("../../helpers");
+const { Context } = require("../../util/context");
 const BaseService = require("../BaseService");
 const { DB_WRITE } = require("../database/consts");
 const { UserActorType, Actor, AppUnderUserActorType } = require("./Actor");
@@ -354,7 +356,9 @@ class PermissionService extends BaseService {
     async scan (actor, permission_options, _reserved, state) {
         const svc_trace = this.services.get('traceService');
         return await svc_trace.spanify(`permission:scan`, async () => {
-            return await this.scan_(actor, permission_options, _reserved, state);
+            return await ECMAP.arun(async () => {
+                return await this.scan_(actor, permission_options, _reserved, state);
+            });
         }, { attributes: { permission_options }, actor: actor.uid });
     }
     async scan_ (actor, permission_options, _reserved, state) {

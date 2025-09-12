@@ -18,6 +18,7 @@
  */
 const APIError = require("../../api/APIError");
 const { stream_to_buffer } = require("../../util/streamutil");
+const { ECMAP } = require("../ECMAP");
 const { TYPE_DIRECTORY, TYPE_SYMLINK } = require("../FSNodeContext");
 const { LLListUsers } = require("../ll_operations/ll_listusers");
 const { LLReadDir } = require("../ll_operations/ll_readdir");
@@ -26,7 +27,12 @@ const { HLFilesystemOperation } = require("./definitions");
 
 class HLReadDir extends HLFilesystemOperation {
     static CONCERN = 'filesystem';
-    async _run () {
+    async _run() {
+        return ECMAP.arun(async () => {
+            return await this.__run();
+        });
+    }
+    async __run () {
         const { subject: subject_let, user, no_thumbs, no_assocs, actor } = this.values;
         let subject = subject_let;
 

@@ -27,6 +27,7 @@ const { NodeRawEntrySelector } = require("./node/selectors");
 const { DB_READ } = require("../services/database/consts");
 const { UserActorType, AppUnderUserActorType, Actor } = require("../services/auth/Actor");
 const { PermissionUtil } = require("../services/auth/PermissionService");
+const { ECMAP } = require("./ECMAP");
 
 /**
  * Container for information collected about a node
@@ -77,6 +78,19 @@ module.exports = class FSNodeContext {
         provider,
         fs
     }) {
+        const ecmap = Context.get(ECMAP.SYMBOL);
+        
+        if ( ecmap ) {
+            // We might return an existing FSNodeContext
+            const maybe_node = ecmap?.
+                get_fsNodeContext_from_selector?.(selector);
+            if ( maybe_node ) return maybe_node;
+        } else {
+            if ( process.env.LOG_ECMAP ) {
+                console.log('\x1B[31;1m !!! NO ECMAP !!! \x1B[0m');
+            }
+        }
+
         this.log = services.get('log-service').create('fsnode-context', {
             concern: this.constructor.CONCERN,
         });
@@ -128,6 +142,12 @@ module.exports = class FSNodeContext {
         for ( const selector of this.selectors_ ) {
             if ( selector instanceof new_selector.constructor ) return;
         }
+        
+        const ecmap = Context.get(ECMAP.SYMBOL);
+        if ( ecmap ) {
+            ecmap.store_fsNodeContext_to_selector(new_selector, this);
+        }
+
         this.selectors_.push(new_selector);
         this.selector_ = new_selector;
     }
