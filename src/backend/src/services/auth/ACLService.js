@@ -360,6 +360,37 @@ class ACLService extends BaseService {
             return false;
         }
         
+        // PERF: Short-circuit the permission check for users accessing their own files.
+        // Since the filesystem structure guarantees ownership within a user's home directory,
+        // we can safely grant access without a database lookup for the fsentry.
+        if (actor.type instanceof UserActorType) {
+            const username = actor.type.user.username;
+            const path_selector = fsNode.get_selector_of_type(NodePathSelector);
+    
+            if (path_selector) {
+                const path = path_selector.value;
+                // If the path starts with the user's own home directory, grant access immediately.
+                if (path === `/${username}` || path.startsWith(`/${username}/`)) {
+                    return true;
+                }
+            }
+        }
+
+        // PERF: Short-circuit for apps accessing their own AppData directory.
+        if (actor.type instanceof AppUnderUserActorType) {
+            const username = actor.type.user.username;
+            const app_uid = actor.type.app.uid;
+            const path_selector = fsNode.get_selector_of_type(NodePathSelector);
+
+            if (path_selector) {
+                const path = path_selector.value;
+                const appDataPath = `/${username}/AppData/${app_uid}`;
+                if (path === appDataPath || path.startsWith(`${appDataPath}/`)) {
+                    return true;
+                }
+            }
+        }
+
         // Hard rule: anyone and anything can read /user/public directories
         if ( this.global_config.enable_public_folders ) {
             const public_modes = Object.freeze(['read', 'list', 'see']);
