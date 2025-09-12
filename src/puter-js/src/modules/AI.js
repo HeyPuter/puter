@@ -630,9 +630,15 @@ class AI{
         if (typeof args[0] === 'object') {
             options = args[0]
         }
-    
+
+        let AIService = "openai-image-generation"
+        if (options.model === "nano-banana") 
+            options.model = "gemini-2.5-flash-image-preview";
+
+        if (options.model === "gemini-2.5-flash-image-preview")
+            AIService = "gemini-image-generation";
         // Call the original chat.complete method
-        return await utils.make_driver_method(['prompt'], 'puter-image-generation', undefined, 'generate', {
+        return await utils.make_driver_method(['prompt'], 'puter-image-generation', AIService, 'generate', {
             responseType: 'blob',
             test_mode: testMode ?? false,
             transform: async blob => {
