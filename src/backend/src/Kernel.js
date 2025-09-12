@@ -47,6 +47,8 @@ class Kernel extends AdvancedBase {
         });
 
         this.entry_path = entry_path;
+        this.extensionExports = {};
+        this.registry = {};
     }
 
     add_module (module) {
@@ -118,6 +120,8 @@ class Kernel extends AdvancedBase {
             services,
             config,
             logger: this.bootLogger,
+            extensionExports: this.extensionExports,
+            registry: this.registry,
             args,
         }, 'app');
         globalThis.root_context = root_context;
@@ -222,6 +226,7 @@ class Kernel extends AdvancedBase {
         globalThis.__puter_extension_globals__ = {
             extensionObjectRegistry: {},
             useapi: this.useapi,
+            global_config: require('./config'),
         };
         
         // Install the mods...
@@ -251,6 +256,7 @@ class Kernel extends AdvancedBase {
                     });
                 }
             })();
+            if ( process.env.SYNC_MOD_INSTALL ) await p;
             mod_installation_promises.push(p);
         }
         
@@ -307,8 +313,13 @@ class Kernel extends AdvancedBase {
         
         await prependToJSFiles(mod_package_dir, [
             `const { use, def } = globalThis.__puter_extension_globals__.useapi;`,
+            `const { use: puter } = globalThis.__puter_extension_globals__.useapi;`,
             `const extension = globalThis.__puter_extension_globals__` +
                 `.extensionObjectRegistry[${JSON.stringify(extension_id)}];`,
+            `const config = extension.config;`,
+            `const registry = extension.registry;`,
+            `const register = registry.register;`,
+            `const global_config = globalThis.__puter_extension_globals__.global_config`,
         ].join('\n') + '\n');
 
         const mod_require_dir = path_.join(process.cwd(), mod_package_dir);
@@ -342,7 +353,25 @@ class Kernel extends AdvancedBase {
             exportObject = await maybe_promise;
         } else exportObject = maybe_promise;
         
-        // TODO: do something with exportObject
+        const extension_name = exportObject?.name ?? mod_packageJSON.name;
+        this.extensionExports[extension_name] = exportObject;
+        mod.extension.registry = this.registry;
+        mod.extension.name = extension_name;
+        
+        if ( exportObject.construct ) {
+            mod.extension.on('construct', exportObject.construct);
+        }
+        if ( exportObject.preinit ) {
+            mod.extension.on('preinit', exportObject.preinit);
+        }
+
+        if ( exportObject.init ) {
+            mod.extension.on('init', exportObject.init);
+        }
+
+        Object.defineProperty(mod.extension, 'config', {
+            get: () => require('./config').services?.[extension_name] ?? {},
+        });
         
         // This is where the 'install' event gets triggered
         await mod.install(mod_context);
