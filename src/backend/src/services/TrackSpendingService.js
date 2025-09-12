@@ -110,6 +110,17 @@ class TrackSpendingService extends BaseService {
     */
     static ImageGenerationStrategy = class ImageGenerationStrategy {
         static models = {
+            'gpt-image-1': {
+                "low:1024x1024": 0.011,
+                "low:1024x1536": 0.016,
+                "low:1536x1024": 0.016,
+                "medium:1024x1024": 0.042,
+                "medium:1024x1536": 0.063,
+                "medium:1536x1024": 0.063,
+                "high:1024x1024": 0.167,
+                "high:1024x1536": 0.25,
+                "high:1536x1024": 0.25
+            },
             'dall-e-3': {
                 '1024x1024': 0.04,
                 '1024x1792': 0.08,
