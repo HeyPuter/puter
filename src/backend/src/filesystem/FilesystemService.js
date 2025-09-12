@@ -119,6 +119,10 @@ class FilesystemService extends BaseService {
                     );
                 }
 
+                if ( owner_id === actor.type.user.id ) {
+                    return {};
+                }
+
                 return undefined;
             },
         }));
