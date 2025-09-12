@@ -52,7 +52,7 @@ class ECMAP {
             }
             else
             if ( selector instanceof NodePathSelector ) {
-                value = this.path_to_fsNodeContext[maybe_path];
+                value = this.path_to_fsNodeContext[selector.value];
                 if ( value ) return value;
                 
                 let maybe_uid = this.path_to_uuid[value];
