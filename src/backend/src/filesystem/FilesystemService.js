@@ -325,8 +325,46 @@ class FilesystemService extends BaseService {
         if ( typeof selector === 'string' ) {
             if ( selector.startsWith('/') ) {
                 selector = new NodePathSelector(selector);
+            }
+        }
+        else if ( typeof selector.path === 'string' ) {
+            // other system directories
+            if ( selector.path.startsWith('/')) {
+                // OPTIMIZATION: Check if the path matches a system directory pattern.
+                const systemDirRegex = /^\/([a-zA-Z0-9_]+)\/(Trash|AppData|Desktop|Documents|Pictures|Videos|Public)$/;
+                const match = selector.path.match(systemDirRegex);
+
+                if (match) {
+                    const username = match[1];
+                    const dirName = match[2];
+
+                    // Get the user object (this is likely cached).
+                    const user = await get_user({ username });
+
+                    if (user) {
+                        let uuidKey = `${dirName.toLowerCase()}_uuid`; // e.g., 'desktop_uuid'
+                        // Home directory
+                        if(selector.path === '/' + user.username) {
+                            uuidKey = 'home_uuid';
+                        }
+                        const cachedUUID = user[uuidKey];
+
+                        if (cachedUUID) {
+                            // If we have a cached UUID, use it for a direct lookup!
+                            selector = new NodeUIDSelector(cachedUUID);
+                        } else {
+                            // Fallback if the UUID isn't on the user object for some reason.
+                            selector = new NodePathSelector(selector.path);
+                        }
+                    } else {
+                        // User not found, proceed with normal path resolution.
+                        selector = new NodePathSelector(selector.path);
+                    }
+                } else {
+                    selector = new NodePathSelector(selector.path);
+                }
             } else {
-                selector = new NodeUIDSelector(selector);
+                selector = new NodePathSelector(selector.path);
             }
         }
 
@@ -354,6 +392,7 @@ class FilesystemService extends BaseService {
             selector,
             fs: this
         });
+        
         return fsNode;
     }
 
