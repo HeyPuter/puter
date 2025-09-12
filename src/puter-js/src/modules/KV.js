@@ -12,6 +12,10 @@ const gui_cache_keys = [
     'user_preferences.clock_visible',
     'toolbar_auto_hide_enabled',
     'has_seen_welcome_window',
+    'desktop_item_positions',
+    'desktop_icons_hidden',
+    'taskbar_position',
+    'has_seen_toolbar_animation',
 ];
 class KV{
     MAX_KEY_SIZE = 1024;
