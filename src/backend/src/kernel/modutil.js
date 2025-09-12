@@ -33,6 +33,7 @@ async function prependToJSFiles(directory, snippet) {
     function shouldSkipDirectory(dirName) {
         const skipDirs = new Set([
             'node_modules',
+            'gui',
         ]);
         if ( skipDirs.has(dirName) ) return true;
         if ( dirName.startsWith('.') ) return true;
