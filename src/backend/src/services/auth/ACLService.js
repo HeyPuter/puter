@@ -376,6 +376,21 @@ class ACLService extends BaseService {
             }
         }
 
+        // PERF: Short-circuit for apps accessing their own AppData directory.
+        if (actor.type instanceof AppUnderUserActorType) {
+            const username = actor.type.user.username;
+            const app_uid = actor.type.app.uid;
+            const path_selector = fsNode.get_selector_of_type(NodePathSelector);
+
+            if (path_selector) {
+                const path = path_selector.value;
+                const appDataPath = `/${username}/AppData/${app_uid}`;
+                if (path === appDataPath || path.startsWith(`${appDataPath}/`)) {
+                    return true;
+                }
+            }
+        }
+
         // Hard rule: anyone and anything can read /user/public directories
         if ( this.global_config.enable_public_folders ) {
             const public_modes = Object.freeze(['read', 'list', 'see']);
