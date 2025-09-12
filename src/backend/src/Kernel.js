@@ -279,8 +279,8 @@ class Kernel extends AdvancedBase {
             }
             
             // Run all mods with the same priority concurrently
-            await Promise.all(samePriorityMods.map(mod => {
-                this._run_extern_mod({ mod });
+            await Promise.all(samePriorityMods.map(mod_entry => {
+                this._run_extern_mod(mod_entry);
             }));
         }
     }
@@ -305,10 +305,13 @@ class Kernel extends AdvancedBase {
         const mod_package_dir = `mod_packages/${mod_name}`;
         fs.mkdirSync(mod_package_dir);
         
-        let priority = 0;
-
+        const mod_entry = {
+            priority: 0,
+            jsons: {},
+        };
+        
         if ( ! stat.isDirectory() ) {
-            await this.create_mod_package_json(mod_package_dir, {
+            mod_entry.jsons.package = await this.create_mod_package_json(mod_package_dir, {
                 name: mod_name,
                 entry: 'main.js'
             });
@@ -323,7 +326,7 @@ class Kernel extends AdvancedBase {
                         if ( ! line.startsWith('//@puter') ) break;
                         const tokens = line.split(' ');
                         if ( tokens[1] === 'priority' ) {
-                            priority = Number(tokens[2]);
+                            mod_entry.priority = Number(tokens[2]);
                         }
                     }
                 })(),
@@ -338,11 +341,17 @@ class Kernel extends AdvancedBase {
             const promises = [];
 
             // Create package.json if it doesn't exist
-            if ( ! fs.existsSync(path_.join(mod_path, 'package.json')) ) {
-                promises.push(this.create_mod_package_json(mod_package_dir, {
-                    name: mod_name,
-                }));
-            }
+            promises.push((async () => {
+                if ( ! fs.existsSync(path_.join(mod_path, 'package.json')) ) {
+                    mod_entry.jsons.package = await this.create_mod_package_json(mod_package_dir, {
+                        name: mod_name,
+                    });
+                } else {
+                    const bin = await fs.promises.readFile(path_.join(mod_path, 'package.json'));
+                    const str = bin.toString();
+                    mod_entry.jsons.package = JSON.parse(str);
+                }
+            })());
             
             const puter_json_path = path_.join(mod_path, 'puter.json');
             if ( fs.existsSync(puter_json_path) ) {
@@ -350,7 +359,7 @@ class Kernel extends AdvancedBase {
                     const buffer = await fs.promises.readFile(puter_json_path);
                     const json = buffer.toString();
                     const obj = JSON.parse(json);
-                    priority = obj.priority;
+                    mod_entry.jsons.puter = obj;
                 })());
             }
             
@@ -361,6 +370,8 @@ class Kernel extends AdvancedBase {
             
             await Promise.all(promises);
         }
+        
+        mod_entry.priority = mod_entry.jsons.puter?.priority ?? mod_entry.priority;
         
         const extension_id = uuid.v4();
         
@@ -375,51 +386,50 @@ class Kernel extends AdvancedBase {
             `const global_config = globalThis.__puter_extension_globals__.global_config`,
         ].join('\n') + '\n');
 
-        const mod_require_dir = path_.join(process.cwd(), mod_package_dir);
+        mod_entry.require_dir = path_.join(process.cwd(), mod_package_dir);
         
-        await this.run_npm_install(mod_require_dir);
+        await this.run_npm_install(mod_entry.require_dir);
         
         const mod = new ExtensionModule();
         mod.extension = new Extension();
-        mod.priority = priority;
+
+        mod_entry.module = mod;
         
         globalThis.__puter_extension_globals__.extensionObjectRegistry[extension_id]
             = mod.extension;
 
-        mod.mod_require_dir = mod_require_dir;
-        mod.mod_context = this._create_mod_context(mod_install_root_context, {
+        const mod_context = this._create_mod_context(mod_install_root_context, {
             name: mod_dirname,
             ['module']: mod,
             external: true,
             mod_path,
         });
-
-        const mod_packageJSON_bin = await fs.promises.readFile(path_.join(mod_package_dir, 'package.json'));
-        const mod_packageJSON_str = mod_packageJSON_bin.toString();
-        mod.mod_packageJSON = JSON.parse(mod_packageJSON_str);
         
-        return mod;
+        mod_entry.context = mod_context;
+
+        return mod_entry;
     };
     
-    async _run_extern_mod({
-        mod,
-    }) {
+    async _run_extern_mod(mod_entry) {
         let exportObject = null;
         
         const {
-            mod_packageJSON,
-            mod_require_dir,
-        } = mod;
+            module: mod,
+            require_dir,
+            context,
+        } = mod_entry;
         
-        const maybe_promise = (typ => typ.trim().toLowerCase())(mod_packageJSON.type ?? '') === 'module'
-            ? await import(path_.join(mod_require_dir, mod_packageJSON.main ?? 'index.js'))
-            : require(mod_require_dir);
+        const packageJSON = mod_entry.jsons.package;
+        
+        const maybe_promise = (typ => typ.trim().toLowerCase())(packageJSON.type ?? '') === 'module'
+            ? await import(path_.join(require_dir, packageJSON.main ?? 'index.js'))
+            : require(require_dir);
 
         if ( maybe_promise && maybe_promise instanceof Promise ) {
             exportObject = await maybe_promise;
         } else exportObject = maybe_promise;
         
-        const extension_name = exportObject?.name ?? mod_packageJSON.name;
+        const extension_name = exportObject?.name ?? packageJSON.name;
         this.extensionExports[extension_name] = exportObject;
         mod.extension.registry = this.registry;
         mod.extension.name = extension_name;
@@ -440,7 +450,7 @@ class Kernel extends AdvancedBase {
         });
         
         // This is where the 'install' event gets triggered
-        await mod.install(mod.mod_context);
+        await mod.install(context);
     }
 
     _create_mod_context (parent, options) {
@@ -507,15 +517,17 @@ class Kernel extends AdvancedBase {
             }
         }
 
-        const data = JSON.stringify({
+        const data = {
             name,
             version: '1.0.0',
             main: entry ?? 'main.js',
-        });
+        };
+        const data_json = JSON.stringify(data);
         
         console.log('WRITING TO', path_.join(mod_path, 'package.json'));
         
-        await fs.promises.writeFile(path_.join(mod_path, 'package.json'), data);
+        await fs.promises.writeFile(path_.join(mod_path, 'package.json'), data_json);
+        return data;
     }
     
     async run_npm_install (path) {
