@@ -90,20 +90,27 @@ class ExtensionService extends BaseService {
         const db = this.services.get('database').get(DB_WRITE, 'extension');
         this.state.values.set('db', db);
 
-        // Propagate all events not from extensions to `core.`
+        // Propagate all events from Puter's event bus to extensions
         const svc_event = this.services.get('event');
         svc_event.on_all(async (key, data, meta = {}) => {
             meta.from_outside_of_extension = true;
 
-            // register for both `core.` and the extension name
             const promises = [];
-            promises.push(
-                this.state.extension.emit(`core.${key}`, data, meta));
+            
+            // push event to the extension's event bus
             promises.push(
                 this.state.extension.emit(key, data, meta));
+
+            // legacy: older extensions prefix "core." to events from Puter
+            promises.push(
+                this.state.extension.emit(`core.${key}`, data, meta));
+                
+            // future: going to remove 'boot.' prefix from lifecycle events
+
             await Promise.all(promises);
         });
 
+        // Propagate all events from extension to Puter's event bus
         this.state.extension.on_all(async (key, data, meta) => {
             if ( meta.from_outside_of_extension ) return;
             
@@ -141,6 +148,18 @@ class ExtensionService extends BaseService {
                 },
             });
         })();
+        
+        this.state.extension.emit('preinit');
+    }
+    
+    ['__on_boot.consolidation'] (...a) {
+        this.state.extension.emit('init', ...a);
+    }
+    ['__on_boot.activation'] (...a) {
+        this.state.extension.emit('activate', ...a);
+    }
+    ['__on_boot.ready'] (...a) {
+        this.state.extension.emit('ready', ...a);
     }
 
     ['__on_install.routes'] (_, { app }) {

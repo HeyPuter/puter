@@ -54,6 +54,27 @@ class Extension extends AdvancedBase {
                 this.log_context[lvl](...a);
             }
         });
+        
+        this.only_one_preinit_fn = null;
+        this.only_one_init_fn = null;
+        
+        this.registry = {
+            register: this.register.bind(this),
+            of: (typeKey) => {
+                return {
+                    named: name => {
+                        if ( arguments.length === 0 ) {
+                            return this.registry_[typeKey].named;
+                        }
+                        return this.registry_[typeKey].named[name];
+                    },
+                    all: () => [
+                        ...Object.values(this.registry_[typeKey].named),
+                        ...this.registry_[typeKey].anonymous,
+                    ],
+                }
+            }
+        };
     }
 
     example () {
@@ -95,7 +116,53 @@ class Extension extends AdvancedBase {
         }
         return log_context;
     }
-
+    
+    /**
+     * Register anonymous or named data to a particular type/category.
+     * @param {string} typeKey Type of data being registered
+     * @param {string} [key] Key of data being registered
+     * @param {any} data The data to be registered
+     */
+    register (typeKey, keyOrData, data) {
+        if ( ! this.registry_[typeKey] ) {
+            this.registry_[typeKey] = {
+                named: {},
+                anonymous: [],
+            };
+        }
+        
+        const typeRegistry = this.registry_[typeKey];
+        
+        if ( arguments.length <= 1 ) {
+            throw new Error('you must specify what to register');
+        }
+        
+        if ( arguments.length === 2 ) {
+            data = keyOrData;
+            if ( Array.isArray(data) ) {
+                for ( const datum of data ) {
+                    typeRegistry.anonymous.push(datum);
+                }
+                return;
+            }
+            typeRegistry.anonymous.push(data);
+            return;
+        }
+        
+        const key = keyOrData;
+        typeRegistry.named[key] = data;
+    }
+    
+    /**
+     * Alias for .register()
+     * @param {string} typeKey Type of data being registered
+     * @param {string} [key] Key of data being registered
+     * @param {any} data The data to be registered
+     */
+    reg (...a) {
+        this.register(...a);
+    }
+    
     /**
      * This will create a GET endpoint on the default service.
      * @param {*} path - route for the endpoint
@@ -139,6 +206,38 @@ class Extension extends AdvancedBase {
             methods: ['POST'],
         });
     }
+
+    preinit (callback) {
+        this.on('preinit', callback);
+    }
+    set preinit (callback) {
+        if ( this.only_one_preinit_fn === null ) {
+            this.on('preinit', (...a) => {
+                this.only_one_preinit_fn(...a);
+            });
+        }
+        if ( callback === null ) {
+            this.only_one_preinit_fn = () => {};
+        }
+        this.only_one_preinit_fn = callback;
+    }
+    
+    init (callback) {
+        this.on('init', callback);
+    }
+    set init (callback) {
+        if ( this.only_one_init_fn === null ) {
+            this.on('init', (...a) => {
+                this.only_one_init_fn(...a);
+            });
+        }
+        if ( callback === null ) {
+            this.only_one_init_fn = () => {};
+        }
+        this.only_one_init_fn = callback;
+    }
+    
+    //
 
     /**
      * This method will create the "default service" for an extension.
