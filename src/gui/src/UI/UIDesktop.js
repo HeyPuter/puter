@@ -736,13 +736,14 @@ async function UIDesktop(options) {
     };
 
     // update default apps
-    puter.kv.list('user_preferences.default_apps.*').then(async (default_app_keys) => {
-        for (const key of default_app_keys) {
-            user_preferences[key.substring(17)] = await puter.kv.get(key);
+    {
+        const entries = await puter.kv.list('user_preferences.default_apps.*', true);
+        for ( const entry of entries ) {
+            user_preferences[entry.key.substring(17)] = entry.value;
         }
 
         window.update_user_preferences(user_preferences);
-    });
+    }
 
     // Append to <body>
     $('body').append(h);
