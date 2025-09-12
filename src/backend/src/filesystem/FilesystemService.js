@@ -328,48 +328,8 @@ class FilesystemService extends BaseService {
                 selector = new NodePathSelector(selector);
             }
         }
-        else if ( typeof selector.path === 'string' ) {
-            // other system directories
-            if ( selector.path.startsWith('/')) {
-                // OPTIMIZATION: Check if the path matches a system directory pattern.
-                const systemDirRegex = /^\/([a-zA-Z0-9_]+)\/(Trash|AppData|Desktop|Documents|Pictures|Videos|Public)$/;
-                const match = selector.path.match(systemDirRegex);
 
-                if (match) {
-                    const username = match[1];
-                    const dirName = match[2];
-
-                    // Get the user object (this is likely cached).
-                    const user = await get_user({ username });
-
-                    if (user) {
-                        let uuidKey = `${dirName.toLowerCase()}_uuid`; // e.g., 'desktop_uuid'
-                        // Home directory
-                        if(selector.path === '/' + user.username) {
-                            uuidKey = 'home_uuid';
-                        }
-                        const cachedUUID = user[uuidKey];
-
-                        if (cachedUUID) {
-                            // If we have a cached UUID, use it for a direct lookup!
-                            selector = new NodeUIDSelector(cachedUUID);
-                        } else {
-                            // Fallback if the UUID isn't on the user object for some reason.
-                            selector = new NodePathSelector(selector.path);
-                        }
-                    } else {
-                        // User not found, proceed with normal path resolution.
-                        selector = new NodePathSelector(selector.path);
-                    }
-                } else {
-                    selector = new NodePathSelector(selector.path);
-                }
-            } else {
-                selector = new NodePathSelector(selector.path);
-            }
-        }
-
-        // TEMP: remove when these objects aren't used anymore
+        // COERCE: legacy selection objects to Node*Selector objects
         if (
             typeof selector === 'object' &&
             selector.constructor.name === 'Object'
@@ -382,6 +342,33 @@ class FilesystemService extends BaseService {
                 selector = new NodeInternalIDSelector(
                     'mysql', selector.mysql_id);
             }
+        }
+
+        system_dir_check: {
+            if ( ! (selector instanceof NodePathSelector) ) break system_dir_check;
+            if ( ! selector.value.startsWith('/')) break system_dir_check;
+
+            // OPTIMIZATION: Check if the path matches a system directory pattern.
+            const systemDirRegex = /^\/([a-zA-Z0-9_]+)\/(Trash|AppData|Desktop|Documents|Pictures|Videos|Public)$/;
+            const match = selector.value.match(systemDirRegex);
+            if ( ! match ) break system_dir_check;
+            
+            const username = match[1];
+            const dirName = match[2];
+
+            // Get the user object (this is likely cached).
+            const user = await get_user({ username });
+            if ( ! user ) break system_dir_check;
+
+            let uuidKey = ( selector.value === '/' + user.username )
+                ? 'home_uuid'
+                : `${dirName.toLowerCase()}_uuid`; // e.g., 'desktop_uuid'
+
+            const cachedUUID = user[uuidKey];
+            if ( ! cachedUUID ) break system_dir_check;
+
+            // If we have a cached ID, use it for more direct lookup.
+            selector = new NodeUIDSelector(cachedUUID);
         }
 
         const svc_mountpoint = this.services.get('mountpoint');
