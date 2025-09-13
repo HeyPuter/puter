@@ -15,7 +15,7 @@
     "@rollup/plugin-replace": "^5.0.2",
     "http-server": "^14.1.1",
     "mocha": "^10.2.0",
-    "rollup": "^3.21.4",
+    "rollup": "^3.29.5",
     "rollup-plugin-copy": "^3.4.0"
   },
   "dependencies": {
