@@ -414,7 +414,16 @@ input[type=text]:focus, input[type=password]:focus, input[type=email]:focus, sel
     float: left;
     position: relative;
     scroll-margin: 15px 15px 100px 15px;
-    pointer-events: all;
+    pointer-events: none;
+}
+
+.item-divider {
+    height: 3px;
+    width: 100%;
+}
+
+.item-container-list .item-divider, .item-container-details .item-divider {
+    display: none;
 }
 
 .item-disabled {
@@ -530,6 +539,7 @@ span.header-sort-icon img {
     display: flex;
     justify-content: center;
     align-items: center;
+    pointer-events: all;
 }
 
 .item-container-list .item-icon {
@@ -642,7 +652,7 @@ span.header-sort-icon img {
     text-shadow: 0px 0px 3px #00000082, 0px 0px 3px #00000082, 0px 0px 3px #00000082;
     -webkit-font-smoothing: antialiased;
     padding: 3px;
-    margin-top: 4px;
+    margin-top: 1px;
     display: inline-block;
     font-weight: bold;
     border-radius: 4px;
@@ -655,6 +665,7 @@ span.header-sort-icon img {
     transition: opacity 0.2s ease-in-out;
     cursor: default;
     max-width: 110px;
+    pointer-events: all;
 }
 
 .item-container-list .item-name {
@@ -698,6 +709,7 @@ span.header-sort-icon img {
     position: relative;
     box-sizing: border-box;
     z-index: 999999999;
+    pointer-events: all;
 }
 
 .item-container-list .item-name-editor {
