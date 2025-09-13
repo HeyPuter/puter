@@ -27,7 +27,7 @@ const ar = {
     account_password: "تحقق من كلمة مرور الحساب",
     access_granted_to: "تم منح الوصول إلى",
     add_existing_account: "إضافة حساب موجود",
-    all_fields_required: "جميع الحقول مطلوبة.",
+    all_fields_required: ".جميع الحقول مطلوبة",
     allow: "السماح",
     apply: "تطبيق",
     ascending: "تصاعدي",
@@ -37,7 +37,7 @@ const ar = {
     browse: "تصفح",
     cancel: "إلغاء",
     center: "مركز",
-    change_desktop_background: "تغيير خلفية سطح المكتب...",
+    change_desktop_background: "...تغيير خلفية سطح المكتب",
     change_email: "تغيير البريد الإلكتروني",
     change_language: "تغيير اللغة",
     change_password: "تغيير كلمة المرور",
@@ -53,15 +53,15 @@ const ar = {
     confirm_2fa_setup: "لقد أضفت الرمز إلى تطبيق المصادقة",
     confirm_2fa_recovery: "لقد حفظت رموز الاسترداد في مكان آمن",
     confirm_account_for_free_referral_storage_c2a:
-      "أنشئ حسابًا وقم بتأكيد عنوان بريدك الإلكتروني للحصول على 1 جيجابايت من مساحة التخزين المجانية. سيحصل صديقك أيضًا على 1 جيجابايت من مساحة التخزين المجانية.",
+      ".أنشئ حسابًا وقم بتأكيد عنوان بريدك الإلكتروني للحصول على 1 جيجابايت من مساحة التخزين المجانية. سيحصل صديقك أيضًا على 1 جيجابايت من مساحة التخزين المجانية",
     confirm_code_generic_incorrect: "رمز غير صحيح.",
     confirm_code_generic_too_many_requests:
-      "طلبات كثيرة جدًا. يرجى الانتظار بضع دقائق.",
+      ".طلبات كثيرة جدًا. يرجى الانتظار بضع دقائق",
     confirm_code_generic_submit: "إرسال الرمز",
     confirm_code_generic_try_again: "حاول مرة أخرى",
     confirm_code_generic_title: "أدخل رمز التأكيد",
     confirm_code_2fa_instruction:
-      "أدخل الرمز المكون من 6 أرقام من تطبيق المصادقة الخاص بك.",
+      ".أدخل الرمز المكون من 6 أرقام من تطبيق المصادقة الخاص بك",
     confirm_code_2fa_submit_btn: "إرسال",
     confirm_code_2fa_title: "أدخل رمز المصادقة الثنائية",
     confirm_delete_multiple_items:
@@ -71,19 +71,19 @@ const ar = {
       "لديك تطبيقات مفتوحة. هل أنت متأكد أنك تريد تسجيل الخروج؟",
     confirm_new_password: "تأكيد كلمة المرور الجديدة",
     confirm_delete_user:
-      "هل أنت متأكد أنك تريد حذف حسابك؟ سيتم حذف جميع ملفاتك وبياناتك نهائيًا. لا يمكن التراجع عن هذا الإجراء.",
+      ".هل أنت متأكد أنك تريد حذف حسابك؟ سيتم حذف جميع ملفاتك وبياناتك نهائيًا. لا يمكن التراجع عن هذا الإجراء",
     confirm_delete_user_title: "حذف الحساب؟",
     confirm_session_revoke: "هل أنت متأكد أنك تريد إلغاء هذه الجلسة؟",
     confirm_your_email_address: "تأكيد عنوان بريدك الإلكتروني",
     contact_us: "اتصل بنا",
     contact_us_verification_required:
-      "يجب أن يكون لديك عنوان بريد إلكتروني مُؤكد لاستخدام هذه الخدمة.",
+      ".يجب أن يكون لديك عنوان بريد إلكتروني مُؤكد لاستخدام هذه الخدمة",
     contain: "احتواء",
     continue: "استمر",
     copy: "نسخ",
     copy_link: "نسخ الرابط",
     copying: "جارٍ النسخ",
-    copying_file: "جارٍ نسخ %%",
+    copying_file: "%%جارٍ نسخ",
     cover: "تغطية",
     create_account: "إنشاء حساب",
     create_free_account: "إنشاء حساب مجاني",
@@ -94,7 +94,7 @@ const ar = {
     clock: "ساعة",
     clock_visible_hide: "إخفاء - مخفية دائمًا",
     clock_visible_show: "إظهار - مرئية دائمًا",
-    clock_visible_auto: "تلقائي - الافتراضي، مرئي فقط في وضع الشاشة الكاملة.",
+    clock_visible_auto: ".تلقائي - الافتراضي، مرئي فقط في وضع الشاشة الكاملة",
     close_all: "إغلاق الكل",
     created: "تم الإنشاء",
     date_modified: "تاريخ التعديل",
@@ -102,16 +102,16 @@ const ar = {
     delete: "حذف",
     delete_account: "حذف الحساب",
     delete_permanently: "حذف نهائي",
-    deleting_file: "جارٍ حذف %%",
+    deleting_file: "%%جارٍ حذف",
     deploy_as_app: "نشر كتطبيق",
     descending: "تنازلي",
     desktop: "سطح المكتب",
     desktop_background_fit: "ملائمة",
     developers: "المطورين",
-    dir_published_as_website: "%strong% تم نشره إلى:",
+    dir_published_as_website: ":%strong% تم نشره إلى",
     disable_2fa: "تعطيل المصادقة الثنائية",
     disable_2fa_confirm: "هل أنت متأكد أنك تريد تعطيل المصادقة الثنائية؟",
-    disable_2fa_instructions: "أدخل كلمة المرور لتعطيل المصادقة الثنائية.",
+    disable_2fa_instructions: ".أدخل كلمة المرور لتعطيل المصادقة الثنائية",
     disassociate_dir: "فصل الدليل",
     documents: "المستندات",
     dont_allow: "عدم السماح",
@@ -120,49 +120,49 @@ const ar = {
     downloading: "جارٍ التنزيل",
     email: "البريد الإلكتروني",
     email_change_confirmation_sent:
-      "تم إرسال بريد تأكيد إلى عنوان بريدك الإلكتروني الجديد. يرجى التحقق من صندوق الوارد واتباع التعليمات لإكمال العملية.",
-    email_invalid: "البريد الإلكتروني غير صالح.",
+      ".تم إرسال بريد تأكيد إلى عنوان بريدك الإلكتروني الجديد. يرجى التحقق من صندوق الوارد واتباع التعليمات لإكمال العملية",
+    email_invalid: "البريد الإلكتروني غير صالح",
     email_or_username: "البريد الإلكتروني أو اسم المستخدم",
-    email_required: "البريد الإلكتروني مطلوب.",
+    email_required: "البريد الإلكتروني مطلوب",
     empty_trash: "إفراغ سلة المهملات",
     empty_trash_confirmation:
       "هل أنت متأكد أنك تريد حذف العناصر في سلة المهملات نهائيًا؟",
-    emptying_trash: "جارٍ إفراغ سلة المهملات...",
+    emptying_trash: "...جارٍ إفراغ سلة المهملات",
     enable_2fa: "تمكين المصادقة الثنائية",
     end_hard: "إنهاء صعب",
     end_process_force_confirm:
       "هل أنت متأكد أنك تريد إنهاء هذه العملية بالقوة؟",
     end_soft: "إنهاء سلس",
-    enlarged_qr_code: "رمز QR مكبر",
+    enlarged_qr_code: "كود QR مكبر",
     enter_password_to_confirm_delete_user: "أدخل كلمة المرور لتأكيد حذف الحساب",
-    error_message_is_missing: "رسالة الخطأ مفقودة.",
-    error_unknown_cause: "حدث خطأ غير معروف.",
+    error_message_is_missing: "رسالة الخطأ مفقودة",
+    error_unknown_cause: "حدث خطأ غير معروف",
     error_uploading_files: "فشل في تحميل الملفات",
     favorites: "المفضلة",
     feedback: "ملاحظات",
     feedback_c2a:
-      "يرجى استخدام النموذج أدناه لإرسال ملاحظاتك وتعليقاتك وتقرير الأخطاء.",
+      "يرجى استخدام النموذج أدناه لإرسال ملاحظاتك وتعليقاتك وتقرير الأخطاء",
     feedback_sent_confirmation:
-      "شكرًا لتواصلك معنا. إذا كان لديك بريد إلكتروني مرتبط بحسابك، ستتلقى ردًا منا في أقرب وقت ممكن.",
+      ".شكرًا لتواصلك معنا. إذا كان لديك بريد إلكتروني مرتبط بحسابك، ستتلقى ردًا منا في أقرب وقت ممكن",
     fit: "ملائمة",
     folder: "مجلد",
     force_quit: "إنهاء بالقوة",
     forgot_pass_c2a: "هل نسيت كلمة المرور؟",
     from: "من",
     general: "عام",
-    get_a_copy_of_on_puter: "احصل على نسخة من '%%' على Puter.com!",
+    get_a_copy_of_on_puter: "Puter.com! :احصل على نسخة من '%%' على",
     get_copy_link: "احصل على رابط النسخ",
     hide_all_windows: "إخفاء جميع النوافذ",
     home: "الصفحة الرئيسية",
-    html_document: "مستند HTML",
+    html_document: "HTML مستند",
     hue: "درجة اللون",
     image: "صورة",
     incorrect_password: "كلمة مرور غير صحيحة",
     invite_link: "رابط الدعوة",
     item: "عنصر",
     items_in_trash_cannot_be_renamed:
-      "لا يمكن إعادة تسمية هذا العنصر لأنه في سلة المهملات. لإعادة تسمية هذا العنصر، اسحبه أولاً خارج سلة المهملات.",
-    jpeg_image: "صورة JPEG",
+      ".لا يمكن إعادة تسمية هذا العنصر لأنه في سلة المهملات. لإعادة تسمية هذا العنصر، اسحبه أولاً خارج سلة المهملات",
+    jpeg_image: "JPEG صورة",
     keep_in_taskbar: "الاحتفاظ في شريط المهام",
     language: "اللغة",
     license: "رخصة",
@@ -172,27 +172,27 @@ const ar = {
     log_in: "تسجيل الدخول",
     log_into_another_account_anyway: "تسجيل الدخول إلى حساب آخر على أي حال",
     log_out: "تسجيل الخروج",
-    looks_good: "يبدو جيدًا!",
+    looks_good: "!يبدو جيدًا",
     manage_sessions: "إدارة الجلسات",
     modified: "تم التعديل",
     move: "نقل",
-    moving_file: "جارٍ نقل %%",
+    moving_file: "%%جارٍ نقل",
     my_websites: "مواقعي الإلكترونية",
     name: "اسم",
-    name_cannot_be_empty: "الاسم لا يمكن أن يكون فارغًا.",
-    name_cannot_contain_double_period: "الاسم لا يمكن أن يكون '..'.",
-    name_cannot_contain_period: "الاسم لا يمكن أن يكون '.'.",
-    name_cannot_contain_slash: "الاسم لا يمكن أن يحتوي على '/'.",
-    name_must_be_string: "الاسم يجب أن يكون نصًا فقط.",
-    name_too_long: "الاسم لا يمكن أن يكون أطول من %% حرف.",
+    name_cannot_be_empty: ".الاسم لا يمكن أن يكون فارغًا",
+    name_cannot_contain_double_period: ".'..' الاسم لا يمكن أن يكون",
+    name_cannot_contain_period: ".'.' الاسم لا يمكن أن يكون",
+    name_cannot_contain_slash: ".'/'الاسم لا يمكن أن يحتوي على",
+    name_must_be_string: ".الاسم يجب أن يكون نصًا فقط",
+    name_too_long: "%% حروف الاسم لا يمكن أن تكون أطول من ",
     new: "جديد",
     new_email: "البريد الإلكتروني الجديد",
     new_folder: "مجلد جديد",
     new_password: "كلمة المرور الجديدة",
     new_username: "اسم المستخدم الجديد",
     no: "لا",
-    no_dir_associated_with_site: "لا يوجد دليل مرتبط بهذا العنوان.",
-    no_websites_published: "لم تنشر أي مواقع إلكترونية بعد.",
+    no_dir_associated_with_site: ".لا يوجد دليل مرتبط بهذا العنوان",
+    no_websites_published: ".لم تنشر أي مواقع إلكترونية بعد",
     ok: "موافق",
     open: "فتح",
     open_in_new_tab: "فتح في علامة تبويب جديدة",
@@ -202,17 +202,17 @@ const ar = {
     original_path: "المسار الأصلي",
     oss_code_and_content: "برامج ومحتوى مفتوح المصدر",
     password: "كلمة المرور",
-    password_changed: "تم تغيير كلمة المرور.",
+    password_changed: ".تم تغيير كلمة المرور",
     password_recovery_rate_limit:
-      "لقد وصلت إلى الحد الأقصى؛ يرجى الانتظار بضع دقائق. لمنع حدوث ذلك في المستقبل، تجنب إعادة تحميل الصفحة كثيرًا.",
-    password_recovery_token_invalid: "رمز استعادة كلمة المرور لم يعد صالحًا.",
+      ".لقد وصلت إلى الحد الأقصى؛ يرجى الانتظار بضع دقائق. لمنع حدوث ذلك في المستقبل، تجنب إعادة تحميل الصفحة كثيرًا",
+    password_recovery_token_invalid: ".رمز استعادة كلمة المرور لم يعد صالحًا",
     password_recovery_unknown_error:
-      "حدث خطأ غير معروف. يرجى المحاولة مرة أخرى لاحقًا.",
-    password_required: "كلمة المرور مطلوبة.",
+      ".حدث خطأ غير معروف. يرجى المحاولة مرة أخرى لاحقًا",
+    password_required: ".كلمة المرور مطلوبة",
     password_strength_error:
-      "يجب أن تكون كلمة المرور بطول 8 أحرف على الأقل وتحتوي على حرف كبير واحد، حرف صغير واحد، رقم واحد، وحرف خاص واحد على الأقل.",
+      ".يجب أن تكون كلمة المرور بطول 8 أحرف على الأقل وتحتوي على حرف كبير واحد، حرف صغير واحد، رقم واحد، وحرف خاص واحد على الأقل",
     passwords_do_not_match:
-      "`كلمة المرور الجديدة` و`تأكيد كلمة المرور الجديدة` غير متطابقتين.",
+      ".`كلمة المرور الجديدة` و`تأكيد كلمة المرور الجديدة` غير متطابقتين",
     paste: "لصق",
     paste_into_folder: "لصق في المجلد",
     path: "المسار",
@@ -220,10 +220,10 @@ const ar = {
     pick_name_for_website: "اختر اسمًا لموقعك الإلكتروني:",
     picture: "صورة",
     pictures: "الصور",
-    plural_suffix: "s",
-    powered_by_puter_js: "مدعوم بواسطة {{link=docs}}Puter.js{{/link}}",
-    preparing: "جارٍ التحضير...",
-    preparing_for_upload: "جارٍ التحضير للتحميل...",
+    plural_suffix: "s", //this is not necessary for Arabic
+    powered_by_puter_js: "{{link=docs}}Puter.js{{/link}} مدعوم بواسطة ",
+    preparing: "...جارٍ التحضير",
+    preparing_for_upload: "...جارٍ التحضير للتحميل",
     print: "طباعة",
     privacy: "الخصوصية",
     proceed_to_login: "المتابعة لتسجيل الدخول",
@@ -238,15 +238,15 @@ const ar = {
     publish: "نشر",
     publish_as_website: "نشر كموقع إلكتروني",
     puter_description:
-      "Puter هو سحابة شخصية تركز على الخصوصية للحفاظ على جميع ملفاتك، تطبيقاتك، وألعابك في مكان آمن واحد، متاحة من أي مكان وفي أي وقت.",
-    reading_file: "جارٍ قراءة %strong%",
+      ".هو سحابة شخصية تركز على الخصوصية للحفاظ على جميع ملفاتك، تطبيقاتك، وألعابك في مكان آمن واحد، متاحة من أي مكان وفي أي وقت Puter",
+    reading_file: "%strong% جارٍ قراءة",
     recent: "الأخيرة",
     recommended: "مُوصى به",
     recover_password: "استعادة كلمة المرور",
     refer_friends_c2a:
-      "احصل على 1 جيجابايت عن كل صديق ينشئ حسابًا ويؤكده على Puter. سيحصل صديقك على 1 جيجابايت أيضًا!",
+      "!سيحصل صديقك على 1 جيجابايت أيضًا .Puter احصل على 1 جيجابايت عن كل صديق ينشئ حسابًا ويؤكده على",
     refer_friends_social_media_c2a:
-      "احصل على 1 جيجابايت من التخزين المجاني على Puter.com!",
+      "Puter.com! احصل على 1 جيجابايت من التخزين المجاني على",
     refresh: "تحديث",
     release_address_confirmation: "هل أنت متأكد أنك تريد تحرير هذا العنوان؟",
     remove_from_taskbar: "إزالة من شريط المهام",
@@ -256,15 +256,15 @@ const ar = {
     replace_all: "استبدال الكل",
     resend_confirmation_code: "إعادة إرسال رمز التأكيد",
     reset_colors: "إعادة ضبط الألوان",
-    restart_puter_confirm: "هل أنت متأكد أنك تريد إعادة تشغيل Puter؟",
+    restart_puter_confirm: "؟Puter.com! هل أنت متأكد أنك تريد إعادة تشغيل",
     restore: "استعادة",
     save: "حفظ",
     saturation: "تشبع",
     save_account: "حفظ الحساب",
-    save_account_to_get_copy_link: "يرجى إنشاء حساب للمتابعة.",
-    save_account_to_publish: "يرجى إنشاء حساب للمتابعة.",
+    save_account_to_get_copy_link: ".يرجى إنشاء حساب للمتابعة",
+    save_account_to_publish: ".يرجى إنشاء حساب للمتابعة",
     save_session: "حفظ الجلسة",
-    save_session_c2a: "أنشئ حسابًا لحفظ جلستك الحالية وتجنب فقدان عملك.",
+    save_session_c2a: ".أنشئ حسابًا لحفظ جلستك الحالية وتجنب فقدان عملك",
     scan_qr_c2a: "امسح الرمز أدناه لتسجيل الدخول إلى هذه الجلسة من أجهزة أخرى",
     scan_qr_2fa: "امسح رمز الاستجابة السريعة باستخدام تطبيق المصادقة الخاص بك",
     scan_qr_generic:
@@ -274,22 +274,22 @@ const ar = {
     security: "الأمان",
     select: "تحديد",
     selected: "محدد",
-    select_color: "اختر لونًا…",
+    select_color: "…اختر لونًا",
     sessions: "جلسات",
     send: "إرسال",
     send_password_recovery_email: "إرسال بريد استعادة كلمة المرور",
-    session_saved: "شكرًا لإنشاء حساب. تم حفظ هذه الجلسة.",
+    session_saved: ".شكرًا لإنشاء حساب. تم حفظ هذه الجلسة",
     settings: "الإعدادات",
     set_new_password: "تعيين كلمة مرور جديدة",
     share: "مشاركة",
     share_to: "مشاركة إلى",
-    share_with: "مشاركة مع:",
+    share_with: ":مشاركة مع",
     shortcut_to: "اختصار إلى",
     show_all_windows: "عرض جميع النوافذ",
     show_hidden: "إظهار المخفي",
-    sign_in_with_puter: "تسجيل الدخول باستخدام Puter",
+    sign_in_with_puter: "Puter تسجيل الدخول باستخدام",
     sign_up: "تسجيل",
-    signing_in: "جارٍ تسجيل الدخول…",
+    signing_in: "…جارٍ تسجيل الدخول",
     size: "الحجم",
     skip: "تخطي",
     something_went_wrong: "حدث خطأ ما.",
@@ -297,8 +297,8 @@ const ar = {
     start: "بدء",
     status: "الحالة",
     storage_usage: "استخدام التخزين",
-    storage_puter_used: "مستخدم بواسطة Puter",
-    taking_longer_than_usual: "يستغرق وقتًا أطول من المعتاد. يرجى الانتظار...",
+    storage_puter_used: "Puter مستخدم بواسطة",
+    taking_longer_than_usual: "…يستغرق وقتًا أطول من المعتاد. يرجى الانتظار",
     task_manager: "مدير المهام",
     taskmgr_header_name: "الاسم",
     taskmgr_header_status: "الحالة",
@@ -306,14 +306,14 @@ const ar = {
     terms: "الشروط",
     text_document: "مستند نصي",
     tos_fineprint:
-      "بالنقر على 'إنشاء حساب مجاني' فإنك توافق على {{link=terms}}شروط الخدمة{{/link}} و{{link=privacy}}سياسة الخصوصية{{/link}} لـPuter.",
+      "Puter لـ {{link=terms}}شروط الخدمة{{/link}} و{{link=privacy}}سياسة الخصوصية{{/link}} بالنقر على 'إنشاء حساب مجاني' فإنك توافق على",
     transparency: "الشفافية",
     trash: "المهملات",
     two_factor: "المصادقة الثنائية",
     two_factor_disabled: "تم تعطيل المصادقة الثنائية",
     two_factor_enabled: "تم تمكين المصادقة الثنائية",
     type: "نوع",
-    type_confirm_to_delete_account: "اكتب 'تأكيد' لحذف حسابك.",
+    type_confirm_to_delete_account: ".اكتب 'تأكيد' لحذف حسابك",
     ui_colors: "ألوان واجهة المستخدم",
     ui_manage_sessions: "مدير الجلسات",
     ui_revoke: "إلغاء",
@@ -324,62 +324,57 @@ const ar = {
     upload_here: "ارفع هنا",
     usage: "الاستخدام",
     username: "اسم المستخدم",
-    username_changed: "تم تحديث اسم المستخدم بنجاح.",
-    username_required: "اسم المستخدم مطلوب.",
+    username_changed: ".تم تحديث اسم المستخدم بنجاح",
+    username_required: ".اسم المستخدم مطلوب",
     versions: "الإصدارات",
     videos: "مقاطع الفيديو",
     visibility: "الرؤية",
     yes: "نعم",
     yes_release_it: "نعم، أطلقه",
     you_have_been_referred_to_puter_by_a_friend:
-      "تم إحالتك إلى Puter بواسطة صديق!",
+      "!بواسطة صديق Puter تم إحالتك إلى",
     zip: "ضغط",
-    zipping_file: "جارٍ ضغط %strong%",
+    zipping_file: "%strong% جارٍ ضغط",
 
     // === 2FA Setup ===
     setup2fa_1_step_heading: "افتح تطبيق المصادقة الخاص بك",
-    setup2fa_1_instructions: `
-        يمكنك استخدام أي تطبيق مصادقة يدعم بروتوكول كلمة المرور لمرة واحدة المعتمدة على الوقت (TOTP).
-        هناك العديد للاختيار من بينها، ولكن إذا كنت غير متأكد
-        <a target="_blank" href="https://authy.com/download">Authy</a>
-        هو خيار موثوق به لنظام Android و iOS.
-    `,
-    setup2fa_2_step_heading: "مسح رمز الاستجابة السريعة (QR code)",
+    setup2fa_1_instructions: `.هو خيار موثوق به لنظام Android و iOS ولكن إذا كنت غير متأكد،<a target="_blank" href="https://authy.com/download">Authy</a> :هناك العديد للاختيار من بينها .(TOTP) يمكنك استخدام أي تطبيق مصادقة يدعم بروتوكول كلمة المرور لمرة واحدة المعتمدة على الوقت `,
+    setup2fa_2_step_heading: " (QR code)مسح رمز الاستجابة السريعة",
     setup2fa_3_step_heading: "أدخل الرمز المكون من 6 أرقام",
     setup2fa_4_step_heading: "انسخ رموز الاسترداد الخاصة بك",
     setup2fa_4_instructions: `
-        هذه رموز الاسترداد هي الطريقة الوحيدة للوصول إلى حسابك إذا فقدت هاتفك أو لم تتمكن من استخدام تطبيق المصادقة الخاص بك.
-        تأكد من حفظها في مكان آمن.
+        .هذه رموز الاسترداد هي الطريقة الوحيدة للوصول إلى حسابك إذا فقدت هاتفك أو لم تتمكن من استخدام تطبيق المصادقة الخاص بك
+        .تأكد من حفظها في مكان آمن
     `,
-    setup2fa_5_step_heading: "تأكيد إعداد المصادقة الثنائية (2FA)",
+    setup2fa_5_step_heading: "(2FA) تأكيد إعداد المصادقة الثنائية",
     setup2fa_5_confirmation_1: "لقد قمت بحفظ رموز الاسترداد في مكان آمن",
-    setup2fa_5_confirmation_2: "أنا جاهز لتمكين المصادقة الثنائية (2FA)",
-    setup2fa_5_button: "تمكين المصادقة الثنائية (2FA)",
+    setup2fa_5_confirmation_2: "(2FA) أنا جاهز لتمكين المصادقة الثنائية",
+    setup2fa_5_button: " (2FA) تمكين المصادقة الثنائية",
 
     // === 2FA Login ===
-    login2fa_otp_title: "أدخل رمز المصادقة الثنائية (2FA)",
+    login2fa_otp_title: "(2FA) أدخل رمز المصادقة الثنائية",
     login2fa_otp_instructions:
-      "أدخل الرمز المكون من 6 أرقام من تطبيق المصادقة الخاص بك.",
+      ".أدخل الرمز المكون من 6 أرقام من تطبيق المصادقة الخاص بك",
     login2fa_recovery_title: "أدخل رمز الاسترداد",
     login2fa_recovery_instructions:
-      "أدخل أحد رموز الاسترداد الخاصة بك للوصول إلى حسابك.",
+      ".أدخل أحد رموز الاسترداد الخاصة بك للوصول إلى حسابك",
     login2fa_use_recovery_code: "استخدام رمز الاسترداد",
     login2fa_recovery_back: "الرجوع",
     login2fa_recovery_placeholder: "XXXXXXXX",
 
     change: "تغيير", // In English: "Change"
     clock_visibility: "ظهور الساعة", // In English: "Clock Visibility"
-    reading: "قراءة %strong%", // In English: "Reading %strong%"
-    writing: "كتابة %strong%", // In English: "Writing %strong%"
-    unzipping: "فك الضغط %strong%", // In English: "Unzipping %strong%"
-    sequencing: "ترتيب %strong%", // In English: "Sequencing %strong%"
-    zipping: "ضغط %strong%", // In English: "Zipping %strong%"
+    reading: "%strong% قراءة", // In English: "Reading %strong%"
+    writing: "%strong% كتابة", // In English: "Writing %strong%"
+    unzipping: "%strong% فك الضغط", // In English: "Unzipping %strong%"
+    sequencing: "%strong% ترتيب", // In English: "Sequencing %strong%"
+    zipping: "%strong% ضغط", // In English: "Zipping %strong%"
     Editor: "المحرر", // In English: "Editor"
     Viewer: "المشاهد", // In English: "Viewer"
     "People with access": "الأشخاص الذين لديهم تحكم", // In English: "People with access"
-    "Share With…": "مشاركة مع...", // In English: "Share With…"
+    "Share With…": "…مشاركة مع", // In English: "Share With…"
     Owner: "المالك", // In English: "Owner"
-    "You can't share with yourself.": "لا يمكنك المشاركة مع نفسك.", // In English: "You can't share with yourself."
+    "You can't share with yourself.": ".لا يمكنك المشاركة مع نفسك", // In English: "You can't share with yourself."
     "This user already has access to this item":
       "هذا المستخدم لديه بالفعل تحكم إلى هذا العنصر", // In English: "This user already has access to this item"
 
@@ -396,7 +391,7 @@ const ar = {
     "billing.resume_subscription": "استئناف الاشتراك", // In English: "Resume Subscription"
     "billing.subscription_cancelled": "تم إلغاء اشتراكك", // In English: "Your subscription has been canceled."
     "billing.subscription_cancelled_description":
-      "ستظل لديك إمكانية الوصول إلى اشتراكك حتى نهاية فترة الفوترة الحالية.", // In English: "You will still have access to your subscription until the end of this billing period."
+      ".ستظل لديك إمكانية الوصول إلى اشتراكك حتى نهاية فترة الفوترة الحالية", // In English: "You will still have access to your subscription until the end of this billing period."
     "billing.offering.free": "مجاني", // In English: "Free"
     "billing.offering.pro": "احترافي", // In English: "Professional"
     "billing.offering.professional": "احترافي", // In English: "Professional"
@@ -405,18 +400,18 @@ const ar = {
     "billing.ai_access": "التحصل على الذكاء الاصطناعي", // In English: "AI Access"
     "billing.bandwidth": "Bandwidth", // In English: "Bandwidth"
     "billing.apps_and_games": "التطبيقات والألعاب", // In English: "Apps & Games"
-    "billing.upgrade_to_pro": "الترقية إلى %strong%", // In English: "Upgrade to %strong%"
-    "billing.switch_to": "التحويل إلى %strong%", // In English: "Switch to %strong%"
+    "billing.upgrade_to_pro": "%strong% الترقية إلى", // In English: "Upgrade to %strong%"
+    "billing.switch_to": "%strong% التحويل إلى", // In English: "Switch to %strong%"
     "billing.payment_setup": "إعداد طريقة الدفع", // In English: "Payment Setup"
     "billing.back": "رجوع", // In English: "Back"
-    "billing.you_are_now_subscribed_to": "أنت الآن مشترك في %strong% الفئة", // In English: "You are now subscribed to %strong% tier."
+    "billing.you_are_now_subscribed_to": "%strong% أنت الآن مشترك في الفئة", // In English: "You are now subscribed to %strong% tier."
     "billing.you_are_now_subscribed_to_without_tier": "أنت الآن مشترك", // In English: "You are now subscribed"
     "billing.subscription_cancellation_confirmation":
       "هل أنت متأكد من رغبتك في إلغاء اشتراكك؟", // In English: "Are you sure you want to cancel your subscription?"
     "billing.subscription_setup": "إعداد طريقة الاشتراك", // In English: "Subscription Setup"
     "billing.cancel_it": "إلغاؤها", // In English: "Cancel It"
     "billing.keep_it": "الاحتفاظ بها", // In English: "Keep It"
-    "billing.subscription_resumed": "تم استئناف اشتراكك %strong%!", // In English: "Your %strong% subscription has been resumed!"
+    "billing.subscription_resumed": "!%strong% تم استئناف اشتراكك", // In English: "Your %strong% subscription has been resumed!"
     "billing.upgrade_now": "قم بالترقية الآن", // In English: "Upgrade Now"
     "billing.upgrade": "ترقية", // In English: "Upgrade"
     "billing.currently_on_free_plan": "أنت حالياً على الفئة المجاني", // In English: "You are currently on the free plan."
@@ -436,7 +431,7 @@ const ar = {
     "billing.expanded": "موسع", // In English: "Expanded"
     "billing.accelerated": "مسرع", // In English: "Accelerated"
     "billing.enjoy_msg":
-      "استمتع بـ %% من Cloud Storage بالإضافة إلى مزايا أخرى.", // In English: "Enjoy %% of Cloud Storage plus other benefits."
+      ".بالإضافة إلى مزايا أخرى Cloud Storage  استمتع بـ %% من", // In English: "Enjoy %% of Cloud Storage plus other benefits."
 
     choose_publishing_option:
       "اختر الطريقة التي تريد نشر موقع الويب الخاص بك بها", // In English: "Choose how you want to publish your website:"
@@ -455,26 +450,26 @@ const ar = {
     "toolbar.save_account": "حفظ الحساب", // In English: "Save Account"
     "toolbar.search": "بحث", // In English: "Search"
     "toolbar.qrcode": "رمز الاستجابة السريعة", // In English: "QR Code"
-    used_of: "{{available}}لمحاولات المستخدمة من {{used}}", // In English: "{{used}} used of {{available}}"
+    used_of: "{{available}}محاولات مستخدمة من {{used}}", // In English: "{{used}} used of {{available}}"
     worker: "العامل", // In English: "Worker"
     "billing.offering.basic": "أساسي", // In English: "Basic"
-    too_many_attempts: "محاولات كثيرة جدًا. يُرجى المحاولة لاحقًا.", // In English: "Too many attempts. Please try again later."
+    too_many_attempts: ".محاولات كثيرة. يُرجى المحاولة لاحقًا", // In English: "Too many attempts. Please try again later."
     server_timeout:
-      "استغرق الخادم وقتًا طويلاً للاستجابة. يُرجى المحاولة مرة أخرى.", // In English: "The server took too long to respond. Please try again."
-    signup_error: "حدث خطأ أثناء التسجيل. يُرجى المحاولة مرة أخرى.", // In English: "An error occurred during signup. Please try again."
+      ".استغرق الخادم وقتًا طويلاً للاستجابة. يُرجى المحاولة مرة أخرى", // In English: "The server took too long to respond. Please try again."
+    signup_error: ".حدث خطأ أثناء التسجيل. يُرجى المحاولة مرة أخرى", // In English: "An error occurred during signup. Please try again."
     welcome_title: "مرحبًا بك في جهاز الكمبيوتر الشخصي الخاص بك على الإنترنت", // In English: "Welcome to your Personal Internet Computer"
     welcome_description:
-      "خزّن الملفات، العب الألعاب، واكتشف تطبيقات رائعة، وغير ذلك الكثير! كل ذلك في مكان واحد، يمكنك الوصول إليه من أي مكان وفي أي وقت.", // In English: "Store files, play games, find awesome apps, and much more! All in one place, accessible from anywhere at any time."
+      ".خزّن الملفات، العب الألعاب، واكتشف تطبيقات رائعة، وغير ذلك الكثير! كل ذلك في مكان واحد، يمكنك الوصول إليه من أي مكان وفي أي وقت", // In English: "Store files, play games, find awesome apps, and much more! All in one place, accessible from anywhere at any time."
     welcome_get_started: "ابدأ الآن", // In English: "Get Started"
     welcome_terms: "الشروط", // In English: "Terms"
     welcome_privacy: "الخصوصية", // In English: "Privacy"
     welcome_developers: "المطورون", // In English: "Developers"
     welcome_open_source: "مفتوح المصدر", // In English: "Open Source"
-    welcome_instant_login_title: "تسجيل الدخول الفوري!",
-    alert_error_title: "خطأ!",
-    alert_warning_title: "تحذير!",
+    welcome_instant_login_title: "!تسجيل الدخول الفوري",
+    alert_error_title: "!خطأ",
+    alert_warning_title: "!تحذير",
     alert_info_title: "معلومة",
-    alert_success_title: "نجاح!",
+    alert_success_title: "!نجاح",
     alert_confirm_title: "هل أنت متأكد؟",
     alert_yes: "نعم",
     alert_no: "لا",
@@ -485,14 +480,14 @@ const ar = {
     login_password_required: "كلمة المرور مطلوبة",
     window_title_open: "فتح",
     window_title_change_password: "تغيير كلمة المرور",
-    window_title_select_font: "اختر الخط...",
-    window_title_session_list: "قائمة الجلسات!",
+    window_title_select_font: "…اختر الخط",
+    window_title_session_list: "!قائمة الجلسات",
     window_title_set_new_password: "تعيين كلمة مرور جديدة",
-    window_title_instant_login: "تسجيل الدخول الفوري!",
+    window_title_instant_login: "!تسجيل الدخول الفوري",
     window_title_publish_website: "نشر الموقع",
     window_title_publish_worker: "نشر العامل",
-    window_title_authenticating: "جارٍ التحقق...",
-    window_title_refer_friend: "أوصِ صديقًا!",
+    window_title_authenticating: "…جارٍ التحقق",
+    window_title_refer_friend: "!أوصِ صديقًا",
     desktop_show_desktop: "عرض سطح المكتب",
     desktop_show_open_windows: "عرض النوافذ المفتوحة",
     desktop_exit_full_screen: "الخروج من وضع ملء الشاشة",
@@ -501,15 +496,15 @@ const ar = {
     desktop_position_left: "اليسار",
     desktop_position_bottom: "الأسفل",
     desktop_position_right: "اليمين",
-    item_shared_with_you: "قام مستخدم بمشاركة هذا العنصر معك.",
-    item_shared_by_you: "لقد قمت بمشاركة هذا العنصر مع مستخدم آخر على الأقل.",
+    item_shared_with_you: ".قام مستخدم بمشاركة هذا العنصر معك",
+    item_shared_by_you: ".لقد قمت بمشاركة هذا العنصر مع مستخدم آخر على الأقل",
     item_shortcut: "اختصار",
     item_associated_websites: "الموقع المرتبط",
     item_associated_websites_plural: "المواقع المرتبطة",
     no_suitable_apps_found: "لم يتم العثور على تطبيقات مناسبة",
     window_click_to_go_back: "انقر للرجوع.",
     window_click_to_go_forward: "انقر للتقدم.",
-    window_click_to_go_up: "انقر للصعود مجلد واحد.",
+    window_click_to_go_up: ".انقر للصعود مجلد واحد",
     window_title_public: "عام",
     window_title_videos: "فيديوهات",
     window_title_pictures: "صور",
