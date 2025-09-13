@@ -123,3 +123,128 @@ export class PermissionUtil {
         return options;
     }
 }
+
+/**
+ * Permission rewriters are used to map one set of permission strings to another.
+ * These are invoked during permission scanning and when permissions are granted or revoked.
+ *
+ * For example, Puter's filesystem uses this to map 'fs:/some/path:mode' to
+ * 'fs:SOME-UUID:mode'.
+ *
+ * A rewriter is constructed using the static method PermissionRewriter.create({ matcher, rewriter }).
+ * The matcher is a function that takes a permission string and returns true if the rewriter should be applied.
+ * The rewriter is a function that takes a permission string and returns the rewritten permission string.
+ */
+export class PermissionRewriter {
+    static create({ id, matcher, rewriter }) {
+        return new PermissionRewriter({ id, matcher, rewriter });
+    }
+
+    constructor({ id, matcher, rewriter }) {
+        this.id = id;
+        this.matcher = matcher;
+        this.rewriter = rewriter;
+    }
+
+    matches(permission) {
+        return this.matcher(permission);
+    }
+
+    /**
+    * Determines if the given permission matches the criteria set for this rewriter.
+    *
+    * @param {string} permission - The permission string to check.
+    * @returns {boolean} - True if the permission matches, false otherwise.
+    */
+    async rewrite(permission) {
+        return await this.rewriter(permission);
+    }
+}
+
+/**
+ * Permission implicators are used to manage implicit permissions.
+ * It defines a method to check if a given permission is implicitly granted to an actor.
+ *
+ * For example, Puter's filesystem uses this to grant permission to a file if the specified
+ * 'actor' is the owner of the file.
+ *
+ * An implicator is constructed using the static method PermissionImplicator.create({ matcher, checker }).
+ * `matcher  is a function that takes a permission string and returns true if the implicator should be applied.
+ * `checker` is a function that takes an actor and a permission string and returns true if the permission is implied.
+ * The actor and permission are passed to checker({ actor, permission }) as an object.
+ */
+export class PermissionImplicator {
+    static create({ id, matcher, checker, ...options }) {
+        return new PermissionImplicator({ id, matcher, checker, options });
+    }
+
+    constructor({ id, matcher, checker, options }) {
+        this.id = id;
+        this.matcher = matcher;
+        this.checker = checker;
+        this.options = options;
+    }
+
+    matches(permission) {
+        return this.matcher(permission);
+    }
+
+    /**
+     * Check if the permission is implied by this implicator
+     * @param  {Actor} actor
+     * @param  {string} permission
+     * @returns
+     */
+    /**
+    * Rewrites a permission string if it matches any registered rewriter.
+    * @param {string} permission - The permission string to potentially rewrite.
+    * @returns {Promise<string>} The possibly rewritten permission string.
+    */
+    async check({ actor, permission, recurse }) {
+        return await this.checker({ actor, permission, recurse });
+    }
+}
+
+/**
+ * Permission exploders are used to map any permission to a list of permissions
+ * which are considered to imply the specified permission.
+ *
+ * It uses a matcher function to determine if a permission should be exploded
+ * and an exploder function to perform the expansion.
+ *
+ * The exploder is constructed using the static method PermissionExploder.create({ matcher, explode }).
+ * The `matcher` is a function that takes a permission string and returns true if the exploder should be applied.
+ * The `explode` is a function that takes an actor and a permission string and returns a list of implied permissions.
+ * The actor and permission are passed to explode({ actor, permission }) as an object.
+ */
+export class PermissionExploder {
+    static create({ id, matcher, exploder }) {
+        return new PermissionExploder({ id, matcher, exploder });
+    }
+
+    constructor({ id, matcher, exploder }) {
+        this.id = id;
+        this.matcher = matcher;
+        this.exploder = exploder;
+    }
+
+    matches(permission) {
+        return this.matcher(permission);
+    }
+
+    /**
+    * Explodes a permission into a set of implied permissions.
+    *
+    * This method takes a permission string and an actor object,
+    * then uses the associated exploder function to derive additional
+    * permissions that are implied by the given permission.
+    *
+    * @param {Object} options - The options object containing:
+    * @param {Actor} options.actor - The actor requesting the permission explosion.
+    * @param {string} options.permission - The base permission to be exploded.
+    * @returns {Promise<Array<string>>} A promise resolving to an array of implied permissions.
+    */
+    async explode({ actor, permission }) {
+        return await this.exploder({ actor, permission });
+    }
+}

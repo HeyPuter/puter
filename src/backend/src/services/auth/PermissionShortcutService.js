@@ -1,5 +1,5 @@
 const BaseService = require('../BaseService');
-const { PermissionImplicator } = require('./PermissionService');
+const { PermissionImplicator } = require('./PermissionUtils.mjs');
 
 class PermissionShortcutService extends BaseService {
     _init() {
