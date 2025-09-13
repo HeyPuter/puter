@@ -2263,9 +2263,19 @@ async function UIWindow(options) {
         if(options.allow_native_ctxmenu || $target.hasClass('allow-native-ctxmenu') || $target.is('input') || $target.is('textarea'))
             return true
 
+        let contextmenu_on_window_items = false;
+
+        if($target.hasClass('item') && $target.closest('.window').length > 0){
+            contextmenu_on_window_items = true;
+            // unselect all items
+            $(el_window_body).children('.item-selected').removeClass('item-selected');
+            // close other context menus
+            $('.context-menu').remove();
+        }   
+
         // custom ctxmenu for all other elements
         event.preventDefault();
-        if(options.allow_context_menu && event.target === el_window_body){
+        if(options.allow_context_menu && (event.target === el_window_body || contextmenu_on_window_items)){
             // Regular directories
             if($(el_window).attr('data-path') !== window.trash_path){
                 let menu_items = [];
