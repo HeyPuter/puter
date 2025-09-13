@@ -82,8 +82,8 @@ const ROOT_WEB_DAV_RESPONSE_XML = `<?xml version="1.0" encoding="utf-8"?>
 
 class WebDAVService extends BaseService {
     async _construct(){
-        davMethodMap = await import ( './methodHandlers/methodMap.mjs');
-        unsupportedMethodHandler = await import('./methodHandlers/method.mjs');
+        davMethodMap = (await import ( './methodHandlers/methodMap.mjs')).davMethodMap;
+        unsupportedMethodHandler = (await import('./methodHandlers/method.mjs')).unsupportedMethodHandler;
     }
     async _init() {
         const svc_web = this.services.get('web-server');

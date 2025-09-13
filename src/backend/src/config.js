@@ -16,7 +16,7 @@
  * You should have received a copy of the GNU Affero General Public License
  * along with this program.  If not, see <https://www.gnu.org/licenses/>.
  */
-"use strict"
+'use strict';
 const deep_proto_merge = require('./config/deep_proto_merge');
 // const reserved_words = require('./config/reserved_words');
 
@@ -55,7 +55,7 @@ config.kv_max_value_size = 400 * 1024;
 config.captcha = {
     enabled: false,                 // Enable captcha by default
     expirationTime: 10 * 60 * 1000, // 10 minutes default expiration time
-    difficulty: 'medium'            // Default difficulty level
+    difficulty: 'medium',            // Default difficulty level
 };
 
 config.monitor = {
@@ -64,7 +64,7 @@ config.monitor = {
 };
 
 config.max_subdomains_per_user = 2000;
-config.storage_capacity = 1*1024*1024*1024;
+config.storage_capacity = 1 * 1024 * 1024 * 1024;
 config.static_hosting_domain = 'site.puter.localhost';
 
 // Storage limiting is set to false by default
@@ -74,11 +74,11 @@ config.available_device_storage = null;
 
 config.thumb_width = 80;
 config.thumb_height = 80;
-config.app_max_icon_size = 5*1024*1024;
+config.app_max_icon_size = 5 * 1024 * 1024;
 
 config.defaultjs_asset_path = '../../';
 
-config.short_description = `Puter is a privacy-first personal cloud that houses all your files, apps, and games in one private and secure place, accessible from anywhere at any time.`;
+config.short_description = 'Puter is a privacy-first personal cloud that houses all your files, apps, and games in one private and secure place, accessible from anywhere at any time.';
 config.title = 'Puter';
 config.company = 'Puter Technologies Inc.';
 
@@ -103,18 +103,18 @@ config.reserved_words = [];
 }
 
 // set default S3 settings for this server, if any
-if (config.server_id) {
-	// see if this server has a specific bucket
+if ( config.server_id ) {
+    // see if this server has a specific bucket
     for ( const server of config.servers ) {
         if ( server.id !== config.server_id ) continue;
         if ( ! server.s3_bucket ) continue;
 
         config.s3_bucket = server.s3_bucket;
         config.s3_region = server.region;
-	}
+    }
 }
 
-config.contact_email = 'hey@' + config.domain;
+config.contact_email = `hey@${config.domain}`;
 
 // TODO: default value will be changed to false in a future release;
 //       details to follow in a future announcement.
@@ -135,7 +135,7 @@ if ( config.os.platform === 'linux' ) {
             config.os.distro = 'arch';
             config.os.archbtw = true;
         }
-    } catch (_) {
+    } catch( _ ) {
         // We don't care if we can't read this file;
         // we'll just assume it's not a Linux distro.
     }
@@ -143,7 +143,7 @@ if ( config.os.platform === 'linux' ) {
 
 // config.os.refined specifies if Puter is running within a host environment
 // where a higher level of user configuration and control is expected.
-config.os.refined = config.os.archbtw;
+config.os.refined = config.os.archbtw || true;
 
 if ( config.os.refined ) {
     config.no_browser_launch = true;
@@ -153,14 +153,14 @@ module.exports = config;
 
 // NEW_CONFIG_LOADING
 const maybe_port = config =>
-    config.pub_port !== 80 && config.pub_port !== 443 ? ':' + config.pub_port : '';
+    config.pub_port !== 80 && config.pub_port !== 443 ? `:${config.pub_port}` : '';
 
 const computed_defaults = {
     pub_port: config => config.http_port,
-    origin: config => config.protocol + '://' + config.domain + maybe_port(config),
+    origin: config => `${config.protocol}://${config.domain}${maybe_port(config)}`,
     api_base_url: config => config.experimental_no_subdomain
         ? config.origin
-        : config.protocol + '://api.' + config.domain + maybe_port(config),
+        : `${config.protocol}://api.${config.domain}${maybe_port(config)}`,
     social_card: config => `${config.origin}/assets/img/screenshot.png`,
 };
 
@@ -185,7 +185,7 @@ const config_pointer = {};
         };
         replacement_config = deep_proto_merge(replacement_config, Object.getPrototypeOf(config_pointer), {
             preserve_flag: true,
-        })
+        });
         Object.setPrototypeOf(config_pointer, replacement_config);
     };
 
@@ -197,37 +197,37 @@ const config_pointer = {};
 // We have some values with computed defaults
 {
     const get_implied = (target, prop) => {
-        if (prop in computed_defaults) {
+        if ( prop in computed_defaults ) {
             return computed_defaults[prop](target);
         }
         return undefined;
     };
     config_to_export = new Proxy(config_to_export, {
         get: (target, prop, receiver) => {
-            if (prop in target) {
+            if ( prop in target ) {
                 return target[prop];
             } else {
                 return get_implied(config_to_export, prop);
             }
-        }
-    })
+        },
+    });
 }
 
 // We'd like to store values changed at runtime separately
 // for easier runtime debugging
 {
     const config_runtime_values = {
-        $: 'runtime-values'
+        $: 'runtime-values',
     };
     let initialPrototype = config_to_export;
     Object.setPrototypeOf(config_runtime_values, config_to_export);
-    config_to_export = config_runtime_values
-    
+    config_to_export = config_runtime_values;
+
     config_to_export.__set_config_object__ = (object, options = {}) => {
         // options for this method
         const replacePrototype = options.replacePrototype ?? true;
         const useInitialPrototype = options.useInitialPrototype ?? true;
-        
+
         // maybe replace prototype
         if ( replacePrototype ) {
             const newProto = useInitialPrototype
@@ -235,7 +235,7 @@ const config_pointer = {};
                 : Object.getPrototypeOf(config_runtime_values);
             Object.setPrototypeOf(object, newProto);
         }
-        
+
         // use this object as the prototype
         Object.setPrototypeOf(config_runtime_values, object);
     };
@@ -244,14 +244,14 @@ const config_pointer = {};
     // confusing issues, so we log any time this happens
     config_to_export = new Proxy(config_to_export, {
         set: (target, prop, value, receiver) => {
-            console.log(
-                '\x1B[36;1mCONFIGURATION MUTATED AT RUNTIME\x1B[0m',
-                prop, 'to', value
-            );
+            console.log('\x1B[36;1mCONFIGURATION MUTATED AT RUNTIME\x1B[0m',
+                            prop,
+                            'to',
+                            value);
             target[prop] = value;
             return true;
-        }
-    })
+        },
+    });
 }
 
 module.exports = config_to_export;
