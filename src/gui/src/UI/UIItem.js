@@ -554,6 +554,10 @@ function UIItem(options){
     
     }else{
         $(el_item).on('dblclick', async function (e) {
+            // if target was not .item-icon-icon or .item-name, skip the rest of the code
+            if(!$(e.target).hasClass('item-icon-icon') && !$(e.target).hasClass('item-icon') && !$(e.target).hasClass('item-name') && !$(e.target).hasClass('item-badges'))
+                return false;
+
             // if item is disabled, do not allow any action
             if($(el_item).hasClass('item-disabled'))
                 return false;
@@ -588,6 +592,10 @@ function UIItem(options){
             $(".context-menu").remove();
             return false;
         }
+
+        // if target was not .item-icon-icon or .item-name, skip the rest of the code
+        if(!$(e.target).hasClass('item-icon-icon') && !$(e.target).hasClass('item-icon') && !$(e.target).hasClass('item-name') && !$(e.target).hasClass('item-badges'))
+            return false;
 
         // unselect other items if neither CTRL nor Command key are held
         // or
@@ -773,6 +781,11 @@ function UIItem(options){
         // if editing item name, preserve native context menu
         if(event.target === el_item_name_editor)
             return;
+
+        // if target was not .item-icon-icon or .item-name, skip the rest of the code
+        if(!$(event.target).hasClass('item-icon-icon') && !$(event.target).hasClass('item-icon') && !$(event.target).hasClass('item-name') && !$(event.target).hasClass('item-badges')){
+            return false;
+        }
 
         event.preventDefault();
         let menu_items;

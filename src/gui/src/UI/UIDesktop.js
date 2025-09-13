@@ -856,8 +856,18 @@ async function UIDesktop(options) {
         if ($target.is('input') || $target.is('textarea'))
             return true
 
+        let contextmenu_on_desktop_items = false;
+
+        if ($target.hasClass('item') && $target.closest('.desktop').length > 0){
+            contextmenu_on_desktop_items = true;
+            // unselect all items
+            $(el_desktop).children('.item-selected').removeClass('item-selected');
+            // close other context menus
+            $('.context-menu').remove();
+        }
+
         // custom ctxmenu for all other elements
-        if (event.target === el_desktop) {
+        if (event.target === el_desktop || contextmenu_on_desktop_items) {
             event.preventDefault();
             UIContextMenu({
                 items: [
