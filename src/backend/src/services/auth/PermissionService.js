@@ -20,9 +20,11 @@
 
 const APIError = require('../../api/APIError');
 const { get_user, get_app } = require('../../helpers');
+const { reading_has_terminal } = require('../../unstructured/permission-scan-lib');
 const BaseService = require('../BaseService');
 const { DB_WRITE } = require('../database/consts');
 const { UserActorType, Actor, AppUnderUserActorType } = require('./Actor');
+const { PermissionUtil } = require('./PermissionUtils.mjs');
 
 /**
  * Permission rewriters are used to map one set of permission strings to another.
@@ -146,102 +148,6 @@ class PermissionExploder {
     */
     async explode({ actor, permission }) {
         return await this.exploder({ actor, permission });
-    }
-}
-
-/**
-* The PermissionUtil class provides utility methods for handling
-* permission strings and operations, including splitting, joining,
-* escaping, and unescaping permission components. It also includes
-* functionality to convert permission reading structures into options.
-*/
-class PermissionUtil {
-    static unescape_permission_component(component) {
-        let unescaped_str = '';
-        // Constant for unescaped permission component string
-        const STATE_NORMAL = {};
-        // Constant for escaping special characters in permission strings
-        const STATE_ESCAPE = {};
-        let state = STATE_NORMAL;
-        const const_escapes = { C: ':' };
-        for ( let i = 0 ; i < component.length ; i++ ) {
-            const c = component[i];
-            if ( state === STATE_NORMAL ) {
-                if ( c === '\\' ) {
-                    state = STATE_ESCAPE;
-                } else {
-                    unescaped_str += c;
-                }
-            } else if ( state === STATE_ESCAPE ) {
-                unescaped_str += const_escapes.hasOwnProperty(c)
-                    ? const_escapes[c] : c;
-                state = STATE_NORMAL;
-            }
-        }
-        return unescaped_str;
-    }
-
-    static escape_permission_component(component) {
-        let escaped_str = '';
-        for ( let i = 0 ; i < component.length ; i++ ) {
-            const c = component[i];
-            if ( c === ':' ) {
-                escaped_str += '\\C';
-                continue;
-            }
-            escaped_str += c;
-        }
-        return escaped_str;
-    }
-
-    static split(permission) {
-        return permission
-            .split(':')
-            .map(PermissionUtil.unescape_permission_component)
-        ;
-    }
-
-    static join(...components) {
-        return components
-            .map(PermissionUtil.escape_permission_component)
-            .join(':')
-        ;
-    }
-
-    static reading_to_options(
-        // actual arguments
-        reading, parameters = {},
-        // recursion state
-        options = [], extras = [], path = [],
-    ) {
-        const to_path_item = finding => ({
-            key: finding.key,
-            holder: finding.holder_username,
-            data: finding.data,
-        });
-        for ( let finding of reading ) {
-            if ( finding.$ === 'option' ) {
-                path = [to_path_item(finding), ...path];
-                options.push({
-                    ...finding,
-                    data: [
-                        ...(finding.data ? [finding.data] : []),
-                        ...extras,
-                    ],
-                    path,
-                });
-            }
-            if ( finding.$ === 'path' ) {
-                if ( finding.has_terminal === false ) continue;
-                const new_extras = ( finding.data ) ? [
-                    finding.data,
-                    ...extras,
-                ] : [];
-                const new_path = [to_path_item(finding), ...path];
-                this.reading_to_options(finding.reading, parameters, options, new_extras, new_path);
-            }
-        }
-        return options;
     }
 }
 
@@ -384,6 +290,67 @@ class PermissionService extends BaseService {
         return reading;
     }
 
+    async validateUserPerms({ actor, permissions, state }){
+
+        let sqlPermQuery = permissions.map(_perm => {
+            return '`permission` = ?';
+        }).join(' OR ');
+
+        if ( permissions.length > 1 ) {
+            sqlPermQuery = `(${sqlPermQuery})`;
+        }
+
+        const rows = await this.db.read('SELECT * FROM `user_to_user_permissions` ' +
+            `WHERE \`holder_user_id\` = ? AND ${
+                sqlPermQuery}`,
+        [
+            actor.type.user.id,
+            ...permissions,
+        ]);
+
+        const readings = [];
+        // Return the first matching permission where the
+        // issuer also has the permission granted
+        for ( const row of rows ) {
+            row.extra = this.db.case({
+                mysql: () => row.extra,
+                otherwise: () => JSON.parse(row.extra ?? '{}'),
+            })();
+
+            const issuer_actor = new Actor({
+                type: new UserActorType({
+                    user: await get_user({ id: row.issuer_user_id }),
+                }),
+            });
+
+            let should_continue = false;
+            for ( const seen_actor of state.anti_cycle_actors ) {
+                if ( seen_actor.type.user.id === issuer_actor.type.user.id ) {
+                    should_continue = true;
+                    break;
+                }
+            }
+
+            if ( should_continue ) continue;
+
+            const issuer_reading = await this.scan(issuer_actor, row.permission, undefined, state);
+
+            const has_terminal = reading_has_terminal({ reading: issuer_reading });
+
+            readings.push({
+                $: 'path',
+                via: 'user',
+                has_terminal,
+                permission: row.permission,
+                data: row.extra,
+                holder_username: actor.type.user.username,
+                issuer_username: issuer_actor.type.user.username,
+                reading: issuer_reading,
+            });
+        }
+        return readings;
+    }
+
     /**
     * Grants a user permission to interact with another user.
     *
@@ -437,7 +404,7 @@ class PermissionService extends BaseService {
         };
 
         const sql_cols = Object.keys(audit_values).map((key) => `\`${key}\``).join(', ');
-        const sql_vals = Object.keys(audit_values).map((key) => '?').join(', ');
+        const sql_vals = Object.keys(audit_values).map(() => '?').join(', ');
 
         await this.db.write(`INSERT INTO \`audit_user_to_app_permissions\` (${sql_cols}) ` +
             `VALUES (${sql_vals})`,
@@ -498,7 +465,7 @@ class PermissionService extends BaseService {
         };
 
         const sql_cols = Object.keys(audit_values).map((key) => `\`${key}\``).join(', ');
-        const sql_vals = Object.keys(audit_values).map((key) => '?').join(', ');
+        const sql_vals = Object.keys(audit_values).map(() => '?').join(', ');
 
         await this.db.write(`INSERT INTO \`audit_dev_to_app_permissions\` (${sql_cols}) ` +
             `VALUES (${sql_vals})`,
@@ -542,7 +509,7 @@ class PermissionService extends BaseService {
         };
 
         const sql_cols = Object.keys(audit_values).map((key) => `\`${key}\``).join(', ');
-        const sql_vals = Object.keys(audit_values).map((key) => '?').join(', ');
+        const sql_vals = Object.keys(audit_values).map(() => '?').join(', ');
 
         await this.db.write(`INSERT INTO \`audit_dev_to_app_permissions\` (${sql_cols}) ` +
             `VALUES (${sql_vals})`,
@@ -578,7 +545,7 @@ class PermissionService extends BaseService {
         };
 
         const sql_cols = Object.keys(audit_values).map((key) => `\`${key}\``).join(', ');
-        const sql_vals = Object.keys(audit_values).map((key) => '?').join(', ');
+        const sql_vals = Object.keys(audit_values).map(() => '?').join(', ');
 
         await this.db.write(`INSERT INTO \`audit_dev_to_app_permissions\` (${sql_cols}) ` +
             `VALUES (${sql_vals})`,
@@ -636,7 +603,7 @@ class PermissionService extends BaseService {
         };
 
         const sql_cols = Object.keys(audit_values).map((key) => `\`${key}\``).join(', ');
-        const sql_vals = Object.keys(audit_values).map((key) => '?').join(', ');
+        const sql_vals = Object.keys(audit_values).map(() => '?').join(', ');
 
         await this.db.write(`INSERT INTO \`audit_user_to_app_permissions\` (${sql_cols}) ` +
             `VALUES (${sql_vals})`,
@@ -681,7 +648,7 @@ class PermissionService extends BaseService {
         };
 
         const sql_cols = Object.keys(audit_values).map((key) => `\`${key}\``).join(', ');
-        const sql_vals = Object.keys(audit_values).map((key) => '?').join(', ');
+        const sql_vals = Object.keys(audit_values).map(() => '?').join(', ');
 
         await this.db.write(`INSERT INTO \`audit_user_to_app_permissions\` (${sql_cols}) ` +
             `VALUES (${sql_vals})`,
@@ -733,7 +700,7 @@ class PermissionService extends BaseService {
         ]);
 
         // INSERT audit table
-        await this.db.write('INSERT INTO `audit_user_to_user_permissions` (' +
+        await  this.db.write('INSERT INTO `audit_user_to_user_permissions` (' +
             '`holder_user_id`, `holder_user_id_keep`, `issuer_user_id`, `issuer_user_id_keep`, ' +
             '`permission`, `action`, `reason`) ' +
             'VALUES (?, ?, ?, ?, ?, ?, ?)',
@@ -1097,7 +1064,7 @@ class PermissionService extends BaseService {
         commands.registerCommands('perms', [
             {
                 id: 'grant-user-app',
-                handler: async (args, log) => {
+                handler: async (args) => {
                     const [ username, app_uid, permission, extra ] = args;
 
                     // actor from username
