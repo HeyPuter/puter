@@ -2138,6 +2138,9 @@ $(document).on('click', '.start-app', async function (e) {
     $(".popover").fadeOut(200, function () {
         $(".popover").remove();
     });
+    $(".context-menu").fadeOut(200, function(){
+        $(this).remove();
+    });
 })
 
 $(document).on('click', '.user-options-login-btn', async function (e) {
