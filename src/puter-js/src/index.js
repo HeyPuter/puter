@@ -1,31 +1,33 @@
-import OS from './modules/OS.js';
-import { PuterJSFileSystemModule } from './modules/FileSystem/index.js';
-import Hosting from './modules/Hosting.js';
-import Apps from './modules/Apps.js';
-import UI from './modules/UI.js';
-import KV from './modules/KV.js';
-import AI from './modules/AI.js';
-import Auth from './modules/Auth.js';
-import FSItem from './modules/FSItem.js';
-import * as utils from './lib/utils.js';
-import path from './lib/path.js';
-import Util from './modules/Util.js';
-import Drivers from './modules/Drivers.js';
 import putility from '@heyputer/putility';
-import { FSRelayService } from './services/FSRelay.js';
-import { FilesystemService } from './services/Filesystem.js';
-import { APIAccessService } from './services/APIAccess.js';
-import { XDIncomingService } from './services/XDIncoming.js';
-import { NoPuterYetService } from './services/NoPuterYet.js';
-import { Debug } from './modules/Debug.js';
-import { PSocket } from './modules/networking/PSocket.js';
-import { PTLSSocket } from "./modules/networking/PTLS.js"
-import Threads from './modules/Threads.js';
-import Perms from './modules/Perms.js';
-import { pFetch } from './modules/networking/requests.js';
+
+import APICallLogger from './lib/APICallLogger.js';
+import path from './lib/path.js';
 import localStorageMemory from './lib/polyfills/localStorage.js'
 import xhrshim from './lib/polyfills/xhrshim.js'
+import * as utils from './lib/utils.js';
+import AI from './modules/AI.js';
+import Apps from './modules/Apps.js';
+import Auth from './modules/Auth.js';
+import { Debug } from './modules/Debug.js';
+import Drivers from './modules/Drivers.js';
+import { PuterJSFileSystemModule } from './modules/FileSystem/index.js';
+import FSItem from './modules/FSItem.js';
+import Hosting from './modules/Hosting.js';
+import KV from './modules/KV.js';
+import { PSocket } from './modules/networking/PSocket.js';
+import { PTLSSocket } from "./modules/networking/PTLS.js"
+import { pFetch } from './modules/networking/requests.js';
+import OS from './modules/OS.js';
+import Perms from './modules/Perms.js';
+import Threads from './modules/Threads.js';
+import UI from './modules/UI.js';
+import Util from './modules/Util.js';
 import { WorkersHandler } from './modules/Workers.js';
+import { APIAccessService } from './services/APIAccess.js';
+import { FilesystemService } from './services/Filesystem.js';
+import { FSRelayService } from './services/FSRelay.js';
+import { NoPuterYetService } from './services/NoPuterYet.js';
+import { XDIncomingService } from './services/XDIncoming.js';
 
 // TODO: This is for a safe-guard below; we should check if we can
 //       generalize this behavior rather than hard-coding it.
@@ -253,6 +255,11 @@ export default globalThis.puter = (function() {
             this.logger = new putility.libs.log.LoggerFacade({
                 impl: logger,
                 cat: cat_logger,
+            });
+
+            // Initialize API call logger
+            this.apiCallLogger = new APICallLogger({
+                enabled: false // Disabled by default
             });
 
             // === START :: Services === //
@@ -585,6 +592,41 @@ export default globalThis.puter = (function() {
                 document.body.innerHTML += arg;
             }
         }
+    
+        /**
+         * Configures API call logging settings
+         * @param {Object} config - Configuration options for API call logging
+         * @param {boolean} config.enabled - Enable/disable API call logging
+          * @param {boolean} config.enabled - Enable/disable API call logging
+         */
+        configureAPILogging = function(config = {}){
+            if (this.apiCallLogger) {
+                this.apiCallLogger.updateConfig(config);
+            }
+            return this;
+        }
+    
+        /**
+         * Enables API call logging with optional configuration
+         * @param {Object} config - Optional configuration to apply when enabling
+         */
+        enableAPILogging = function(config = {}) {
+            if (this.apiCallLogger) {
+                this.apiCallLogger.updateConfig({ ...config, enabled: true });
+            }
+            return this;
+        }
+    
+        /**
+         * Disables API call logging
+         */
+        disableAPILogging = function() {
+            if (this.apiCallLogger) {
+                this.apiCallLogger.disable();
+            }
+            return this;
+        }
+    
     }
 
     // Create a new Puter object and return it
