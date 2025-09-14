@@ -1475,7 +1475,7 @@ async function suggest_app_for_fsentry(fsentry, options){
 
     monitor.label("third party associations");
     for ( const app_id of apps ) {
-        this.suggested_apps_promises.push((async () => {
+        suggested_apps_promises.push((async () => {
             // retrieve app from DB
             const third_party_app = await get_app({id: app_id})
             if ( ! third_party_app ) return;
