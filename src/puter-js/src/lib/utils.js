@@ -80,7 +80,8 @@ function uuidv4(){
 function initXhr(endpoint, APIOrigin, authToken, method= "post", contentType = "application/json;charset=UTF-8", responseType = undefined) {
     const xhr = new XMLHttpRequest();
     xhr.open(method, APIOrigin + endpoint, true);
-    xhr.setRequestHeader("Authorization", "Bearer " + authToken);
+    if (authToken)
+        xhr.setRequestHeader("Authorization", "Bearer " + authToken);
     xhr.setRequestHeader("Content-Type", contentType);
     xhr.responseType = responseType ?? '';
     
