@@ -17,28 +17,28 @@
  * You should have received a copy of the GNU Affero General Public License
  * along with this program.  If not, see <https://www.gnu.org/licenses/>.
  */
-const { AdvancedBase } = require('@heyputer/putility');
-const Library = require('./definitions/Library');
-const { NotificationES } = require('./om/entitystorage/NotificationES');
-const { ProtectedAppES } = require('./om/entitystorage/ProtectedAppES');
+const { AdvancedBase } = require("@heyputer/putility");
+const Library = require("./definitions/Library");
+const { NotificationES } = require("./om/entitystorage/NotificationES");
+const { ProtectedAppES } = require("./om/entitystorage/ProtectedAppES");
 const { Context } = require('./util/context');
-const { LLOWrite } = require('./filesystem/ll_operations/ll_write');
-const { LLRead } = require('./filesystem/ll_operations/ll_read');
+const { LLOWrite } = require("./filesystem/ll_operations/ll_write");
+const { LLRead } = require("./filesystem/ll_operations/ll_read");
+
+
 
 /**
  * Core module for the Puter platform that includes essential services including
  * authentication, filesystems, rate limiting, permissions, and various API endpoints.
- *
+ * 
  * This is a monolithic module. Incrementally, services should be migrated to
  * Core2Module and other modules instead. Core2Module has a smaller scope, and each
  * new module will be a cohesive concern. Once CoreModule is empty, it will be removed
  * and Core2Module will take on its name.
  */
 class CoreModule extends AdvancedBase {
-    dirname() {
-        return __dirname;
-    }
-    async install(context) {
+    dirname () { return __dirname; }
+    async install (context) {
         const services = context.get('services');
         const app = context.get('app');
         const useapi = context.get('useapi');
@@ -47,16 +47,16 @@ class CoreModule extends AdvancedBase {
     }
 
     /**
-   * Installs legacy services that don't extend BaseService and require special handling.
-   * These services were created before the BaseService class existed and don't listen
-   * to the init event. They need to be installed after the init event is dispatched
-   * due to initialization order dependencies.
-   *
-   * @param {Object} context - The context object containing service references
-   * @param {Object} context.services - Service registry for registering legacy services
-   * @returns {Promise<void>} Resolves when legacy services are installed
-   */
-    async install_legacy(context) {
+    * Installs legacy services that don't extend BaseService and require special handling.
+    * These services were created before the BaseService class existed and don't listen
+    * to the init event. They need to be installed after the init event is dispatched
+    * due to initialization order dependencies.
+    * 
+    * @param {Object} context - The context object containing service references
+    * @param {Object} context.services - Service registry for registering legacy services
+    * @returns {Promise<void>} Resolves when legacy services are installed
+    */
+    async install_legacy (context) {
         const services = context.get('services');
         await install_legacy({ services });
     }
@@ -70,6 +70,7 @@ module.exports = CoreModule;
 const install = async ({ services, app, useapi, modapi }) => {
     const config = require('./config');
 
+
     // === LIBRARIES ===
 
     useapi.withuse(() => {
@@ -82,13 +83,13 @@ const install = async ({ services, app, useapi, modapi }) => {
         def('puter.middlewares.auth', require('./middleware/auth2'));
         def('puter.middlewares.configurable_auth', require('./middleware/configurable_auth'));
         def('puter.middlewares.anticsrf', require('./middleware/anticsrf'));
-
+        
         def('core.APIError', require('./api/APIError'));
         def('core.Context', Context);
-
+        
         def('core', require('./services/auth/Actor'), { assign: true });
         def('core.config', config);
-
+        
         // Note: this is an incomplete export; it was added for a proprietary
         // extension. Contributors may wish to add definitions in the 'fs.'
         // scope. Needing to add these individually is possibly a symptom of an
@@ -103,17 +104,17 @@ const install = async ({ services, app, useapi, modapi }) => {
         def('web', require('./util/expressutil'));
         def('core.validation', require('@heyputer/backend-core-0').validation);
     });
-
+    
     useapi.withuse(() => {
         const ArrayUtil = require('./libraries/ArrayUtil');
         services.registerService('util-array', ArrayUtil);
-
+    
         const LibTypeTagged = require('./libraries/LibTypeTagged');
         services.registerService('lib-type-tagged', LibTypeTagged);
     });
 
     modapi.libdir('core.util', './util');
-
+    
     // === SERVICES ===
 
     // /!\ IMPORTANT /!\
@@ -128,7 +129,7 @@ const install = async ({ services, app, useapi, modapi }) => {
     const { DevConsoleService } = require('./services/DevConsoleService');
     const { RateLimitService } = require('./services/sla/RateLimitService');
     const { AuthService } = require('./services/auth/AuthService');
-    const { PreAuthService } = require('./services/auth/PreAuthService');
+    const { PreAuthService } = require("./services/auth/PreAuthService");
     const { SLAService } = require('./services/sla/SLAService');
     const { PermissionService } = require('./services/auth/PermissionService');
     const { ACLService } = require('./services/auth/ACLService');
@@ -154,16 +155,14 @@ const install = async ({ services, app, useapi, modapi }) => {
     const { ESBuilder } = require('./om/entitystorage/ESBuilder');
     const { Eq, Or } = require('./om/query/query');
     const { TrackSpendingService } = require('./services/TrackSpendingService');
-    const {
-        MakeProdDebuggingLessAwfulService,
-    } = require('./services/MakeProdDebuggingLessAwfulService');
+    const { MakeProdDebuggingLessAwfulService } = require('./services/MakeProdDebuggingLessAwfulService');
     const { ConfigurableCountingService } = require('./services/ConfigurableCountingService');
     const { FSLockService } = require('./services/fs/FSLockService');
     const { StrategizedService } = require('./services/StrategizedService');
     const FilesystemAPIService = require('./services/FilesystemAPIService');
     const ServeGUIService = require('./services/ServeGUIService');
     const PuterAPIService = require('./services/PuterAPIService');
-    const { RefreshAssociationsService } = require('./services/RefreshAssociationsService');
+    const { RefreshAssociationsService } = require("./services/RefreshAssociationsService");
     // Service names beginning with '__' aren't called by other services;
     // these provide data/functionality to other services or produce
     // side-effects from the events of other services.
@@ -180,11 +179,9 @@ const install = async ({ services, app, useapi, modapi }) => {
     services.registerService('es:app', EntityStoreService, {
         entity: 'app',
         upstream: ESBuilder.create([
-            SQLES,
-            { table: 'app', debug: true },
+            SQLES, { table: 'app', debug: true, },
             AppES,
-            AppLimitedES,
-            {
+            AppLimitedES, {
                 // When apps query es:apps, they're allowed to see apps which
                 // are approved for listing and they're allowed to see their
                 // own entry.
@@ -200,7 +197,7 @@ const install = async ({ services, app, useapi, modapi }) => {
                                 key: 'uid',
                                 value: actor.type.app.uid,
                             }),
-                        ],
+                        ]
                     });
                 },
             },
@@ -208,47 +205,42 @@ const install = async ({ services, app, useapi, modapi }) => {
             ValidationES,
             SetOwnerES,
             ProtectedAppES,
-            MaxLimitES,
-            { max: 5000 },
+            MaxLimitES, { max: 5000 },
         ]),
     });
 
     const { EntriService } = require('./services/EntriService.js');
-    services.registerService('entri-service', EntriService);
-
+    services.registerService("entri-service", EntriService)
+    
     const { InformationService } = require('./services/information/InformationService');
-    services.registerService('information', InformationService);
-
+    services.registerService('information', InformationService)
+    
     const { FilesystemService } = require('./filesystem/FilesystemService');
     services.registerService('filesystem', FilesystemService);
 
     services.registerService('es:subdomain', EntityStoreService, {
         entity: 'subdomain',
         upstream: ESBuilder.create([
-            SQLES,
-            { table: 'subdomains', debug: true },
+            SQLES, { table: 'subdomains', debug: true, },
             SubdomainES,
             AppLimitedES,
             WriteByOwnerOnlyES,
             ValidationES,
             SetOwnerES,
-            MaxLimitES,
-            { max: 5000 },
+            MaxLimitES, { max: 5000 },
         ]),
     });
     services.registerService('es:notification', EntityStoreService, {
         entity: 'notification',
         upstream: ESBuilder.create([
-            SQLES,
-            { table: 'notification', debug: true },
+            SQLES, { table: 'notification', debug: true },
             NotificationES,
             OwnerLimitedES,
             ReadOnlyES,
             SetOwnerES,
-            MaxLimitES,
-            { max: 200 },
+            MaxLimitES, { max: 200 },
         ]),
-    });
+    })
     services.registerService('rate-limit', RateLimitService);
     services.registerService('auth', AuthService);
     // services.registerService('preauth', PreAuthService);
@@ -269,7 +261,7 @@ const install = async ({ services, app, useapi, modapi }) => {
             napi: [NAPIThumbnailService],
             purejs: [PureJSThumbnailService],
             http: [HTTPThumbnailService],
-        },
+        }
     });
     services.registerService('__refresh-assocs', RefreshAssociationsService);
     services.registerService('__prod-debugging', MakeProdDebuggingLessAwfulService);
@@ -301,7 +293,7 @@ const install = async ({ services, app, useapi, modapi }) => {
     const { OTPService } = require('./services/auth/OTPService');
     services.registerService('otp', OTPService);
 
-    const { UserProtectedEndpointsService } = require('./services/web/UserProtectedEndpointsService');
+    const { UserProtectedEndpointsService } = require("./services/web/UserProtectedEndpointsService");
     services.registerService('__user-protected-endpoints', UserProtectedEndpointsService);
 
     const { AntiCSRFService } = require('./services/auth/AntiCSRFService');
@@ -322,39 +314,39 @@ const install = async ({ services, app, useapi, modapi }) => {
     const { DevTODService } = require('./services/DevTODService');
     services.registerService('__dev-tod', DevTODService);
 
-    const { CostService } = require('./services/drivers/CostService');
+    const { CostService } = require("./services/drivers/CostService");
     services.registerService('cost', CostService);
 
-    const { DriverService } = require('./services/drivers/DriverService');
+    const { DriverService } = require("./services/drivers/DriverService");
     services.registerService('driver', DriverService);
 
     const { ScriptService } = require('./services/ScriptService');
     services.registerService('script', ScriptService);
-
+    
     const { NotificationService } = require('./services/NotificationService');
     services.registerService('notification', NotificationService);
 
     const { ShareService } = require('./services/ShareService');
     services.registerService('share', ShareService);
-
+    
     const { GroupService } = require('./services/auth/GroupService');
     services.registerService('group', GroupService);
 
     const { VirtualGroupService } = require('./services/auth/VirtualGroupService');
     services.registerService('virtual-group', VirtualGroupService);
-
+    
     const { PermissionAPIService } = require('./services/PermissionAPIService');
     services.registerService('__permission-api', PermissionAPIService);
 
     const { AnomalyService } = require('./services/AnomalyService');
     services.registerService('anomaly', AnomalyService);
-
+    
     const { HelloWorldService } = require('./services/HelloWorldService');
     services.registerService('hello-world', HelloWorldService);
-
+    
     const { SystemDataService } = require('./services/SystemDataService');
     services.registerService('system-data', SystemDataService);
-
+    
     const { SUService } = require('./services/SUService');
     services.registerService('su', SUService);
 
@@ -381,7 +373,7 @@ const install = async ({ services, app, useapi, modapi }) => {
 
     const { VerifiedGroupService } = require('./services/VerifiedGroupService');
     services.registerService('__verified-group', VerifiedGroupService);
-
+    
     const { UserService } = require('./services/UserService');
     services.registerService('user', UserService);
 
@@ -393,7 +385,7 @@ const install = async ({ services, app, useapi, modapi }) => {
 
     const { PerformanceMonitor } = require('./monitor/PerformanceMonitor');
     services.registerService('performance-monitor', PerformanceMonitor);
-
+    
     const { WispService } = require('./services/WispService');
     services.registerService('wisp', WispService);
     // const { AWSSecretsPopulator } = require('./services/AWSSecretsPopulator.js');
@@ -411,11 +403,12 @@ const install = async ({ services, app, useapi, modapi }) => {
     services.registerService('__chat-api', ChatAPIService);
 
     const { WorkerService } = require('./services/worker/WorkerService');
-    services.registerService('worker-service', WorkerService);
+    services.registerService("worker-service", WorkerService)
+
 
     const { PermissionShortcutService } = require('./services/auth/PermissionShortcutService');
     services.registerService('permission-shortcut', PermissionShortcutService);
-};
+}
 
 const install_legacy = async ({ services }) => {
     const { OperationTraceService } = require('./services/OperationTraceService');
@@ -429,4 +422,5 @@ const install_legacy = async ({ services }) => {
     services.registerService('file-cache', FileCacheService);
     services.registerService('client-operation', ClientOperationService);
     services.registerService('engineering-portal', EngPortalService);
+
 };
