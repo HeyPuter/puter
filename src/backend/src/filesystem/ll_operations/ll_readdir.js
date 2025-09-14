@@ -18,6 +18,7 @@
  */
 const APIError = require("../../api/APIError");
 const fsCapabilities = require("../definitions/capabilities");
+const { ECMAP } = require("../ECMAP");
 const { TYPE_SYMLINK } = require("../FSNodeContext");
 const { RootNodeSelector } = require("../node/selectors");
 const { NodeUIDSelector, NodeChildSelector } = require("../node/selectors");
@@ -25,7 +26,12 @@ const { LLFilesystemOperation } = require("./definitions");
 
 class LLReadDir extends LLFilesystemOperation {
     static CONCERN = 'filesystem';
-    async _run () {
+    async _run() {
+        return ECMAP.arun(async () => {
+            return await this.__run();
+        });
+    }
+    async __run () {
         const { context } = this;
         const { subject: subject_let, actor, no_acl } = this.values;
         let subject = subject_let;

@@ -1,23 +1,23 @@
 /*
  * Copyright (C) 2025-present Puter Technologies Inc.
- * 
+ *
  * This file is part of Puter.
- * 
+ *
  * Puter is free software: you can redistribute it and/or modify
  * it under the terms of the GNU Affero General Public License as published
  * by the Free Software Foundation, either version 3 of the License, or
  * (at your option) any later version.
- * 
+ *
  * This program is distributed in the hope that it will be useful,
  * but WITHOUT ANY WARRANTY; without even the implied warranty of
  * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
  * GNU Affero General Public License for more details.
- * 
+ *
  * You should have received a copy of the GNU Affero General Public License
  * along with this program.  If not, see <https://www.gnu.org/licenses/>.
  */
 
-const BaseService = require("../../services/BaseService");
+const BaseService = require('../../services/BaseService');
 
 /**
 * Service class that manages KVStore interface registrations.
@@ -29,10 +29,10 @@ class KVStoreInterfaceService extends BaseService {
     * Service class for managing KVStore interface registrations.
     * Extends the base service to provide key-value store interface management.
     */
-    async ['__on_driver.register.interfaces'] () {
+    async ['__on_driver.register.interfaces']() {
         const svc_registry = this.services.get('registry');
         const col_interfaces = svc_registry.get('interfaces');
-        
+
         // Register the puter-kvstore interface
         col_interfaces.set('puter-kvstore', {
             description: 'A simple key-value store.',
@@ -41,16 +41,15 @@ class KVStoreInterfaceService extends BaseService {
                     description: 'Get a value by key.',
                     parameters: {
                         key: { type: 'json', required: true },
-                        app_uid: { type: 'string', optional: true },
                     },
                     result: { type: 'json' },
                 },
                 set: {
                     description: 'Set a value by key.',
                     parameters: {
-                        key: { type: 'string', required: true, },
+                        key: { type: 'string', required: true },
                         value: { type: 'json' },
-                        app_uid: { type: 'string', optional: true },
+                        expireAt: { type: 'number' },
                     },
                     result: { type: 'void' },
                 },
@@ -58,7 +57,6 @@ class KVStoreInterfaceService extends BaseService {
                     description: 'Delete a value by key.',
                     parameters: {
                         key: { type: 'string' },
-                        app_uid: { type: 'string', optional: true },
                     },
                     result: { type: 'void' },
                 },
@@ -68,7 +66,6 @@ class KVStoreInterfaceService extends BaseService {
                         as: {
                             type: 'string',
                         },
-                        app_uid: { type: 'string', optional: true },
                     },
                     result: { type: 'array' },
                 },
@@ -80,26 +77,44 @@ class KVStoreInterfaceService extends BaseService {
                 incr: {
                     description: 'Increment a value by key.',
                     parameters: {
-                        key: { type: 'string', required: true, },
+                        key: { type: 'string', required: true },
                         amount: { type: 'number' },
-                        app_uid: { type: 'string', optional: true },
+
                     },
                     result: { type: 'number' },
                 },
                 decr: {
                     description: 'Decrement a value by key.',
                     parameters: {
-                        key: { type: 'string', required: true, },
+                        key: { type: 'string', required: true },
                         amount: { type: 'number' },
-                        app_uid: { type: 'string', optional: true },
+
                     },
                     result: { type: 'number' },
                 },
-            }
+                expireAt: {
+                    description: 'Set a key to expire at a given timestamp in sec.',
+                    parameters: {
+                        key: { type: 'string', required: true },
+                        timestamp: { type: 'number', required: true },
+
+                    },
+                    result: { type: 'number' },
+                },
+                expire: {
+                    description: 'Set a key to expire in ttl many seconds.',
+                    parameters: {
+                        key: { type: 'string', required: true },
+                        ttl: { type: 'number', required: true },
+
+                    },
+                    result: { type: 'number' },
+                },
+            },
         });
     }
 }
 
 module.exports = {
-    KVStoreInterfaceService
+    KVStoreInterfaceService,
 };

@@ -736,13 +736,14 @@ async function UIDesktop(options) {
     };
 
     // update default apps
-    puter.kv.list('user_preferences.default_apps.*').then(async (default_app_keys) => {
-        for (let key in default_app_keys) {
-            user_preferences[default_app_keys[key].substring(17)] = await puter.kv.get(default_app_keys[key]);
+    {
+        const entries = await puter.kv.list('user_preferences.default_apps.*', true);
+        for ( const entry of entries ) {
+            user_preferences[entry.key.substring(17)] = entry.value;
         }
 
         window.update_user_preferences(user_preferences);
-    });
+    }
 
     // Append to <body>
     $('body').append(h);
@@ -1255,7 +1256,7 @@ async function UIDesktop(options) {
                 $('.show-desktop-btn').removeClass('hidden');
             }
         } catch (e) {
-            console.error(e);
+            console.error('UIDesktop app path launch error', e);
         }
 
         // get query params, any param that doesn't start with 'puter.' will be passed to the app

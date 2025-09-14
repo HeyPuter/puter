@@ -19,6 +19,7 @@
 const { Context } = require("../../util/context");
 const { HLFilesystemOperation } = require("./definitions");
 const APIError = require('../../api/APIError');
+const { ECMAP } = require("../ECMAP");
 
 class HLStat extends HLFilesystemOperation {
     static MODULES = {
@@ -26,6 +27,16 @@ class HLStat extends HLFilesystemOperation {
     }
 
     async _run () {
+        return await ECMAP.arun(async () => {
+            const ecmap = Context.get(ECMAP.SYMBOL);
+            ecmap.store_fsNodeContext(this.values.subject);
+            return await this.__run();
+        });
+    }
+    // async _run () {
+    //     return await this.__run();
+    // }
+    async __run () {
         const {
             subject, user,
             return_subdomains,
@@ -35,7 +46,10 @@ class HLStat extends HLFilesystemOperation {
             return_size,
         } = this.values;
 
-        await subject.fetchEntry();
+        await Promise.all([
+            subject.fetchEntry(),
+            subject.fetchIsEmpty(),
+        ]);
 
         // file not found
         if( ! subject.found ) throw APIError.create('subject_does_not_exist');
@@ -60,8 +74,6 @@ class HLStat extends HLFilesystemOperation {
             await subject.fetchShares();
         }
         if (return_versions) await subject.fetchVersions();
-
-        await subject.fetchIsEmpty();
 
         return await subject.getSafeEntry();
     }

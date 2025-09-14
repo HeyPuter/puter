@@ -362,9 +362,7 @@ const fa = {
       "من کدهای بازیابی خود را در مکانی امن ذخیره کرده‌ام",
     setup2fa_5_confirmation_2: "آماده فعال کردن احراز هویت دو مرحله ای هستم",
     setup2fa_5_button: "فعال‌سازی احراز هویت دو مرحله‌ای",
-
-
-  // === 2FA Login ===
+    // === 2FA Login ===
     login2fa_otp_title: "کد احراز هویت دو مرحله‌ای را وارد کنید",
     login2fa_otp_instructions:
       "کد ۶ رقمی را از اپلیکیشن احراز هویت خود وارد کنید",
@@ -375,8 +373,7 @@ const fa = {
     login2fa_recovery_back: "بازگشت",
     login2fa_recovery_placeholder: "XXXXXXX",
 
-
-  // Sharing 
+    // Sharing 
     Editor: "ویرایشگر",
     Viewer: "مشاهده گر",
     "People with access": "افرادی که دسترسی دارند",
@@ -386,9 +383,7 @@ const fa = {
       "شما نمی‌توانید  با خودتان به اشتراک بگذارید",
     "This user already has access to this item":
       "این کاربر از قبل به این مورد دسترسی دارد",
-
-
-  // Billing
+    // Billing
     "billing.change_payment_method": "تغییر روش پرداخت",
     "billing.cancel": "لغو",
     "billing.download_invoice": "دانلود فاکتور",
@@ -435,8 +430,88 @@ const fa = {
     "billing.limited": "محدود",
     "billing.expanded": "گسترش یافته",
     "billing.accelerated": "تسریع شده",
-    "billing.enjoy_msg": "از %% فضای ذخیره‌سازی ابری به همراه سایر مزایا لذت ببرید."
+    "billing.enjoy_msg": "از %% فضای ذخیره‌سازی ابری به همراه سایر مزایا لذت ببرید.",
 
+    // =============================================================
+    // Missing translations
+    // =============================================================
+    "confirm_code_generic_title": undefined, // In English: "Enter Confirmation Code"
+    "choose_publishing_option": undefined, // In English: "Choose how you want to publish your website:"
+    "create_desktop_shortcut": undefined, // In English: "Create Shortcut (Desktop)"
+    "create_desktop_shortcut_s": undefined, // In English: "Create Shortcuts (Desktop)"
+    "create_shortcut_s": undefined, // In English: "Create Shortcuts"
+    "minimize": undefined, // In English: "Minimize"
+    "reload_app": undefined, // In English: "Reload App"
+    "new_window": undefined, // In English: "New Window"
+    "open_trash": undefined, // In English: "Open Trash"
+    "pick_name_for_worker": undefined, // In English: "Pick a name for your worker:"
+    "publish_as_serverless_worker": undefined, // In English: "Publish as Worker"
+    "toolbar.enter_fullscreen": undefined, // In English: "Enter Full Screen"
+    "toolbar.github": undefined, // In English: "GitHub"
+    "toolbar.refer": undefined, // In English: "Refer"
+    "toolbar.save_account": undefined, // In English: "Save Account"
+    "toolbar.search": undefined, // In English: "Search"
+    "toolbar.qrcode": undefined, // In English: "QR Code"
+    "used_of": undefined, // In English: "{{used}} used of {{available}}"
+    "worker": undefined, // In English: "Worker"
+    "billing.offering.basic": undefined, // In English: "Basic"
+    "too_many_attempts": undefined, // In English: "Too many attempts. Please try again later."
+    "server_timeout": undefined, // In English: "The server took too long to respond. Please try again."
+    "signup_error": undefined, // In English: "An error occurred during signup. Please try again."
+    "welcome_title": undefined, // In English: "Welcome to your Personal Internet Computer"
+    "welcome_description": undefined, // In English: "Store files, play games, find awesome apps, and much more! All in one place, accessible from anywhere at any time."
+    "welcome_get_started": undefined, // In English: "Get Started"
+    "welcome_terms": undefined, // In English: "Terms"
+    "welcome_privacy": undefined, // In English: "Privacy"
+    "welcome_developers": undefined, // In English: "Developers"
+    "welcome_open_source": undefined, // In English: "Open Source"
+    "welcome_instant_login_title": undefined, // In English: "Instant Login!"
+    "alert_error_title": undefined, // In English: "Error!"
+    "alert_warning_title": undefined, // In English: "Warning!"
+    "alert_info_title": undefined, // In English: "Info"
+    "alert_success_title": undefined, // In English: "Success!"
+    "alert_confirm_title": undefined, // In English: "Are you sure?"
+    "alert_yes": undefined, // In English: "Yes"
+    "alert_no": undefined, // In English: "No"
+    "alert_retry": undefined, // In English: "Retry"
+    "alert_cancel": undefined, // In English: "Cancel"
+    "signup_confirm_password": undefined, // In English: "Confirm Password"
+    "login_email_username_required": undefined, // In English: "Email or username is required"
+    "login_password_required": undefined, // In English: "Password is required"
+    "window_title_open": undefined, // In English: "Open"
+    "window_title_change_password": undefined, // In English: "Change Password"
+    "window_title_select_font": undefined, // In English: "Select font…"
+    "window_title_session_list": undefined, // In English: "Session List!"
+    "window_title_set_new_password": undefined, // In English: "Set New Password"
+    "window_title_instant_login": undefined, // In English: "Instant Login!"
+    "window_title_publish_website": undefined, // In English: "Publish Website"
+    "window_title_publish_worker": undefined, // In English: "Publish Worker"
+    "window_title_authenticating": undefined, // In English: "Authenticating..."
+    "window_title_refer_friend": undefined, // In English: "Refer a friend!"
+    "desktop_show_desktop": undefined, // In English: "Show Desktop"
+    "desktop_show_open_windows": undefined, // In English: "Show Open Windows"
+    "desktop_exit_full_screen": undefined, // In English: "Exit Full Screen"
+    "desktop_enter_full_screen": undefined, // In English: "Enter Full Screen"
+    "desktop_position": undefined, // In English: "Position"
+    "desktop_position_left": undefined, // In English: "Left"
+    "desktop_position_bottom": undefined, // In English: "Bottom"
+    "desktop_position_right": undefined, // In English: "Right"
+    "item_shared_with_you": undefined, // In English: "A user has shared this item with you."
+    "item_shared_by_you": undefined, // In English: "You have shared this item with at least one other user."
+    "item_shortcut": undefined, // In English: "Shortcut"
+    "item_associated_websites": undefined, // In English: "Associated website"
+    "item_associated_websites_plural": undefined, // In English: "Associated websites"
+    "no_suitable_apps_found": undefined, // In English: "No suitable apps found"
+    "window_click_to_go_back": undefined, // In English: "Click to go back."
+    "window_click_to_go_forward": undefined, // In English: "Click to go forward."
+    "window_click_to_go_up": undefined, // In English: "Click to go one directory up."
+    "window_title_public": undefined, // In English: "Public"
+    "window_title_videos": undefined, // In English: "Videos"
+    "window_title_pictures": undefined, // In English: "Pictures"
+    "window_title_puter": undefined, // In English: "Puter"
+    "window_folder_empty": undefined, // In English: "This folder is empty"
+    "manage_your_subdomains": undefined, // In English: "Manage Your Subdomains"
+    "open_containing_folder": undefined, // In English: "Open Containing Folder"
   },
 };
 

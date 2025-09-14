@@ -94,6 +94,7 @@ class FilesystemService extends BaseService {
         }));
         svc_permission.register_implicator(PermissionImplicator.create({
             id: 'is-owner',
+            shortcut: true,
             matcher: permission => {
                 return permission.startsWith('fs:');
             },
@@ -325,12 +326,10 @@ class FilesystemService extends BaseService {
         if ( typeof selector === 'string' ) {
             if ( selector.startsWith('/') ) {
                 selector = new NodePathSelector(selector);
-            } else {
-                selector = new NodeUIDSelector(selector);
             }
         }
 
-        // TEMP: remove when these objects aren't used anymore
+        // COERCE: legacy selection objects to Node*Selector objects
         if (
             typeof selector === 'object' &&
             selector.constructor.name === 'Object'
@@ -345,6 +344,33 @@ class FilesystemService extends BaseService {
             }
         }
 
+        system_dir_check: {
+            if ( ! (selector instanceof NodePathSelector) ) break system_dir_check;
+            if ( ! selector.value.startsWith('/')) break system_dir_check;
+
+            // OPTIMIZATION: Check if the path matches a system directory pattern.
+            const systemDirRegex = /^\/([a-zA-Z0-9_]+)\/(Trash|AppData|Desktop|Documents|Pictures|Videos|Public)$/;
+            const match = selector.value.match(systemDirRegex);
+            if ( ! match ) break system_dir_check;
+            
+            const username = match[1];
+            const dirName = match[2];
+
+            // Get the user object (this is likely cached).
+            const user = await get_user({ username });
+            if ( ! user ) break system_dir_check;
+
+            let uuidKey = ( selector.value === '/' + user.username )
+                ? 'home_uuid'
+                : `${dirName.toLowerCase()}_uuid`; // e.g., 'desktop_uuid'
+
+            const cachedUUID = user[uuidKey];
+            if ( ! cachedUUID ) break system_dir_check;
+
+            // If we have a cached ID, use it for more direct lookup.
+            selector = new NodeUIDSelector(cachedUUID);
+        }
+
         const svc_mountpoint = this.services.get('mountpoint');
         const provider = await svc_mountpoint.get_provider(selector);
 
@@ -354,6 +380,7 @@ class FilesystemService extends BaseService {
             selector,
             fs: this
         });
+        
         return fsNode;
     }
 

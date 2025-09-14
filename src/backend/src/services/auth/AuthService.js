@@ -414,7 +414,7 @@ class AuthService extends BaseService {
      * @param {*} permissions - The permissions to be granted to the access token.
      * @returns 
      */
-    async create_access_token (authorizer, permissions) {
+    async create_access_token (authorizer, permissions, options) {
         const jwt_obj = {};
         const authorizer_obj = {};
         if ( authorizer.type instanceof UserActorType ) {
@@ -445,7 +445,7 @@ class AuthService extends BaseService {
             version: '0.0.0',
             token_uid: uuid,
             ...jwt_obj,
-        }, this.global_config.jwt_secret);
+        }, this.global_config.jwt_secret, options);
 
         for ( const permmission_spec of permissions ) {
             let [permission, extra] = permmission_spec;
