@@ -53,6 +53,7 @@ let _handle_multipart;
 module.exports = eggspress('/drivers/call', {
     subdomain: 'api',
     auth2: true,
+    // noReallyItsJson: true,
     allowedMethods: ['POST'],
 }, async (req, res, next) => {
     const x = Context.get();
@@ -63,6 +64,8 @@ module.exports = eggspress('/drivers/call', {
     if ( req.headers['content-type'].includes('multipart/form-data') ) {
         ({ params: body, p_data_end: p_request } = await _handle_multipart(req));
     } else body = req.body;
+
+    console.log("Driver call body: ")
 
     const interface_name = body.interface;
     const test_mode = body.test_mode;
