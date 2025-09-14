@@ -256,8 +256,8 @@ module.exports = class FSNodeContext {
         return components.length;
     }
     
-    async exists (fetch_options = {}) {
-        await this.fetchEntry();
+    async exists ({ fetch_options } = {}) {
+        await this.fetchEntry(fetch_options);
         if ( ! this.found ) {
             this.log.debug(
                 'here\'s why it doesn\'t exist: ' +
@@ -289,7 +289,13 @@ module.exports = class FSNodeContext {
      * @void
      */
     async fetchEntry (fetch_entry_options = {}) {
-        if ( this.fetching !== null ) await this.fetching;
+        if ( this.fetching !== null ) {
+            await Context.get('services').get('traceService').spanify(async () => {
+                // ???: does this need to be double-checked? I'm not actually sure...
+                if ( this.fetching === null ) return;
+                await this.fetching;
+            });
+        }
         this.fetching = new putility.libs.promise.TeePromise();
 
         if (

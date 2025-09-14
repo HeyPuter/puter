@@ -17,6 +17,7 @@
  * along with this program.  If not, see <https://www.gnu.org/licenses/>.
  */
 const APIError = require("../../api/APIError");
+const { Context } = require("../../util/context");
 const { stream_to_buffer } = require("../../util/streamutil");
 const { ECMAP } = require("../ECMAP");
 const { TYPE_DIRECTORY, TYPE_SYMLINK } = require("../FSNodeContext");
@@ -29,6 +30,8 @@ class HLReadDir extends HLFilesystemOperation {
     static CONCERN = 'filesystem';
     async _run() {
         return ECMAP.arun(async () => {
+            const ecmap = Context.get(ECMAP.SYMBOL);
+            ecmap.store_fsNodeContext(this.values.subject);
             return await this.__run();
         });
     }
@@ -83,12 +86,18 @@ class HLReadDir extends HLFilesystemOperation {
         }
 
         return Promise.all(children.map(async child => {
-            // await child.fetchAll(null, user);
+            // When thumbnails are requested, fetching before the call to
+            // .getSafeEntry prevents .fetchEntry (possibly called by
+            // .fetchSuggestedApps or .fetchSubdomains)
+            if ( ! no_thumbs ) {
+                await child.fetchEntry({ thumbnail: true });
+            }
+
             if ( ! no_assocs ) {
                 await child.fetchSuggestedApps(user);
                 await child.fetchSubdomains(user);
             }
-            const entry = await child.getSafeEntry({ thumbnail: ! no_thumbs });
+            const entry = await child.getSafeEntry();
             if ( ! no_thumbs && entry.associated_app ) {
                 const svc_appIcon = this.context.get('services').get('app-icon');
                 const icon_result = await svc_appIcon.get_icon_stream({
