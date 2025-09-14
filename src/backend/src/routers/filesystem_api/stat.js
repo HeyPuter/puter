@@ -27,6 +27,7 @@ module.exports = eggspress('/stat', {
     verified: true,
     fs: true,
     json: true,
+    noReallyItsJson: true,
     allowedMethods: ['GET', 'POST'],
     alias: {
         path: 'subject',

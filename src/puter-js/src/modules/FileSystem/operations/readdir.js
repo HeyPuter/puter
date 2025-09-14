@@ -1,3 +1,6 @@
+// This file exists but I'm pretty sure it's unused
+// if you're typing to modify the stat implementation look at src/puter-js/src/lib/filesystem/APIFS.js
+
 import * as utils from '../../../lib/utils.js';
 import getAbsolutePathForApp from '../utils/getAbsolutePathForApp.js';
 

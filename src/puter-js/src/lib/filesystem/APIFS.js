@@ -16,7 +16,8 @@ export class PuterAPIFilesystem extends putility.AdvancedBase {
                 this.ensure_auth_();
                 const tp = new TeePromise();
 
-                const xhr = new utils.initXhr('/stat', this.api_info.APIOrigin, this.api_info.authToken);
+
+                const xhr = new utils.initXhr('/stat', this.api_info.APIOrigin, undefined, "post", "text/plain");
                 utils.setupXhrEventHandlers(xhr, undefined, undefined,
                     tp.resolve.bind(tp),
                     tp.reject.bind(tp),
@@ -35,6 +36,8 @@ export class PuterAPIFilesystem extends putility.AdvancedBase {
                 dataToSend.return_permissions = options.returnPermissions;
                 dataToSend.return_versions = options.returnVersions;
                 dataToSend.return_size = options.returnSize;
+                dataToSend.auth_token = this.api_info.authToken;
+
 
                 xhr.send(JSON.stringify(dataToSend));
 
@@ -44,13 +47,13 @@ export class PuterAPIFilesystem extends putility.AdvancedBase {
                 this.ensure_auth_();
                 const tp = new TeePromise();
 
-                const xhr = new utils.initXhr('/readdir', this.api_info.APIOrigin, this.api_info.authToken);
+                const xhr = new utils.initXhr('/readdir', this.api_info.APIOrigin, undefined, "post", "text/plain");
                 utils.setupXhrEventHandlers(xhr, undefined, undefined,
                     tp.resolve.bind(tp),
                     tp.reject.bind(tp),
                 );
 
-                xhr.send(JSON.stringify({path: getAbsolutePathForApp(options.path)}));
+                xhr.send(JSON.stringify({ path: getAbsolutePathForApp(options.path), auth_token: this.api_info.authToken }));
 
                 return await tp;
             },
