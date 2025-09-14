@@ -1,23 +1,3 @@
-/**
- * Copyright (C) 2024-present Puter Technologies Inc.
- *
- * This file is part of Puter.
- *
- * Puter is free software: you can redistribute it and/or modify
- * it under the terms of the GNU Affero General Public License as published
- * by the Free Software Foundation, either version 3 of the License, or
- * (at your option) any later version.
- *
- * This program is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU Affero General Public License for more details.
- *
- * You should have received a copy of the GNU Affero General Public License
- * along with this program.  If not, see <https://www.gnu.org/licenses/>.
- */
-
-
 const fa = {
   name: "فارسی",
   english_name: "Farsi",
@@ -25,69 +5,68 @@ const fa = {
   dictionary: {
     about: "درباره",
     account: "حساب کاربری",
-    account_password: "تایید رمزعبور",
-    access_granted_to: "دسترسی داده شده به",
-    add_existing_account: "افزودن حساب کاربری موجود",
-    all_fields_required: "تمامی فیلدها الزامی هستند.",
-    allow: "اجازه دسترسی",
+    account_password: "تایید رمز عبور",
+    access_granted_to: "دسترسی داده شد به",
+    add_existing_account: "افزودن حساب موجود",
+    all_fields_required: "پر کردن همه فیلدها الزامی است.",
+    allow: "اجازه",
     apply: "اعمال",
     ascending: "صعودی",
-    associated_websites: "وب سایت های مرتبط",
-    auto_arrange: "ترتیب خودکار",
-    background: "پس زمینه",
+    associated_websites: "وب‌سایت‌های مرتبط",
+    auto_arrange: "چینش خودکار",
+    background: "پس‌زمینه",
     browse: "مرور",
     cancel: "لغو",
     center: "مرکز",
     change: "تغییر",
-    change_always_open_with: "آیا می‌خواهید همیشه این نوع فایل را با ... باز کنید؟",
-    change_desktop_background: "تغییر پس زمینه دسکتاپ…",
+    change_always_open_with: "می‌خواهید همیشه این نوع فایل با ... باز شود؟",
+    change_desktop_background: "تغییر پس‌زمینه دسکتاپ…",
     change_email: "تغییر ایمیل",
     change_language: "تغییر زبان",
     change_password: "تغییر رمز عبور",
     change_ui_colors: "تغییر رنگ‌های رابط کاربری",
     change_username: "تغییر نام کاربری",
-    clock_visibility: "قابلیت دیدن ساعت",
+    clock_visibility: "نمایش ساعت",
     close: "بستن",
-    close_all_windows: "بستن همه پنجره ها",
-    close_all_windows_confirm: "آیا مطمئن هستید که می‌خواهید همه پنجره‌ها را ببندید؟",
-    close_all_windows_and_log_out: "بستن پنجره‌ها و خروج",
+    close_all_windows: "بستن همه پنجره‌ها",
+    close_all_windows_confirm: "آیا از بستن همه پنجره‌ها مطمئن هستید؟",
+    close_all_windows_and_log_out: "بستن همه پنجره‌ها و خروج",
     color: "رنگ",
-    confirm: "تایید",
-    confirm_2fa_setup: "کد را به برنامه تأیید هویت خود اضافه کرده‌ام",
-    confirm_2fa_recovery: "کدهای بازیابی خود را در یک مکان امن ذخیره کرده‌ام",
+    confirm: "تأیید",
+    confirm_2fa_setup: "کد را به برنامه تأیید هویت اضافه کردم",
+    confirm_2fa_recovery: "کدهای بازیابی را در مکانی امن ذخیره کرده‌ام",
     confirm_account_for_free_referral_storage_c2a:
-      "حساب کاربری خود را ایجاد کرده و آدرس ایمیل خود را تأیید کنید تا 1 گیگابایت فضای ذخیره سازی رایگان دریافت کنید. دوست شما هم 1 گیگابایت فضای ذخیره سازی رایگان دریافت خواهد کرد.",
+      "حساب خود را بسازید و ایمیل خود را تأیید کنید تا ۱ گیگابایت فضای رایگان دریافت کنید. دوست شما هم ۱ گیگابایت رایگان دریافت خواهد کرد.",
     confirm_code_generic_incorrect: "کد نادرست است",
     confirm_code_generic_too_many_requests:
-      "تعداددرخواست‌ها زیاداست. لطفاً چند دقیقه صبر کنید",
+      "تعداد درخواست‌ها زیاد است. لطفاً چند دقیقه صبر کنید",
     confirm_code_generic_submit: "ثبت کد",
     confirm_code_generic_try_again: "دوباره امتحان کنید",
-    confirm_code_2fa_instruction:
-      "کد ۶ رقمی را از برنامه تأیید هویت خود وارد کنید",
+    confirm_code_2fa_instruction: "کد ۶ رقمی را از برنامه تأیید هویت وارد کنید",
     confirm_code_2fa_submit_btn: "ثبت",
-    confirm_code_2fa_title: "کد احراز هویت دو مرحله ای را وارد کنید",
+    confirm_code_2fa_title: "کد احراز هویت دو مرحله‌ای را وارد کنید",
     confirm_delete_multiple_items:
       "آیا مطمئن هستید که می‌خواهید این موارد را برای همیشه حذف کنید؟",
     confirm_delete_single_item:
-      "آیا می‌خواهید این مورد را برای همیشه حذف کنید؟",
+      "آیا مطمئن هستید که می‌خواهید این مورد را برای همیشه حذف کنید؟",
     confirm_open_apps_log_out:
-      "یک یا چند برنامه شما هنوز باز است. آیا مطمئن هستید که می‌خواهید خارج شوید؟", // Translation is not word by word
+      "یک یا چند برنامه شما هنوز باز است. آیا مطمئن هستید که می‌خواهید خارج شوید؟",
     confirm_new_password: "تأیید رمز عبور جدید",
     confirm_delete_user:
-      "آیا مطمئن هستید که می‌خواهید حساب خود را حذف کنید؟ همه فایل‌ها و داده‌های شما برای همیشه حذف خواهند شد این عمل قابل برگرداندن نیست.",
+      "آیا مطمئن هستید که می‌خواهید حساب خود را حذف کنید؟ همه فایل‌ها و داده‌های شما به صورت دائمی حذف خواهند شد و این عمل قابل بازگشت نیست.",
     confirm_delete_user_title: "حذف حساب کاربری؟",
     confirm_session_revoke:
-      "آیا مطمئن هستید که می خواهید این نشست را لغو کنید؟", // TN: It's better to use session instead ofنشست
+      "آیا مطمئن هستید که می‌خواهید این نشست را لغو کنید؟",
     confirm_your_email_address: "ایمیل خود را تأیید کنید",
     contact_us: "تماس با ما",
     contact_us_verification_required:
-      "شما باید یک آدرس ایمیل تأیید شده داشته باشید تا بتوانید از این استفاده کنید ",
+      "برای استفاده از این بخش باید ایمیل خود را تأیید کنید.",
     contain: "شامل",
     continue: "ادامه",
     copy: "کپی",
     copy_link: "کپی لینک",
-    copying: "کپی",
-    copying_file: "درحال کپی کردن %%",
+    copying: "در حال کپی",
+    copying_file: "در حال کپی کردن %%...",
     cover: "جلد",
     create_account: "ایجاد حساب کاربری",
     create_free_account: "ایجاد حساب کاربری رایگان",
@@ -96,70 +75,70 @@ const fa = {
     current_password: "رمز عبور فعلی",
     cut: "برش",
     clock: "ساعت",
-    clock_visible_hide: "مخفی-همیشه مخفی",
-    clock_visible_show: "نمایش-همیشه قابل مشاهده",
-    clock_visible_auto:
-      "خودکار - به صورت پیش‌فرض، قابل مشاهده فقط در حالت تمام-صفحه",
+    clock_visible_hide: "مخفی - همیشه مخفی",
+    clock_visible_show: "نمایش - همیشه قابل مشاهده",
+    clock_visible_auto: "خودکار - فقط در حالت تمام صفحه قابل مشاهده",
     close_all: "بستن همه",
     created: "ایجاد شده",
     date_modified: "تاریخ تغییر",
-    default: "پیش فرض",
+    default: "پیش‌فرض",
     delete: "حذف",
     delete_account: "حذف حساب کاربری",
     delete_permanently: "حذف دائمی",
-    deleting_file: "در حال حذف %%",
+    deleting_file: "در حال حذف %%...",
     deploy_as_app: "نصب به عنوان برنامه",
     descending: "نزولی",
     desktop: "دسکتاپ",
     desktop_background_fit: "متناسب",
-    developers: "تولیدکنندگان نرم افزار",
+    developers: "توسعه‌دهندگان",
     dir_published_as_website: `%strong% منتشر شده به:`,
-    disable_2fa: "غیر فعال کردن احراز هویت دو مرحله ای",
+    disable_2fa: "غیرفعال کردن احراز هویت دو مرحله‌ای",
     disable_2fa_confirm:
-      "آیا مطمئن هستید که می‌خواهید احراز هویت دو مرحله ای را غیرفعال کنید؟",
+      "آیا مطمئن هستید که می‌خواهید احراز هویت دو مرحله‌ای را غیرفعال کنید؟",
     disable_2fa_instructions:
-      "برای غیرفعال کردن احراز هویت دو مرحله ای ،رمز عبور خود را وارد کنید",
+      "برای غیرفعال کردن احراز هویت دو مرحله‌ای، رمز عبور خود را وارد کنید",
     disassociate_dir: "قطع ارتباط دایرکتوری",
     documents: "اسناد",
     dont_allow: "عدم اجازه",
     download: "دانلود",
     download_file: "دانلود فایل",
-    downloading: "دانلود",
+    downloading: "در حال دانلود",
     email: "ایمیل",
     email_change_confirmation_sent:
-      "یک ایمیل تاییدیه به آدرس ایمیل جدید شما ارسال شده است. لطفاً صندوق ایمیلهای دریافتی خود را بررسی کرده و دستورالعمل‌ها را برای تکمیل فرایند دنبال کنید.", 
-    email_invalid: "ایمیل نا معتبر است",
+      "ایمیلی حاوی تأییدیه به آدرس ایمیل جدید شما ارسال شد. لطفاً صندوق ورودی خود را بررسی کنید و دستورالعمل‌ها را دنبال نمایید.",
+    email_invalid: "ایمیل نامعتبر است",
     email_or_username: "ایمیل یا نام کاربری",
     email_required: "وارد کردن ایمیل الزامی است",
     empty_trash: "خالی کردن سطل زباله",
-    empty_trash_confirmation: `آیا از حذف دائمی موارد در سطل زباله مطمئن هستید؟`,
+    empty_trash_confirmation:
+      "آیا از حذف دائمی موارد در سطل زباله مطمئن هستید؟",
     emptying_trash: "خالی کردن سطل زباله…",
-    enable_2fa: "فعال کردن احراز هویت دو مرحله ای",
-    end_hard: "پایان دادن سخت",
+    enable_2fa: "فعال کردن احراز هویت دو مرحله‌ای",
+    end_hard: "پایان سخت",
     end_process_force_confirm:
-      "آیا مطمئن هستید که می‌خواهید این فرآیند را به اجبار متوقف کنید؟",
-    end_soft: "پایان دادن نرم",
+      "آیا مطمئن هستید که می‌خواهید این فرآیند را به اجبار پایان دهید؟",
+    end_soft: "پایان نرم",
     enlarged_qr_code: "بارکد بزرگ شده",
     enter_password_to_confirm_delete_user:
-      "رمز عبور خود را برای تایید حذف حساب وارد کنید",
-    error_message_is_missing: "پیام خطا وجود ندارد",
-    error_unknown_cause: "یک خطای ناشناخته رخ داده است",
+      "رمز عبور خود را برای تأیید حذف حساب وارد کنید",
+    error_message_is_missing: "پیام خطا موجود نیست",
+    error_unknown_cause: "خطای ناشناخته رخ داده است",
     error_uploading_files: "بارگذاری فایل‌ها ناموفق بود",
     favorites: "موارد دلخواه",
     feedback: "بازخورد",
     feedback_c2a:
-      "لطفا از فرم زیر برای ارسال بازخورد، نظرات و گزارش خطا استفاده کنید.",
+      "لطفاً برای ارسال بازخورد، نظرات و گزارش خطا از فرم زیر استفاده کنید.",
     feedback_sent_confirmation:
-      "با تشکر از تماس شما. اگر ایمیلی به حساب کاربری شما متصل است، در اسرع وقت پاسخ خواهیم داد.",
+      "با تشکر از شما. در صورت اتصال ایمیل به حساب کاربری، پاسخ در اسرع وقت ارسال خواهد شد.",
     fit: "اندازه‌گذاری",
     folder: "پوشه",
     force_quit: "خروج اجباری",
-    forgot_pass_c2a: "رمز عبور را فراموش کرده اید؟",
+    forgot_pass_c2a: "رمز عبور را فراموش کرده‌اید؟",
     from: "از",
     general: "عمومی",
-    get_a_copy_of_on_puter: `یک نسخه از '%%' را در Puter.com بگیرید!`,
-    get_copy_link: "گرفتن لینک کپی",
-    hide_all_windows: "پنهان کردن همه پنجره ها",
+    get_a_copy_of_on_puter: `یک نسخه از '%%' را در Puter.com دریافت کنید!`,
+    get_copy_link: "دریافت لینک کپی",
+    hide_all_windows: "پنهان کردن همه پنجره‌ها",
     home: "خانه",
     html_document: "سند HTML",
     hue: "رنگ",
@@ -167,9 +146,10 @@ const fa = {
     incorrect_password: "رمز عبور نادرست است",
     invite_link: "لینک دعوت",
     item: "مورد",
-    items_in_trash_cannot_be_renamed: `این مورد نمی تواند تغییر نام دهد زیرا در سطل زباله است. برای تغییر نام این مورد، ابتدا آن را از سطل زباله بیرون بکشید.`,
+    items_in_trash_cannot_be_renamed:
+      "این مورد نمی‌تواند تغییر نام دهد زیرا در سطل زباله است. ابتدا آن را از سطل زباله خارج کنید.",
     jpeg_image: "تصویر JPEG",
-    keep_in_taskbar: "در نوار وظایف نگه دارید",
+    keep_in_taskbar: "نگه داشتن در نوار وظیفه",
     language: "زبان",
     license: "مجوز",
     lightness: "روشنایی",
@@ -178,19 +158,19 @@ const fa = {
     log_in: "ورود",
     log_into_another_account_anyway: "به هر حال وارد حساب دیگری شوید",
     log_out: "خروج",
-    looks_good: "خوب به نظر می‌رسد!",
+    looks_good: "به نظر خوب می‌رسد!",
     manage_sessions: "مدیریت نشست‌ها",
-    modified: "تغییر داده شده",
+    modified: "تغییر یافته",
     move: "انتقال",
-    moving_file: "انتقال %%",
-    my_websites: "وبسایت های من",
+    moving_file: "در حال انتقال %%...",
+    my_websites: "وب‌سایت‌های من",
     name: "نام",
-    name_cannot_be_empty: "نام نمی تواند خالی باشد.",
-    name_cannot_contain_double_period: "نام نمی تواند شامل '..' باشد.",
-    name_cannot_contain_period: "نام نمی تواند شامل '.' باشد.",
-    name_cannot_contain_slash: "نام نمی تواند شامل '/' باشد.",
-    name_must_be_string: "نام فقط می تواند یک رشته باشد.",
-    name_too_long: `نام نمی تواند بیشتر از %% کاراکتر باشد.`,
+    name_cannot_be_empty: "نام نمی‌تواند خالی باشد.",
+    name_cannot_contain_double_period: "نام نمی‌تواند شامل '..' باشد.",
+    name_cannot_contain_period: "نام نمی‌تواند شامل '.' باشد.",
+    name_cannot_contain_slash: "نام نمی‌تواند شامل '/' باشد.",
+    name_must_be_string: "نام باید یک رشته باشد.",
+    name_too_long: "نام نمی‌تواند بیش از %% کاراکتر باشد.",
     new: "جدید",
     new_email: "ایمیل جدید",
     new_folder: "پوشه جدید",
@@ -198,11 +178,11 @@ const fa = {
     new_username: "نام کاربری جدید",
     no: "خیر",
     no_dir_associated_with_site: "هیچ دایرکتوری مرتبط با این آدرس وجود ندارد.",
-    no_websites_published: "هنوز هیچ وبسایتی منتشر نکرده اید.",
-    ok: "خوب",
+    no_websites_published: "هنوز وب‌سایتی منتشر نکرده‌اید.",
+    ok: "تأیید",
     open: "باز کردن",
-    open_in_new_tab: "در تب جدید باز کن",
-    open_in_new_window: "در پنجره جدید باز کن",
+    open_in_new_tab: "باز کردن در تب جدید",
+    open_in_new_window: "باز کردن در پنجره جدید",
     open_with: "باز کردن با",
     original_name: "نام اصلی",
     original_path: "مسیر اصلی",
@@ -210,309 +190,195 @@ const fa = {
     password: "رمز عبور",
     password_changed: "رمز عبور تغییر یافت.",
     password_recovery_rate_limit:
-      "شما به محدودیت درخواست‌های ما رسیده‌اید؛ لطفاً چند دقیقه صبر کنید. برای جلوگیری از این مشکل در آینده، از بارگذاری مکرر صفحه خودداری کنید",
-    password_recovery_token_invalid:
-      "این توکن بازیابی رمز عبور دیگر معتبر نیست",
+      "به محدودیت درخواست‌ها رسیده‌اید. لطفاً چند دقیقه صبر کنید و از بارگذاری مکرر صفحه خودداری کنید.",
+    password_recovery_token_invalid: "این توکن بازیابی دیگر معتبر نیست",
     password_recovery_unknown_error:
-      "یک خطای ناشناخته رخ داده است. لطفاً بعداً دوباره تلاش کنید",
+      "خطای ناشناخته رخ داده است. بعداً دوباره تلاش کنید.",
     password_required: "وارد کردن رمز عبور الزامی است.",
     password_strength_error:
-      "رمز عبور باید حداقل ۸ کاراکتر داشته باشد و شامل حداقل یک حرف بزرگ، یک حرف کوچک، یک عدد و یک کاراکتر ویژه باشد", 
-    passwords_do_not_match:
-      "`رمز عبور جدید` و `تأیید رمز عبور جدید` مطابقت ندارند.",
+      "رمز عبور باید حداقل ۸ کاراکتر داشته باشد و شامل یک حرف بزرگ، یک حرف کوچک، یک عدد و یک کاراکتر ویژه باشد.",
+    passwords_do_not_match: "رمز عبور جدید و تأیید آن مطابقت ندارند.",
     paste: "چسباندن",
     paste_into_folder: "چسباندن در پوشه",
     path: "مسیر",
-    personalization: "شخصی سازی",
-    pick_name_for_website: "یک نام برای وبسایت خود انتخاب کنید:",
+    personalization: "شخصی‌سازی",
+    pick_name_for_website: "یک نام برای وب‌سایت خود انتخاب کنید:",
     picture: "تصویر",
     pictures: "تصاویر",
     plural_suffix: "ها",
-    powered_by_puter_js: `پشتیبانی شده توسط {{link=docs}}Puter.js{{/link}}`,
-    preparing: "در حال آماده سازی...",
-    preparing_for_upload: "آماده سازی برای بارگذاری...",
+    powered_by_puter_js: "پشتیبانی شده توسط {{link=docs}}Puter.js{{/link}}",
+    preparing: "در حال آماده‌سازی...",
+    preparing_for_upload: "آماده‌سازی برای بارگذاری...",
     print: "چاپ",
     privacy: "حریم خصوصی",
     proceed_to_login: "ادامه به ورود",
-    proceed_with_account_deletion: "ادامه به حذف حساب کاربری",
+    proceed_with_account_deletion: "ادامه به حذف حساب",
     process_status_initializing: "در حال راه‌اندازی",
     process_status_running: "در حال اجرا",
     process_type_app: "برنامه",
-    process_type_init: "راه اندازی",
+    process_type_init: "راه‌اندازی",
     process_type_ui: "رابط کاربری",
-    properties: "ویژگی ها",
+    properties: "ویژگی‌ها",
     public: "عمومی",
     publish: "انتشار",
-    publish_as_website: "انتشار به عنوان وبسایت",
+    publish_as_website: "انتشار به عنوان وب‌سایت",
     puter_description:
-      "پیوتر یک کلاود با اولویت حفظ حریم خصوصی است که همه فایل‌ها، برنامه‌ها و بازی‌های شما را در یک فضای امن نگه می‌دارد که از هر جا و هر زمان قابل دسترسی است",
-    reading: "%strong%درحال خواندن",
-    writing: "%strong%درحال نوشتن",
+      "پیوتر یک فضای ابری با اولویت حفظ حریم خصوصی است که همه فایل‌ها، برنامه‌ها و بازی‌های شما را در محیطی امن نگه می‌دارد و از هر زمان و مکانی قابل دسترسی است.",
+    reading: "در حال خواندن %strong%",
+    writing: "در حال نوشتن %strong%",
     recent: "اخیر",
     recommended: "پیشنهاد",
     recover_password: "بازیابی رمز عبور",
     refer_friends_c2a:
-      "برای هر دوستی که حساب کاربری Puter ایجاد و تأیید کند، 1 گیگابایت دریافت کنید. دوست شما هم 1 گیگابایت دریافت خواهد کرد!",
-    refer_friends_social_media_c2a: `1 گیگابایت فضای ذخیره سازی رایگان را در Puter.com بگیرید!`,
-    refresh: "تازه کردن",
-    release_address_confirmation: `آیا مطمئن هستید که می خواهید این آدرس را آزاد کنید؟`,
-    remove_from_taskbar: "از نوار وظایف حذف کن",
+      "برای هر دوستی که در Puter حساب بسازد و آن را تأیید کند، ۱ گیگابایت دریافت کنید. دوست شما هم ۱ گیگابایت دریافت خواهد کرد!",
+    refer_friends_social_media_c2a:
+      "۱ گیگابایت فضای رایگان در Puter.com دریافت کنید!",
+    refresh: "تازه‌سازی",
+    release_address_confirmation:
+      "آیا مطمئن هستید که می‌خواهید این آدرس را آزاد کنید؟",
+    remove_from_taskbar: "حذف از نوار وظیفه",
     rename: "تغییر نام",
     repeat: "تکرار",
-    replace: "جایگزین کردن",
+    replace: "جایگزینی",
     replace_all: "جایگزینی همه",
     resend_confirmation_code: "ارسال مجدد کد تأیید",
-    reset_colors: "بازنشانی رنگ ها",
+    reset_colors: "بازنشانی رنگ‌ها",
     restart_puter_confirm:
-      "آیا مطمئن هستید که می‌خواهید پیوتر را مجددا راه اندازی کنید",
+      "آیا مطمئن هستید که می‌خواهید پیوتر را مجدداً راه‌اندازی کنید؟",
     restore: "بازیابی",
     save: "ذخیره",
     saturation: "اشباع رنگ",
     save_account: "ذخیره حساب",
-    save_account_to_get_copy_link: "لطفا برای ادامه یک حساب کاربری ایجاد کنید.",
-    save_account_to_publish: "لطفا برای ادامه یک حساب کاربری ایجاد کنید.",
-    save_session: "ذخیره نشست", // TN:better to use session instead of نشست
+    save_account_to_get_copy_link: "برای ادامه لطفاً یک حساب ایجاد کنید.",
+    save_account_to_publish: "برای ادامه لطفاً یک حساب ایجاد کنید.",
+    save_session: "ذخیره نشست",
     save_session_c2a:
-      "برای ذخیره جلسه فعلی و جلوگیری از از دست دادن کار خود یک حساب کاربری ایجاد کنید.",
-    scan_qr_c2a:
-      "کد زیر را از دستگاه های دیگر اسکن کنید تا به این جلسه وارد شوید",
-    scan_qr_2fa: " بارکد را با برنامه تایید هویت خود اسکن کنید", 
-    scan_qr_generic: " این بارکد را با گوشی همراه خود یا وسیله دیگری اسکن کنید",
-    search: "جستجو", 
+      "برای ذخیره نشست فعلی و جلوگیری از از دست دادن کار خود، یک حساب کاربری ایجاد کنید.",
+    scan_qr_c2a: "کد زیر را از دستگاه دیگر اسکن کنید تا به این نشست وارد شوید.",
+    scan_qr_2fa: "بارکد را با اپلیکیشن تأیید هویت اسکن کنید",
+    scan_qr_generic: "این بارکد را با گوشی یا دستگاه دیگر اسکن کنید",
+    search: "جستجو",
     seconds: "ثانیه",
     security: "امنیت",
     select: "انتخاب",
     selected: "انتخاب شده",
     select_color: "انتخاب رنگ…",
-    sessions: "نشست ها",
+    sessions: "نشست‌ها",
     send: "ارسال",
     send_password_recovery_email: "ارسال ایمیل بازیابی رمز عبور",
-    session_saved: "با تشکر از ایجاد حساب کاربری. این جلسه ذخیره شده است.",
+    session_saved: "با تشکر از ایجاد حساب. این نشست ذخیره شد.",
     settings: "تنظیمات",
     set_new_password: "تنظیم رمز عبور جدید",
-    share: "به اشتراک گذاری",
-    share_to: "اشتراک گذاری به",
-    share_with: "اشتراک با",
+    share: "اشتراک‌گذاری",
+    share_to: "اشتراک‌گذاری به",
+    share_with: "اشتراک‌گذاری با",
     shortcut_to: "میانبر به",
-    show_all_windows: "نمایش همه پنجره ها",
-    show_hidden: "نمایش مخفی",
+    show_all_windows: "نمایش همه پنجره‌ها",
+    show_hidden: "نمایش مخفی‌ها",
     sign_in_with_puter: "ورود با Puter",
     sign_up: "ثبت نام",
-    signing_in: "ورود…",
+    signing_in: "در حال ورود…",
     size: "اندازه",
     skip: "رد کردن",
     something_went_wrong: "مشکلی پیش آمد",
-    sort_by: "مرتب سازی بر اساس",
+    sort_by: "مرتب‌سازی بر اساس",
     start: "شروع",
     status: "وضعیت",
-    storage_usage: "میزان استفاده شده از فضای ذخیره سازی",
+    storage_usage: "میزان استفاده از فضای ذخیره‌سازی",
     storage_puter_used: "استفاده شده توسط Puter",
-    taking_longer_than_usual: "کمی بیشتر از معمول طول می کشد. لطفا صبر کنید...",
+    taking_longer_than_usual: "کمی طولانی‌تر از معمول است. لطفاً صبر کنید...",
     task_manager: "مدیر وظایف",
     taskmgr_header_name: "نام",
     taskmgr_header_status: "وضعیت",
     taskmgr_header_type: "نوع",
     terms: "شرایط",
     text_document: "سند متنی",
-    tos_fineprint: `با کلیک بر روی 'ایجاد حساب کاربری رایگان' شما با {{link=terms}}شرایط خدمات{{/link}} و {{link=privacy}}سیاست حفظ حریم خصوصی{{/link}} Puter موافقت می کنید.`,
+    tos_fineprint:
+      "با کلیک بر 'ایجاد حساب رایگان' شما با {{link=terms}}شرایط خدمات{{/link}} و {{link=privacy}}سیاست حفظ حریم خصوصی{{/link}} Puter موافقت می‌کنید.",
     transparency: "شفافیت",
     trash: "سطل زباله",
-    two_factor: "احراز هویت دو مرحله ای",
-    two_factor_disabled: "احراز هویت دو مرحله ای غیر فعال شد",
-    two_factor_enabled: "احراز هویت دو مرحله ای فعال شد",
+    two_factor: "احراز هویت دو مرحله‌ای",
+    two_factor_disabled: "احراز هویت دو مرحله‌ای غیر فعال شد",
+    two_factor_enabled: "احراز هویت دو مرحله‌ای فعال شد",
     type: "نوع",
-    type_confirm_to_delete_account:
-      "عبارت 'تأیید' را برای حذف حساب خود وارد کنید",
+    type_confirm_to_delete_account: "برای حذف حساب، عبارت 'تأیید' را وارد کنید",
     ui_colors: "رنگ‌های رابط کاربری",
-    ui_manage_sessions: "مدیریت نشستها", // TN: better to use sessions instead of نشستها
+    ui_manage_sessions: "مدیریت نشست‌ها",
     ui_revoke: "لغو",
-    undo: "بازگشت",
+    undo: "بازگردانی",
     unlimited: "نامحدود",
     unzip: "باز کردن فایل فشرده",
-    unzipping: " %strong%در حال استخراج ",
+    unzipping: "در حال استخراج %strong%",
     upload: "بارگذاری",
     upload_here: "اینجا بارگذاری کنید",
     usage: "استفاده",
     username: "نام کاربری",
-    username_changed: "نام کاربری با موفقیت به روز شد.",
+    username_changed: "نام کاربری با موفقیت تغییر یافت.",
     username_required: "وارد کردن نام کاربری الزامی است",
-    versions: "نسخه ها",
-    videos: "ویدیو ها",
-    visibility: "قابلیت دیده شدن",
+    versions: "نسخه‌ها",
+    videos: "ویدیوها",
+    visibility: "قابلیت مشاهده",
     yes: "بله",
-    yes_release_it: "بله، آن را آزاد کن",
+    yes_release_it: "بله، آزاد کن",
     you_have_been_referred_to_puter_by_a_friend:
-      "شما توسط یک دوست به Puter معرفی شده اید!",
-    zip: "فشرده سازی",
-    sequencing: "%strong%ترتیب بندی",
-    zipping: "%strong%درحال فشرده سازی",
-
-  
-  // === 2FA Setup ===
-    setup2fa_1_step_heading: "برنامه تأیید هویت خود را باز کنید",
-    setup2fa_1_instructions:
-      "شما می‌توانید از هر برنامه تأیید هویتی که از پروتکل رمز یکبار مصرف مبتنی بر زمان (TOTP) پشتیبانی می‌کند استفاده کنید. اگر مطمئن نیستید، <a target='_blank' href='https://authy.com/download'>Authy</a> یک انتخاب مناسب برای اندروید و iOS است.",
-    setup2fa_2_step_heading: " بارکد را اسکن کنید ",
-    setup2fa_3_step_heading: "کد ۶ رقمی را وارد کنید",
-    setup2fa_4_step_heading: "کدهای بازیابی خود را کپی کنید",
-    setup2fa_4_instructions:
-      "این کدهای بازیابی تنها راه دسترسی به حساب شما هستند در صورتی که تلفن خود را گم کنید یا نتوانید از برنامه تأیید هویت استفاده کنید. مطمئن شوید که آنها را در مکانی امن ذخیره کرده‌اید.",
-    setup2fa_5_step_heading: "تنظیمات احراز هویت دو مرحله ای را تایید کنید",
-    setup2fa_5_confirmation_1:
-      "من کدهای بازیابی خود را در مکانی امن ذخیره کرده‌ام",
-    setup2fa_5_confirmation_2: "آماده فعال کردن احراز هویت دو مرحله ای هستم",
-    setup2fa_5_button: "فعال‌سازی احراز هویت دو مرحله‌ای",
-    // === 2FA Login ===
-    login2fa_otp_title: "کد احراز هویت دو مرحله‌ای را وارد کنید",
-    login2fa_otp_instructions:
-      "کد ۶ رقمی را از اپلیکیشن احراز هویت خود وارد کنید",
-    login2fa_recovery_title: "یک کد بازیابی وارد کنید",
-    login2fa_recovery_instructions:
-      "یکی از کدهای بازیابی خود را برای دسترسی به حساب خود وارد کنید",
-    login2fa_use_recovery_code: "از کد بازیابی استفاده کنید",
-    login2fa_recovery_back: "بازگشت",
-    login2fa_recovery_placeholder: "XXXXXXX",
-
-    // Sharing 
-    Editor: "ویرایشگر",
-    Viewer: "مشاهده گر",
-    "People with access": "افرادی که دسترسی دارند",
-    "Share With…": "اشتراک گذاری با...",
-    Owner: "مالک",
-    "You can't share with yourself.":
-      "شما نمی‌توانید  با خودتان به اشتراک بگذارید",
-    "This user already has access to this item":
-      "این کاربر از قبل به این مورد دسترسی دارد",
-    // Billing
-    "billing.change_payment_method": "تغییر روش پرداخت",
-    "billing.cancel": "لغو",
-    "billing.download_invoice": "دانلود فاکتور",
-    "billing.payment_method": "روش پرداخت",
-    "billing.payment_method_updated": "روش پرداخت به‌روزرسانی شد!",
-    "billing.confirm_payment_method": "تأیید روش پرداخت",
-    "billing.payment_history": "تاریخچه پرداخت",
-    "billing.refunded": "بازپرداخت شده",
-    "billing.paid": "پرداخت شده",
-    "billing.ok": "تأیید",
-    "billing.resume_subscription": "از سرگیری اشتراک",
-    "billing.subscription_cancelled": "اشتراک شما لغو شده است.",
-    "billing.subscription_cancelled_description": "شما تا پایان این دوره صورتحساب همچنان به اشتراک خود دسترسی خواهید داشت.",
-    "billing.offering.free": "رایگان",
-    "billing.offering.pro": "حرفه‌ای",
-    "billing.offering.professional": "حرفه‌ای",
-    "billing.offering.business": "تجاری",
-    "billing.cloud_storage": "فضای ذخیره‌سازی ابری",
-    "billing.ai_access": "دسترسی به هوش مصنوعی",
-    "billing.bandwidth": "پهنای باند",
-    "billing.apps_and_games": "برنامه‌ها و بازی‌ها",
-    "billing.upgrade_to_pro": "ارتقا به %strong%",
-    "billing.switch_to": "تغییر به %strong%",
-    "billing.payment_setup": "تنظیم پرداخت",
-    "billing.back": "بازگشت",
-    "billing.you_are_now_subscribed_to": "شما اکنون مشترک سطح %strong% هستید.",
-    "billing.you_are_now_subscribed_to_without_tier": "شما اکنون مشترک شده‌اید",
-    "billing.subscription_cancellation_confirmation": "آیا مطمئن هستید که می‌خواهید اشتراک خود را لغو کنید؟",
-    "billing.subscription_setup": "تنظیم اشتراک",
-    "billing.cancel_it": "لغو کن",
-    "billing.keep_it": "نگه دار",
-    "billing.subscription_resumed": "اشتراک %strong% شما از سر گرفته شد!",
-    "billing.upgrade_now": "هم‌اکنون ارتقا دهید",
-    "billing.upgrade": "ارتقا",
-    "billing.currently_on_free_plan": "شما در حال حاضر در طرح رایگان هستید.",
-    "billing.download_receipt": "دانلود رسید",
-    "billing.subscription_check_error": "هنگام بررسی وضعیت اشتراک شما مشکلی پیش آمد.",
-    "billing.email_confirmation_needed": "ایمیل شما تأیید نشده است. ما اکنون یک کد برای تأیید آن ارسال خواهیم کرد.",
-    "billing.sub_cancelled_but_valid_until": "شما اشتراک خود را لغو کرده‌اید و در پایان دوره صورتحساب به طور خودکار به سطح رایگان تغییر خواهد کرد. تا زمانی که مجدداً مشترک نشوید، هزینه‌ای از شما دریافت نخواهد شد.",
-    "billing.current_plan_until_end_of_period": "طرح فعلی شما تا پایان این دوره صورتحساب.",
-    "billing.current_plan": "طرح فعلی",
-    "billing.cancelled_subscription_tier": "اشتراک لغو شده (%%)",
-    "billing.manage": "مدیریت",
-    "billing.limited": "محدود",
-    "billing.expanded": "گسترش یافته",
-    "billing.accelerated": "تسریع شده",
-    "billing.enjoy_msg": "از %% فضای ذخیره‌سازی ابری به همراه سایر مزایا لذت ببرید.",
-
-    // =============================================================
-    // Missing translations
-    // =============================================================
-    "confirm_code_generic_title": undefined, // In English: "Enter Confirmation Code"
-    "choose_publishing_option": undefined, // In English: "Choose how you want to publish your website:"
-    "create_desktop_shortcut": undefined, // In English: "Create Shortcut (Desktop)"
-    "create_desktop_shortcut_s": undefined, // In English: "Create Shortcuts (Desktop)"
-    "create_shortcut_s": undefined, // In English: "Create Shortcuts"
-    "minimize": undefined, // In English: "Minimize"
-    "reload_app": undefined, // In English: "Reload App"
-    "new_window": undefined, // In English: "New Window"
-    "open_trash": undefined, // In English: "Open Trash"
-    "pick_name_for_worker": undefined, // In English: "Pick a name for your worker:"
-    "publish_as_serverless_worker": undefined, // In English: "Publish as Worker"
-    "toolbar.enter_fullscreen": undefined, // In English: "Enter Full Screen"
-    "toolbar.github": undefined, // In English: "GitHub"
-    "toolbar.refer": undefined, // In English: "Refer"
-    "toolbar.save_account": undefined, // In English: "Save Account"
-    "toolbar.search": undefined, // In English: "Search"
-    "toolbar.qrcode": undefined, // In English: "QR Code"
-    "used_of": undefined, // In English: "{{used}} used of {{available}}"
-    "worker": undefined, // In English: "Worker"
-    "billing.offering.basic": undefined, // In English: "Basic"
-    "too_many_attempts": undefined, // In English: "Too many attempts. Please try again later."
-    "server_timeout": undefined, // In English: "The server took too long to respond. Please try again."
-    "signup_error": undefined, // In English: "An error occurred during signup. Please try again."
-    "welcome_title": undefined, // In English: "Welcome to your Personal Internet Computer"
-    "welcome_description": undefined, // In English: "Store files, play games, find awesome apps, and much more! All in one place, accessible from anywhere at any time."
-    "welcome_get_started": undefined, // In English: "Get Started"
-    "welcome_terms": undefined, // In English: "Terms"
-    "welcome_privacy": undefined, // In English: "Privacy"
-    "welcome_developers": undefined, // In English: "Developers"
-    "welcome_open_source": undefined, // In English: "Open Source"
-    "welcome_instant_login_title": undefined, // In English: "Instant Login!"
-    "alert_error_title": undefined, // In English: "Error!"
-    "alert_warning_title": undefined, // In English: "Warning!"
-    "alert_info_title": undefined, // In English: "Info"
-    "alert_success_title": undefined, // In English: "Success!"
-    "alert_confirm_title": undefined, // In English: "Are you sure?"
-    "alert_yes": undefined, // In English: "Yes"
-    "alert_no": undefined, // In English: "No"
-    "alert_retry": undefined, // In English: "Retry"
-    "alert_cancel": undefined, // In English: "Cancel"
-    "signup_confirm_password": undefined, // In English: "Confirm Password"
-    "login_email_username_required": undefined, // In English: "Email or username is required"
-    "login_password_required": undefined, // In English: "Password is required"
-    "window_title_open": undefined, // In English: "Open"
-    "window_title_change_password": undefined, // In English: "Change Password"
-    "window_title_select_font": undefined, // In English: "Select font…"
-    "window_title_session_list": undefined, // In English: "Session List!"
-    "window_title_set_new_password": undefined, // In English: "Set New Password"
-    "window_title_instant_login": undefined, // In English: "Instant Login!"
-    "window_title_publish_website": undefined, // In English: "Publish Website"
-    "window_title_publish_worker": undefined, // In English: "Publish Worker"
-    "window_title_authenticating": undefined, // In English: "Authenticating..."
-    "window_title_refer_friend": undefined, // In English: "Refer a friend!"
-    "desktop_show_desktop": undefined, // In English: "Show Desktop"
-    "desktop_show_open_windows": undefined, // In English: "Show Open Windows"
-    "desktop_exit_full_screen": undefined, // In English: "Exit Full Screen"
-    "desktop_enter_full_screen": undefined, // In English: "Enter Full Screen"
-    "desktop_position": undefined, // In English: "Position"
-    "desktop_position_left": undefined, // In English: "Left"
-    "desktop_position_bottom": undefined, // In English: "Bottom"
-    "desktop_position_right": undefined, // In English: "Right"
-    "item_shared_with_you": undefined, // In English: "A user has shared this item with you."
-    "item_shared_by_you": undefined, // In English: "You have shared this item with at least one other user."
-    "item_shortcut": undefined, // In English: "Shortcut"
-    "item_associated_websites": undefined, // In English: "Associated website"
-    "item_associated_websites_plural": undefined, // In English: "Associated websites"
-    "no_suitable_apps_found": undefined, // In English: "No suitable apps found"
-    "window_click_to_go_back": undefined, // In English: "Click to go back."
-    "window_click_to_go_forward": undefined, // In English: "Click to go forward."
-    "window_click_to_go_up": undefined, // In English: "Click to go one directory up."
-    "window_title_public": undefined, // In English: "Public"
-    "window_title_videos": undefined, // In English: "Videos"
-    "window_title_pictures": undefined, // In English: "Pictures"
-    "window_title_puter": undefined, // In English: "Puter"
-    "window_folder_empty": undefined, // In English: "This folder is empty"
-    "manage_your_subdomains": undefined, // In English: "Manage Your Subdomains"
-    "open_containing_folder": undefined, // In English: "Open Containing Folder"
+      "شما توسط یک دوست به Puter معرفی شده‌اید!",
+    zip: "فشرده‌سازی",
+    sequencing: "در حال مرتب‌سازی %strong%",
+    zipping: "در حال فشرده‌سازی %strong%",
+    visibility: "قابلیت مشاهده",
+    yes: "بله",
+    yes_release_it: "بله، آزاد کن",
+    you_have_been_referred_to_puter_by_a_friend:
+      "شما توسط یک دوست به Puter معرفی شده‌اید!",
+    zip: "فشرده‌سازی",
+    sequencing: "در حال مرتب‌سازی %strong%",
+    zipping: "در حال فشرده‌سازی %strong%",
+    two_factor_setup_instructions:
+      "برای فعال کردن احراز هویت دو مرحله‌ای، کد QR زیر را با برنامه احراز هویت خود اسکن کنید یا کد متنی را وارد نمایید.",
+    two_factor_backup_codes: "کدهای بازیابی",
+    two_factor_backup_codes_instructions:
+      "این کدها را در مکانی امن ذخیره کنید. در صورت دسترسی نداشتن به اپلیکیشن تأیید هویت، می‌توانید از آن‌ها استفاده کنید.",
+    sharing: "اشتراک‌گذاری",
+    share_file_with: "اشتراک‌گذاری فایل با…",
+    share_folder_with: "اشتراک‌گذاری پوشه با…",
+    share_link_created: "لینک اشتراک‌گذاری ایجاد شد",
+    share_link_copied: "لینک اشتراک‌گذاری کپی شد",
+    share_link_expire: "این لینک پس از %% روز منقضی می‌شود",
+    billing: "صورتحساب",
+    billing_plan: "پلن صورتحساب",
+    billing_payment_method: "روش پرداخت",
+    billing_invoice_history: "تاریخچه فاکتورها",
+    billing_upgrade_plan: "ارتقا پلن",
+    billing_current_usage: "میزان استفاده فعلی",
+    billing_limit: "حد مجاز",
+    billing_over_limit: "شما از حد مجاز استفاده کرده‌اید",
+    billing_add_payment_method: "افزودن روش پرداخت",
+    billing_remove_payment_method: "حذف روش پرداخت",
+    billing_no_payment_method: "روش پرداختی یافت نشد",
+    billing_payment_success: "پرداخت با موفقیت انجام شد",
+    billing_payment_failed: "پرداخت ناموفق بود، لطفاً دوباره تلاش کنید",
+    billing_invoice_download: "دانلود فاکتور",
+    billing_invoice_view: "مشاهده فاکتور",
+    error_generic: "خطای ناشناخته رخ داده است، لطفاً دوباره تلاش کنید",
+    error_network: "خطای شبکه، اتصال خود را بررسی کنید",
+    error_permission_denied: "دسترسی غیرمجاز",
+    error_file_not_found: "فایل یافت نشد",
+    error_invalid_format: "فرمت نامعتبر",
+    error_operation_failed: "عملیات ناموفق بود",
+    success_file_uploaded: "فایل با موفقیت بارگذاری شد",
+    success_file_deleted: "فایل با موفقیت حذف شد",
+    success_file_moved: "فایل با موفقیت منتقل شد",
+    success_folder_created: "پوشه با موفقیت ایجاد شد",
+    success_settings_saved: "تنظیمات با موفقیت ذخیره شد",
+    info_no_items_found: "موردی یافت نشد",
+    info_loading_more: "در حال بارگذاری موارد بیشتر…",
+    info_drag_and_drop_files: "فایل‌ها را اینجا بکشید و رها کنید",
+    info_click_to_upload: "برای بارگذاری فایل‌ها کلیک کنید",
+    confirm_delete_file: "آیا مطمئن هستید که می‌خواهید این فایل را حذف کنید؟",
+    confirm_delete_folder:
+      "آیا مطمئن هستید که می‌خواهید این پوشه و تمام محتویات آن را حذف کنید؟",
+    confirm_logout: "آیا مطمئن هستید که می‌خواهید خارج شوید؟",
+    confirm_exit_without_saving:
+      "تغییرات ذخیره نشده‌اند. آیا می‌خواهید بدون ذخیره خارج شوید؟",
   },
 };
-
-export default fa;
