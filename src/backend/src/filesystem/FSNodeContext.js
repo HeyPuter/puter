@@ -90,6 +90,11 @@ module.exports = class FSNodeContext {
                 console.log('\x1B[31;1m !!! NO ECMAP !!! \x1B[0m');
             }
         }
+        
+        // This will be used to avoid concurrent fetches. Whenever an entry is being fetched,
+        // a subsequent call to fetchEntry must await this promise. Usually this means the
+        // subsequent call will not perform any expensive operations.
+        this.fetching = null;
 
         this.log = services.get('log-service').create('fsnode-context', {
             concern: this.constructor.CONCERN,
@@ -128,7 +133,11 @@ module.exports = class FSNodeContext {
             this[method] = async (...args) => {
                 const tracer = this.services.get('traceService').tracer;
                 let result;
-                await tracer.startActiveSpan(`fs:nodectx:fetch:${method}`, async span => {
+                const opts = { attributes: {
+                    selector: selector.describe(),
+                    trace: (new Error()).stack,
+                } };
+                await tracer.startActiveSpan(`fs:nodectx:fetch:${method}`, opts, async span => {
                     result = await original_method.call(this, ...args);
                     span.end();
                 });
@@ -280,6 +289,9 @@ module.exports = class FSNodeContext {
      * @void
      */
     async fetchEntry (fetch_entry_options = {}) {
+        if ( this.fetching !== null ) await this.fetching;
+        this.fetching = new putility.libs.promise.TeePromise();
+
         if (
             this.found === true &&
             ! fetch_entry_options.force &&
@@ -289,6 +301,9 @@ module.exports = class FSNodeContext {
                 this.found_thumbnail !== undefined
             )
         ) {
+            const promise = this.fetching;
+            this.fetching = null;
+            promise.resolve();
             return;
         }
 
@@ -332,6 +347,10 @@ module.exports = class FSNodeContext {
 
             Object.assign(this.entry, entry);
         }
+
+        const promise = this.fetching;
+        this.fetching = null;
+        promise.resolve();
     }
 
     /**
