@@ -47,10 +47,14 @@ module.exports = function eggspress (route, settings, handler) {
 
   // These flags enable specific middleware.
   if ( settings.abuse ) mw.push(require('../../../middleware/abuse')(settings.abuse));
-  if ( settings.auth ) mw.push(require('../../../middleware/auth'));
-  if ( settings.auth2 ) mw.push(require('../../../middleware/auth2'));
   if ( settings.verified ) mw.push(require('../../../middleware/verified'));
   if ( settings.json ) mw.push(express.json());
+
+  // A hack so plain text is parsed as JSON in methods which need to be lower latency/avoid the cors roundtrip
+  if ( settings.noReallyItsJson ) mw.push(express.json({ type: '*/*' }));
+
+  if ( settings.auth ) mw.push(require('../../../middleware/auth'));
+  if ( settings.auth2 ) mw.push(require('../../../middleware/auth2'));
 
   // The `files` setting is an array of strings. Each string is the name
   // of a multipart field that contains files. `multer` is used to parse
