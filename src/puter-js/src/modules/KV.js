@@ -42,8 +42,7 @@ class KV{
             const resp = await fetch(`${this.APIOrigin}/drivers/call`, {
                 method: 'POST',
                 headers: {
-                    'Content-Type': 'application/json',
-                    Authorization: `Bearer ${this.authToken}`,
+                    'Content-Type': 'text/plain;actually=json',
                 },
                 body: JSON.stringify({
                     interface: 'puter-kvstore',
@@ -51,6 +50,7 @@ class KV{
                     args: {
                         key: gui_cache_keys,
                     },
+                    auth_token: this.authToken
                 }),
             });
             const arr_values = await resp.json();

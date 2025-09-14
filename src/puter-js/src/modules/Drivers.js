@@ -34,8 +34,7 @@ class FetchDriverCallBackend {
         try {
             const resp = await fetch(`${this.context.APIOrigin}/drivers/call`, {
                 headers: {
-                    Authorization: `Bearer ${this.context.authToken}`,
-                    'Content-Type': 'application/json',
+                    'Content-Type': 'text/plain;actually=json',
                 },
                 method: 'POST',
                 body: JSON.stringify({
@@ -45,6 +44,7 @@ class FetchDriverCallBackend {
                         : {}),
                     method: method_name,
                     args: parameters,
+                    auth_token: this.context.authToken
                 }),
             });
             

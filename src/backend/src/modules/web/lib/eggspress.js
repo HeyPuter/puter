@@ -53,6 +53,8 @@ module.exports = function eggspress (route, settings, handler) {
   // A hack so plain text is parsed as JSON in methods which need to be lower latency/avoid the cors roundtrip
   if ( settings.noReallyItsJson ) mw.push(express.json({ type: '*/*' }));
 
+  mw.push(express.json({ type: (req) => req.headers['content-type'] === "text/plain;actually=json" }));
+
   if ( settings.auth ) mw.push(require('../../../middleware/auth'));
   if ( settings.auth2 ) mw.push(require('../../../middleware/auth2'));
 
