@@ -17,7 +17,7 @@ export class PuterAPIFilesystem extends putility.AdvancedBase {
                 const tp = new TeePromise();
 
 
-                const xhr = new utils.initXhr('/stat', this.api_info.APIOrigin, undefined, "post", "text/plain");
+                const xhr = new utils.initXhr('/stat', this.api_info.APIOrigin, undefined, "post", "text/plain;actually=json");
                 utils.setupXhrEventHandlers(xhr, undefined, undefined,
                     tp.resolve.bind(tp),
                     tp.reject.bind(tp),
@@ -47,7 +47,7 @@ export class PuterAPIFilesystem extends putility.AdvancedBase {
                 this.ensure_auth_();
                 const tp = new TeePromise();
 
-                const xhr = new utils.initXhr('/readdir', this.api_info.APIOrigin, undefined, "post", "text/plain");
+                const xhr = new utils.initXhr('/readdir', this.api_info.APIOrigin, undefined, "post", "text/plain;actually=json");
                 utils.setupXhrEventHandlers(xhr, undefined, undefined,
                     tp.resolve.bind(tp),
                     tp.reject.bind(tp),
