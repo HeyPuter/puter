@@ -88,6 +88,14 @@ class MountpointService extends BaseService {
     }
     
     async get_provider (selector) {
+        // If there is only one provider, we don't need to do any of this,
+        // and that's a big deal because the current implementation requires
+        // fetching a filesystem entry before we even have operation-level
+        // transient memoization instantiated.
+        if ( Object.keys(this.mountpoints_).length === 1 ) {
+            return Object.values(this.mountpoints_)[0].provider;
+        }
+        
         try_infer_attributes(selector);
 
         if ( selector instanceof RootNodeSelector ) {
