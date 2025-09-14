@@ -81,6 +81,10 @@ class ECMAP {
         }
     }
     
+    store_fsNodeContext (node) {
+        this.store_fsNodeContext_to_selector(node.selector, node);
+    }
+    
     static async arun (cb) {
         let context = Context.get();
         if ( ! context.get(this.SYMBOL) ) {
