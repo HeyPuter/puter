@@ -32,7 +32,6 @@ module.exports = eggspress('/readdir', {
     verified: true,
     fs: true,
     json: true,
-    noReallyItsJson: true,
     allowedMethods: ['POST'],
     alias: {
         path: 'subject',
