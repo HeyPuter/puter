@@ -406,9 +406,6 @@ const br = {
     "billing.accelerated": "Aprimorado", // In English: "Accelerated"
     "billing.enjoy_msg": "Aproveite %% de Armazenamento em Nuvem, além de outros benefícios.", // In English: "Enjoy %% of Cloud Storage plus other benefits."
 
-    // =============================================================
-    // Missing translations
-    // =============================================================
     "choose_publishing_option": "Escolha como você gostaria de publicar seu website", // In English: "Choose how you want to publish your website:"
     "create_desktop_shortcut": "Criar atalho (Área de trabalho)", // In English: "Create Shortcut (Desktop)"
     "create_desktop_shortcut_s": "Criar atalhos (Área de trabalho)", // In English: "Create Shortcuts (Desktop)"
