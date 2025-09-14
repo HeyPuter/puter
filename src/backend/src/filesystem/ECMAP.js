@@ -91,8 +91,9 @@ class ECMAP {
             context = context.sub({
                 [this.SYMBOL]: new this(),
             });
+            return await context.arun(cb);
         }
-        return await context.arun(cb);
+        return await cb();
     }
 }
 

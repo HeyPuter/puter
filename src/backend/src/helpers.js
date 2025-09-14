@@ -1315,7 +1315,7 @@ function seconds_to_string(seconds) {
 async function suggest_app_for_fsentry(fsentry, options){
     const svc_performanceMonitor = services.get('performance-monitor');
     const monitor = svc_performanceMonitor.createContext("suggest_app_for_fsentry");
-    const suggested_apps = [];
+    const suggested_apps_promises = [];
 
     let content_type = mime.contentType(fsentry.name);
     if( ! content_type ) content_type = '';
@@ -1400,8 +1400,8 @@ async function suggest_app_for_fsentry(fsentry, options){
     ];
 
     if ( any_of(exts_code, fsname) || !fsname.includes('.') ) {
-        suggested_apps.push(await get_app({name: 'code'}))
-        suggested_apps.push(await get_app({name: 'editor'}))
+        suggested_apps_promises.push(get_app({name: 'code'}))
+        suggested_apps_promises.push(get_app({name: 'editor'}))
     }
 
     //---------------------------------------------
@@ -1412,14 +1412,14 @@ async function suggest_app_for_fsentry(fsentry, options){
         // files with no extension
         !fsname.includes('.')
     ){
-        suggested_apps.push(await get_app({name: 'editor'}))
-        suggested_apps.push(await get_app({name: 'code'}))
+        suggested_apps_promises.push(get_app({name: 'editor'}))
+        suggested_apps_promises.push(get_app({name: 'code'}))
     }
     //---------------------------------------------
     // Markus
     //---------------------------------------------
     if(fsname.endsWith('.md')){
-        suggested_apps.push(await get_app({name: 'markus'}))
+        suggested_apps_promises.push(get_app({name: 'markus'}))
     }
     //---------------------------------------------
     // Viewer
@@ -1432,7 +1432,7 @@ async function suggest_app_for_fsentry(fsentry, options){
         fsname.endsWith('.bmp') ||
         fsname.endsWith('.jpeg')
     ){
-        suggested_apps.push(await get_app({name: 'viewer'}));
+        suggested_apps_promises.push(get_app({name: 'viewer'}));
     }
     //---------------------------------------------
     // Draw
@@ -1441,13 +1441,13 @@ async function suggest_app_for_fsentry(fsentry, options){
         fsname.endsWith('.bmp') ||
         content_type.startsWith('image/')
     ){
-        suggested_apps.push(await get_app({name: 'draw'}));
+        suggested_apps_promises.push(get_app({name: 'draw'}));
     }
     //---------------------------------------------
     // PDF
     //---------------------------------------------
     if(fsname.endsWith('.pdf')){
-        suggested_apps.push(await get_app({name: 'pdf'}));
+        suggested_apps_promises.push(get_app({name: 'pdf'}));
     }
     //---------------------------------------------
     // Player
@@ -1461,7 +1461,7 @@ async function suggest_app_for_fsentry(fsentry, options){
         fsname.endsWith('.m4a') ||
         fsname.endsWith('.ogg')
     ){
-        suggested_apps.push(await get_app({name: 'player'}));
+        suggested_apps_promises.push(get_app({name: 'player'}));
     }
 
     //---------------------------------------------
@@ -1471,18 +1471,21 @@ async function suggest_app_for_fsentry(fsentry, options){
 
     monitor.label("third party associations");
     for ( const app_id of apps ) {
-        // retrieve app from DB
-        const third_party_app = await get_app({id: app_id})
-        if ( ! third_party_app ) continue;
-        // only add if the app is approved for opening items or the app is owned by this user
-        if( third_party_app.approved_for_opening_items ||
-            (options !== undefined && options.user !== undefined && options.user.id === third_party_app.owner_user_id))
-            suggested_apps.push(third_party_app)
+        this.suggested_apps_promises.push((async () => {
+            // retrieve app from DB
+            const third_party_app = await get_app({id: app_id})
+            if ( ! third_party_app ) return;
+            // only add if the app is approved for opening items or the app is owned by this user
+            if( third_party_app.approved_for_opening_items ||
+                (options !== undefined && options.user !== undefined && options.user.id === third_party_app.owner_user_id))
+                return third_party_app;
+        })());
     }
     monitor.stamp();
     monitor.end();
 
     // return list
+    const suggested_apps = await Promise.all(suggested_apps_promises);
     return suggested_apps.filter((suggested_app, pos, self) => {
         // Remove any null values caused by calling `get_app()` for apps that don't exist.
         // This happens on self-host because we don't include `code`, among others.
