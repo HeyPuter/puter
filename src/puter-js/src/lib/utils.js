@@ -77,7 +77,7 @@ function uuidv4(){
  *
  * @returns {XMLHttpRequest} The initialized XMLHttpRequest object.
  */
-function initXhr(endpoint, APIOrigin, authToken, method= "post", contentType = "application/json;charset=UTF-8", responseType = undefined) {
+function initXhr(endpoint, APIOrigin, authToken, method= "post", contentType = "text/plain;actually=json", responseType = undefined) {
     const xhr = new XMLHttpRequest();
     xhr.open(method, APIOrigin + endpoint, true);
     if (authToken)
@@ -279,7 +279,7 @@ async function driverCall_(
     resolve_func, reject_func,
     driverInterface, driverName, driverMethod, driverArgs,
     method,
-    contentType = 'application/json;charset=UTF-8',
+    contentType = 'text/plain;actually=json',
     settings = {},
 ) {
     // Generate request ID for logging
@@ -319,7 +319,7 @@ async function driverCall_(
     const success_cb = Valid.callback(options.success) ?? NOOP;
     const error_cb = Valid.callback(options.error) ?? NOOP;
     // create xhr object
-    const xhr = initXhr('/drivers/call', puter.APIOrigin, puter.authToken, 'POST', contentType);
+    const xhr = initXhr('/drivers/call', puter.APIOrigin, undefined, 'POST', contentType);
 
     // Store request info for later logging
     if (requestInfo) {
@@ -528,6 +528,7 @@ async function driverCall_(
         test_mode: settings?.test_mode, 
         method: driverMethod,
         args: driverArgs,
+        auth_token: puter.authToken
     }));
 }
 
