@@ -27,6 +27,7 @@ const { DB_READ, DB_WRITE } = require('./services/database/consts.js');
 const { BaseDatabaseAccessService } = require('./services/database/BaseDatabaseAccessService.js');
 const { Context } = require('./util/context');
 const { NodeUIDSelector } = require('./filesystem/node/selectors');
+const { object_returned_by_get_app } = require('./annotatedobjects.js');
 
 let services = null;
 const tmp_provide_services = async ss => {
@@ -374,7 +375,7 @@ async function refresh_associations_cache(){
     // shallow clone because we use the `delete` operator
     // and it corrupts the cache otherwise
     app = { ...app };
-    return app;
+    return new object_returned_by_get_app(app);
 }
 
 /**
