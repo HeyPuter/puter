@@ -221,6 +221,7 @@ function invalidate_cached_user_by_id (id) {
  * @returns {Promise}
  */
 async function refresh_apps_cache(options, override){
+    return;
     /** @type BaseDatabaseAccessService */
     const db = services.get('database').get(DB_READ, 'apps');
     const svc_event = services.get('event');
