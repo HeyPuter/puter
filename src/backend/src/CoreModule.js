@@ -80,7 +80,7 @@ const install = async ({ context, services, app, useapi, modapi }) => {
         def('Library', Library);
 
         def('core.util.helpers', require('./helpers'));
-        def('core.util.permission', require('./services/auth/PermissionService').PermissionUtil);
+        def('core.util.permission', require('./services/auth/PermissionUtils.mjs').PermissionUtil);
         def('puter.middlewares.auth', require('./middleware/auth2'));
         def('puter.middlewares.configurable_auth', require('./middleware/configurable_auth'));
         def('puter.middlewares.anticsrf', require('./middleware/anticsrf'));
