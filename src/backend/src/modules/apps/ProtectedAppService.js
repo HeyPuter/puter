@@ -20,7 +20,7 @@
 const { get_app } = require("../../helpers");
 const { UserActorType } = require("../../services/auth/Actor");
 const { PermissionImplicator, PermissionUtil, PermissionRewriter } =
-    require("../../services/auth/PermissionUtils.mjs");
+    require("../../services/auth/permissionUtils.mjs");
 const BaseService = require("../../services/BaseService");
 
 

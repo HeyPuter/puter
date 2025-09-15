@@ -19,31 +19,25 @@
 // TODO: database access can be a service
 const { RESOURCE_STATUS_PENDING_CREATE } = require('../modules/puterfs/ResourceService.js');
 const { TraceService } = require('../services/TraceService.js');
-const PerformanceMonitor = require('../monitor/PerformanceMonitor.js');
 const { NodePathSelector, NodeUIDSelector, NodeInternalIDSelector } = require('./node/selectors.js');
 const FSNodeContext = require('./FSNodeContext.js');
-const { AdvancedBase } = require('@heyputer/putility');
 const { Context } = require('../util/context.js');
-const { simple_retry } = require('../util/retryutil.js');
 const APIError = require('../api/APIError.js');
-const { LLMkdir } = require('./ll_operations/ll_mkdir.js');
-const { LLCWrite, LLOWrite } = require('./ll_operations/ll_write.js');
-const { LLCopy } = require('./ll_operations/ll_copy.js');
-const { PermissionUtil, PermissionRewriter, PermissionImplicator, PermissionExploder } = require('../services/auth/PermissionUtils.mjs');
-const { DB_WRITE } = require("../services/database/consts");
+const { PermissionUtil, PermissionRewriter, PermissionImplicator, PermissionExploder } = require('../services/auth/permissionUtils.mjs');
+const { DB_WRITE } = require('../services/database/consts');
 const { UserActorType } = require('../services/auth/Actor');
 const { get_user } = require('../helpers');
 const BaseService = require('../services/BaseService');
-const { PuterFSProvider } = require('../modules/puterfs/lib/PuterFSProvider.js');
+const { MANAGE_PERM_PREFIX } = require('../services/auth/permissionConts.mjs');
 
 class FilesystemService extends BaseService {
     static MODULES = {
         _path: require('path'),
         uuidv4: require('uuid').v4,
         config: require('../config.js'),
-    }
+    };
 
-    old_constructor (args) {
+    old_constructor(args) {
         const { services } = args;
 
         services.registerService('traceService', TraceService);
@@ -65,7 +59,7 @@ class FilesystemService extends BaseService {
             });
     }
 
-    async _init () {
+    async _init() {
         this.old_constructor({ services: this.services });
         const svc_permission = this.services.get('permission');
         svc_permission.register_rewriter(PermissionRewriter.create({
@@ -96,14 +90,15 @@ class FilesystemService extends BaseService {
             id: 'is-owner',
             shortcut: true,
             matcher: permission => {
-                return permission.startsWith('fs:');
+                // TODO DS: for now users will only have manage access on files, that might change, and then this has to change too
+                return permission.startsWith('fs:') || permission.startsWith(`${MANAGE_PERM_PREFIX}:fs:`);
             },
             checker: async ({ actor, permission }) => {
                 if ( !(actor.type instanceof UserActorType) ) {
                     return undefined;
                 }
 
-                const [_, uid] = PermissionUtil.split(permission);
+                const [_, uid] = PermissionUtil.split(permission.replace(`${MANAGE_PERM_PREFIX}:`, ''));
                 const node = await this.node(new NodeUIDSelector(uid));
 
                 if ( ! await node.exists() ) {
@@ -111,12 +106,10 @@ class FilesystemService extends BaseService {
                 }
 
                 const owner_id = await node.get('user_id');
-                
+
                 // These conditions should never happen
                 if ( ! owner_id || ! actor.type.user.id ) {
-                    throw new Error(
-                        'something unexpected happened'
-                    );
+                    throw new Error('something unexpected happened');
                 }
 
                 if ( owner_id === actor.type.user.id ) {
@@ -137,29 +130,23 @@ class FilesystemService extends BaseService {
                 const parts = PermissionUtil.split(permission);
 
                 const specified_mode = parts[2];
-                
+
                 const rules = {
                     see: ['list', 'read', 'write'],
                     list: ['read', 'write'],
                     read: ['write'],
                 };
-                
-                if ( rules.hasOwnProperty(specified_mode) ) {
-                    permissions.push(...rules[specified_mode].map(
-                        mode => PermissionUtil.join(
-                            parts[0], parts[1],
-                            mode,
-                            ...parts.slice(3),
-                        )
-                    ));
+
+                if ( Object.prototype.hasOwnProperty.call(rules, specified_mode) ) {
+                    permissions.push(...rules[specified_mode].map(mode => PermissionUtil.join(parts[0], parts[1], mode, ...parts.slice(3))));
                 }
-                
+
                 return permissions;
             },
         }));
     }
 
-    async mkshortcut ({ parent, name, user, target }) {
+    async mkshortcut({ parent, name, user, target }) {
 
         // Access Control
         {
@@ -192,7 +179,7 @@ class FilesystemService extends BaseService {
             status: RESOURCE_STATUS_PENDING_CREATE,
         });
 
-        console.log('registered entry')
+        console.log('registered entry');
 
         const raw_fsentry = {
             is_shortcut: 1,
@@ -210,7 +197,7 @@ class FilesystemService extends BaseService {
             immutable: false,
         };
 
-        this.log.debug('creating fsentry', { fsentry: raw_fsentry })
+        this.log.debug('creating fsentry', { fsentry: raw_fsentry });
 
         const entryOp = await svc_fsEntry.insert(raw_fsentry);
 
@@ -218,7 +205,7 @@ class FilesystemService extends BaseService {
 
         (async () => {
             await entryOp.awaitDone();
-            this.log.debug('finished creating fsentry', { uid })
+            this.log.debug('finished creating fsentry', { uid });
             resourceService.free(uid);
         })();
 
@@ -233,7 +220,7 @@ class FilesystemService extends BaseService {
         return node;
     }
 
-    async mklink ({ parent, name, user, target }) {
+    async mklink({ parent, name, user, target }) {
 
         // Access Control
         {
@@ -274,13 +261,13 @@ class FilesystemService extends BaseService {
             immutable: false,
         };
 
-        this.log.debug('creating symlink', { fsentry: raw_fsentry })
+        this.log.debug('creating symlink', { fsentry: raw_fsentry });
 
         const entryOp = await svc_fsEntry.insert(raw_fsentry);
 
         (async () => {
             await entryOp.awaitDone();
-            this.log.debug('finished creating symlink', { uid })
+            this.log.debug('finished creating symlink', { uid });
             resourceService.free(uid);
         })();
 
@@ -295,17 +282,15 @@ class FilesystemService extends BaseService {
         return node;
     }
 
-    async update_child_paths (old_path, new_path, user_id) {
+    async update_child_paths(old_path, new_path, user_id) {
         const svc_performanceMonitor = this.services.get('performance-monitor');
         const monitor = svc_performanceMonitor.createContext('update_child_paths');
 
         if ( ! old_path.endsWith('/') ) old_path += '/';
         if ( ! new_path.endsWith('/') ) new_path += '/';
         // TODO: fs:decouple-tree-storage
-        await this.db.write(
-            `UPDATE fsentries SET path = CONCAT(?, SUBSTRING(path, ?)) WHERE path LIKE ? AND user_id = ?`,
-            [new_path, old_path.length + 1, old_path + '%', user_id]
-        );
+        await this.db.write('UPDATE fsentries SET path = CONCAT(?, SUBSTRING(path, ?)) WHERE path LIKE ? AND user_id = ?',
+                        [new_path, old_path.length + 1, `${old_path}%`, user_id]);
 
         const log = this.services.get('log-service').create('update_child_paths');
         log.info(`updated ${old_path} -> ${new_path}`);
@@ -322,7 +307,7 @@ class FilesystemService extends BaseService {
      * @param {*} location - path, uid, or id associated with a filesystem node
      * @returns
      */
-    async node (selector) {
+    async node(selector) {
         if ( typeof selector === 'string' ) {
             if ( selector.startsWith('/') ) {
                 selector = new NodePathSelector(selector);
@@ -339,20 +324,19 @@ class FilesystemService extends BaseService {
             } else if ( selector.uid ) {
                 selector = new NodeUIDSelector(selector.uid);
             } else {
-                selector = new NodeInternalIDSelector(
-                    'mysql', selector.mysql_id);
+                selector = new NodeInternalIDSelector('mysql', selector.mysql_id);
             }
         }
 
         system_dir_check: {
             if ( ! (selector instanceof NodePathSelector) ) break system_dir_check;
-            if ( ! selector.value.startsWith('/')) break system_dir_check;
+            if ( ! selector.value.startsWith('/') ) break system_dir_check;
 
             // OPTIMIZATION: Check if the path matches a system directory pattern.
             const systemDirRegex = /^\/([a-zA-Z0-9_]+)\/(Trash|AppData|Desktop|Documents|Pictures|Videos|Public)$/;
             const match = selector.value.match(systemDirRegex);
             if ( ! match ) break system_dir_check;
-            
+
             const username = match[1];
             const dirName = match[2];
 
@@ -360,7 +344,7 @@ class FilesystemService extends BaseService {
             const user = await get_user({ username });
             if ( ! user ) break system_dir_check;
 
-            let uuidKey = ( selector.value === '/' + user.username )
+            let uuidKey = ( selector.value === `/${user.username}` )
                 ? 'home_uuid'
                 : `${dirName.toLowerCase()}_uuid`; // e.g., 'desktop_uuid'
 
@@ -378,9 +362,9 @@ class FilesystemService extends BaseService {
             provider,
             services: this.services,
             selector,
-            fs: this
+            fs: this,
         });
-        
+
         return fsNode;
     }
 
@@ -401,7 +385,7 @@ class FilesystemService extends BaseService {
      * @param {*} param0.id please use mysql_id instead
      * @param {*} param0.mysql_id
      */
-    async get_entry ({ path, uid, id, mysql_id, ...options }) {
+    async get_entry({ path, uid, id, mysql_id, ...options }) {
         let fsNode = await this.node({ path, uid, id, mysql_id });
         await fsNode.fetchEntry(options);
         return fsNode.entry;
@@ -409,5 +393,5 @@ class FilesystemService extends BaseService {
 }
 
 module.exports = {
-    FilesystemService
+    FilesystemService,
 };

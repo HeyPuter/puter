@@ -21,7 +21,7 @@
 const { PassThrough } = require("stream");
 const APIError = require("../../api/APIError");
 const config = require("../../config");
-const { PermissionUtil } = require("../../services/auth/PermissionUtils.mjs");
+const { PermissionUtil } = require("../../services/auth/permissionUtils.mjs");
 const BaseService = require("../../services/BaseService");
 const { DB_WRITE } = require("../../services/database/consts");
 const { TypeSpec } = require("../../services/drivers/meta/Construct");
