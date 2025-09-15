@@ -169,103 +169,25 @@ window.showTurnstileChallenge = function(options) {
 
         // Create modal HTML
         let modalHtml = `
-            <div id="${modalId}" class="modal" style="
-                position: fixed;
-                top: 0;
-                left: 0;
-                width: 100%;
-                height: 100%;
-                background-color: rgba(0, 0, 0, 0.5);
-                display: flex;
-                justify-content: center;
-                align-items: center;
-                z-index: 10000;
-                font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
-            ">
-                <div class="modal-content" style="
-                    background-color: white;
-                    padding: 30px;
-                    border-radius: 10px;
-                    box-shadow: 0 4px 20px rgba(0, 0, 0, 0.15);
-                    max-width: 400px;
-                    width: 90%;
-                    text-align: center;
-                    position: relative;
-                ">
+            <div id="${modalId}" class="captcha-modal">
+                <div class="modal-content">
                     <div class="modal-header" style="margin-bottom: 20px;">
-                        <img src="${window.icons['logo-white.svg']}" style="
-                            width: 40px; 
-                            height: 40px; 
-                            margin: 0 auto 15px; 
-                            display: block; 
-                            padding: 15px; 
-                            background-color: blue; 
-                            border-radius: 8px;
-                        ">
-                        <h2 style="
-                            margin: 0;
-                            color: #1f2937;
-                            font-size: 24px;
-                            font-weight: 600;
-                            line-height: 1.2;
-                        ">Welcome to Puter</h2>
-                        <p style="
-                            margin: 10px 0 0 0;
-                            color: #6b7280;
-                            font-size: 14px;
-                            line-height: 1.4;
-                        ">Please complete the security verification to continue</p>
+                        <img src="${window.icons['logo-white.svg']}" class="captcha-logo">
+                        <h2 class="captcha-title">Welcome to Puter!</h2>
                     </div>
                     
-                    <div class="turnstile-container" style="
-                        display: flex;
-                        justify-content: center;
-                        margin: 20px 0;
-                        min-height: 80px;
-                        align-items: center;
-                    ">
-                        <div id="turnstile-widget-${modalId}" class="cf-turnstile" data-sitekey="${siteKey}"></div>
+                    <div class="captcha-container">
+                        <div id="captcha-widget-${modalId}" data-sitekey="${siteKey}"></div>
                     </div>
                     
-                    <div class="loading-state" style="
-                        display: none;
-                        margin: 20px 0;
-                        color: #6b7280;
-                        font-size: 14px;
-                    ">
-                        <div style="
-                            display: inline-block;
-                            width: 20px;
-                            height: 20px;
-                            border: 2px solid #e5e7eb;
-                            border-radius: 50%;
-                            border-top: 2px solid #3b82f6;
-                            animation: spin 1s linear infinite;
-                            margin-right: 10px;
-                            vertical-align: middle;
-                        "></div>
+                    <div class="loading-state">
+                        <div class="loading-state-icon"></div>
                         Setting up your account...
                     </div>
                     
-                    <div class="error-message" style="
-                        display: none;
-                        color: #dc2626;
-                        font-size: 14px;
-                        margin-top: 15px;
-                        padding: 10px;
-                        background-color: #fef2f2;
-                        border: 1px solid #fecaca;
-                        border-radius: 6px;
-                    "></div>
+                    <div class="error-message"></div>
                 </div>
             </div>
-            
-            <style>
-                @keyframes spin {
-                    0% { transform: rotate(0deg); }
-                    100% { transform: rotate(360deg); }
-                }
-            </style>
         `;
 
         // Add modal to DOM
@@ -273,7 +195,7 @@ window.showTurnstileChallenge = function(options) {
         const modal = document.getElementById(modalId);
         const errorMessage = modal.querySelector('.error-message');
         const loadingState = modal.querySelector('.loading-state');
-        const turnstileContainer = modal.querySelector('.turnstile-container');
+        const turnstileContainer = modal.querySelector('.captcha-container');
         
         // Initialize Turnstile widget
         const initTurnstile = () => {
@@ -283,21 +205,20 @@ window.showTurnstileChallenge = function(options) {
             }
 
             try {
-                window.turnstile.render(`#turnstile-widget-${modalId}`, {
+                window.turnstile.render(`#captcha-widget-${modalId}`, {
                     sitekey: siteKey,
                     callback: function(token) {
+                        window.turnstile_success_ts = Date.now();
+
                         // Show loading state
-                        turnstileContainer.style.display = 'none';
-                        loadingState.style.display = 'block';
-                        
+                        $(turnstileContainer).hide();
+                        $(loadingState).show();
+
                         // Call success callback
                         options.onSuccess(token);
-                        
-                        // Remove modal after a brief delay
-                        setTimeout(() => {
-                            modal.remove();
-                            resolve();
-                        }, 500);
+
+                        // resolve the promise
+                        resolve();
                     },
                     'expired-callback': function() {
                         showError('Verification expired. Please try again.');
@@ -1069,20 +990,26 @@ window.initgui = async function(options){
                 contentType: "application/json",
                 data: JSON.stringify(requestData),
                 success: async function (data){
-                    // if this is a popup, hide the spinner, make sure it was visible for at least 2 seconds
-                    if(window.embedded_in_popup){
-                        let spinner_duration = (Date.now() - spinner_init_ts);
-                        setTimeout(() => {
-                            window.update_auth_data(data.token, data.user);
-                            document.dispatchEvent(new Event("login", { bubbles: true}));        
-                            puter.ui.hideSpinner();
-                        }, spinner_duration > 2000 ? 10 : 2000 - spinner_duration);
+                    setTimeout(() => {
+                        $('.captcha-modal').fadeOut(200, function(){
+                        $(this).remove();
 
-                        return;
-                    }else{
-                        window.update_auth_data(data.token, data.user);
-                        document.dispatchEvent(new Event("login", { bubbles: true}));
-                    }
+                        // if this is a popup, hide the spinner, make sure it was visible for at least 2 seconds
+                        if(window.embedded_in_popup){
+                            let spinner_duration = (Date.now() - spinner_init_ts);
+                            setTimeout(() => {
+                                window.update_auth_data(data.token, data.user);
+                                document.dispatchEvent(new Event("login", { bubbles: true}));        
+                                puter.ui.hideSpinner();
+                            }, spinner_duration > 2000 ? 10 : 2000 - spinner_duration);
+
+                            return;
+                        }else{
+                            window.update_auth_data(data.token, data.user);
+                            document.dispatchEvent(new Event("login", { bubbles: true}));
+                        }
+                        });
+                    }, (Date.now() - window.turnstile_success_ts) > 2000 ? 10 : 2000 - (Date.now() - window.turnstile_success_ts));
                 },
                 error: async (err) => {
                     UIAlert({
