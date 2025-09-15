@@ -290,7 +290,7 @@ module.exports = class FSNodeContext {
      */
     async fetchEntry (fetch_entry_options = {}) {
         if ( this.fetching !== null ) {
-            await Context.get('services').get('traceService').spanify(async () => {
+            await Context.get('services').get('traceService').spanify('fetching', async () => {
                 // ???: does this need to be double-checked? I'm not actually sure...
                 if ( this.fetching === null ) return;
                 await this.fetching;
