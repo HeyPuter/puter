@@ -291,7 +291,7 @@ class PuterHomepageService extends BaseService {
         <meta name="theme-color" content="#ffffff">
 
         <!-- Preload images when applicable -->
-        <link rel="preload" as="image" href="${asset_dir}/images/wallpaper.webp">
+        <link rel="preload" as="image" href="https://puter-assets.b-cdn.net/wallpaper.webp">
 
         <script>
             if ( ! window.service_script ) {
