@@ -94,8 +94,10 @@ class HLReadDir extends HLFilesystemOperation {
             }
 
             if ( ! no_assocs ) {
-                await child.fetchSuggestedApps(user);
-                await child.fetchSubdomains(user);
+                await Promise.all([
+                    child.fetchSuggestedApps(user),
+                    child.fetchSubdomains(user),
+                ]);
             }
             const entry = await child.getSafeEntry();
             if ( ! no_thumbs && entry.associated_app ) {
