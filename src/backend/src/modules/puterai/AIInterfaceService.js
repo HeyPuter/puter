@@ -98,6 +98,8 @@ class AIInterfaceService extends BaseService {
                         quality: { type: 'string' },
                         model: { type: 'string' },
                         ratio: { type: 'json' },
+                        input_image: { type: 'string', optional: true },
+                        input_image_mime_type: { type: 'string', optional: true },
                     },
                     result_choices: [
                         {
