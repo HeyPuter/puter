@@ -366,9 +366,9 @@ async function refresh_associations_cache(){
 
     if ( app === null ) return null;
     
-    kv.set(`apps:uid:${app.uid}`, app, { EX: 30 });
-    kv.set(`apps:name:${app.name}`, app, { EX: 30 });
-    kv.set(`apps:id:${app.id}`, app, { EX: 30 });
+    // kv.set(`apps:uid:${app.uid}`, app, { EX: 30 });
+    // kv.set(`apps:name:${app.name}`, app, { EX: 30 });
+    // kv.set(`apps:id:${app.id}`, app, { EX: 30 });
 
     // shallow clone because we use the `delete` operator
     // and it corrupts the cache otherwise
