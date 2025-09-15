@@ -20,6 +20,7 @@ const { Context } = require("../../util/context");
 const { HLFilesystemOperation } = require("./definitions");
 const APIError = require('../../api/APIError');
 const { ECMAP } = require("../ECMAP");
+const { NodeUIDSelector } = require("../node/selectors");
 
 class HLStat extends HLFilesystemOperation {
     static MODULES = {
@@ -45,11 +46,25 @@ class HLStat extends HLFilesystemOperation {
             return_versions,
             return_size,
         } = this.values;
+        
+        const maybe_uid_selector = subject.get_selector_of_type(NodeUIDSelector);
+        
+        // users created before 2025-07-30 might have fsentries with NULL paths.
+        // we can remove this check once that is fixed.
+        const user_unix_ts = Number((''+Date.parse(Context.get('actor')?.type?.user?.timestamp)).slice(0, -3));
+        const paths_are_fine = user_unix_ts >= 1722385593;
 
-        await Promise.all([
-            subject.fetchEntry(),
-            subject.fetchIsEmpty(),
-        ]);
+        if ( maybe_uid_selector || paths_are_fine ) {
+            // We are able to fetch the entry and is_empty simultaneously
+            await Promise.all([
+                subject.fetchEntry(),
+                subject.fetchIsEmpty(),
+            ]);
+        } else {
+            // We need the entry first in order for is_empty to work correctly
+            await subject.fetchEntry();
+            await subject.fetchIsEmpty();
+        }
 
         // file not found
         if( ! subject.found ) throw APIError.create('subject_does_not_exist');
