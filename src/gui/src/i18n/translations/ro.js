@@ -470,7 +470,7 @@ const ro = {
         "no_suitable_apps_found": "Nu s-au găsit aplicații potrivite", 
         "window_click_to_go_back": "Apasă pentru a merge înapoi.",
         "window_click_to_go_forward": "Apasă pentru a merge înainte.", 
-        "window_click_to_go_up": "pasă pentru a avansa un director.", 
+        "window_click_to_go_up": "Apasă pentru a avansa un director.", 
         "window_title_public": "Public", 
         "window_title_videos": "Videoclipuri", 
         "window_title_pictures": "Poze", 
