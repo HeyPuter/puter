@@ -26,6 +26,21 @@ class ECMAP {
         // identifier association caches
         this.path_to_uuid = {};
         this.uuid_to_path = {};
+        
+        this.unlinked = false;
+    }
+    
+    /**
+     * unlink() clears all references from this ECMAP to ensure that it will be
+     * GC'd. This is called by ECMAP.arun() after the callback has resolved.
+     */
+    unlink () {
+        this.unlink = true;
+        this.uuid_to_fsNodeContext = null;
+        this.path_to_fsNodeContext = null;
+        this.id_to_fsNodeContext = null;
+        this.path_to_uuid = null;
+        this.uuid_to_path = null;
     }
     
     get logPrefix () {
@@ -38,6 +53,8 @@ class ECMAP {
     }
     
     get_fsNodeContext_from_selector (selector) {
+        if ( this.unlinked ) return null;
+
         this.log('GET', selector.describe());
         const retvalue = (() => {
             let value;
@@ -69,6 +86,8 @@ class ECMAP {
     }
     
     store_fsNodeContext_to_selector (selector, node) {
+        if ( this.unlinked ) return null;
+
         this.log('STORE', selector.describe());
         if ( selector instanceof NodeUIDSelector ) {
             this.uuid_to_fsNodeContext[selector.value] = node;
@@ -82,16 +101,22 @@ class ECMAP {
     }
     
     store_fsNodeContext (node) {
+        if ( this.unlinked ) return;
+
         this.store_fsNodeContext_to_selector(node.selector, node);
     }
     
     static async arun (cb) {
         let context = Context.get();
         if ( ! context.get(this.SYMBOL) ) {
+            const ins = new this();
             context = context.sub({
-                [this.SYMBOL]: new this(),
+                [this.SYMBOL]: ins,
             });
-            return await context.arun(cb);
+            const result = await context.arun(cb);
+            ins.unlink();
+            context.unlink();
+            return result;
         }
         return await cb();
     }
