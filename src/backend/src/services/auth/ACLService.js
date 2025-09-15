@@ -26,7 +26,7 @@ const { Context } = require('../../util/context');
 const { Endpoint } = require('../../util/expressutil');
 const BaseService = require('../BaseService');
 const { AppUnderUserActorType, UserActorType, Actor, SystemActorType, AccessTokenActorType } = require('./Actor');
-const { PermissionUtil } = require('./PermissionUtils.mjs');
+const { PermissionUtil } = require('./permissionUtils.mjs');
 
 /**
 * ACLService class handles Access Control List functionality for the Puter filesystem.

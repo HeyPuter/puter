@@ -21,7 +21,7 @@ const APIError = require("../../../api/APIError");
 const { Sequence } = require("../../../codex/Sequence");
 const config = require("../../../config");
 const { get_user, get_app } = require("../../../helpers");
-const { PermissionUtil } = require("../../../services/auth/PermissionUtils.mjs");
+const { PermissionUtil } = require("../../../services/auth/permissionUtils.mjs");
 const FSNodeParam = require("../../../api/filesystem/FSNodeParam");
 const { TYPE_DIRECTORY } = require("../../../filesystem/FSNodeContext");
 

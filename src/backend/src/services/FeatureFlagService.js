@@ -20,7 +20,7 @@
 // METADATA // {"ai-commented":{"service":"claude"}}
 const { Context } = require("../util/context");
 const { whatis } = require("../util/langutil");
-const { PermissionUtil } = require("./auth/PermissionUtils.mjs");
+const { PermissionUtil } = require("./auth/permissionUtils.mjs");
 const BaseService = require("./BaseService");
 
 /**
