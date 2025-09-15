@@ -88,8 +88,10 @@ class GeminiImageGenerationService extends BaseService {
                     input_image_mime_type
                 });
 
+                // Determine if this is a data URL or web URL
+                const isDataUrl = url.startsWith('data:');
                 const image = new TypedValue({
-                    $: 'string:url:web',
+                    $: isDataUrl ? 'string:url:data' : 'string:url:web',
                     content_type: 'image'
                 }, url);
 
