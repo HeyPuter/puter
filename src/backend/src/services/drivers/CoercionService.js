@@ -90,6 +90,37 @@ class CoercionService extends BaseService {
                 }, response.data);
             }
         });
+
+        // Add coercion for data URLs to streams
+        this.coercions_.push({
+            produces: {
+                $: 'stream',
+                content_type: 'image'
+            },
+            consumes: {
+                $: 'string:url:data',
+                content_type: 'image'
+            },
+            coerce: async typed_value => {
+                this.log.noticeme('data URL coercion is running!');
+                
+                const data_url = typed_value.value;
+                const data = data_url.split(',')[1];
+                const buffer = Buffer.from(data, 'base64');
+                
+                const { PassThrough } = require('stream');
+                const stream = new PassThrough();
+                stream.end(buffer);
+
+                // Extract content type from data URL
+                const contentType = data_url.match(/data:([^;]+)/)?.[1] || 'image/png';
+
+                return new TypedValue({
+                    $: 'stream',
+                    content_type: contentType,
+                }, stream);
+            }
+        });
     }
 
     /**

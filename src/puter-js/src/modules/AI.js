@@ -604,6 +604,31 @@ class AI{
         }).call(this, requestParams);
     }
 
+    /**
+     * Generate images from text prompts or perform image-to-image generation
+     * 
+     * @param {string|object} prompt - Text prompt or options object
+     * @param {object|boolean} [options] - Generation options or test mode flag
+     * @param {string} [options.prompt] - Text description of the image to generate
+     * @param {string} [options.model] - Model to use (e.g., "gemini-2.5-flash-image-preview")
+     * @param {object} [options.ratio] - Image dimensions (e.g., {w: 1024, h: 1024})
+     * @param {string} [options.input_image] - Base64 encoded input image for image-to-image generation
+     * @param {string} [options.input_image_mime_type] - MIME type of input image (e.g., "image/png")
+     * @returns {Promise<Image>} Generated image object with src property
+     * 
+     * @example
+     * // Text-to-image
+     * const img = await puter.ai.txt2img("A beautiful sunset");
+     * 
+     * @example
+     * // Image-to-image
+     * const img = await puter.ai.txt2img({
+     *   prompt: "Transform this into a watercolor painting",
+     *   input_image: base64ImageData,
+     *   input_image_mime_type: "image/png",
+     *   model: "gemini-2.5-flash-image-preview"
+     * });
+     */
     txt2img = async (...args) => {
         let options = {};
         let testMode = false;
