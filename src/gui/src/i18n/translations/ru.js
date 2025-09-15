@@ -523,4 +523,3 @@ const ru = {
 }
 
 export default ru
-// Edited and Translated by Barnak (union-galactic)
