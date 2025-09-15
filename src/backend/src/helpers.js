@@ -38,12 +38,29 @@ const tmp_provide_services = async ss => {
 async function is_empty(dir_uuid){
     /** @type BaseDatabaseAccessService */
     const db = services.get('database').get(DB_READ, 'filesystem');
+    
+    let rows;
 
-    // first check if this entry is shared
-    let rows = await db.read(
-        `SELECT EXISTS(SELECT 1 FROM fsentries WHERE parent_uid = ? LIMIT 1) AS not_empty`,
-        [dir_uuid]
-    );
+    if ( typeof dir_uuid === 'object' ) {
+        if ( typeof dir_uuid.path === 'string' && dir_uuid.path !== '' ) {
+            console.log('it is the path branch');
+            rows = await db.read(
+                `SELECT EXISTS(SELECT 1 FROM fsentries WHERE path LIKE ${db.case({
+                    sqlite: `? || '%'`,
+                    otherwise: `CONCAT(?, '%')`,
+                })} LIMIT 1) AS not_empty`,
+                [dir_uuid.path + '/']
+            );
+        } else dir_uuid = dir_uuid.uid;
+    }
+    
+    if ( typeof dir_uuid === 'string' ) {
+        console.log('it is the uuid branchj');
+        rows = await db.read(
+            `SELECT EXISTS(SELECT 1 FROM fsentries WHERE parent_uid = ? LIMIT 1) AS not_empty`,
+            [dir_uuid]
+        );
+    }
 
     return !rows[0].not_empty;
 }

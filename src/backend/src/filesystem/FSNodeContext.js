@@ -534,11 +534,11 @@ module.exports = class FSNodeContext {
     }
 
     async fetchIsEmpty () {
-        if ( ! this.entry ) return;
-        if ( ! this.entry.is_dir ) return;
-        if ( ! this.uid ) return;
-
-        this.entry.is_empty = await is_empty(this.uid);
+        if ( ! this.uid && ! this.path ) return;
+        this.entry.is_empty = await is_empty({
+            uid: this.uid,
+            path: this.path,
+        });
     }
 
     async fetchAll(fsEntryFetcher, user, force) {
