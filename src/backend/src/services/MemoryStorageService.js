@@ -23,8 +23,6 @@ const { Readable } = require("stream");
 
 class MemoryStorageService extends BaseService {
     async _init () {
-        console.log('MemoryStorageService._init');
-
         const svc_mountpoint = this.services.get('mountpoint');
         svc_mountpoint.set_storage(MemoryFSProvider.name, this);
     }

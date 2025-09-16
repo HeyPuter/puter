@@ -34,8 +34,6 @@ class CaptchaService extends BaseService {
      * Initializes the captcha service with configuration and storage
      */
     async _construct() {
-        console.log('DIAGNOSTIC: CaptchaService._construct called');
-        
         // Load dependencies
         this.crypto = require('crypto');
         this.svgCaptcha = require('svg-captcha');
@@ -47,21 +45,11 @@ class CaptchaService extends BaseService {
         this.serviceId = Math.random().toString(36).substring(2, 10);
         this.requestCounter = 0;
         
-        console.log('TOKENS_TRACKING: CaptchaService instance created with ID:', this.serviceId);
-        console.log('TOKENS_TRACKING: Process ID:', process.pid);
-        
         // Get configuration from service config
         this.enabled = this.config.enabled === true;
         this.expirationTime = this.config.expirationTime || (10 * 60 * 1000); // 10 minutes default
         this.difficulty = this.config.difficulty || 'medium';
         this.testMode = this.config.testMode === true;
-        
-        console.log('CAPTCHA DIAGNOSTIC: Service initialized with config:', {
-            enabled: this.enabled,
-            expirationTime: this.expirationTime,
-            difficulty: this.difficulty,
-            testMode: this.testMode
-        });
         
         // Add a static test token for diagnostic purposes
         this.captchaTokens.set('test-static-token', {
@@ -82,8 +70,6 @@ class CaptchaService extends BaseService {
      * Sets up API endpoints and cleanup tasks
      */
     async _init() {
-        console.log('TOKENS_TRACKING: CaptchaService._init called. Service ID:', this.serviceId);
-        
         if (!this.enabled) {
             this.log.info('Captcha service is disabled');
             return;
@@ -298,9 +284,6 @@ class CaptchaService extends BaseService {
             // Test endpoint to validate token lifecycle
             app.get('/api/captcha/test-lifecycle', (req, res) => {
                 try {
-                    console.log('TOKENS_TRACKING: Running token lifecycle test. Service ID:', this.serviceId);
-                    console.log('TOKENS_TRACKING: Initial token count:', this.captchaTokens.size);
-                    
                     // Create a test captcha
                     const testText = 'test123';
                     const testToken = 'lifecycle-' + this.crypto.randomBytes(16).toString('hex');
@@ -311,19 +294,12 @@ class CaptchaService extends BaseService {
                         expiresAt: Date.now() + this.expirationTime
                     });
                     
-                    console.log('TOKENS_TRACKING: Test token stored. New token count:', this.captchaTokens.size);
-                    
                     // Verify the token exists
                     const tokenExists = this.captchaTokens.has(testToken);
-                    console.log('TOKENS_TRACKING: Test token exists in map:', tokenExists);
-                    
                     // Try to verify with correct answer
                     const correctVerification = this.verifyCaptcha(testToken, testText);
-                    console.log('TOKENS_TRACKING: Verification with correct answer result:', correctVerification);
-                    
                     // Check if token was deleted after verification
                     const tokenAfterVerification = this.captchaTokens.has(testToken);
-                    console.log('TOKENS_TRACKING: Token exists after verification:', tokenAfterVerification);
                     
                     // Create another test token
                     const testToken2 = 'lifecycle2-' + this.crypto.randomBytes(16).toString('hex');
@@ -333,8 +309,6 @@ class CaptchaService extends BaseService {
                         text: testText,
                         expiresAt: Date.now() + this.expirationTime
                     });
-                    
-                    console.log('TOKENS_TRACKING: Second test token stored. Token count:', this.captchaTokens.size);
                     
                     res.json({
                         message: 'Token lifecycle test completed',

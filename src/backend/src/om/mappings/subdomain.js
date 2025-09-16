@@ -46,7 +46,6 @@ module.exports = {
                 return value.toLowerCase();
             },
             async validate (value) {
-                console.log('VALIDATIOB IS RUN', config.reserved_words, value);
                 if ( config.reserved_words.includes(value) ) {
                     return APIError.create('subdomain_reserved', null, {
                         subdomain: value,

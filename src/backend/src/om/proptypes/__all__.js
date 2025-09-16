@@ -179,7 +179,6 @@ module.exports = {
             if ( ! value ) return null;
             if ( value instanceof Entity ) return value;
             const svc = Context.get().get('services').get(descriptor.service);
-            console.log('VALUE BEING READ', value);
             const entity = await svc.read(value);
             return entity;
         }

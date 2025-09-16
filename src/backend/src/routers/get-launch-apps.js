@@ -82,7 +82,6 @@ module.exports = async (req, res) => {
     // and adding them to the retobj array
     result.recent = [];
     for ( const { app_uid: uid } of apps ) {
-        console.log('\x1B[36;1m -------- UID -------- \x1B[0m', uid);
         const app = await get_app({ uid });
         if ( ! app ) continue
 
