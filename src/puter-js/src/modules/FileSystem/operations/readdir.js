@@ -17,9 +17,9 @@ const readdir = async function (...args) {
     }
 
     return new Promise(async (resolve, reject) => {
-        // path is required
-        if(!options.path){
-            throw new Error({ code: 'NO_PATH', message: 'No path provided.' });
+        // Either path or uid is required
+        if(!options.path && !options.uid){
+            throw new Error({ code: 'NO_PATH_OR_UID', message: 'Either path or uid must be provided.' });
         }
 
         // If auth token is not provided and we are in the web environment, 
@@ -39,11 +39,20 @@ const readdir = async function (...args) {
         // set up event handlers for load and error events
         utils.setupXhrEventHandlers(xhr, options.success, options.error, resolve, reject);
 
-        xhr.send(JSON.stringify({
-            path: getAbsolutePathForApp(options.path),
+        // Build request payload - support both path and uid parameters
+        const payload = {
             no_thumbs: options.no_thumbs,
             no_assocs: options.no_assocs,
-        }));
+        };
+
+        // Add either uid or path to the payload
+        if (options.uid) {
+            payload.uid = options.uid;
+        } else if (options.path) {
+            payload.path = getAbsolutePathForApp(options.path);
+        }
+
+        xhr.send(JSON.stringify(payload));
     })
 }
 
