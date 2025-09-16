@@ -34,6 +34,30 @@ const eggspress = require('../api/eggspress');
 const { Context } = require('../util/context');
 const { UserActorType, AppUnderUserActorType } = require('../services/auth/Actor');
 
+const whoami_common = ({ is_user, user }) => {
+    const details = {};
+    
+    // User's immutable default (often called "system") directories'
+    // alternative (to path) identifiers are sent to the user's client
+    // (but not to apps; they don't need this information)
+    if ( is_user ) {
+        const directories = details.directories = {};
+        const name_to_path = {
+            'desktop_uuid': `/${user.username}/Desktop`,
+            'appdata_uuid': `/${user.username}/AppData`,
+            'documents_uuid': `/${user.username}/Documents`,
+            'pictures_uuid': `/${user.username}/Pictures`,
+            'videos_uuid': `/${user.username}/Videos`,
+            'trash_uuid': `/${user.username}/Trash`,
+        };
+        for ( const k in name_to_path ) {
+            directories[name_to_path[k]] = user[k];
+        }
+    }
+
+    return details;
+};
+
 // -----------------------------------------------------------------------//
 // GET /whoami
 // -----------------------------------------------------------------------//
@@ -113,6 +137,8 @@ const WHOAMI_GET = eggspress('/whoami', {
         //     name: actor.type.app.name,
         // };
     }
+    
+    Object.assign(details, whoami_common({ is_user, user: req.user }));
 
     res.send(details);
 })
@@ -199,7 +225,7 @@ WHOAMI_POST.post('/whoami', auth, express.json(), async (req, response, next)=>{
     }
 
     // send user object
-    response.send({
+    response.send(Object.assign({
         username: req.user.username,
         uuid: req.user.uuid,
         email: req.user.email,
@@ -213,7 +239,7 @@ WHOAMI_POST.post('/whoami', auth, express.json(), async (req, response, next)=>{
         taskbar_items: await get_taskbar_items(req.user),
         desktop_items: desktop_items,
         referral_code: req.user.referral_code,
-    });
+    }, whoami_common({ is_user, user: req.user })));
 });
 
 module.exports = app => {
