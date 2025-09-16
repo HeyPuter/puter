@@ -67,7 +67,6 @@ class HostDiskUsageService extends BaseService {
             // TODO: Implement for windows systems
         }
 
-        console.log('free_space:', free_space);
         config.available_device_storage = free_space;
     }
 

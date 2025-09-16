@@ -100,7 +100,6 @@ class StreamReducer {
 class EWMA extends StreamReducer {
     constructor ({ initial, alpha }) {
         super(initial ?? 0);
-        console.log('VALL', this.value)
         this.alpha = Getter.adapt(alpha);
     }
 

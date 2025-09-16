@@ -22,5 +22,5 @@ extension.get('/example-onefile-get', (req, res) => {
 });
 
 extension.on('install', ({ services }) => {
-    console.log('install was called');
+    // console.log('install was called');
 })

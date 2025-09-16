@@ -54,7 +54,6 @@ class ValidationES extends BaseES {
                 ? await (await extra.old_entity.clone()).apply(entity)
                 : entity
                 ;
-            console.log('VALID ENT', valid_entity)
             await this.validate_(
                 valid_entity,
                 extra.old_entity ? entity : undefined

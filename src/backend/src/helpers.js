@@ -43,7 +43,6 @@ async function is_empty(dir_uuid){
 
     if ( typeof dir_uuid === 'object' ) {
         if ( typeof dir_uuid.path === 'string' && dir_uuid.path !== '' ) {
-            console.log('it is the path branch');
             rows = await db.read(
                 `SELECT EXISTS(SELECT 1 FROM fsentries WHERE path LIKE ${db.case({
                     sqlite: `? || '%'`,
@@ -55,7 +54,6 @@ async function is_empty(dir_uuid){
     }
     
     if ( typeof dir_uuid === 'string' ) {
-        console.log('it is the uuid branchj');
         rows = await db.read(
             `SELECT EXISTS(SELECT 1 FROM fsentries WHERE parent_uid = ? LIMIT 1) AS not_empty`,
             [dir_uuid]
