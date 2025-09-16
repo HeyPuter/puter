@@ -524,7 +524,9 @@ class Kernel extends AdvancedBase {
         };
         const data_json = JSON.stringify(data);
         
-        console.log('WRITING TO', path_.join(mod_path, 'package.json'));
+        if ( process.env.DEBUG ) {
+            console.log('WRITING TO', path_.join(mod_path, 'package.json'));
+        }
         
         await fs.promises.writeFile(path_.join(mod_path, 'package.json'), data_json);
         return data;
@@ -532,7 +534,8 @@ class Kernel extends AdvancedBase {
     
     async run_npm_install (path) {
         const npmCmd = process.platform === "win32" ? "npm.cmd" : "npm";
-        const proc = spawn(npmCmd, ["install"], { cwd: path, shell: true, stdio: "inherit" });
+        const proc = spawn(npmCmd, ["install"], { cwd: path, shell: true,
+            stdio: process.env.DEBUG ? "inherit" : undefined });
         return new Promise((rslv, rjct) => {
             proc.on('close', code => {
                 if ( code !== 0 ) {

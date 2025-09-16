@@ -31,6 +31,7 @@ const { Context } = require('../../util/context');
 const BaseService = require('../../services/BaseService');
 const { stringify_log_entry } = require('./lib/log');
 const { whatis } = require('../../util/langutil');
+const config = require('../../config');
 require('winston-daily-rotate-file');
 
 const WINSTON_LEVELS = {
@@ -193,7 +194,8 @@ class DevLogger {
 
         if ( this.off ) return;
         
-        if ( ! process.env.DEBUG && log_lvl.ordinal >= 4 ) return;
+        let log_ordinal = config.log_ordinal ?? 1;
+        if ( ! process.env.DEBUG && log_lvl.ordinal >= log_ordinal ) return;
 
         const ld = Context.get('logdent', { allow_fallback: true })
         const prefix = globalThis.dev_console_indent_on

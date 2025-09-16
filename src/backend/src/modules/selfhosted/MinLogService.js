@@ -7,10 +7,21 @@ class MinLogService extends BaseService {
     `
     
     _construct () {
-        this.on = true;
+        this.on_ = true;
         this.visible = new Set();
         
         this.widget_ = null;
+    }
+    
+    get on () {
+        return this.on_;
+    }
+    
+    set on (v) {
+        this.on_ = v;
+        if ( v ) {
+            delete process.env.DEBUG;
+        } process.env.DEBUG = 1;
     }
     
     _init () {

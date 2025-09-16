@@ -1,3 +1,5 @@
+const config = require("../config");
+
 /*
  * Copyright (C) 2024-present Puter Technologies Inc.
  *
@@ -18,24 +20,25 @@
  */
 class BootLogger {
     constructor () {
-        console.log(
+        this.log_ = config.enable_boot_logger ? console.log : () => {};
+        this.log_(
             `\x1B[36;1mBoot logger started :)\x1B[0m`,
         );
     }
     info (...args) {
-        console.log(
+        this.log_(
             '\x1B[36;1m[BOOT/INFO]\x1B[0m',
             ...args,
         );
     }
     error (...args) {
-        console.log(
+        this.log_(
             '\x1B[31;1m[BOOT/ERROR]\x1B[0m',
             ...args,
         );
     }
     warn (...args) {
-        console.log(
+        this.log_(
             '\x1B[33;1m[BOOT/WARN]\x1B[0m',
             ...args,
         );

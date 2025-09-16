@@ -46,6 +46,11 @@ class ProcessService extends BaseService {
     }
 
     log_ (name, isErr, line) {
+        // TODO: how do we determine when messages here are important?
+        // hiding these logs currently makes it impossible to notice
+        // errors from webpack watchers.
+        if ( ! process.env.DEBUG ) return;
+
         let txt = `[${name}:`;
         txt += isErr
             ? `\x1B[34;1m2\x1B[0m`
@@ -69,7 +74,7 @@ class ProcessService extends BaseService {
                 global_config: this.global_config
             });
         }
-        console.log(
+        if ( process.env.DEBUG ) console.log(
             'command',
             command,
             ...args

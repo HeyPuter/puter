@@ -244,10 +244,12 @@ const config_pointer = {};
     // confusing issues, so we log any time this happens
     config_to_export = new Proxy(config_to_export, {
         set: (target, prop, value, receiver) => {
-            console.log(
-                '\x1B[36;1mCONFIGURATION MUTATED AT RUNTIME\x1B[0m',
-                prop, 'to', value
-            );
+            if ( process.env.DEBUG ) {
+                console.log(
+                    '\x1B[36;1mCONFIGURATION MUTATED AT RUNTIME\x1B[0m',
+                    prop, 'to', value
+                );
+            }
             target[prop] = value;
             return true;
         }
