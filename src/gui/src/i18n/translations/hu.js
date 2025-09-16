@@ -394,10 +394,6 @@ const hu = {
         "billing.expanded": "Bővített", // In English: "Expanded"
         "billing.accelerated": "Gyorsított", // In English: "Accelerated"
         "billing.enjoy_msg": "Élvezd a %% Felhőtárhelyet és további előnyöket.", // In English: "Enjoy %% of Cloud Storage plus other benefits."
-
-        // =============================================================
-        // Missing translations Added 
-        // =============================================================
         "choose_publishing_option": "Válassza ki, hogyan szeretné közzétenni a webhelyét", // English: "Choose how you want to publish your website"
         "create_desktop_shortcut": "Parancsikon létrehozása (Asztal)", // English: "Create Shortcut (Desktop)"
         "create_desktop_shortcut_s": "Parancsikonok létrehozása (Asztal)", // English: "Create Shortcuts (Desktop)"
