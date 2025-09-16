@@ -1051,7 +1051,6 @@ async function UIDesktop(options) {
         refresh_item_container(el_desktop, { 
             fadeInItems: true,
             onComplete: () => {
-                console.log('onComplete', transaction.getDuration());
                 // End transaction when desktop is fully ready for user interaction
                 transaction.end();
             }
