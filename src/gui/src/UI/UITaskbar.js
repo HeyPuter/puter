@@ -267,8 +267,7 @@ async function UITaskbar(options){
                     });
                 }
 
-                UIContextMenu({
-                    parent_element: popover,
+                UIContextMenu({ 
                     items: items,
                 })
                 return false;
