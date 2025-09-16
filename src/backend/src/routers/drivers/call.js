@@ -65,8 +65,6 @@ module.exports = eggspress('/drivers/call', {
         ({ params: body, p_data_end: p_request } = await _handle_multipart(req));
     } else body = req.body;
 
-    console.log("Driver call body: ")
-
     const interface_name = body.interface;
     const test_mode = body.test_mode;
 
