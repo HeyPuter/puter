@@ -55,6 +55,9 @@ const copy = function (...args) {
             // if user is copying an item to where its source is, change the name so there is no conflict
             dedupe_name: (options.dedupe_name || options.dedupeName),
         }));
+
+        // todo: EXTREMELY NAIVE CACHE PURGE
+        puter._cache.flushall();
     })
 }
 

@@ -16,5 +16,8 @@
   "devDependencies": {
     "concurrently": "^8.2.2",
     "webpack-cli": "^5.1.4"
+  },
+  "dependencies": {
+    "@heyputer/kv.js": "^0.1.92"
   }
 }

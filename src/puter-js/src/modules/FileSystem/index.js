@@ -104,6 +104,19 @@ export class PuterJSFileSystemModule extends AdvancedBase {
     }
 
     bindSocketEvents() {
+        this.socket.on('item.added', (item) => {
+            // todo: NAIVE PURGE
+            puter._cache.flushall();
+        });
+        this.socket.on('item.renamed', (item) => {
+            // todo: NAIVE PURGE
+            puter._cache.flushall();
+        });
+        this.socket.on('item.moved', (item) => {
+            // todo: NAIVE PURGE
+            puter._cache.flushall();
+        }); 
+
         this.socket.on('connect', () => {
             if(puter.debugMode)
                 console.log('FileSystem Socket: Connected', this.socket.id);
@@ -112,6 +125,10 @@ export class PuterJSFileSystemModule extends AdvancedBase {
         this.socket.on('disconnect', () => {
             if(puter.debugMode)
                 console.log('FileSystem Socket: Disconnected');
+
+            // todo: NAIVE PURGE
+            // purge cache on disconnect since we may have become out of sync
+            puter._cache.flushall();
         });
 
         this.socket.on('reconnect', (attempt) => {

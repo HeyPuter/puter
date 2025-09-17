@@ -28,6 +28,7 @@ import { FilesystemService } from './services/Filesystem.js';
 import { FSRelayService } from './services/FSRelay.js';
 import { NoPuterYetService } from './services/NoPuterYet.js';
 import { XDIncomingService } from './services/XDIncoming.js';
+import kvjs from '@heyputer/kv.js';
 
 // TODO: This is for a safe-guard below; we should check if we can
 //       generalize this behavior rather than hard-coding it.
@@ -115,6 +116,9 @@ export default globalThis.puter = (function() {
         constructor(options) {
             options = options ?? {};
             
+            // Initialize the cache using kv.js
+            this._cache = new kvjs();
+
             // "modules" in puter.js are external interfaces for the developer
             this.modules_ = [];
             // "services" in puter.js are used by modules and may interact with each other

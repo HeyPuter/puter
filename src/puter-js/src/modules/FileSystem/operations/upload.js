@@ -429,6 +429,9 @@ const upload = async function(items, dirPath, options = {}){
             options.start();
         }
 
+        // todo: EXTREMELY NAIVE CACHE PURGE
+        puter._cache.flushall();
+
         // send request
         xhr.send(fd);
     })
