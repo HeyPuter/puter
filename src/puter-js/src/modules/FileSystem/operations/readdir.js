@@ -40,13 +40,10 @@ const readdir = async function (...args) {
             cacheKey = 'readdir:' + options.uid;
         }
 
-        console.log(options.consistency);
-        
         if(options.consistency === 'eventual'){
             // Check cache
             const cachedResult = await puter._cache.get(cacheKey);
             if(cachedResult){
-                console.log('CACHE HIT', cachedResult);
                 resolve(cachedResult);
                 return;
             }
@@ -73,7 +70,7 @@ const readdir = async function (...args) {
             
             // Cache the result if it's not bigger than MAX_CACHE_SIZE
             const MAX_CACHE_SIZE = 20 * 1024 * 1024;
-            const EXPIRE_TIME = 5;
+            const EXPIRE_TIME = 10;
 
             if(resultSize <= MAX_CACHE_SIZE){
                 // UPSERT the cache
