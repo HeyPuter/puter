@@ -954,7 +954,7 @@ async function UIDesktop(options) {
                     {
                         html: i18n('refresh'),
                         onClick: function () {
-                            refresh_item_container(el_desktop);
+                            refresh_item_container(el_desktop, { consistency: 'strong' });
                         }
                     },
                     // -------------------------------------------

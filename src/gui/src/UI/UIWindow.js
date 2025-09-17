@@ -2340,7 +2340,10 @@ async function UIWindow(options) {
                 menu_items.push({
                     html: i18n('refresh'),
                     onClick: function(){
-                        refresh_item_container(el_window_body, options);
+                        refresh_item_container(el_window_body, {
+                            ...options,
+                            consistency: 'strong',
+                        });
                     }
                 })
                 // -------------------------------------------

@@ -55,6 +55,9 @@ const write = async function (targetPath, data, options = {}) {
         throw new Error({ code: 'field_invalid', message: 'write() data parameter is an invalid type' });
     }
 
+    // todo: EXTREMELY NAIVE CACHE PURGE
+    puter._cache.flushall();
+
     // perform upload
     return this.upload(data, parent, options);
 }

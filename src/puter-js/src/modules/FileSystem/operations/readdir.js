@@ -20,9 +20,31 @@ const readdir = async function (...args) {
     }
 
     return new Promise(async (resolve, reject) => {
+        // consistency levels
+        if(!options.consistency){
+            options.consistency = 'strong';
+        }
+
         // Either path or uid is required
         if(!options.path && !options.uid){
             throw new Error({ code: 'NO_PATH_OR_UID', message: 'Either path or uid must be provided.' });
+        }
+
+        // Generate cache key based on path or uid
+        let cacheKey;
+        if(options.path){
+            cacheKey = 'readdir:' + options.path;
+        }else if(options.uid){
+            cacheKey = 'readdir:' + options.uid;
+        }
+
+        if(options.consistency === 'eventual'){
+            // Check cache
+            const cachedResult = await puter._cache.get(cacheKey);
+            if(cachedResult){
+                resolve(cachedResult);
+                return;
+            }
         }
 
         // If auth token is not provided and we are in the web environment, 
@@ -40,7 +62,21 @@ const readdir = async function (...args) {
         const xhr = utils.initXhr('/readdir', this.APIOrigin, this.authToken);
 
         // set up event handlers for load and error events
-        utils.setupXhrEventHandlers(xhr, options.success, options.error, resolve, reject);
+        utils.setupXhrEventHandlers(xhr, options.success, options.error, async (result) => {
+            // Calculate the size of the result for cache eligibility check
+            const resultSize = JSON.stringify(result).length;
+            
+            // Cache the result if it's not bigger than MAX_CACHE_SIZE
+            const MAX_CACHE_SIZE = 20 * 1024 * 1024;
+            const EXPIRE_TIME = 30;
+
+            if(resultSize <= MAX_CACHE_SIZE){
+                // UPSERT the cache
+                await puter._cache.set(cacheKey, result, { EX: EXPIRE_TIME });
+            }
+            
+            resolve(result);
+        }, reject);
 
         // Build request payload - support both path and uid parameters
         const payload = {

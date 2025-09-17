@@ -53,6 +53,9 @@ const mkdir = function (...args) {
             original_client_socket_id: this.socket.id,
             create_missing_parents: (options.recursive || options.createMissingParents) ?? false,
         }));
+
+        // todo: EXTREMELY NAIVE CACHE PURGE
+        puter._cache.flushall();
     })
 }
 
