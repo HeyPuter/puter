@@ -108,7 +108,7 @@ const refresh_item_container = function(el_item_container, options){
     $(el_item_container).find('.item').removeItems()
 
     // get items
-    puter.fs.readdir({path: container_path, consistency: options.consistency }).then((fsentries)=>{
+    puter.fs.readdir({path: container_path, consistency: options.consistency ?? 'eventual'}).then((fsentries)=>{
         // Check if the same folder is still loading since el_item_container's
         // data-path might have changed by other operations while waiting for the response to this `readdir`.
         if($(el_item_container).attr('data-path') !== container_path)
