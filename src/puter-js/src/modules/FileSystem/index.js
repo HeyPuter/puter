@@ -112,7 +112,7 @@ export class PuterJSFileSystemModule extends AdvancedBase {
         });
         this.socket.on('item.moved', (item) => {
             puter._cache.flushall();
-        });
+        }); 
 
         this.socket.on('connect', () => {
             if(puter.debugMode)
