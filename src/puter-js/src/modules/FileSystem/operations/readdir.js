@@ -21,9 +21,7 @@ const readdir = async function (...args) {
 
     return new Promise(async (resolve, reject) => {
         // consistency levels
-        if(!options.consistency && puter.env === 'gui'){
-            options.consistency = 'eventual';
-        }else{
+        if(!options.consistency){
             options.consistency = 'strong';
         }
 
