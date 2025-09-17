@@ -104,6 +104,16 @@ export class PuterJSFileSystemModule extends AdvancedBase {
     }
 
     bindSocketEvents() {
+        this.socket.on('item.added', (item) => {
+            puter._cache.flushall();
+        });
+        this.socket.on('item.renamed', (item) => {
+            puter._cache.flushall();
+        });
+        this.socket.on('item.moved', (item) => {
+            puter._cache.flushall();
+        });
+
         this.socket.on('connect', () => {
             if(puter.debugMode)
                 console.log('FileSystem Socket: Connected', this.socket.id);
