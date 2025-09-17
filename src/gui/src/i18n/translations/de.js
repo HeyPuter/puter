@@ -405,10 +405,6 @@ const de = {
         "billing.expanded": "Erweitert", // In English: "Expanded"
         "billing.accelerated": "Beschleunigt", // In English: "Accelerated"
         "billing.enjoy_msg": "Genießen Sie %% des Cloud-Speichers und weitere Vorteile.", // In English: "Enjoy %% of Cloud Storage plus other benefits."
-
-        // =============================================================
-        // Missing translations
-        // =============================================================
         "choose_publishing_option": "Wählen Sie, wie Sie Ihre Website veröffentlichen möchten", // In English: "Choose how you want to publish your website:"
         "create_desktop_shortcut": "Verknüpfung erstellen (Desktop)", // In English: "Create Shortcut (Desktop)"
         "create_desktop_shortcut_s": "Verknüpfungen erstellen (Desktop)", // In English: "Create Shortcuts (Desktop)"
@@ -425,7 +421,7 @@ const de = {
         "toolbar.save_account": "Konto speichern", // In English: "Save Account"
         "toolbar.search": "Suchen", // In English: "Search"
         "toolbar.qrcode": "QR-Code", // In English: "QR Code"
-        "used_of": "verwendet von ", // In English: "{{used}} used of {{available}}"
+        "used_of": "{{used}} verwendet von {{available}} ", // In English: "{{used}} used of {{available}}"
         "worker": "Worker", // In English: "Worker"
         "billing.offering.basic": "Basic", // In English: "Basic"
         "too_many_attempts": "Zu viele Versuche. Bitte versuchen Sie es später erneut.", // In English: "Too many attempts. Please try again later."
@@ -445,9 +441,9 @@ const de = {
         "alert_success_title": "Erfolg!", // In English: "Success!"
         "alert_confirm_title": "Bist du sicher?", // In English: "Are you sure?"
         "alert_yes": "Ja", // In English: "Yes"
-        "alert_no": "NEIN", // In English: "No"
+        "alert_no": "Nein", // In English: "No"
         "alert_retry": "Wiederholen", // In English: "Retry"
-        "alert_cancel": "Stornieren", // In English: "Cancel"
+        "alert_cancel": "Abbrechen", // In English: "Cancel"
         "signup_confirm_password": "Passwort bestätigen", // In English: "Confirm Password"
         "login_email_username_required": "E-Mail oder Benutzername ist erforderlich", // In English: "Email or username is required"
         "login_password_required": "Passwort erforderlich", // In English: "Password is required"
@@ -481,11 +477,10 @@ const de = {
         "window_title_public": "Öffentlich", // In English: "Public"
         "window_title_videos": "Videos", // In English: "Videos"
         "window_title_pictures": "Bilder", // In English: "Pictures"
-        "window_title_puter": "Computer", // In English: "Puter"
+        "window_title_puter": "Puter", // In English: "Puter"
         "window_folder_empty": "Dieser Ordner ist leer", // In English: "This folder is empty"
         "manage_your_subdomains": "Verwalten Sie Ihre Subdomains", // In English: "Manage Your Subdomains"
         "open_containing_folder": "Enthaltenen Ordner öffnen", // In English: "Open Containing Folder"
-
     }
 };
 
