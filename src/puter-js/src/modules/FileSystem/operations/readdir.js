@@ -1,6 +1,3 @@
-// This file exists but I'm pretty sure it's unused
-// if you're typing to modify the stat implementation look at src/puter-js/src/lib/filesystem/APIFS.js
-
 import * as utils from '../../../lib/utils.js';
 import getAbsolutePathForApp from '../utils/getAbsolutePathForApp.js';
 
@@ -59,7 +56,7 @@ const readdir = async function (...args) {
         }
 
         // create xhr object
-        const xhr = utils.initXhr('/readdir', this.APIOrigin, this.authToken);
+        const xhr = utils.initXhr('/readdir', this.APIOrigin, undefined, "post", "text/plain;actually=json");
 
         // set up event handlers for load and error events
         utils.setupXhrEventHandlers(xhr, options.success, options.error, async (result) => {
@@ -82,6 +79,7 @@ const readdir = async function (...args) {
         const payload = {
             no_thumbs: options.no_thumbs,
             no_assocs: options.no_assocs,
+            auth_token: this.authToken
         };
 
         // Add either uid or path to the payload

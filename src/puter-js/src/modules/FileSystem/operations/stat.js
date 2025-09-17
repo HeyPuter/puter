@@ -1,6 +1,3 @@
-// This file exists but I'm pretty sure it's unused
-// if you're typing to modify the stat implementation look at src/puter-js/src/lib/filesystem/APIFS.js
-
 import * as utils from '../../../lib/utils.js';
 import getAbsolutePathForApp from '../utils/getAbsolutePathForApp.js';
 
@@ -34,7 +31,7 @@ const stat = async function (...args) {
         }
 
         // create xhr object
-        const xhr = utils.initXhr('/stat', this.APIOrigin, this.authToken);
+        const xhr = utils.initXhr('/stat', this.APIOrigin, undefined, "post", "text/plain;actually=json");
 
         // set up event handlers for load and error events
         utils.setupXhrEventHandlers(xhr, options.success, options.error, resolve, reject);
@@ -52,6 +49,7 @@ const stat = async function (...args) {
         dataToSend.return_permissions = options.returnPermissions;
         dataToSend.return_versions = options.returnVersions;
         dataToSend.return_size = options.returnSize;
+        dataToSend.auth_token = this.authToken;
 
         xhr.send(JSON.stringify(dataToSend));
     })
