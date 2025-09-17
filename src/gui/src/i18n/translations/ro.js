@@ -264,7 +264,7 @@ const ro = {
         share: "Distribuie",
         share_to: "Distribuie către",
         share_with: "Distribuie cu",
-        shortcut_to: "Comandă rapidă ©ătre",
+        shortcut_to: "Comandă rapidă către",
         show_all_windows: "Afișați toate ferestrele",
         show_hidden: 'Arată ascuns',
         sign_in_with_puter: "Conectați-vă cu Puter",
@@ -402,86 +402,82 @@ const ro = {
         "billing.expanded": "Extins",
         "billing.accelerated": "Accelerat",
         "billing.enjoy_msg": "Bucură-te de %% spațiu de stocare în cloud plus alte beneficii.",
-
-        // =============================================================
-        // Missing translations
-        // =============================================================
-        "choose_publishing_option": undefined, // In English: "Choose how you want to publish your website:"
-        "create_desktop_shortcut": undefined, // In English: "Create Shortcut (Desktop)"
-        "create_desktop_shortcut_s": undefined, // In English: "Create Shortcuts (Desktop)"
-        "create_shortcut_s": undefined, // In English: "Create Shortcuts"
-        "minimize": undefined, // In English: "Minimize"
-        "reload_app": undefined, // In English: "Reload App"
-        "new_window": undefined, // In English: "New Window"
-        "open_trash": undefined, // In English: "Open Trash"
-        "pick_name_for_worker": undefined, // In English: "Pick a name for your worker:"
-        "publish_as_serverless_worker": undefined, // In English: "Publish as Worker"
-        "toolbar.enter_fullscreen": undefined, // In English: "Enter Full Screen"
-        "toolbar.github": undefined, // In English: "GitHub"
-        "toolbar.refer": undefined, // In English: "Refer"
-        "toolbar.save_account": undefined, // In English: "Save Account"
-        "toolbar.search": undefined, // In English: "Search"
-        "toolbar.qrcode": undefined, // In English: "QR Code"
-        "used_of": undefined, // In English: "{{used}} used of {{available}}"
-        "worker": undefined, // In English: "Worker"
-        "billing.offering.basic": undefined, // In English: "Basic"
-        "too_many_attempts": undefined, // In English: "Too many attempts. Please try again later."
-        "server_timeout": undefined, // In English: "The server took too long to respond. Please try again."
-        "signup_error": undefined, // In English: "An error occurred during signup. Please try again."
-        "welcome_title": undefined, // In English: "Welcome to your Personal Internet Computer"
-        "welcome_description": undefined, // In English: "Store files, play games, find awesome apps, and much more! All in one place, accessible from anywhere at any time."
-        "welcome_get_started": undefined, // In English: "Get Started"
-        "welcome_terms": undefined, // In English: "Terms"
-        "welcome_privacy": undefined, // In English: "Privacy"
-        "welcome_developers": undefined, // In English: "Developers"
-        "welcome_open_source": undefined, // In English: "Open Source"
-        "welcome_instant_login_title": undefined, // In English: "Instant Login!"
-        "alert_error_title": undefined, // In English: "Error!"
-        "alert_warning_title": undefined, // In English: "Warning!"
-        "alert_info_title": undefined, // In English: "Info"
-        "alert_success_title": undefined, // In English: "Success!"
-        "alert_confirm_title": undefined, // In English: "Are you sure?"
-        "alert_yes": undefined, // In English: "Yes"
-        "alert_no": undefined, // In English: "No"
-        "alert_retry": undefined, // In English: "Retry"
-        "alert_cancel": undefined, // In English: "Cancel"
-        "signup_confirm_password": undefined, // In English: "Confirm Password"
-        "login_email_username_required": undefined, // In English: "Email or username is required"
-        "login_password_required": undefined, // In English: "Password is required"
-        "window_title_open": undefined, // In English: "Open"
-        "window_title_change_password": undefined, // In English: "Change Password"
-        "window_title_select_font": undefined, // In English: "Select font…"
-        "window_title_session_list": undefined, // In English: "Session List!"
-        "window_title_set_new_password": undefined, // In English: "Set New Password"
-        "window_title_instant_login": undefined, // In English: "Instant Login!"
-        "window_title_publish_website": undefined, // In English: "Publish Website"
-        "window_title_publish_worker": undefined, // In English: "Publish Worker"
-        "window_title_authenticating": undefined, // In English: "Authenticating..."
-        "window_title_refer_friend": undefined, // In English: "Refer a friend!"
-        "desktop_show_desktop": undefined, // In English: "Show Desktop"
-        "desktop_show_open_windows": undefined, // In English: "Show Open Windows"
-        "desktop_exit_full_screen": undefined, // In English: "Exit Full Screen"
-        "desktop_enter_full_screen": undefined, // In English: "Enter Full Screen"
-        "desktop_position": undefined, // In English: "Position"
-        "desktop_position_left": undefined, // In English: "Left"
-        "desktop_position_bottom": undefined, // In English: "Bottom"
-        "desktop_position_right": undefined, // In English: "Right"
-        "item_shared_with_you": undefined, // In English: "A user has shared this item with you."
-        "item_shared_by_you": undefined, // In English: "You have shared this item with at least one other user."
-        "item_shortcut": undefined, // In English: "Shortcut"
-        "item_associated_websites": undefined, // In English: "Associated website"
-        "item_associated_websites_plural": undefined, // In English: "Associated websites"
-        "no_suitable_apps_found": undefined, // In English: "No suitable apps found"
-        "window_click_to_go_back": undefined, // In English: "Click to go back."
-        "window_click_to_go_forward": undefined, // In English: "Click to go forward."
-        "window_click_to_go_up": undefined, // In English: "Click to go one directory up."
-        "window_title_public": undefined, // In English: "Public"
-        "window_title_videos": undefined, // In English: "Videos"
-        "window_title_pictures": undefined, // In English: "Pictures"
-        "window_title_puter": undefined, // In English: "Puter"
-        "window_folder_empty": undefined, // In English: "This folder is empty"
-        "manage_your_subdomains": undefined, // In English: "Manage Your Subdomains"
-        "open_containing_folder": undefined, // In English: "Open Containing Folder"
+        "choose_publishing_option": "Alege cum vrei să îți publici site-ul:",
+        "create_desktop_shortcut": "Creează Shortcut (Desktop)", 
+        "create_desktop_shortcut_s": "Creează Shortcut-uri (Desktop)", 
+        "create_shortcut_s": "Creează Shortcut-uri", 
+        "minimize": "Minimizează",
+        "reload_app": "Reîncarcă aplicația",
+        "new_window": "Fereastră nouă",
+        "open_trash": "Deschide Coșul de gunoi",
+        "pick_name_for_worker": "Alege un nume pentru muncitorul tău:",
+        "publish_as_serverless_worker": "Publică ca muncitor", 
+        "toolbar.enter_fullscreen": "Intră în modul tot ecranul", 
+        "toolbar.github": "GitHub", 
+        "toolbar.refer": "Recomandă", 
+        "toolbar.save_account": "Salvează contul", 
+        "toolbar.search": "Caută",
+        "toolbar.qrcode": "Cod QR", 
+        "used_of": "%% folosit din %%", 
+        "worker": "Muncitor", 
+        "billing.offering.basic": "De bază", 
+        "too_many_attempts": "Prea multe încercări. Te rugăm să încerci din nou mai târziu.", 
+        "server_timeout": "Serverului i-a luat prea mult să răspundă. Te rugăm să încerci din nou.", 
+        "signup_error": "A apărut o eroare la înregistrare. Te rugăm să încerci din nou.",
+        "welcome_title": "Bine ai venit la Computerul tău Personal de Internet", 
+        "welcome_description": "Stochează fișiere, joacă jocuri, găsește aplicații grozave și multe altele! Totul într-un singur loc, accesibil de oriunde și oricând.",
+        "welcome_get_started": "Să Începem", 
+        "welcome_terms": "Termeni",
+        "welcome_privacy": "Confidențialitate", 
+        "welcome_developers": "Dezvoltatori", 
+        "welcome_open_source": "Open Source",
+        "welcome_instant_login_title": "Autentificare instantanee!", 
+        "alert_error_title": "Eroare!", 
+        "alert_warning_title": "Avertisment", 
+        "alert_info_title": "Informații", 
+        "alert_success_title": "Succes!", 
+        "alert_confirm_title": "Ești sigur?", 
+        "alert_yes": "Da",
+        "alert_no": "Nu", 
+        "alert_retry": "Reîncearcă",
+        "alert_cancel": "Anulează", 
+        "signup_confirm_password": "Confirmă parola",
+        "login_email_username_required": "Email-ul sau numele de utilizator este obligatoriu",
+        "login_password_required": "Parola este obligatorie", 
+        "window_title_open": "Deschide",
+        "window_title_change_password": "Schimbă parola",
+        "window_title_select_font": "Selectează font…",
+        "window_title_session_list": "Lista de sesiuni!", 
+        "window_title_set_new_password": "Setează o parolă nouă", 
+        "window_title_instant_login": "Autentificare instantanee!",
+        "window_title_publish_website": "Publică site-ul", 
+        "window_title_publish_worker": "Publică muncitorul", 
+        "window_title_authenticating": "Se autentifică...",
+        "window_title_refer_friend": "Recomandă unui prieten!", 
+        "desktop_show_desktop": "Arată desktopul", 
+        "desktop_show_open_windows": "Arată ferestrele deschise", 
+        "desktop_exit_full_screen": "Ieși din ecran complet",
+        "desktop_enter_full_screen": "Intră pe ecran complet", 
+        "desktop_position": "Poziție", 
+        "desktop_position_left": "Stânga", 
+        "desktop_position_bottom": "Jos", 
+        "desktop_position_right": "Dreapta", 
+        "item_shared_with_you": "Un utilizator a partajat acest element cu tine.", 
+        "item_shared_by_you": "Ai partajat acest element cu cel puțin un alt utilizator.", 
+        "item_shortcut": "Scurtătură", 
+        "item_associated_websites": "Website asociat", 
+        "item_associated_websites_plural": "Website-uri asociate", 
+        "no_suitable_apps_found": "Nu s-au găsit aplicații potrivite", 
+        "window_click_to_go_back": "Apasă pentru a merge înapoi.",
+        "window_click_to_go_forward": "Apasă pentru a merge înainte.", 
+        "window_click_to_go_up": "Apasă pentru a avansa un director.", 
+        "window_title_public": "Public", 
+        "window_title_videos": "Videoclipuri", 
+        "window_title_pictures": "Poze", 
+        "window_title_puter": "Puter", 
+        "window_folder_empty": "Acest folder este gol", 
+        "manage_your_subdomains": "Administrează-ți subdomeniile", 
+        "open_containing_folder": "Deschide folderul care conține", 
 
     }
 }

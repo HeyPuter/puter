@@ -19,7 +19,9 @@
  */
 
 const APIError = require("../../api/APIError");
+const { ECMAP } = require("../../filesystem/ECMAP");
 const { get_user, get_app } = require("../../helpers");
+const { Context } = require("../../util/context");
 const BaseService = require("../BaseService");
 const { DB_WRITE } = require("../database/consts");
 const { UserActorType, Actor, AppUnderUserActorType } = require("./Actor");
@@ -265,6 +267,10 @@ class PermissionUtil {
 * This service interacts with the database to manage permissions and logs actions for auditing purposes.
 */
 class PermissionService extends BaseService {
+    static MODULES = {
+        kv: globalThis.kv,
+    }
+
     static CONCERN = 'permissions';
     /**
     * Initializes the PermissionService by setting up internal arrays for permission handling.
@@ -350,7 +356,9 @@ class PermissionService extends BaseService {
     async scan (actor, permission_options, _reserved, state) {
         const svc_trace = this.services.get('traceService');
         return await svc_trace.spanify(`permission:scan`, async () => {
-            return await this.scan_(actor, permission_options, _reserved, state);
+            return await ECMAP.arun(async () => {
+                return await this.scan_(actor, permission_options, _reserved, state);
+            });
         }, { attributes: { permission_options }, actor: actor.uid });
     }
     async scan_ (actor, permission_options, _reserved, state) {
@@ -368,6 +376,18 @@ class PermissionService extends BaseService {
         
         if ( ! Array.isArray(permission_options) ) {
             permission_options = [permission_options];
+        }
+
+        const cache_str = PermissionUtil.join(
+            'permission-scan',
+            actor.uid,
+            'options-list',
+            ...permission_options,
+        );
+        
+        const cached = kv.get(cache_str);
+        if ( cached ) {
+            return cached;
         }
         
         // TODO: command to enable these logs
@@ -391,6 +411,8 @@ class PermissionService extends BaseService {
             $: 'time',
             value: end_ts - start_ts,
         });
+
+        kv.set(cache_str, reading, { EX: 20 });
 
         return reading;
     }

@@ -55,7 +55,6 @@ class TogetherAIService extends BaseService {
         this.kvkey = this.modules.uuidv4();
 
         const svc_aiChat = this.services.get('ai-chat');
-        console.log('registering provider', this.service_name);
         svc_aiChat.register_provider({
             service_name: this.service_name,
             alias: true,

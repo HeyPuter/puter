@@ -162,6 +162,8 @@ function UIItem(options){
 
         h += `</div>`;
 
+        // divider
+        h += `<div class="item-divider"></div>`;
         // name
         h += `<pre class="item-name" data-item-id="${item_id}" title="${html_encode(options.name)}">${options.is_trash ? i18n('trash') : html_encode(truncate_filename(options.name))}</pre>`
         // name editor

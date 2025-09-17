@@ -414,7 +414,16 @@ input[type=text]:focus, input[type=password]:focus, input[type=email]:focus, sel
     float: left;
     position: relative;
     scroll-margin: 15px 15px 100px 15px;
-    pointer-events: all;
+    pointer-events: none;
+}
+
+.item-divider {
+    height: 3px;
+    width: 100%;
+}
+
+.item-container-list .item-divider, .item-container-details .item-divider {
+    display: none;
 }
 
 .item-disabled {
@@ -530,6 +539,7 @@ span.header-sort-icon img {
     display: flex;
     justify-content: center;
     align-items: center;
+    pointer-events: all;
 }
 
 .item-container-list .item-icon {
@@ -642,7 +652,7 @@ span.header-sort-icon img {
     text-shadow: 0px 0px 3px #00000082, 0px 0px 3px #00000082, 0px 0px 3px #00000082;
     -webkit-font-smoothing: antialiased;
     padding: 3px;
-    margin-top: 4px;
+    margin-top: 1px;
     display: inline-block;
     font-weight: bold;
     border-radius: 4px;
@@ -655,6 +665,7 @@ span.header-sort-icon img {
     transition: opacity 0.2s ease-in-out;
     cursor: default;
     max-width: 110px;
+    pointer-events: all;
 }
 
 .item-container-list .item-name {
@@ -698,6 +709,7 @@ span.header-sort-icon img {
     position: relative;
     box-sizing: border-box;
     z-index: 999999999;
+    pointer-events: all;
 }
 
 .item-container-list .item-name-editor {
@@ -2601,6 +2613,106 @@ label {
     max-height: 10px;
     min-height: 10px !important;
     padding-bottom: 5px !important;
+}
+
+/*****************************************************
+ * Captcha 
+ *****************************************************/
+
+.captcha-modal {
+    position: fixed;
+    top: 0;
+    left: 0;
+    width: 100%;
+    height: 100%;
+    background-color: rgba(0, 0, 0, 0.5);
+    display: flex;
+    justify-content: center;
+    align-items: center;
+    z-index: 10000;
+    font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+}
+
+.captcha-modal .modal-content {
+    background-color: white;
+    padding: 30px;
+    border-radius: 10px;
+    box-shadow: 0 4px 20px rgba(0, 0, 0, 0.15);
+    max-width: 400px;
+    width: 90%;
+    text-align: center;
+    position: relative;
+}
+
+.captcha-modal .captcha-logo {
+    width: 40px; 
+    height: 40px; 
+    margin: 0 auto 15px; 
+    display: block; 
+    padding: 15px; 
+    background-color: blue; 
+    border-radius: 8px;
+}
+
+.captcha-modal .captcha-title {
+    margin: 0;
+    color: #1f2937;
+    font-size: 24px;
+    font-weight: 500;
+    line-height: 1.2;
+    -webkit-font-smoothing: antialiased;
+}
+
+.captcha-modal .captcha-description {
+    margin: 10px 0 0 0;
+    color: #6b7280;
+    font-size: 14px;
+    line-height: 1.4;
+}
+
+.captcha-modal .captcha-container {
+    display: flex;
+    justify-content: center;
+    margin: 20px 0;
+    min-height: 80px;
+    align-items: center;
+}
+
+.captcha-modal .loading-state {
+    display: none;
+    margin: 20px 0;
+    color: #6b7280;
+    font-size: 16px;
+    height: 80px;
+    line-height: 70px;
+}
+
+.captcha-modal .loading-state-icon {
+    display: inline-block;
+    width: 20px;
+    height: 20px;
+    border: 2px solid #e5e7eb;
+    border-radius: 50%;
+    border-top: 2px solid #3b82f6;
+    animation: spin 1s linear infinite;
+    margin-right: 10px;
+    vertical-align: middle;
+}
+
+.captcha-modal .error-message {
+    display: none;
+    color: #dc2626;
+    font-size: 14px;
+    margin-top: 15px;
+    padding: 10px;
+    background-color: #fef2f2;
+    border: 1px solid #fecaca;
+    border-radius: 6px;
+}
+
+@keyframes spin {
+    0% { transform: rotate(0deg); }
+    100% { transform: rotate(360deg); }
 }
 
 /*****************************************************

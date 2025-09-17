@@ -23,6 +23,8 @@ const { origin_from_url } = require("../../util/urlutil");
 const { DB_READ } = require("../../services/database/consts");
 const BaseService = require('../../services/BaseService');
 
+// Currently leaks memory (not sure why yet, but icons are a factor)
+const ENABLE_REFRESH_APP_CACHE = false;
 
 /**
 * @class AppInformationService
@@ -64,19 +66,21 @@ class AppInformationService extends BaseService {
         (async () => {
             // await new Promise(rslv => setTimeout(rslv, 500))
 
-            await this._refresh_app_cache();
-            /**
-            * Refreshes the application cache by querying the database for all apps and updating the key-value store.
-            * 
-            * This method is called periodically to ensure that the in-memory cache reflects the latest
-            * state from the database. It uses the 'database' service to fetch app data and then updates
-            * multiple cache entries for quick lookups by name, ID, and UID.
-            *
-            * @async
-            */
-            asyncSafeSetInterval(async () => {
-                this._refresh_app_cache();
-            }, 30 * 1000);
+            if ( ENABLE_REFRESH_APP_CACHE ) {
+                await this._refresh_app_cache();
+                /**
+                * Refreshes the application cache by querying the database for all apps and updating the key-value store.
+                * 
+                * This method is called periodically to ensure that the in-memory cache reflects the latest
+                * state from the database. It uses the 'database' service to fetch app data and then updates
+                * multiple cache entries for quick lookups by name, ID, and UID.
+                *
+                * @async
+                */
+                asyncSafeSetInterval(async () => {
+                    this._refresh_app_cache();
+                }, 30 * 1000);
+            }
 
             await this._refresh_app_stats();
             /**
@@ -146,7 +150,7 @@ class AppInformationService extends BaseService {
     * @param {string} [options.grouping=undefined] - Time grouping for stats: 'hour', 'day', 'week', 'month', 'year'
     * @returns {Promise<Object>} An object containing:
     *   - {Object} open_count - Open counts for different time periods
-    *   - {Object} user_count - Unique user counts for different time periods
+    *   - {Object} user_count - Uniqu>e user counts for different time periods
     *   - {number|null} referral_count - The number of referrals (all-time only)
     */
     async get_stats(app_uid, options = {}) {

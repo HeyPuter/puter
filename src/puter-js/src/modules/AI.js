@@ -604,6 +604,31 @@ class AI{
         }).call(this, requestParams);
     }
 
+    /**
+     * Generate images from text prompts or perform image-to-image generation
+     * 
+     * @param {string|object} prompt - Text prompt or options object
+     * @param {object|boolean} [options] - Generation options or test mode flag
+     * @param {string} [options.prompt] - Text description of the image to generate
+     * @param {string} [options.model] - Model to use (e.g., "gemini-2.5-flash-image-preview")
+     * @param {object} [options.ratio] - Image dimensions (e.g., {w: 1024, h: 1024})
+     * @param {string} [options.input_image] - Base64 encoded input image for image-to-image generation
+     * @param {string} [options.input_image_mime_type] - MIME type of input image (e.g., "image/png")
+     * @returns {Promise<Image>} Generated image object with src property
+     * 
+     * @example
+     * // Text-to-image
+     * const img = await puter.ai.txt2img("A beautiful sunset");
+     * 
+     * @example
+     * // Image-to-image
+     * const img = await puter.ai.txt2img({
+     *   prompt: "Transform this into a watercolor painting",
+     *   input_image: base64ImageData,
+     *   input_image_mime_type: "image/png",
+     *   model: "gemini-2.5-flash-image-preview"
+     * });
+     */
     txt2img = async (...args) => {
         let options = {};
         let testMode = false;
@@ -621,9 +646,24 @@ class AI{
         if (typeof args[1] === 'boolean' && args[1] === true) {
             testMode = true;
         }
-    
+
+        if (typeof args[0] === 'string' && typeof args[1] === "object") {
+            options = args[1];
+            options.prompt = args[0];
+        }
+
+        if (typeof args[0] === 'object') {
+            options = args[0]
+        }
+
+        let AIService = "openai-image-generation"
+        if (options.model === "nano-banana") 
+            options.model = "gemini-2.5-flash-image-preview";
+
+        if (options.model === "gemini-2.5-flash-image-preview")
+            AIService = "gemini-image-generation";
         // Call the original chat.complete method
-        return await utils.make_driver_method(['prompt'], 'puter-image-generation', undefined, 'generate', {
+        return await utils.make_driver_method(['prompt'], 'puter-image-generation', AIService, 'generate', {
             responseType: 'blob',
             test_mode: testMode ?? false,
             transform: async blob => {

@@ -110,7 +110,7 @@ async function UIWindowDesktopBGSettings(options){
             ...options.window_options,
         })
 
-        const default_wallpaper = (window.gui_env === 'prod') ? '/dist/images/wallpaper.webp' :  '/images/wallpaper.webp';
+        const default_wallpaper = (window.gui_env === 'prod') ? 'https://puter-assets.b-cdn.net/wallpaper.webp' :  '/images/wallpaper.webp';
         $(el_window).find('.desktop-bg-settings-wrapper').hide();
 
         if(window.desktop_bg_url === default_wallpaper) {

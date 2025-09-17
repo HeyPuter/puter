@@ -208,7 +208,7 @@ class AppIconService extends BaseService {
             new NodePathSelector('/system/app_icons')
         );
 
-        this.dir_app_icons = dir_app_icons;
+        return this.dir_app_icons = dir_app_icons;
     }
 
     get_sharp ({ metadata, input }) {

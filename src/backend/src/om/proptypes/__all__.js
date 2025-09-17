@@ -45,7 +45,6 @@ module.exports = {
     },
     string: {
         is_set (value) {
-            console.log("BALAHAJAKJKAJKAJKA: ", value, value !== null || (!!value))
             return (!!value) || value === null 
         },
         async adapt (value) {
@@ -56,7 +55,6 @@ module.exports = {
             if ( value === null ) return '';
 
             if (value === NULL) {
-                console.log("wow! nully nulled")
                 return null;
             }
 
@@ -181,7 +179,6 @@ module.exports = {
             if ( ! value ) return null;
             if ( value instanceof Entity ) return value;
             const svc = Context.get().get('services').get(descriptor.service);
-            console.log('VALUE BEING READ', value);
             const entity = await svc.read(value);
             return entity;
         }

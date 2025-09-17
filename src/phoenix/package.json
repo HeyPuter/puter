@@ -13,7 +13,7 @@
     "@rollup/plugin-commonjs": "^24.1.0",
     "@rollup/plugin-node-resolve": "^15.0.2",
     "@rollup/plugin-replace": "^5.0.2",
-    "mocha": "^10.6.0",
+    "mocha": "^10.8.2",
     "rollup": "^3.21.4",
     "rollup-plugin-copy": "^3.4.0"
   },

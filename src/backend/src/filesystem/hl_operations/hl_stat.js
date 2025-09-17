@@ -19,6 +19,8 @@
 const { Context } = require("../../util/context");
 const { HLFilesystemOperation } = require("./definitions");
 const APIError = require('../../api/APIError');
+const { ECMAP } = require("../ECMAP");
+const { NodeUIDSelector } = require("../node/selectors");
 
 class HLStat extends HLFilesystemOperation {
     static MODULES = {
@@ -26,6 +28,16 @@ class HLStat extends HLFilesystemOperation {
     }
 
     async _run () {
+        return await ECMAP.arun(async () => {
+            const ecmap = Context.get(ECMAP.SYMBOL);
+            ecmap.store_fsNodeContext(this.values.subject);
+            return await this.__run();
+        });
+    }
+    // async _run () {
+    //     return await this.__run();
+    // }
+    async __run () {
         const {
             subject, user,
             return_subdomains,
@@ -34,8 +46,25 @@ class HLStat extends HLFilesystemOperation {
             return_versions,
             return_size,
         } = this.values;
+        
+        const maybe_uid_selector = subject.get_selector_of_type(NodeUIDSelector);
+        
+        // users created before 2025-07-30 might have fsentries with NULL paths.
+        // we can remove this check once that is fixed.
+        const user_unix_ts = Number((''+Date.parse(Context.get('actor')?.type?.user?.timestamp)).slice(0, -3));
+        const paths_are_fine = user_unix_ts >= 1722385593;
 
-        await subject.fetchEntry();
+        if ( maybe_uid_selector || paths_are_fine ) {
+            // We are able to fetch the entry and is_empty simultaneously
+            await Promise.all([
+                subject.fetchEntry(),
+                subject.fetchIsEmpty(),
+            ]);
+        } else {
+            // We need the entry first in order for is_empty to work correctly
+            await subject.fetchEntry();
+            await subject.fetchIsEmpty();
+        }
 
         // file not found
         if( ! subject.found ) throw APIError.create('subject_does_not_exist');
@@ -60,8 +89,6 @@ class HLStat extends HLFilesystemOperation {
             await subject.fetchShares();
         }
         if (return_versions) await subject.fetchVersions();
-
-        await subject.fetchIsEmpty();
 
         return await subject.getSafeEntry();
     }

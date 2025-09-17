@@ -71,10 +71,29 @@ class Context {
     static sub (values, opt_name) {
         return this.get().sub(values, opt_name);
     }
+    
+    #dead = false;
+
+    /**
+     * Clears this context's values and unlinks from its parent. This context
+     * will become empty. This is to ensure contexts that aren't used anymore
+     * get garbage collected. This was added to prevent memory leaks due to
+     * ECMAP, where currently we're not sure what's holding a reference back
+     * to the ECMAP (or perhaps its subcontext).
+     */
+    unlink () {
+        // Settings `values_` to an empty object should clear any references
+        // that were inside it while avoiding errors if .get() happens to be
+        // called by a lingering asynchronous function.
+        this.values_ = {};
+        this.#dead = true;
+    }
+
     get (k) {
         return this.values_[k];
     }
     set (k, v) {
+        if ( this.#dead ) return;
         this.values_[k] = v;
     }
     sub (values, opt_name) {
