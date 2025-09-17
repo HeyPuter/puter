@@ -467,7 +467,7 @@ const nl = {
 		"desktop_enter_full_screen": "Naar volledig scherm", // In English: "Enter Full Screen"
 		"desktop_position": "Positie", // In English: "Position"
 		"desktop_position_left": "Links", // In English: "Left"
-		"desktop_position_bottom": "onderkant", // In English: "Bottom"
+		"desktop_position_bottom": "Onderkant", // In English: "Bottom"
 		"desktop_position_right": "Rechts", // In English: "Right"
 
 		"item_shared_with_you": "Een gebruiker heeft dit item met u gedeeld.", // In English: "A user has shared this item with you."
