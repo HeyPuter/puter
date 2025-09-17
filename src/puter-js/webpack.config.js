@@ -10,8 +10,6 @@ import webpack from 'webpack';
 import { fileURLToPath } from 'url';
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
-console.log('ENV CHECK!!!', process.env.PUTER_ORIGIN, process.env.PUTER_API_ORIGIN);
-
 export default {
   entry: './src/index.js',
   output: {
