@@ -1,4 +1,4 @@
-const { PermissionImplicator, PermissionUtil } = require("./auth/PermissionService");
+const { PermissionImplicator, PermissionUtil } = require("./auth/PermissionUtils.mjs");
 const BaseService = require("./BaseService")
 
 const APIError = require("../api/APIError");

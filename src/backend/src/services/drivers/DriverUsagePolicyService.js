@@ -18,7 +18,7 @@
  */
 
 // METADATA // {"ai-commented":{"service":"openai-completion","model":"gpt-4o"}}
-const { PermissionUtil } = require("../auth/PermissionService");
+const { PermissionUtil } = require("../auth/PermissionUtils.mjs");
 const BaseService = require("../BaseService");
 
 // DO WE HAVE enough information to get the policy for the newer drivers?

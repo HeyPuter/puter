@@ -19,7 +19,7 @@
  */
 const { NodeInternalIDSelector, NodeUIDSelector } = require("../filesystem/node/selectors");
 const { SiteActorType } = require("./auth/Actor");
-const { PermissionUtil, PermissionRewriter, PermissionImplicator } = require("./auth/PermissionService");
+const { PermissionUtil, PermissionRewriter, PermissionImplicator } = require("./auth/PermissionUtils.mjs");
 const BaseService = require("./BaseService");
 const { DB_WRITE } = require("./database/consts");
 

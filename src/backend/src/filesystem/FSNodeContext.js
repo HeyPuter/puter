@@ -26,8 +26,9 @@ const { Context } = require("../util/context");
 const { NodeRawEntrySelector } = require("./node/selectors");
 const { DB_READ } = require("../services/database/consts");
 const { UserActorType, AppUnderUserActorType, Actor } = require("../services/auth/Actor");
-const { PermissionUtil } = require("../services/auth/PermissionService");
+const { PermissionUtil } = require("../services/auth/PermissionUtils.mjs");
 const { ECMAP } = require("./ECMAP");
+
 
 /**
  * Container for information collected about a node

@@ -16,18 +16,18 @@
  * You should have received a copy of the GNU Affero General Public License
  * along with this program.  If not, see <https://www.gnu.org/licenses/>.
  */
-const eggspress = require("../../api/eggspress");
-const { get_app, get_user } = require("../../helpers");
-const { UserActorType } = require("../../services/auth/Actor");
-const { DB_READ } = require("../../services/database/consts");
-const { Context } = require("../../util/context");
+const eggspress = require('../../api/eggspress');
+const { get_app, get_user } = require('../../helpers');
+const { UserActorType } = require('../../services/auth/Actor');
+const { DB_READ } = require('../../services/database/consts');
+const { Context } = require('../../util/context');
 const APIError = require('../../api/APIError');
 
 module.exports = eggspress('/auth/list-permissions', {
     subdomain: 'api',
     auth2: true,
     allowedMethods: ['GET'],
-}, async (req, res, next) => {
+}, async (_req, res, _next) => {
     const x = Context.get();
 
     const actor = x.get('actor');
@@ -44,10 +44,8 @@ module.exports = eggspress('/auth/list-permissions', {
     {
         permissions.myself_to_app = [];
 
-        const rows = await db.read(
-            'SELECT * FROM `user_to_app_permissions` WHERE user_id=?',
-            [ actor.type.user.id ]
-        );
+        const rows = await db.read('SELECT * FROM `user_to_app_permissions` WHERE user_id=?',
+                        [ actor.type.user.id ]);
 
         for ( const row of rows ) {
             const app = await get_app({ id: row.app_id });
@@ -61,7 +59,7 @@ module.exports = eggspress('/auth/list-permissions', {
             const permission = {
                 app,
                 permission: row.permission,
-                extra: row.extra
+                extra: row.extra,
             };
 
             permissions.myself_to_app.push(permission);
@@ -70,10 +68,8 @@ module.exports = eggspress('/auth/list-permissions', {
     {
         permissions.myself_to_user = [];
 
-        const rows = await db.read(
-            'SELECT * FROM `user_to_user_permissions` WHERE issuer_user_id=?',
-            [ actor.type.user.id ]
-        );
+        const rows = await db.read('SELECT * FROM `user_to_user_permissions` WHERE issuer_user_id=?',
+                        [ actor.type.user.id ]);
 
         for ( const row of rows ) {
             const user = await get_user({ id: row.holder_user_id });
@@ -81,7 +77,7 @@ module.exports = eggspress('/auth/list-permissions', {
             const permission = {
                 user: user.username,
                 permission: row.permission,
-                extra: row.extra
+                extra: row.extra,
             };
 
             permissions.myself_to_user.push(permission);
@@ -90,10 +86,8 @@ module.exports = eggspress('/auth/list-permissions', {
     {
         permissions.user_to_myself = [];
 
-        const rows = await db.read(
-            'SELECT * FROM `user_to_user_permissions` WHERE holder_user_id=?',
-            [ actor.type.user.id ]
-        );
+        const rows = await db.read('SELECT * FROM `user_to_user_permissions` WHERE holder_user_id=?',
+                        [ actor.type.user.id ]);
 
         for ( const row of rows ) {
             const user = await get_user({ id: row.issuer_user_id });
@@ -101,7 +95,7 @@ module.exports = eggspress('/auth/list-permissions', {
             const permission = {
                 user: user.username,
                 permission: row.permission,
-                extra: row.extra
+                extra: row.extra,
             };
 
             permissions.user_to_myself.push(permission);
