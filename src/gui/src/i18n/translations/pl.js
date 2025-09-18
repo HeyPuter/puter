@@ -406,10 +406,6 @@ const pl = {
         "billing.expanded": 'Rozszerzona',      //  -> These adjectives are used to describe the "AI Access" and/or "Bandwidth"
         "billing.accelerated": 'Przyspieszona', // /
         "billing.enjoy_msg": 'Ciesz się pakietem %% pamięci w chmurze i innymi benefitami',
-
-        // =============================================================
-        // Missing translations
-        // =============================================================
         "choose_publishing_option": "Wybierz jak chcesz opublikować swoją stronę:",
         "create_desktop_shortcut": "Utwórz Skrót (Pulpit)",
         "create_desktop_shortcut_s": "Utwórz Skróty (Pulpit)",
