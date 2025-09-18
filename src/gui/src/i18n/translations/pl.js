@@ -24,7 +24,7 @@ const pl = {
     dictionary: {
         about: "Informacje",
         account: "Konto",
-        account_password: "Sprawdź hasło konta",
+        account_password: "Sprawdź hasło do konta",
         access_granted_to: "Przyznano dostęp do",
         add_existing_account: "Dodaj istniejące konto",
         all_fields_required: 'Wszystkie pola są wymagane.',
@@ -130,7 +130,7 @@ const pl = {
         error_uploading_files: "Wgrywanie plików nie powiodło się",
         favorites: "Ulubione",
         feedback: "Opinie",
-        feedback_c2a: "Prosimy, aby użyć poniższego formularza do zwracania opinii, komentarzy i zgłaszania błędów.",
+        feedback_c2a: "Prosimy, aby użyć poniższego formularza do wysłania opinii, komentarzy i zgłaszania błędów.",
         feedback_sent_confirmation: "Dziękujemy za kontakt. Jeżeli z twoim kontem powiązany jest adres email, skontaktujemy się z tobą tak szybko jak to możliwe.",
         fit: "Dopasuj",
         folder: 'Folder',
@@ -146,7 +146,7 @@ const pl = {
         hue: 'Odcień',
         image: 'Obraz',
         incorrect_password: "Nieprawidłowe hasło",
-        invite_link: "Link zaproszeniowy",
+        invite_link: "Link z zaproszeniem",
         item: 'przedmiot',
         items_in_trash_cannot_be_renamed: `Nazwa tego przedmiotu nie może zostać zmieniona, ponieważ znajduje się on w koszu. Aby zmienić jego nazwę, wyciągnij go z kosza.`,
         jpeg_image: 'Obraz JPEG',
@@ -213,7 +213,7 @@ const pl = {
         proceed_with_account_deletion: "Przejdź do kasowania konta",
         process_status_initializing: "Rozpoczynanie",
         process_status_running: "Działanie",
-        process_type_app: 'Apka',
+        process_type_app: 'Aplikacja',
         process_type_init: 'Start',
         process_type_ui: 'UI',
         properties: "Właściwości",
@@ -256,8 +256,8 @@ const pl = {
         select_color: 'Wybierz kolor…',
         sessions: "Sesje",
         send: "Wyślij",
-        send_password_recovery_email: "Wyślij email do odzyskania hasła",
-        session_saved: "Dziękujemy za stworzenie konta. Ta sesja została zapisana. ",
+        send_password_recovery_email: "Wyślij email do odzyskiwania hasła",
+        session_saved: "Dziękujemy za stworzenie konta. Ta sesja została zapisana.",
         settings: "Ustawienia",
         set_new_password: "Ustaw nowe hasło.",
         share: "Udostępnij",
@@ -309,7 +309,7 @@ const pl = {
         visibility: 'Widoczność',
         yes: 'Tak',
         yes_release_it: 'Tak, Opublikuj',
-        you_have_been_referred_to_puter_by_a_friend: "Zostałeś wspomniany od znajomego!",
+        you_have_been_referred_to_puter_by_a_friend: "Twój znajomy polecił Ci Puter!",
         zip: "Spakuj",
         zipping_file: "Pakowanie %strong%",
         
@@ -406,87 +406,83 @@ const pl = {
         "billing.expanded": 'Rozszerzona',      //  -> These adjectives are used to describe the "AI Access" and/or "Bandwidth"
         "billing.accelerated": 'Przyspieszona', // /
         "billing.enjoy_msg": 'Ciesz się pakietem %% pamięci w chmurze i innymi benefitami',
-
-        // =============================================================
-        // Missing translations
-        // =============================================================
-        "choose_publishing_option": undefined, // In English: "Choose how you want to publish your website:"
-        "create_desktop_shortcut": undefined, // In English: "Create Shortcut (Desktop)"
-        "create_desktop_shortcut_s": undefined, // In English: "Create Shortcuts (Desktop)"
-        "create_shortcut_s": undefined, // In English: "Create Shortcuts"
-        "minimize": undefined, // In English: "Minimize"
-        "reload_app": undefined, // In English: "Reload App"
-        "new_window": undefined, // In English: "New Window"
-        "open_trash": undefined, // In English: "Open Trash"
-        "pick_name_for_worker": undefined, // In English: "Pick a name for your worker:"
-        "plural_suffix": undefined, // In English: "s"
-        "publish_as_serverless_worker": undefined, // In English: "Publish as Worker"
-        "toolbar.enter_fullscreen": undefined, // In English: "Enter Full Screen"
-        "toolbar.github": undefined, // In English: "GitHub"
-        "toolbar.refer": undefined, // In English: "Refer"
-        "toolbar.save_account": undefined, // In English: "Save Account"
-        "toolbar.search": undefined, // In English: "Search"
-        "toolbar.qrcode": undefined, // In English: "QR Code"
-        "used_of": undefined, // In English: "{{used}} used of {{available}}"
-        "worker": undefined, // In English: "Worker"
-        "billing.offering.basic": undefined, // In English: "Basic"
-        "too_many_attempts": undefined, // In English: "Too many attempts. Please try again later."
-        "server_timeout": undefined, // In English: "The server took too long to respond. Please try again."
-        "signup_error": undefined, // In English: "An error occurred during signup. Please try again."
-        "welcome_title": undefined, // In English: "Welcome to your Personal Internet Computer"
-        "welcome_description": undefined, // In English: "Store files, play games, find awesome apps, and much more! All in one place, accessible from anywhere at any time."
-        "welcome_get_started": undefined, // In English: "Get Started"
-        "welcome_terms": undefined, // In English: "Terms"
-        "welcome_privacy": undefined, // In English: "Privacy"
-        "welcome_developers": undefined, // In English: "Developers"
-        "welcome_open_source": undefined, // In English: "Open Source"
-        "welcome_instant_login_title": undefined, // In English: "Instant Login!"
-        "alert_error_title": undefined, // In English: "Error!"
-        "alert_warning_title": undefined, // In English: "Warning!"
-        "alert_info_title": undefined, // In English: "Info"
-        "alert_success_title": undefined, // In English: "Success!"
-        "alert_confirm_title": undefined, // In English: "Are you sure?"
-        "alert_yes": undefined, // In English: "Yes"
-        "alert_no": undefined, // In English: "No"
-        "alert_retry": undefined, // In English: "Retry"
-        "alert_cancel": undefined, // In English: "Cancel"
-        "signup_confirm_password": undefined, // In English: "Confirm Password"
-        "login_email_username_required": undefined, // In English: "Email or username is required"
-        "login_password_required": undefined, // In English: "Password is required"
-        "window_title_open": undefined, // In English: "Open"
-        "window_title_change_password": undefined, // In English: "Change Password"
-        "window_title_select_font": undefined, // In English: "Select font…"
-        "window_title_session_list": undefined, // In English: "Session List!"
-        "window_title_set_new_password": undefined, // In English: "Set New Password"
-        "window_title_instant_login": undefined, // In English: "Instant Login!"
-        "window_title_publish_website": undefined, // In English: "Publish Website"
-        "window_title_publish_worker": undefined, // In English: "Publish Worker"
-        "window_title_authenticating": undefined, // In English: "Authenticating..."
-        "window_title_refer_friend": undefined, // In English: "Refer a friend!"
-        "desktop_show_desktop": undefined, // In English: "Show Desktop"
-        "desktop_show_open_windows": undefined, // In English: "Show Open Windows"
-        "desktop_exit_full_screen": undefined, // In English: "Exit Full Screen"
-        "desktop_enter_full_screen": undefined, // In English: "Enter Full Screen"
-        "desktop_position": undefined, // In English: "Position"
-        "desktop_position_left": undefined, // In English: "Left"
-        "desktop_position_bottom": undefined, // In English: "Bottom"
-        "desktop_position_right": undefined, // In English: "Right"
-        "item_shared_with_you": undefined, // In English: "A user has shared this item with you."
-        "item_shared_by_you": undefined, // In English: "You have shared this item with at least one other user."
-        "item_shortcut": undefined, // In English: "Shortcut"
-        "item_associated_websites": undefined, // In English: "Associated website"
-        "item_associated_websites_plural": undefined, // In English: "Associated websites"
-        "no_suitable_apps_found": undefined, // In English: "No suitable apps found"
-        "window_click_to_go_back": undefined, // In English: "Click to go back."
-        "window_click_to_go_forward": undefined, // In English: "Click to go forward."
-        "window_click_to_go_up": undefined, // In English: "Click to go one directory up."
-        "window_title_public": undefined, // In English: "Public"
-        "window_title_videos": undefined, // In English: "Videos"
-        "window_title_pictures": undefined, // In English: "Pictures"
-        "window_title_puter": undefined, // In English: "Puter"
-        "window_folder_empty": undefined, // In English: "This folder is empty"
-        "manage_your_subdomains": undefined, // In English: "Manage Your Subdomains"
-        "open_containing_folder": undefined, // In English: "Open Containing Folder"
+        "choose_publishing_option": "Wybierz jak chcesz opublikować swoją stronę:",
+        "create_desktop_shortcut": "Utwórz Skrót (Pulpit)",
+        "create_desktop_shortcut_s": "Utwórz Skróty (Pulpit)",
+        "create_shortcut_s": "Utwórz Skróty",
+        "minimize": "Zminimalizuj",
+        "reload_app": "Odśwież Aplikację",
+        "new_window": "Nowe Okno",
+        "open_trash": "Otwórz Kosz",
+        "pick_name_for_worker": "Wybierz nazwę dla twojego workera", // there is no translation for "worker" in this context
+        "plural_suffix": undefined,
+        "publish_as_serverless_worker": "Opublikuj jako Worker",
+        "toolbar.enter_fullscreen": "Otwórz Pełen Ekran",
+        "toolbar.github": "GitHub",
+        "toolbar.refer": "Poleć",
+        "toolbar.save_account": "Zapisz Konto",
+        "toolbar.search": "Szukaj",
+        "toolbar.qrcode": "Kod QR",
+        "used_of": "{{used}} użyte z {{available}}",
+        "worker": "Worker",
+        "billing.offering.basic": "Podstawowe",
+        "too_many_attempts": "Zbyt wiele prób. Spróbuj ponownie później.",
+        "server_timeout": "Serwer zbyt długo nie odpowiada. Spróbuj ponownie.",
+        "signup_error": "Wystąpił błąd w trakcie rejestrowania. Spróbuj ponownie.",
+        "welcome_title": "Witaj w twoim Personalnym Komputerze Internetowym",
+        "welcome_description": "Przechowuj pliki, graj, znajduj świetne aplikacje oraz wiele więcej! Wszystko w jednym miejscu, dostępne z każdego miejsca i o każdej porze.",
+        "welcome_get_started": "Zacznij",
+        "welcome_terms": "Warunki",
+        "welcome_privacy": "Prywatność",
+        "welcome_developers": "Deweloperzy",
+        "welcome_open_source": "Open Source",
+        "welcome_instant_login_title": "Błyskawiczne Logowanie!",
+        "alert_error_title": "Błąd!",
+        "alert_warning_title": "Uwaga!",
+        "alert_info_title": "Informacja",
+        "alert_success_title": "Sukces!",
+        "alert_confirm_title": "Czy na pewno?", // more like "is that certain?" since other way it would indicate a gender
+        "alert_yes": "Tak",
+        "alert_no": "No",
+        "alert_retry": "Ponów",
+        "alert_cancel": "Anuluj",
+        "signup_confirm_password": "Potwierdź Hasło",
+        "login_email_username_required": "Email lub nazwa użytkownika jest wymagana",
+        "login_password_required": "Hasło jest wymagane",
+        "window_title_open": "Otwórz",
+        "window_title_change_password": "Zmień Hasło",
+        "window_title_select_font": "Wybierz czcionkę…",
+        "window_title_session_list": "Lista Sesji!",
+        "window_title_set_new_password": "Ustaw Nowe Hasło",
+        "window_title_instant_login": "Błyskawiczne Logowanie!",
+        "window_title_publish_website": "Opublikuj Stronę",
+        "window_title_publish_worker": "Opublikuj Workera",
+        "window_title_authenticating": "Autentykowanie...",
+        "window_title_refer_friend": "Poleć znajomego!",
+        "desktop_show_desktop": "Pokaż Pulpit",
+        "desktop_show_open_windows": "Pokaż Otwarte Okna",
+        "desktop_exit_full_screen": "Zamknij Pełen Ekran",
+        "desktop_enter_full_screen": "Otwórz Pełne Okno",
+        "desktop_position": "Pozycja",
+        "desktop_position_left": "Lewo",
+        "desktop_position_bottom": "Dół",
+        "desktop_position_right": "Prawo",
+        "item_shared_with_you": "Użytkownik podzielił się tym przedmiotem z tobą.",
+        "item_shared_by_you": "Podzieliłeś się tym przedmiotem przynajmniej z jednym innym użytkownikiem.", 
+        "item_shortcut": "Skrót",
+        "item_associated_websites": "Powiązana strona",
+        "item_associated_websites_plural": "Powiązane strony",
+        "no_suitable_apps_found": "Nie znaleziono odpowiednich aplikacji",
+        "window_click_to_go_back": "Kliknij by wrócić",
+        "window_click_to_go_forward": "Kliknij by przejść dalej",
+        "window_click_to_go_up": "Kliknij by przejść do o katalog wyżej",
+        "window_title_public": "Publiczne",
+        "window_title_videos": "Filmy",
+        "window_title_pictures": "Zdjęcia",
+        "window_title_puter": "Puter",
+        "window_folder_empty": "Ten folder jest pusty",
+        "manage_your_subdomains": "Zarządzaj swoimi Subdomenami",
+        "open_containing_folder": "Otwórz Lokalizację Pliku",
 
     }
 };
