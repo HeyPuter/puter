@@ -156,6 +156,7 @@ async function UIWindowShare(items, recipient){
                 path: items[i].path,
                 returnSubdomains: true,
                 returnPermissions: true,
+                consistency: 'eventual',
             }).then((fsentry) => {
                 let recipients = fsentry.shares?.users;
                 let perm_list = '';

@@ -1418,7 +1418,7 @@ const ipc_listener = async (event, handled) => {
             source_path, target_path, el_filedialog_window,
         }) => {
             // source path must be in appdata directory
-            const stat_info = await puter.fs.stat(source_path);
+            const stat_info = await puter.fs.stat({path: source_path, consistency: 'eventual'});
             if ( ! stat_info.appdata_app || stat_info.appdata_app !== app_uuid ) {
                 const source_file_owner = stat_info?.appdata_app ?? 'the user';
                 if ( stat_info.appdata_app && stat_info.appdata_app !== app_uuid ) {
@@ -1471,7 +1471,7 @@ const ipc_listener = async (event, handled) => {
                     } else {
                         await puter.fs.move(source_path, target_path);
                     }
-                    node = await puter.fs.stat(target_path);
+                    node = await puter.fs.stat({path: target_path, consistency: 'eventual'});
                 },
                 parent_uuid: $(el_filedialog_window).attr('data-element_uuid'),
             });

@@ -12,6 +12,7 @@ import write from "./operations/write.js";
 import sign from "./operations/sign.js";
 import symlink from './operations/symlink.js';
 import readdir from './operations/readdir.js';
+import stat from './operations/stat.js';
 // Why is this called deleteFSEntry instead of just delete? because delete is 
 // a reserved keyword in javascript
 import deleteFSEntry from "./operations/deleteFSEntry.js";
@@ -36,18 +37,19 @@ export class PuterJSFileSystemModule extends AdvancedBase {
     symlink = symlink;
     getReadURL = getReadURL;
     readdir = readdir;
+    stat = stat;
 
     FSItem = FSItem
 
     static NARI_METHODS = {
-        stat: {
-            positional: ['path'],
-            firstarg_options: true,
-            async fn (parameters) {
-                const svc_fs = await this.context.services.aget('filesystem');
-                return svc_fs.filesystem.stat(parameters);
-            }
-        },
+        // stat: {
+        //     positional: ['path'],
+        //     firstarg_options: true,
+        //     async fn (parameters) {
+        //         const svc_fs = await this.context.services.aget('filesystem');
+        //         return svc_fs.filesystem.stat(parameters);
+        //     }
+        // },
     }
 
     /**

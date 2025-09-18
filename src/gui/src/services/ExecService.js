@@ -133,7 +133,7 @@ export class ExecService extends Service {
                         
                         try {
                             // Get file stats to verify it exists
-                            const file_stat = await puter.fs.stat(first_file_path);
+                            const file_stat = await puter.fs.stat({path: first_file_path, consistency: 'eventual'});
                             
                             // Create file signature for the target app
                             const file_signature_result = await puter.fs.sign(target_app_info.uuid, {

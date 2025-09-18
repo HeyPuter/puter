@@ -27,6 +27,7 @@ const readdir = async function (...args) {
             throw new Error({ code: 'NO_PATH_OR_UID', message: 'Either path or uid must be provided.' });
         }
 
+        console.log('readdir', options.path, options.uid, options.consistency);
         // Generate cache key based on path or uid
         let cacheKey;
         if(options.path){
@@ -39,6 +40,7 @@ const readdir = async function (...args) {
             // Check cache
             const cachedResult = await puter._cache.get(cacheKey);
             if(cachedResult){
+                console.log('readdir', options.path, options.uid, options.consistency, 'cache hit');
                 resolve(cachedResult);
                 return;
             }
@@ -70,6 +72,12 @@ const readdir = async function (...args) {
             if(resultSize <= MAX_CACHE_SIZE){
                 // UPSERT the cache
                 await puter._cache.set(cacheKey, result, { EX: EXPIRE_TIME });
+            }
+
+            // set each individual item's cache
+            for(const item of result){
+                await puter._cache.set('item:' + item.id, item, { EX: EXPIRE_TIME });
+                await puter._cache.set('item:' + item.path, item, { EX: EXPIRE_TIME });
             }
             
             resolve(result);

@@ -532,7 +532,7 @@ $(document).bind('keydown', async function(e){
                     const element = $selected_items[index];
                     await window.delete_item(element);
                 }
-                const trash = await puter.fs.stat(window.trash_path);
+                const trash = await puter.fs.stat({path: window.trash_path, consistency: 'eventual'});
                 if(window.socket){
                     window.socket.emit('trash.is_empty', {is_empty: trash.is_empty});
                 }

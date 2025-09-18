@@ -74,7 +74,7 @@ const item_icon = async (fsentry)=>{
         let trash_img = $(`.item[data-path="${html_encode(window.trash_path)}" i] .item-icon-icon`).attr('src')
         // if trash_img is undefined that's probably because trash wasn't added anywhere, do a direct lookup to see if trash is empty or no
         if(!trash_img){
-            let trashstat = await puter.fs.stat(window.trash_path);
+            let trashstat = await puter.fs.stat({path: window.trash_path, consistency: 'eventual'});
             if(trashstat.is_empty !== undefined && trashstat.is_empty === true)
                 trash_img = window.icons['trash.svg'];
             else
