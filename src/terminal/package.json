@@ -14,7 +14,7 @@
     "@rollup/plugin-node-resolve": "^15.0.2",
     "@rollup/plugin-replace": "^5.0.2",
     "http-server": "^14.1.1",
-    "mocha": "^10.2.0",
+    "mocha": "^10.8.2",
     "rollup": "^3.29.5",
     "rollup-plugin-copy": "^3.4.0"
   },
