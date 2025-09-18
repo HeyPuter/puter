@@ -235,6 +235,7 @@ class WebDAVService extends BaseService {
                 'MOVE',
                 'LOCK',
                 'UNLOCK',
+                'OPTIONS',
             ],
             mw: [ configurable_auth({ optional: true }) ],
             /**

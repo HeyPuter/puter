@@ -4,6 +4,7 @@ import { HEAD_GET } from './HEAD_GET.mjs';
 import { LOCK } from './LOCK.mjs';
 import { MKCOL } from './MKCOL.mjs';
 import { MOVE } from './MOVE.mjs';
+import { OPTIONS } from './OPTIONS.mjs';
 import { PROPFIND } from './PROPFIND.mjs';
 import { PROPPATCH } from './PROPPATCH.mjs';
 import { PUT } from './PUT.mjs';
@@ -25,4 +26,5 @@ export const davMethodMap = {
     PUT,
     MKCOL,
     PROPPATCH,
+    OPTIONS,
 };

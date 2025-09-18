@@ -80,7 +80,12 @@ class WebServerService extends BaseService {
             router_webhooks: this.router_webhooks,
         });
         await services.emit('install.routes-gui', { app });
-        
+
+        // Register after other services registers theirs: Options for all requests (for CORS)
+        app.options('/*', (_req, res) => {
+            return res.sendStatus(200);
+        });
+
         this.log.noticeme('web server setup done');
     }
     
@@ -663,25 +668,6 @@ class WebServerService extends BaseService {
             }
 
             next();
-        });
-
-        // Options for all requests (for CORS)
-        app.options('/*', (req, res) => {
-            if (req.path.startsWith('/dav/')) {
-                res.set({
-                    'Allow': 'OPTIONS, GET, HEAD, POST, PUT, DELETE, TRACE, COPY, MOVE, MKCOL, PROPFIND, PROPPATCH, LOCK, UNLOCK, ORDERPATCH',
-                    'DAV': '1, 2, ordered-collections',  // WebDAV compliance classes with ordered-collections for macOS
-                    'MS-Author-Via': 'DAV',  // Microsoft compatibility
-                    'Server': 'Puter/WebDAV',  // Server identification
-                    'Accept-Ranges': 'bytes',
-                    'Content-Type': 'text/plain; charset=utf-8',  // Explicit content type
-                    'Content-Length': '0',
-                    'Cache-Control': 'no-cache',  // Prevent caching issues
-                    'Connection': 'Keep-Alive'  // Keep connection alive for macOS
-                });
-                res.status(200).end();
-            }
-            return res.sendStatus(200);
         });
     }
 
