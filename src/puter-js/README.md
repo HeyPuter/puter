@@ -1,21 +1,72 @@
-<h3 align="center">Puter.js</h3>
-<h4 align="center">The official JavaScript SDK for Puter.com. Cloud and AI features right from your frontend code!</h4>
-<p align="center">
-    <a href="https://docs.puter.com/playground/"><strong>« LIVE DEMO »</strong></a>
-    <br />
-    <br />
-    <a href="https://docs.puter.com" target="_blank">Docs</a>
-    ·
-    <a href="https://puter.com">Puter.com</a>
-    ·
-    <a href="https://discord.com/invite/PQcx7Teh8u">Discord</a>
-    ·
-    <a href="https://reddit.com/r/puter">Reddit</a>
-    ·
-    <a href="https://twitter.com/HeyPuter">X (Twitter)</a>
-</p>
+# Puter.js
 
-### Example
+The official JavaScript SDK for [Puter.com](https://puter.com) — access cloud and AI features directly from your frontend code.
+
+---
+
+## Installation (npm)
+
+```sh
+npm install @heyputer/puterjs
+```
+
+### Importing
+
+#### ES Modules
+
+```js
+import puter from '@heyputer/puterjs';
+```
+
+#### CommonJS
+
+```js
+const puter = require('@heyputer/puterjs');
+```
+
+## Usage Example
+
+```js
+// Print a message
+puter.print('Hello from Puter.js!');
+
+// Chat with GPT-3.5 Turbo
+puter.ai.chat('What color was Napoleon\'s white horse?').then(response => {
+  puter.print(response);
+});
+```
+
+---
+
+## CDN Usage
+
+Include Puter.js directly in your HTML via CDN:
+
+```html
+<script src="https://js.puter.com/v2/"></script>
+<script>
+  puter.print('Hello from Puter.js via CDN!');
+  puter.ai.chat('What color was Napoleon\'s white horse?').then(response => {
+    puter.print(response);
+  });
+</script>
+```
+
+---
+
+## Documentation & Community
+
+- [Docs](https://docs.puter.com)
+- [Live Demo](https://docs.puter.com/playground/)
+- [Puter.com](https://puter.com)
+- [Discord](https://discord.com/invite/PQcx7Teh8u)
+- [Reddit](https://reddit.com/r/puter)
+- [X (Twitter)](https://twitter.com/HeyPuter)
+
+---
+
+## Local Development Example
+
 Make sure the development server is running.
 
 ```html
@@ -33,4 +84,3 @@ Make sure the development server is running.
     </script>
 </body>
 </html>
-```

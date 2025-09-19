@@ -1,23 +1,30 @@
 {
-  "name": "@heyputer/puterjs",
-  "version": "1.0.0",
-  "description": "",
-  "main": "index.js",
-  "type": "module",
-  "scripts": {
-    "start-server": "npx http-server --cors -c-1",
-    "start-webpack": "webpack && webpack --output-filename puter.dev.js --watch --devtool source-map",
-    "start": "concurrently \"npm run start-server\" \"npm run start-webpack\"",
-    "build": "webpack && { echo \"// Copyright 2024-present Puter Technologies Inc. All rights reserved.\"; echo \"// Generated on $(date '+%Y-%m-%d %H:%M')\n\"; cat ./dist/puter.js; } > temp && mv temp ./dist/puter.js"
-  },
-  "keywords": [],
-  "author": "",
-  "license": "Apache-2.0",
-  "devDependencies": {
-    "concurrently": "^8.2.2",
-    "webpack-cli": "^5.1.4"
-  },
-  "dependencies": {
-    "@heyputer/kv.js": "^0.1.92"
-  }
+    "name": "@heyputer/puterjs",
+    "version": "1.0.0",
+    "description": "Puter.js - A JavaScript library for interacting with Puter services.",
+    "main": "index.js",
+    "type": "module",
+    "publishConfig": {
+        "registry": "https://registry.npmjs.org/"
+    },
+    "repository": {
+        "type": "git",
+        "url": "git+https://github.com/HeyPuter/puter.git"
+    },
+    "scripts": {
+        "start-server": "npx http-server --cors -c-1",
+        "start-webpack": "webpack && webpack --output-filename puter.dev.js --watch --devtool source-map",
+        "start": "concurrently \"npm run start-server\" \"npm run start-webpack\"",
+        "build": "webpack && { echo \"// Copyright 2024-present Puter Technologies Inc. All rights reserved.\"; echo \"// Generated on $(date '+%Y-%m-%d %H:%M')\n\"; cat ./dist/puter.js; } > temp && mv temp ./dist/puter.js"
+    },
+    "keywords": [],
+    "author": "Puter Technologies Inc.",
+    "license": "Apache-2.0",
+    "devDependencies": {
+        "concurrently": "^8.2.2",
+        "webpack-cli": "^5.1.4"
+    },
+    "dependencies": {
+        "@heyputer/kv.js": "^0.1.92"
+    }
 }
