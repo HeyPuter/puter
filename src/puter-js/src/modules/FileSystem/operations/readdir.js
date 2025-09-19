@@ -65,11 +65,17 @@ const readdir = async function (...args) {
             
             // Cache the result if it's not bigger than MAX_CACHE_SIZE
             const MAX_CACHE_SIZE = 20 * 1024 * 1024;
-            const EXPIRE_TIME = 30;
+            const EXPIRE_TIME = 60 * 60; // 1 hour
 
             if(resultSize <= MAX_CACHE_SIZE){
                 // UPSERT the cache
                 await puter._cache.set(cacheKey, result, { EX: EXPIRE_TIME });
+            }
+
+            // set each individual item's cache
+            for(const item of result){
+                await puter._cache.set('item:' + item.id, item, { EX: EXPIRE_TIME });
+                await puter._cache.set('item:' + item.path, item, { EX: EXPIRE_TIME });
             }
             
             resolve(result);

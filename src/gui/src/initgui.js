@@ -600,7 +600,7 @@ window.initgui = async function(options){
             // -------------------------------------------------------------------------------------
             if(!window.embedded_in_popup){
                 await window.get_auto_arrange_data()
-                puter.fs.stat(window.desktop_path, async function(desktop_fsentry){
+                puter.fs.stat({path: window.desktop_path, consistency: 'eventual'}).then(desktop_fsentry => {
                     UIDesktop({desktop_fsentry: desktop_fsentry});
                 })
             }
@@ -1059,7 +1059,7 @@ window.initgui = async function(options){
         // -------------------------------------------------------------------------------------
         if(!window.embedded_in_popup){
             await window.get_auto_arrange_data();
-            puter.fs.stat(window.desktop_path, function (desktop_fsentry) {
+            puter.fs.stat({path: window.desktop_path, consistency: 'eventual'}).then(desktop_fsentry => {
                 UIDesktop({ desktop_fsentry: desktop_fsentry });
             })
         }

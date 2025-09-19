@@ -152,7 +152,7 @@ async function get_permission_description(permission) {
     let fsentry;
 
     if (resource_type === "fs") {
-        fsentry = await puter.fs.stat({ uid: resource_id });
+        fsentry = await puter.fs.stat({ uid: resource_id, consistency: 'eventual' });
     } 
     
     const permission_mappings = {

@@ -398,6 +398,9 @@ export default globalThis.puter = (function() {
             }
 
             this.workers = new WorkersHandler(this.authToken);
+
+            // Initialize network connectivity monitoring and cache purging
+            this.initNetworkMonitoring();
         }
 
         /**
@@ -629,6 +632,65 @@ export default globalThis.puter = (function() {
                 this.apiCallLogger.disable();
             }
             return this;
+        }
+
+        /**
+         * Initializes network connectivity monitoring to purge cache when connection is lost
+         * @private
+         */
+        initNetworkMonitoring = function() {
+            // Only initialize in environments that support navigator.onLine and window events
+            if (typeof globalThis.navigator === 'undefined' || 
+                typeof globalThis.addEventListener !== 'function') {
+                return;
+            }
+
+            // Track previous online state
+            let wasOnline = navigator.onLine;
+
+            // Function to handle network state changes
+            const handleNetworkChange = () => {
+                const isOnline = navigator.onLine;
+                
+                // If we went from online to offline, purge the cache
+                if (wasOnline && !isOnline) {
+                    console.log('Network connection lost - purging cache');
+                    this.purgeCache();
+                }
+                
+                // Update the previous state
+                wasOnline = isOnline;
+            };
+
+            // Listen for online/offline events
+            globalThis.addEventListener('online', handleNetworkChange);
+            globalThis.addEventListener('offline', handleNetworkChange);
+
+            // Also listen for visibility change as an additional indicator
+            // (some browsers don't fire offline events reliably)
+            if (typeof document !== 'undefined') {
+                document.addEventListener('visibilitychange', () => {
+                    // Small delay to allow network state to update
+                    setTimeout(handleNetworkChange, 100);
+                });
+            }
+        }
+
+        /**
+         * Purges all cached data
+         * @public
+         */
+        purgeCache = function() {
+            try {
+                if (this._cache && typeof this._cache.flushall === 'function') {
+                    this._cache.flushall();
+                    console.log('Cache purged successfully');
+                } else {
+                    console.warn('Cache purge failed: cache instance not available');
+                }
+            } catch (error) {
+                console.error('Error purging cache:', error);
+            }
         }
     
     }

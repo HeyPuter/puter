@@ -1414,7 +1414,7 @@ async function UIDesktop(options) {
             }
         }
 
-        const stat = await puter.fs.stat(item_path);
+        const stat = await puter.fs.stat({path: item_path, consistency: 'eventual'});
         
         // TODO: DRY everything here with open_item. Unfortunately we can't
         //       use open_item here because it's coupled with UI logic;

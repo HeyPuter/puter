@@ -1115,7 +1115,7 @@ async function UIWindow(options) {
         // SIDEBAR sharing
         // --------------------------------------------------------
         if(options.is_dir && !isMobile.phone){
-            puter.fs.readdir('/').then(function(shared_users){
+            puter.fs.readdir({path: '/', consistency: 'eventual'}).then(function(shared_users){
                 let ht = '';
                 if(shared_users && shared_users.length - 1 > 0){
                     ht += `<h2 class="window-sidebar-title disable-user-select">Shared with me</h2>`;
@@ -3161,7 +3161,7 @@ window.update_window_path = async function(el_window, target_path){
     // /stat
     if(target_path !== '/'){
         try{
-            puter.fs.stat(target_path, function(fsentry){
+            puter.fs.stat({path: target_path, consistency: 'eventual'}).then(fsentry => {
                 $(el_window).removeClass('window-' + $(el_window).attr('data-uid'));
                 $(el_window).addClass('window-' + fsentry.id);
                 $(el_window).attr('data-uid', fsentry.id);

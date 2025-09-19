@@ -69,7 +69,7 @@ const refresh_item_container = function(el_item_container, options){
     // --------------------------------------------------------
     // Folder's configs and properties
     // --------------------------------------------------------
-    puter.fs.stat(container_path, function(fsentry){
+    puter.fs.stat({path: container_path, consistency: options.consistency ?? 'eventual'}).then(fsentry => {
         if(el_window){
             $(el_window).attr('data-uid', fsentry.id);
             $(el_window).attr('data-sort_by', fsentry.sort_by ?? 'name');
@@ -206,7 +206,7 @@ const refresh_item_container = function(el_item_container, options){
             // if this is desktop, add Trash
             if($(el_item_container).hasClass('desktop')){
                 try{
-                    const trash = await puter.fs.stat(window.trash_path);
+                    const trash = await puter.fs.stat({path: window.trash_path, consistency: options.consistency ?? 'eventual'});
                     UIItem({
                         appendTo: el_item_container,
                         uid: trash.id,
