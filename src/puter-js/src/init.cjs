@@ -2,11 +2,11 @@ const { readFileSync } = require('node:fs');
 const vm = require('node:vm');
 const { resolve } = require('node:path');
 /**
- * Method for loading puter.js in Node.js environment
+ * Method for loading puter.js in Node.js environment with auth token
  * @param {string} authToken - Optional auth token to initialize puter with
- * @returns {Promise<import('../index.d.ts').puter>} The `puter` object from puter.js
+ * @returns {import('../index').puter} The `puter` object from puter.js
  */
-const safeLoadPuterJs = (authToken) => {
+const init = (authToken) => {
     const goodContext = {};
     Object.getOwnPropertyNames(globalThis).forEach(name => {
         try {
@@ -25,4 +25,4 @@ const safeLoadPuterJs = (authToken) => {
     return goodContext.puter;
 };
 
-module.exports = { safeLoadPuterJs };
+module.exports = { init };

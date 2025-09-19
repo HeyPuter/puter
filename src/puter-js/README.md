@@ -12,16 +12,37 @@ npm install @heyputer/puter.js
 
 ### Importing
 
+### Node.js (with Auth Token)
+
+```js
+const {init} = require("@heyputer/puter.js/src/init.cjs"); // NODE JS ONLY
+// or
+import {init} from "@heyputer/puter.js/src/init.cjs";
+
+const puter = init(process.env.puterAuthToken); // uses your auth token
+const puter2 = init(process.env.puterAuthToken2); // use some other auth token
+```
+
+### Browser (without Auth Token)
+
 #### ES Modules
 
 ```js
-import '@heyputer/puter.js';
+import {puter} from '@heyputer/puter.js';
+// or
+import puter from '@heyputer/puter.js';
+// or 
+import '@heyputer/puter.js'; // puter will be available globally
 ```
 
 #### CommonJS
 
 ```js
+const {puter} = require('@heyputer/puter.js');
+// or
 const puter = require('@heyputer/puter.js');
+// or
+require('@heyputer/puter.js'); // puter will be available globally
 ```
 
 #### CDN
