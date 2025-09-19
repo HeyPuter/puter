@@ -131,7 +131,6 @@ export class PuterJSFileSystemModule extends AdvancedBase {
             // todo: NAIVE PURGE
             // purge cache on disconnect since we may have become out of sync
             puter._cache.flushall();
-            console.log('Purged cache on socket disconnect');
         });
 
         this.socket.on('reconnect', (attempt) => {

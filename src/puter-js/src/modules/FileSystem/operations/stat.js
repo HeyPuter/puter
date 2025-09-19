@@ -47,7 +47,6 @@ const stat = async function (...args) {
             // Check cache
             const cachedResult = await puter._cache.get(cacheKey);
             if(cachedResult){
-                console.log('stat', options.path, options.uid, options.consistency, 'cache hit');
                 resolve(cachedResult);
                 return;
             }
