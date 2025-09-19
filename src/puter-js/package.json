@@ -1,6 +1,6 @@
 {
     "name": "@heyputer/puterjs",
-    "version": "1.0.0",
+    "version": "2.0.0",
     "description": "Puter.js - A JavaScript library for interacting with Puter services.",
     "main": "index.js",
     "type": "module",
