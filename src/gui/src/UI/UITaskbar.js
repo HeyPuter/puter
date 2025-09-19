@@ -20,6 +20,7 @@
 import UITaskbarItem from './UITaskbarItem.js'
 import UIPopover from './UIPopover.js'
 import launch_app from "../helpers/launch_app.js"
+import UIContextMenu from './UIContextMenu.js';
 
 async function UITaskbar(options){
     window.global_element_id++;
@@ -188,6 +189,88 @@ async function UITaskbar(options){
                 },
                 stop: function(){
                 }
+            });
+
+            $(popover).on('click', function(e){
+                // close other context menus
+                $(".context-menu").fadeOut(200, function(){
+                    $(this).remove();
+                    $('.launch-app-selected').removeClass('launch-app-selected');
+                });
+            });
+            
+            $(document).on('contextmenu taphold', '.start-app', (e) => {
+                if (e.type === 'taphold' && !isMobile.phone && !isMobile.tablet)
+                    return;
+
+                e.stopImmediatePropagation();
+                e.preventDefault();
+
+                // close other context menus
+                $(".context-menu").fadeOut(200, function(){
+                    $(this).remove();
+                });
+
+                let items = [{
+                    html: i18n('open'),
+                    onClick: function(){
+                        $(e.currentTarget).trigger('click');
+                    }
+                }];
+
+                $('.launch-app-selected').removeClass('launch-app-selected');
+                $(e.currentTarget).parent().addClass('launch-app-selected');
+                
+                // Determine pin state
+                const $existingTaskbarItem = $(`.taskbar-item[data-app="${e.currentTarget.dataset.appName}"]`);
+                const isPinned = $existingTaskbarItem.length > 0 && $existingTaskbarItem.attr('data-keep-in-taskbar') === 'true';
+
+                if (!isPinned) {
+                    items.push({
+                        html: i18n('keep_in_taskbar'),
+                        onClick: function(){
+                            const $taskbarItem = $(`.taskbar-item[data-app="${e.currentTarget.dataset.appName}"]`);
+                            if ($taskbarItem.length === 0) {
+                                // No taskbar item yet: create a new pinned one
+                                UITaskbarItem({
+                                    icon: e.currentTarget.dataset.appIcon,
+                                    app: e.currentTarget.dataset.appName,
+                                    name: e.currentTarget.dataset.appTitle,
+                                    keep_in_taskbar: true
+                                });
+                            } else if ($taskbarItem.attr('data-keep-in-taskbar') !== 'true') {
+                                // mark as pinned
+                                $taskbarItem.attr('data-keep-in-taskbar', 'true');
+                            }
+                            // Persist
+                            window.update_taskbar();
+                        }
+                    });
+                } else {
+                    items.push({
+                        html: i18n('remove_from_taskbar'),
+                        onClick: function(){
+                            const $taskbarItem = $(`.taskbar-item[data-app="${e.currentTarget.dataset.appName}"]`);
+                            if ($taskbarItem.length === 0) return; // nothing to do
+                            // Unpin
+                            $taskbarItem.attr('data-keep-in-taskbar', 'false');
+                            // If no open windows for this app, remove the item
+                            if ($taskbarItem.attr('data-open-windows') === '0') {
+                                if (window.remove_taskbar_item) {
+                                    window.remove_taskbar_item($taskbarItem.get(0));
+                                } else {
+                                    $taskbarItem.remove();
+                                }
+                            }
+                            window.update_taskbar();
+                        }  
+                    });
+                }
+
+                UIContextMenu({ 
+                    items: items,
+                })
+                return false;
             });
         }
     });
