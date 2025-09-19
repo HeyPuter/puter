@@ -1,23 +1,23 @@
 import io from '../../lib/socket.io/socket.io.esm.min.js';
 
 // Operations
-import space from "./operations/space.js";
-import mkdir from "./operations/mkdir.js";
-import copy from "./operations/copy.js";
-import rename from "./operations/rename.js";
-import upload from "./operations/upload.js";
-import read from "./operations/read.js";
-import move from "./operations/move.js";
-import write from "./operations/write.js";
-import sign from "./operations/sign.js";
-import symlink from './operations/symlink.js';
+import copy from './operations/copy.js';
+import mkdir from './operations/mkdir.js';
+import move from './operations/move.js';
+import read from './operations/read.js';
 import readdir from './operations/readdir.js';
+import rename from './operations/rename.js';
+import sign from './operations/sign.js';
+import space from './operations/space.js';
 import stat from './operations/stat.js';
-// Why is this called deleteFSEntry instead of just delete? because delete is 
+import symlink from './operations/symlink.js';
+import upload from './operations/upload.js';
+import write from './operations/write.js';
+// Why is this called deleteFSEntry instead of just delete? because delete is
 // a reserved keyword in javascript
-import deleteFSEntry from "./operations/deleteFSEntry.js";
 import { AdvancedBase } from '../../../../putility/index.js';
 import FSItem from '../FSItem.js';
+import deleteFSEntry from './operations/deleteFSEntry.js';
 import getReadURL from './operations/getReadUrl.js';
 
 export class PuterJSFileSystemModule extends AdvancedBase {
@@ -39,7 +39,7 @@ export class PuterJSFileSystemModule extends AdvancedBase {
     readdir = readdir;
     stat = stat;
 
-    FSItem = FSItem
+    FSItem = FSItem;
 
     static NARI_METHODS = {
         // stat: {
@@ -50,7 +50,7 @@ export class PuterJSFileSystemModule extends AdvancedBase {
         //         return svc_fs.filesystem.stat(parameters);
         //     }
         // },
-    }
+    };
 
     /**
      * Creates a new instance with the given authentication token, API origin, and app ID,
@@ -61,7 +61,7 @@ export class PuterJSFileSystemModule extends AdvancedBase {
      * @param {string} APIOrigin - Origin of the API server. Used to build the API endpoint URLs.
      * @param {string} appID - ID of the app to use.
      */
-    constructor (context) {
+    constructor(context) {
         super();
         this.authToken = context.authToken;
         this.APIOrigin = context.APIOrigin;
@@ -81,7 +81,6 @@ export class PuterJSFileSystemModule extends AdvancedBase {
         });
     }
 
-
     /**
      * Initializes the socket connection to the server using the current API origin.
      * If a socket connection already exists, it disconnects it before creating a new one.
@@ -92,17 +91,19 @@ export class PuterJSFileSystemModule extends AdvancedBase {
      * @returns {void}
      */
     initializeSocket() {
-        if (this.socket) {
+        if ( this.socket ) {
             this.socket.disconnect();
         }
 
         this.socket = io(this.APIOrigin, {
             auth: {
                 auth_token: this.authToken,
-            }
+            },
+            autoUnref: this.context.env === 'nodejs',
         });
 
         this.bindSocketEvents();
+
     }
 
     bindSocketEvents() {
@@ -117,16 +118,20 @@ export class PuterJSFileSystemModule extends AdvancedBase {
         this.socket.on('item.moved', (item) => {
             // todo: NAIVE PURGE
             puter._cache.flushall();
-        }); 
+        });
 
         this.socket.on('connect', () => {
-            if(puter.debugMode)
+            if ( puter.debugMode )
+            {
                 console.log('FileSystem Socket: Connected', this.socket.id);
+            }
         });
 
         this.socket.on('disconnect', () => {
-            if(puter.debugMode)
+            if ( puter.debugMode )
+            {
                 console.log('FileSystem Socket: Disconnected');
+            }
 
             // todo: NAIVE PURGE
             // purge cache on disconnect since we may have become out of sync
@@ -134,28 +139,38 @@ export class PuterJSFileSystemModule extends AdvancedBase {
         });
 
         this.socket.on('reconnect', (attempt) => {
-            if(puter.debugMode)
+            if ( puter.debugMode )
+            {
                 console.log('FileSystem Socket: Reconnected', this.socket.id);
+            }
         });
 
         this.socket.on('reconnect_attempt', (attempt) => {
-            if(puter.debugMode)
+            if ( puter.debugMode )
+            {
                 console.log('FileSystem Socket: Reconnection Attemps', attempt);
+            }
         });
 
         this.socket.on('reconnect_error', (error) => {
-            if(puter.debugMode)
+            if ( puter.debugMode )
+            {
                 console.log('FileSystem Socket: Reconnection Error', error);
+            }
         });
 
         this.socket.on('reconnect_failed', () => {
-            if(puter.debugMode)
+            if ( puter.debugMode )
+            {
                 console.log('FileSystem Socket: Reconnection Failed');
+            }
         });
 
         this.socket.on('error', (error) => {
-            if(puter.debugMode)
+            if ( puter.debugMode )
+            {
                 console.error('FileSystem Socket Error:', error);
+            }
         });
     }
 
@@ -166,7 +181,7 @@ export class PuterJSFileSystemModule extends AdvancedBase {
      * @memberof [FileSystem]
      * @returns {void}
      */
-    setAuthToken (authToken) {
+    setAuthToken(authToken) {
         this.authToken = authToken;
         // reset socket
         this.initializeSocket();
@@ -174,12 +189,12 @@ export class PuterJSFileSystemModule extends AdvancedBase {
 
     /**
      * Sets the API origin and resets the socket connection with the updated API origin.
-     * 
+     *
      * @param {string} APIOrigin - The new API origin.
      * @memberof [Apps]
      * @returns {void}
      */
-    setAPIOrigin (APIOrigin) {
+    setAPIOrigin(APIOrigin) {
         this.APIOrigin = APIOrigin;
         // reset socket
         this.initializeSocket();
