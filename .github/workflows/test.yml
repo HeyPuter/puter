@@ -26,3 +26,23 @@ jobs:
       run: |
         npm install
         npm run test
+
+  api-test:
+    runs-on: ubuntu-latest
+
+    strategy:
+      matrix:
+        node-version: [22.x]
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Use Node.js ${{ matrix.node-version }}
+        uses: actions/setup-node@v4
+        with:
+          node-version: ${{ matrix.node-version }}
+          
+      - name: API Test
+        run: |
+          pip install -r ./tools/api-tester/ci/requirements.txt
+          ./tools/api-tester/ci/run.py
