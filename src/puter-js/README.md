@@ -15,7 +15,7 @@ npm install @heyputer/puter.js
 #### ES Modules
 
 ```js
-import puter from '@heyputer/puterjs';
+import '@heyputer/puter.js';
 ```
 
 #### CommonJS
@@ -33,6 +33,8 @@ Include Puter.js directly in your HTML via CDN in the `<head>` section:
 ```
 
 ## Usage Example
+
+After importing, you can use the global `puter` object:
 
 ```js
 // Print a message
