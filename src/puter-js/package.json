@@ -1,15 +1,16 @@
 {
     "name": "@heyputer/puter.js",
-    "version": "2.0.1",
+    "version": "2.0.11",
     "description": "Puter.js - A JavaScript library for interacting with Puter services.",
     "main": "src/index.js",
     "types": "index.d.ts",
     "typings": "index.d.ts",
+    "type": "module",
     "files": [
-        "src/index.js",
+        "dist/puter.js",
+        "src/",
         "index.d.ts"
     ],
-    "type": "module",
     "publishConfig": {
         "registry": "https://registry.npmjs.org/"
     },
