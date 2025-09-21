@@ -1490,9 +1490,8 @@ $(document).on('contextmenu', '.item-has-website-url-badge', async function(e){
     e.preventDefault();
     
     // close other context menus
-    const $ctxmenus = $(".context-menu");
-    $ctxmenus.fadeOut(200, function(){
-        $ctxmenus.remove();
+    $(".context-menu").fadeOut(200, function(){
+        $(this).remove();
     });
 
     UIContextMenu({
