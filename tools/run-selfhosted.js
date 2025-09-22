@@ -26,6 +26,13 @@
 import console from 'node:console';
 import process from 'node:process';
 
+try {
+    const dotenv = require('dotenv');
+    dotenv.config();
+} catch (e) {
+    // dotenv is optional
+}
+
 const surrounding_box = (col, lines) => {
     const lengths = lines.map(line => line.length);
 
