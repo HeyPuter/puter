@@ -1,5 +1,5 @@
 //@puter priority -1
 console.log('exporting something...');
-runtime.exports = {
+extension.exports = {
     testval: 5
 };

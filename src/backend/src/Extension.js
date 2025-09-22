@@ -80,6 +80,18 @@ class Extension extends AdvancedBase {
     example () {
         console.log('Example method called by an extension.');
     }
+    
+    // === [START] RuntimeModule aliases ===
+    set exports (value) {
+        this.runtime.exports = value;
+    }
+    get exports () {
+        return this.runtime.exports;
+    }
+    import (name) {
+        return this.runtime.import(name);
+    }
+    // === [END] RuntimeModule aliases ===
 
     /**
      * This will get a database instance from the default service.
