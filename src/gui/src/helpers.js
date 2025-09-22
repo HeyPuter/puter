@@ -2653,20 +2653,28 @@ window.countSubstr = (str, substring)=>{
     return count;
 }
 
-window.detectHostOS = function(){
-    var userAgent = window.navigator.userAgent;
-    var platform = window.navigator.platform;
-    var macosPlatforms = ['Macintosh', 'MacIntel', 'MacPPC', 'Mac68K'];
-    var windowsPlatforms = ['Win32', 'Win64', 'Windows', 'WinCE'];
+// Detect iPads with mouse/keyboard (desktop-like iPads)
+window.isDesktopIPad = function() {
+    const ua = navigator.userAgent;
+    const isIPad = /iPad/.test(ua) || (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1);
+    const hasMouse = window.matchMedia('(pointer: fine)').matches;
+    return isIPad && hasMouse;
+};
 
-    if (macosPlatforms.indexOf(platform) !== -1) {
-        return 'macos';
-    } else if (windowsPlatforms.indexOf(platform) !== -1) {
-        return 'windows';
-    } else {
-        return 'other';
-    }
-}
+// Detect the host operating system
+window.detectHostOS = function() {
+    // Return 'desktop' for iPads with mouse/keyboard
+    if (window.isDesktopIPad()) return 'desktop';
+
+    const platform = navigator.platform;
+    const macosPlatforms = ['Macintosh', 'MacIntel', 'MacPPC', 'Mac68K'];
+    const windowsPlatforms = ['Win32', 'Win64', 'Windows', 'WinCE'];
+
+    if (macosPlatforms.indexOf(platform) !== -1) return 'macos';
+    if (windowsPlatforms.indexOf(platform) !== -1) return 'windows';
+    return 'other';
+};
+
 
 window.update_profile = function(username, key_vals){
     puter.fs.read('/'+username+'/Public/.profile').then((blob)=>{
