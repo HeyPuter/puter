@@ -1338,9 +1338,8 @@ window.initgui = async function(options){
 
         // If the clicked element is not a context menu, remove all context menus
         if ($(e.target).parents(".context-menu").length === 0) {
-            const $ctxmenus = $(".context-menu");
-            $ctxmenus.fadeOut(200, function(){
-                $ctxmenus.remove();
+            $(".context-menu").fadeOut(200, function(){
+                $(this).remove();
             });
         }
 

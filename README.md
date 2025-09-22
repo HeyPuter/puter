@@ -114,7 +114,7 @@ Puter is available as a hosted service at [**puter.com**](https://puter.com).
 - **Operating Systems:** Linux, macOS, Windows
 - **RAM:** 2GB minimum (4GB recommended)
 - **Disk Space:** 1GB free space
-- **Node.js:** Version 16+ (Version 23+ recommended)
+- **Node.js:** Version 20+ (Version 23+ recommended)
 - **npm:** Latest stable version
 
 <br/>

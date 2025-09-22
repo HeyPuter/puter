@@ -1,86 +1,103 @@
-# Puter.js
+<h3 align="center">Puter.js</h3>
 
-The official JavaScript SDK for [Puter.com](https://puter.com) — access cloud and AI features directly from your frontend code.
+<p align="center">The official JavaScript SDK for <a href="https://puter.com">Puter.com</a></p>
+<p align="center">Free, Serverless, Cloud and AI from the frontend code.</p>
 
----
+<p align="center">
+    <a href="https://developer.puter.com" target="_blank">Learn More</a>
+    ·
+    <a href="https://docs.puter.com" target="_blank">Docs</a>
+    ·
+    <a href="https://developer.puter.com/tutorials">Tutorials</a>
+    ·
+    <a href="https://github.com/Puter-Apps/">Examples</a>
+    ·
+    <a href="https://twitter.com/HeyPuter">X</a>
+</p>
 
-## Installation (npm)
 
+<br>
+
+## Installation
+
+
+### NPM:
 ```sh
-npm install @heyputer/puterjs
+npm install @heyputer/puter.js
 ```
 
-### Importing
+### CDN:
+
+Include Puter.js directly in your HTML via CDN in the `<head>` section:
+
+```html
+<script src="https://js.puter.com/v2/"></script>
+```
+<br>
+
+## Usage
+
+### Browser
 
 #### ES Modules
 
 ```js
-import puter from '@heyputer/puterjs';
+import {puter} from '@heyputer/puter.js';
+// or
+import puter from '@heyputer/puter.js';
+// or 
+import '@heyputer/puter.js'; // puter will be available globally
 ```
 
 #### CommonJS
 
 ```js
-const puter = require('@heyputer/puterjs');
+const {puter} = require('@heyputer/puter.js');
+// or
+const puter = require('@heyputer/puter.js');
+// or
+require('@heyputer/puter.js'); // puter will be available globally
 ```
 
+### Node.js (with Auth Token)
+
+```js
+const {init} = require("@heyputer/puter.js/src/init.cjs"); // NODE JS ONLY
+// or
+import {init} from "@heyputer/puter.js/src/init.cjs";
+
+const puter = init(process.env.puterAuthToken); // uses your auth token
+const puter2 = init(process.env.puterAuthToken2); // use some other auth token
+```
+
+<br>
+
 ## Usage Example
+
+After importing, you can use the global `puter` object:
 
 ```js
 // Print a message
 puter.print('Hello from Puter.js!');
 
-// Chat with GPT-3.5 Turbo
+// Chat with GPT-5 nano
 puter.ai.chat('What color was Napoleon\'s white horse?').then(response => {
   puter.print(response);
 });
 ```
 
----
-
-## CDN Usage
-
-Include Puter.js directly in your HTML via CDN:
-
-```html
-<script src="https://js.puter.com/v2/"></script>
-<script>
-  puter.print('Hello from Puter.js via CDN!');
-  puter.ai.chat('What color was Napoleon\'s white horse?').then(response => {
-    puter.print(response);
-  });
-</script>
-```
-
----
+<br>
 
 ## Documentation & Community
 
-- [Docs](https://docs.puter.com)
+- [Developer Site](https://developer.puter.com)
+- [API Docs](https://docs.puter.com)
 - [Live Demo](https://docs.puter.com/playground/)
 - [Puter.com](https://puter.com)
 - [Discord](https://discord.com/invite/PQcx7Teh8u)
 - [Reddit](https://reddit.com/r/puter)
 - [X (Twitter)](https://twitter.com/HeyPuter)
 
----
+## License
 
-## Local Development Example
-
-Make sure the development server is running.
-
-```html
-<html>
-<body>
-    <script src="http://puter.localhost:4100/sdk/puter.dev.js"></script>
-    <script>
-        // Loading ...
-        puter.print(`Loading...`);
-
-        // Chat with GPT-3.5 Turbo
-        puter.ai.chat(`What color was Napoleon's white horse?`).then((response) => {
-            puter.print(response);
-        });
-    </script>
-</body>
-</html>
+Apache-2.0
