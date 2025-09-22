@@ -32,6 +32,8 @@ const { prependToJSFiles } = require("./kernel/modutil");
 
 const uuid = require('uuid');
 const readline = require("node:readline/promises");
+const { RuntimeModuleRegistry } = require("./extension/RuntimeModuleRegistry");
+const { RuntimeModule } = require("./extension/RuntimeModule");
 
 const { quot } = libs.string;
 
@@ -50,6 +52,8 @@ class Kernel extends AdvancedBase {
         this.entry_path = entry_path;
         this.extensionExports = {};
         this.registry = {};
+        
+        this.runtimeModuleRegistry = new RuntimeModuleRegistry();
     }
 
     add_module (module) {
@@ -380,6 +384,7 @@ class Kernel extends AdvancedBase {
             `const { use: puter } = globalThis.__puter_extension_globals__.useapi;`,
             `const extension = globalThis.__puter_extension_globals__` +
                 `.extensionObjectRegistry[${JSON.stringify(extension_id)}];`,
+            `const runtime = extension.runtime;`,
             `const config = extension.config;`,
             `const registry = extension.registry;`,
             `const register = registry.register;`,
@@ -392,6 +397,10 @@ class Kernel extends AdvancedBase {
         
         const mod = new ExtensionModule();
         mod.extension = new Extension();
+        
+        const runtimeModule = new RuntimeModule({ name: mod_name });
+        this.runtimeModuleRegistry.register(runtimeModule);
+        mod.extension.runtime = runtimeModule;
 
         mod_entry.module = mod;
         
