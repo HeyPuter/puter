@@ -27,8 +27,7 @@ import console from 'node:console';
 import process from 'node:process';
 
 try {
-    const dotenv = require('dotenv');
-    dotenv.config();
+    await import('dotenv/config');
 } catch (e) {
     // dotenv is optional
 }
