@@ -88,6 +88,21 @@ puter.ai.chat('What color was Napoleon\'s white horse?').then(response => {
 
 <br>
 
+## Setting Custom Origins
+By default puter.js uses the official Puter API and GUI origins. You can customize these origins by setting global variables before importing the SDK like so:
+
+```js
+// For API origin
+globalThis.PUTER_API_ORIGIN = 'https://custom-api.puter.com';
+// For GUI origin
+globalThis.PUTER_ORIGIN = 'https://custom-gui.puter.com';
+
+import {puter} from '@heyputer/puter.js'; // or however you import it for your env
+```
+<br>
+
+---
+
 ## Documentation & Community
 
 - [Developer Site](https://developer.puter.com)

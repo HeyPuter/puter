@@ -18,8 +18,8 @@ export default {
     },
     plugins: [
         new webpack.DefinePlugin({
-            'globalThis.PUTER_ORIGIN': JSON.stringify(process.env.PUTER_ORIGIN || 'https://puter.com'),
-            'globalThis.PUTER_API_ORIGIN': JSON.stringify(process.env.PUTER_API_ORIGIN || 'https://api.puter.com'),
+            'globalThis.PUTER_ORIGIN_ENV': JSON.stringify(process.env.PUTER_ORIGIN || 'https://puter.com'),
+            'globalThis.PUTER_API_ORIGIN_ENV': JSON.stringify(process.env.PUTER_API_ORIGIN || 'https://api.puter.com'),
         }),
     ],
 };

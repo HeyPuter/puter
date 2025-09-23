@@ -7,7 +7,10 @@ const { resolve } = require('node:path');
  * @returns {import('../index').puter} The `puter` object from puter.js
  */
 const init = (authToken) => {
-    const goodContext = {};
+    const goodContext = {
+        PUTER_API_ORIGIN: globalThis.PUTER_API_ORIGIN,
+        PUTER_ORIGIN: globalThis.PUTER_ORIGIN,
+    };
     Object.getOwnPropertyNames(globalThis).forEach(name => {
         try {
             goodContext[name] = globalThis[name];

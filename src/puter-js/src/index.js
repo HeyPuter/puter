@@ -45,8 +45,22 @@ const puterInit = (function() {
         // 'web' means the SDK is running in a 3rd-party website.
         env;
 
-        defaultAPIOrigin = globalThis.PUTER_API_ORIGIN ?? 'https://api.puter.com';
-        defaultGUIOrigin = globalThis.PUTER_ORIGIN ?? 'https://puter.com';
+        #defaultAPIOrigin = 'https://api.puter.com';
+        #defaultGUIOrigin = 'https://puter.com';
+
+        get defaultAPIOrigin() {
+            return globalThis.PUTER_API_ORIGIN || globalThis.PUTER_API_ORIGIN_ENV || this.#defaultAPIOrigin;
+        }
+        set defaultAPIOrigin(v) {
+            this.#defaultAPIOrigin = v;
+        }
+
+        get defaultGUIOrigin() {
+            return globalThis.PUTER_ORIGIN || globalThis.PUTER_ORIGIN_ENV || this.#defaultGUIOrigin;
+        }
+        set defaultGUIOrigin(v) {
+            this.#defaultGUIOrigin = v;
+        }
 
         // An optional callback when the user is authenticated. This can be set by the app using the SDK.
         onAuth;
