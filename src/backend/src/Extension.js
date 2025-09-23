@@ -219,10 +219,12 @@ class Extension extends AdvancedBase {
         });
     }
 
-    preinit (callback) {
-        this.on('preinit', callback);
+    get preinit() {
+        return (function (callback) {
+            this.on('preinit', callback);
+        }).bind(this);
     }
-    set preinit (callback) {
+    set preinit(callback) {
         if ( this.only_one_preinit_fn === null ) {
             this.on('preinit', (...a) => {
                 this.only_one_preinit_fn(...a);
@@ -233,9 +235,11 @@ class Extension extends AdvancedBase {
         }
         this.only_one_preinit_fn = callback;
     }
-    
-    init (callback) {
-        this.on('init', callback);
+
+    get init() {
+        return (function(callback) {
+            this.on('init', callback);
+        }).bind(this);
     }
     set init (callback) {
         if ( this.only_one_init_fn === null ) {
@@ -248,8 +252,6 @@ class Extension extends AdvancedBase {
         }
         this.only_one_init_fn = callback;
     }
-    
-    //
 
     /**
      * This method will create the "default service" for an extension.
