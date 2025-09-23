@@ -18,6 +18,7 @@
  */
 
 const { AdvancedBase } = require("@heyputer/putility");
+const { RuntimeModule } = require("../../extension/RuntimeModule.js");
 
 /**
  * This module initializes a pre-configured web server and socket.io server.
@@ -32,6 +33,11 @@ class WebModule extends AdvancedBase {
         
         // Prevent extensions from loading incompatible versions of express
         useapi.def('web.express', require('express'));
+        
+        // Extension compatibility
+        const runtimeModule = new RuntimeModule({ name: 'web' });
+        context.get('runtime-modules').register(runtimeModule);
+        runtimeModule.exports = useapi.use('web');
         
         // === SERVICES === //
         const services = context.get('services');
