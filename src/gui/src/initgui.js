@@ -1402,6 +1402,12 @@ window.initgui = async function(options){
         if($(e.target).hasClass('toolbar') || $(e.target).closest('.toolbar').length > 0){
             return;
         }
+
+        // if close or minimize button clicked, drop the event
+        if (document.elementFromPoint(e.clientX, e.clientY).closest('.window-close-btn, .window-minimize-btn')) {
+            return;
+        }
+
         // if mouse is clicked on a window, activate it
         if(window.mouseover_window !== undefined){
             // if popover clicked on, don't activate window. This is because if an app 
