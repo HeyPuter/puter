@@ -1433,23 +1433,34 @@ const ipc_listener = async (event, handled) => {
                     });
                     return;
                 }
-                
-                const alert_resp = await UIAlert({
-                    message: `the app ${app_name} is trying to copy ${source_path}; is this okay?`,
-                    buttons: [
-                        {
-                            label: i18n('yes'),
-                            value: true,
-                            type: 'primary',
-                        },
-                        {
-                            label: i18n('no'),
-                            value: false,
-                            type: 'secondary',
-                        },
-                    ]
-                });
+                const FORCE_ALLOWED_APPS = [
+                    "app-dc2505ed-9844-4298-92fa-b72873b8381e", // OnlyOffice Word Processor
+                    "app-064a54ac-d07d-481e-b38c-ceb99345013d", // OnlyOffice Spreadsheet application
+                    "app-60b1382b-3367-4968-9259-23930c6fd376", // OnlyOffice Presentation Editor
+                    "app-075ddc0b-2d4e-460e-9664-a8d21b960c4a" // OnlyOffice PDF editor
+                ]
 
+                let alert_resp;
+                if (FORCE_ALLOWED_APPS.includes(app_uuid)) {
+                    alert_resp = true
+                } else {
+                    alert_resp = await UIAlert({
+                        message: `the app ${app_name} is trying to copy ${source_path}; is this okay?`,
+                        buttons: [
+                            {
+                                label: i18n('yes'),
+                                value: true,
+                                type: 'primary',
+                            },
+                            {
+                                label: i18n('no'),
+                                value: false,
+                                type: 'secondary',
+                            },
+                        ]
+                    });
+                }
+                
                 // `alert_resp` will be `"false"`, but this check is forward-compatible
                 // with a version of UIAlert that returns `false`.
                 if ( ! alert_resp || alert_resp === 'false' ) return;
@@ -1471,7 +1482,7 @@ const ipc_listener = async (event, handled) => {
                     } else {
                         await puter.fs.move(source_path, target_path);
                     }
-                    node = await puter.fs.stat({path: target_path, consistency: 'eventual'});
+                    node = await puter.fs.stat(target_path);
                 },
                 parent_uuid: $(el_filedialog_window).attr('data-element_uuid'),
             });
