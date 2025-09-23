@@ -24,6 +24,7 @@ const { ProtectedAppES } = require("./om/entitystorage/ProtectedAppES");
 const { Context } = require('./util/context');
 const { LLOWrite } = require("./filesystem/ll_operations/ll_write");
 const { LLRead } = require("./filesystem/ll_operations/ll_read");
+const { RuntimeModule } = require("./extension/RuntimeModule.js");
 
 
 
@@ -43,7 +44,7 @@ class CoreModule extends AdvancedBase {
         const app = context.get('app');
         const useapi = context.get('useapi');
         const modapi = context.get('modapi');
-        await install({ services, app, useapi, modapi });
+        await install({ context, services, app, useapi, modapi });
     }
 
     /**
@@ -67,7 +68,7 @@ module.exports = CoreModule;
 /**
  * @footgun - real install method is defined above
  */
-const install = async ({ services, app, useapi, modapi }) => {
+const install = async ({ context, services, app, useapi, modapi }) => {
     const config = require('./config');
 
 
@@ -103,6 +104,11 @@ const install = async ({ services, app, useapi, modapi }) => {
         def('core.util.stream', require('./util/streamutil'));
         def('web', require('./util/expressutil'));
         def('core.validation', require('@heyputer/backend-core-0').validation);
+        
+        // Extension compatibility
+        const runtimeModule = new RuntimeModule({ name: 'core' });
+        context.get('runtime-modules').register(runtimeModule);
+        runtimeModule.exports = useapi.use('core');
     });
     
     useapi.withuse(() => {
