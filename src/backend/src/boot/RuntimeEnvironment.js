@@ -222,6 +222,7 @@ class RuntimeEnvironment extends AdvancedBase {
         const environment = {};
         environment.source = this.modules.path_.dirname(
             this.entry_path || require.main.filename);
+        environment.repo = this.modules.path_.dirname(environment.source);
 
         const config_path_entry = this.get_first_suitable_path_(
             { pathFor: 'configuration' },
