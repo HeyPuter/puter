@@ -254,7 +254,13 @@ class Kernel extends AdvancedBase {
                     return;
                 }
                 const mod_dirnames = await fs.promises.readdir(mods_dirpath);
+
+                const ignoreList = new Set([
+                    '.git',
+                ]);
+        
                 for ( const mod_dirname of mod_dirnames ) {
+                    if ( ignoreList.has(mod_dirname) ) continue;
                     mod_installation_promises.push(this.install_extern_mod_({
                         mod_install_root_context,
                         mod_dirname,
