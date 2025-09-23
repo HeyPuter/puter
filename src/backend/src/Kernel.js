@@ -128,6 +128,7 @@ class Kernel extends AdvancedBase {
             extensionExports: this.extensionExports,
             registry: this.registry,
             args,
+            ['runtime-modules']: this.runtimeModuleRegistry,
         }, 'app');
         globalThis.root_context = root_context;
 
