@@ -1,0 +1,17 @@
+{
+  "compilerOptions": {
+    "target": "ES2020",
+    "module": "CommonJS",
+    "moduleResolution": "node",
+    "baseUrl": ".",
+    "paths": {
+      "../src/*": ["../src/*"]
+    },
+    "allowJs": true,
+    "checkJs": true
+  },
+  "include": [
+    "**/*.js",
+    "**/*.d.ts"
+  ]
+}
