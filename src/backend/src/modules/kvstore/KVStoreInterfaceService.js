@@ -20,8 +20,47 @@
 const BaseService = require('../../services/BaseService');
 
 /**
-* Service class that manages KVStore interface registrations.
-* Handles registration of the puter-kvstore interface.
+ * @typedef {Object} KVStoreInterface
+ * @property {(opts: KVStoreGetParams) => Promise<Record<string, unknonw>>} get - Retrieve the value(s) for the given key(s).
+ * @property {(opts: KVStoreSetParams) => Promise<void>} set - Set a value for a key, with optional expiration.
+ * @property {(opts: KVStoreDelParams) => Promise<void>} del - Delete a value by key.
+ * @property {(opts: KVStoreListParams) => Promise<string[]>} list - List all key-value pairs, optionally as a specific type.
+ * @property {() => Promise<void>} flush - Delete all key-value pairs in the store.
+ * @property {(opts: KVStoreIncrDecrParams) => Promise<number>} incr - Increment a numeric value by key.
+ * @property {(opts: KVStoreIncrDecrParams) => Promise<number>} decr - Decrement a numeric value by key.
+ * @property {(opts: KVStoreExpireAtParams) => Promise<number>} expireAt - Set a key to expire at a specific UNIX timestamp (seconds).
+ * @property {(opts: KVStoreExpireParams) => Promise<number>} expire - Set a key to expire after a given TTL (seconds).
+ *
+ * @typedef {Object} KVStoreGetParams
+ * @property {string|string[]} key - The key or array of keys to retrieve.
+ *
+ * @typedef {Object} KVStoreSetParams
+ * @property {string} key - The key to set.
+ * @property {*} value - The value to store.
+ * @property {number} [expireAt] - Optional UNIX timestamp (seconds) when the key should expire.
+ *
+ * @typedef {Object} KVStoreDelParams
+ * @property {string} key - The key to delete.
+ *
+ * @typedef {Object} KVStoreListParams
+ * @property {string} [as] - Optional type to list as (e.g., 'array', 'object').
+ *
+ * @typedef {Object} KVStoreIncrDecrParams
+ * @property {string} key - The key to increment or decrement.
+ * @property {number} [amount] - Optional amount to increment or decrement by.
+ *
+ * @typedef {Object} KVStoreExpireAtParams
+ * @property {string} key - The key to set expiration for.
+ * @property {number} timestamp - UNIX timestamp (seconds) when the key should expire.
+ *
+ * @typedef {Object} KVStoreExpireParams
+ * @property {string} key - The key to set expiration for.
+ * @property {number} ttl - Time-to-live in seconds.
+ */
+
+/**
+ * Service for registering the puter-kvstore interface, exposing a simple key-value store API
+ * with support for get, set, delete, list, flush, increment, decrement, and key expiration.
 * @extends BaseService
 */
 class KVStoreInterfaceService extends BaseService {
