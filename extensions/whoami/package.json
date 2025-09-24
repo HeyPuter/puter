@@ -1,0 +1,5 @@
+{
+    "name": "@heyputer/extension-permissions",
+    "main": "main.js",
+    "type": "module"
+}
