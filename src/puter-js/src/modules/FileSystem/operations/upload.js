@@ -1,6 +1,6 @@
+import path from "../../../lib/path.js";
 import * as utils from '../../../lib/utils.js';
 import getAbsolutePathForApp from '../utils/getAbsolutePathForApp.js';
-import path from "../../../lib/path.js"
 
 const upload = async function(items, dirPath, options = {}){
     return new Promise(async (resolve, reject) => {
@@ -429,11 +429,10 @@ const upload = async function(items, dirPath, options = {}){
             options.start();
         }
 
-        // todo: EXTREMELY NAIVE CACHE PURGE
-        puter._cache.flushall();
-
         // send request
         xhr.send(fd);
+
+        this.updateCacheTimestamp();
     })
 }
 

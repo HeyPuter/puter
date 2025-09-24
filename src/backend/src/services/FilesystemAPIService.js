@@ -69,6 +69,8 @@ class FilesystemAPIService extends BaseService {
         // misc
         app.use(require('../routers/df'))
 
+        // cache
+        app.use(require('../routers/filesystem_api/cache'))
     }
 }
 

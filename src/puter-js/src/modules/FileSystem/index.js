@@ -1,4 +1,8 @@
 import io from '../../lib/socket.io/socket.io.esm.min.js';
+import * as utils from '../../lib/utils.js';
+
+// Constants
+const LAST_UPDATED_TS = 'last_updated_ts';
 
 // Operations
 import copy from './operations/copy.js';
@@ -104,20 +108,17 @@ export class PuterJSFileSystemModule extends AdvancedBase {
 
         this.bindSocketEvents();
 
+        // Start cache monitoring
+        this.startCacheMonitoring();
     }
 
     bindSocketEvents() {
-        this.socket.on('item.added', (item) => {
-            // todo: NAIVE PURGE
-            puter._cache.flushall();
-        });
-        this.socket.on('item.renamed', (item) => {
-            // todo: NAIVE PURGE
-            puter._cache.flushall();
-        });
-        this.socket.on('item.moved', (item) => {
-            // todo: NAIVE PURGE
-            puter._cache.flushall();
+        this.socket.on('cache.updated', (item) => {
+            const local_ts = puter._cache.get(LAST_UPDATED_TS);
+            if (item.ts > local_ts || local_ts === undefined) {
+                console.log(`remote timestamp (${item.ts}) is newer than local timestamp (${local_ts}), flushing cache`);
+                puter._cache.flushall();
+            }
         });
 
         this.socket.on('connect', () => {
@@ -198,5 +199,68 @@ export class PuterJSFileSystemModule extends AdvancedBase {
         this.APIOrigin = APIOrigin;
         // reset socket
         this.initializeSocket();
+    }
+
+    /**
+     * Updates the last updated timestamp in the cache.
+     * This should be called whenever file system operations modify the filesystem.
+     *
+     * @memberof PuterJSFileSystemModule
+     * @returns {void}
+     */
+    updateCacheTimestamp() {
+        // Add 1 second to mitigate clock skew and disable self-update.
+        puter._cache.set(LAST_UPDATED_TS, Date.now() + 1000);
+        console.log(`set last updated ts to ${puter._cache.get(LAST_UPDATED_TS)}`);
+    }
+
+    /**
+     * Calls the cache API to get the last change timestamp from the server.
+     *
+     * @memberof PuterJSFileSystemModule
+     * @returns {Promise<number>} The timestamp from the server
+     */
+    async getCacheTimestamp() {
+        return new Promise((resolve, reject) => {
+            const xhr = utils.initXhr('/cache/last-change-timestamp', this.APIOrigin, this.authToken, 'get', 'application/json');
+            
+            // set up event handlers for load and error events
+            utils.setupXhrEventHandlers(xhr, undefined, undefined, async (result) => {
+                try {
+                    const response = typeof result === 'string' ? JSON.parse(result) : result;
+                    resolve(response.timestamp || response.ts || Date.now());
+                } catch (e) {
+                    reject(new Error('Failed to parse response'));
+                }
+            }, reject);
+
+            xhr.send();
+        });
+    }
+
+    /**
+     * Starts the cache monitoring service that calls the cache API every 5 seconds.
+     *
+     * @memberof PuterJSFileSystemModule
+     * @returns {void}
+     */
+    startCacheMonitoring() {
+        if (this.cacheMonitoringInterval) {
+            clearInterval(this.cacheMonitoringInterval);
+        }
+
+        this.cacheMonitoringInterval = setInterval(async () => {
+            try {
+                const remoteTimestamp = await this.getCacheTimestamp();
+                const localTimestamp = puter._cache.get(LAST_UPDATED_TS);
+                
+                if (remoteTimestamp > localTimestamp || localTimestamp === undefined) {
+                    console.log(`remote timestamp (${remoteTimestamp}) is newer than local timestamp (${localTimestamp}), flushing cache`);
+                    puter._cache.flushall();
+                }
+            } catch (error) {
+                console.error('Failed to get cache timestamp:', error);
+            }
+        }, 5000);
     }
 }

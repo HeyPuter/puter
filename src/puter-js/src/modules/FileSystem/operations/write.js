@@ -1,4 +1,4 @@
-import path from "../../../lib/path.js"
+import path from "../../../lib/path.js";
 import getAbsolutePathForApp from '../utils/getAbsolutePathForApp.js';
 
 const write = async function (targetPath, data, options = {}) {
@@ -55,8 +55,7 @@ const write = async function (targetPath, data, options = {}) {
         throw new Error({ code: 'field_invalid', message: 'write() data parameter is an invalid type' });
     }
 
-    // todo: EXTREMELY NAIVE CACHE PURGE
-    puter._cache.flushall();
+    this.updateCacheTimestamp();
 
     // perform upload
     return this.upload(data, parent, options);

@@ -56,8 +56,7 @@ const copy = function (...args) {
             dedupe_name: (options.dedupe_name || options.dedupeName),
         }));
 
-        // todo: EXTREMELY NAIVE CACHE PURGE
-        puter._cache.flushall();
+        this.updateCacheTimestamp();
     })
 }
 
