@@ -58,7 +58,7 @@ const whoami_common = ({ is_user, user }) => {
     return details;
 };
 
-extension.get('/future/whoami', { subdomain: 'api' }, async (req, res, next) => {
+extension.get('/whoami', { subdomain: 'api' }, async (req, res, next) => {
     const actor = req.actor;
     if ( ! actor ) {
         throw Error('actor not found in context');
@@ -134,7 +134,7 @@ extension.get('/future/whoami', { subdomain: 'api' }, async (req, res, next) => 
     res.send(details);
 });
 
-extension.post('/future/whoami', { subdomain: 'api' }, async (req, res) => {
+extension.post('/whoami', { subdomain: 'api' }, async (req, res) => {
     const actor = req.actor;
     if ( ! actor ) {
         throw Error('actor not found in context');
