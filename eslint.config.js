@@ -32,12 +32,14 @@ export default defineConfig([
             '@stylistic/curly-newline': ['error', 'always'],
             '@stylistic/object-curly-spacing': ['error', 'always'],
             '@stylistic/indent': ['error', 4, {
-                'CallExpression': 4,
+                CallExpression: {
+                    arguments: 4,
+                },
             }],
             '@stylistic/indent-binary-ops': ['error', 4],
             '@stylistic/array-bracket-newline': ['error', 'consistent'],
             '@stylistic/semi': ['error', 'always'],
-            '@stylistic/quotes': ['error', 'single'],
+            '@stylistic/quotes': 'off',
             '@stylistic/function-call-argument-newline': ['error', 'consistent'],
             '@stylistic/arrow-spacing': ['error', { before: true, after: true }],
             '@stylistic/space-before-function-paren': ['error', { 'anonymous': 'never', 'named': 'never', 'asyncArrow': 'always', 'catch': 'never' }],
@@ -62,6 +64,7 @@ export default defineConfig([
     },
     {
         files: ['**/*.{js,mjs,cjs}'],
+        ignores: ['src/backend/**/*.{js,mjs,cjs}'],
         languageOptions: { globals: globals.browser },
         rules: {
 
