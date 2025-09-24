@@ -23,6 +23,14 @@ async function validateConfig() {
         console.error('❌ ESLint configuration error (backend):', error.message);
         exitWithError = true;
     }
+
+    try {
+        const eslint = new ESLint();
+        await eslint.lintText('', { filePath: 'extensions/**/*.js' });
+    } catch (error) {
+        console.error('❌ ESLint configuration error (extensions):', error.message);
+        exitWithError = true;
+    }
     
     if ( exitWithError ) {
         console.log('\x1B[36;1mYou should edit eslint.config.js to resolve this issue.\x1B[0m');
