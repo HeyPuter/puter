@@ -122,6 +122,6 @@ Kami sentiasa gembira untuk membantu anda dengan apa-apa soalan. Jangan takut un
 
 ## Lesen
 
-Repositori ini, termasuklah kandungannya, subprojek, modul dan komponen, dilesenkan di bawah [AGPL-3.0](https://github.com/HeyPuter/puter/blob/main/LICENSE.txt) melainkan dinyatakan sebaliknya. Library pihak ketiga yang terkandung dalam repositori ini tertakluk kepada lesen mereka sendiri.
+Repositori ini, termasuklah kandungannya, subprojek, modul dan komponen, dilesenkan di bawah [AGPL-3.0](https://github.com/HeyPuter/puter/blob/main/LICENSE.txt) melainkan dinyatakan sebaliknya. *Library* pihak ketiga yang terkandung dalam repositori ini tertakluk kepada lesen mereka sendiri.
 <!-- The word `Library` is kept as is to avoid confusion since the direct translation `Perpustakaan/Pustaka` is never used in the tech context and doesn't convey the same meaning among Malay community if used in this situation -->
 <br/>
