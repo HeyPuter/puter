@@ -1,6 +1,3 @@
-// This file exists but I'm pretty sure it's unused
-// if you're typing to modify the stat implementation look at src/puter-js/src/lib/filesystem/APIFS.js
-
 import * as utils from '../../../lib/utils.js';
 import getAbsolutePathForApp from '../utils/getAbsolutePathForApp.js';
 
@@ -22,6 +19,11 @@ const stat = async function (...args) {
     }
 
     return new Promise(async (resolve, reject) => {
+        // consistency levels
+        if(!options.consistency){
+            options.consistency = 'strong';
+        }
+
         // If auth token is not provided and we are in the web environment, 
         // try to authenticate with Puter
         if(!puter.authToken && puter.env === 'web'){
@@ -33,11 +35,43 @@ const stat = async function (...args) {
             }
         }
 
+        // Generate cache key based on path or uid
+        let cacheKey;
+        if(options.path){
+            cacheKey = 'item:' + options.path;
+        }else if(options.uid){
+            cacheKey = 'item:' + options.uid;
+        }
+
+        if(options.consistency === 'eventual' && !options.returnSubdomains && !options.returnPermissions && !options.returnVersions && !options.returnSize){
+            // Check cache
+            const cachedResult = await puter._cache.get(cacheKey);
+            if(cachedResult){
+                resolve(cachedResult);
+                return;
+            }
+        }
+
         // create xhr object
-        const xhr = utils.initXhr('/stat', this.APIOrigin, this.authToken);
+        const xhr = utils.initXhr('/stat', this.APIOrigin, undefined, "post", "text/plain;actually=json");
 
         // set up event handlers for load and error events
-        utils.setupXhrEventHandlers(xhr, options.success, options.error, resolve, reject);
+        utils.setupXhrEventHandlers(xhr, options.success, options.error, async (result) => {
+            // Calculate the size of the result for cache eligibility check
+            const resultSize = JSON.stringify(result).length;
+            
+            // Cache the result if it's not bigger than MAX_CACHE_SIZE
+            const MAX_CACHE_SIZE = 20 * 1024 * 1024;
+            const EXPIRE_TIME = 60 * 60; // 1 hour
+
+            if(resultSize <= MAX_CACHE_SIZE){
+                // UPSERT the cache
+                await puter._cache.set('item:' + result.path, result, { EX: EXPIRE_TIME });
+                await puter._cache.set('item:' + result.uid, result, { EX: EXPIRE_TIME });
+            }
+            
+            resolve(result);
+        }, reject);
 
         let dataToSend = {};
         if (options.uid !== undefined) {
@@ -52,6 +86,7 @@ const stat = async function (...args) {
         dataToSend.return_permissions = options.returnPermissions;
         dataToSend.return_versions = options.returnVersions;
         dataToSend.return_size = options.returnSize;
+        dataToSend.auth_token = this.authToken;
 
         xhr.send(JSON.stringify(dataToSend));
     })

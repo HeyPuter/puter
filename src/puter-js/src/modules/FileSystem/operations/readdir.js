@@ -1,6 +1,3 @@
-// This file exists but I'm pretty sure it's unused
-// if you're typing to modify the stat implementation look at src/puter-js/src/lib/filesystem/APIFS.js
-
 import * as utils from '../../../lib/utils.js';
 import getAbsolutePathForApp from '../utils/getAbsolutePathForApp.js';
 
@@ -20,9 +17,31 @@ const readdir = async function (...args) {
     }
 
     return new Promise(async (resolve, reject) => {
+        // consistency levels
+        if(!options.consistency){
+            options.consistency = 'strong';
+        }
+
         // Either path or uid is required
         if(!options.path && !options.uid){
             throw new Error({ code: 'NO_PATH_OR_UID', message: 'Either path or uid must be provided.' });
+        }
+
+        // Generate cache key based on path or uid
+        let cacheKey;
+        if(options.path){
+            cacheKey = 'readdir:' + options.path;
+        }else if(options.uid){
+            cacheKey = 'readdir:' + options.uid;
+        }
+
+        if(options.consistency === 'eventual'){
+            // Check cache
+            const cachedResult = await puter._cache.get(cacheKey);
+            if(cachedResult){
+                resolve(cachedResult);
+                return;
+            }
         }
 
         // If auth token is not provided and we are in the web environment, 
@@ -37,15 +56,36 @@ const readdir = async function (...args) {
         }
 
         // create xhr object
-        const xhr = utils.initXhr('/readdir', this.APIOrigin, this.authToken);
+        const xhr = utils.initXhr('/readdir', this.APIOrigin, undefined, "post", "text/plain;actually=json");
 
         // set up event handlers for load and error events
-        utils.setupXhrEventHandlers(xhr, options.success, options.error, resolve, reject);
+        utils.setupXhrEventHandlers(xhr, options.success, options.error, async (result) => {
+            // Calculate the size of the result for cache eligibility check
+            const resultSize = JSON.stringify(result).length;
+            
+            // Cache the result if it's not bigger than MAX_CACHE_SIZE
+            const MAX_CACHE_SIZE = 20 * 1024 * 1024;
+            const EXPIRE_TIME = 60 * 60; // 1 hour
+
+            if(resultSize <= MAX_CACHE_SIZE){
+                // UPSERT the cache
+                await puter._cache.set(cacheKey, result, { EX: EXPIRE_TIME });
+            }
+
+            // set each individual item's cache
+            for(const item of result){
+                await puter._cache.set('item:' + item.id, item, { EX: EXPIRE_TIME });
+                await puter._cache.set('item:' + item.path, item, { EX: EXPIRE_TIME });
+            }
+            
+            resolve(result);
+        }, reject);
 
         // Build request payload - support both path and uid parameters
         const payload = {
             no_thumbs: options.no_thumbs,
             no_assocs: options.no_assocs,
+            auth_token: this.authToken
         };
 
         // Add either uid or path to the payload

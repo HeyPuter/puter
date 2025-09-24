@@ -10,18 +10,16 @@ import webpack from 'webpack';
 import { fileURLToPath } from 'url';
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
-console.log('ENV CHECK!!!', process.env.PUTER_ORIGIN, process.env.PUTER_API_ORIGIN);
-
 export default {
-  entry: './src/index.js',
-  output: {
-    filename: 'puter.js',
-    path: path.resolve(__dirname, 'dist'),
-  },
-  plugins: [
-    new webpack.DefinePlugin({
-      'globalThis.PUTER_ORIGIN': JSON.stringify(process.env.PUTER_ORIGIN || 'https://puter.com'),
-      'globalThis.PUTER_API_ORIGIN': JSON.stringify(process.env.PUTER_API_ORIGIN || 'https://api.puter.com'),
-    }),
-  ],
+    entry: './src/index.js',
+    output: {
+        filename: 'puter.js',
+        path: path.resolve(__dirname, 'dist'),
+    },
+    plugins: [
+        new webpack.DefinePlugin({
+            'globalThis.PUTER_ORIGIN_ENV': JSON.stringify(process.env.PUTER_ORIGIN || 'https://puter.com'),
+            'globalThis.PUTER_API_ORIGIN_ENV': JSON.stringify(process.env.PUTER_API_ORIGIN || 'https://api.puter.com'),
+        }),
+    ],
 };

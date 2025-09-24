@@ -879,7 +879,7 @@ window.available_templates = () => {
     const loadTemplates = async () => {
         try{
             // Directly check the templates directory
-            const hasTemplateFiles = await puter.fs.readdir(templatesPath)
+            const hasTemplateFiles = await puter.fs.readdir(templatesPath, {consistency: 'eventual'})
 
             if(hasTemplateFiles.length == 0) {
                 window.file_templates = []
@@ -1646,7 +1646,7 @@ window.move_items = async function(el_items, dest_path, is_undo = false){
 
         // check if trash is empty
         if(untrashed_at_least_one_item){
-            const trash = await puter.fs.stat(window.trash_path);
+            const trash = await puter.fs.stat({path: window.trash_path,consistency: 'eventual'});
             if(window.socket){
                 window.socket.emit('trash.is_empty', {is_empty: trash.is_empty});
             }
@@ -2196,7 +2196,7 @@ async function readDirectoryRecursive(path, baseDir = '') {
     let allFiles = [];
 
     // Read the directory
-    const entries = await puter.fs.readdir(path);
+    const entries = await puter.fs.readdir(path, {consistency: 'eventual'});
 
     if (entries.length === 0) {
         allFiles.push({ path });
@@ -2708,7 +2708,7 @@ window.get_profile_picture = async function(username){
     let icon;
     // try getting profile pic
     try{
-        let stat = await puter.fs.stat('/' + username + '/Public/.profile');
+        let stat = await puter.fs.stat({path: '/' + username + '/Public/.profile', consistency: 'eventual'});
         if(stat.size > 0 && stat.is_dir === false && stat.size < 1000000){
             let profile_json = await puter.fs.read('/' + username + '/Public/.profile');
             profile_json = await blob2str(profile_json);

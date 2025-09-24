@@ -600,7 +600,7 @@ window.initgui = async function(options){
             // -------------------------------------------------------------------------------------
             if(!window.embedded_in_popup){
                 await window.get_auto_arrange_data()
-                puter.fs.stat(window.desktop_path, async function(desktop_fsentry){
+                puter.fs.stat({path: window.desktop_path, consistency: 'eventual'}).then(desktop_fsentry => {
                     UIDesktop({desktop_fsentry: desktop_fsentry});
                 })
             }
@@ -1059,7 +1059,7 @@ window.initgui = async function(options){
         // -------------------------------------------------------------------------------------
         if(!window.embedded_in_popup){
             await window.get_auto_arrange_data();
-            puter.fs.stat(window.desktop_path, function (desktop_fsentry) {
+            puter.fs.stat({path: window.desktop_path, consistency: 'eventual'}).then(desktop_fsentry => {
                 UIDesktop({ desktop_fsentry: desktop_fsentry });
             })
         }
@@ -1338,9 +1338,8 @@ window.initgui = async function(options){
 
         // If the clicked element is not a context menu, remove all context menus
         if ($(e.target).parents(".context-menu").length === 0) {
-            const $ctxmenus = $(".context-menu");
-            $ctxmenus.fadeOut(200, function(){
-                $ctxmenus.remove();
+            $(".context-menu").fadeOut(200, function(){
+                $(this).remove();
             });
         }
 
@@ -1403,6 +1402,12 @@ window.initgui = async function(options){
         if($(e.target).hasClass('toolbar') || $(e.target).closest('.toolbar').length > 0){
             return;
         }
+
+        // if close or minimize button clicked, drop the event
+        if (document.elementFromPoint(e.clientX, e.clientY).closest('.window-close-btn, .window-minimize-btn')) {
+            return;
+        }
+
         // if mouse is clicked on a window, activate it
         if(window.mouseover_window !== undefined){
             // if popover clicked on, don't activate window. This is because if an app 

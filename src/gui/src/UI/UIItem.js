@@ -925,7 +925,7 @@ function UIItem(options){
                                 const element = $selected_items[index];
                                 await window.delete_item(element);
                             }
-                            const trash = await puter.fs.stat(window.trash_path);
+                            const trash = await puter.fs.stat({path: window.trash_path, consistency: 'eventual'});
 
                             // update other clients
                             if(window.socket){
@@ -1375,7 +1375,7 @@ function UIItem(options){
                         if((alert_resp) === 'Delete'){
                             await window.delete_item(el_item);
                             // check if trash is empty
-                            const trash = await puter.fs.stat(window.trash_path);
+                            const trash = await puter.fs.stat({path: window.trash_path, consistency: 'eventual'});
                             // update other clients
                             if(window.socket){
                                 window.socket.emit('trash.is_empty', {is_empty: trash.is_empty});
@@ -1490,9 +1490,8 @@ $(document).on('contextmenu', '.item-has-website-url-badge', async function(e){
     e.preventDefault();
     
     // close other context menus
-    const $ctxmenus = $(".context-menu");
-    $ctxmenus.fadeOut(200, function(){
-        $ctxmenus.remove();
+    $(".context-menu").fadeOut(200, function(){
+        $(this).remove();
     });
 
     UIContextMenu({
@@ -1531,6 +1530,7 @@ $(document).on('click', '.item-has-website-badge', async function(e){
         returnSubdomains: true,
         returnPermissions: false,
         returnVersions: false,
+        consistency: 'eventual',
         success: function (fsentry){
             if(fsentry.subdomains)
                 window.open(fsentry.subdomains[0].address, '_blank');
@@ -1544,6 +1544,7 @@ $(document).on('long-hover', '.item-has-website-badge', function(e){
         returnSubdomains: true,
         returnPermissions: false,
         returnVersions: false,
+        consistency: 'eventual',
         success: function (fsentry){
             var box = e.target.getBoundingClientRect();
 

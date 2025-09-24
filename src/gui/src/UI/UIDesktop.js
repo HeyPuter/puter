@@ -954,7 +954,7 @@ async function UIDesktop(options) {
                     {
                         html: i18n('refresh'),
                         onClick: function () {
-                            refresh_item_container(el_desktop);
+                            refresh_item_container(el_desktop, { consistency: 'strong' });
                         }
                     },
                     // -------------------------------------------
@@ -1055,6 +1055,11 @@ async function UIDesktop(options) {
                 transaction.end();
             }
         })
+
+        // perform readdirs for caching purposes
+
+        // home directory
+        puter.fs.readdir({path: window.home_path, consistency: 'strong'});
 
         // Show welcome window if user hasn't already seen it and hasn't directly navigated to an app 
         if (!window.url_paths[0]?.toLocaleLowerCase() === 'app' || !window.url_paths[1]) {
@@ -1414,7 +1419,7 @@ async function UIDesktop(options) {
             }
         }
 
-        const stat = await puter.fs.stat(item_path);
+        const stat = await puter.fs.stat({path: item_path, consistency: 'eventual'});
         
         // TODO: DRY everything here with open_item. Unfortunately we can't
         //       use open_item here because it's coupled with UI logic;
@@ -2137,6 +2142,9 @@ $(document).on('click', '.start-app', async function (e) {
     // close popovers
     $(".popover").fadeOut(200, function () {
         $(".popover").remove();
+    });
+    $(".context-menu").fadeOut(200, function(){
+        $(this).remove();
     });
 })
 

@@ -69,7 +69,7 @@ const refresh_item_container = function(el_item_container, options){
     // --------------------------------------------------------
     // Folder's configs and properties
     // --------------------------------------------------------
-    puter.fs.stat(container_path, function(fsentry){
+    puter.fs.stat({path: container_path, consistency: options.consistency ?? 'eventual'}).then(fsentry => {
         if(el_window){
             $(el_window).attr('data-uid', fsentry.id);
             $(el_window).attr('data-sort_by', fsentry.sort_by ?? 'name');
@@ -108,7 +108,7 @@ const refresh_item_container = function(el_item_container, options){
     $(el_item_container).find('.item').removeItems()
 
     // get items
-    puter.fs.readdir(container_path).then((fsentries)=>{
+    puter.fs.readdir({path: container_path, consistency: options.consistency ?? 'eventual'}).then((fsentries)=>{
         // Check if the same folder is still loading since el_item_container's
         // data-path might have changed by other operations while waiting for the response to this `readdir`.
         if($(el_item_container).attr('data-path') !== container_path)
@@ -206,7 +206,7 @@ const refresh_item_container = function(el_item_container, options){
             // if this is desktop, add Trash
             if($(el_item_container).hasClass('desktop')){
                 try{
-                    const trash = await puter.fs.stat(window.trash_path);
+                    const trash = await puter.fs.stat({path: window.trash_path, consistency: options.consistency ?? 'eventual'});
                     UIItem({
                         appendTo: el_item_container,
                         uid: trash.id,

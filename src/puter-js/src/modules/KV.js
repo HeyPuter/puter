@@ -104,8 +104,6 @@ class KV{
      */
     set = utils.make_driver_method(['key', 'value', 'expireAt'], 'puter-kvstore', undefined, 'set', {
         preprocess: (args) => {
-            console.log(args);
-
             // key cannot be undefined or null
             if ( args.key === undefined || args.key === null ){
                 throw { message: 'Key cannot be undefined', code: 'key_undefined' };

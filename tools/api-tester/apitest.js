@@ -9,7 +9,7 @@ const { parseArgs } = require('node:util');
 
 const args = process.argv.slice(2);
 
-let config, report, suiteName, onlycase, bench, unit, stopOnFailure, id;
+let config, report, suiteName, onlycase, bench, unit, stopOnFailure, id, puterjs;
 
 try {
     const parsed = parseArgs({
@@ -26,6 +26,7 @@ try {
             unit: { type: 'boolean' },
             suite: { type: 'string' },
             'stop-on-failure': { type: 'boolean' },
+            puterjs: { type: 'boolean' },
         },
         allowPositionals: true,
     });
@@ -38,6 +39,7 @@ try {
         unit,
         suite: suiteName,
         'stop-on-failure': stopOnFailure,
+        puterjs,
     }, positionals: [id] } = parsed);
 
     onlycase = onlycase !== undefined ? Number.parseInt(onlycase) : undefined;
@@ -50,6 +52,7 @@ try {
         '\n' +
         'Options:\n' +
         '  --config=<path>  (required)  Path to configuration file\n' +
+        '  --puterjs         (optional)  Run tests against the puter-js client\n' +
         '  --report=<path>  (optional)  Output file for full test results\n' +
         '  --suite=<name>   (optional)  Run only tests with matching suite name\n' +
         '  --stop-on-failure (optional)  Stop execution on first test failure\n' +
@@ -62,12 +65,95 @@ const conf = YAML.parse(fs.readFileSync(config).toString());
 
 
 const main = async () => {
+    if (puterjs) {
+        const context = {
+            mountpoint: {
+                path: '/',
+            }
+        };
+
+        const ts = new TestSDK(conf, context, {});
+        const registry = new TestRegistry(ts);
+
+        await require('./puter_js/__entry__.js')(registry);
+
+        await registry.run_all_tests();
+
+        // await run(conf);
+        ts.printTestResults();
+        ts.printBenchmarkResults();
+        process.exit(0);
+        return;
+    }
+
     const unit_test_results = [];
     const benchmark_results = [];
     for (const mountpoint of conf.mountpoints) {
         const { unit_test_results: results, benchmark_results: benchs } = await test({ mountpoint });
         unit_test_results.push(...results);
         benchmark_results.push(...benchs);
+    }
+
+    // hard-coded identifier for ci script
+    console.log("==================== nightly build results begin ====================")
+
+    // print unit test results
+    let tbl = {};
+    for ( const result of unit_test_results ) {
+        tbl[result.name + ' - ' + result.settings] = {
+            passed: result.caseCount - result.failCount,
+            failed: result.failCount,
+            total: result.caseCount,
+            'duration (s)': result.duration ? result.duration.toFixed(2) : 'N/A',
+        }
+    }
+    console.table(tbl);
+
+    // print benchmark results
+    if (benchmark_results.length > 0) {
+        tbl = {};
+        for ( const result of benchmark_results ) {
+            const fs_provider = result.fs_provider || 'unknown';
+            tbl[result.name + ' - ' + fs_provider] = {
+                'duration (s)': result.duration ? (result.duration / 1000).toFixed(2) : 'N/A',
+            }
+        }
+        console.table(tbl);
+
+        // print description of each benchmark since it's too long to fit in the table
+        const seen = new Set();
+        for ( const result of benchmark_results ) {
+            if ( seen.has(result.name) ) continue;
+            seen.add(result.name);
+
+            if ( result.description ) {
+                console.log(result.name + ': ' + result.description);
+            }
+        }
+    }
+
+    // hard-coded identifier for ci script
+    console.log("==================== nightly build results end ====================")
+}
+
+/**
+ * Run test using the given config, and return the test results
+ * 
+ * @param {Object} options
+ * @param {Object} options.mountpoint
+ * @returns {Promise<Object>}
+ */
+async function test({ mountpoint }) {
+    const context = {
+        options: {
+            onlycase,
+            suite: suiteName,
+        }
+    };
+    const ts = new TestSDK(conf, context);
+    try {
+        await ts.delete('api_test', { recursive: true });
+    } catch (e) {
     }
 
     // hard-coded identifier for ci script
