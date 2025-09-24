@@ -291,7 +291,7 @@ class Kernel extends AdvancedBase {
             
             // Run all mods with the same priority concurrently
             await Promise.all(samePriorityMods.map(mod_entry => {
-                this._run_extern_mod(mod_entry);
+                return this._run_extern_mod(mod_entry);
             }));
         }
     }
