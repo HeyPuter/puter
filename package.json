@@ -21,6 +21,7 @@
     "globals": "^15.0.0",
     "html-entities": "^2.3.3",
     "html-webpack-plugin": "^5.6.0",
+    "husky": "^9.1.7",
     "license-check-and-add": "^4.0.5",
     "mocha": "^10.6.0",
     "nodemon": "^3.1.0",
@@ -33,7 +34,8 @@
     "start=gui": "nodemon --exec \"node dev-server.js\" ",
     "start": "node ./tools/run-selfhosted.js",
     "build": "cd src/gui; node ./build.js",
-    "check-translations": "node tools/check-translations.js"
+    "check-translations": "node tools/check-translations.js",
+    "prepare": "husky"
   },
   "workspaces": [
     "src/*",
