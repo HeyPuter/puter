@@ -1,4 +1,5 @@
 import type { RequestHandler } from 'express';
+import type helpers from '../src/backend/src/helpers.js';
 
 declare global {
   namespace Express {
@@ -25,10 +26,17 @@ type RouterMethods = {
   };
 }
 
+type CoreRuntimeModule = {
+  util: {
+    helpers: typeof helpers,
+  }
+}
+
 interface Extension extends RouterMethods {
   // import(module: 'core'): {
   //   UserActorType: typeof UserActorType;
   // };
+  import(module: 'core'): CoreRuntimeModule;
   import(module: string): any;
 }
 

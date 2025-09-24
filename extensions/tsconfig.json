@@ -1,9 +1,11 @@
 {
   "compilerOptions": {
     "target": "ES2020",
-    "module": "CommonJS",
+    "allowJs": true,
+    "module": "esnext",
     "moduleResolution": "node",
     "baseUrl": ".",
+    "outDir": "/dev/null",
     "paths": {
       "../src/*": ["../src/*"]
     },
