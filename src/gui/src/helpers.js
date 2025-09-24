@@ -524,8 +524,8 @@ window.update_auth_data = async (auth_token, user)=>{
         $('.user-options-menu-btn').show();
     }
 
-    // Search and store user templates
-    window.file_templates = await window.available_templates()
+    // Search and store user templates (non-blocking)
+    window.available_templates()
 }
 
 window.mutate_user_preferences = function(user_preferences_delta) {
@@ -870,59 +870,61 @@ window.create_file = async(options)=>{
     }
 }
 
-window.available_templates = async () => {
-    const baseRoute = `/${window.user.username}`
-    const keywords = ["template", "templates", i18n('template')]
-    //make sure all its lowercase
-    const lowerCaseKeywords = keywords.map(keywords => keywords.toLowerCase())
+window.available_templates = () => {
+    const templatesPath = `/${window.user.username}/templates`
 
-    //create file
-    try{
-        // search the folder name i18n("template"), "template" or "templates"
-        const files = await puter.fs.readdir(baseRoute)
+    // Initialize with empty array immediately
+    window.file_templates = []
 
-        const hasTemplateFolder = files.find(file => lowerCaseKeywords.includes(file.name.toLowerCase()))
+    const loadTemplates = async () => {
+        try{
+            // Directly check the templates directory
+            const hasTemplateFiles = await puter.fs.readdir(templatesPath, {consistency: 'eventual'})
 
-        if(!hasTemplateFolder){
-            return []
-        }
-
-        const hasTemplateFiles = await puter.fs.readdir(baseRoute + "/" + hasTemplateFolder.name)
-
-        if(hasTemplateFiles.length == 0) {
-            return []
-        }
-
-        let result = []
-
-        hasTemplateFiles.forEach(element => {
-            const extIndex = element.name.lastIndexOf('.');
-            const name = extIndex === -1
-                ? element.name
-                : element.name.slice(0, extIndex);
-            let extension = extIndex === -1
-                ? ''
-                : element.name.slice(extIndex + 1);
-
-            if(extension == "txt") extension = "text"
-            
-            const _path = path.join( baseRoute, hasTemplateFolder.name, element.name);
-
-            const itemStructure = {
-                path: _path,
-                html: `${extension.toUpperCase()} ${name}`,
-                extension:extension,
-                name: element.name
+            if(hasTemplateFiles.length == 0) {
+                window.file_templates = []
+                return []
             }
-            result.push(itemStructure)
-        });
-        
-        // return result
-        return result
-        
-    } catch (err) {
-        console.log(err)
+
+            let result = []
+
+            hasTemplateFiles.forEach(element => {
+                const extIndex = element.name.lastIndexOf('.');
+                const name = extIndex === -1
+                    ? element.name
+                    : element.name.slice(0, extIndex);
+                let extension = extIndex === -1
+                    ? ''
+                    : element.name.slice(extIndex + 1);
+
+                if(extension == "txt") extension = "text"
+                
+                const _path = path.join(templatesPath, element.name);
+
+                const itemStructure = {
+                    path: _path,
+                    html: `${extension.toUpperCase()} ${name}`,
+                    extension:extension,
+                    name: element.name
+                }
+                result.push(itemStructure)
+            });
+            
+            // Assign to window.file_templates when ready
+            window.file_templates = result
+            return result
+            
+        } catch (err) {
+            console.log(err)
+            window.file_templates = []
+        }
     }
+
+    // Start the async operation but don't wait for it
+    loadTemplates()
+
+    // Return the current (initially empty) templates immediately
+    return window.file_templates
 }
 
 window.create_shortcut = async(filename, is_dir, basedir, appendto_element, shortcut_to, shortcut_to_path)=>{
@@ -1644,7 +1646,7 @@ window.move_items = async function(el_items, dest_path, is_undo = false){
 
         // check if trash is empty
         if(untrashed_at_least_one_item){
-            const trash = await puter.fs.stat(window.trash_path);
+            const trash = await puter.fs.stat({path: window.trash_path,consistency: 'eventual'});
             if(window.socket){
                 window.socket.emit('trash.is_empty', {is_empty: trash.is_empty});
             }
@@ -2194,7 +2196,7 @@ async function readDirectoryRecursive(path, baseDir = '') {
     let allFiles = [];
 
     // Read the directory
-    const entries = await puter.fs.readdir(path);
+    const entries = await puter.fs.readdir(path, {consistency: 'eventual'});
 
     if (entries.length === 0) {
         allFiles.push({ path });
@@ -2706,7 +2708,7 @@ window.get_profile_picture = async function(username){
     let icon;
     // try getting profile pic
     try{
-        let stat = await puter.fs.stat('/' + username + '/Public/.profile');
+        let stat = await puter.fs.stat({path: '/' + username + '/Public/.profile', consistency: 'eventual'});
         if(stat.size > 0 && stat.is_dir === false && stat.size < 1000000){
             let profile_json = await puter.fs.read('/' + username + '/Public/.profile');
             profile_json = await blob2str(profile_json);

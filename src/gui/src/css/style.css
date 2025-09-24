@@ -609,6 +609,10 @@ span.header-sort-icon img {
     right: 50%;
 }
 
+.item-badges .item-badge {
+    pointer-events: all;
+}
+
 .item-container-list .item-badges {
     display: none;
 }

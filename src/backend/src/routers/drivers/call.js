@@ -53,6 +53,7 @@ let _handle_multipart;
 module.exports = eggspress('/drivers/call', {
     subdomain: 'api',
     auth2: true,
+    // noReallyItsJson: true,
     allowedMethods: ['POST'],
 }, async (req, res, next) => {
     const x = Context.get();

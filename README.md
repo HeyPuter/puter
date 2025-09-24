@@ -114,7 +114,7 @@ Puter is available as a hosted service at [**puter.com**](https://puter.com).
 - **Operating Systems:** Linux, macOS, Windows
 - **RAM:** 2GB minimum (4GB recommended)
 - **Disk Space:** 1GB free space
-- **Node.js:** Version 16+ (Version 23+ recommended)
+- **Node.js:** Version 20+ (Version 23+ recommended)
 - **npm:** Latest stable version
 
 <br/>
@@ -160,6 +160,7 @@ This repository, including all its contents, sub-projects, modules, and componen
 - [Italian / Italiano](https://github.com/HeyPuter/puter/blob/main/doc/i18n/README.it.md)
 - [Japanese / 日本語](https://github.com/HeyPuter/puter/blob/main/doc/i18n/README.jp.md)
 - [Korean / 한국어](https://github.com/HeyPuter/puter/blob/main/doc/i18n/README.ko.md)
+- [Malay / Bahasa Malaysia](https://github.com/HeyPuter/puter/blob/main/doc/i18n/README.my.md)
 - [Malayalam / മലയാളം](https://github.com/HeyPuter/puter/blob/main/doc/i18n/README.ml.md)
 - [Polish / Polski](https://github.com/HeyPuter/puter/blob/main/doc/i18n/README.pl.md)
 - [Portuguese / Português](https://github.com/HeyPuter/puter/blob/main/doc/i18n/README.pt.md)

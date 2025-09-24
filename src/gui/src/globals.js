@@ -269,6 +269,10 @@ window.Transaction = class {
         this.start_ts = Date.now();
     }
 
+    getDuration() {
+        return Date.now() - this.start_ts;
+    }
+
     end() {
         this.end_ts = Date.now();
         this.duration = this.end_ts - this.start_ts;

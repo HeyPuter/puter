@@ -55,6 +55,22 @@ const whoami_common = ({ is_user, user }) => {
         }
     }
 
+    if(user.last_activity_ts){
+
+        // Create a Date object and get the epoch timestamp
+        let epoch;
+        try{
+            epoch = new Date(user.last_activity_ts).getTime();
+            // round to 1 decimal place
+            epoch = Math.round(epoch/1000);
+        }catch(e){
+            // console.error('Error parsing last_activity_ts', e);
+        }
+
+        // add last_activity_ts
+        details.last_activity_ts = epoch;
+    }
+
     return details;
 };
 

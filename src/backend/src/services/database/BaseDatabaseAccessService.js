@@ -59,6 +59,7 @@ class BaseDatabaseAccessService extends BaseService {
     async read (query, params) {
         const svc_trace = this.services.get('traceService');
         return await svc_trace.spanify(`database:read`, async () => {
+            if ( this.config.slow ) await new Promise(rslv => setTimeout(rslv, 70));
             return await this._read(query, params);
         }, { attributes: { query, trace: (new Error()).stack } });
     }
@@ -72,7 +73,8 @@ class BaseDatabaseAccessService extends BaseService {
      * @param {array} params
      * @returns {Promise<*>}
      */
-    tryHardRead (query, params) {
+    async tryHardRead (query, params) {
+        if ( this.config.slow ) await new Promise(rslv => setTimeout(rslv, 70));
         return this._tryHardRead(query, params);
     }
 
@@ -86,7 +88,8 @@ class BaseDatabaseAccessService extends BaseService {
      * @param {array} params
      * @returns {Promise<*>}
      */
-    requireRead (query, params) {
+    async requireRead (query, params) {
+        if ( this.config.slow ) await new Promise(rslv => setTimeout(rslv, 70));
         const results = this._tryHardRead(query, params);
         if ( results.length === 0 ) {
             throw new Error('required read failed: ' + query);
@@ -95,6 +98,7 @@ class BaseDatabaseAccessService extends BaseService {
     }
 
     async pread (query, params) {
+        if ( this.config.slow ) await new Promise(rslv => setTimeout(rslv, 70));
         const svc_trace = this.services.get('traceService');
         return await svc_trace.spanify(`database:pread`, async () => {
             return await this._read(query, params, { use_primary: true });
@@ -102,13 +106,14 @@ class BaseDatabaseAccessService extends BaseService {
     }
 
     async write (query, params) {
+        if ( this.config.slow ) await new Promise(rslv => setTimeout(rslv, 70));
         const svc_trace = this.services.get('traceService');
         return await svc_trace.spanify(`database:write`, async () => {
             return await this._write(query, params);
         }, { attributes: { query, trace: (new Error()).stack } });
     }
 
-    insert (table_name, data) {
+    async insert (table_name, data) {
         const values = Object.values(data);
         const sql = this._gen_insert_sql(table_name, data);
         console.log('INSERT SQL', sql);

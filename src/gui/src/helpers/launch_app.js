@@ -141,7 +141,7 @@ const launch_app = async (options)=>{
         // if options.args.path is provided, use it as the path
         if(options.args?.path){
             // if args.path is provided, enforce the directory
-            let fsentry = await puter.fs.stat(options.args.path);
+            let fsentry = await puter.fs.stat({path: options.args.path, consistency: 'eventual'});
             if(!fsentry.is_dir){
                 let parent = path.dirname(options.args.path);
                 if(parent === options.args.path)

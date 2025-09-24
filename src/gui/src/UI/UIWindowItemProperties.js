@@ -109,6 +109,7 @@ async function UIWindowItemProperties(item_name, item_path, item_uid, left, top,
         returnPermissions: true,
         returnVersions: true,
         returnSize: true,
+        consistency: 'eventual',
         success: function (fsentry){
             // hide versions tab if item is a directory
             if(fsentry.is_dir){
