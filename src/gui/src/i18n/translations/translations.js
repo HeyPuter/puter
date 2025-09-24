@@ -38,6 +38,7 @@ import ig from './ig.js';
 import ja from './ja.js';
 import ko from './ko.js';
 import ku from './ku.js';
+import my from './my.js';
 import nb from './nb.js';
 import nl from './nl.js';
 import nn from './nn.js';
@@ -78,6 +79,7 @@ export default {
     ja,
     ko,
     ku,
+    my,
     nb,
     nl,
     nn,
