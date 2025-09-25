@@ -112,8 +112,8 @@ export class PuterJSFileSystemModule extends AdvancedBase {
     bindSocketEvents() {
         this.socket.on('cache.updated', (item) => {
             const local_ts = puter._cache.get(LAST_UPDATED_TS);
-            if (item.ts > local_ts || local_ts === undefined) {
-                console.log(`remote timestamp (${item.ts}) is newer than local timestamp (${local_ts}), flushing cache`);
+            if (item.timestamp > local_ts || local_ts === undefined) {
+                console.log(`remote timestamp (${item.timestamp}) is newer than local timestamp (${local_ts}), flushing cache`);
                 puter._cache.flushall();
             }
         });
@@ -208,7 +208,6 @@ export class PuterJSFileSystemModule extends AdvancedBase {
     updateCacheTimestamp() {
         // Add 1 second to mitigate clock skew and disable self-update.
         puter._cache.set(LAST_UPDATED_TS, Date.now() + 1000);
-        console.log(`set last updated ts to ${puter._cache.get(LAST_UPDATED_TS)}`);
     }
 
     /**
@@ -225,7 +224,7 @@ export class PuterJSFileSystemModule extends AdvancedBase {
             utils.setupXhrEventHandlers(xhr, undefined, undefined, async (result) => {
                 try {
                     const response = typeof result === 'string' ? JSON.parse(result) : result;
-                    resolve(response.timestamp || response.ts || Date.now());
+                    resolve(response.timestamp || Date.now());
                 } catch (e) {
                     reject(new Error('Failed to parse response'));
                 }
