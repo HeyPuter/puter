@@ -160,11 +160,49 @@ function UIAlert(options) {
         $(el_window).find('.alert-resp-button').on('click', async function (event) {
             event.preventDefault();
             event.stopPropagation();
-            resolve($(this).attr('data-value'));
+            // Recover the original data-value type before resolving.
+            resolve(parseDataValue($(this).attr('data-value')));
             $(el_window).close();
             return false;
         })
     })
+}
+
+/**
+ * Parses a string retrieved from an HTML data attribute or similar source,
+ * attempting to recover its original JavaScript value type.
+ *
+ * This function handles common conversions such as:
+ * - "true" / "false" -> boolean
+ * - "null" -> null
+ * - numeric strings -> number
+ * - JSON strings (objects or arrays) -> parsed object/array
+ * - Other strings remain as-is
+ *
+ * @param {string|undefined} value - The value to parse, typically from a data-* attribute.
+ * @returns {*} The parsed value in its appropriate JavaScript type, or undefined if input is undefined.
+ */
+function parseDataValue(value) {
+    // Return if undefined.
+    if (value === undefined) return undefined;
+
+    // Convert "true" / "false" to boolean
+    if (value === "true") return true;
+    if (value === "false") return false;
+
+    // Convert "null" to null
+    if (value === "null") return null;
+
+    // Convert numeric strings to numbers
+    if (!isNaN(value) && value.trim() !== "") return Number(value);
+
+    // Try parsing JSON objects/arrays
+    try {
+        return JSON.parse(value);
+    } catch (e) {
+        // If JSON.parse fails, return the string as is
+        return value;
+    }
 }
 
 def(UIAlert, 'ui.window.UIAlert');
