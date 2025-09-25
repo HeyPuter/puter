@@ -18,14 +18,15 @@
  * along with this program.  If not, see <https://www.gnu.org/licenses/>.
  */
 const BaseService = require("./BaseService");
-class WSPushService  extends BaseService {
+const { Context } = require("../util/context");
+class WSPushService extends BaseService {
     /**
     * Initializes the WSPushService by setting up event listeners for various file system operations.
     * 
     * @param {Object} options - The configuration options for the service.
     * @param {Object} options.services - An object containing service dependencies.
     */
-    async _init () {
+    async _init() {
         this.svc_event = this.services.get('event');
 
         this.svc_event.on('fs.create.*', this._on_fs_create.bind(this));
@@ -43,7 +44,7 @@ class WSPushService  extends BaseService {
     }
 
 
-    async _on_fs_create (key, data) {
+    async _on_fs_create(key, data) {
         const { node, context } = data;
 
         const metadata = {
@@ -64,7 +65,7 @@ class WSPushService  extends BaseService {
             // NOTE: Using a set because eventually we will need to dispatch
             //       to multiple users, but this is not currently the case.
             const user_id_set = new Set();
-            if ( metadata.user_id ) user_id_set.add(metadata.user_id);
+            if (metadata.user_id) user_id_set.add(metadata.user_id);
             else user_id_set.add(await node.get('user_id'));
             return Array.from(user_id_set);
         })();
@@ -75,6 +76,9 @@ class WSPushService  extends BaseService {
             user_id_list,
             response,
         });
+
+        const ts = Date.now();
+        await this._update_user_ts(user_id_list, ts);
     }
 
 
@@ -94,7 +98,7 @@ class WSPushService  extends BaseService {
     * - The method uses a set for user IDs to prepare for future multi-user dispatch.
     * - If no specific user ID is provided in the metadata, it falls back to the node's user ID.
     */
-    async _on_fs_update (key, data) {
+    async _on_fs_update(key, data) {
         const { node, context } = data;
 
         const metadata = {
@@ -114,7 +118,7 @@ class WSPushService  extends BaseService {
             // NOTE: Using a set because eventually we will need to dispatch
             //       to multiple users, but this is not currently the case.
             const user_id_set = new Set();
-            if ( metadata.user_id ) user_id_set.add(metadata.user_id);
+            if (metadata.user_id) user_id_set.add(metadata.user_id);
             else user_id_set.add(await node.get('user_id'));
             return Array.from(user_id_set);
         })();
@@ -125,6 +129,9 @@ class WSPushService  extends BaseService {
             user_id_list,
             response,
         });
+
+        const ts = Date.now();
+        await this._update_user_ts(user_id_list, ts);
     }
 
 
@@ -142,7 +149,7 @@ class WSPushService  extends BaseService {
     *   - {Context} context - The context in which the move operation occurred.
     * @returns {Promise<void>} A promise that resolves when the event has been emitted.
     */
-    async _on_fs_move (key, data) {
+    async _on_fs_move(key, data) {
         const { moved, old_path, context } = data;
 
         const metadata = {
@@ -162,7 +169,7 @@ class WSPushService  extends BaseService {
             // NOTE: Using a set because eventually we will need to dispatch
             //       to multiple users, but this is not currently the case.
             const user_id_set = new Set();
-            if ( metadata.user_id ) user_id_set.add(metadata.user_id);
+            if (metadata.user_id) user_id_set.add(metadata.user_id);
             else user_id_set.add(await moved.get('user_id'));
             return Array.from(user_id_set);
         })();
@@ -174,6 +181,9 @@ class WSPushService  extends BaseService {
             user_id_list,
             response,
         });
+
+        const ts = Date.now();
+        await this._update_user_ts(user_id_list, ts);
     }
 
 
@@ -188,7 +198,7 @@ class WSPushService  extends BaseService {
     * 
     * @returns {Promise<void>} Emits an event to update the GUI about the pending item.
     */
-    async _on_fs_pending (key, data) {
+    async _on_fs_pending(key, data) {
         const { fsentry, context } = data;
 
         const metadata = {
@@ -208,7 +218,7 @@ class WSPushService  extends BaseService {
             // NOTE: Using a set because eventually we will need to dispatch
             //       to multiple users, but this is not currently the case.
             const user_id_set = new Set();
-            if ( metadata.user_id ) user_id_set.add(metadata.user_id);
+            if (metadata.user_id) user_id_set.add(metadata.user_id);
             return Array.from(user_id_set);
         })();
 
@@ -218,6 +228,10 @@ class WSPushService  extends BaseService {
             user_id_list,
             response,
         });
+
+
+        const ts = Date.now();
+        await this._update_user_ts(user_id_list, ts);
     }
 
     /**
@@ -231,7 +245,7 @@ class WSPushService  extends BaseService {
     * 
     * It emits a progress event to the socket if it exists, otherwise, it does nothing.
     */
-    async _on_upload_progress (key, data) {
+    async _on_upload_progress(key, data) {
         this.log.info('got upload progress event');
         const { upload_tracker, context, meta } = data;
 
@@ -249,19 +263,19 @@ class WSPushService  extends BaseService {
 
         const { socket_id } = metadata;
 
-        if ( ! socket_id ) {
+        if (!socket_id) {
             this.log.error('missing socket id', { metadata });
         }
 
         this.log.info('socket id: ' + socket_id);
-        
+
         const svc_socketio = context.get('services').get('socketio');
-        if ( ! svc_socketio.has({ socket: socket_id }) ) {
+        if (!svc_socketio.has({ socket: socket_id })) {
             return;
         }
 
         const ws_event_name = metadata.call_it_download
-            ? 'download.progress' : 'upload.progress' ;
+            ? 'download.progress' : 'upload.progress';
 
         upload_tracker.sub(delta => {
             this.log.info('emitting progress event');
@@ -274,7 +288,7 @@ class WSPushService  extends BaseService {
         })
     }
 
-    async _on_submission_done (key, data) {
+    async _on_submission_done(key, data) {
         const { actor } = data;
         const { id, output, summary, measures, aux_outputs } = data;
         const user_id = actor.type.user.id;
@@ -288,7 +302,7 @@ class WSPushService  extends BaseService {
         };
 
         this.svc_event.emit('outer.gui.submission.done', {
-            user_id_list: [ user_id ],
+            user_id_list: [user_id],
             response,
         });
     }
@@ -304,13 +318,13 @@ class WSPushService  extends BaseService {
     *       checks if the user's socket room exists and has clients, then emits
     *       the event to the appropriate room.
     */
-    async _on_outer_gui (key, { user_id_list, response }, meta) {
+    async _on_outer_gui(key, { user_id_list, response }, meta) {
         key = key.slice('outer.gui.'.length);
 
         const svc_socketio = this.services.get('socketio');
 
-        for ( const user_id of user_id_list ) {
-            if ( ! svc_socketio.has({ room: user_id }) ) {
+        for (const user_id of user_id_list) {
+            if (!svc_socketio.has({ room: user_id })) {
                 continue;
             }
             svc_socketio.send({ room: user_id }, key, response);
@@ -320,6 +334,36 @@ class WSPushService  extends BaseService {
                 meta,
             });
         }
+    }
+
+    /**
+     * Updates the timestamp for a list of users in the puter-kvstore. Emits an event to notify the GUI of the update.
+     * 
+     * @param {string[]} user_id_list - The list of user IDs to update the timestamp for.
+     * @param {number} timestamp - The timestamp to update the users with.
+     * @returns {Promise<void>} A promise that resolves when the timestamp has been updated.
+     */
+    async _update_user_ts(user_id_list, timestamp) {
+        for (const user_id of user_id_list) {
+            const ts = timestamp;
+            const key = `last_change_timestamp:${user_id}`;
+
+            try {
+                const svc_driver = Context.get('services').get('driver');
+                await svc_driver.call({
+                    iface: 'puter-kvstore',
+                    method: 'set',
+                    args: { key, value: ts }
+                });
+            } catch (error) {
+                this.log.error('Failed to update user timestamp in kvstore', { user_id, error: error.message });
+            }
+        }
+
+        this.svc_event.emit('outer.gui.cache.updated', {
+            user_id_list,
+            response: { timestamp },
+        });
     }
 }
 

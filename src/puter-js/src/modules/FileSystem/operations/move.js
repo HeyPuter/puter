@@ -1,7 +1,7 @@
+import path from "../../../lib/path.js";
 import * as utils from '../../../lib/utils.js';
 import getAbsolutePathForApp from '../utils/getAbsolutePathForApp.js';
-import stat from "./stat.js"
-import path from "../../../lib/path.js"
+import stat from "./stat.js";
 
 const move = function (...args) {
     let options;
@@ -66,8 +66,7 @@ const move = function (...args) {
             original_client_socket_id: options.excludeSocketID,
         }));
 
-        // todo: EXTREMELY NAIVE CACHE PURGE
-        puter._cache.flushall();
+        this.updateCacheTimestamp();
 
     })
 }
