@@ -374,20 +374,21 @@ const ku = {
     login2fa_recovery_back: "گەڕانەوە",
     login2fa_recovery_placeholder: "XXXXXXXX",
 
-    "change": "بیگۆڕە", // In English: "Change"
-    "clock_visibility": "بینینی کاتژمێر", // In English: "Clock Visibility"
-    "reading": "خوێندنەوە", // In English: "Reading %strong%"
-    "writing": "دەنوسێ", // In English: "Writing %strong%"
-    "unzipping": "كردنەوەی فایلی زیپ", // In English: "Unzipping %strong%"
-    "sequencing": "زنجیرەکردن", // In English: "Sequencing %strong%"
-    "zipping": "داخستنی فایلی زیپ", // In English: "Zipping %strong%"
-    "Editor": "دەستکاریکەر", // In English: "Editor"
-    "Viewer": "بینەر", // In English: "Viewer"
+    change: "بیگۆڕە", // In English: "Change"
+    clock_visibility: "بینینی کاتژمێر", // In English: "Clock Visibility"
+    reading: "خوێندنەوە", // In English: "Reading %strong%"
+    writing: "دەنوسێ", // In English: "Writing %strong%"
+    unzipping: "كردنەوەی فایلی زیپ", // In English: "Unzipping %strong%"
+    sequencing: "زنجیرەکردن", // In English: "Sequencing %strong%"
+    zipping: "داخستنی فایلی زیپ", // In English: "Zipping %strong%"
+    Editor: "دەستکاریکەر", // In English: "Editor"
+    Viewer: "بینەر", // In English: "Viewer"
     "People with access": "كەسانی دەست گەیشتوو بە", // In English: "People with access"
     "Share With…": "بڵاوکردنەوە لەگەڵ...", // In English: "Share With…"
-    "Owner": "خاوەن", // In English: "Owner"
+    Owner: "خاوەن", // In English: "Owner"
     "You can't share with yourself.": "ناتوانیت لەگەڵ خودی خۆت بڵاوی کەیتەوە", // In English: "You can't share with yourself."
-    "This user already has access to this item": "ئەم بەکارهێنەرە پێشتر ڕێپێدراوە بۆ ئەم فایلە", // In English: "This user already has access to this item"
+    "This user already has access to this item":
+      "ئەم بەکارهێنەرە پێشتر ڕێپێدراوە بۆ ئەم فایلە", // In English: "This user already has access to this item"
 
     "billing.change_payment_method": "گۆڕانکاری",
     "billing.cancel": "بڕینەوە",
@@ -401,7 +402,8 @@ const ku = {
     "billing.ok": "باشە",
     "billing.resume_subscription": "پاشەکەوتی بەردەوام بکە",
     "billing.subscription_cancelled": "بەژداربوونەکەت هەڵوەشێنراوەتەوە",
-    "billing.subscription_cancelled_description": "تا کۆتایی ئەم ماوەیە تۆ هێشتا دەستت بە بەشداربوونەکەت هەیە",
+    "billing.subscription_cancelled_description":
+      "تا کۆتایی ئەم ماوەیە تۆ هێشتا دەستت بە بەشداربوونەکەت هەیە",
     "billing.offering.free": "بە خۆڕایی",
     "billing.offering.pro": "پیشەیی",
     "billing.offering.professional": "پیشەیی",
@@ -416,7 +418,8 @@ const ku = {
     "billing.back": "باک",
     "billing.you_are_now_subscribed_to": "ئێستا تۆ بەشداریت لە %strong% tier",
     "billing.you_are_now_subscribed_to_without_tier": "ئێستا تۆ بەشداریت",
-    "billing.subscription_cancellation_confirmation": "ئایا دڵنیایت کە دەتەوێت بەشداربوونەکەت هەڵوەشێنیتەوە؟",
+    "billing.subscription_cancellation_confirmation":
+      "ئایا دڵنیایت کە دەتەوێت بەشداربوونەکەت هەڵوەشێنیتەوە؟",
     "billing.subscription_setup": "دەستکاریی بەشداربوون",
     "billing.cancel_it": "داوایی لێ بکەوە",
     "billing.keep_it": "هێشتەوە",
@@ -425,10 +428,14 @@ const ku = {
     "billing.upgrade": "Upgrade",
     "billing.currently_on_free_plan": "ئێستا لە پلانی بێبەرامبەریت",
     "billing.download_receipt": "دانەوەی وەرگیراو",
-    "billing.subscription_check_error": "کێشەیەک ڕوویدا لەکاتی پشکنینی دۆخی بەشداربوونەکەت",
-    "billing.email_confirmation_needed": " ئیمەیڵەکەت پشتڕاست نەکراوەتەوە. کۆدێکت بۆ دەنێرین بۆ پشتڕاستکردنەوەی ئێستا",
-    "billing.sub_cancelled_but_valid_until": "تۆ بەشداربوونەکەت هەڵوەشاندەوە و بە ئۆتۆماتیکی دەگۆڕێت بۆ پلەی خۆڕایی لە کۆتایی ماوەی فۆڕمی فۆرم. جارێكی دیكە هیچ پارەیەكتان لێناگیرێت مەگەر دووبارە بەشداربن",
-    "billing.current_plan_until_end_of_period": "پلانی ئێستای تۆ تا کۆتایی ئەم ماوەیە بۆ فۆڕمی فۆرم",
+    "billing.subscription_check_error":
+      "کێشەیەک ڕوویدا لەکاتی پشکنینی دۆخی بەشداربوونەکەت",
+    "billing.email_confirmation_needed":
+      " ئیمەیڵەکەت پشتڕاست نەکراوەتەوە. کۆدێکت بۆ دەنێرین بۆ پشتڕاستکردنەوەی ئێستا",
+    "billing.sub_cancelled_but_valid_until":
+      "تۆ بەشداربوونەکەت هەڵوەشاندەوە و بە ئۆتۆماتیکی دەگۆڕێت بۆ پلەی خۆڕایی لە کۆتایی ماوەی فۆڕمی فۆرم. جارێكی دیكە هیچ پارەیەكتان لێناگیرێت مەگەر دووبارە بەشداربن",
+    "billing.current_plan_until_end_of_period":
+      "پلانی ئێستای تۆ تا کۆتایی ئەم ماوەیە بۆ فۆڕمی فۆرم",
     "billing.current_plan": "پلانی ئێستا",
     "billing.cancelled_subscription_tier": "بەژمارەی هەڵوەشێندراو (%%) ",
     "billing.manage": "بەڕێوەبەری",
@@ -440,83 +447,85 @@ const ku = {
     // =============================================================
     // Missing translations
     // =============================================================
-    "choose_publishing_option": undefined, // In English: "Choose how you want to publish your website:"
-    "create_desktop_shortcut": undefined, // In English: "Create Shortcut (Desktop)"
-    "create_desktop_shortcut_s": undefined, // In English: "Create Shortcuts (Desktop)"
-    "create_shortcut_s": undefined, // In English: "Create Shortcuts"
-    "minimize": undefined, // In English: "Minimize"
-    "reload_app": undefined, // In English: "Reload App"
-    "new_window": undefined, // In English: "New Window"
-    "open_trash": undefined, // In English: "Open Trash"
-    "pick_name_for_worker": undefined, // In English: "Pick a name for your worker:"
-    "publish_as_serverless_worker": undefined, // In English: "Publish as Worker"
-    "toolbar.enter_fullscreen": undefined, // In English: "Enter Full Screen"
-    "toolbar.github": undefined, // In English: "GitHub"
-    "toolbar.refer": undefined, // In English: "Refer"
-    "toolbar.save_account": undefined, // In English: "Save Account"
-    "toolbar.search": undefined, // In English: "Search"
-    "toolbar.qrcode": undefined, // In English: "QR Code"
-    "used_of": undefined, // In English: "{{used}} used of {{available}}"
-    "worker": undefined, // In English: "Worker"
-    "billing.offering.basic": undefined, // In English: "Basic"
-    "too_many_attempts": undefined, // In English: "Too many attempts. Please try again later."
-    "server_timeout": undefined, // In English: "The server took too long to respond. Please try again."
-    "signup_error": undefined, // In English: "An error occurred during signup. Please try again."
-    "welcome_title": undefined, // In English: "Welcome to your Personal Internet Computer"
-    "welcome_description": undefined, // In English: "Store files, play games, find awesome apps, and much more! All in one place, accessible from anywhere at any time."
-    "welcome_get_started": undefined, // In English: "Get Started"
-    "welcome_terms": undefined, // In English: "Terms"
-    "welcome_privacy": undefined, // In English: "Privacy"
-    "welcome_developers": undefined, // In English: "Developers"
-    "welcome_open_source": undefined, // In English: "Open Source"
-    "welcome_instant_login_title": undefined, // In English: "Instant Login!"
-    "alert_error_title": undefined, // In English: "Error!"
-    "alert_warning_title": undefined, // In English: "Warning!"
-    "alert_info_title": undefined, // In English: "Info"
-    "alert_success_title": undefined, // In English: "Success!"
-    "alert_confirm_title": undefined, // In English: "Are you sure?"
-    "alert_yes": undefined, // In English: "Yes"
-    "alert_no": undefined, // In English: "No"
-    "alert_retry": undefined, // In English: "Retry"
-    "alert_cancel": undefined, // In English: "Cancel"
-    "signup_confirm_password": undefined, // In English: "Confirm Password"
-    "login_email_username_required": undefined, // In English: "Email or username is required"
-    "login_password_required": undefined, // In English: "Password is required"
-    "window_title_open": undefined, // In English: "Open"
-    "window_title_change_password": undefined, // In English: "Change Password"
-    "window_title_select_font": undefined, // In English: "Select font…"
-    "window_title_session_list": undefined, // In English: "Session List!"
-    "window_title_set_new_password": undefined, // In English: "Set New Password"
-    "window_title_instant_login": undefined, // In English: "Instant Login!"
-    "window_title_publish_website": undefined, // In English: "Publish Website"
-    "window_title_publish_worker": undefined, // In English: "Publish Worker"
-    "window_title_authenticating": undefined, // In English: "Authenticating..."
-    "window_title_refer_friend": undefined, // In English: "Refer a friend!"
-    "desktop_show_desktop": undefined, // In English: "Show Desktop"
-    "desktop_show_open_windows": undefined, // In English: "Show Open Windows"
-    "desktop_exit_full_screen": undefined, // In English: "Exit Full Screen"
-    "desktop_enter_full_screen": undefined, // In English: "Enter Full Screen"
-    "desktop_position": undefined, // In English: "Position"
-    "desktop_position_left": undefined, // In English: "Left"
-    "desktop_position_bottom": undefined, // In English: "Bottom"
-    "desktop_position_right": undefined, // In English: "Right"
-    "item_shared_with_you": undefined, // In English: "A user has shared this item with you."
-    "item_shared_by_you": undefined, // In English: "You have shared this item with at least one other user."
-    "item_shortcut": undefined, // In English: "Shortcut"
-    "item_associated_websites": undefined, // In English: "Associated website"
-    "item_associated_websites_plural": undefined, // In English: "Associated websites"
-    "no_suitable_apps_found": undefined, // In English: "No suitable apps found"
-    "window_click_to_go_back": undefined, // In English: "Click to go back."
-    "window_click_to_go_forward": undefined, // In English: "Click to go forward."
-    "window_click_to_go_up": undefined, // In English: "Click to go one directory up."
-    "window_title_public": undefined, // In English: "Public"
-    "window_title_videos": undefined, // In English: "Videos"
-    "window_title_pictures": undefined, // In English: "Pictures"
-    "window_title_puter": undefined, // In English: "Puter"
-    "window_folder_empty": undefined, // In English: "This folder is empty"
-    "manage_your_subdomains": undefined, // In English: "Manage Your Subdomains"
-    "open_containing_folder": undefined, // In English: "Open Containing Folder"
-
+    choose_publishing_option: "هەڵبژێرە چۆن دەتەوێت وێبسایتەکەت بڵاو بکەیتەوە:", // In English: "Choose how you want to publish your website:"
+    create_desktop_shortcut: "دروستکردنی شارتی (سەروروومیزی)", // In English: "Create Shortcut (Desktop)"
+    create_desktop_shortcut_s: "دروستکردنی شارتیەکان (سەروروومیزی)", // In English: "Create Shortcuts (Desktop)"
+    create_shortcut_s: "دروستکردنی شارتیەکان", // In English: "Create Shortcuts"
+    minimize: "بچوککردنەوە", // In English: "Minimize"
+    reload_app: "دووبارە بارکردنی ئەپ", // In English: "Reload App"
+    new_window: "پەنجەرەیەکی نوێ", // In English: "New Window"
+    open_trash: "کردنەوەی کوڵە", // In English: "Open Trash"
+    pick_name_for_worker: "ناوێک دیاربکە بۆ کارکەرەکەت:", // In English: "Pick a name for your worker:"
+    publish_as_serverless_worker: "بڵاوکردنەوە وەک کارکەر", // In English: "Publish as Worker"
+    "toolbar.enter_fullscreen": "چوونە تەواوی شاشە", // In English: "Enter Full Screen"
+    "toolbar.github": "گیت‌هاب", // In English: "GitHub"
+    "toolbar.refer": "بانگکردن", // In English: "Refer"
+    "toolbar.save_account": "پاشەکەوتی هەژمار", // In English: "Save Account"
+    "toolbar.search": "گەڕان", // In English: "Search"
+    "toolbar.qrcode": "کۆدی QR", // In English: "QR Code"
+    used_of: "{{used}} بەکارکرا لە {{available}}", // In English: "{{used}} used of {{available}}"
+    worker: "کارکەر", // In English: "Worker"
+    "billing.offering.basic": "بنەڕەتی", // In English: "Basic"
+    too_many_attempts: "هەوڵی زۆر درا. تکایە دواتر هەوڵبدەوە.", // In English: "Too many attempts. Please try again later."
+    server_timeout:
+      "ڕاژەکار زۆر درەنگ بوو لە وەڵامدانەوە. تکایە دواتر هەوڵبدەوە.", // In English: "The server took too long to respond. Please try again."
+    signup_error: "هەڵەیەک ڕوویدا لە کاتی خۆتۆمارکردن. تکایە دواتر هەوڵبدەوە.", // In English: "An error occurred during signup. Please try again."
+    welcome_title: "بەخێربێیت بۆ کۆمپیوتەری ئینتەرنێتی کەسیی خۆت", // In English: "Welcome to your Personal Internet Computer"
+    welcome_description:
+      "پەڕگە پاشەکەوت بکە، یاری بکە، ئەپە باشتەر بدۆزەوە، و زیاتر! هەموو لە یەک شوێن، لە هەر شوێن و هەر کاتێکدا دەسترسە.", // In English: "Store files, play games, find awesome apps, and much more! All in one place, accessible from anywhere at any time."
+    welcome_get_started: "دەست پێ بکە", // In English: "Get Started"
+    welcome_terms: "مەرجەکان", // In English: "Terms"
+    welcome_privacy: "تایبەتمەندی", // In English: "Privacy"
+    welcome_developers: "پەرەپێدەران", // In English: "Developers"
+    welcome_open_source: "کۆدی کراوە", // In English: "Open Source"
+    welcome_instant_login_title: "چوونەژوورەوەی خێرا!", // In English: "Instant Login!"
+    alert_error_title: "هەڵە!", // In English: "Error!"
+    alert_warning_title: "ئاگاداری!", // In English: "Warning!"
+    alert_info_title: "زانیاری", // In English: "Info"
+    alert_success_title: "سەرکەوتووانە!", // In English: "Success!"
+    alert_confirm_title: "دڵنیایت؟", // In English: "Are you sure?"
+    alert_yes: "بەڵێ", // In English: "Yes"
+    alert_no: "نەخێر", // In English: "No"
+    alert_retry: "دووبارە هەوڵبدەوە", // In English: "Retry"
+    alert_cancel: "ڕەتکردنەوە", // In English: "Cancel"
+    signup_confirm_password: "پشتڕاستکردنی وشەی تێپەڕ", // In English: "Confirm Password"
+    login_email_username_required: "ئیمەیل یان ناوی بەکارهێنەر پێویستە", // In English: "Email or username is required"
+    login_password_required: "وشەی تێپەڕ پێویستە", // In English: "Password is required"
+    window_title_open: "کردنەوە", // In English: "Open"
+    window_title_change_password: "گۆڕینی وشەی تێپەڕ", // In English: "Change Password"
+    window_title_select_font: "دیاریکردنی فۆنت…", // In English: "Select font…"
+    window_title_session_list: "لیستی دانیشتن!", // In English: "Session List!"
+    window_title_set_new_password: "دانانی وشەی تێپەڕی نوێ", // In English: "Set New Password"
+    window_title_instant_login: "چوونەژوورەوەی خێرا!", // In English: "Instant Login!"
+    window_title_publish_website: "بڵاوکردنەوەی وێبسایت", // In English: "Publish Website"
+    window_title_publish_worker: "بڵاوکردنەوەی کارکەر", // In English: "Publish Worker"
+    window_title_authenticating: "سەلماندنەوە...", // In English: "Authenticating..."
+    window_title_refer_friend: "هاوڕێک بانگبکە!", // In English: "Refer a friend!"
+    desktop_show_desktop: "پیشاندانی سەروروومیزی", // In English: "Show Desktop"
+    desktop_show_open_windows: "پیشاندانی پەنجەرەکراوەکان", // In English: "Show Open Windows"
+    desktop_exit_full_screen: "دەرچوون لە تەواوی شاشە", // In English: "Exit Full Screen"
+    desktop_enter_full_screen: "چوونە تەواوی شاشە", // In English: "Enter Full Screen"
+    desktop_position: "شوێن", // In English: "Position"
+    desktop_position_left: "چەپ", // In English: "Left"
+    desktop_position_bottom: "خوار", // In English: "Bottom"
+    desktop_position_right: "ڕاست", // In English: "Right"
+    item_shared_with_you: "بەکارهێنەرێک ئەم بابەتەی بە تۆ هاوبەشی کردووە.", // In English: "A user has shared this item with you."
+    item_shared_by_you:
+      "ئەم بابەتەت هاوبەشی کردووە لەگەڵ کەمەیەک بەکارهێنەری تر.", // In English: "You have shared this item with at least one other user."
+    item_shortcut: "شارتی", // In English: "Shortcut"
+    item_associated_websites: "وێبسایت پەیوەندیدار", // In English: "Associated website"
+    item_associated_websites_plural: "وێبسایتە پەیوەندیدارەکان", // In English: "Associated websites"
+    no_suitable_apps_found: "هیچ ئەپێکی گونجاو نەدۆزرایەوە", // In English: "No suitable apps found"
+    window_click_to_go_back: "کرتە بکە بۆ گەڕانەوە.", // In English: "Click to go back."
+    window_click_to_go_forward: "کرتە بکە بۆ چوونە پێشەوە.", // In English: "Click to go forward."
+    window_click_to_go_up: "کرتە بکە بۆ چوونە یەک ڕێکەوت بەرزتر.", // In English: "Click to go one directory up."
+    window_title_public: "گشتی", // In English: "Public"
+    window_title_videos: "ڤیدیۆکان", // In English: "Videos"
+    window_title_pictures: "وێنەکان", // In English: "Pictures"
+    window_title_puter: "پوتەر", // In English: "Puter"
+    window_folder_empty: "ئەم فۆڵدەرە بەتاڵە", // In English: "This folder is empty"
+    manage_your_subdomains: "ژێردۆمەینەکانت بەڕێوەبەرە", // In English: "Manage Your Subdomains"
+    open_containing_folder: "کردنەوەی فۆڵدەری ناوخۆ", // In English: "Open Containing Folder"
   },
 };
 
