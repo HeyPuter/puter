@@ -147,7 +147,7 @@ class PermissionService extends BaseService {
     async canManagePermission(actor, permission) {
         const svc_trace = this.services.get('traceService');
         return await svc_trace.spanify('permission:check', async () => {
-            const managePermission = PermissionUtil.join(MANAGE_PERM_PREFIX, permission);
+            const managePermission = PermissionUtil.join(MANAGE_PERM_PREFIX, ...PermissionUtil.split(permission));
             const reading = await this.scan(actor, managePermission);
             const options = PermissionUtil.reading_to_options(reading);
             return options.length > 0;
