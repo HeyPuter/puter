@@ -20,8 +20,16 @@ const { DB_READ } = require("../../services/database/consts");
 const { NodePathSelector, NodeUIDSelector, NodeInternalIDSelector, NodeChildSelector, RootNodeSelector } = require("../../filesystem/node/selectors");
 const BaseService = require("../../services/BaseService");
 
+/**
+ * Service for fetching filesystem entries from the database using various selector types.
+ * Handles different methods of locating files and directories in the filesystem.
+ */
 module.exports = class DatabaseFSEntryFetcher extends BaseService {
     static CONCERN = 'filesystem';
+    
+    /**
+     * Initializes the default properties that will be selected from the database.
+     */
     _construct () {
         this.defaultProperties = [
             'id',
@@ -53,10 +61,19 @@ module.exports = class DatabaseFSEntryFetcher extends BaseService {
         ]
     }
 
+    /**
+     * Initializes the database connection for filesystem operations.
+     */
     _init () {
         this.db = this.services.get('database').get(DB_READ, 'filesystem');
     }
 
+    /**
+     * Finds a filesystem entry using the provided selector.
+     * @param {Object} selector - The selector object specifying how to find the entry
+     * @param {Object} fetch_entry_options - Options for fetching the entry
+     * @returns {Promise<Object|null>} The filesystem entry or null if not found
+     */
     async find (selector, fetch_entry_options) {
         if ( selector instanceof RootNodeSelector ) {
             return selector.entry;
@@ -98,6 +115,12 @@ module.exports = class DatabaseFSEntryFetcher extends BaseService {
         }
     }
 
+    /**
+     * Finds a filesystem entry by its UUID.
+     * @param {string} uuid - The UUID of the entry to find
+     * @param {Object} fetch_entry_options - Options including thumbnail flag
+     * @returns {Promise<Object|undefined>} The filesystem entry or undefined if not found
+     */
     async findByUID(uuid, fetch_entry_options = {}) {
         const { thumbnail } = fetch_entry_options;
 
@@ -112,6 +135,12 @@ module.exports = class DatabaseFSEntryFetcher extends BaseService {
         return fsentry[0];
     }
 
+    /**
+     * Finds a filesystem entry by its internal database ID.
+     * @param {number} id - The internal ID of the entry to find
+     * @param {Object} fetch_entry_options - Options including thumbnail flag
+     * @returns {Promise<Object|undefined>} The filesystem entry or undefined if not found
+     */
     async findByID(id, fetch_entry_options = {}) {
         const { thumbnail } = fetch_entry_options;
 
@@ -126,6 +155,12 @@ module.exports = class DatabaseFSEntryFetcher extends BaseService {
         return fsentry[0];
     }
 
+    /**
+     * Finds a filesystem entry by its full path.
+     * @param {string} path - The full path of the entry to find
+     * @param {Object} fetch_entry_options - Options including thumbnail flag and tracer
+     * @returns {Promise<Object|false>} The filesystem entry or false if not found
+     */
     async findByPath(path, fetch_entry_options = {}) {
         const { thumbnail } = fetch_entry_options;
 
@@ -199,6 +234,11 @@ module.exports = class DatabaseFSEntryFetcher extends BaseService {
         return result[0];
     }
 
+    /**
+     * Finds the ID of a child entry with the given name in the root directory.
+     * @param {string} name - The name of the child entry to find
+     * @returns {Promise<number|undefined>} The ID of the child entry or undefined if not found
+     */
     async findNameInRoot (name) {
         let child_id = await this.db.read(
             "SELECT `id` FROM `fsentries` WHERE `parent_uid` IS NULL AND name = ? LIMIT 1",
@@ -207,6 +247,12 @@ module.exports = class DatabaseFSEntryFetcher extends BaseService {
         return child_id[0]?.id;
     }
 
+    /**
+     * Finds the ID of a child entry with the given name under a specific parent.
+     * @param {string} parent_uid - The UUID of the parent directory
+     * @param {string} name - The name of the child entry to find
+     * @returns {Promise<number|undefined>} The ID of the child entry or undefined if not found
+     */
     async findNameInParent (parent_uid, name) {
         let child_id = await this.db.read(
             "SELECT `id` FROM `fsentries` WHERE `parent_uid` = ? AND name = ? LIMIT 1",
@@ -215,6 +261,12 @@ module.exports = class DatabaseFSEntryFetcher extends BaseService {
         return child_id[0]?.id;
     }
 
+    /**
+     * Checks if an entry with the given name exists under a specific parent.
+     * @param {string} parent_uid - The UUID of the parent directory
+     * @param {string} name - The name to check for
+     * @returns {Promise<boolean>} True if the name exists under the parent, false otherwise
+     */
     async nameExistsUnderParent (parent_uid, name) {
         let check_dupe = await this.db.read(
             "SELECT `id` FROM `fsentries` WHERE `parent_uid` = ? AND name = ? LIMIT 1",
@@ -223,6 +275,12 @@ module.exports = class DatabaseFSEntryFetcher extends BaseService {
         return !! check_dupe[0];
     }
 
+    /**
+     * Checks if an entry with the given name exists under a parent specified by ID.
+     * @param {number} parent_id - The internal ID of the parent directory
+     * @param {string} name - The name to check for
+     * @returns {Promise<boolean>} True if the name exists under the parent, false otherwise
+     */
     async nameExistsUnderParentID (parent_id, name) {
         const parent = await this.findByID(parent_id);
         if ( ! parent ) {
