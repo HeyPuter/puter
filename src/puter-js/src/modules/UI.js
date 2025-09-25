@@ -395,6 +395,12 @@ class UI extends EventListener {
                     this.#callbackFunctions[e.data.original_msg_id](appDataItem);
                 }
             }
+            // instancesOpenSucceeded
+            else if(e.data.msg === 'instancesOpenSucceeded'){
+                if(e.data.original_msg_id && this.#callbackFunctions[e.data.original_msg_id]){
+                    this.#callbackFunctions[e.data.original_msg_id](e.data.instancesOpen);
+                }
+            }
             // readAppDataFileSucceeded
             else if(e.data.msg === 'readAppDataFileSucceeded'){
                 let appDataItem = new FSItem(e.data.item);
@@ -654,6 +660,12 @@ class UI extends EventListener {
     alert = function(message, buttons, options, callback) {
         return new Promise((resolve) => {
             this.#postMessageWithCallback('ALERT', resolve, { message, buttons, options });
+        })
+    }
+
+    instancesOpen = function(callback) {
+        return new Promise((resolve) => {
+            this.#postMessageWithCallback('getInstancesOpen', resolve, {  });
         })
     }
 

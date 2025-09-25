@@ -257,6 +257,20 @@ const ipc_listener = async (event, handled) => {
         }, '*');
     }
     //--------------------------------------------------------
+    // getInstancesOpen
+    //--------------------------------------------------------
+    else if(event.data.msg === 'getInstancesOpen'){
+        // count open windows of this app
+        let instances_open = $('.window-app[data-app_uuid="'+app_uuid+'"]').length;
+
+        // send number of open instances of this app
+        target_iframe.contentWindow.postMessage({
+            original_msg_id: msg_id,
+            msg: 'instancesOpenSucceeded',
+            instancesOpen: instances_open,
+        }, '*');
+    }
+    //--------------------------------------------------------
     // socialShare
     //--------------------------------------------------------
     else if(event.data.msg === 'socialShare' && event.data.url !== undefined){
