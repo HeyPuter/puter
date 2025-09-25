@@ -1,5 +1,8 @@
 {
     "name": "@heyputer/extension-permissions",
     "main": "main.js",
-    "type": "module"
+    "type": "module",
+    "dependencies": {
+        "javascript-time-ago": "^2.5.12"
+    }
 }
