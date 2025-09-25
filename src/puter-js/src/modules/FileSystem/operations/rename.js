@@ -52,6 +52,9 @@ const rename = function (...args) {
         xhr.send(JSON.stringify(dataToSend));
 
         this.updateCacheTimestamp();
+
+        // TOOD (xiaochen): puter desktop will have stale cache without this, find out why
+        puter._cache.flushall();
     })
 }
 
