@@ -17,6 +17,7 @@
  * You should have received a copy of the GNU Affero General Public License
  * along with this program.  If not, see <https://www.gnu.org/licenses/>.
  */
+const { Context } = require("../util/context");
 const BaseService = require("./BaseService");
 
 
@@ -99,6 +100,30 @@ class CommandService extends BaseService {
                 }
             }
         }));
+    }
+    
+    async ['__on_boot.consolidation'] () {
+        const svc_event = this.services.get('event');
+        const svc_command = this;
+        const event = {
+            createCommand (name, command) {
+                const serviceName = Context.get('extension_name') ?? '%missing%';
+                const commandSpec = typeof command === 'function'
+                    ? { handler: command }
+                    : command;
+                if ( typeof commandSpec !== 'object' ) {
+                    throw new Error('command must be either a function or an object');
+                }
+                if ( ! (typeof command.handler === 'function') ) {
+                    throw new Error('command should have a handler function');
+                }
+                svc_command.registerCommands(serviceName, [{
+                    id: name,
+                    ...commandSpec,
+                }]);
+            },
+        };
+        svc_event.emit('create.commands', event);
     }
 
     registerCommands(serviceName, commands) {

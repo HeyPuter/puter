@@ -95,19 +95,19 @@ class ExtensionService extends BaseService {
         svc_event.on_all(async (key, data, meta = {}) => {
             meta.from_outside_of_extension = true;
 
-            const promises = [];
-            
-            // push event to the extension's event bus
-            promises.push(
-                this.state.extension.emit(key, data, meta));
-
-            // legacy: older extensions prefix "core." to events from Puter
-            promises.push(
-                this.state.extension.emit(`core.${key}`, data, meta));
-                
-            // future: going to remove 'boot.' prefix from lifecycle events
-
-            await Promise.all(promises);
+            await Context.sub({
+                extension_name: this.state.extension.name,
+            }).arun(async () => {
+                const promises = [
+                    // push event to the extension's event bus
+                    this.state.extension.emit(key, data, meta),
+                    // legacy: older extensions prefix "core." to events from Puter
+                    this.state.extension.emit(`core.${key}`, data, meta),
+                ];
+                // await this.state.extension.emit(key, data, meta);
+                await Promise.all(promises);
+            });
+            // await Promise.all(promises);
         });
 
         // Propagate all events from extension to Puter's event bus

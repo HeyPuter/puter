@@ -51,6 +51,7 @@ class Kernel extends AdvancedBase {
 
         this.entry_path = entry_path;
         this.extensionExports = {};
+        this.extensionInfo = {};
         this.registry = {};
         
         this.runtimeModuleRegistry = new RuntimeModuleRegistry();
@@ -126,6 +127,7 @@ class Kernel extends AdvancedBase {
             config,
             logger: this.bootLogger,
             extensionExports: this.extensionExports,
+            extensionInfo: this.extensionInfo,
             registry: this.registry,
             args,
             ['runtime-modules']: this.runtimeModuleRegistry,
@@ -447,6 +449,11 @@ class Kernel extends AdvancedBase {
         
         const extension_name = exportObject?.name ?? packageJSON.name;
         this.extensionExports[extension_name] = exportObject;
+        this.extensionInfo[extension_name] = {
+            name: extension_name,
+            priority: mod_entry.priority,
+            type: packageJSON?.type ?? 'commonjs',
+        };
         mod.extension.registry = this.registry;
         mod.extension.name = extension_name;
         
