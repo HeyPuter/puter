@@ -25,8 +25,8 @@ class ExtensionModule extends AdvancedBase {
     async install (context) {
         const services = context.get('services');
         
-        this.extension.name = context.name;
-        this.extension.emit('install', { context, services })
+        this.extension.name = this.extension.name ?? context.name;
+        this.extension.emit('install', { context, services });
 
         if ( this.extension.service ) {
             services.registerService(uuid.v4(), ExtensionService, {

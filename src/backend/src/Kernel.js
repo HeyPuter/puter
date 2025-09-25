@@ -314,7 +314,7 @@ class Kernel extends AdvancedBase {
             return;
         }
         
-        const mod_name = path_.parse(mod_path).name;
+        let mod_name = path_.parse(mod_path).name;
         const mod_package_dir = `mod_packages/${mod_name}`;
         fs.mkdirSync(mod_package_dir);
         
@@ -324,26 +324,25 @@ class Kernel extends AdvancedBase {
         };
         
         if ( ! stat.isDirectory() ) {
+            const rl = readline.createInterface({
+                input: fs.createReadStream(mod_path),
+            });
+            for await ( const line of rl ) {
+                if ( line.trim() === '' ) continue;
+                if ( ! line.startsWith('//@extension') ) break;
+                const tokens = line.split(' ');
+                if ( tokens[1] === 'priority' ) {
+                    mod_entry.priority = Number(tokens[2]);
+                }
+                if ( tokens[1] === 'name' ) {
+                    mod_name = '' + tokens[2];
+                }
+            }
             mod_entry.jsons.package = await this.create_mod_package_json(mod_package_dir, {
                 name: mod_name,
-                entry: 'main.js'
+                entry: 'main.js',
             });
-            await Promise.all([
-                fs.promises.copyFile(mod_path, path_.join(mod_package_dir, 'main.js')),
-                (async () => {
-                    const rl = readline.createInterface({
-                        input: fs.createReadStream(mod_path),
-                    });
-                    for await ( const line of rl ) {
-                        if ( line.trim() === '' ) continue;
-                        if ( ! line.startsWith('//@puter') ) break;
-                        const tokens = line.split(' ');
-                        if ( tokens[1] === 'priority' ) {
-                            mod_entry.priority = Number(tokens[2]);
-                        }
-                    }
-                })(),
-            ]);
+            await fs.promises.copyFile(mod_path, path_.join(mod_package_dir, 'main.js'));
         } else {
             // If directory is empty, we'll just skip it
             if ( fs.readdirSync(mod_path).length === 0 ) {
@@ -372,6 +371,7 @@ class Kernel extends AdvancedBase {
                     const buffer = await fs.promises.readFile(puter_json_path);
                     const json = buffer.toString();
                     const obj = JSON.parse(json);
+                    mod_entry.priority = obj.priority ?? mod_entry.priority;
                     mod_entry.jsons.puter = obj;
                 })());
             }
@@ -417,7 +417,7 @@ class Kernel extends AdvancedBase {
             = mod.extension;
 
         const mod_context = this._create_mod_context(mod_install_root_context, {
-            name: mod_dirname,
+            name: mod_name,
             ['module']: mod,
             external: true,
             mod_path,
