@@ -18,7 +18,8 @@
  */
 const APIError = require("../../api/APIError");
 const eggspress = require("../../api/eggspress");
-const { UserActorType } = require("../../services/auth/Actor");
+const { UserActorType, AppUnderUserActorType } = require("../../services/auth/Actor");
+const { PermissionUtil } = require("../../services/auth/PermissionService");
 const { Context } = require("../../util/context");
 
 module.exports = eggspress('/auth/revoke-user-user', {
@@ -29,10 +30,22 @@ module.exports = eggspress('/auth/revoke-user-user', {
     const x = Context.get();
     const svc_permission = x.get('services').get('permission');
 
-    // Only users can grant user-user permissions
     const actor = Context.get('actor');
-    if ( ! (actor.type instanceof UserActorType) ) {
-        throw APIError.create('forbidden');
+
+    // Check for permission to configure permissions
+    {
+        if ( ! (
+            actor.type instanceof UserActorType ||
+            actor.type instanceof AppUnderUserActorType
+        ) ) throw APIError.create('forbidden');
+
+        const perm = PermissionUtil.join(
+            'permission', 'config', actor.type.user.uuid,
+            ...PermissionUtil.split(req.body.permission),
+        );
+        if ( ! await svc_permission.check(actor, perm) ) {
+            throw APIError.create('forbidden');
+        }
     }
 
     if ( ! req.body.target_username ) {
