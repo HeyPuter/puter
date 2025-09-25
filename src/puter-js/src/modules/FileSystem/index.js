@@ -107,9 +107,6 @@ export class PuterJSFileSystemModule extends AdvancedBase {
         });
 
         this.bindSocketEvents();
-
-        // Start cache monitoring
-        this.startCacheMonitoring();
     }
 
     bindSocketEvents() {
@@ -236,31 +233,5 @@ export class PuterJSFileSystemModule extends AdvancedBase {
 
             xhr.send();
         });
-    }
-
-    /**
-     * Starts the cache monitoring service that calls the cache API every 5 seconds.
-     *
-     * @memberof PuterJSFileSystemModule
-     * @returns {void}
-     */
-    startCacheMonitoring() {
-        if (this.cacheMonitoringInterval) {
-            clearInterval(this.cacheMonitoringInterval);
-        }
-
-        this.cacheMonitoringInterval = setInterval(async () => {
-            try {
-                const remoteTimestamp = await this.getCacheTimestamp();
-                const localTimestamp = puter._cache.get(LAST_UPDATED_TS);
-                
-                if (remoteTimestamp > localTimestamp || localTimestamp === undefined) {
-                    console.log(`remote timestamp (${remoteTimestamp}) is newer than local timestamp (${localTimestamp}), flushing cache`);
-                    puter._cache.flushall();
-                }
-            } catch (error) {
-                console.error('Failed to get cache timestamp:', error);
-            }
-        }, 5000);
     }
 }
