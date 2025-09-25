@@ -37,3 +37,13 @@ Separating RuntimeModule allows core code that has not yet been migrated
 to extensions to export values as if they came from extensions.
 Since core modules are loaded before extensions, this allows any legacy
 `useapi` definitions be be exported where modules are installed.
+
+For example, in [CoreModule.js](../../../src/CoreModule.js) this snippet
+of code is used to add a runtime module called `core`:
+
+```javascript
+// Extension compatibility
+const runtimeModule = new RuntimeModule({ name: 'core' });
+context.get('runtime-modules').register(runtimeModule);
+runtimeModule.exports = useapi.use('core');
+```
