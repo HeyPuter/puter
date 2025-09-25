@@ -407,10 +407,6 @@ const pt = {
         "billing.expanded": "Expandido", // In English: "Expanded"
         "billing.accelerated": "Acelerado", // In English: "Accelerated"
         "billing.enjoy_msg": "Desfrute de %% de Armazenamento na Nuvem e outros benefícios.", // In English: "Enjoy %% of Cloud Storage plus other benefits."
-
-        // =============================================================
-        // Missing translations
-        // =============================================================
         "choose_publishing_option": "Escolha como deseja publicar seu site:", // In English: "Choose how you want to publish your website:"
         "create_desktop_shortcut": "Criar Atalho (Área de Trabalho)", // In English: "Create Shortcut (Desktop)"
         "create_desktop_shortcut_s": "Criar Atalhos (Área de Trabalho)", // In English: "Create Shortcuts (Desktop)"

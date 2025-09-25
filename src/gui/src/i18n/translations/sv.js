@@ -408,10 +408,6 @@ const sv = {
         "billing.expanded": "Utökad", // In English: "Expanded"
         "billing.accelerated": "Accelererad", // In English: "Accelerated"
         "billing.enjoy_msg": "Njut av %% av Cloud Storage plus andra förmåner.", // In English: "Enjoy %% of Cloud Storage plus other benefits."
-
-        // =============================================================
-        // Missing translations
-        // =============================================================
         "choose_publishing_option": "Välj hur du vill publicera din webbplats:", // In English: "Choose how you want to publish your website:"
         "create_desktop_shortcut": "Skapa genväg (skrivbord)", // In English: "Create Shortcut (Desktop)"
         "create_desktop_shortcut_s": "Skapa genvägar (skrivbord)", // In English: "Create Shortcuts (Desktop)" 
