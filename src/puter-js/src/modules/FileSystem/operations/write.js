@@ -57,6 +57,9 @@ const write = async function (targetPath, data, options = {}) {
 
     this.updateCacheTimestamp();
 
+    // TOOD (xiaochen): puter desktop will have stale cache without this, find out why
+    puter._cache.flushall();
+
     // perform upload
     return this.upload(data, parent, options);
 }
