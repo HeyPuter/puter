@@ -91,14 +91,16 @@ class FilesystemService extends BaseService {
             shortcut: true,
             matcher: permission => {
                 // TODO DS: for now users will only have manage access on files, that might change, and then this has to change too
-                return permission.startsWith('fs:') || permission.startsWith(`${MANAGE_PERM_PREFIX}:fs:`);
+                return permission.startsWith('fs:')
+                    || permission.startsWith(`${MANAGE_PERM_PREFIX}:fs:`)
+                    ||  permission.startsWith(`${MANAGE_PERM_PREFIX}:${MANAGE_PERM_PREFIX}:fs`); // owner has implicit rule to give others manage access;
             },
             checker: async ({ actor, permission }) => {
                 if ( !(actor.type instanceof UserActorType) ) {
                     return undefined;
                 }
 
-                const [_, uid] = PermissionUtil.split(permission.replace(`${MANAGE_PERM_PREFIX}:`, ''));
+                const [_, uid] = PermissionUtil.split(permission.replaceAll(`${MANAGE_PERM_PREFIX}:`, ''));
                 const node = await this.node(new NodeUIDSelector(uid));
 
                 if ( ! await node.exists() ) {
@@ -127,9 +129,7 @@ class FilesystemService extends BaseService {
             },
             exploder: async ({ permission }) => {
                 const permissions = [permission];
-                const parts = PermissionUtil.split(permission);
-
-                const specified_mode = parts[2];
+                const [fsPrefix, fileId, specifiedMode, ...rest] = PermissionUtil.split(permission);
 
                 const rules = {
                     see: ['list', 'read', 'write'],
@@ -137,8 +137,10 @@ class FilesystemService extends BaseService {
                     read: ['write'],
                 };
 
-                if ( Object.prototype.hasOwnProperty.call(rules, specified_mode) ) {
-                    permissions.push(...rules[specified_mode].map(mode => PermissionUtil.join(parts[0], parts[1], mode, ...parts.slice(3))));
+                if ( rules[specifiedMode] ) {
+                    permissions.push(...rules[specifiedMode].map(mode => PermissionUtil.join(fsPrefix, fileId, mode, ...rest.slice(1))));
+                    // push manage permission as well
+                    permissions.push(PermissionUtil.join(MANAGE_PERM_PREFIX, fsPrefix, fileId, specifiedMode, ...rest));
                 }
 
                 return permissions;
