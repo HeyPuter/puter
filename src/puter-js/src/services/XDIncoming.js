@@ -20,7 +20,7 @@ export class XDIncomingService extends putility.concepts.Service {
             }
 
             const data = event.data;
-
+            if ( ! data ) return;
             const tag = data.$;
             if ( ! tag ) return;
             if ( ! this.tagged_listeners_[tag] ) return;

@@ -275,6 +275,7 @@ class UI extends EventListener {
         // Bind the message event listener to the window
         let lastDraggedOverElement = null;
         (globalThis.document) && window.addEventListener('message', async (e) => {
+            if (!e.data) return;
             // `error`
             if(e.data.error){
                 throw e.data.error;
