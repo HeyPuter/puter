@@ -47,7 +47,7 @@ const whoami_common = ({ is_user, user }) => {
             epoch = new Date(user.last_activity_ts).getTime();
             // round to 1 decimal place
             epoch = Math.round(epoch / 1000);
-        } catch(e) {
+        } catch (e) {
             console.error('Error parsing last_activity_ts', e);
         }
 

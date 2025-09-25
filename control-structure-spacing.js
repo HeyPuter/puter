@@ -46,6 +46,16 @@ export default {
             const afterOpen = sourceCode.getTokenAfter(openParen);
             const beforeClose = sourceCode.getTokenBefore(closeParen);
 
+            {
+                const contentBetweenParens = sourceCode.getText().slice(openParen.range[1], closeParen.range[0]);
+                const isSingleCharVariable = /^\s*[a-zA-Z_$]\s*$/.test(contentBetweenParens);
+
+                // Skip spacing requirements for single character variables
+                if ( isSingleCharVariable ) {
+                    return;
+                }
+            }
+
             // Control structures should have spacing
             if ( afterOpen && openParen.range[1] === afterOpen.range[0] ) {
                 context.report({
