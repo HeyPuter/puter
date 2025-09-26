@@ -499,9 +499,6 @@ const fi = {
     "billing.accelerated": "Nopeutettu", // In English: "Accelerated"
     "billing.enjoy_msg": "Nauti %% pilvitallennustilasta ja muista eduista.", // In English: "Enjoy %% of Cloud Storage plus other benefits."
 
-    // =============================================================
-    // Missing translations
-    // =============================================================
     "choose_publishing_option": "Valitse, miten haluat julkaista verkkosivustosi:",
     "create_desktop_shortcut": "Luo pikakuvake (Työpöydälle)",
     "create_desktop_shortcut_s": "Luo pikakuvakkeita (Työpöydälle)",
