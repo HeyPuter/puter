@@ -36,7 +36,7 @@
         "webpack-cli": "^5.1.4"
     },
     "dependencies": {
-        "@heyputer/kv.js": "^0.1.92",
+        "@heyputer/kv.js": "^0.2.0",
         "@heyputer/putility": "^1.0.3"
     }
 }
