@@ -36,7 +36,7 @@ class ExtensionServiceState extends AdvancedBase {
 
         this.extension = a[0].extension;
 
-        this.endpoints_ = [];
+        this.expressThings_ = [];
         
         // Values shared between the `extension` global and its service
         this.values = new Context();
@@ -66,7 +66,7 @@ class ExtensionServiceState extends AdvancedBase {
             ...(options.subdomain ? { subdomain: options.subdomain } : {}),
         });
     
-        this.endpoints_.push(endpoint);
+        this.expressThings_.push({ type: 'endpoint', value: endpoint });
     }
 }
 
@@ -77,7 +77,7 @@ class ExtensionServiceState extends AdvancedBase {
  */
 class ExtensionService extends BaseService {
     _construct () {
-        this.endpoints_ = [];
+        this.expressThings_ = [];
     }
     async _init (args) {
         this.state = args.state;
@@ -170,8 +170,15 @@ class ExtensionService extends BaseService {
 
     ['__on_install.routes'] (_, { app }) {
         if ( ! this.state ) debugger;
-        for ( const endpoint of this.state.endpoints_ ) {
-            endpoint.attach(app);
+        for ( const thing of this.state.expressThings_ ) {
+            if ( thing.type === 'endpoint' ) {
+                thing.value.attach(app);
+                continue;
+            }
+            if ( thing.type === 'router' ) {
+                app.use(...thing.value);
+                continue;
+            }
         }
     }
 

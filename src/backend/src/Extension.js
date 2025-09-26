@@ -218,6 +218,14 @@ class Extension extends AdvancedBase {
             methods: ['POST'],
         });
     }
+    
+    use (...args) {
+        this.ensure_service_();
+        this.service.expressThings_.push({
+            type: 'router',
+            value: args,
+        });
+    }
 
     get preinit() {
         return (function (callback) {
