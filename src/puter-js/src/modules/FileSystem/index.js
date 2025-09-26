@@ -73,6 +73,7 @@ export class PuterJSFileSystemModule extends AdvancedBase {
         this.APIOrigin = context.APIOrigin;
         this.appID = context.appID;
         this.context = context;
+        this.cacheUpdateTimer = null;
         // Connect socket.
         this.initializeSocket();
 
@@ -101,6 +102,9 @@ export class PuterJSFileSystemModule extends AdvancedBase {
             this.socket.disconnect();
         }
 
+        // Stop any existing cache update timer
+        this.stopCacheUpdateTimer();
+
         this.socket = io(this.APIOrigin, {
             auth: {
                 auth_token: this.authToken,
@@ -109,6 +113,13 @@ export class PuterJSFileSystemModule extends AdvancedBase {
         });
 
         this.bindSocketEvents();
+
+        // Check cache timestamp and purge if needed (only in GUI environment)
+        if (this.context.env === 'gui') {
+            this.checkCacheAndPurge();
+            // Start background task to update LAST_VALID_TS every 1 second
+            this.startCacheUpdateTimer();
+        }
     }
 
     bindSocketEvents() {
@@ -234,5 +245,63 @@ export class PuterJSFileSystemModule extends AdvancedBase {
 
             xhr.send();
         });
+    }
+
+    /**
+     * Checks cache timestamp and purges cache if needed.
+     * Only runs in GUI environment.
+     *
+     * @memberof PuterJSFileSystemModule
+     * @returns {void}
+     */
+    async checkCacheAndPurge() {
+        try {
+            const serverTimestamp = await this.getCacheTimestamp();
+            const localValidTs = puter._cache.get(LAST_VALID_TS) || 0;
+            
+            if (serverTimestamp > localValidTs) {
+                // Server has newer data, purge local cache
+                puter._cache.flushall();
+                puter._cache.set(LAST_VALID_TS, 0);
+            }
+        } catch (error) {
+            // If we can't get the server timestamp, silently fail
+            // This ensures the socket initialization doesn't break
+            console.error('Error checking cache timestamp:', error);
+        }
+    }
+
+    /**
+     * Starts the background task to update LAST_VALID_TS every 1 second.
+     * Only runs in GUI environment.
+     *
+     * @memberof PuterJSFileSystemModule
+     * @returns {void}
+     */
+    startCacheUpdateTimer() {
+        if (this.context.env !== 'gui') {
+            return;
+        }
+
+        // Clear any existing timer
+        this.stopCacheUpdateTimer();
+
+        // Start new timer
+        this.cacheUpdateTimer = setInterval(() => {
+            puter._cache.set(LAST_VALID_TS, Date.now());
+        }, 1000);
+    }
+
+    /**
+     * Stops the background cache update timer.
+     *
+     * @memberof PuterJSFileSystemModule
+     * @returns {void}
+     */
+    stopCacheUpdateTimer() {
+        if (this.cacheUpdateTimer) {
+            clearInterval(this.cacheUpdateTimer);
+            this.cacheUpdateTimer = null;
+        }
     }
 }
