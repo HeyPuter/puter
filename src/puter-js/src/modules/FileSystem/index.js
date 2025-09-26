@@ -113,13 +113,6 @@ export class PuterJSFileSystemModule extends AdvancedBase {
         });
 
         this.bindSocketEvents();
-
-        // Check cache timestamp and purge if needed (only in GUI environment)
-        if (this.context.env === 'gui') {
-            this.checkCacheAndPurge();
-            // Start background task to update LAST_VALID_TS every 1 second
-            this.startCacheUpdateTimer();
-        }
     }
 
     bindSocketEvents() {
@@ -186,6 +179,14 @@ export class PuterJSFileSystemModule extends AdvancedBase {
      */
     setAuthToken(authToken) {
         this.authToken = authToken;
+
+        // Check cache timestamp and purge if needed (only in GUI environment)
+        if (this.context.env === 'gui') {
+            this.checkCacheAndPurge();
+            // Start background task to update LAST_VALID_TS every 1 second
+            this.startCacheUpdateTimer();
+        }
+
         // reset socket
         this.initializeSocket();
     }
