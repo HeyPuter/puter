@@ -4,7 +4,7 @@ import * as utils from '../../lib/utils.js';
 // Constants
 // 
 // The last valid time of the local cache.
-const LAST_VALID_TS = 'last_updated_ts';
+const LAST_VALID_TS = 'last_valid_ts';
 
 // Operations
 import copy from './operations/copy.js';
