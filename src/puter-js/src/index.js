@@ -693,12 +693,8 @@ const puterInit = (function() {
          */
         purgeCache = function() {
             try {
-                if ( this._cache && typeof this._cache.flushall === 'function' ) {
-                    this._cache.flushall();
-                    console.log('Cache purged successfully');
-                } else {
-                    console.warn('Cache purge failed: cache instance not available');
-                }
+                this._cache.flushall();
+                console.log('Cache purged successfully');
             } catch( error ) {
                 console.error('Error purging cache:', error);
             }

@@ -102,9 +102,6 @@ export class PuterJSFileSystemModule extends AdvancedBase {
             this.socket.disconnect();
         }
 
-        // Stop any existing cache update timer
-        this.stopCacheUpdateTimer();
-
         this.socket = io(this.APIOrigin, {
             auth: {
                 auth_token: this.authToken,
@@ -213,13 +210,12 @@ export class PuterJSFileSystemModule extends AdvancedBase {
     postUpdate() {
         // Action: Flush local cache
         puter._cache.flushall();
+        console.log('postUpdate triggered, cache flushed');
 
         // Action: Update last valid time
         //
         // Set to 0, which means the cache is not up to date.
         localStorage.setItem(LAST_VALID_TS, '0');
-
-        console.log(`postUpdate triggered, LAST_VALID_TS: ${localStorage.getItem(LAST_VALID_TS)}`);
     }
 
     /**
@@ -258,9 +254,8 @@ export class PuterJSFileSystemModule extends AdvancedBase {
             const serverTimestamp = await this.getCacheTimestamp();
             const localValidTs = parseInt(localStorage.getItem(LAST_VALID_TS)) || 0;
             
-            console.log(`init comparison: serverTimestamp: ${serverTimestamp}, localValidTs: ${localValidTs}`);
-            if (serverTimestamp > localValidTs) {
-                console.log(`serverTimestamp > localValidTs, purging cache`);
+            if (serverTimestamp - localValidTs > 2000) {
+                console.log('PURGING CACHE');
                 // Server has newer data, purge local cache
                 puter._cache.flushall();
                 localStorage.setItem(LAST_VALID_TS, '0');
@@ -285,7 +280,7 @@ export class PuterJSFileSystemModule extends AdvancedBase {
         }
 
         // Clear any existing timer
-        this.stopCacheUpdateTimer();
+        // this.stopCacheUpdateTimer();
 
         // Start new timer
         this.cacheUpdateTimer = setInterval(() => {
