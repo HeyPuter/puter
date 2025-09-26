@@ -160,10 +160,11 @@ router.post('/save_account', auth, express.json(), async (req, res, next)=>{
 
             // Update root directory name
             await db.write(
-                `UPDATE fsentries SET name = ? WHERE user_id = ? and parent_uid IS NULL`,
+                `UPDATE fsentries SET name = ?, path = ? WHERE user_id = ? and parent_uid IS NULL`,
                 [
                     // name
                     req.body.username,
+                    '/' + req.body.username,
                     // id
                     req.user.id,
                 ]
