@@ -21,15 +21,15 @@ const BaseService = require('../../services/BaseService');
 
 /**
  * @typedef {Object} KVStoreInterface
- * @property {(opts: KVStoreGetParams) => Promise<Record<string, unknonw>>} get - Retrieve the value(s) for the given key(s).
- * @property {(opts: KVStoreSetParams) => Promise<void>} set - Set a value for a key, with optional expiration.
- * @property {(opts: KVStoreDelParams) => Promise<void>} del - Delete a value by key.
- * @property {(opts: KVStoreListParams) => Promise<string[]>} list - List all key-value pairs, optionally as a specific type.
- * @property {() => Promise<void>} flush - Delete all key-value pairs in the store.
- * @property {(opts: KVStoreIncrDecrParams) => Promise<number>} incr - Increment a numeric value by key.
- * @property {(opts: KVStoreIncrDecrParams) => Promise<number>} decr - Decrement a numeric value by key.
- * @property {(opts: KVStoreExpireAtParams) => Promise<number>} expireAt - Set a key to expire at a specific UNIX timestamp (seconds).
- * @property {(opts: KVStoreExpireParams) => Promise<number>} expire - Set a key to expire after a given TTL (seconds).
+ * @property {function(KVStoreGetParams): Promise<Record<string, unknonw>>} get - Retrieve the value(s) for the given key(s).
+ * @property {function(KVStoreSetParams): Promise<void>} set - Set a value for a key, with optional expiration.
+ * @property {function(KVStoreDelParams): Promise<void>} del - Delete a value by key.
+ * @property {function(KVStoreListParams): Promise<string[]>} list - List all key-value pairs, optionally as a specific type.
+ * @property {function(): Promise<void>} flush - Delete all key-value pairs in the store.
+ * @property {function(KVStoreIncrDecrParams): Promise<number>} incr - Increment a numeric value by key.
+ * @property {function(KVStoreIncrDecrParams): Promise<number>} decr - Decrement a numeric value by key.
+ * @property {function(KVStoreExpireAtParams): Promise<number>} expireAt - Set a key to expire at a specific UNIX timestamp (seconds).
+ * @property {function(KVStoreExpireParams): Promise<number>} expire - Set a key to expire after a given TTL (seconds).
  *
  * @typedef {Object} KVStoreGetParams
  * @property {string|string[]} key - The key or array of keys to retrieve.
@@ -61,8 +61,8 @@ const BaseService = require('../../services/BaseService');
 /**
  * Service for registering the puter-kvstore interface, exposing a simple key-value store API
  * with support for get, set, delete, list, flush, increment, decrement, and key expiration.
-* @extends BaseService
-*/
+ * @extends BaseService
+ */
 class KVStoreInterfaceService extends BaseService {
     /**
     * Service class for managing KVStore interface registrations.

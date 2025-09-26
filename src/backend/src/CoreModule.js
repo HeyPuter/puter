@@ -390,7 +390,7 @@ const install = async ({ services, app, useapi, modapi }) => {
     services.registerService('wisp', WispService);
     // const { AWSSecretsPopulator } = require('./services/AWSSecretsPopulator.js');
     // services.registerService('awsthing', AWSSecretsPopulator);
-    const { WebDavFS } = require('./services/WebDavFS');
+    const { WebDavFS } = require('./services/WebDAV/WebDAVService.js');
     services.registerService('dav', WebDavFS);
 
     const { RequestMeasureService } = require('./services/RequestMeasureService');

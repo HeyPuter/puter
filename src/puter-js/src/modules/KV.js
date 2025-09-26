@@ -19,7 +19,7 @@ const gui_cache_keys = [
 ];
 class KV{
     MAX_KEY_SIZE = 1024;
-    MAX_VALUE_SIZE = 400 * 1024;
+    MAX_VALUE_SIZE = 399 * 1024;
 
     /**
      * Creates a new instance with the given authentication token, API origin, and app ID,
@@ -50,7 +50,7 @@ class KV{
                     args: {
                         key: gui_cache_keys,
                     },
-                    auth_token: this.authToken
+                    auth_token: this.authToken,
                 }),
             });
             const arr_values = await resp.json();
@@ -95,14 +95,25 @@ class KV{
     }
 
     /**
-     * Resolves to 'true' on success, or rejects with an error on failure
-     *
-     * `key` cannot be undefined or null.
-     * `key` size cannot be larger than 1mb.
-     * `value` size cannot be larger than 10mb.
-     * `expireAt` is a timestamp in sec since epoch. If provided, the key will expire at the given time.
+     * @typedef {function(key: string, value: any, expireAt?: number): Promise<boolean>} SetFunction
+     * Resolves to 'true' on success, or rejects with an error on failure.
+     * @param {string} key - Cannot be undefined or null. Cannot be larger than 1KB.
+     * @param {any} value - Cannot be larger than 399KB.
+     * @param {number} [expireAt] - Optional expiration time for the key. Note that clients with a clock that is not in sync with the server may experience issues with this method.
+     * @memberof KV
      */
+
+    /** @type {SetFunction} */
     set = utils.make_driver_method(['key', 'value', 'expireAt'], 'puter-kvstore', undefined, 'set', {
+        /**
+         *
+         * @param {object} args
+         * @param {string} args.key
+         * @param {any} args.value
+         * @param {number} [args.expireAt]
+         * @memberof [KV]
+         * @returns
+         */
         preprocess: (args) => {
             // key cannot be undefined or null
             if ( args.key === undefined || args.key === null ){
@@ -110,11 +121,11 @@ class KV{
             }
             // key size cannot be larger than MAX_KEY_SIZE
             if ( args.key.length > this.MAX_KEY_SIZE ){
-                throw { message: 'Key size cannot be larger than ' + this.MAX_KEY_SIZE, code: 'key_too_large' };
+                throw { message: `Key size cannot be larger than ${this.MAX_KEY_SIZE}`, code: 'key_too_large' };
             }
             // value size cannot be larger than MAX_VALUE_SIZE
             if ( args.value && args.value.length > this.MAX_VALUE_SIZE ){
-                throw { message: 'Value size cannot be larger than ' + this.MAX_VALUE_SIZE, code: 'value_too_large' };
+                throw { message: `Value size cannot be larger than ${this.MAX_VALUE_SIZE}`, code: 'value_too_large' };
             }
             return args;
         },
@@ -143,7 +154,7 @@ class KV{
         preprocess: (args) => {
             // key size cannot be larger than MAX_KEY_SIZE
             if ( args.key.length > this.MAX_KEY_SIZE ){
-                throw ({ message: 'Key size cannot be larger than ' + this.MAX_KEY_SIZE, code: 'key_too_large' });
+                throw ({ message: `Key size cannot be larger than ${this.MAX_KEY_SIZE}`, code: 'key_too_large' });
             }
 
             return args;
@@ -166,7 +177,7 @@ class KV{
 
         // key size cannot be larger than MAX_KEY_SIZE
         if ( options.key.length > this.MAX_KEY_SIZE ){
-            throw ({ message: 'Key size cannot be larger than ' + this.MAX_KEY_SIZE, code: 'key_too_large' });
+            throw ({ message: `Key size cannot be larger than ${this.MAX_KEY_SIZE}`, code: 'key_too_large' });
         }
 
         return utils.make_driver_method(['key'], 'puter-kvstore', undefined, 'incr').call(this, options);
@@ -185,33 +196,49 @@ class KV{
 
         // key size cannot be larger than MAX_KEY_SIZE
         if ( options.key.length > this.MAX_KEY_SIZE ){
-            throw ({ message: 'Key size cannot be larger than ' + this.MAX_KEY_SIZE, code: 'key_too_large' });
+            throw ({ message: `Key size cannot be larger than ${this.MAX_KEY_SIZE}`, code: 'key_too_large' });
         }
 
         return utils.make_driver_method(['key'], 'puter-kvstore', undefined, 'decr').call(this, options);
     };
 
-    expire = async (...args) => {
+    /**
+     * Set a time to live (in seconds) on a key. After the time to live has expired, the key will be deleted.
+     * Prefer this over expireAt if you want timestamp to be set by the server, to avoid issues with clock drift.
+     * @param  {string} key - The key to set the expiration on.
+     * @param  {number} ttl - The ttl
+     * @memberof [KV]
+     * @returns
+     */
+    expire = async (key, ttl) => {
         let options = {};
-        options.key = args[0];
-        options.ttl = args[1];
+        options.key = key;
+        options.ttl = ttl;
 
         // key size cannot be larger than MAX_KEY_SIZE
         if ( options.key.length > this.MAX_KEY_SIZE ){
-            throw ({ message: 'Key size cannot be larger than ' + this.MAX_KEY_SIZE, code: 'key_too_large' });
+            throw ({ message: `Key size cannot be larger than ${this.MAX_KEY_SIZE}`, code: 'key_too_large' });
         }
 
         return utils.make_driver_method(['key', 'ttl'], 'puter-kvstore', undefined, 'expire').call(this, options);
     };
 
-    expireAt = async (...args) => {
+    /**
+     *
+     * Set the expiration for a key as a UNIX timestamp (in seconds). After the time has passed, the key will be deleted.
+     * Note that clients with a clock that is not in sync with the server may experience issues with this method.
+     * @param  {string} key - The key to set the expiration on.
+     * @param  {number} timestamp - The timestamp (in seconds since epoch) when the key will expire.
+     * @memberof [KV]
+     * @returns
+     */
+    expireAt = async (key, timestamp) => {
         let options = {};
-        options.key = args[0];
-        options.timestamp = args[1];
-
+        options.key = key;
+        options.timestamp = timestamp;
         // key size cannot be larger than MAX_KEY_SIZE
         if ( options.key.length > this.MAX_KEY_SIZE ){
-            throw ({ message: 'Key size cannot be larger than ' + this.MAX_KEY_SIZE, code: 'key_too_large' });
+            throw ({ message: `Key size cannot be larger than ${this.MAX_KEY_SIZE}`, code: 'key_too_large' });
         }
 
         return utils.make_driver_method(['key', 'timestamp'], 'puter-kvstore', undefined, 'expireAt').call(this, options);
@@ -223,7 +250,7 @@ class KV{
         preprocess: (args) => {
             // key size cannot be larger than this.MAX_KEY_SIZE
             if ( args.key.length > this.MAX_KEY_SIZE ){
-                throw ({ message: 'Key size cannot be larger than ' + this.MAX_KEY_SIZE, code: 'key_too_large' });
+                throw ({ message: `Key size cannot be larger than ${this.MAX_KEY_SIZE}`, code: 'key_too_large' });
             }
 
             return args;
@@ -292,7 +319,7 @@ function globMatch(pattern, str) {
         .replace(/\\\]/g, ']') // Replace ] with ]
         .replace(/\\\^/g, '^'); // Replace ^ with ^
 
-    let re = new RegExp('^' + regexPattern + '$');
+    let re = new RegExp(`^${regexPattern}$`);
     return re.test(str);
 }
 
