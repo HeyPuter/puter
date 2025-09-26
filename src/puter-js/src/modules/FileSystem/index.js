@@ -113,11 +113,7 @@ export class PuterJSFileSystemModule extends AdvancedBase {
 
     bindSocketEvents() {
         this.socket.on('cache.updated', (item) => {
-            const local_ts = puter._cache.get(LAST_VALID_TS);
-            if (item.timestamp > local_ts || local_ts === undefined) {
-                console.log(`remote timestamp (${item.timestamp}) is newer than local timestamp (${local_ts}), flushing cache`);
-                puter._cache.flushall();
-            }
+            this.postUpdate();
         });
 
         this.socket.on('connect', () => {
