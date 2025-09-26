@@ -130,7 +130,7 @@ const puterInit = (function() {
         constructor() {
 
             // Initialize the cache using kv.js
-            this._cache = new kvjs();
+            this._cache = new kvjs({dbName: 'puter_cache'});
 
             // "modules" in puter.js are external interfaces for the developer
             this.modules_ = [];
