@@ -7,4 +7,5 @@ const svc_kvstore = extension.import('service:puter-kvstore');
 extension.exports = {
     db: svc_database.get(DB_WRITE, 'extensions'),
     kv: svc_kvstore.as('puter-kvstore'),
+    cache: kv,
 };
