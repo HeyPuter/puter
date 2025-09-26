@@ -105,6 +105,8 @@ const install = async ({ context, services, app, useapi, modapi }) => {
         def('web', require('./util/expressutil'));
         def('core.validation', require('@heyputer/backend-core-0').validation);
         
+        def('core.database', require('./services/database/consts.js'));
+        
         // Extension compatibility
         const runtimeModule = new RuntimeModule({ name: 'core' });
         context.get('runtime-modules').register(runtimeModule);
