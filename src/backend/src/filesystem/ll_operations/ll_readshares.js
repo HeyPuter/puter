@@ -79,6 +79,7 @@ class LLReadShares extends LLFilesystemOperation {
         }
 
         for ( const node of interm_results ) {
+            if ( ! await node.exists() ) continue;
             if ( ! await svc_acl.check(actor, node, 'see') ) continue;
             results.push(node);
         }
