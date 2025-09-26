@@ -1,0 +1,15 @@
+{
+  "name": "vibes",
+  "version": "1.0.0",
+  "main": "eslint-normalize.vibe.js",
+  "scripts": {
+    "test": "echo \"Error: no test specified\" && exit 1"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "AGPL-3.0-only",
+  "description": "",
+  "dependencies": {
+    "jscodeshift": "^17.3.0"
+  }
+}
