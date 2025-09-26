@@ -432,10 +432,7 @@ const upload = async function(items, dirPath, options = {}){
         // send request
         xhr.send(fd);
 
-        this.updateCacheTimestamp();
-
-        // TOOD (xiaochen): puter desktop will have stale cache without this, find out why
-        puter._cache.flushall();
+        this.postUpdate();
     })
 }
 

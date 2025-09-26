@@ -66,10 +66,7 @@ const move = function (...args) {
             original_client_socket_id: options.excludeSocketID,
         }));
 
-        this.updateCacheTimestamp();
-
-        // TOOD (xiaochen): puter desktop will have stale cache without this, find out why
-        puter._cache.flushall();
+        this.postUpdate();
     })
 }
 

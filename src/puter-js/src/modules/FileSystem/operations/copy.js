@@ -56,10 +56,7 @@ const copy = function (...args) {
             dedupe_name: (options.dedupe_name || options.dedupeName),
         }));
 
-        this.updateCacheTimestamp();
-
-        // TOOD (xiaochen): puter desktop will have stale cache without this, find out why
-        puter._cache.flushall();
+        this.postUpdate();
     })
 }
 

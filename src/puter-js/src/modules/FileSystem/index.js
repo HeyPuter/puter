@@ -2,7 +2,9 @@ import io from '../../lib/socket.io/socket.io.esm.min.js';
 import * as utils from '../../lib/utils.js';
 
 // Constants
-const LAST_UPDATED_TS = 'last_updated_ts';
+// 
+// The last valid time of the local cache.
+const LAST_VALID_TS = 'last_updated_ts';
 
 // Operations
 import copy from './operations/copy.js';
@@ -111,7 +113,7 @@ export class PuterJSFileSystemModule extends AdvancedBase {
 
     bindSocketEvents() {
         this.socket.on('cache.updated', (item) => {
-            const local_ts = puter._cache.get(LAST_UPDATED_TS);
+            const local_ts = puter._cache.get(LAST_VALID_TS);
             if (item.timestamp > local_ts || local_ts === undefined) {
                 console.log(`remote timestamp (${item.timestamp}) is newer than local timestamp (${local_ts}), flushing cache`);
                 puter._cache.flushall();
@@ -199,15 +201,19 @@ export class PuterJSFileSystemModule extends AdvancedBase {
     }
 
     /**
-     * Updates the last updated timestamp in the cache.
-     * This should be called whenever file system operations modify the filesystem.
+     * The cache-related actions after local and remote updates.
      *
      * @memberof PuterJSFileSystemModule
      * @returns {void}
      */
-    updateCacheTimestamp() {
-        // Add 1 second to mitigate clock skew and disable self-update.
-        puter._cache.set(LAST_UPDATED_TS, Date.now() + 1000);
+    postUpdate() {
+        // Action: Flush local cache
+        puter._cache.flushall();
+
+        // Action: Update last valid time
+        //
+        // Set to 0, which means the cache is not up to date.
+        puter._cache.set(LAST_VALID_TS, 0);
     }
 
     /**
