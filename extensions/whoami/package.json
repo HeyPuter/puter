@@ -1,5 +1,5 @@
 {
-    "name": "@heyputer/extension-permissions",
+    "name": "@heyputer/extension-whoami",
     "main": "main.js",
     "type": "module",
     "dependencies": {
