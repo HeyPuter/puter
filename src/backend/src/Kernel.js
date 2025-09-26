@@ -156,6 +156,12 @@ class Kernel extends AdvancedBase {
             });
             await module_.install(mod_context);
         }
+        
+        for ( const k in services.instances_ ) {
+            const service_exports = new RuntimeModule({ name: `service:${k}` });
+            this.runtimeModuleRegistry.register(service_exports);
+            service_exports.exports = services.instances_[k];
+        }
 
         // External modules
         await this.install_extern_mods_();
