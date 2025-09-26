@@ -54,10 +54,7 @@ const mkdir = function (...args) {
             create_missing_parents: (options.recursive || options.createMissingParents) ?? false,
         }));
 
-        this.updateCacheTimestamp();
-
-        // TOOD (xiaochen): puter desktop will have stale cache without this, find out why
-        puter._cache.flushall();
+        this.postUpdate();
     })
 }
 

@@ -55,10 +55,7 @@ const write = async function (targetPath, data, options = {}) {
         throw new Error({ code: 'field_invalid', message: 'write() data parameter is an invalid type' });
     }
 
-    this.updateCacheTimestamp();
-
-    // TOOD (xiaochen): puter desktop will have stale cache without this, find out why
-    puter._cache.flushall();
+    this.postUpdate();
 
     // perform upload
     return this.upload(data, parent, options);
