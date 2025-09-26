@@ -139,10 +139,6 @@ export class PuterJSFileSystemModule extends AdvancedBase {
             {
                 console.log('FileSystem Socket: Disconnected');
             }
-
-            // todo: NAIVE PURGE
-            // purge cache on disconnect since we may have become out of sync
-            puter._cache.flushall();
         });
 
         this.socket.on('reconnect', (attempt) => {
@@ -220,7 +216,9 @@ export class PuterJSFileSystemModule extends AdvancedBase {
         // Action: Update last valid time
         //
         // Set to 0, which means the cache is not up to date.
-        puter._cache.set(LAST_VALID_TS, 0);
+        localStorage.setItem(LAST_VALID_TS, '0');
+
+        console.log(`postUpdate triggered, LAST_VALID_TS: ${localStorage.getItem(LAST_VALID_TS)}`);
     }
 
     /**
@@ -257,12 +255,14 @@ export class PuterJSFileSystemModule extends AdvancedBase {
     async checkCacheAndPurge() {
         try {
             const serverTimestamp = await this.getCacheTimestamp();
-            const localValidTs = puter._cache.get(LAST_VALID_TS) || 0;
+            const localValidTs = parseInt(localStorage.getItem(LAST_VALID_TS)) || 0;
             
+            console.log(`init comparison: serverTimestamp: ${serverTimestamp}, localValidTs: ${localValidTs}`);
             if (serverTimestamp > localValidTs) {
+                console.log(`serverTimestamp > localValidTs, purging cache`);
                 // Server has newer data, purge local cache
                 puter._cache.flushall();
-                puter._cache.set(LAST_VALID_TS, 0);
+                localStorage.setItem(LAST_VALID_TS, '0');
             }
         } catch (error) {
             // If we can't get the server timestamp, silently fail
@@ -288,7 +288,7 @@ export class PuterJSFileSystemModule extends AdvancedBase {
 
         // Start new timer
         this.cacheUpdateTimer = setInterval(() => {
-            puter._cache.set(LAST_VALID_TS, Date.now());
+            localStorage.setItem(LAST_VALID_TS, Date.now().toString());
         }, 1000);
     }
 
