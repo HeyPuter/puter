@@ -481,8 +481,7 @@ const th = {
         "window_title_puter": "Puter",
         "window_folder_empty": "โฟลเดอร์นี้ว่างเปล่า",
         "manage_your_subdomains": "จัดการซับโดเมนของคุณ",
-        "open_containing_folder": "เปิดโฟลเดอร์ที่บรรจุ"
-
+        "open_containing_folder": "เปิดโฟลเดอร์ที่บรรจุ",
     }
 };
 

@@ -466,8 +466,7 @@ const ua = {
         "window_title_puter": "Puter",
         "window_folder_empty": "Ця папка порожня",
         "manage_your_subdomains": "Керування вашими субдоменами",
-        "open_containing_folder": "Відкрити папку, яка містить"
-
+        "open_containing_folder": "Відкрити папку, яка містить",
     }
 }
 

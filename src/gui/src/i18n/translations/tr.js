@@ -484,8 +484,7 @@ const tr = {
         "window_title_puter": "Puter",
         "window_folder_empty": "Bu klasör boş",
         "manage_your_subdomains": "Alt Alan Adlarınızı Yönetin",
-        "open_containing_folder": "İçeren Klasörü Aç"
-
+        "open_containing_folder": "İçeren Klasörü Aç",
     }
 };
 
