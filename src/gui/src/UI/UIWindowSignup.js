@@ -316,10 +316,14 @@ function UIWindowSignup(options){
                     $(el_window).find('.signup-btn').prop('disabled', false);
 
                     // Reset Turnstile widget for retry
-                    if (window.turnstile) {
-                        window.turnstile.reset('.cf-turnstile');
-                        $(el_window).find('.cf-turnstile').removeAttr('data-token');
-                        $(el_window).find('.cf-turnstile').removeClass('captcha-completed');
+                    try{
+                        if (window.turnstile) {
+                            window.turnstile?.reset('.cf-turnstile');
+                            $(el_window).find('.cf-turnstile').removeAttr('data-token');
+                            $(el_window).find('.cf-turnstile').removeClass('captcha-completed');
+                        }
+                    }catch(e){
+                        console.log(e);
                     }
 
                     // Process error response
@@ -344,6 +348,7 @@ function UIWindowSignup(options){
                             return;
                         }
                     } catch (e) {
+                        console.log(e);
                         // Not JSON, continue with text analysis
                     }
 
