@@ -17,7 +17,7 @@
  * along with this program.  If not, see <https://www.gnu.org/licenses/>.
  */
 const { AppUnderUserActorType, UserActorType } = require("../../services/auth/Actor");
-const { PermissionUtil } = require("../../services/auth/PermissionService");
+const { PermissionUtil } = require("../../services/auth/PermissionUtils.mjs");
 const { Context } = require("../../util/context");
 const { BaseES } = require("./BaseES");
 

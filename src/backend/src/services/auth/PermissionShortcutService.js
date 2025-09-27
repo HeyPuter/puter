@@ -1,26 +1,26 @@
-const BaseService = require("../BaseService");
-const { PermissionImplicator } = require("./PermissionService");
+const BaseService = require('../BaseService');
+const { PermissionImplicator } = require('./PermissionUtils.mjs');
 
 class PermissionShortcutService extends BaseService {
-    _init () {
+    _init() {
         const svc_permission = this.services.get('permission');
-        
+
         svc_permission.register_implicator(PermissionImplicator.create({
             id: 'kv permissions are easy',
             shortcut: true,
             matcher: permission => {
                 return permission === 'service:puter-kvstore:ii:puter-kvstore';
             },
-            checker: async ({ actor }) => {
+            checker: async ({ actor: _actor }) => {
                 return {
                     policy: {
-                        "rate-limit": {
+                        'rate-limit': {
                             max: 3000,
                             period: 30000,
-                        }
-                    }
+                        },
+                    },
                 };
-            }
+            },
         }));
     }
 }
