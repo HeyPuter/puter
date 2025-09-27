@@ -391,87 +391,82 @@ const ua = {
         "billing.expanded": "Розширений",
         "billing.accelerated": "Прискорений",
         "billing.enjoy_msg": "Насолоджуйтесь %% хмарного сховища та іншими перевагами.",
-
-        // =============================================================
-        // Missing translations
-        // =============================================================
-        "choose_publishing_option": undefined, // In English: "Choose how you want to publish your website:"
-        "create_desktop_shortcut": undefined, // In English: "Create Shortcut (Desktop)"
-        "create_desktop_shortcut_s": undefined, // In English: "Create Shortcuts (Desktop)"
-        "create_shortcut_s": undefined, // In English: "Create Shortcuts"
-        "minimize": undefined, // In English: "Minimize"
-        "reload_app": undefined, // In English: "Reload App"
-        "new_window": undefined, // In English: "New Window"
-        "open_trash": undefined, // In English: "Open Trash"
-        "pick_name_for_worker": undefined, // In English: "Pick a name for your worker:"
-        "publish_as_serverless_worker": undefined, // In English: "Publish as Worker"
-        "toolbar.enter_fullscreen": undefined, // In English: "Enter Full Screen"
-        "toolbar.github": undefined, // In English: "GitHub"
-        "toolbar.refer": undefined, // In English: "Refer"
-        "toolbar.save_account": undefined, // In English: "Save Account"
-        "toolbar.search": undefined, // In English: "Search"
-        "toolbar.qrcode": undefined, // In English: "QR Code"
-        "used_of": undefined, // In English: "{{used}} used of {{available}}"
-        "worker": undefined, // In English: "Worker"
-        "billing.offering.basic": undefined, // In English: "Basic"
-        "too_many_attempts": undefined, // In English: "Too many attempts. Please try again later."
-        "server_timeout": undefined, // In English: "The server took too long to respond. Please try again."
-        "signup_error": undefined, // In English: "An error occurred during signup. Please try again."
-        "welcome_title": undefined, // In English: "Welcome to your Personal Internet Computer"
-        "welcome_description": undefined, // In English: "Store files, play games, find awesome apps, and much more! All in one place, accessible from anywhere at any time."
-        "welcome_get_started": undefined, // In English: "Get Started"
-        "welcome_terms": undefined, // In English: "Terms"
-        "welcome_privacy": undefined, // In English: "Privacy"
-        "welcome_developers": undefined, // In English: "Developers"
-        "welcome_open_source": undefined, // In English: "Open Source"
-        "welcome_instant_login_title": undefined, // In English: "Instant Login!"
-        "alert_error_title": undefined, // In English: "Error!"
-        "alert_warning_title": undefined, // In English: "Warning!"
-        "alert_info_title": undefined, // In English: "Info"
-        "alert_success_title": undefined, // In English: "Success!"
-        "alert_confirm_title": undefined, // In English: "Are you sure?"
-        "alert_yes": undefined, // In English: "Yes"
-        "alert_no": undefined, // In English: "No"
-        "alert_retry": undefined, // In English: "Retry"
-        "alert_cancel": undefined, // In English: "Cancel"
-        "signup_confirm_password": undefined, // In English: "Confirm Password"
-        "login_email_username_required": undefined, // In English: "Email or username is required"
-        "login_password_required": undefined, // In English: "Password is required"
-        "window_title_open": undefined, // In English: "Open"
-        "window_title_change_password": undefined, // In English: "Change Password"
-        "window_title_select_font": undefined, // In English: "Select font…"
-        "window_title_session_list": undefined, // In English: "Session List!"
-        "window_title_set_new_password": undefined, // In English: "Set New Password"
-        "window_title_instant_login": undefined, // In English: "Instant Login!"
-        "window_title_publish_website": undefined, // In English: "Publish Website"
-        "window_title_publish_worker": undefined, // In English: "Publish Worker"
-        "window_title_authenticating": undefined, // In English: "Authenticating..."
-        "window_title_refer_friend": undefined, // In English: "Refer a friend!"
-        "desktop_show_desktop": undefined, // In English: "Show Desktop"
-        "desktop_show_open_windows": undefined, // In English: "Show Open Windows"
-        "desktop_exit_full_screen": undefined, // In English: "Exit Full Screen"
-        "desktop_enter_full_screen": undefined, // In English: "Enter Full Screen"
-        "desktop_position": undefined, // In English: "Position"
-        "desktop_position_left": undefined, // In English: "Left"
-        "desktop_position_bottom": undefined, // In English: "Bottom"
-        "desktop_position_right": undefined, // In English: "Right"
-        "item_shared_with_you": undefined, // In English: "A user has shared this item with you."
-        "item_shared_by_you": undefined, // In English: "You have shared this item with at least one other user."
-        "item_shortcut": undefined, // In English: "Shortcut"
-        "item_associated_websites": undefined, // In English: "Associated website"
-        "item_associated_websites_plural": undefined, // In English: "Associated websites"
-        "no_suitable_apps_found": undefined, // In English: "No suitable apps found"
-        "window_click_to_go_back": undefined, // In English: "Click to go back."
-        "window_click_to_go_forward": undefined, // In English: "Click to go forward."
-        "window_click_to_go_up": undefined, // In English: "Click to go one directory up."
-        "window_title_public": undefined, // In English: "Public"
-        "window_title_videos": undefined, // In English: "Videos"
-        "window_title_pictures": undefined, // In English: "Pictures"
-        "window_title_puter": undefined, // In English: "Puter"
-        "window_folder_empty": undefined, // In English: "This folder is empty"
-        "manage_your_subdomains": undefined, // In English: "Manage Your Subdomains"
-        "open_containing_folder": undefined, // In English: "Open Containing Folder"
-
+        "choose_publishing_option": "Виберіть, як ви хочете опублікувати свій веб-сайт:",
+        "create_desktop_shortcut": "Створити ярлик (Робочий стіл)",
+        "create_desktop_shortcut_s": "Створити ярлики (Робочий стіл)",
+        "create_shortcut_s": "Створити ярлики",
+        "minimize": "Згорнути",
+        "reload_app": "Перезавантажити додаток",
+        "new_window": "Нове вікно",
+        "open_trash": "Відкрити кошик",
+        "pick_name_for_worker": "Виберіть ім'я для вашого воркера:",
+        "publish_as_serverless_worker": "Опублікувати як воркер",
+        "toolbar.enter_fullscreen": "Увійти в повноекранний режим",
+        "toolbar.github": "GitHub",
+        "toolbar.refer": "Рекомендувати",
+        "toolbar.save_account": "Зберегти обліковий запис",
+        "toolbar.search": "Пошук",
+        "toolbar.qrcode": "QR код",
+        "used_of": "{{used}} використано з {{available}}",
+        "worker": "Воркер",
+        "billing.offering.basic": "Базовий",
+        "too_many_attempts": "Забагато спроб. Будь ласка, спробуйте пізніше.",
+        "server_timeout": "Сервер занадто довго відповідає. Будь ласка, спробуйте знову.",
+        "signup_error": "Під час реєстрації сталася помилка. Будь ласка, спробуйте знову.",
+        "welcome_title": "Ласкаво просимо до вашого особистого інтернет-комп'ютера",
+        "welcome_description": "Зберігайте файли, грайте в ігри, знаходьте чудові додатки та багато іншого! Все в одному місці, доступно з будь-якого місця в будь-який час.",
+        "welcome_get_started": "Розпочати",
+        "welcome_terms": "Умови",
+        "welcome_privacy": "Конфіденційність",
+        "welcome_developers": "Розробники",
+        "welcome_open_source": "Відкритий код",
+        "welcome_instant_login_title": "Миттєвий вхід!",
+        "alert_error_title": "Помилка!",
+        "alert_warning_title": "Попередження!",
+        "alert_info_title": "Інформація",
+        "alert_success_title": "Успіх!",
+        "alert_confirm_title": "Ви впевнені?",
+        "alert_yes": "Так",
+        "alert_no": "Ні",
+        "alert_retry": "Спробувати знову",
+        "alert_cancel": "Скасувати",
+        "signup_confirm_password": "Підтвердити пароль",
+        "login_email_username_required": "Електронна пошта або ім'я користувача обов'язкові",
+        "login_password_required": "Пароль обов'язковий",
+        "window_title_open": "Відкрити",
+        "window_title_change_password": "Змінити пароль",
+        "window_title_select_font": "Вибрати шрифт…",
+        "window_title_session_list": "Список сеансів!",
+        "window_title_set_new_password": "Встановити новий пароль",
+        "window_title_instant_login": "Миттєвий вхід!",
+        "window_title_publish_website": "Опублікувати веб-сайт",
+        "window_title_publish_worker": "Опублікувати воркер",
+        "window_title_authenticating": "Аутентифікація...",
+        "window_title_refer_friend": "Запросити друга!",
+        "desktop_show_desktop": "Показати робочий стіл",
+        "desktop_show_open_windows": "Показати відкриті вікна",
+        "desktop_exit_full_screen": "Вийти з повноекранного режиму",
+        "desktop_enter_full_screen": "Увійти в повноекранний режим",
+        "desktop_position": "Позиція",
+        "desktop_position_left": "Ліворуч",
+        "desktop_position_bottom": "Знизу",
+        "desktop_position_right": "Праворуч",
+        "item_shared_with_you": "Користувач поділився цим елементом з вами.",
+        "item_shared_by_you": "Ви поділилися цим елементом з принаймні одним іншим користувачем.",
+        "item_shortcut": "Ярлик",
+        "item_associated_websites": "Пов'язаний веб-сайт",
+        "item_associated_websites_plural": "Пов'язані веб-сайти",
+        "no_suitable_apps_found": "Підходящих додатків не знайдено",
+        "window_click_to_go_back": "Натисніть, щоб повернутися назад.",
+        "window_click_to_go_forward": "Натисніть, щоб перейти вперед.",
+        "window_click_to_go_up": "Натисніть, щоб перейти на одну директорію вгору.",
+        "window_title_public": "Публічний",
+        "window_title_videos": "Відео",
+        "window_title_pictures": "Зображення",
+        "window_title_puter": "Puter",
+        "window_folder_empty": "Ця папка порожня",
+        "manage_your_subdomains": "Керування вашими субдоменами",
+        "open_containing_folder": "Відкрити папку, яка містить",
     }
 }
 

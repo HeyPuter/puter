@@ -406,87 +406,82 @@ const th = {
         "billing.expanded": "ขยาย", // In English: "Expanded"
         "billing.accelerated": "เร่ง", // In English: "Accelerated"
         "billing.enjoy_msg": "ขอให้สนุกกับพื้นที่จัดเก็บบนคลาด์ที่เพิ่มขึ้น %% ของคุณ", // In English: "Enjoy "" of Cloud Storage plus other benefits."
-
-        // =============================================================
-        // Missing translations
-        // =============================================================
-        "choose_publishing_option": undefined, // In English: "Choose how you want to publish your website:"
-        "create_desktop_shortcut": undefined, // In English: "Create Shortcut (Desktop)"
-        "create_desktop_shortcut_s": undefined, // In English: "Create Shortcuts (Desktop)"
-        "create_shortcut_s": undefined, // In English: "Create Shortcuts"
-        "minimize": undefined, // In English: "Minimize"
-        "reload_app": undefined, // In English: "Reload App"
-        "new_window": undefined, // In English: "New Window"
-        "open_trash": undefined, // In English: "Open Trash"
-        "pick_name_for_worker": undefined, // In English: "Pick a name for your worker:"
-        "publish_as_serverless_worker": undefined, // In English: "Publish as Worker"
-        "toolbar.enter_fullscreen": undefined, // In English: "Enter Full Screen"
-        "toolbar.github": undefined, // In English: "GitHub"
-        "toolbar.refer": undefined, // In English: "Refer"
-        "toolbar.save_account": undefined, // In English: "Save Account"
-        "toolbar.search": undefined, // In English: "Search"
-        "toolbar.qrcode": undefined, // In English: "QR Code"
-        "used_of": undefined, // In English: "{{used}} used of {{available}}"
-        "worker": undefined, // In English: "Worker"
-        "billing.offering.basic": undefined, // In English: "Basic"
-        "too_many_attempts": undefined, // In English: "Too many attempts. Please try again later."
-        "server_timeout": undefined, // In English: "The server took too long to respond. Please try again."
-        "signup_error": undefined, // In English: "An error occurred during signup. Please try again."
-        "welcome_title": undefined, // In English: "Welcome to your Personal Internet Computer"
-        "welcome_description": undefined, // In English: "Store files, play games, find awesome apps, and much more! All in one place, accessible from anywhere at any time."
-        "welcome_get_started": undefined, // In English: "Get Started"
-        "welcome_terms": undefined, // In English: "Terms"
-        "welcome_privacy": undefined, // In English: "Privacy"
-        "welcome_developers": undefined, // In English: "Developers"
-        "welcome_open_source": undefined, // In English: "Open Source"
-        "welcome_instant_login_title": undefined, // In English: "Instant Login!"
-        "alert_error_title": undefined, // In English: "Error!"
-        "alert_warning_title": undefined, // In English: "Warning!"
-        "alert_info_title": undefined, // In English: "Info"
-        "alert_success_title": undefined, // In English: "Success!"
-        "alert_confirm_title": undefined, // In English: "Are you sure?"
-        "alert_yes": undefined, // In English: "Yes"
-        "alert_no": undefined, // In English: "No"
-        "alert_retry": undefined, // In English: "Retry"
-        "alert_cancel": undefined, // In English: "Cancel"
-        "signup_confirm_password": undefined, // In English: "Confirm Password"
-        "login_email_username_required": undefined, // In English: "Email or username is required"
-        "login_password_required": undefined, // In English: "Password is required"
-        "window_title_open": undefined, // In English: "Open"
-        "window_title_change_password": undefined, // In English: "Change Password"
-        "window_title_select_font": undefined, // In English: "Select font…"
-        "window_title_session_list": undefined, // In English: "Session List!"
-        "window_title_set_new_password": undefined, // In English: "Set New Password"
-        "window_title_instant_login": undefined, // In English: "Instant Login!"
-        "window_title_publish_website": undefined, // In English: "Publish Website"
-        "window_title_publish_worker": undefined, // In English: "Publish Worker"
-        "window_title_authenticating": undefined, // In English: "Authenticating..."
-        "window_title_refer_friend": undefined, // In English: "Refer a friend!"
-        "desktop_show_desktop": undefined, // In English: "Show Desktop"
-        "desktop_show_open_windows": undefined, // In English: "Show Open Windows"
-        "desktop_exit_full_screen": undefined, // In English: "Exit Full Screen"
-        "desktop_enter_full_screen": undefined, // In English: "Enter Full Screen"
-        "desktop_position": undefined, // In English: "Position"
-        "desktop_position_left": undefined, // In English: "Left"
-        "desktop_position_bottom": undefined, // In English: "Bottom"
-        "desktop_position_right": undefined, // In English: "Right"
-        "item_shared_with_you": undefined, // In English: "A user has shared this item with you."
-        "item_shared_by_you": undefined, // In English: "You have shared this item with at least one other user."
-        "item_shortcut": undefined, // In English: "Shortcut"
-        "item_associated_websites": undefined, // In English: "Associated website"
-        "item_associated_websites_plural": undefined, // In English: "Associated websites"
-        "no_suitable_apps_found": undefined, // In English: "No suitable apps found"
-        "window_click_to_go_back": undefined, // In English: "Click to go back."
-        "window_click_to_go_forward": undefined, // In English: "Click to go forward."
-        "window_click_to_go_up": undefined, // In English: "Click to go one directory up."
-        "window_title_public": undefined, // In English: "Public"
-        "window_title_videos": undefined, // In English: "Videos"
-        "window_title_pictures": undefined, // In English: "Pictures"
-        "window_title_puter": undefined, // In English: "Puter"
-        "window_folder_empty": undefined, // In English: "This folder is empty"
-        "manage_your_subdomains": undefined, // In English: "Manage Your Subdomains"
-        "open_containing_folder": undefined, // In English: "Open Containing Folder"
-
+        "choose_publishing_option": "เลือกวิธีที่คุณต้องการเผยแพร่เว็บไซต์ของคุณ:",
+        "create_desktop_shortcut": "สร้างทางลัด (เดสก์ท็อป)",
+        "create_desktop_shortcut_s": "สร้างทางลัด (เดสก์ท็อป)",
+        "create_shortcut_s": "สร้างทางลัด",
+        "minimize": "ย่อเล็กสุด",
+        "reload_app": "โหลดแอปใหม่",
+        "new_window": "หน้าต่างใหม่",
+        "open_trash": "เปิดถังขยะ",
+        "pick_name_for_worker": "เลือกชื่อสำหรับ worker ของคุณ:",
+        "publish_as_serverless_worker": "เผยแพร่เป็น Worker",
+        "toolbar.enter_fullscreen": "เข้าสู่โหมดเต็มจอ",
+        "toolbar.github": "GitHub",
+        "toolbar.refer": "แนะนำ",
+        "toolbar.save_account": "บันทึกบัญชี",
+        "toolbar.search": "ค้นหา",
+        "toolbar.qrcode": "QR Code",
+        "used_of": "ใช้ {{used}} จาก {{available}}",
+        "worker": "Worker",
+        "billing.offering.basic": "พื้นฐาน",
+        "too_many_attempts": "พยายามหลายครั้งเกินไป กรุณาลองใหม่ภายหลัง",
+        "server_timeout": "เซิร์ฟเวอร์ใช้เวลานานเกินไปในการตอบสนอง กรุณาลองใหม่",
+        "signup_error": "เกิดข้อผิดพลาดระหว่างการสมัครสมาชิก กรุณาลองใหม่",
+        "welcome_title": "ยินดีต้อนรับสู่คอมพิวเตอร์อินเทอร์เน็ตส่วนตัวของคุณ",
+        "welcome_description": "จัดเก็บไฟล์ เล่นเกม ค้นหาแอปที่ยอดเยี่ยม และอื่นๆ อีกมากมาย! ทุกอย่างในที่เดียว เข้าถึงได้จากทุกที่ทุกเวลา",
+        "welcome_get_started": "เริ่มต้นใช้งาน",
+        "welcome_terms": "เงื่อนไข",
+        "welcome_privacy": "ความเป็นส่วนตัว",
+        "welcome_developers": "นักพัฒนา",
+        "welcome_open_source": "โอเพนซอร์ส",
+        "welcome_instant_login_title": "เข้าสู่ระบบทันที!",
+        "alert_error_title": "ข้อผิดพลาด!",
+        "alert_warning_title": "คำเตือน!",
+        "alert_info_title": "ข้อมูล",
+        "alert_success_title": "สำเร็จ!",
+        "alert_confirm_title": "คุณแน่ใจหรือไม่?",
+        "alert_yes": "ใช่",
+        "alert_no": "ไม่",
+        "alert_retry": "ลองใหม่",
+        "alert_cancel": "ยกเลิก",
+        "signup_confirm_password": "ยืนยันรหัสผ่าน",
+        "login_email_username_required": "จำเป็นต้องมีอีเมลหรือชื่อผู้ใช้",
+        "login_password_required": "จำเป็นต้องมีรหัสผ่าน",
+        "window_title_open": "เปิด",
+        "window_title_change_password": "เปลี่ยนรหัสผ่าน",
+        "window_title_select_font": "เลือกแบบอักษร…",
+        "window_title_session_list": "รายการเซสชั่น!",
+        "window_title_set_new_password": "ตั้งรหัสผ่านใหม่",
+        "window_title_instant_login": "เข้าสู่ระบบทันที!",
+        "window_title_publish_website": "เผยแพร่เว็บไซต์",
+        "window_title_publish_worker": "เผยแพร่ Worker",
+        "window_title_authenticating": "กำลังยืนยันตัวตน...",
+        "window_title_refer_friend": "แนะนำเพื่อน!",
+        "desktop_show_desktop": "แสดงเดสก์ท็อป",
+        "desktop_show_open_windows": "แสดงหน้าต่างที่เปิดอยู่",
+        "desktop_exit_full_screen": "ออกจากโหมดเต็มจอ",
+        "desktop_enter_full_screen": "เข้าสู่โหมดเต็มจอ",
+        "desktop_position": "ตำแหน่ง",
+        "desktop_position_left": "ซ้าย",
+        "desktop_position_bottom": "ล่าง",
+        "desktop_position_right": "ขวา",
+        "item_shared_with_you": "ผู้ใช้คนหนึ่งได้แชร์รายการนี้กับคุณ",
+        "item_shared_by_you": "คุณได้แชร์รายการนี้กับผู้ใช้อย่างน้อยหนึ่งคน",
+        "item_shortcut": "ทางลัด",
+        "item_associated_websites": "เว็บไซต์ที่เกี่ยวข้อง",
+        "item_associated_websites_plural": "เว็บไซต์ที่เกี่ยวข้อง",
+        "no_suitable_apps_found": "ไม่พบแอปที่เหมาะสม",
+        "window_click_to_go_back": "คลิกเพื่อย้อนกลับ",
+        "window_click_to_go_forward": "คลิกเพื่อไปข้างหน้า",
+        "window_click_to_go_up": "คลิกเพื่อขึ้นไปหนึ่งไดเรกทอรี",
+        "window_title_public": "สาธารณะ",
+        "window_title_videos": "วีดีโอ",
+        "window_title_pictures": "รูปภาพ",
+        "window_title_puter": "Puter",
+        "window_folder_empty": "โฟลเดอร์นี้ว่างเปล่า",
+        "manage_your_subdomains": "จัดการซับโดเมนของคุณ",
+        "open_containing_folder": "เปิดโฟลเดอร์ที่บรรจุ",
     }
 };
 

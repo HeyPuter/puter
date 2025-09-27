@@ -409,87 +409,82 @@ const tr = {
         "billing.expanded": "Genişletilmiş", // In English: "Expanded"
         "billing.accelerated": "Hızlandırılmış", // In English: "Accelerated"
         "billing.enjoy_msg": "Diğer avantajların yanı sıra %% Bulut Depolamanın keyfini çıkarın.", // In English: "Enjoy %% of Cloud Storage plus other benefits."
-
-        // =============================================================
-        // Missing translations
-        // =============================================================
-        "choose_publishing_option": undefined, // In English: "Choose how you want to publish your website:"
-        "create_desktop_shortcut": undefined, // In English: "Create Shortcut (Desktop)"
-        "create_desktop_shortcut_s": undefined, // In English: "Create Shortcuts (Desktop)"
-        "create_shortcut_s": undefined, // In English: "Create Shortcuts"
-        "minimize": undefined, // In English: "Minimize"
-        "reload_app": undefined, // In English: "Reload App"
-        "new_window": undefined, // In English: "New Window"
-        "open_trash": undefined, // In English: "Open Trash"
-        "pick_name_for_worker": undefined, // In English: "Pick a name for your worker:"
-        "publish_as_serverless_worker": undefined, // In English: "Publish as Worker"
-        "toolbar.enter_fullscreen": undefined, // In English: "Enter Full Screen"
-        "toolbar.github": undefined, // In English: "GitHub"
-        "toolbar.refer": undefined, // In English: "Refer"
-        "toolbar.save_account": undefined, // In English: "Save Account"
-        "toolbar.search": undefined, // In English: "Search"
-        "toolbar.qrcode": undefined, // In English: "QR Code"
-        "used_of": undefined, // In English: "{{used}} used of {{available}}"
-        "worker": undefined, // In English: "Worker"
-        "billing.offering.basic": undefined, // In English: "Basic"
-        "too_many_attempts": undefined, // In English: "Too many attempts. Please try again later."
-        "server_timeout": undefined, // In English: "The server took too long to respond. Please try again."
-        "signup_error": undefined, // In English: "An error occurred during signup. Please try again."
-        "welcome_title": undefined, // In English: "Welcome to your Personal Internet Computer"
-        "welcome_description": undefined, // In English: "Store files, play games, find awesome apps, and much more! All in one place, accessible from anywhere at any time."
-        "welcome_get_started": undefined, // In English: "Get Started"
-        "welcome_terms": undefined, // In English: "Terms"
-        "welcome_privacy": undefined, // In English: "Privacy"
-        "welcome_developers": undefined, // In English: "Developers"
-        "welcome_open_source": undefined, // In English: "Open Source"
-        "welcome_instant_login_title": undefined, // In English: "Instant Login!"
-        "alert_error_title": undefined, // In English: "Error!"
-        "alert_warning_title": undefined, // In English: "Warning!"
-        "alert_info_title": undefined, // In English: "Info"
-        "alert_success_title": undefined, // In English: "Success!"
-        "alert_confirm_title": undefined, // In English: "Are you sure?"
-        "alert_yes": undefined, // In English: "Yes"
-        "alert_no": undefined, // In English: "No"
-        "alert_retry": undefined, // In English: "Retry"
-        "alert_cancel": undefined, // In English: "Cancel"
-        "signup_confirm_password": undefined, // In English: "Confirm Password"
-        "login_email_username_required": undefined, // In English: "Email or username is required"
-        "login_password_required": undefined, // In English: "Password is required"
-        "window_title_open": undefined, // In English: "Open"
-        "window_title_change_password": undefined, // In English: "Change Password"
-        "window_title_select_font": undefined, // In English: "Select font…"
-        "window_title_session_list": undefined, // In English: "Session List!"
-        "window_title_set_new_password": undefined, // In English: "Set New Password"
-        "window_title_instant_login": undefined, // In English: "Instant Login!"
-        "window_title_publish_website": undefined, // In English: "Publish Website"
-        "window_title_publish_worker": undefined, // In English: "Publish Worker"
-        "window_title_authenticating": undefined, // In English: "Authenticating..."
-        "window_title_refer_friend": undefined, // In English: "Refer a friend!"
-        "desktop_show_desktop": undefined, // In English: "Show Desktop"
-        "desktop_show_open_windows": undefined, // In English: "Show Open Windows"
-        "desktop_exit_full_screen": undefined, // In English: "Exit Full Screen"
-        "desktop_enter_full_screen": undefined, // In English: "Enter Full Screen"
-        "desktop_position": undefined, // In English: "Position"
-        "desktop_position_left": undefined, // In English: "Left"
-        "desktop_position_bottom": undefined, // In English: "Bottom"
-        "desktop_position_right": undefined, // In English: "Right"
-        "item_shared_with_you": undefined, // In English: "A user has shared this item with you."
-        "item_shared_by_you": undefined, // In English: "You have shared this item with at least one other user."
-        "item_shortcut": undefined, // In English: "Shortcut"
-        "item_associated_websites": undefined, // In English: "Associated website"
-        "item_associated_websites_plural": undefined, // In English: "Associated websites"
-        "no_suitable_apps_found": undefined, // In English: "No suitable apps found"
-        "window_click_to_go_back": undefined, // In English: "Click to go back."
-        "window_click_to_go_forward": undefined, // In English: "Click to go forward."
-        "window_click_to_go_up": undefined, // In English: "Click to go one directory up."
-        "window_title_public": undefined, // In English: "Public"
-        "window_title_videos": undefined, // In English: "Videos"
-        "window_title_pictures": undefined, // In English: "Pictures"
-        "window_title_puter": undefined, // In English: "Puter"
-        "window_folder_empty": undefined, // In English: "This folder is empty"
-        "manage_your_subdomains": undefined, // In English: "Manage Your Subdomains"
-        "open_containing_folder": undefined, // In English: "Open Containing Folder"
-
+        "choose_publishing_option": "Web sitenizi nasıl yayınlamak istediğinizi seçin:",
+        "create_desktop_shortcut": "Kısayol Oluştur (Masaüstü)",
+        "create_desktop_shortcut_s": "Kısayollar Oluştur (Masaüstü)",
+        "create_shortcut_s": "Kısayollar Oluştur",
+        "minimize": "Küçült",
+        "reload_app": "Uygulamayı Yeniden Yükle",
+        "new_window": "Yeni Pencere",
+        "open_trash": "Çöp Kutusunu Aç",
+        "pick_name_for_worker": "Worker'ınız için bir ad seçin:",
+        "publish_as_serverless_worker": "Worker olarak Yayınla",
+        "toolbar.enter_fullscreen": "Tam Ekrana Geç",
+        "toolbar.github": "GitHub",
+        "toolbar.refer": "Yönlendir",
+        "toolbar.save_account": "Hesabı Kaydet",
+        "toolbar.search": "Ara",
+        "toolbar.qrcode": "QR Kod",
+        "used_of": "{{available}} alanın {{used}} kullanılıyor",
+        "worker": "Worker",
+        "billing.offering.basic": "Temel",
+        "too_many_attempts": "Çok fazla deneme. Lütfen daha sonra tekrar deneyin.",
+        "server_timeout": "Sunucu yanıt vermekte çok uzun sürdü. Lütfen tekrar deneyin.",
+        "signup_error": "Kayıt sırasında bir hata oluştu. Lütfen tekrar deneyin.",
+        "welcome_title": "Kişisel İnternet Bilgisayarınıza Hoş Geldiniz",
+        "welcome_description": "Dosyaları saklayın, oyunlar oynayın, harika uygulamalar bulun ve daha fazlası! Her şey tek yerde, her yerden her zaman erişilebilir.",
+        "welcome_get_started": "Başlayın",
+        "welcome_terms": "Şartlar",
+        "welcome_privacy": "Gizlilik",
+        "welcome_developers": "Geliştiriciler",
+        "welcome_open_source": "Açık Kaynak",
+        "welcome_instant_login_title": "Anında Giriş!",
+        "alert_error_title": "Hata!",
+        "alert_warning_title": "Uyarı!",
+        "alert_info_title": "Bilgi",
+        "alert_success_title": "Başarılı!",
+        "alert_confirm_title": "Emin misiniz?",
+        "alert_yes": "Evet",
+        "alert_no": "Hayır",
+        "alert_retry": "Tekrar Dene",
+        "alert_cancel": "İptal",
+        "signup_confirm_password": "Parolayı Onayla",
+        "login_email_username_required": "E-posta veya kullanıcı adı gerekli",
+        "login_password_required": "Parola gerekli",
+        "window_title_open": "Aç",
+        "window_title_change_password": "Parolayı Değiştir",
+        "window_title_select_font": "Yazı tipi seç…",
+        "window_title_session_list": "Oturum Listesi!",
+        "window_title_set_new_password": "Yeni Parola Belirle",
+        "window_title_instant_login": "Anında Giriş!",
+        "window_title_publish_website": "Web Sitesi Yayınla",
+        "window_title_publish_worker": "Worker Yayınla",
+        "window_title_authenticating": "Kimlik doğrulanıyor...",
+        "window_title_refer_friend": "Bir arkadaşını yönlendir!",
+        "desktop_show_desktop": "Masaüstünü Göster",
+        "desktop_show_open_windows": "Açık Pencereleri Göster",
+        "desktop_exit_full_screen": "Tam Ekrandan Çık",
+        "desktop_enter_full_screen": "Tam Ekrana Geç",
+        "desktop_position": "Konum",
+        "desktop_position_left": "Sol",
+        "desktop_position_bottom": "Alt",
+        "desktop_position_right": "Sağ",
+        "item_shared_with_you": "Bir kullanıcı bu öğeyi sizinle paylaştı.",
+        "item_shared_by_you": "Bu öğeyi en az bir kullanıcıyla paylaştınız.",
+        "item_shortcut": "Kısayol",
+        "item_associated_websites": "İlişkilendirilmiş web sitesi",
+        "item_associated_websites_plural": "İlişkilendirilmiş web siteleri",
+        "no_suitable_apps_found": "Uygun uygulama bulunamadı",
+        "window_click_to_go_back": "Geri gitmek için tıklayın.",
+        "window_click_to_go_forward": "İleri gitmek için tıklayın.",
+        "window_click_to_go_up": "Bir dizin yukarı çıkmak için tıklayın.",
+        "window_title_public": "Genel",
+        "window_title_videos": "Videolar",
+        "window_title_pictures": "Resimler",
+        "window_title_puter": "Puter",
+        "window_folder_empty": "Bu klasör boş",
+        "manage_your_subdomains": "Alt Alan Adlarınızı Yönetin",
+        "open_containing_folder": "İçeren Klasörü Aç",
     }
 };
 
