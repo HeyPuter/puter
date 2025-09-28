@@ -46,41 +46,38 @@ class WSPushService extends BaseService {
 
     async _on_fs_create(key, data) {
         const { node, context } = data;
-
+    
         const metadata = {
             from_new_service: true,
         };
-
+    
         {
             const svc_operationTrace = context.get('services').get('operationTrace');
             const frame = context.get(svc_operationTrace.ckey('frame'));
             const gui_metadata = frame.get_attr('gui_metadata') || {};
             Object.assign(metadata, gui_metadata);
         }
-
+    
         const response = await node.getSafeEntry({ thumbnail: true });
-
-
+    
         const user_id_list = await (async () => {
-            // NOTE: Using a set because eventually we will need to dispatch
-            //       to multiple users, but this is not currently the case.
             const user_id_set = new Set();
             if (metadata.user_id) user_id_set.add(metadata.user_id);
             else user_id_set.add(await node.get('user_id'));
             return Array.from(user_id_set);
         })();
-
+    
         Object.assign(response, metadata);
-
+    
         this.svc_event.emit('outer.gui.item.added', {
             user_id_list,
             response,
         });
-
+    
         const ts = Date.now();
-        await this._update_user_ts(user_id_list, ts);
+        await this._update_user_ts(user_id_list, ts, metadata); // Pass metadata
     }
-
+    
 
     /**
     * Handles file system update events.
@@ -100,40 +97,37 @@ class WSPushService extends BaseService {
     */
     async _on_fs_update(key, data) {
         const { node, context } = data;
-
+    
         const metadata = {
             from_new_service: true,
         };
-
+    
         {
             const svc_operationTrace = context.get('services').get('operationTrace');
             const frame = context.get(svc_operationTrace.ckey('frame'));
             const gui_metadata = frame?.get_attr?.('gui_metadata') || {};
             Object.assign(metadata, gui_metadata);
         }
-
+    
         const response = await node.getSafeEntry({ debug: 'hi', thumbnail: true });
-
+    
         const user_id_list = await (async () => {
-            // NOTE: Using a set because eventually we will need to dispatch
-            //       to multiple users, but this is not currently the case.
             const user_id_set = new Set();
             if (metadata.user_id) user_id_set.add(metadata.user_id);
             else user_id_set.add(await node.get('user_id'));
             return Array.from(user_id_set);
         })();
-
+    
         Object.assign(response, metadata);
-
+    
         this.svc_event.emit('outer.gui.item.updated', {
             user_id_list,
             response,
         });
-
+    
         const ts = Date.now();
-        await this._update_user_ts(user_id_list, ts);
-    }
-
+        await this._update_user_ts(user_id_list, ts, metadata); // Pass metadata
+    }    
 
     /**
     * Handles file system move events by emitting appropriate GUI update events.
@@ -151,41 +145,38 @@ class WSPushService extends BaseService {
     */
     async _on_fs_move(key, data) {
         const { moved, old_path, context } = data;
-
+    
         const metadata = {
             from_new_service: true,
         };
-
+    
         {
             const svc_operationTrace = context.get('services').get('operationTrace');
             const frame = context.get(svc_operationTrace.ckey('frame'));
             const gui_metadata = frame.get_attr('gui_metadata') || {};
             Object.assign(metadata, gui_metadata);
         }
-
+    
         const response = await moved.getSafeEntry();
-
+    
         const user_id_list = await (async () => {
-            // NOTE: Using a set because eventually we will need to dispatch
-            //       to multiple users, but this is not currently the case.
             const user_id_set = new Set();
             if (metadata.user_id) user_id_set.add(metadata.user_id);
             else user_id_set.add(await moved.get('user_id'));
             return Array.from(user_id_set);
         })();
-
+    
         response.old_path = old_path;
         Object.assign(response, metadata);
-
+    
         this.svc_event.emit('outer.gui.item.moved', {
             user_id_list,
             response,
         });
-
+    
         const ts = Date.now();
-        await this._update_user_ts(user_id_list, ts);
-    }
-
+        await this._update_user_ts(user_id_list, ts, metadata); // Pass metadata
+    }    
 
     /**
     * Handles the 'fs.pending' event, preparing and emitting data for items that are pending processing.
@@ -200,40 +191,37 @@ class WSPushService extends BaseService {
     */
     async _on_fs_pending(key, data) {
         const { fsentry, context } = data;
-
+    
         const metadata = {
             from_new_service: true,
         };
-
+    
         const response = { ...fsentry };
-
+    
         {
             const svc_operationTrace = context.get('services').get('operationTrace');
             const frame = context.get(svc_operationTrace.ckey('frame'));
             const gui_metadata = frame.get_attr('gui_metadata') || {};
             Object.assign(metadata, gui_metadata);
         }
-
+    
         const user_id_list = await (async () => {
-            // NOTE: Using a set because eventually we will need to dispatch
-            //       to multiple users, but this is not currently the case.
             const user_id_set = new Set();
             if (metadata.user_id) user_id_set.add(metadata.user_id);
             return Array.from(user_id_set);
         })();
-
+    
         Object.assign(response, metadata);
-
+    
         this.svc_event.emit('outer.gui.item.pending', {
             user_id_list,
             response,
         });
-
-
+    
         const ts = Date.now();
-        await this._update_user_ts(user_id_list, ts);
+        await this._update_user_ts(user_id_list, ts, metadata); // Pass metadata
     }
-
+    
     /**
     * Emits an upload or download progress event to the relevant socket.
     * 
@@ -343,11 +331,11 @@ class WSPushService extends BaseService {
      * @param {number} timestamp - The timestamp to update the users with.
      * @returns {Promise<void>} A promise that resolves when the timestamp has been updated.
      */
-    async _update_user_ts(user_id_list, timestamp) {
+    async _update_user_ts(user_id_list, timestamp, metadata = {}) {
         for (const user_id of user_id_list) {
             const ts = timestamp;
             const key = `last_change_timestamp:${user_id}`;
-
+    
             try {
                 const svc_driver = Context.get('services').get('driver');
                 await svc_driver.call({
@@ -359,10 +347,13 @@ class WSPushService extends BaseService {
                 this.log.error('Failed to update user timestamp in kvstore', { user_id, error: error.message });
             }
         }
-
+    
         this.svc_event.emit('outer.gui.cache.updated', {
             user_id_list,
-            response: { timestamp },
+            response: {
+                timestamp,
+                original_client_socket_id: metadata.original_client_socket_id 
+            },
         });
     }
 }
