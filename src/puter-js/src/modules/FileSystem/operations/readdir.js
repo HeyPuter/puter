@@ -66,12 +66,12 @@ const readdir = async function (...args) {
 
             if(resultSize <= MAX_CACHE_SIZE){
                 // UPSERT the cache
-                await puter._cache.set(cacheKey, result);
+                puter._cache.set(cacheKey, result);
             }
 
             // set each individual item's cache
             for(const item of result){
-                await puter._cache.set('item:' + item.path, item);
+                puter._cache.set('item:' + item.path, item);
             }
             
             resolve(result);

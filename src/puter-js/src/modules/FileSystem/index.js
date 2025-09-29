@@ -1,5 +1,6 @@
 import io from '../../lib/socket.io/socket.io.esm.min.js';
 import * as utils from '../../lib/utils.js';
+import path from '../../lib/path.js';
 
 // Constants
 // 
@@ -122,9 +123,27 @@ export class PuterJSFileSystemModule extends AdvancedBase {
         // });
 
         this.socket.on('item.renamed', (item) => {
-            // check original_client_socket_id and if it matches this.socket.id, don't invalidate cache
-            puter._cache.flushall();
-            console.log('Flushed cache for item.renamed');
+            // delete old item from cache
+            puter._cache.del('item:' + item.old_path);
+            // if a directory
+            if(item.is_dir){
+                // delete readdir
+                puter._cache.del('readdir:' + item.old_path);
+                // descendants items
+                const descendants = puter._cache.keys('item:' + item.old_path + '/*');
+                for(const descendant of descendants){
+                    console.log('Deleting cache for:', descendant);
+                    puter._cache.del(descendant);
+                }
+                // descendants readdirs
+                const descendants_readdir = puter._cache.keys('readdir:' + item.old_path + '/*');
+                for(const descendant of descendants_readdir){
+                    console.log('Deleting cache for:', descendant);
+                    puter._cache.del(descendant);
+                }
+            }
+            // parent readdir
+            puter._cache.del('readdir:' + path.dirname(item.old_path));
         });
 
         this.socket.on('item.removed', (item) => {

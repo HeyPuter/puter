@@ -39,8 +39,6 @@ const stat = async function (...args) {
         let cacheKey;
         if(options.path){
             cacheKey = 'item:' + options.path;
-        }else if(options.uid){
-            cacheKey = 'item:' + options.uid;
         }
 
         if(options.consistency === 'eventual' && !options.returnSubdomains && !options.returnPermissions && !options.returnVersions && !options.returnSize){
@@ -65,8 +63,7 @@ const stat = async function (...args) {
 
             if(resultSize <= MAX_CACHE_SIZE){
                 // UPSERT the cache
-                await puter._cache.set('item:' + result.path, result);
-                await puter._cache.set('item:' + result.uid, result);
+                puter._cache.set(cacheKey, result);
             }
             
             resolve(result);
