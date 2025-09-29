@@ -115,18 +115,15 @@ export class PuterJSFileSystemModule extends AdvancedBase {
     bindSocketEvents() {
         this.socket.on('cache.updated', (msg) => {
             // check original_client_socket_id and if it matches this.socket.id, don't post update
-            if (msg.original_client_socket_id === this.socket.id) {
-                return;
-            }else{
+            if (msg.original_client_socket_id !== this.socket.id) {
                 this.postUpdate();
             }
         });
 
+        // item.renamed is triggered when a file is renamed, this is a quirk since right now cache.updated is not triggered when a file is renamed!
         this.socket.on('item.renamed', (item) => {
             // check original_client_socket_id and if it matches this.socket.id, don't post update
-            if (item.original_client_socket_id === this.socket.id) {
-                return;
-            }else{
+            if (item.original_client_socket_id !== this.socket.id) {
                 this.postUpdate();
             }
         });
