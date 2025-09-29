@@ -153,9 +153,22 @@ export class PuterJSFileSystemModule extends AdvancedBase {
         });
 
         this.socket.on('item.added', (item) => {
-            // check original_client_socket_id and if it matches this.socket.id, don't invalidate cache
-            puter._cache.flushall();
-            console.log('Flushed cache for item.added');
+            // delete item from cache
+            puter._cache.del('item:' + item.path);
+            // delete readdir from cache
+            puter._cache.del('readdir:' + item.path);
+            // delete descendant items from cache
+            const descendant_items = puter._cache.keys('item:' + item.path + '/*');
+            for(const descendant of descendant_items){
+                puter._cache.del(descendant);
+            }
+            // delete descendant readdirs from cache
+            const descendant_readdirs = puter._cache.keys('readdir:' + item.path + '/*');
+            for(const descendant of descendant_readdirs){
+                puter._cache.del(descendant);
+            }
+            // delete parent readdir from cache
+            puter._cache.del('readdir:' + path.dirname(item.path));
         });
 
         this.socket.on('item.updated', (item) => {
