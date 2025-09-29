@@ -55,7 +55,12 @@ class ClaudeService extends BaseService {
     */
     async _init () {
         this.anthropic = new Anthropic({
-            apiKey: this.config.apiKey
+            apiKey: this.config.apiKey,
+            // 10 minutes is the default; we need to override the timeout to
+            // disable an "aggressive" preemptive error that's thrown
+            // erroneously by the SDK.
+            // (https://github.com/anthropics/anthropic-sdk-typescript/issues/822)
+            timeout: 10 * 60 * 1001,
         });
 
         const svc_aiChat = this.services.get('ai-chat');
