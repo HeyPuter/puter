@@ -338,8 +338,8 @@ class ClaudeService extends BaseService {
     async models_ () {
         return [
             {
-                id: 'claude-sonnet-4-5',
-                aliases: ['claude-sonnet-4.5'],
+                id: 'claude-sonnet-4-5-20250929',
+                aliases: ['claude-sonnet-4.5', 'claude-sonnet-4-5'],
                 name: 'Claude Sonnet 4.5',
                 context: 200000,
                 cost: {
