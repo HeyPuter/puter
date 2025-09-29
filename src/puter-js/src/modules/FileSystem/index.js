@@ -262,28 +262,27 @@ export class PuterJSFileSystemModule extends AdvancedBase {
             // delete cache for the item
             puter._cache.del('item:' + options.path, options);
 
-            // if item is a folder, invalidate the readdir cache for the folder and all its descendants
+            // if item is a folder
             if(options.is_dir){
                 puter._cache.del('readdir:' + options.path);
-                console.log('⮑ invalidated its readdir:', options.path);
-                // invalidate all descendants readdir and item caches
+                console.log('⮑ delete its readdir:', options.path);
+                // delete all descendants readdirs
                 const descendants_readdir = puter._cache.keys('readdir:' + options.path + '/*');
-                console.log(descendants_readdir);
                 for(const descendant of descendants_readdir){
                     puter._cache.del(descendant);
-                    console.log('⮑ invalidated descendant readdir:', descendant);
+                    console.log('⮑ delete descendant readdir:', descendant);
                 }
 
-                // invalidate all descendants item caches
+                // delete all descendants items
                 const descendants_item = puter._cache.keys('item:' + options.path + '/*');
                 for(const descendant of descendants_item){
                     puter._cache.del(descendant);
-                    console.log('⮑ invalidated descendant item:', descendant);
+                    console.log('⮑ delete descendant item:', descendant);
                 }
             }
             // invalidate parent folder cache
             puter._cache.del('readdir:' + path.dirname(options.path));
-            console.log('⮑ invalidated its parent readdir:', path.dirname(options.path));
+            console.log('⮑ delete its parent readdir:', path.dirname(options.path));
 
 
         }else{
