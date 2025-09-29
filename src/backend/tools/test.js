@@ -24,6 +24,7 @@ const CoreModule = require("../src/CoreModule");
 const { Context } = require("../src/util/context");
 const { Kernel } = require("../src/Kernel");
 const { HTTPThumbnailService } = require("../src/services/thumbnails/HTTPThumbnailService");
+const { RuntimeModuleRegistry } = require("../src/extension/RuntimeModuleRegistry");
 
 
 /**
@@ -78,6 +79,8 @@ class TestKernel extends AdvancedBase {
         });
 
         this.logfn_ = (...a) => a;
+        
+        this.runtimeModuleRegistry = new RuntimeModuleRegistry();
     }
 
     add_module (module) {
@@ -109,6 +112,7 @@ class TestKernel extends AdvancedBase {
         const root_context = Context.create({
             services,
             useapi: this.useapi,
+            ['runtime-modules']: this.runtimeModuleRegistry,
         }, 'app');
         globalThis.root_context = root_context;
 
