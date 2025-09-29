@@ -53,8 +53,6 @@ const mkdir = function (...args) {
             original_client_socket_id: this.socket.id,
             create_missing_parents: (options.recursive || options.createMissingParents) ?? false,
         }));
-
-        this.invalidateCache(options.path);
     })
 }
 

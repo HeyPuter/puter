@@ -65,8 +65,6 @@ const move = function (...args) {
             new_metadata: (options.new_metadata || options.newMetadata),
             original_client_socket_id: options.excludeSocketID,
         }));
-
-        this.invalidateCache();
     })
 }
 

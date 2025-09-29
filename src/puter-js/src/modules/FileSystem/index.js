@@ -125,35 +125,37 @@ export class PuterJSFileSystemModule extends AdvancedBase {
         this.socket.on('item.renamed', (item) => {
             // check original_client_socket_id and if it matches this.socket.id, don't invalidate cache
             if (item.original_client_socket_id !== this.socket.id) {
-                this.invalidateCache(item);
+                this.invalidateCache({path: item.old_path, is_dir: item.is_dir ?? true});
             }
         });
 
         this.socket.on('item.deleted', (item) => {
             // check original_client_socket_id and if it matches this.socket.id, don't invalidate cache
             if (item.original_client_socket_id !== this.socket.id) {
-                this.invalidateCache(item);
+                this.invalidateCache({path: item.path, is_dir: item.is_dir ?? true});
             }
         });
 
         this.socket.on('item.added', (item) => {
             // check original_client_socket_id and if it matches this.socket.id, don't invalidate cache
             if (item.original_client_socket_id !== this.socket.id) {
-                this.invalidateCache(item);
+                this.invalidateCache({path: item.path, is_dir: item.is_dir ?? true});
             }
         });
 
         this.socket.on('item.updated', (item) => {
             // check original_client_socket_id and if it matches this.socket.id, don't invalidate cache
             if (item.original_client_socket_id !== this.socket.id) {
-                this.invalidateCache(item);
+                this.invalidateCache({path: item.path, is_dir: item.is_dir ?? true});
             }
         });
 
         this.socket.on('item.moved', (item) => {
             // check original_client_socket_id and if it matches this.socket.id, don't invalidate cache
             if (item.original_client_socket_id !== this.socket.id) {
-                this.invalidateCache(item);
+                this.invalidateCache({path: item.old_path, is_dir: item.is_dir ?? true});
+                // invalidate the destination dir
+                this.invalidateCache({path: path.dirname(item.path), is_dir: true});
             }
         });
 
@@ -249,25 +251,39 @@ export class PuterJSFileSystemModule extends AdvancedBase {
      * @memberof PuterJSFileSystemModule
      * @returns {void}
      */
-    invalidateCache(item) {
+    invalidateCache(options) {
+        console.log('invalidating cache for:', options.path);
         // Action: Update last valid time
         // Set to 0, which means the cache is not up to date.
         localStorage.setItem(LAST_VALID_TS, '0');
 
         // Action: Update cache for the item
-        if(item?.path){
-            console.log('invalidated cache for item:', item.path);
-            // update cache for the item
-            puter._cache.set('item:' + item.path, item);
+        if(options?.path){
+            // delete cache for the item
+            puter._cache.del('item:' + options.path, options);
 
-            // if item is a folder, invalidate the readdir cache for the folder
-            if(item.is_dir){
-                puter._cache.del('readdir:' + item.path);
-                console.log('⮑ invalidated its readdir:', item.path);
+            // if item is a folder, invalidate the readdir cache for the folder and all its descendants
+            if(options.is_dir){
+                puter._cache.del('readdir:' + options.path);
+                console.log('⮑ invalidated its readdir:', options.path);
+                // invalidate all descendants readdir and item caches
+                const descendants_readdir = puter._cache.keys('readdir:' + options.path + '/*');
+                console.log(descendants_readdir);
+                for(const descendant of descendants_readdir){
+                    puter._cache.del(descendant);
+                    console.log('⮑ invalidated descendant readdir:', descendant);
+                }
+
+                // invalidate all descendants item caches
+                const descendants_item = puter._cache.keys('item:' + options.path + '/*');
+                for(const descendant of descendants_item){
+                    puter._cache.del(descendant);
+                    console.log('⮑ invalidated descendant item:', descendant);
+                }
             }
             // invalidate parent folder cache
-            puter._cache.del('readdir:' + path.dirname(item.path));
-            console.log('⮑ invalidated its parent readdir:', path.dirname(item.path));
+            puter._cache.del('readdir:' + path.dirname(options.path));
+            console.log('⮑ invalidated its parent readdir:', path.dirname(options.path));
 
 
         }else{

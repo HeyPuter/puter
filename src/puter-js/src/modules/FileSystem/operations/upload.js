@@ -431,8 +431,6 @@ const upload = async function(items, dirPath, options = {}){
 
         // send request
         xhr.send(fd);
-
-        this.invalidateCache();
     })
 }
 
