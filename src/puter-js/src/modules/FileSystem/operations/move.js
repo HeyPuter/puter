@@ -66,7 +66,7 @@ const move = function (...args) {
             original_client_socket_id: options.excludeSocketID,
         }));
 
-        this.postUpdate();
+        this.invalidateCache();
     })
 }
 

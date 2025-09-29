@@ -56,7 +56,7 @@ const copy = function (...args) {
             dedupe_name: (options.dedupe_name || options.dedupeName),
         }));
 
-        this.postUpdate();
+        this.invalidateCache();
     })
 }
 

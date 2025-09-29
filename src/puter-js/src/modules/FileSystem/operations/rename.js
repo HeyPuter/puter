@@ -51,7 +51,7 @@ const rename = function (...args) {
         
         xhr.send(JSON.stringify(dataToSend));
 
-        this.postUpdate();
+        this.invalidateCache();
     })
 }
 

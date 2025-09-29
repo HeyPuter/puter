@@ -116,7 +116,7 @@ export class PuterJSFileSystemModule extends AdvancedBase {
         this.socket.on('cache.updated', (msg) => {
             // check original_client_socket_id and if it matches this.socket.id, don't post update
             if (msg.original_client_socket_id !== this.socket.id) {
-                this.postUpdate();
+                this.invalidateCache();
             }
         });
 
@@ -124,7 +124,7 @@ export class PuterJSFileSystemModule extends AdvancedBase {
         this.socket.on('item.renamed', (item) => {
             // check original_client_socket_id and if it matches this.socket.id, don't post update
             if (item.original_client_socket_id !== this.socket.id) {
-                this.postUpdate();
+                this.invalidateCache();
             }
         });
 
@@ -218,10 +218,10 @@ export class PuterJSFileSystemModule extends AdvancedBase {
      * @memberof PuterJSFileSystemModule
      * @returns {void}
      */
-    postUpdate() {
+    invalidateCache() {
         // Action: Flush local cache
         puter._cache.flushall();
-        console.log('postUpdate triggered, cache flushed');
+        console.log('invalidateCache triggered, cache flushed');
 
         // Action: Update last valid time
         //

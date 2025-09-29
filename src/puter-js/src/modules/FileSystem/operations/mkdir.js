@@ -54,7 +54,7 @@ const mkdir = function (...args) {
             create_missing_parents: (options.recursive || options.createMissingParents) ?? false,
         }));
 
-        this.postUpdate();
+        this.invalidateCache();
     })
 }
 

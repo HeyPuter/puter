@@ -62,12 +62,11 @@ const stat = async function (...args) {
             
             // Cache the result if it's not bigger than MAX_CACHE_SIZE
             const MAX_CACHE_SIZE = 20 * 1024 * 1024;
-            const EXPIRE_TIME = 60 * 60; // 1 hour
 
             if(resultSize <= MAX_CACHE_SIZE){
                 // UPSERT the cache
-                await puter._cache.set('item:' + result.path, result, { EX: EXPIRE_TIME });
-                await puter._cache.set('item:' + result.uid, result, { EX: EXPIRE_TIME });
+                await puter._cache.set('item:' + result.path, result);
+                await puter._cache.set('item:' + result.uid, result);
             }
             
             resolve(result);
