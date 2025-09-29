@@ -25,7 +25,6 @@ import { AdvancedBase } from '../../../../putility/index.js';
 import FSItem from '../FSItem.js';
 import deleteFSEntry from './operations/deleteFSEntry.js';
 import getReadURL from './operations/getReadUrl.js';
-import path from "../../lib/path.js";
 
 
 export class PuterJSFileSystemModule extends AdvancedBase {
@@ -124,42 +123,33 @@ export class PuterJSFileSystemModule extends AdvancedBase {
 
         this.socket.on('item.renamed', (item) => {
             // check original_client_socket_id and if it matches this.socket.id, don't invalidate cache
-            if (item.original_client_socket_id !== this.socket.id) {
-                this.invalidateCache({path: item.old_path, is_dir: item.is_dir ?? true});
-            }
+            puter._cache.flushall();
+            console.log('Flushed cache for item.renamed');
         });
 
-        this.socket.on('item.deleted', (item) => {
+        this.socket.on('item.removed', (item) => {
             // check original_client_socket_id and if it matches this.socket.id, don't invalidate cache
-            if (item.original_client_socket_id !== this.socket.id) {
-                this.invalidateCache({path: item.path, is_dir: item.is_dir ?? true});
-            }
+            puter._cache.flushall();
+            console.log('Flushed cache for item.deleted');
         });
 
         this.socket.on('item.added', (item) => {
             // check original_client_socket_id and if it matches this.socket.id, don't invalidate cache
-            if (item.original_client_socket_id !== this.socket.id) {
-                this.invalidateCache({path: item.path, is_dir: item.is_dir ?? true});
-            }
+            puter._cache.flushall();
+            console.log('Flushed cache for item.added');
         });
 
         this.socket.on('item.updated', (item) => {
             // check original_client_socket_id and if it matches this.socket.id, don't invalidate cache
-            if (item.original_client_socket_id !== this.socket.id) {
-                this.invalidateCache({path: item.path, is_dir: item.is_dir ?? true});
-            }
+            puter._cache.flushall();
+            console.log('Flushed cache for item.updated');
         });
 
         this.socket.on('item.moved', (item) => {
             // check original_client_socket_id and if it matches this.socket.id, don't invalidate cache
-            if (item.original_client_socket_id !== this.socket.id) {
-                this.invalidateCache({path: item.old_path, is_dir: item.is_dir ?? true});
-                // invalidate the destination dir
-                this.invalidateCache({path: path.dirname(item.path), is_dir: true});
-            }
+            puter._cache.flushall();
+            console.log('Flushed cache for item.moved');
         });
-
-
 
         this.socket.on('connect', () => {
             if ( puter.debugMode )
@@ -251,44 +241,11 @@ export class PuterJSFileSystemModule extends AdvancedBase {
      * @memberof PuterJSFileSystemModule
      * @returns {void}
      */
-    invalidateCache(options) {
-        console.log('invalidating cache for:', options.path);
+    invalidateCache() {
         // Action: Update last valid time
         // Set to 0, which means the cache is not up to date.
         localStorage.setItem(LAST_VALID_TS, '0');
-
-        // Action: Update cache for the item
-        if(options?.path){
-            // delete cache for the item
-            puter._cache.del('item:' + options.path, options);
-
-            // if item is a folder
-            if(options.is_dir){
-                puter._cache.del('readdir:' + options.path);
-                console.log('⮑ delete its readdir:', options.path);
-                // delete all descendants readdirs
-                const descendants_readdir = puter._cache.keys('readdir:' + options.path + '/*');
-                for(const descendant of descendants_readdir){
-                    puter._cache.del(descendant);
-                    console.log('⮑ delete descendant readdir:', descendant);
-                }
-
-                // delete all descendants items
-                const descendants_item = puter._cache.keys('item:' + options.path + '/*');
-                for(const descendant of descendants_item){
-                    puter._cache.del(descendant);
-                    console.log('⮑ delete descendant item:', descendant);
-                }
-            }
-            // invalidate parent folder cache
-            puter._cache.del('readdir:' + path.dirname(options.path));
-            console.log('⮑ delete its parent readdir:', path.dirname(options.path));
-
-
-        }else{
-            puter._cache.flushall();
-            console.log('invalidated cache for all items');
-        }
+        puter._cache.flushall();
     }
 
     /**
@@ -328,7 +285,7 @@ export class PuterJSFileSystemModule extends AdvancedBase {
             const localValidTs = parseInt(localStorage.getItem(LAST_VALID_TS)) || 0;
             
             if (serverTimestamp - localValidTs > 2000) {
-                console.log('PURGING CACHE');
+                console.log('Cache is not up to date, purging cache');
                 // Server has newer data, purge local cache
                 puter._cache.flushall();
                 localStorage.setItem(LAST_VALID_TS, '0');
