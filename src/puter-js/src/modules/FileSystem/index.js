@@ -25,6 +25,8 @@ import { AdvancedBase } from '../../../../putility/index.js';
 import FSItem from '../FSItem.js';
 import deleteFSEntry from './operations/deleteFSEntry.js';
 import getReadURL from './operations/getReadUrl.js';
+import path from "../../lib/path.js";
+
 
 export class PuterJSFileSystemModule extends AdvancedBase {
 
@@ -113,20 +115,49 @@ export class PuterJSFileSystemModule extends AdvancedBase {
     }
 
     bindSocketEvents() {
-        this.socket.on('cache.updated', (msg) => {
-            // check original_client_socket_id and if it matches this.socket.id, don't post update
-            if (msg.original_client_socket_id !== this.socket.id) {
-                this.invalidateCache();
+        // this.socket.on('cache.updated', (msg) => {
+        //     // check original_client_socket_id and if it matches this.socket.id, don't post update
+        //     if (msg.original_client_socket_id !== this.socket.id) {
+        //         this.invalidateCache();
+        //     }
+        // });
+
+        this.socket.on('item.renamed', (item) => {
+            // check original_client_socket_id and if it matches this.socket.id, don't invalidate cache
+            if (item.original_client_socket_id !== this.socket.id) {
+                this.invalidateCache(item);
             }
         });
 
-        // item.renamed is triggered when a file is renamed, this is a quirk since right now cache.updated is not triggered when a file is renamed!
-        this.socket.on('item.renamed', (item) => {
-            // check original_client_socket_id and if it matches this.socket.id, don't post update
+        this.socket.on('item.deleted', (item) => {
+            // check original_client_socket_id and if it matches this.socket.id, don't invalidate cache
             if (item.original_client_socket_id !== this.socket.id) {
-                this.invalidateCache();
+                this.invalidateCache(item);
             }
         });
+
+        this.socket.on('item.added', (item) => {
+            // check original_client_socket_id and if it matches this.socket.id, don't invalidate cache
+            if (item.original_client_socket_id !== this.socket.id) {
+                this.invalidateCache(item);
+            }
+        });
+
+        this.socket.on('item.updated', (item) => {
+            // check original_client_socket_id and if it matches this.socket.id, don't invalidate cache
+            if (item.original_client_socket_id !== this.socket.id) {
+                this.invalidateCache(item);
+            }
+        });
+
+        this.socket.on('item.moved', (item) => {
+            // check original_client_socket_id and if it matches this.socket.id, don't invalidate cache
+            if (item.original_client_socket_id !== this.socket.id) {
+                this.invalidateCache(item);
+            }
+        });
+
+
 
         this.socket.on('connect', () => {
             if ( puter.debugMode )
@@ -218,15 +249,31 @@ export class PuterJSFileSystemModule extends AdvancedBase {
      * @memberof PuterJSFileSystemModule
      * @returns {void}
      */
-    invalidateCache() {
-        // Action: Flush local cache
-        puter._cache.flushall();
-        console.log('invalidateCache triggered, cache flushed');
-
+    invalidateCache(item) {
         // Action: Update last valid time
-        //
         // Set to 0, which means the cache is not up to date.
         localStorage.setItem(LAST_VALID_TS, '0');
+
+        // Action: Update cache for the item
+        if(item?.path){
+            console.log('invalidated cache for item:', item.path);
+            // update cache for the item
+            puter._cache.set('item:' + item.path, item);
+
+            // if item is a folder, invalidate the readdir cache for the folder
+            if(item.is_dir){
+                puter._cache.del('readdir:' + item.path);
+                console.log('⮑ invalidated its readdir:', item.path);
+            }
+            // invalidate parent folder cache
+            puter._cache.del('readdir:' + path.dirname(item.path));
+            console.log('⮑ invalidated its parent readdir:', path.dirname(item.path));
+
+
+        }else{
+            puter._cache.flushall();
+            console.log('invalidated cache for all items');
+        }
     }
 
     /**

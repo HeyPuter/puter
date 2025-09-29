@@ -31,8 +31,6 @@ const readdir = async function (...args) {
         let cacheKey;
         if(options.path){
             cacheKey = 'readdir:' + options.path;
-        }else if(options.uid){
-            cacheKey = 'readdir:' + options.uid;
         }
 
         if(options.consistency === 'eventual'){
@@ -64,7 +62,7 @@ const readdir = async function (...args) {
             const resultSize = JSON.stringify(result).length;
             
             // Cache the result if it's not bigger than MAX_CACHE_SIZE
-            const MAX_CACHE_SIZE = 20 * 1024 * 1024;
+            const MAX_CACHE_SIZE = 100 * 1024 * 1024;
 
             if(resultSize <= MAX_CACHE_SIZE){
                 // UPSERT the cache
@@ -73,7 +71,6 @@ const readdir = async function (...args) {
 
             // set each individual item's cache
             for(const item of result){
-                await puter._cache.set('item:' + item.id, item);
                 await puter._cache.set('item:' + item.path, item);
             }
             

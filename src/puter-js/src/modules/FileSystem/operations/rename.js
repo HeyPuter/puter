@@ -47,11 +47,12 @@ const rename = function (...args) {
             // If dirPath is not provided or it's not starting with a slash, it means it's a relative path
             // in that case, we need to prepend the app's root directory to it
             dataToSend.path = getAbsolutePathForApp(options.path);
+
+            this.invalidateCache(dataToSend.path);
         }
         
         xhr.send(JSON.stringify(dataToSend));
 
-        this.invalidateCache();
     })
 }
 
