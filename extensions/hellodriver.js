@@ -37,6 +37,17 @@ extension.on('create.interfaces', event => {
  * the most basic reasonable implementation of the interface. The
  * default return value is "Hello, World!", but if subject is
  * provided it will be "Hello, <subject>!".
+ *
+ * This implementation can be called from puter.js like this:
+ *
+ *   await puter.call('hello-world', 'no-frills', 'greet', { subject: 'Dave' });
+ *
+ * If you get an authorization error it's because the user you're
+ * logged in as does not have permission to invoke the `no-frills`
+ * implementation of `hello-world`. Users must be granted the following
+ * permission to access this driver:
+ *
+ *   service:no-frills:ii:hello-world
  */
 extension.on('create.drivers', event => {
     event.createDriver('hello-world', 'no-frills', {
