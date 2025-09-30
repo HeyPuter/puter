@@ -1,16 +1,20 @@
 /**
  * Copyright (C) 2024-present Puter Technologies Inc.
  *
- * Ez a fájl a Puter része.
+ * This file is part of Puter.
  *
- * A Puter szabad szoftver: terjesztheted és/vagy módosíthatod
- * a GNU Affero General Public License feltételei szerint, amelyet a Free Software Foundation adott ki, akár a licenc 3-as verziója, akár (választásod szerint) bármely későbbi verzió alapján.
+ * Puter is free software: you can redistribute it and/or modify
+ * it under the terms of the GNU Affero General Public License as published
+ * by the Free Software Foundation, either version 3 of the License, or
+ * (at your option) any later version.
  *
- * Ez a program abban a reményben kerül terjesztésre, hogy hasznos lesz,
- * de mindenféle GARANCIA NÉLKÜL; még az ELADHATÓSÁGRA vagy egy adott célra való ALKALMASSÁG hallgatólagos garanciája nélkül is. További részletekért lásd a GNU Affero General Public License-t.
+ * This program is distributed in the hope that it will be useful,
+ * but WITHOUT ANY WARRANTY; without even the implied warranty of
+ * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+ * GNU Affero General Public License for more details.
  *
- * A programhoz mellékelték a GNU Affero General Public License egy példányát.
- * Ha nem, látogass el a <https://www.gnu.org/licenses/> oldalra.
+ * You should have received a copy of the GNU Affero General Public License
+ * along with this program.  If not, see <https://www.gnu.org/licenses/>.
  */
 
 const hu = {

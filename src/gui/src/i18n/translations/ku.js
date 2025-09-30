@@ -17,10 +17,6 @@
  * along with this program.  If not, see <https://www.gnu.org/licenses/>.
  */
 
-//
-// Bryar Ghafoor کردوویە بە کوردی بڕیار غفور
-//
-
 const ku = {
   name: "کوردی",
   english_name: "Kurdish",
