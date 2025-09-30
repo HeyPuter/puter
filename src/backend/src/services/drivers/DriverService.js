@@ -206,8 +206,8 @@ class DriverService extends BaseService {
                     description: 'get usage information for drivers',
                     parameters: {},
                     result: { type: 'json' },
-                }
-            }
+                },
+            },
         });
     }
     
@@ -237,13 +237,6 @@ class DriverService extends BaseService {
         if (this.interface_to_implementation.hasOwnProperty(interface_name)) {
             return this.interface_to_implementation[interface_name];
         }
-        
-        return;
-        this.log.noticeme('HERE IT IS');
-        const options = this.services.get_implementors(interface_name);
-        this.log.info('test', { options });
-        if ( options.length < 1 ) return;
-        return options[0];
     }
 
 
@@ -304,7 +297,7 @@ class DriverService extends BaseService {
             'puter-apps': 'es:app',
             'puter-subdomains': 'es:subdomain',
             'puter-notifications': 'es:notification',
-        }
+        };
         
         driver = driver ?? iface_to_driver[iface] ?? iface;
         
@@ -314,7 +307,7 @@ class DriverService extends BaseService {
             'puter-apps': 'crud-q',
             'puter-subdomains': 'crud-q',
             'puter-notifications': 'crud-q',
-        }
+        };
         iface = iface_to_iface[iface] ?? iface;
 
         let skip_usage = false;
@@ -478,10 +471,8 @@ class DriverService extends BaseService {
             service_name,
             iface,
             method,
-            policy: effective_policy
+            policy: effective_policy,
         });
-            
-        const method_key = `V1:${service_name}:${iface}:${method}`;
             
         const invoker = Invoker.create({
             decorators: [
@@ -650,38 +641,34 @@ class DriverService extends BaseService {
         
         if ( driver_service_exists ) {
             return this.services.get(name);
-        } else {
-            const svc_registry = this.services.get('registry');
-            const col_drivers = svc_registry.get('drivers');
-            let maybe_driver = col_drivers.get(`${iface}:${name}`);
-            if ( maybe_driver ) {
-                const org = maybe_driver;
-                const impl = Object.create(org);
-                
-                // TraitsFeature also uses `in <impl>`, so this should cover
-                // all the methods that would get re-"`bind`'d"
-                for ( const k in org ) {
-                    if ( ! (typeof org[k] === 'function') ) continue;
-                    impl[k] = org[k].bind(org);
-                }
-                maybe_driver = class extends AdvancedBase {
-                    static IMPLEMENTS = {
-                        [iface]: impl,
-                    };
-                };
-                Object.defineProperty(maybe_driver, 'name', {
-                    value: `driver:${iface}:${name}`,
-                });
-                return new maybe_driver();
+        }
+
+        const svc_registry = this.services.get('registry');
+        const col_drivers = svc_registry.get('drivers');
+        let maybe_driver = col_drivers.get(`${iface}:${name}`);
+        if ( maybe_driver ) {
+            const org = maybe_driver;
+            const impl = Object.create(org);
+            
+            // TraitsFeature also uses `in <impl>`, so this should cover
+            // all the methods that would get re-"`bind`'d"
+            for ( const k in org ) {
+                if ( ! (typeof org[k] === 'function') ) continue;
+                impl[k] = org[k].bind(org);
             }
+            maybe_driver = class extends AdvancedBase {
+                static IMPLEMENTS = {
+                    [iface]: impl,
+                };
+            };
+            Object.defineProperty(maybe_driver, 'name', {
+                value: `driver:${iface}:${name}`,
+            });
+            return new maybe_driver();
         }
 
-        if ( ! driver_service_exists ) {
-            const svc_apiError = this.services.get('api-error');
-            throw svc_apiError.create('no_implementation_available', { iface });
-        }
-
-        return this.services.get(name);
+        const svc_apiError = this.services.get('api-error');
+        throw svc_apiError.create('no_implementation_available', { iface });
     }
 }
 
