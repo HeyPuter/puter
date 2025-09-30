@@ -2316,6 +2316,303 @@ window.unzipItem = async function(itemPath) {
     });
 }
 
+/**
+ * Creates a tar archive from selected file/folder items.
+ * 
+ * @param {HTMLElement|HTMLElement[]} el_items - Item element(s) to tar
+ * @param {string} targetDirPath - Directory path where tar file will be saved
+ * @param {boolean} [download=true] - If true, downloads the tar; if false, saves to filesystem
+ * @returns {Promise<void>}
+ */
+window.tarItems = async function(el_items, targetDirPath, download = true) {
+    const tar_operation_id = window.operation_id++;
+    window.operation_cancelled[tar_operation_id] = false;
+
+    el_items = Array.isArray(el_items) ? el_items : [el_items];
+
+    let start_ts = Date.now();
+    let progwin, progwin_timeout;
+    progwin_timeout = setTimeout(async () => {
+        progwin = await UIWindowProgress({
+            title: i18n('tar'),
+            icon: window.icons[`app-icon-uploader.svg`],
+            operation_id: tar_operation_id,
+            show_progress: true,
+            on_cancel: () => {
+                window.operation_cancelled[tar_operation_id] = true;
+            },
+        });
+        progwin?.set_status(i18n('tar', 'Selection(s)'));
+    }, 500);
+
+    let files = [];
+    let perItemAdditionProgress = window.zippingProgressConfig.SEQUENCING / el_items.length;
+    let currentProgress = 0;
+
+    for (let idx = 0; idx < el_items.length; idx++) {
+        const el_item = el_items[idx];
+        if(window.operation_cancelled[tar_operation_id]) return;
+        let targetPath = $(el_item).attr('data-path');
+
+        if($(el_item).attr('data-is_dir') === '1'){
+            progwin?.set_status(i18n('reading', path.basename(targetPath)));
+            let children = await readDirectoryRecursive(targetPath);
+
+            for (let cIdx = 0; cIdx < children.length; cIdx++) {
+                const child = children[cIdx];
+
+                if (!child.relativePath) {
+                    let relativePath = el_items.length === 1 ? path.basename(child.path) : path.basename(targetPath) + '/' + path.basename(child.path);
+                    files.push({ name: relativePath + '/', content: new Uint8Array(0), isDir: true });
+                } else {
+                    let relativePath = el_items.length === 1 ? child.relativePath : path.basename(targetPath) + '/' + child.relativePath;
+                    progwin?.set_status(i18n('sequencing', child.relativePath));
+                    let content = await puter.fs.read(child.path);
+                    files.push({ name: relativePath, content: await blobToUint8Array(content), isDir: false });
+                }
+                currentProgress += perItemAdditionProgress / children.length;
+                progwin?.set_progress(currentProgress.toPrecision(2));
+            }
+        }
+        else{
+            progwin?.set_status(i18n('reading', path.basename($(el_items[0]).attr('data-path'))));
+            let content = await puter.fs.read(targetPath);
+            files.push({ name: path.basename(targetPath), content: await blobToUint8Array(content), isDir: false });
+            currentProgress += perItemAdditionProgress;
+            progwin?.set_progress(currentProgress.toPrecision(2));
+        }
+    }
+
+    let tarName = el_items.length === 1 ? path.basename($(el_items[0]).attr('data-path')) : 'Archive';
+
+    progwin?.set_status(i18n('tarring', tarName + ".tar"));
+    progwin?.set_progress(currentProgress.toPrecision(2));
+
+    try {
+        let tarContents = createTar(files);
+        currentProgress += window.zippingProgressConfig.ZIPPING;
+
+        let tarBlob = new Blob([tarContents]);
+
+        if(download){
+            const url = URL.createObjectURL(tarBlob);
+            const a = document.createElement("a");
+            a.href = url;
+            a.download = tarName+".tar";
+            document.body.appendChild(a);
+            a.click();
+            document.body.removeChild(a);
+            URL.revokeObjectURL(url);
+        } else {
+            progwin?.set_status(i18n('writing', tarName + ".tar"));
+            currentProgress += window.zippingProgressConfig.WRITING;
+            progwin?.set_progress(currentProgress.toPrecision(2));
+            await puter.fs.write(targetDirPath + '/' + tarName + ".tar", tarBlob, { overwrite: false, dedupeName: true });
+            progwin?.set_progress(window.zippingProgressConfig.TOTAL);
+        }
+
+        clearTimeout(progwin_timeout);
+        setTimeout(() => {
+            progwin?.close();
+        }, Math.max(0, window.zip_progress_hide_delay - (Date.now() - start_ts)));
+    } catch(err) {
+        clearTimeout(progwin_timeout);
+        setTimeout(() => {
+            progwin?.close();
+        }, Math.max(0, window.copy_progress_hide_delay - (Date.now() - start_ts)));
+        console.error("Error in tarring files: ", err);
+    }
+}
+
+/**
+ * Creates a tar archive from an array of file objects.
+ * 
+ * @param {Array<{name: string, content: Uint8Array, isDir: boolean}>} files - Array of file objects to include in the tar
+ * @returns {Uint8Array} The tar archive as a Uint8Array
+ */
+function createTar(files) {
+    let blocks = [];
+
+    for (let file of files) {
+        let header = new Uint8Array(512);
+        let nameBytes = new TextEncoder().encode(file.name);
+        header.set(nameBytes.slice(0, 100), 0);
+
+        let mode = file.isDir ? '0000755' : '0000644';
+        header.set(new TextEncoder().encode(mode + '\0'), 100);
+        header.set(new TextEncoder().encode('0000000\0'), 108);
+        header.set(new TextEncoder().encode('0000000\0'), 116);
+
+        let size = file.isDir ? 0 : file.content.length;
+        let sizeOctal = size.toString(8).padStart(11, '0') + '\0';
+        header.set(new TextEncoder().encode(sizeOctal), 124);
+
+        let mtime = Math.floor(Date.now() / 1000).toString(8).padStart(11, '0') + '\0';
+        header.set(new TextEncoder().encode(mtime), 136);
+
+        header.set(new TextEncoder().encode('        '), 148);
+        header.set(new TextEncoder().encode(file.isDir ? '5' : '0'), 156);
+        header.set(new TextEncoder().encode('ustar\0'), 257);
+        header.set(new TextEncoder().encode('00'), 263);
+
+        let checksum = 0;
+        for (let i = 0; i < 512; i++) {
+            checksum += header[i];
+        }
+        let checksumOctal = checksum.toString(8).padStart(6, '0') + '\0 ';
+        header.set(new TextEncoder().encode(checksumOctal), 148);
+
+        blocks.push(header);
+
+        if (!file.isDir && file.content.length > 0) {
+            blocks.push(file.content);
+            let padding = (512 - (file.content.length % 512)) % 512;
+            if (padding > 0) {
+                blocks.push(new Uint8Array(padding));
+            }
+        }
+    }
+
+    blocks.push(new Uint8Array(1024));
+
+    let totalLength = blocks.reduce((sum, block) => sum + block.length, 0);
+    let result = new Uint8Array(totalLength);
+    let offset = 0;
+    for (let block of blocks) {
+        result.set(block, offset);
+        offset += block.length;
+    }
+
+    return result;
+}
+
+/**
+ * Extracts a tar archive file to a new directory.
+ * 
+ * @param {string} itemPath - Path to the tar file to extract
+ * @returns {Promise<void>}
+ */
+window.untarItem = async function(itemPath) {
+    const untar_operation_id = window.operation_id++;
+    window.operation_cancelled[untar_operation_id] = false;
+
+    let start_ts = Date.now();
+    let progwin, progwin_timeout;
+    progwin_timeout = setTimeout(async () => {
+        progwin = await UIWindowProgress({
+            title: i18n('untar'),
+            icon: window.icons[`app-icon-uploader.svg`],
+            operation_id: untar_operation_id,
+            show_progress: true,
+            on_cancel: () => {
+                window.operation_cancelled[untar_operation_id] = true;
+            },
+        });
+        progwin?.set_status(i18n('untar', 'Selection'));
+    }, 500);
+
+    let filePath = itemPath;
+    let currentProgress = window.zippingProgressConfig.SEQUENCING;
+
+    progwin?.set_status(i18n('sequencing', path.basename(filePath)));
+    let file = await blobToUint8Array(await puter.fs.read(filePath));
+    progwin?.set_progress(currentProgress.toPrecision(2));
+
+    progwin?.set_status(i18n('untarring', path.basename(filePath)));
+
+    try {
+        let files = parseTar(file);
+        currentProgress += window.zippingProgressConfig.ZIPPING;
+        progwin?.set_progress(currentProgress.toPrecision(2));
+
+        const rootdir = await puter.fs.mkdir(path.dirname(filePath) + '/' + path.basename(filePath, '.tar'), { dedupeName: true });
+        let perItemProgress = window.zippingProgressConfig.WRITING / files.length;
+        let queuedFileWrites = [];
+
+        for (let fileItem of files) {
+            if (!fileItem.isDir) {
+                let fileData = new Blob([fileItem.content]);
+                progwin?.set_status(i18n('writing', fileItem.name));
+                queuedFileWrites.push(new File([fileData], fileItem.name));
+                currentProgress += perItemProgress;
+                progwin?.set_progress(currentProgress.toPrecision(2));
+            }
+        }
+
+        queuedFileWrites.length && puter.fs.upload(
+            queuedFileWrites,
+            rootdir.path + '/',
+            {
+                createFileParent: true,
+                progress: async function(operation_id, op_progress){
+                    progwin.set_progress(op_progress);
+                    if(document.visibilityState !== "visible"){
+                        update_title_based_on_uploads();
+                    }
+                },
+                success: async function(items){
+                    progwin?.set_progress(window.zippingProgressConfig.TOTAL.toPrecision(2));
+                    clearTimeout(progwin_timeout);
+                    setTimeout(() => {
+                        progwin?.close();
+                    }, Math.max(0, window.unzip_progress_hide_delay - (Date.now() - start_ts)));
+                }
+            }
+        );
+    } catch(err) {
+        UIAlert(err.message);
+        clearTimeout(progwin_timeout);
+        setTimeout(() => {
+            progwin?.close();
+        }, Math.max(0, window.copy_progress_hide_delay - (Date.now() - start_ts)));
+    }
+}
+
+/**
+ * Parses a tar archive's binary data into an array of file objects.
+ * 
+ * @param {Uint8Array} data - The tar file binary data
+ * @returns {Array<{name: string, content: Uint8Array, isDir: boolean}>} Array of parsed file objects
+ */
+function parseTar(data) {
+    let files = [];
+    let offset = 0;
+
+    while (offset < data.length - 1024) {
+        let header = data.slice(offset, offset + 512);
+
+        let checksum = 0;
+        for (let i = 0; i < 148; i++) checksum += header[i];
+        for (let i = 148; i < 156; i++) checksum += 32;
+        for (let i = 156; i < 512; i++) checksum += header[i];
+
+        if (checksum === 256) break;
+
+        let nameEnd = header.indexOf(0);
+        let name = new TextDecoder().decode(header.slice(0, nameEnd));
+
+        let sizeStr = new TextDecoder().decode(header.slice(124, 136)).trim();
+        let size = parseInt(sizeStr, 8) || 0;
+
+        let typeFlag = String.fromCharCode(header[156]);
+        let isDir = typeFlag === '5' || name.endsWith('/');
+
+        offset += 512;
+
+        if (!isDir && size > 0) {
+            let content = data.slice(offset, offset + size);
+            files.push({ name, content, isDir: false });
+            offset += size;
+            let padding = (512 - (size % 512)) % 512;
+            offset += padding;
+        } else if (isDir) {
+            files.push({ name, content: new Uint8Array(0), isDir: true });
+        }
+    }
+
+    return files;
+}
+
 window.rename_file = async(options, new_name, old_name, old_path, el_item, el_item_name, el_item_icon, el_item_name_editor, website_url, is_undo = false)=>{
     puter.fs.rename({
         uid: options.uid === 'null' ? null : options.uid,

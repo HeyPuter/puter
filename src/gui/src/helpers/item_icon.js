@@ -198,6 +198,14 @@ const item_icon = async (fsentry)=>{
     else if(fsentry.name.toLowerCase().endsWith('.weblink')){
         return {image: window.icons['link.svg'], type: 'icon'};
     }
+    // *.tar
+    else if(fsentry.name.toLowerCase().endsWith('.tar')){
+        return {image: window.icons['file-tar.svg'], type: 'icon'};
+    }
+    // *.zip
+    else if(fsentry.name.toLowerCase().endsWith('.zip')){
+        return {image: window.icons['file-zip.svg'], type: 'icon'};
+    }
     // --------------------------------------------------
     // Determine icon by set or derived mime type
     // --------------------------------------------------

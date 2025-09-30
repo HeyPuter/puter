@@ -319,6 +319,8 @@ const en = {
         unlimited: 'Unlimited',
         unzip: "Unzip",
         unzipping: "Unzipping %strong%",
+        untar: "Untar",
+        untarring: "Untarring %strong%",
         upload: 'Upload',
         upload_here: 'Upload here',
         used_of: '{{used}} used of {{available}}',
@@ -333,9 +335,12 @@ const en = {
         yes_release_it: 'Yes, Release It',
         you_have_been_referred_to_puter_by_a_friend: "You have been referred to Puter by a friend!",
         zip: "Zip",
+        tar: "Tar",
+        download_as_tar: "Download as Tar",
         sequencing: "Sequencing %strong%",
         worker: "Worker",
         zipping: "Zipping %strong%",
+        tarring: "Tarring %strong%",
 
         // === 2FA Setup ===
         setup2fa_1_step_heading: 'Open your authenticator app',

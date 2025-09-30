@@ -182,7 +182,7 @@ function UIItem(options){
     const el_item_name = document.querySelector(`#item-${item_id} > .item-name`);
     const el_item_icon = document.querySelector(`#item-${item_id} .item-icon`);
     const el_item_name_editor = document.querySelector(`#item-${item_id} > .item-name-editor`);
-    const is_trashed = $(el_item).attr('data-path').startsWith(window.trash_path + '/');
+    const is_trashed = ($(el_item).attr('data-path') || '').startsWith(window.trash_path + '/');
 
     // update parent window's explorer item count if applicable
     if(options.appendTo !== undefined){
@@ -783,7 +783,7 @@ function UIItem(options){
         // Multiple items selected
         // -------------------------------------------------------
         if($selected_items.length > 1){
-            const are_trashed = $selected_items.attr('data-path').startsWith(window.trash_path + '/');
+            const are_trashed = ($selected_items.attr('data-path') || '').startsWith(window.trash_path + '/');
             menu_items = []
             // -------------------------------------------
             // Restore
@@ -860,6 +860,34 @@ function UIItem(options){
                         }
 
                         window.zipItems(items, path.dirname($(el_item).attr('data-path')), false);
+                    }
+                });
+                // -------------------------------------------
+                // Download as Tar
+                // -------------------------------------------
+                menu_items.push({
+                    html: i18n('download_as_tar'),
+                    onClick: async function(){
+                        let items = [];
+                        for (let index = 0; index < $selected_items.length; index++) {
+                            items.push($selected_items[index]);
+                        }
+
+                        window.tarItems(items, path.dirname($(el_item).attr('data-path')), true);
+                    }
+                });
+                // -------------------------------------------
+                // Tar
+                // -------------------------------------------
+                menu_items.push({
+                    html: i18n('tar'),
+                    onClick: async function(){
+                        let items = [];
+                        for (let index = 0; index < $selected_items.length; index++) {
+                            items.push($selected_items[index]);
+                        }
+
+                        window.tarItems(items, path.dirname($(el_item).attr('data-path')), false);
                     }
                 });
                 // -------------------------------------------
@@ -1250,6 +1278,29 @@ function UIItem(options){
                     onClick: async function(){
                         let filePath = $(el_item).attr('data-path');
                         window.unzipItem(filePath)
+                    }
+                })
+            }
+            // -------------------------------------------
+            // Tar
+            // -------------------------------------------
+            if(!is_trash && !is_trashed && !$(el_item).attr('data-path').endsWith('.tar')){
+                menu_items.push({
+                    html: i18n('tar'),
+                    onClick: function(){
+                        window.tarItems(el_item, path.dirname($(el_item).attr('data-path')), false);
+                    }
+                })
+            }
+            // -------------------------------------------
+            // Untar
+            // -------------------------------------------
+            if(!is_trash && !is_trashed && $(el_item).attr('data-path').endsWith('.tar')){
+                menu_items.push({
+                    html: i18n('untar'),
+                    onClick: async function(){
+                        let filePath = $(el_item).attr('data-path');
+                        window.untarItem(filePath)
                     }
                 })
             }
