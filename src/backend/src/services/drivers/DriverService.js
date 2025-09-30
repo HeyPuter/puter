@@ -26,6 +26,7 @@ const { PermissionUtil } = require("../auth/PermissionUtils.mjs");
 const { Invoker } = require("../../../../putility/src/libs/invoker");
 const { get_user } = require("../../helpers");
 const { whatis } = require('../../util/langutil');
+const { AdvancedBase } = require("@heyputer/putility");
 
 const strutil = require('@heyputer/putility').libs.string;
 
@@ -131,6 +132,31 @@ class DriverService extends BaseService {
         });
     }
     
+    async ['__on_boot.consolidation'] () {
+        const svc_registry = this.services.get('registry');
+        const svc_event = this.services.get('event');
+
+        {
+            const col_interfaces = svc_registry.get('interfaces');
+            const event = {
+                createInterface (name, definition) {
+                    col_interfaces.set(name, definition);
+                },
+            };
+            await svc_event.emit('create.interfaces', event);
+        }
+        
+        {
+            const col_drivers = svc_registry.get('drivers');
+            const event = {
+                createDriver (ifaceName, implName, definition) {
+                    col_drivers.set(`${ifaceName}:${implName}`, definition);
+                },
+            };
+            await svc_event.emit('create.drivers', event);
+        }
+    }
+    
     /**
     * This method is responsible for registering collections in the service registry.
     * It registers 'interfaces', 'drivers', and 'types' collections.
@@ -160,6 +186,7 @@ class DriverService extends BaseService {
         }
         await services.emit('driver.register.interfaces',
             { col_interfaces });
+        
         await services.emit('driver.register.drivers',
             { col_drivers });
     }
@@ -302,27 +329,7 @@ class DriverService extends BaseService {
         };
         driver = this.service_aliases[driver] ?? driver;
 
-
-        /**
-        * This method retrieves the driver service for the provided interface name.
-        * It first checks if the driver service already exists in the registry,
-        * and if not, it throws an error.
-        *
-        * @param {string} interfaceName - The name of the interface for which to retrieve the driver service.
-        * @returns {DriverService} The driver service instance for the provided interface.
-        */
-        const driver_service_exists = (() => {
-            return this.services.has(driver) &&
-                this.services.get(driver).list_traits()
-                    .includes(iface);
-        })();
-
-        if ( ! driver_service_exists ) {
-            const svc_apiError = this.services.get('api-error');
-            throw svc_apiError.create('no_implementation_available', { iface });
-        }
-
-        const service = this.services.get(driver);
+        const service = this.get_service_or_throw_(driver, iface);
 
         const caps = service.as('driver-capabilities');
         if ( test_mode && caps && caps.supports_test_mode(iface, method) ) {
@@ -624,6 +631,57 @@ class DriverService extends BaseService {
         }
 
         return processed_args;
+    }
+    
+    /**
+    * This method retrieves the driver service for the provided interface name.
+    * It first checks if the driver service already exists in the registry,
+    * and if not, it throws an error.
+    *
+    * @param {string} interfaceName - The name of the interface for which to retrieve the driver service.
+    * @returns {DriverService} The driver service instance for the provided interface.
+    */
+    get_service_or_throw_ (name, iface) {
+        let driver_service_exists = (() => {
+            return this.services.has(name) &&
+                this.services.get(name).list_traits()
+                    .includes(iface);
+        })();
+        
+        if ( driver_service_exists ) {
+            return this.services.get(name);
+        } else {
+            const svc_registry = this.services.get('registry');
+            const col_drivers = svc_registry.get('drivers');
+            let maybe_driver = col_drivers.get(`${iface}:${name}`);
+            if ( maybe_driver ) {
+                const org = maybe_driver;
+                const impl = Object.create(org);
+                
+                // TraitsFeature also uses `in <impl>`, so this should cover
+                // all the methods that would get re-"`bind`'d"
+                for ( const k in org ) {
+                    if ( ! (typeof org[k] === 'function') ) continue;
+                    impl[k] = org[k].bind(org);
+                }
+                maybe_driver = class extends AdvancedBase {
+                    static IMPLEMENTS = {
+                        [iface]: impl,
+                    };
+                };
+                Object.defineProperty(maybe_driver, 'name', {
+                    value: `driver:${iface}:${name}`,
+                });
+                return new maybe_driver();
+            }
+        }
+
+        if ( ! driver_service_exists ) {
+            const svc_apiError = this.services.get('api-error');
+            throw svc_apiError.create('no_implementation_available', { iface });
+        }
+
+        return this.services.get(name);
     }
 }
 
