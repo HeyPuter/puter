@@ -1,18 +1,18 @@
 /*
  * Copyright (C) 2024-present Puter Technologies Inc.
- * 
+ *
  * This file is part of Puter.
- * 
+ *
  * Puter is free software: you can redistribute it and/or modify
  * it under the terms of the GNU Affero General Public License as published
  * by the Free Software Foundation, either version 3 of the License, or
  * (at your option) any later version.
- * 
+ *
  * This program is distributed in the hope that it will be useful,
  * but WITHOUT ANY WARRANTY; without even the implied warranty of
  * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
  * GNU Affero General Public License for more details.
- * 
+ *
  * You should have received a copy of the GNU Affero General Public License
  * along with this program.  If not, see <https://www.gnu.org/licenses/>.
  */
@@ -21,25 +21,27 @@ const {
     default_implicit_user_app_permissions,
     implicit_user_app_permissions,
     hardcoded_user_group_permissions,
-} = require("../data/hardcoded-permissions");
-const { get_user } = require("../helpers");
-const { Actor, UserActorType, AppUnderUserActorType, AccessTokenActorType } = require("../services/auth/Actor");
-const { reading_has_terminal } = require("./permission-scan-lib");
+} = require('../data/hardcoded-permissions');
+const { get_user } = require('../helpers');
+const { Actor, UserActorType, AppUnderUserActorType, AccessTokenActorType } = require('../services/auth/Actor');
+const { reading_has_terminal } = require('./permission-scan-lib');
 
 /*
     OPTIMAL FOLD LEVEL: 3
-    
+
     "Ctrl+K, Ctrl+3" or "⌘K, ⌘3";
     "Ctrl+K, Ctrl+J" or "⌘K, ⌘J";
 */
 
 /**
+ *
+ * @type { {name:string, documentation:string, scan: (a:import('../codex/Sequence.js').A)=>Promise<unknown> }[]}
  * Permission Scanners
  * @usedBy scan-permission.js
- * 
+ *
  * These are all the different ways an entity (user or app) can have a permission.
  * This list of scanners is iterated over and invoked by scan-permission.js.
- * 
+ *
  * Each `scan` function is passed a sequence scope. The instance attached to the
  * sequence scope is PermissionService itself, so any `a.iget('something')` is
  * accessing the member 'something' of the PermissionService instance.
@@ -53,68 +55,68 @@ const PERMISSION_SCANNERS = [
             Permission implicators are added by other services via
             PermissionService's \`register_implicator\` method.
         `,
-        async scan (a) {
+        async scan(a) {
             const reading = a.get('reading');
             const { actor, permission_options } = a.values();
-            
+
             const _permission_implicators = a.iget('_permission_implicators');
 
             for ( const permission of permission_options )
-            for ( const implicator of _permission_implicators ) {
-                if ( implicator.options?.shortcut ) continue;
-                
-                if ( ! implicator.matches(permission) ) {
-                    continue;
-                }
-                const implied = await implicator.check({
-                    actor,
-                    permission,
-                });
-                if ( implied ) {
-                    reading.push({
-                        $: 'option',
+            {
+                for ( const implicator of _permission_implicators ) {
+                    if ( implicator.options?.shortcut ) continue;
+
+                    if ( ! implicator.matches(permission) ) {
+                        continue;
+                    }
+                    const implied = await implicator.check({
+                        actor,
                         permission,
-                        source: 'implied',
-                        by: implicator.id,
-                        data: implied,
-                        ...((!!actor.type.user)
-                            ? { holder_username: actor.type.user.username }
-                            : {}),
                     });
-                    if ( implicator.options?.shortcut ) {
-                        a.stop();
-                        return;
+                    if ( implied ) {
+                        reading.push({
+                            $: 'option',
+                            permission,
+                            source: 'implied',
+                            by: implicator.id,
+                            data: implied,
+                            ...((actor.type.user)
+                                ? { holder_username: actor.type.user.username }
+                                : {}),
+                        });
+                        if ( implicator.options?.shortcut ) {
+                            a.stop();
+                            return;
+                        }
                     }
                 }
             }
-        }
+        },
     },
     {
         name: 'access-token',
         documentation: `
             Permissoins for access tokens
         `,
-        async scan (a) {
-            const { reading, actor, permission_options, state } = a.values();
+        async scan(a) {
+            const { reading, actor, permission_options } = a.values();
 
             if ( !(actor.type instanceof AccessTokenActorType) ) return;
-            
+
             const { authorizer: issuer_actor, token } = actor.type;
 
             for ( const permission of permission_options ) {
                 const issuer_reading =
-                    await a.icall('scan', issuer_actor, permission)
+                    await a.icall('scan', issuer_actor, permission);
                 const has_terminal = reading_has_terminal({ reading: issuer_reading });
 
                 const db = a.iget('db');
-                const rows = await db.read(
-                    'SELECT * FROM `access_token_permissions` ' +
+                const rows = await db.read('SELECT * FROM `access_token_permissions` ' +
                     'WHERE `token_uid` = ? AND `permission` = ?',
-                    [
-                        token,
-                        permission,
-                    ]
-                );
+                [
+                    token,
+                    permission,
+                ]);
 
                 // Token must have permission
                 if ( ! rows[0] ) continue;
@@ -127,80 +129,22 @@ const PERMISSION_SCANNERS = [
                     reading: issuer_reading,
                 });
             }
-        }
+        },
     },
     {
         name: 'user-user',
         documentation: `
             User-to-User permissions are permission granted form one user to another.
         `,
-        async scan (a) {
+        async scan(a) {
             const { reading, actor, permission_options, state } = a.values();
             if ( !(actor.type instanceof UserActorType)  ) {
                 return;
             }
-            const db = a.iget('db');
-            
-            let sql_perm = permission_options.map(perm => {
-                return `\`permission\` = ?`
-            }).join(' OR ');
-            
-            if ( permission_options.length > 1 ) {
-                sql_perm = '(' + sql_perm + ')';
-            }
+            const subReadings =  await a.icall('validateUserPerms', { actor, permissions: permission_options, state });
+            reading.push(...subReadings);
 
-            // SELECT permission
-            const rows = await db.read(
-                'SELECT * FROM `user_to_user_permissions` ' +
-                'WHERE `holder_user_id` = ? AND ' +
-                sql_perm,
-                [
-                    actor.type.user.id,
-                    ...permission_options,
-                ]
-            );
-
-            // Return the first matching permission where the
-            // issuer also has the permission granted
-            for ( const row of rows ) {
-                row.extra = db.case({
-                    mysql: () => row.extra,
-                    otherwise: () => JSON.parse(row.extra ?? '{}')
-                })();
-
-                const issuer_actor = new Actor({
-                    type: new UserActorType({
-                        user: await get_user({ id: row.issuer_user_id }),
-                    }),
-                });
-
-                let should_continue = false;
-                for ( const seen_actor of state.anti_cycle_actors ) {
-                    if ( seen_actor.type.user.id === issuer_actor.type.user.id ) {
-                        should_continue = true;
-                        break;
-                    }
-                }
-
-                if ( should_continue ) continue;
-
-                const issuer_reading = await a.icall(
-                    'scan', issuer_actor, row.permission, undefined, state);
-
-                const has_terminal = reading_has_terminal({ reading: issuer_reading });
-
-                reading.push({
-                    $: 'path',
-                    via: 'user',
-                    has_terminal,
-                    permission: row.permission,
-                    data: row.extra,
-                    holder_username: actor.type.user.username,
-                    issuer_username: issuer_actor.type.user.username,
-                    reading: issuer_reading,
-                });
-            }
-        }
+        },
     },
     {
         name: 'hc-user-group-user',
@@ -211,20 +155,19 @@ const PERMISSION_SCANNERS = [
             These are typically used to grant permissions from the system user to
             the default groups: "admin", "user", and "temp".
         `,
-        async scan (a) {
+        async scan(a) {
             const { reading, actor, permission_options } = a.values();
             if ( !(actor.type instanceof UserActorType)  ) {
                 return;
             }
 
             const svc_group = await a.iget('services').get('group');
-            const groups = await svc_group.list_groups_with_member(
-                { user_id: actor.type.user.id });
+            const groups = await svc_group.list_groups_with_member({ user_id: actor.type.user.id });
             const group_uids = {};
             for ( const group of groups ) {
                 group_uids[group.values.uid] = group;
             }
-            
+
             for ( const issuer_username in hardcoded_user_group_permissions ) {
                 const issuer_actor = new Actor({
                     type: new UserActorType({
@@ -237,9 +180,9 @@ const PERMISSION_SCANNERS = [
                     if ( ! group_uids[group_uid] ) continue;
                     const issuer_group = issuer_groups[group_uid];
                     for ( const permission of permission_options ) {
-                        if ( ! issuer_group.hasOwnProperty(permission) ) continue;
+                        if ( !Object.prototype.hasOwnProperty.call(issuer_group, permission) ) continue;
                         const issuer_reading =
-                            await a.icall('scan', issuer_actor, permission)
+                            await a.icall('scan', issuer_actor, permission);
 
                         const has_terminal = reading_has_terminal({ reading: issuer_reading });
 
@@ -257,7 +200,7 @@ const PERMISSION_SCANNERS = [
                     }
                 }
             }
-        }
+        },
     },
     {
         name: 'user-group-user',
@@ -266,33 +209,31 @@ const PERMISSION_SCANNERS = [
             group they are a member of was granted this permission by another
             user.
         `,
-        async scan (a) {
+        async scan(a) {
             const { reading, actor, permission_options } = a.values();
             if ( !(actor.type instanceof UserActorType)  ) {
                 return;
             }
             const db = a.iget('db');
 
-            let sql_perm = permission_options.map((perm) =>
-                `p.permission = ?`).join(' OR ');
+            let sql_perm = permission_options.map(() =>
+                'p.permission = ?').join(' OR ');
 
             if ( permission_options.length > 1 ) {
-                sql_perm = '(' + sql_perm + ')';
+                sql_perm = `(${sql_perm})`;
             }
-            const rows = await db.read(
-                'SELECT p.permission, p.user_id, p.group_id, p.extra FROM `user_to_group_permissions` p ' +
+            const rows = await db.read('SELECT p.permission, p.user_id, p.group_id, p.extra FROM `user_to_group_permissions` p ' +
                 'JOIN `jct_user_group` ug ON p.group_id = ug.group_id ' +
-                'WHERE ug.user_id = ? AND ' + sql_perm,
-                [
-                    actor.type.user.id,
-                    ...permission_options,
-                ]
-            );
+                `WHERE ug.user_id = ? AND ${sql_perm}`,
+            [
+                actor.type.user.id,
+                ...permission_options,
+            ]);
 
             for ( const row of rows ) {
                 row.extra = db.case({
                     mysql: () => row.extra,
-                    otherwise: () => JSON.parse(row.extra ?? '{}')
+                    otherwise: () => JSON.parse(row.extra ?? '{}'),
                 })();
 
                 const issuer_actor = new Actor({
@@ -318,7 +259,7 @@ const PERMISSION_SCANNERS = [
                     group_id: row.group_id,
                 });
             }
-        }
+        },
     },
     {
         name: 'user-virtual-group-user',
@@ -332,11 +273,11 @@ const PERMISSION_SCANNERS = [
             which will compute on the fly whether or not an actor should be
             considered a member of the group.
         `,
-        async scan (a) {
+        async scan(a) {
             const svc_virtualGroup = await a.iget('services').get('virtual-group');
             const { reading, actor, permission_options } = a.values();
             const groups = svc_virtualGroup.get_virtual_groups({ actor });
-            
+
             for ( const group of groups ) {
                 for ( const perm_entry of group.permissions ) {
                     const { permission, data } = perm_entry;
@@ -353,7 +294,7 @@ const PERMISSION_SCANNERS = [
                     });
                 }
             }
-        }
+        },
     },
     {
         name: 'user-app',
@@ -361,20 +302,20 @@ const PERMISSION_SCANNERS = [
             If the actor is an app, this scans for permissions granted to the app
             because the user has the permission and granted it to the app.
         `,
-        async scan (a) {
+        async scan(a) {
             const { reading, actor, permission_options } = a.values();
             if ( !(actor.type instanceof AppUnderUserActorType)  ) {
                 return;
             }
             const db = a.iget('db');
-            
+
             const app_uid = actor.type.app.uid;
-            
+
             const issuer_actor = actor.get_related_actor(UserActorType);
             const issuer_reading = await a.icall('scan', issuer_actor, permission_options);
 
             const has_terminal = reading_has_terminal({ reading: issuer_reading });
-            
+
             for ( const permission of permission_options ) {
                 {
 
@@ -414,26 +355,24 @@ const PERMISSION_SCANNERS = [
             }
 
             let sql_perm = permission_options.map(() =>
-                `\`permission\` = ?`).join(' OR ');
-            if ( permission_options.length > 1 ) sql_perm = '(' + sql_perm + ')';
-            
+                '`permission` = ?').join(' OR ');
+            if ( permission_options.length > 1 ) sql_perm = `(${sql_perm})`;
+
             // SELECT permission
-            const rows = await db.read(
-                'SELECT * FROM `user_to_app_permissions` ' +
-                'WHERE `user_id` = ? AND `app_id` = ? AND ' +
-                sql_perm,
-                [
-                    actor.type.user.id,
-                    actor.type.app.id,
-                    ...permission_options,
-                ]
-            );
-            
+            const rows = await db.read('SELECT * FROM `user_to_app_permissions` ' +
+                `WHERE \`user_id\` = ? AND \`app_id\` = ? AND ${
+                    sql_perm}`,
+            [
+                actor.type.user.id,
+                actor.type.app.id,
+                ...permission_options,
+            ]);
+
             if ( rows[0] ) {
                 const row = rows[0];
                 row.extra = db.case({
                     mysql: () => row.extra,
-                    otherwise: () => JSON.parse(row.extra ?? '{}')
+                    otherwise: () => JSON.parse(row.extra ?? '{}'),
                 })();
                 const issuer_actor = actor.get_related_actor(UserActorType);
                 const issuer_reading = await a.icall('scan', issuer_actor, row.permission);
@@ -448,7 +387,7 @@ const PERMISSION_SCANNERS = [
                     reading: issuer_reading,
                 });
             }
-        }
+        },
     },
     {
         name: 'user-app',
@@ -457,33 +396,31 @@ const PERMISSION_SCANNERS = [
             because any other user has the permission and granted it to the app
             for all users of the app.
         `,
-        async scan (a) {
+        async scan(a) {
             const { reading, actor, permission_options } = a.values();
             if ( !(actor.type instanceof AppUnderUserActorType)  ) {
                 return;
             }
             const db = a.iget('db');
-            
+
             let sql_perm = permission_options.map(() =>
-                `\`permission\` = ?`).join(' OR ');
-            if ( permission_options.length > 1 ) sql_perm = '(' + sql_perm + ')';
-            
+                '`permission` = ?').join(' OR ');
+            if ( permission_options.length > 1 ) sql_perm = `(${sql_perm})`;
+
             // SELECT permission
-            const rows = await db.read(
-                'SELECT * FROM `dev_to_app_permissions` ' +
-                'WHERE `app_id` = ? AND ' +
-                sql_perm,
-                [
-                    actor.type.app.id,
-                    ...permission_options,
-                ]
-            );
-            
+            const rows = await db.read('SELECT * FROM `dev_to_app_permissions` ' +
+                `WHERE \`app_id\` = ? AND ${
+                    sql_perm}`,
+            [
+                actor.type.app.id,
+                ...permission_options,
+            ]);
+
             if ( rows[0] ) {
                 const row = rows[0];
                 row.extra = db.case({
                     mysql: () => row.extra,
-                    otherwise: () => JSON.parse(row.extra ?? '{}')
+                    otherwise: () => JSON.parse(row.extra ?? '{}'),
                 })();
                 const issuer_user = await get_user({ id: row.user_id });
                 const issuer_actor = Actor.adapt(issuer_user);
@@ -499,7 +436,7 @@ const PERMISSION_SCANNERS = [
                     reading: issuer_reading,
                 });
             }
-        }
+        },
     },
 ];
 

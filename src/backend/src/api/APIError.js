@@ -16,8 +16,7 @@
  * You should have received a copy of the GNU Affero General Public License
  * along with this program.  If not, see <https://www.gnu.org/licenses/>.
  */
-const { URLSearchParams } = require("node:url");
-const config = require("../config");
+const { URLSearchParams } = require('node:url');
 const { quot } = require('@heyputer/putility').libs.string;
 
 /**
@@ -32,7 +31,7 @@ module.exports = class APIError {
         // General
         'unknown_error': {
             status: 500,
-            message: () => `An unknown error occurred`,
+            message: () => 'An unknown error occurred',
         },
         'format_error': {
             status: 400,
@@ -44,13 +43,13 @@ module.exports = class APIError {
         },
         'disallowed_value': {
             status: 400,
-            message: ({ key ,allowed }) =>
-                `value of ${quot(key)} must be one of: ` +
-                allowed.map(v => quot(v)).join(', ')
+            message: ({ key, allowed }) =>
+                `value of ${quot(key)} must be one of: ${
+                    allowed.map(v => quot(v)).join(', ')}`,
         },
         'invalid_token': {
             status: 400,
-            message: () => 'Invalid token'
+            message: () => 'Invalid token',
         },
         'unrecognized_offering': {
             status: 400,
@@ -67,14 +66,13 @@ module.exports = class APIError {
             status: 400,
             message: ({ thing_type, accepted }) =>
                 `Request contained a ${quot(thing_type)} in a ` +
-                `place where ${quot(thing_type)} isn't accepted` +
-                (
+                `place where ${quot(thing_type)} isn't accepted${
+
                     accepted
                         ? '; ' +
-                            'accepted types are: ' +
-                            accepted.map(v => quot(v)).join(', ')
-                        : ''
-                ) + '.'
+                        `accepted types are: ${
+                            accepted.map(v => quot(v)).join(', ')}`
+                        : ''}.`,
         },
 
         // Unorganized
@@ -83,7 +81,7 @@ module.exports = class APIError {
             message: ({ entry_name }) => entry_name
                 ? `An item with name ${quot(entry_name)} already exists.`
                 : 'An item with the same name already exists.'
-                ,
+            ,
         },
         'cannot_move_item_into_itself': {
             status: 422,
@@ -157,6 +155,10 @@ module.exports = class APIError {
             status: 400,
             message: ({ key }) => `Field ${quot(key)} is required.`,
         },
+        'too_many_keys': {
+            status: 400,
+            message: ({ key }) => `Field ${quot(key)} cannot contain more than 100 elements.`,
+        },
         'field_missing': {
             status: 400,
             message: ({ key }) => `Field ${quot(key)} is required.`,
@@ -167,7 +169,7 @@ module.exports = class APIError {
                 let s = 'One of these mutually-exclusive fields is required: ';
                 s += names.map(quot).join(', ');
                 return s;
-            }
+            },
         },
         'field_only_valid_with_other_field': {
             status: 400,
@@ -176,8 +178,8 @@ module.exports = class APIError {
         'invalid_id': {
             status: 400,
             message: ({ id }) => {
-                return `Invalid id`;
-            }
+                return `Invalid id ${id}`;
+            },
         },
         'invalid_operation': {
             status: 400,
@@ -186,10 +188,10 @@ module.exports = class APIError {
         'field_invalid': {
             status: 400,
             message: ({ key, expected, got }) => {
-                return `Field ${quot(key)} is invalid.` +
-                    (expected ? ` Expected ${expected}.` : '') +
-                    (got ? ` Got ${got}.` : '')
-            }
+                return `Field ${quot(key)} is invalid.${
+                    expected ? ` Expected ${expected}.` : ''
+                }${got ? ` Got ${got}.` : ''}`;
+            },
         },
         'field_immutable': {
             status: 400,
@@ -218,7 +220,7 @@ module.exports = class APIError {
         'internal_error': {
             status: 500,
             message: ({ message }) => message
-                ? 'An internal error occurred: ' + quot(message)
+                ? `An internal error occurred: ${quot(message)}`
                 : 'An internal error occurred.',
         },
         'response_timeout': {
@@ -265,7 +267,7 @@ module.exports = class APIError {
         },
         'offset_requires_stream': {
             status: 400,
-            message: 'The offset option for write is not available for this upload.'
+            message: 'The offset option for write is not available for this upload.',
         },
 
         // Batch
@@ -301,7 +303,7 @@ module.exports = class APIError {
         // Subdomains
         'subdomain_limit_reached': {
             status: 400,
-            message: ({ limit, isWorker }) => isWorker ? `You have exceeded the maximum number of workers for your plan! (${limit})`:`You have exceeded the number of subdomains under your current plan (${limit}).`,
+            message: ({ limit, isWorker }) => isWorker ? `You have exceeded the maximum number of workers for your plan! (${limit})` : `You have exceeded the number of subdomains under your current plan (${limit}).`,
         },
         'subdomain_reserved': {
             status: 400,
@@ -341,7 +343,7 @@ module.exports = class APIError {
             status: 503,
             message: 'System-wide rate limit exceeded. Please try again later.',
         },
-        
+
         // New cost system
         'insufficient_funds': {
             status: 402,
@@ -355,7 +357,7 @@ module.exports = class APIError {
         },
         'unexpected_undefined': {
             status: 401,
-            message: msg => msg ?? "unexpected string undefined"
+            message: msg => msg ?? 'unexpected string undefined',
         },
         'token_auth_failed': {
             status: 401,
@@ -437,42 +439,42 @@ module.exports = class APIError {
         // Share
         'user_does_not_exist': {
             status: 422,
-            message: ({ username }) => `The user ${quot(username)} does not exist.`
+            message: ({ username }) => `The user ${quot(username)} does not exist.`,
         },
         'invalid_username_or_email': {
             status: 400,
             message: ({ value }) =>
-                `The value ${quot(value)} is not a valid username or email.`
+                `The value ${quot(value)} is not a valid username or email.`,
         },
         'invalid_path': {
             status: 400,
             message: ({ value }) =>
-                `The value ${quot(value)} is not a valid path.`
+                `The value ${quot(value)} is not a valid path.`,
         },
         'future': {
             status: 400,
-            message: ({ what }) => `Not supported yet: ${what}`
+            message: ({ what }) => `Not supported yet: ${what}`,
         },
         // Temporary solution for lack of error composition
         'field_errors': {
             status: 400,
             message: ({ key, errors }) =>
-                `The value for ${quot(key)} has the following errors: ` +
-                errors.join('; ')
+                `The value for ${quot(key)} has the following errors: ${
+                    errors.join('; ')}`,
         },
         'share_expired': {
             status: 422,
-            message: 'This share is expired.'
+            message: 'This share is expired.',
         },
         'email_must_be_confirmed': {
             status: 422,
-            message: ({action}) =>
+            message: ({ action }) =>
                 `Email must be confirmed to ${action ?? 'apply a share'}.`,
         },
         'no_need_to_request': {
             status: 422,
             message: 'This share is already valid for this user; ' +
-                'POST to /apply for access.'
+                'POST to /apply for access.',
         },
         'can_not_apply_to_this_user': {
             status: 422,
@@ -480,7 +482,7 @@ module.exports = class APIError {
         },
         'no_origin_for_app': {
             status: 400,
-            message: 'Puter apps must have a valid URL.'
+            message: 'Puter apps must have a valid URL.',
         },
         'anti-csrf-incorrect': {
             status: 400,
@@ -527,13 +529,13 @@ module.exports = class APIError {
      * - an object with a message property to use as the error message
      * @returns
      */
-    static create (status, source, fields = {}) {
+    static create(status, source, fields = {}) {
         // Just the error code
         if ( typeof status === 'string' ) {
             const code = this.codes[status];
             if ( ! code ) {
                 return new APIError(500, 'Missing error message.', null, {
-                    code: status
+                    code: status,
                 });
             }
             return new APIError(code.status, status, source, fields);
@@ -556,7 +558,7 @@ module.exports = class APIError {
         if (
             typeof source === 'object' &&
             source.constructor.name === 'Object' &&
-            source.hasOwnProperty('message')
+            Object.prototype.hasOwnProperty.call(source, 'message')
         ) {
             const allfields = { ...source, ...fields };
             return new APIError(status, source.message, source, allfields);
@@ -565,24 +567,24 @@ module.exports = class APIError {
         console.error('Invalid APIError source:', source);
         return new APIError(500, 'Internal Server Error', null, {});
     }
-    static adapt (err) {
+    static adapt(err) {
         if ( err instanceof APIError ) return err;
 
-        return APIError.create(`internal_error`);
+        return APIError.create('internal_error');
     }
-    constructor (status, message, source, fields = {}) {
+    constructor(status, message, source, fields = {}) {
         this.codes = this.constructor.codes;
         this.status = status;
         this._message = message;
         this.source = source ?? new Error('error for trace');
         this.fields = fields;
 
-        if ( this.codes.hasOwnProperty(message) ) {
+        if ( Object.prototype.hasOwnProperty.call(this.codes, message) ) {
             this.fields.code = message;
             this._message = this.codes[message].message;
         }
     }
-    write (res) {
+    write(res) {
         const message = typeof this.message === 'function'
             ? this.message(this.fields)
             : this.message;
@@ -591,7 +593,7 @@ module.exports = class APIError {
             ...this.fields,
         });
     }
-    serialize () {
+    serialize() {
         return {
             ...this.fields,
             $: 'heyputer:api/APIError',
@@ -600,11 +602,11 @@ module.exports = class APIError {
         };
     }
 
-    querystringize (extra) {
+    querystringize(extra) {
         return new URLSearchParams(this.querystringize_(extra));
     }
 
-    querystringize_ (extra) {
+    querystringize_(extra) {
         const fields = {};
         for ( const k in this.fields ) {
             fields[`field_${k}`] = this.fields[k];
@@ -618,14 +620,14 @@ module.exports = class APIError {
         };
     }
 
-    get message () {
+    get message() {
         const message = typeof this._message === 'function'
             ? this._message(this.fields)
             : this._message;
         return message;
     }
 
-    toString () {
+    toString() {
         return `APIError(${this.status}, ${this.message})`;
     }
-}
+};
