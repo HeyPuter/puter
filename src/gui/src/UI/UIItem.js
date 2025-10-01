@@ -1259,6 +1259,47 @@ function UIItem(options){
                 });                
             }
             // -------------------------------------------
+            // Set as Wallpaper
+            // -------------------------------------------
+            const is_image = new RegExp('.*\.(png|jpg|jpeg|webp|avif|gif|bmp|tiff)$', 'i');
+            if(!is_trashed && !is_trash && !options.is_dir && is_image.test($(el_item).attr('data-name'))) {
+                menu_items.push({
+                    html: i18n('set_as_background'),
+                    onClick: async function () {
+                        const read_url = await puter.fs.sign(undefined, {uid: $(el_item).attr('data-uid'), action: 'read'});
+                        window.set_desktop_background({
+                            url: read_url.items.read_url,
+                            fit: window.desktop_bg_fit,
+                        });
+                         try{
+                            $.ajax({
+                                url: window.api_origin + "/set-desktop-bg",
+                                type: 'POST',
+                                data: JSON.stringify({ 
+                                    url: window.desktop_bg_url,
+                                    color: window.desktop_bg_color,
+                                    fit: window.desktop_bg_fit,
+                                }),
+                                async: true,
+                                contentType: "application/json",
+                                headers: {
+                                    "Authorization": "Bearer "+window.auth_token
+                                },
+                                statusCode: {
+                                    401: function () {
+                                        window.logout();
+                                    },
+                                },
+                            })
+                            $(el_window).close();
+                            resolve(true);    
+                        }catch(err){
+                            // Ignore
+                        }
+                    }
+                });
+            }
+            // -------------------------------------------
             // Zip
             // -------------------------------------------
             if(!is_trash && !is_trashed && !$(el_item).attr('data-path').endsWith('.zip')){
