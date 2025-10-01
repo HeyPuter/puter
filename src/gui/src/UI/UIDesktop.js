@@ -860,6 +860,10 @@ async function UIDesktop(options) {
         if (event.target === el_desktop) {
             event.preventDefault();
             UIContextMenu({
+                position: {
+                    left: event.pageX,
+                    top: event.pageY
+                },
                 items: [
                     // -------------------------------------------
                     // Sort by
