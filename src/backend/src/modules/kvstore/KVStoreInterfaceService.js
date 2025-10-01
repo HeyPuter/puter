@@ -21,13 +21,13 @@ const BaseService = require('../../services/BaseService');
 
 /**
  * @typedef {Object} KVStoreInterface
- * @property {function(KVStoreGetParams): Promise<Record<string, unknonw>>} get - Retrieve the value(s) for the given key(s).
+ * @property {function(KVStoreGetParams): Promise<unknown>} get - Retrieve the value(s) for the given key(s).
  * @property {function(KVStoreSetParams): Promise<void>} set - Set a value for a key, with optional expiration.
  * @property {function(KVStoreDelParams): Promise<void>} del - Delete a value by key.
  * @property {function(KVStoreListParams): Promise<string[]>} list - List all key-value pairs, optionally as a specific type.
  * @property {function(): Promise<void>} flush - Delete all key-value pairs in the store.
- * @property {function(KVStoreIncrDecrParams): Promise<number>} incr - Increment a numeric value by key.
- * @property {function(KVStoreIncrDecrParams): Promise<number>} decr - Decrement a numeric value by key.
+ * @property {(params: {key:string, pathAndAmountMap: Record<string, number>}) => Promise<unknown>} incr - Increment a numeric value by key.
+ * @property {(params: {key:string, pathAndAmountMap: Record<string, number>}) => Promise<unknown>} decr - Decrement a numeric value by key.
  * @property {function(KVStoreExpireAtParams): Promise<number>} expireAt - Set a key to expire at a specific UNIX timestamp (seconds).
  * @property {function(KVStoreExpireParams): Promise<number>} expire - Set a key to expire after a given TTL (seconds).
  *
@@ -44,10 +44,6 @@ const BaseService = require('../../services/BaseService');
  *
  * @typedef {Object} KVStoreListParams
  * @property {string} [as] - Optional type to list as (e.g., 'array', 'object').
- *
- * @typedef {Object} KVStoreIncrDecrParams
- * @property {string} key - The key to increment or decrement.
- * @property {number} [amount] - Optional amount to increment or decrement by.
  *
  * @typedef {Object} KVStoreExpireAtParams
  * @property {string} key - The key to set expiration for.
@@ -117,19 +113,18 @@ class KVStoreInterfaceService extends BaseService {
                     description: 'Increment a value by key.',
                     parameters: {
                         key: { type: 'string', required: true },
-                        amount: { type: 'number' },
-
+                        pathAndAmountMap: { type: 'json', required: true, description: 'map of period-joined path to amount to increment by' },
                     },
-                    result: { type: 'number' },
+                    result: { type: 'json', description: 'The updated value' },
                 },
                 decr: {
                     description: 'Decrement a value by key.',
                     parameters: {
                         key: { type: 'string', required: true },
-                        amount: { type: 'number' },
+                        pathAndAmountMap: { type: 'json', required: true, description: 'map of period-joined path to amount to increment by' },
 
                     },
-                    result: { type: 'number' },
+                    result: { type: 'json', description: 'The updated value' },
                 },
                 expireAt: {
                     description: 'Set a key to expire at a given timestamp in sec.',
