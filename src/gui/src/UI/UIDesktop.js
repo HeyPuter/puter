@@ -62,16 +62,6 @@ async function UIDesktop(options) {
     // Add this near the very beginning of the UIDesktop function
     window.desktop_icons_hidden = false; // Set default value immediately
 
-    // Initialize the preference early
-    puter.kv.get('desktop_icons_hidden').then(async (val) => {
-        window.desktop_icons_hidden = val === 'true';
-
-        // Apply the setting immediately if needed
-        if (window.desktop_icons_hidden) {
-            hideDesktopIcons();
-        }
-    });
-
     // Initialize toolbar auto-hide preference
     window.toolbar_auto_hide_enabled = true; // Set default value
 
@@ -80,31 +70,6 @@ async function UIDesktop(options) {
     if(toolbar_auto_hide_enabled_val === 'false' || toolbar_auto_hide_enabled_val === false){
         window.toolbar_auto_hide_enabled = false;
     }
-
-    // Modify the hide/show functions to use CSS rules that will apply to all icons, including future ones
-    window.hideDesktopIcons = function () {
-        // Add a CSS class to the desktop container that will hide all child icons
-        $('.desktop.item-container').addClass('desktop-icons-hidden');
-    };
-
-    window.showDesktopIcons = function () {
-        // Remove the CSS class to show all icons
-        $('.desktop.item-container').removeClass('desktop-icons-hidden');
-    };
-
-    // Add this function to the global scope
-    window.toggleDesktopIcons = function () {
-        window.desktop_icons_hidden = !window.desktop_icons_hidden;
-
-        if (window.desktop_icons_hidden) {
-            hideDesktopIcons();
-        } else {
-            showDesktopIcons();
-        }
-
-        // Save preference
-        puter.kv.set('desktop_icons_hidden', window.desktop_icons_hidden.toString());
-    };
 
     // Give Camera and Recorder write permissions to Desktop
     puter.kv.get('has_set_default_app_user_permissions').then(async (user_permissions) => {
@@ -750,6 +715,16 @@ async function UIDesktop(options) {
 
     // Set desktop height based on taskbar height
     $('.desktop').css('height', `calc(100vh - ${window.taskbar_height + window.toolbar_height}px)`)
+
+    // Initialize the preference early
+    puter.kv.get('desktop_icons_hidden').then(async (val) => {
+        window.desktop_icons_hidden = (val === 'true' || val === true);
+
+        // Apply the setting immediately if needed
+        if (window.desktop_icons_hidden) {
+            hideDesktopIcons();
+        }
+    });
 
     // ---------------------------------------------------------------
     // Taskbar
@@ -2363,5 +2338,29 @@ window.reset_window_size_and_position = (el_window) => {
         left: 'calc(50% - 340px)',
     });
 }
+
+// Modify the hide/show functions to use CSS rules that will apply to all icons, including future ones
+window.hideDesktopIcons = function () {
+    $('.desktop.item-container').addClass('desktop-icons-hidden');
+};
+
+window.showDesktopIcons = function () {
+    $('.desktop.item-container').removeClass('desktop-icons-hidden');
+};
+
+// Add this function to the global scope
+window.toggleDesktopIcons = function () {
+    window.desktop_icons_hidden = !window.desktop_icons_hidden;
+
+    if (window.desktop_icons_hidden) {
+        hideDesktopIcons();
+    } else {
+        showDesktopIcons();
+    }
+
+    // Save preference
+    puter.kv.set('desktop_icons_hidden', window.desktop_icons_hidden.toString());
+};
+
 
 export default UIDesktop;
