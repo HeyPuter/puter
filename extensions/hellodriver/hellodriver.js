@@ -67,3 +67,11 @@ extension.on('create.drivers', event => {
         },
     });
 });
+
+/**
+ * Here we specify that both registered and temporary users are allowed
+ * to access the `no-frills` implementation of the `hello-world` driver.
+ */
+extension.on('create.permissions', event => {
+    event.grant_to_everyone('service:no-frills:ii:hello-world');
+});

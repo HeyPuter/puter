@@ -18,6 +18,7 @@
  * along with this program.  If not, see <https://www.gnu.org/licenses/>.
  */
 const APIError = require('../../api/APIError');
+const { hardcoded_user_group_permissions } = require('../../data/hardcoded-permissions.js');
 const { ECMAP } = require('../../filesystem/ECMAP');
 const { get_user, get_app } = require('../../helpers');
 const { reading_has_terminal } = require('../../unstructured/permission-scan-lib');
@@ -70,6 +71,37 @@ class PermissionService extends BaseService {
         this._register_commands(this.services.get('commands'));
         this.kvAvgTimes = { count: 0, avg: 0, max: 0 };
         this.dbAvgTimes = { count: 0, avg: 0, max: 0 };
+    }
+    
+    async ['__on_boot.consolidation'] () {
+        const svc_event = this.services.get('event');
+        // Event to allow extensions to add permissions
+        {
+            const event = {};
+            event.grant_to_everyone = permission => {
+                /* eslint-disable */
+                hardcoded_user_group_permissions
+                    .system
+                    [this.global_config.default_temp_group]
+                    [permission]
+                    = {};
+                hardcoded_user_group_permissions
+                    .system
+                    [this.global_config.default_user_group]
+                    [permission]
+                    = {};
+                /* eslint-enable */
+            };
+            event.grant_to_users = permission => {
+                /* eslint-disable */
+                hardcoded_user_group_permissions
+                    [this.global_config.default_user_group]
+                    [permission]
+                    = {};
+                /* eslint-enable */
+            };
+            svc_event.emit('create.permissions', event);
+        }
     }
 
     /**
