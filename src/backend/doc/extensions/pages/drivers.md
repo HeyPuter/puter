@@ -125,3 +125,21 @@ one, but that is not the case. What's shown here is that function members
 of the object passed to `createDriver` will not be "bound" (have their
 `.bind()` method called with a different object as the instance variable).
 
+### Permission Denied
+
+When you try to access a driver as any user other than the default
+`admin` user, it will not work unless permission has been granted.
+
+The `hellodriver` extension grants permission to all clients using
+the following snippet:
+```javascript
+extension.on('create.permissions', event => {
+    event.grant_to_everyone('service:no-frills:ii:hello-world');
+});
+```
+
+The `create.permissions` event's `event` object has a few methods
+you can use depending on the desired granularity:
+- `grant_to_everyone` - grants permission to all users
+- `grant_to_users` - grants permission to only registered users
+  (i.e. not to temporary/guest users)
