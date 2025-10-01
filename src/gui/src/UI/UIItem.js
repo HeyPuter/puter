@@ -30,6 +30,7 @@ import path from "../lib/path.js"
 import truncate_filename from '../helpers/truncate_filename.js';
 import launch_app from "../helpers/launch_app.js"
 import open_item from "../helpers/open_item.js"
+import mime from "../lib/mime.js";
 
 function UIItem(options){
     const matching_appendto_count = $(options.appendTo).length;
@@ -1261,8 +1262,8 @@ function UIItem(options){
             // -------------------------------------------
             // Set as Wallpaper
             // -------------------------------------------
-            const is_image = new RegExp('.*\.(png|jpg|jpeg|webp|avif|gif|bmp|tiff)$', 'i');
-            if(!is_trashed && !is_trash && !options.is_dir && is_image.test($(el_item).attr('data-name'))) {
+            const mime_type = mime.getType($(el_item).attr('data-name'));
+            if(!is_trashed && !is_trash && !options.is_dir && mime_type.startsWith('image/')) {
                 menu_items.push({
                     html: i18n('set_as_background'),
                     onClick: async function () {
