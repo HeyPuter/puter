@@ -86,10 +86,19 @@ class SUService extends BaseService {
     * is used by default. The adapted actor is then utilized to execute the callback
     * under the appropriate user context.
     *
+    * @overload
     * @param {Actor} actor - The actor to perform the operation as.
-    * If omitted, defaults to the system actor.
-    * @param {()=>T} callback - The function to execute within the actor's context.
-    * @returns {Promise<T>} A promise that resolves with the result of the callback execution.
+    * @param {() => Promise<T>} callback - The callback function to execute as the specified actor.
+    * @returns {Promise<T>}
+    *
+    * @overload
+    * @param {() => Promise<T>} callback - The callback function to execute as the system actor.
+    * @returns {Promise<T>}
+    *
+    * @template T
+    * @param {Actor|(() => Promise<T>)} actor - The actor to perform the operation as, or the callback function if no actor is specified.
+    * @param {(() => Promise<T>)} [callback] - The callback function to execute as the specified actor.
+    * @returns {Promise<T>} A promise that resolves to the result of the callback function executed as the specified actor.
     */
     async sudo(actor, callback) {
         if ( ! callback ) {
