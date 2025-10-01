@@ -196,7 +196,7 @@ const vi = {
         password_recovery_unknown_error: "Đã xảy ra lỗi không xác định. Vui lòng thử lại sau.",
         password_required: 'Mật khẩu là bắt buộc.',
         password_strength_error: "Mật khẩu phải có ít nhất 8 ký tự và chứa ít nhất một chữ cái viết hoa, một chữ cái viết thường, một số và một ký tự đặc biệt.",
-        passwords_do_not_match: '`Mật khẩu mới` và `Xác nhận mật khẩu mới` không khớp.',
+        passwords_do_not_match: 'Mật khẩu mới và Xác nhận mật khẩu mới không khớp.',
         paste: 'Dán',
         paste_into_folder: "Dán vào thư mục",
         path: 'Đường dẫn',
@@ -314,7 +314,6 @@ const vi = {
         zip: "Nén",
         zipping_file: "Đang nén %strong%",
 
-        // === 2FA Setup ===
         setup2fa_1_step_heading: 'Mở ứng dụng xác thực của bạn',
         setup2fa_1_instructions: `
             Bạn có thể sử dụng bất kỳ ứng dụng xác thực nào hỗ trợ giao thức Mật khẩu một lần dựa trên thời gian (TOTP).
@@ -334,7 +333,6 @@ const vi = {
         setup2fa_5_confirmation_2: 'Tôi đã sẵn sàng để bật 2FA',
         setup2fa_5_button: 'Bật 2FA',
 
-        // === 2FA Login ===
         login2fa_otp_title: 'Nhập mã 2FA',
         login2fa_otp_instructions: 'Nhập mã 6 chữ số từ ứng dụng xác thực của bạn.',
         login2fa_recovery_title: 'Nhập mã khôi phục',
@@ -343,150 +341,160 @@ const vi = {
         login2fa_recovery_back: 'Quay lại',
         login2fa_recovery_placeholder: 'XXXXXXXX',
 
-        "change": 'Thay đổi', // In English: "Change"
-        "clock_visibility": 'ẩn/hiện đồng hồ', // In English: "Clock Visibility"
-        "plural_suffix": 'các', // In English: "s"
-        "reading": 'Đang đọc %strong%', // In English: "Reading %strong%"
-        "writing": 'Đang ghi dữ liệu %strong%', // In English: "Writing %strong%"
-        "unzipping": 'Đang giải nén %strong%', // In English: "Unzipping %strong%"
-        "sequencing": 'Đang đánh thứ tự %strong%', // In English: "Sequencing %strong%"
-        "zipping": 'Đang nén %strong%', // In English: "Zipping %strong%"
-        "Editor": 'Người chỉnh sửa', // In English: "Editor"
-        "Viewer": 'Người xem', // In English: "Viewer"
-        "People with access": 'Người dùng có quyền truy cập', // In English: "People with access"
-        "Share With…": 'Chia sẻ với...', // In English: "Share With…"
-        "Owner": 'Người sở hữu', // In English: "Owner"
-        "You can't share with yourself.": 'Bạn không thể tự chia sẻ với chính mình', // In English: "You can't share with yourself."
-        "This user already has access to this item": 'Người dùng này đã có sẵn quyền truy cập cho mục này', // In English: "This user already has access to this item"
+        change: 'Thay đổi',
+        clock_visibility: 'ẩn/hiện đồng hồ',
+        plural_suffix: 'các',
+        reading: 'Đang đọc %strong%',
+        writing: 'Đang ghi dữ liệu %strong%',
+        unzipping: 'Đang giải nén %strong%',
+        sequencing: 'Đang đánh thứ tự %strong%',
+        zipping: 'Đang nén %strong%',
+        Editor: 'Người chỉnh sửa',
+        Viewer: 'Người xem',
+        'People with access': 'Người dùng có quyền truy cập',
+        'Share With…': 'Chia sẻ với...',
+        Owner: 'Người sở hữu',
+        "You can't share with yourself.": 'Bạn không thể tự chia sẻ với chính mình',
+        'This user already has access to this item': 'Người dùng này đã có sẵn quyền truy cập cho mục này',
 
-        "billing.change_payment_method": "Thay đổi", // In English: "Change"
-        "billing.cancel": "Hủy", // In English: "Cancel"
-        "billing.download_invoice": "Tải xuống", // In English: "Download"
-        "billing.payment_method": "Phương thức thanh toán", // In English: "Payment Method"
-        "billing.payment_method_updated": "Phương thức thanh toán đã được cập nhật thành công!", // In English: "Payment method updated!"
-        "billing.confirm_payment_method": "Xác nhận phương thức thanh toán", // In English: "Confirm Payment Method"
-        "billing.payment_history": "Lịch sử thanh toán", // In English: "Payment History"
-        "billing.refunded": "Đã hoàn tiền", // In English: "Refunded"
-        "billing.paid": "Đã thanh toán", // In English: "Paid"
-        "billing.ok": "OK", // In English: "OK"
-        "billing.resume_subscription": "Tiếp tục đăng ký", // In English: "Resume Subscription"
-        "billing.subscription_cancelled": "Đăng ký của bạn đã bị hủy.", // In English: "Your subscription has been canceled."
-        "billing.subscription_cancelled_description": "Bạn vẫn có thể tiếp tục sử dụng dịch vụ của mình cho đến cuối kỳ thanh toán này.", // In English: "You will still have access to your subscription until the end of this billing period."
-        "billing.offering.free": "Miễn phí", // In English: "Free"
-        "billing.offering.pro": "Chuyên nghiệp", // In English: "Professional"
-        "billing.offering.professional": "Chuyên nghiệp", // In English: "Professional"
-        "billing.offering.business": "Doanh nghiệp", // In English: "Business"
-        "billing.cloud_storage": "Lưu trữ đám mây", // In English: "Cloud Storage"
-        "billing.ai_access": "Truy cập AI", // In English: "AI Access"
-        "billing.bandwidth": "Băng thông", // In English: "Bandwidth"
-        "billing.apps_and_games": "Ứng dụng & Trò chơi", // In English: "Apps & Games"
-        "billing.upgrade_to_pro": "Nâng cấp lên %strong%", // In English: "Upgrade to %strong%"
-        "billing.switch_to": "Chuyển sang gói %strong%", // In English: "Switch to %strong%"
-        "billing.payment_setup": "Thiết lập thanh toán", // In English: "Payment Setup"
-        "billing.back": "Quay lại", // In English: "Back"
-        "billing.you_are_now_subscribed_to": "Bạn hiện đang đăng ký gói %strong%.", // In English: "You are now subscribed to %strong% tier."
-        "billing.you_are_now_subscribed_to_without_tier": "Bạn đã đăng ký", // In English: "You are now subscribed"
-        "billing.subscription_cancellation_confirmation": "Bạn có chắc chắn muốn hủy đăng ký không?", // In English: "Are you sure you want to cancel your subscription?"
-        "billing.subscription_setup": "Thiết lập đăng ký", // In English: "Subscription Setup"
-        "billing.cancel_it": "Hủy bỏ", // In English: "Cancel It"
-        "billing.keep_it": "Giữ lại", // In English: "Keep It"
-        "billing.subscription_resumed": "Đăng ký %strong% của bạn đã được tiếp tục!", // In English: "Your %strong% subscription has been resumed!"
-        "billing.upgrade_now": "Nâng cấp ngay", // In English: "Upgrade Now"
-        "billing.upgrade": "Nâng cấp", // In English: "Upgrade"
-        "billing.currently_on_free_plan": "Bạn hiện đang sử dụng gói miễn phí.", // In English: "You are currently on the free plan."
-        "billing.download_receipt": "Tải biên lai", // In English: "Download Receipt"
-        "billing.subscription_check_error": "Đã xảy ra sự cố khi kiểm tra trạng thái đăng ký của bạn.", // In English: "A problem occurred while checking your subscription status."
-        "billing.email_confirmation_needed": "Email của bạn chưa được xác nhận. Chúng tôi sẽ gửi mã xác nhận ngay bây giờ.", // In English: "Your email has not been confirmed. We'll send you a code to confirm it now."
-        "billing.sub_cancelled_but_valid_until": "Bạn đã hủy đăng ký và được tự động chuyển sang gói miễn phí vào cuối kỳ thanh toán. Bạn sẽ không bị tính phí nữa đến khi đăng ký lại.", // In English: "You have cancelled your subscription and it will automatically switch to the free tier at the end of the billing period. You will not be charged again unless you re-subscribe."
-        "billing.current_plan_until_end_of_period": "Gói cước hiện tại của bạn đến cuối kỳ thanh toán này.", // In English: "Your current plan until the end of this billing period."
-        "billing.current_plan": "Gói hiện tại", // In English: "Current plan"
-        "billing.cancelled_subscription_tier": "Đăng ký đã hủy (%%)", // In English: "Cancelled Subscription (%%)"
-        "billing.manage": "Quản lý", // In English: "Manage"
-        "billing.limited": "Giới hạn", // In English: "Limited"
-        "billing.expanded": "Mở rộng", // In English: "Expanded"
-        "billing.accelerated": "Tăng tốc", // In English: "Accelerated"
-        "billing.enjoy_msg": "Tận hưởng %% Lưu trữ đám mây và các tiện ích khác.", // In English: "Enjoy %% of Cloud Storage plus other benefits."
+        'billing.change_payment_method': "Thay đổi",
+        'billing.cancel': "Hủy",
+        'billing.download_invoice': "Tải xuống",
+        'billing.payment_method': "Phương thức thanh toán",
+        'billing.payment_method_updated': "Phương thức thanh toán đã được cập nhật thành công!",
+        'billing.confirm_payment_method': "Xác nhận phương thức thanh toán",
+        'billing.payment_history': "Lịch sử thanh toán",
+        'billing.refunded': "Đã hoàn tiền",
+        'billing.paid': "Đã thanh toán",
+        'billing.ok': "OK",
+        'billing.resume_subscription': "Tiếp tục đăng ký",
+        'billing.subscription_cancelled': "Đăng ký của bạn đã bị hủy.",
+        'billing.subscription_cancelled_description': "Bạn vẫn có thể tiếp tục sử dụng dịch vụ của mình cho đến cuối kỳ thanh toán này.",
+        'billing.offering.free': "Miễn phí",
+        'billing.offering.pro': "Chuyên nghiệp",
+        'billing.offering.professional': "Chuyên nghiệp",
+        'billing.business': "Doanh nghiệp",
+        'billing.cloud_storage': "Lưu trữ đám mây",
+        'billing.ai_access': "Truy cập AI",
+        'billing.bandwidth': "Băng thông",
+        'billing.apps_and_games': "Ứng dụng & Trò chơi",
+        'billing.upgrade_to_pro': "Nâng cấp lên %strong%",
+        'billing.switch_to': "Chuyển sang gói %strong%",
+        'billing.payment_setup': "Thiết lập thanh toán",
+        'billing.back': "Quay lại",
+        'billing.you_are_now_subscribed_to': "Bạn hiện đang đăng ký gói %strong%.",
+        'billing.you_are_now_subscribed_to_without_tier': "Bạn đã đăng ký",
+        'billing.subscription_cancellation_confirmation': "Bạn có chắc chắn muốn hủy đăng ký không?",
+        'billing.subscription_setup': "Thiết lập đăng ký",
+        'billing.cancel_it': "Hủy bỏ",
+        'billing.keep_it': "Giữ lại",
+        'billing.subscription_resumed': "Đăng ký %strong% của bạn đã được tiếp tục!",
+        'billing.upgrade_now': "Nâng cấp ngay",
+        'billing.upgrade': "Nâng cấp",
+        'billing.currently_on_free_plan': "Bạn hiện đang sử dụng gói miễn phí.",
+        'billing.download_receipt': "Tải biên lai",
+        'billing.subscription_check_error': "Đã xảy ra sự cố khi kiểm tra trạng thái đăng ký của bạn.",
+        'billing.email_confirmation_needed': "Email của bạn chưa được xác nhận. Chúng tôi sẽ gửi mã xác nhận ngay bây giờ.",
+        'billing.sub_cancelled_but_valid_until': "Bạn đã hủy đăng ký và được tự động chuyển sang gói miễn phí vào cuối kỳ thanh toán. Bạn sẽ không bị tính phí nữa đến khi đăng ký lại.",
+        'billing.current_plan_until_end_of_period': "Gói cước hiện tại của bạn đến cuối kỳ thanh toán này.",
+        'billing.current_plan': "Gói hiện tại",
+        'billing.cancelled_subscription_tier': "Đăng ký đã hủy (%%)",
+        'billing.manage': "Quản lý",
+        'billing.limited': "Giới hạn",
+        'billing.expanded': "Mở rộng",
+        'billing.accelerated': "Tăng tốc",
+        'billing.enjoy_msg': "Tận hưởng %% Lưu trữ đám mây và các tiện ích khác.",
+        too_many_attempts: "Quá nhiều lần thử. Vui lòng thử lại sau.",
+        server_timeout: "Máy chủ mất quá nhiều thời gian để phản hồi. Vui lòng thử lại.",
+        signup_error: "Đã xảy ra lỗi trong quá trình đăng ký. Vui lòng thử lại.",
 
-        // =============================================================
-        // Missing translations
-        // =============================================================
-        "choose_publishing_option": undefined, // In English: "Choose how you want to publish your website:"
-        "create_desktop_shortcut": undefined, // In English: "Create Shortcut (Desktop)"
-        "create_desktop_shortcut_s": undefined, // In English: "Create Shortcuts (Desktop)"
-        "create_shortcut_s": undefined, // In English: "Create Shortcuts"
-        "minimize": undefined, // In English: "Minimize"
-        "reload_app": undefined, // In English: "Reload App"
-        "new_window": undefined, // In English: "New Window"
-        "open_trash": undefined, // In English: "Open Trash"
-        "pick_name_for_worker": undefined, // In English: "Pick a name for your worker:"
-        "publish_as_serverless_worker": undefined, // In English: "Publish as Worker"
-        "toolbar.enter_fullscreen": undefined, // In English: "Enter Full Screen"
-        "toolbar.github": undefined, // In English: "GitHub"
-        "toolbar.refer": undefined, // In English: "Refer"
-        "toolbar.save_account": undefined, // In English: "Save Account"
-        "toolbar.search": undefined, // In English: "Search"
-        "toolbar.qrcode": undefined, // In English: "QR Code"
-        "used_of": undefined, // In English: "{{used}} used of {{available}}"
-        "worker": undefined, // In English: "Worker"
-        "billing.offering.basic": undefined, // In English: "Basic"
-        "too_many_attempts": undefined, // In English: "Too many attempts. Please try again later."
-        "server_timeout": undefined, // In English: "The server took too long to respond. Please try again."
-        "signup_error": undefined, // In English: "An error occurred during signup. Please try again."
-        "welcome_title": undefined, // In English: "Welcome to your Personal Internet Computer"
-        "welcome_description": undefined, // In English: "Store files, play games, find awesome apps, and much more! All in one place, accessible from anywhere at any time."
-        "welcome_get_started": undefined, // In English: "Get Started"
-        "welcome_terms": undefined, // In English: "Terms"
-        "welcome_privacy": undefined, // In English: "Privacy"
-        "welcome_developers": undefined, // In English: "Developers"
-        "welcome_open_source": undefined, // In English: "Open Source"
-        "welcome_instant_login_title": undefined, // In English: "Instant Login!"
-        "alert_error_title": undefined, // In English: "Error!"
-        "alert_warning_title": undefined, // In English: "Warning!"
-        "alert_info_title": undefined, // In English: "Info"
-        "alert_success_title": undefined, // In English: "Success!"
-        "alert_confirm_title": undefined, // In English: "Are you sure?"
-        "alert_yes": undefined, // In English: "Yes"
-        "alert_no": undefined, // In English: "No"
-        "alert_retry": undefined, // In English: "Retry"
-        "alert_cancel": undefined, // In English: "Cancel"
-        "signup_confirm_password": undefined, // In English: "Confirm Password"
-        "login_email_username_required": undefined, // In English: "Email or username is required"
-        "login_password_required": undefined, // In English: "Password is required"
-        "window_title_open": undefined, // In English: "Open"
-        "window_title_change_password": undefined, // In English: "Change Password"
-        "window_title_select_font": undefined, // In English: "Select font…"
-        "window_title_session_list": undefined, // In English: "Session List!"
-        "window_title_set_new_password": undefined, // In English: "Set New Password"
-        "window_title_instant_login": undefined, // In English: "Instant Login!"
-        "window_title_publish_website": undefined, // In English: "Publish Website"
-        "window_title_publish_worker": undefined, // In English: "Publish Worker"
-        "window_title_authenticating": undefined, // In English: "Authenticating..."
-        "window_title_refer_friend": undefined, // In English: "Refer a friend!"
-        "desktop_show_desktop": undefined, // In English: "Show Desktop"
-        "desktop_show_open_windows": undefined, // In English: "Show Open Windows"
-        "desktop_exit_full_screen": undefined, // In English: "Exit Full Screen"
-        "desktop_enter_full_screen": undefined, // In English: "Enter Full Screen"
-        "desktop_position": undefined, // In English: "Position"
-        "desktop_position_left": undefined, // In English: "Left"
-        "desktop_position_bottom": undefined, // In English: "Bottom"
-        "desktop_position_right": undefined, // In English: "Right"
-        "item_shared_with_you": undefined, // In English: "A user has shared this item with you."
-        "item_shared_by_you": undefined, // In English: "You have shared this item with at least one other user."
-        "item_shortcut": undefined, // In English: "Shortcut"
-        "item_associated_websites": undefined, // In English: "Associated website"
-        "item_associated_websites_plural": undefined, // In English: "Associated websites"
-        "no_suitable_apps_found": undefined, // In English: "No suitable apps found"
-        "window_click_to_go_back": undefined, // In English: "Click to go back."
-        "window_click_to_go_forward": undefined, // In English: "Click to go forward."
-        "window_click_to_go_up": undefined, // In English: "Click to go one directory up."
-        "window_title_public": undefined, // In English: "Public"
-        "window_title_videos": undefined, // In English: "Videos"
-        "window_title_pictures": undefined, // In English: "Pictures"
-        "window_title_puter": undefined, // In English: "Puter"
-        "window_folder_empty": undefined, // In English: "This folder is empty"
-        "manage_your_subdomains": undefined, // In English: "Manage Your Subdomains"
-        "open_containing_folder": undefined, // In English: "Open Containing Folder"
+        welcome_title: "Chào mừng đến với Máy tính Internet Cá nhân của bạn",
+        welcome_description: "Lưu trữ tệp, chơi trò chơi, tìm ứng dụng tuyệt vời và nhiều hơn nữa! Tất cả ở một nơi, có thể truy cập từ mọi nơi bất cứ lúc nào.",
+        welcome_get_started: "Bắt đầu",
+        welcome_terms: "Điều khoản",
+        welcome_privacy: "Quyền riêng tư",
+        welcome_developers: "Nhà phát triển",
+        welcome_open_source: "Mã nguồn mở",
+        welcome_instant_login_title: "Đăng nhập tức thì!",
 
+        alert_error_title: "Lỗi!",
+        alert_warning_title: "Cảnh báo!",
+        alert_info_title: "Thông tin",
+        alert_success_title: "Thành công!",
+        alert_confirm_title: "Bạn có chắc chắn?",
+        alert_yes: "Có",
+        alert_no: "Không",
+        alert_retry: "Thử lại",
+        alert_cancel: "Hủy",
+
+        signup_confirm_password: "Xác nhận mật khẩu",
+
+        login_email_username_required: "Email hoặc tên người dùng là bắt buộc",
+        login_password_required: "Mật khẩu là bắt buộc",
+
+        window_title_open: "Mở",
+        window_title_change_password: "Đổi mật khẩu",
+        window_title_select_font: "Chọn phông chữ…",
+        window_title_session_list: "Danh sách phiên!",
+        window_title_set_new_password: "Đặt mật khẩu mới",
+        window_title_instant_login: "Đăng nhập tức thì!",
+        window_title_publish_website: "Xuất bản trang web",
+        window_title_publish_worker: "Xuất bản Worker",
+        window_title_authenticating: "Đang xác thực...",
+        window_title_refer_friend: "Giới thiệu bạn bè!",
+
+        desktop_show_desktop: "Hiển thị màn hình nền",
+        desktop_show_open_windows: "Hiển thị các cửa sổ đang mở",
+        desktop_exit_full_screen: "Thoát chế độ toàn màn hình",
+        desktop_enter_full_screen: "Vào chế độ toàn màn hình",
+        desktop_position: "Vị trí",
+        desktop_position_left: "Trái",
+        desktop_position_bottom: "Dưới",
+        desktop_position_right: "Phải",
+        item_shared_with_you: "Một người dùng đã chia sẻ mục này với bạn.",
+        item_shared_by_you: "Bạn đã chia sẻ mục này với ít nhất một người dùng khác.",
+        item_shortcut: "Phím tắt",
+        item_associated_websites: "Trang web liên kết",
+        item_associated_websites_plural: "Các trang web liên kết",
+        no_suitable_apps_found: "Không tìm thấy ứng dụng phù hợp",
+
+        window_click_to_go_back: "Nhấp để quay lại.",
+        window_click_to_go_forward: "Nhấp để tiến lên.",
+        window_click_to_go_up: "Nhấp để đi lên một thư mục.",
+        window_title_public: "Công khai",
+        window_title_videos: "Video",
+        window_title_pictures: "Hình ảnh",
+        window_title_puter: "Puter",
+        window_folder_empty: "Thư mục này trống",
+
+        manage_your_subdomains: "Quản lý tên miền phụ của bạn",
+
+        open_containing_folder: "Mở thư mục chứa",
+
+        set_as_background: "Đặt làm Hình nền Máy tính",
+        untar: "Giải nén Tar",
+        untarring: "Đang giải nén Tar %strong%",
+        tar: "Tar",
+        download_as_tar: "Tải xuống dưới dạng Tar",
+        choose_publishing_option: "Chọn cách bạn muốn xuất bản trang web của mình:",
+        create_desktop_shortcut: "Tạo lối tắt (Màn hình nền)",
+        create_desktop_shortcut_s: "Tạo lối tắt (Màn hình nền)",
+        create_shortcut_s: "Tạo lối tắt",
+        minimize: "Thu nhỏ",
+        reload_app: "Tải lại ứng dụng",
+        new_window: "Cửa sổ mới",
+        open_trash: "Mở thùng rác",
+        pick_name_for_worker: "Chọn tên cho worker của bạn:",
+        publish_as_serverless_worker: "Xuất bản dưới dạng Worker",
+        'toolbar.enter_fullscreen': "Vào chế độ toàn màn hình",
+        'toolbar.github': "GitHub",
+        'toolbar.refer': "Giới thiệu",
+        'toolbar.save_account': "Lưu tài khoản",
+        'toolbar.search': "Tìm kiếm",
+        'toolbar.qrcode': "Mã QR",
+        used_of: "Đã sử dụng {{used}} trên tổng số {{available}}",
+        worker: "Worker",
+        'billing.offering.basic': "Cơ bản",
     }
 };
 
