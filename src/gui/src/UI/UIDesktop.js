@@ -860,10 +860,7 @@ async function UIDesktop(options) {
         if (event.target === el_desktop) {
             event.preventDefault();
             UIContextMenu({
-                position: {
-                    left: event.pageX,
-                    top: event.pageY
-                },
+                position: event.type === 'taphold' ? undefined : { left: event.pageX, top: event.pageY },
                 items: [
                     // -------------------------------------------
                     // Sort by
