@@ -505,6 +505,8 @@ const en = {
         'manage_your_subdomains': 'Manage Your Subdomains',
 
         'open_containing_folder': 'Open Containing Folder',
+
+        'set_as_background': 'Set as Desktop Background',
     }
 };
 

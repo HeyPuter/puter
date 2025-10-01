@@ -30,6 +30,7 @@ import path from "../lib/path.js"
 import truncate_filename from '../helpers/truncate_filename.js';
 import launch_app from "../helpers/launch_app.js"
 import open_item from "../helpers/open_item.js"
+import mime from "../lib/mime.js";
 
 function UIItem(options){
     const matching_appendto_count = $(options.appendTo).length;
@@ -1257,6 +1258,47 @@ function UIItem(options){
                             window.trigger_download([options.path]);
                     }
                 });                
+            }
+            // -------------------------------------------
+            // Set as Wallpaper
+            // -------------------------------------------
+            const mime_type = mime.getType($(el_item).attr('data-name'));
+            if(!is_trashed && !is_trash && !options.is_dir && mime_type.startsWith('image/')) {
+                menu_items.push({
+                    html: i18n('set_as_background'),
+                    onClick: async function () {
+                        const read_url = await puter.fs.sign(undefined, {uid: $(el_item).attr('data-uid'), action: 'read'});
+                        window.set_desktop_background({
+                            url: read_url.items.read_url,
+                            fit: window.desktop_bg_fit,
+                        });
+                         try{
+                            $.ajax({
+                                url: window.api_origin + "/set-desktop-bg",
+                                type: 'POST',
+                                data: JSON.stringify({ 
+                                    url: window.desktop_bg_url,
+                                    color: window.desktop_bg_color,
+                                    fit: window.desktop_bg_fit,
+                                }),
+                                async: true,
+                                contentType: "application/json",
+                                headers: {
+                                    "Authorization": "Bearer "+window.auth_token
+                                },
+                                statusCode: {
+                                    401: function () {
+                                        window.logout();
+                                    },
+                                },
+                            })
+                            $(el_window).close();
+                            resolve(true);    
+                        }catch(err){
+                            // Ignore
+                        }
+                    }
+                });
             }
             // -------------------------------------------
             // Zip
