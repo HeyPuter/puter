@@ -43,6 +43,7 @@ interface Extension extends RouterMethods {
 declare global {
   // Declare the extension variable
   const extension: Extension;
+  const config: { [k: string | number | symbol]: unknown };
 }
 
 export {};

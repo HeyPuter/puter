@@ -67,6 +67,7 @@ export default defineConfig([
         languageOptions: {
             globals: {
                 extension: 'readonly',
+                config: 'readonly',
                 ...globals.node,
             },
         },
