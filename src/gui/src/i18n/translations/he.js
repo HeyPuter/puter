@@ -422,10 +422,6 @@ const he = {
     "billing.expanded": "מורחב", // In English: "Expanded"
     "billing.accelerated": "מואץ", // In English: "Accelerated"
     "billing.enjoy_msg": "תהנו מ  %% של אחסון ענן בנוסף להטבות נוספות", // In English: "Enjoy %% of Cloud Storage plus other benefits."
-
-    // =============================================================
-    // Missing translations
-    // =============================================================
     "choose_publishing_option": "בחר כיצד לפרסם את האתר שלך", // In English: "Choose how you want to publish your website:"
     "create_desktop_shortcut": "צור קיצור דרך (שולחן עבודה)", // In English: "Create Shortcut (Desktop)"
     "create_desktop_shortcut_s": "צור קיצורי דרך (שולחן עבודה)", // In English: "Create Shortcuts (Desktop)"
