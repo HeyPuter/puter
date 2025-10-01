@@ -48,12 +48,20 @@ extension.on('create.interfaces', event => {
  * permission to access this driver:
  *
  *   service:no-frills:ii:hello-world
+ *
+ * The value of `<subject>` can be one of many "special" values
+ * to demonstrate capabilities of drivers or extensions, including:
+ * - `%fail%`: simulate an error response from a driver
+ * - `%config%`: return the effective configuration object
  */
 extension.on('create.drivers', event => {
     event.createDriver('hello-world', 'no-frills', {
         greet ({ subject }) {
             if ( subject === '%fail%' ) {
                 throw new Error('failing on purpose');
+            }
+            if ( subject === '%config%' ) {
+                return JSON.stringify(config ?? null);
             }
             return `Hello, ${subject ?? 'World'}!`;
         },

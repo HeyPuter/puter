@@ -34,6 +34,7 @@ const uuid = require('uuid');
 const readline = require("node:readline/promises");
 const { RuntimeModuleRegistry } = require("./extension/RuntimeModuleRegistry");
 const { RuntimeModule } = require("./extension/RuntimeModule");
+const deep_proto_merge = require("./config/deep_proto_merge");
 
 const { quot } = libs.string;
 
@@ -381,6 +382,17 @@ class Kernel extends AdvancedBase {
                     mod_entry.jsons.puter = obj;
                 })());
             }
+
+            const config_json_path = path_.join(mod_path, 'config.json');
+            if ( fs.existsSync(config_json_path) ) {
+                promises.push((async () => {
+                    const buffer = await fs.promises.readFile(config_json_path);
+                    const json = buffer.toString();
+                    const obj = JSON.parse(json);
+                    mod_entry.priority = obj.priority ?? mod_entry.priority;
+                    mod_entry.jsons.config = obj;
+                })());
+            }
             
             // Copy mod contents to `/mod_packages`
             promises.push(fs.promises.cp(mod_path, mod_package_dir, {
@@ -445,6 +457,14 @@ class Kernel extends AdvancedBase {
         
         const packageJSON = mod_entry.jsons.package;
         
+        Object.defineProperty(mod.extension, 'config', {
+            get: () => {
+                const builtin_config = mod_entry.jsons.config ?? {};
+                const user_config = require('./config').extensions?.[packageJSON.name] ?? {};
+                return deep_proto_merge(user_config, builtin_config);
+            },
+        });
+        
         const maybe_promise = (typ => typ.trim().toLowerCase())(packageJSON.type ?? '') === 'module'
             ? await import(path_.join(require_dir, packageJSON.main ?? 'index.js'))
             : require(require_dir);
@@ -474,10 +494,6 @@ class Kernel extends AdvancedBase {
             mod.extension.on('init', exportObject.init);
         }
 
-        Object.defineProperty(mod.extension, 'config', {
-            get: () => require('./config').services?.[extension_name] ?? {},
-        });
-        
         // This is where the 'install' event gets triggered
         await mod.install(context);
     }
