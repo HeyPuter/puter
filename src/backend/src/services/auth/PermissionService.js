@@ -222,7 +222,7 @@ class PermissionService extends BaseService {
         /** @type {Promise<Record<string, unknown>[]>} */
             const validPerms = (await this.services.get('su').sudo(() => (
                 this.kvService.get({
-                    key: permissions.map(perm => PermissionUtil.join(PERM_KEY_PREFIX, actor.type.user.id, perm)),
+                    key: [...new Set(permissions.map(perm => PermissionUtil.join(PERM_KEY_PREFIX, actor.type.user.id, perm)))],
                 })
             ))).filter(Boolean);
 
