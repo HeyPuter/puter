@@ -151,45 +151,13 @@ class EngPortalService extends AdvancedBase {
     _registerCommands (commands) {
         this.commands.registerCommands('eng', [
             {
-                id: 'test',
+                id: 'list-operations',
                 description: 'testing',
                 handler: async (args, log) => {
                     const ops = await this.list_operations();
                     log.log(JSON.stringify(ops, null, 2));
-                }
+                },
             },
-            {
-                id: 'set',
-                description: 'set a parameter',
-                handler: async (args, log) => {
-                    const [name, value] = args;
-                    const parameter = this._get_param(name);
-                    parameter.set(value);
-                    log.log(value);
-                }
-            },
-            {
-                id: 'list',
-                description: 'list parameters',
-                handler: async (args, log) => {
-                    const [prefix] = args;
-                    let parameters = this.parameters_;
-                    if ( prefix ) {
-                        parameters = parameters
-                            .filter(p => p.spec_.id.startsWith(prefix));
-                    }
-                    log.log(`available parameters${
-                        prefix ? ` (starting with: ${prefix})` : ''
-                    }:`);
-                    for (const parameter of parameters) {
-                        // log.log(`- ${parameter.spec_.id}: ${parameter.spec_.description}`);
-                        // Log parameter description and value
-                        const value = await parameter.get();
-                        log.log(`- ${parameter.spec_.id} = ${value}`);
-                        log.log(`  ${parameter.spec_.description}`);
-                    }
-                }
-            }
         ]);
     }
 }
