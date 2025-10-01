@@ -17,7 +17,7 @@
  * along with this program.  If not, see <https://www.gnu.org/licenses/>.
  */
 
-const en = {
+const he = {
   name: "עברית",
   english_name: "Hebrew",
   code: "he",
@@ -72,7 +72,7 @@ const en = {
     confirm_delete_user:
       "האם אתה בטוח שברצונך למחוק את חשבונך? כל הקבצים והנתונים שלך יימחקו לצמיתות. לא ניתן לבטל פעולה זו.",
     confirm_delete_user_title: "מחיקת חשבון?",
-    confirm_session_revoke: "האם אתה בטוח שברצונך לבטל ישיבה זו?",
+    confirm_session_revoke: "?האם אתה בטוח שברצונך לבטל חיבור פעיל זה",
     confirm_your_email_address: "אשר את כתובת האימייל שלך",
     contact_us: "צור קשר",
     contact_us_verification_required:
@@ -143,7 +143,7 @@ const en = {
       "אנא השתמש בטופס שלהלן כדי לשלוח לנו את המשוב, ההערות ודוחות הבאגים שלך.",
     feedback_sent_confirmation:
       "תודה שפנית אלינו. אם יש לך איממיל המשויך לחשבון שלך, נחזור אליכם בהקדם האפשרי.",
-    fit: "להתאים",
+    fit: "התאמה",
     folder: "תיקיה",
     force_quit: "לעזוב בכוח",
     forgot_pass_c2a: "שכחת את הסיסמא?",
@@ -171,7 +171,7 @@ const en = {
     log_into_another_account_anyway: "התחבר לחשבון אחר בכל מקרה",
     log_out: "התנתק",
     looks_good: "נראה טוב!",
-    manage_sessions: "ניהול ישיבות",
+    manage_sessions: "ניהול חיבורים פעילים",
     modified: "שונה",
     move: "לעבור",
     moving_file: "מעביר %%",
@@ -235,7 +235,7 @@ const en = {
     public: "ציבורי",
     publish: "פרסם",
     publish_as_website: "פרסום כאתר אינטרנט",
-    puter_description: `Puter הוא ענן אישי ששם את הפרטיות בראש סדר העדיפויות כדי לשמור על כל הקבצים שלך, האפליקציות  ו המשחקים במקום מאובטח אחד, נגיש מכל מקום ובכל זמן.`,
+    puter_description: `הוא ענן אישי ששם את הפרטיות בראש סדר העדיפויות כדי לשמור על כל הקבצים, המשחקים, והיישומים שלך במקום מאובטח אחד, נגיש מכל מקום ובכל זמן Puter`,
     reading_file: "קורא %strong%",
     recent: "לאחרונה",
     recommended: "מומלץ",
@@ -255,14 +255,14 @@ const en = {
     restart_puter_confirm: "האם אתה בטוח שברצונך להפעיל Puter מחדש ?",
     restore: "שחזור",
     save: "שמירה",
-    saturation: "הרויה",
+    saturation: "סטורציה",
     save_account: "שמירת חשבון",
     save_account_to_get_copy_link: "אנא צור חשבון כדי להמשיך.",
     save_account_to_publish: "אנא צור חשבון כדי להמשיך.",
-    save_session: "שמירת הפעלה",
+    save_session: "שמירת חיבור",
     save_session_c2a:
-      "צור חשבון כדי לשמור את ההפעלה הנוכחית שלך ולהימנע מאובדן העבודה שלך.",
-    scan_qr_c2a: "סרוק את הקוד שלהלן\nכדי להתחבר להפעלה זו ממכשירים אחרים",
+      "צור חשבון כדי לשמור את החיבור הנוכחי שלך ולהימנע מאובדן העבודה שלך.",
+    scan_qr_c2a: "סרוק את הקוד שלהלן\nכדי להתחבר לחיבור זה ממכשירים אחרים",
     scan_qr_2fa: "סרוק את קוד ה- QR באמצעות אפליקציית האימות שלך",
     scan_qr_generic: "סרוק קוד QR זה באמצעות הטלפון שלך או מכשיר אחר",
     search: "חיפוש",
@@ -271,10 +271,10 @@ const en = {
     select: "לבחירה",
     selected: "נבחר",
     select_color: "בחירת צבע…",
-    sessions: "ישיבות",
+    sessions: "חיבורים",
     send: "שלח",
     send_password_recovery_email: "שלח אימייל שחזור סיסמה",
-    session_saved: "תודה שיצרת חשבון. הפעלה זו נשמרה",
+    session_saved: "תודה שיצרת חשבון. חיבור זה נשמרה",
     settings: "הגדרות",
     set_new_password: "הגדרת סיסמה חדשה",
     share: "שיתוף",
@@ -293,7 +293,7 @@ const en = {
     start: "התחלה",
     status: "סטטוס",
     storage_usage: "שימוש באחסון",
-    storage_puter_used: "בשימוש על ידי Puter",
+    storage_puter_used: "Puter בשימוש על ידי",
     taking_longer_than_usual: "לוקח קצת יותר זמן מהרגיל. חכה בבקשה...",
     task_manager: "מנהל משימות",
     taskmgr_header_name: "שם",
@@ -310,14 +310,14 @@ const en = {
     type: "סוג",
     type_confirm_to_delete_account: "הקלד 'אישור' כדי למחוק את חשבונך.",
     ui_colors: "צבעי ממשק משתמש",
-    ui_manage_sessions: "מנהל ישיבות",
+    ui_manage_sessions: "מנהל חיבורים",
     ui_revoke: "בטל",
     undo: "בטל",
     unlimited: "ללא הגבלה",
     unzip: "פתח קובץ מכווץ",
     upload: "העלאה",
     upload_here: "העלה כאן",
-    usage: "שמוש",
+    usage: "שימוש",
     username: "שם משתמש",
     username_changed: "שם המשתמש עודכן בהצלחה.",
     username_required: "שם משתמש חובה.",
@@ -422,87 +422,83 @@ const en = {
     "billing.expanded": "מורחב", // In English: "Expanded"
     "billing.accelerated": "מואץ", // In English: "Accelerated"
     "billing.enjoy_msg": "תהנו מ  %% של אחסון ענן בנוסף להטבות נוספות", // In English: "Enjoy %% of Cloud Storage plus other benefits."
-
-    // =============================================================
-    // Missing translations
-    // =============================================================
-    "choose_publishing_option": undefined, // In English: "Choose how you want to publish your website:"
-    "create_desktop_shortcut": undefined, // In English: "Create Shortcut (Desktop)"
-    "create_desktop_shortcut_s": undefined, // In English: "Create Shortcuts (Desktop)"
-    "create_shortcut_s": undefined, // In English: "Create Shortcuts"
-    "minimize": undefined, // In English: "Minimize"
-    "reload_app": undefined, // In English: "Reload App"
-    "new_window": undefined, // In English: "New Window"
-    "open_trash": undefined, // In English: "Open Trash"
-    "pick_name_for_worker": undefined, // In English: "Pick a name for your worker:"
-    "publish_as_serverless_worker": undefined, // In English: "Publish as Worker"
-    "toolbar.enter_fullscreen": undefined, // In English: "Enter Full Screen"
-    "toolbar.github": undefined, // In English: "GitHub"
-    "toolbar.refer": undefined, // In English: "Refer"
-    "toolbar.save_account": undefined, // In English: "Save Account"
-    "toolbar.search": undefined, // In English: "Search"
-    "toolbar.qrcode": undefined, // In English: "QR Code"
-    "used_of": undefined, // In English: "{{used}} used of {{available}}"
-    "worker": undefined, // In English: "Worker"
-    "billing.offering.basic": undefined, // In English: "Basic"
-    "too_many_attempts": undefined, // In English: "Too many attempts. Please try again later."
-    "server_timeout": undefined, // In English: "The server took too long to respond. Please try again."
-    "signup_error": undefined, // In English: "An error occurred during signup. Please try again."
-    "welcome_title": undefined, // In English: "Welcome to your Personal Internet Computer"
-    "welcome_description": undefined, // In English: "Store files, play games, find awesome apps, and much more! All in one place, accessible from anywhere at any time."
-    "welcome_get_started": undefined, // In English: "Get Started"
-    "welcome_terms": undefined, // In English: "Terms"
-    "welcome_privacy": undefined, // In English: "Privacy"
-    "welcome_developers": undefined, // In English: "Developers"
-    "welcome_open_source": undefined, // In English: "Open Source"
-    "welcome_instant_login_title": undefined, // In English: "Instant Login!"
-    "alert_error_title": undefined, // In English: "Error!"
-    "alert_warning_title": undefined, // In English: "Warning!"
-    "alert_info_title": undefined, // In English: "Info"
-    "alert_success_title": undefined, // In English: "Success!"
-    "alert_confirm_title": undefined, // In English: "Are you sure?"
-    "alert_yes": undefined, // In English: "Yes"
-    "alert_no": undefined, // In English: "No"
-    "alert_retry": undefined, // In English: "Retry"
-    "alert_cancel": undefined, // In English: "Cancel"
-    "signup_confirm_password": undefined, // In English: "Confirm Password"
-    "login_email_username_required": undefined, // In English: "Email or username is required"
-    "login_password_required": undefined, // In English: "Password is required"
-    "window_title_open": undefined, // In English: "Open"
-    "window_title_change_password": undefined, // In English: "Change Password"
-    "window_title_select_font": undefined, // In English: "Select font…"
-    "window_title_session_list": undefined, // In English: "Session List!"
-    "window_title_set_new_password": undefined, // In English: "Set New Password"
-    "window_title_instant_login": undefined, // In English: "Instant Login!"
-    "window_title_publish_website": undefined, // In English: "Publish Website"
-    "window_title_publish_worker": undefined, // In English: "Publish Worker"
-    "window_title_authenticating": undefined, // In English: "Authenticating..."
-    "window_title_refer_friend": undefined, // In English: "Refer a friend!"
-    "desktop_show_desktop": undefined, // In English: "Show Desktop"
-    "desktop_show_open_windows": undefined, // In English: "Show Open Windows"
-    "desktop_exit_full_screen": undefined, // In English: "Exit Full Screen"
-    "desktop_enter_full_screen": undefined, // In English: "Enter Full Screen"
-    "desktop_position": undefined, // In English: "Position"
-    "desktop_position_left": undefined, // In English: "Left"
-    "desktop_position_bottom": undefined, // In English: "Bottom"
-    "desktop_position_right": undefined, // In English: "Right"
-    "item_shared_with_you": undefined, // In English: "A user has shared this item with you."
-    "item_shared_by_you": undefined, // In English: "You have shared this item with at least one other user."
-    "item_shortcut": undefined, // In English: "Shortcut"
-    "item_associated_websites": undefined, // In English: "Associated website"
-    "item_associated_websites_plural": undefined, // In English: "Associated websites"
-    "no_suitable_apps_found": undefined, // In English: "No suitable apps found"
-    "window_click_to_go_back": undefined, // In English: "Click to go back."
-    "window_click_to_go_forward": undefined, // In English: "Click to go forward."
-    "window_click_to_go_up": undefined, // In English: "Click to go one directory up."
-    "window_title_public": undefined, // In English: "Public"
-    "window_title_videos": undefined, // In English: "Videos"
-    "window_title_pictures": undefined, // In English: "Pictures"
-    "window_title_puter": undefined, // In English: "Puter"
-    "window_folder_empty": undefined, // In English: "This folder is empty"
-    "manage_your_subdomains": undefined, // In English: "Manage Your Subdomains"
-    "open_containing_folder": undefined, // In English: "Open Containing Folder"
+    "choose_publishing_option": "בחר כיצד לפרסם את האתר שלך", // In English: "Choose how you want to publish your website:"
+    "create_desktop_shortcut": "צור קיצור דרך (שולחן עבודה)", // In English: "Create Shortcut (Desktop)"
+    "create_desktop_shortcut_s": "צור קיצורי דרך (שולחן עבודה)", // In English: "Create Shortcuts (Desktop)"
+    "create_shortcut_s": "צור קיצורי דרך", // In English: "Create Shortcuts"
+    "minimize": "מזער", // In English: "Minimize"
+    "reload_app": "טען מחדש", // In English: "Reload App"
+    "new_window": "חלון חדש", // In English: "New Window"
+    "open_trash": "פתח אשפה", // In English: "Open Trash"
+    "pick_name_for_worker": ":בחר שם לעובד שלך", // In English: "Pick a name for your worker:"
+    "publish_as_serverless_worker": "פרסם כעובד", // In English: "Publish as Worker"
+    "toolbar.enter_fullscreen": "מסך מלא", // In English: "Enter Full Screen"
+    "toolbar.github": "גיטהאב", // In English: "GitHub"
+    "toolbar.refer": "הפנה", // In English: "Refer"
+    "toolbar.save_account": "שמור משתמש", // In English: "Save Account"
+    "toolbar.search": "חפש", // In English: "Search"
+    "toolbar.qrcode": "QR קוד", // In English: "QR Code"
+    "used_of": "{{available}} משומש מתוך {{used}}", // In English: "{{used}} used of {{available}}"
+    "worker": "עובד", // In English: "Worker"
+    "billing.offering.basic": "בסיסי", // In English: "Basic"
+    "too_many_attempts": ".יותר מדי נסיונות. אנא נסה מאוחר יותר", // In English: "Too many attempts. Please try again later."
+    "server_timeout": ".לשרת לקח זמן רב מדי להגיב. אנא נסה שנית", // In English: "The server took too long to respond. Please try again."
+    "signup_error": ".ארעה תקלה בעת ההרשמה. אנא נסה שנית", // In English: "An error occurred during signup. Please try again."
+    "welcome_title": "ברוך הבא למחשב האינטרנט האישי שלך", // In English: "Welcome to your Personal Internet Computer"
+    "welcome_description": "אחסן קבצים, שחק במשחקים, מצא ישומים מדהימים, והרבה יותר! הכל במקום אחד, נגיש מכל מקום בכל זמן", // In English: "Store files, play games, find awesome apps, and much more! All in one place, accessible from anywhere at any time."
+    "welcome_get_started": "התחל", // In English: "Get Started"
+    "welcome_terms": "תנאים", // In English: "Terms"
+    "welcome_privacy": "פרטיות", // In English: "Privacy"
+    "welcome_developers": "מפתחים", // In English: "Developers"
+    "welcome_open_source": "מקור פתוח", // In English: "Open Source"
+    "welcome_instant_login_title": "!כניסה מידית", // In English: "Instant Login!"
+    "alert_error_title": "!תקלה", // In English: "Error!"
+    "alert_warning_title": "!אזהרה", // In English: "Warning!"
+    "alert_info_title": "מידע", // In English: "Info"
+    "alert_success_title": "!הצלחה", // In English: "Success!"
+    "alert_confirm_title": "?האם אתה בטוח", // In English: "Are you sure?"
+    "alert_yes": "כן", // In English: "Yes"
+    "alert_no": "לא", // In English: "No"
+    "alert_retry": "נסה שנית", // In English: "Retry"
+    "alert_cancel": "בטל", // In English: "Cancel"
+    "signup_confirm_password": "אשר סיסמא", // In English: "Confirm Password"
+    "login_email_username_required": "נחוץ מייל או שם משתמש", // In English: "Email or username is required"
+    "login_password_required": "נחוצה סיסמא", // In English: "Password is required"
+    "window_title_open": "פתח", // In English: "Open"
+    "window_title_change_password": "שנה סיסמא", // In English: "Change Password"
+    "window_title_select_font": "...בחר גופן", // In English: "Select font…"
+    "window_title_session_list": "רשימת חיבורים", // In English: "Session List!"
+    "window_title_set_new_password": "בחר סיסמא חדשה", // In English: "Set New Password"
+    "window_title_instant_login": "!כניסה מידית", // In English: "Instant Login!"
+    "window_title_publish_website": "פרסם אתר", // In English: "Publish Website"
+    "window_title_publish_worker": "פרסם עובד", // In English: "Publish Worker"
+    "window_title_authenticating": "מאמת", // In English: "Authenticating..."
+    "window_title_refer_friend": "!הפנה חבר", // In English: "Refer a friend!"
+    "desktop_show_desktop": "הראה שולחן עבודה", // In English: "Show Desktop"
+    "desktop_show_open_windows": "הראה חלונות פתוחים", // In English: "Show Open Windows"
+    "desktop_exit_full_screen": "בטל מסך מלא", // In English: "Exit Full Screen"
+    "desktop_enter_full_screen": "הפעל מסך מלא", // In English: "Enter Full Screen"
+    "desktop_position": "מיקום", // In English: "Position"
+    "desktop_position_left": "שמאל", // In English: "Left"
+    "desktop_position_bottom": "מטה", // In English: "Bottom"
+    "desktop_position_right": "ימין", // In English: "Right"
+    "item_shared_with_you": "משתמש שיתף עמך פריט זה", // In English: "A user has shared this item with you."
+    "item_shared_by_you": "שיתפת פריט זה עם לפחות משתמש אחד נוסף", // In English: "You have shared this item with at least one other user."
+    "item_shortcut": "קיצור דרך", // In English: "Shortcut"
+    "item_associated_websites": "אתר משויך", // In English: "Associated website"
+    "item_associated_websites_plural": "אתרים משויכים", // In English: "Associated websites"
+    "no_suitable_apps_found": "לא נמצאו ישומים מתאימים", // In English: "No suitable apps found"
+    "window_click_to_go_back": "לחץ כדי לחזור", // In English: "Click to go back."
+    "window_click_to_go_forward": "לחץ כדי להתקדם", // In English: "Click to go forward."
+    "window_click_to_go_up": "לחץ כדי לעלות ספרייה אחת מעלה", // In English: "Click to go one directory up."
+    "window_title_public": "ציבורי", // In English: "Public"
+    "window_title_videos": "סרטונים", // In English: "Videos"
+    "window_title_pictures": "תמונות", // In English: "Pictures"
+    "window_title_puter": "Puter", // In English: "Puter"
+    "window_folder_empty": "תיקייה זו ריקה", // In English: "This folder is empty"
+    "manage_your_subdomains": "ניהול תת-הדומיינים שלך", // In English: "Manage Your Subdomains"
+    "open_containing_folder": "פתח תיקייה מכילה", // In English: "Open Containing Folder"
   },
 };
 
-export default en;
+export default he;
