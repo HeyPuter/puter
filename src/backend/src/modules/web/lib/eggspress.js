@@ -16,6 +16,9 @@
  * You should have received a copy of the GNU Affero General Public License
  * along with this program.  If not, see <https://www.gnu.org/licenses/>.
  */
+
+/* eslint-disable @stylistic/indent */
+
 const express = require('express');
 const multer = require('multer');
 const multest = require('@heyputer/multest');
@@ -44,16 +47,24 @@ module.exports = function eggspress (route, settings, handler) {
   const router = express.Router();
   const mw = [];
   const afterMW = [];
+  
+  const _defaultJsonOptions = {};
+  if ( settings.jsonCanBeLarge ) {
+    _defaultJsonOptions.limit = '10mb';
+  }
 
   // These flags enable specific middleware.
   if ( settings.abuse ) mw.push(require('../../../middleware/abuse')(settings.abuse));
   if ( settings.verified ) mw.push(require('../../../middleware/verified'));
-  if ( settings.json ) mw.push(express.json());
+  if ( settings.json ) mw.push(express.json(_defaultJsonOptions));
 
   // A hack so plain text is parsed as JSON in methods which need to be lower latency/avoid the cors roundtrip
-  if ( settings.noReallyItsJson ) mw.push(express.json({ type: '*/*' }));
+  if ( settings.noReallyItsJson ) mw.push(express.json({ ..._defaultJsonOptions, type: '*/*' }));
 
-  mw.push(express.json({ type: (req) => req.headers['content-type'] === "text/plain;actually=json" }));
+  mw.push(express.json({
+    ..._defaultJsonOptions,
+    type: (req) => req.headers['content-type'] === "text/plain;actually=json",
+  }));
 
   if ( settings.auth ) mw.push(require('../../../middleware/auth'));
   if ( settings.auth2 ) mw.push(require('../../../middleware/auth2'));

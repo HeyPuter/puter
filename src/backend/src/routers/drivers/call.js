@@ -54,11 +54,12 @@ module.exports = eggspress('/drivers/call', {
     subdomain: 'api',
     auth2: true,
     // noReallyItsJson: true,
+    jsonCanBeLarge: true,
     allowedMethods: ['POST'],
 }, async (req, res, next) => {
     const x = Context.get();
     const svc_driver = x.get('services').get('driver');
-
+    
     let p_request = null;
     let body;
     if ( req.headers['content-type'].includes('multipart/form-data') ) {
