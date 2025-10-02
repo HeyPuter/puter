@@ -1,0 +1,15 @@
+<html>
+<body>
+    <script src="https://js.puter.com/v2/"></script>
+    <script>
+        // Loading ...
+        puter.print(`Loading...`);
+
+        // Generate an image of a cat using the default model and quality. 
+        // NOTE: `testMode` is set to true so that you can test this code without using up API credits.
+        puter.ai.txt2img('A picture of a cat.', true).then((image)=>{
+            document.body.appendChild(image);
+        });
+    </script>
+</body>
+</html>

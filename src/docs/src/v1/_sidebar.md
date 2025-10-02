@@ -1,0 +1,52 @@
+- Getting started
+  - [Introduction](/introduction.md)
+
+- Puter.js
+  - [Introduction](/puter.js/intro.md)
+  - [Quick Start](/puter.js/quick-start.md)
+  - Methods
+    - [`alert()`](/puter.js/alert.md)  
+    - [`createWindow()`](/puter.js/createWindow.md)
+    - [`exit()`](/puter.js/exit.md)
+    - [`getItem()`](/puter.js/getItem.md)  
+    - [`launchApp()`](/puter.js/launchApp.md)
+    - [`onItemsOpened()`](/puter.js/onItemsOpened.md)
+    - [`onWindowClose()`](/puter.js/onWindowClose.md)
+    - [`readAppDataFile()`](/puter.js/readAppDataFile.md)
+    - [`removeItem()`](/puter.js/removeItem.md)
+    - [`saveToAppData()`](/puter.js/saveToAppData.md)
+    - [`saveToDesktop()`](/puter.js/saveToDesktop.md)
+    - [`saveToDocuments()`](/puter.js/saveToDocuments.md)
+    - [`saveToPictures()`](/puter.js/saveToPictures.md)
+    - [`saveToVideos()`](/puter.js/saveToVideos.md)
+    - [`setItem()`](/puter.js/setItem.md)
+    - [`setWindowTitle()`](/puter.js/setWindowTitle.md)
+    - [`showColorPicker()`](/puter.js/showColorPicker.md)
+    - [`showDirectoryPicker()`](/puter.js/showDirectoryPicker.md)
+    - [`showFontPicker()`](/puter.js/showFontPicker.md)
+    - [`showOpenFilePicker()`](/puter.js/showOpenFilePicker.md)
+    - [`showSaveFilePicker()`](/puter.js/showSaveFilePicker.md)
+  - Attributes
+    - [`args`](/puter.js/args.md)
+
+<!-- - HTTP API
+  - Endpoints
+    - [`/copy`](/http-api/copy.md)
+    - [`/delete`](/http-api/delete.md)
+    - [`/df`](/http-api/df.md)
+    - [`/mkdir`](/http-api/mkdir.md)
+    - [`/move`](/http-api/move.md)
+    - [`/read`](/http-api/read.md)
+    - [`/readdir`](/http-api/readdir.md)
+    - [`/rename`](/http-api/rename.md)
+    - [`/share`](/http-api/share.md) 
+    - [`/sign`](/http-api/sign.md)
+    - [`/stat`](/http-api/stat.md)
+    - [`/whoami`](/http-api/whoami.md)
+    - [`/write`](/http-api/write.md)-->
+<!-- - iframe URL
+  - [Introduction](/iframe-intro.md)
+  - [`puter.item.metadata_url`](/puter-item-metadata_url.md)
+  - [`puter.item.name`](/puter-item-name.md)
+  - [`puter.item.read_url`](/puter-item-read_url.md)
+  - [`puter.item.write_url`](/puter-item-write_url.md) -->

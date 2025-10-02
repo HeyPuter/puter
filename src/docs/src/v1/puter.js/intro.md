@@ -1,0 +1,3 @@
+# Introduction
+
+Puter.js is the official software development kit (SDK) for the Puter platform, enabling developers to easily create cloud-native applications within the Puter environment. Its objective is to streamline the development process by eliminating the need for complex cloud infrastructure, and achieving this with a minimal number of function calls. Key features of Puter.js include simple functions for working with cloud storage, a cloud key-value store, and an array of user interface (UI) components such as windows, alerts, and menubars.

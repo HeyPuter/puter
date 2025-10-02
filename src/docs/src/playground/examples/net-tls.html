@@ -1,0 +1,21 @@
+<html>
+<body>
+    <script src="https://js.puter.com/v2/"></script>
+    <script>
+    const socket = new puter.net.tls.TLSSocket("example.com", 443);
+    socket.on("open", () => {
+        socket.write("GET / HTTP/1.1\r\nHost: example.com\r\n\r\n");
+    })
+    const decoder = new TextDecoder();
+    socket.on("data", (data) => {
+        puter.print(decoder.decode(data), { code: true });
+    })
+    socket.on("error", (reason) => {
+        puter.print("Socket errored with the following reason: ", reason);
+    })
+    socket.on("close", (hadError)=> {
+        puter.print("Socket closed. Was there an error? ", hadError);
+    })
+    </script>
+</body>
+</html>
