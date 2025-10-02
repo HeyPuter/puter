@@ -199,7 +199,11 @@ async function UITaskbar(options){
                 });
             });
             
-            $(document).on('contextmenu taphold', '.start-app', (e) => {
+            $(popover).on('contextmenu taphold', function(e) {
+                e.preventDefault();
+            });
+
+            $(document).on('contextmenu taphold', '.start-app', function(e) {
                 if (e.type === 'taphold' && !isMobile.phone && !isMobile.tablet)
                     return;
 
