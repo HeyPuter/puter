@@ -263,19 +263,22 @@ export class DBKVStore {
     }
     /** @type {(params: {key:string, pathAndAmountMap: Record<string, number>}) => Promise<unknown>} */
     async incr({ key, pathAndAmountMap }) {
-        const currVal = await this.get({ key });
+        let currVal = await this.get({ key });
         const pathEntries = Object.entries(pathAndAmountMap);
         if ( typeof currVal !== 'object' && pathEntries.length <= 1 && !pathEntries[0]?.[0] ){
             const amount = pathEntries[0]?.[1] ?? 1;
             this.set({ key, value: (Number(currVal) || 0) + amount });
             return (Number(currVal) || 0) + amount;
         }
-        if ( typeof currVal !== 'object' ){
-            throw new Error('Current value is not an object');
-        }
         // TODO DS: support arrays this also needs dynamodb implementation
         if ( Array.isArray(currVal) ){
             throw new Error('Current value is an array');
+        }
+        if ( !currVal ){
+            currVal = {};
+        }
+        if ( typeof currVal !== 'object' ){
+            throw new Error('Current value is not an object');
         }
         // create or change values as needed
         for ( const [path, amount] of Object.entries(pathAndAmountMap) ){
@@ -283,14 +286,20 @@ export class DBKVStore {
             let obj = currVal;
             for ( let i = 0; i < pathParts.length - 1; i++ ){
                 const part = pathParts[i];
-                if ( typeof obj[part] !== 'object' || obj[part] === null ){
+                if ( !obj[part] ){
                     obj[part] = {};
+                }
+                if ( typeof obj[part] !== 'object' || Array.isArray(currVal) ){
+                    throw new Error(`Path ${pathParts.slice(0, i + 1).join('.')} is not an object`);
                 }
                 obj = obj[part];
             }
             const lastPart = pathParts[pathParts.length - 1];
-            if ( typeof obj[lastPart] !== 'number' ){
+            if ( !obj[lastPart] ){
                 obj[lastPart] = 0;
+            }
+            if ( typeof obj[lastPart] !== 'number' ){
+                throw new Error(`Value at path ${path} is not a number`);
             }
             obj[lastPart] += amount;
         }
