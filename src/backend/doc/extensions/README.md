@@ -51,7 +51,7 @@ extension.on('init', event => {
 });
 ```
 
-### Imports
+### Puter Extension Imports
 
 Your extensions may need to invoke specific actions in Puter's backend
 in response to an event. Puter provides libraries at runtime which you
@@ -61,6 +61,12 @@ can access via `extension.imports`:
 const { kv } = extension.imports('data');
 kv.set('some-key', 'some value');
 ```
+
+#### The `data` import
+
+The data import makes it possible to access Puter's database, persistent
+key-value store, and in-memory cache.
+- [Read more about the 'data' import](./builtins/data.md)
 
 
 ### Adding Features to Puter
