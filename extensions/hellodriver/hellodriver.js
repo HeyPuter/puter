@@ -1,3 +1,5 @@
+const { kv } = extension.import('data');
+
 /**
  * Here we create an interface called 'hello-world'. This interface
  * specifies that any implementation of 'hello-world' should implement
@@ -57,12 +59,49 @@ extension.on('create.interfaces', event => {
 extension.on('create.drivers', event => {
     event.createDriver('hello-world', 'no-frills', {
         greet ({ subject }) {
-            if ( subject === '%fail%' ) {
+            return `Hello, ${subject ?? 'World'}!`;
+        },
+    });
+});
+
+extension.on('create.drivers', event => {
+    event.createDriver('hello-world', 'extension-examples', {
+        greet ({ subject }) {
+            if ( subject === 'fail' ) {
                 throw new Error('failing on purpose');
             }
-            if ( subject === '%config%' ) {
+            if ( subject === 'config' ) {
                 return JSON.stringify(config ?? null);
             }
+
+            const STR_KVSET = 'kv-set:';
+            if ( subject.startsWith(STR_KVSET) ) {
+                return kv.set({
+                    key: 'extension-examples-test-key',
+                    value: subject.slice(STR_KVSET.length),
+                });
+            }
+            if ( subject === 'kv-get' ) {
+                return kv.get({
+                    key: 'extension-examples-test-key',
+                });
+            }
+
+            /* eslint-disable */
+            const STR_KVSET2 = 'kv-set-2:';
+            if ( subject.startsWith(STR_KVSET2) ) {
+                return kv.set(
+                    'extension-examples-test-key',
+                    subject.slice(STR_KVSET2.length),
+                );
+            }
+            if ( subject === 'kv-get-2' ) {
+                return kv.get(
+                    'extension-examples-test-key',
+                );
+            }
+            /* eslint-enable */
+
             return `Hello, ${subject ?? 'World'}!`;
         },
     });
@@ -74,4 +113,5 @@ extension.on('create.drivers', event => {
  */
 extension.on('create.permissions', event => {
     event.grant_to_everyone('service:no-frills:ii:hello-world');
+    event.grant_to_everyone('service:extension-examples:ii:hello-world');
 });
