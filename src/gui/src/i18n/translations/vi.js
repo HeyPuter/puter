@@ -373,7 +373,7 @@ const vi = {
         'billing.offering.free': "Miễn phí",
         'billing.offering.pro': "Chuyên nghiệp",
         'billing.offering.professional': "Chuyên nghiệp",
-        'billing.business': "Doanh nghiệp",
+        'billing.offering.business': "Doanh nghiệp",
         'billing.cloud_storage': "Lưu trữ đám mây",
         'billing.ai_access': "Truy cập AI",
         'billing.bandwidth': "Băng thông",
