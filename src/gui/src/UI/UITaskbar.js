@@ -191,7 +191,7 @@ async function UITaskbar(options){
                 }
             });
 
-            $(popover).on('click', function(e){
+            $(popover).on('click', function(){
                 // close other context menus
                 $(".context-menu").fadeOut(200, function(){
                     $(this).remove();
@@ -200,7 +200,10 @@ async function UITaskbar(options){
             });
             
             $(popover).on('contextmenu taphold', function(e) {
-                e.preventDefault();
+                console.log(e);
+                if (!e.target.closest('.launch-search')) {
+                    e.preventDefault();
+                }
             });
 
             $(document).on('contextmenu taphold', '.start-app', function(e) {
