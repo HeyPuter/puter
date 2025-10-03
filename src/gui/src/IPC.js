@@ -1518,7 +1518,7 @@ const ipc_listener = async (event, handled) => {
             parent_uuid: event.data.appInstanceID,
             show_maximize_button: false,
             show_minimize_button: false,
-            title: 'Save As…',
+            title: i18n('Save As…'),
             is_dir: true,
             is_saveFileDialog: true,
             saveFileDialog_default_filename: event.data.suggestedName ?? '',
