@@ -16,7 +16,7 @@
  * You should have received a copy of the GNU Affero General Public License
  * along with this program.  If not, see <https://www.gnu.org/licenses/>.
  */
-const { get_user } = require("../../helpers");
+const { MANAGE_PERM_PREFIX } = require("../../services/auth/permissionConts.mjs");
 const { PermissionUtil } = require("../../services/auth/permissionUtils.mjs");
 const { DB_WRITE } = require("../../services/database/consts");
 const { NodeUIDSelector } = require("../node/selectors");
@@ -32,8 +32,8 @@ class LLReadShares extends LLFilesystemOperation {
         found with "see" permission is found, children of that node
         will not be traversed.
     `;
-    
-    async _run () {
+
+    async _run() {
         const { subject, user, actor } = this.values;
 
         const svc = this.context.get('services');
@@ -42,18 +42,14 @@ class LLReadShares extends LLFilesystemOperation {
         const svc_acl = svc.get('acl');
         const db = svc.get('database').get(DB_WRITE, 'll_readshares');
 
-        const issuer_username = await subject.getUserPart();
-        const issuer_user = await get_user({ username: issuer_username });
-        const rows = await db.read(
-            'SELECT DISTINCT permission FROM `user_to_user_permissions` ' +
-            'WHERE `holder_user_id` = ? AND `issuer_user_id` = ? ' +
-            'AND `permission` LIKE ?',
-            [user.id, issuer_user.id, 'fs:%']
-        );
+        const rows = await db.read('SELECT DISTINCT permission FROM `user_to_user_permissions` ' +
+            'WHERE `holder_user_id` = ?' +
+            'AND (`permission` LIKE ? OR `permission` LIKE ?)',
+        [user.id, 'fs:%', 'manage:fs:%']);
 
         const fsentry_uuids = [];
         for ( const row of rows ) {
-            const parts = PermissionUtil.split(row.permission);
+            const parts = PermissionUtil.split(row.permission.replace(`${MANAGE_PERM_PREFIX}:`, ''));
             fsentry_uuids.push(parts[1]);
         }
 

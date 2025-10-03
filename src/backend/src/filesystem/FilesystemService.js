@@ -64,14 +64,14 @@ class FilesystemService extends BaseService {
         const svc_permission = this.services.get('permission');
         svc_permission.register_rewriter(PermissionRewriter.create({
             matcher: permission => {
-                if ( ! permission.startsWith('fs:') ) return false;
-                const [_, specifier] = PermissionUtil.split(permission);
+                if ( !permission.startsWith('fs:') && !permission.startsWith('manage:fs:') ) return false;
+                const [_, specifier] = permission.split('fs:');
                 if ( ! specifier.startsWith('/') ) return false;
                 return true;
             },
             rewriter: async permission => {
-                const [_, path, ...rest] = PermissionUtil.split(permission);
-                console.log('checking path: ', path);
+                const [manageOpt, pathPerm] = permission.split('fs:');
+                const [path, ...rest] = PermissionUtil.split(pathPerm);
                 const node = await this.node(new NodePathSelector(path));
                 if ( ! await node.exists() ) {
                     // TOOD: we need a general-purpose error that can have
@@ -83,7 +83,7 @@ class FilesystemService extends BaseService {
                 if ( uid === undefined || uid === 'undefined' ) {
                     throw new Error(`uid is undefined for path ${path}`);
                 }
-                return `fs:${uid}:${rest.join(':')}`;
+                return [manageOpt.replace(':', ''), 'fs', uid, ...rest].filter(Boolean).join(':');
             },
         }));
         svc_permission.register_implicator(PermissionImplicator.create({
@@ -140,7 +140,7 @@ class FilesystemService extends BaseService {
                 if ( rules[specifiedMode] ) {
                     permissions.push(...rules[specifiedMode].map(mode => PermissionUtil.join(fsPrefix, fileId, mode, ...rest.slice(1))));
                     // push manage permission as well
-                    permissions.push(PermissionUtil.join(MANAGE_PERM_PREFIX, fsPrefix, fileId, specifiedMode, ...rest));
+                    permissions.push(PermissionUtil.join(MANAGE_PERM_PREFIX, fsPrefix, fileId));
                 }
 
                 return permissions;
