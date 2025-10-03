@@ -32,11 +32,11 @@ declare class Puter {
 
 // AI Module
 interface AI {
-    chat(prompt: string, options?: ChatOptions): Promise<ChatResponse>;
-    chat(prompt: string, testMode?: boolean, options?: ChatOptions): Promise<ChatResponse>;
-    chat(prompt: string, imageURL?: string, testMode?: boolean, options?: ChatOptions): Promise<ChatResponse>;
-    chat(prompt: string, imageURLArray?: string[], testMode?: boolean, options?: ChatOptions): Promise<ChatResponse>;
-    chat(messages: ChatMessage[], testMode?: boolean, options?: ChatOptions): Promise<ChatResponse>;
+    chat(prompt: string, options?: ChatOptions): Promise<ChatResponse> | AsyncIterable<ChatResponseChunk>;
+    chat(prompt: string, testMode?: boolean, options?: ChatOptions): Promise<ChatResponse> | AsyncIterable<ChatResponseChunk>;
+    chat(prompt: string, imageURL?: string, testMode?: boolean, options?: ChatOptions): Promise<ChatResponse> | AsyncIterable<ChatResponseChunk>;
+    chat(prompt: string, imageURLArray?: string[], testMode?: boolean, options?: ChatOptions): Promise<ChatResponse> | AsyncIterable<ChatResponseChunk>;
+    chat(messages: ChatMessage[], testMode?: boolean, options?: ChatOptions): Promise<ChatResponse> | AsyncIterable<ChatResponseChunk>;
 
     img2txt(image: string | File | Blob, testMode?: boolean): Promise<string>;
 
@@ -107,6 +107,11 @@ interface Txt2SpeechOptions {
     language?: string;
     voice?: string;
     engine?: 'standard' | 'neural' | 'generative';
+}
+
+interface ChatResponseChunk {
+    text?: string;
+    [key: string]: any;
 }
 
 // Apps Module
