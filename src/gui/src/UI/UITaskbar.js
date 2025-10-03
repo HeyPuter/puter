@@ -200,7 +200,6 @@ async function UITaskbar(options){
             });
             
             $(popover).on('contextmenu taphold', function(e) {
-                console.log(e);
                 if (!e.target.closest('.launch-search')) {
                     e.preventDefault();
                 }
