@@ -24,6 +24,7 @@ jobs:
 
     - name: Build
       run: |
+        rm package-lock.json
         npm install
         npm run test
 
