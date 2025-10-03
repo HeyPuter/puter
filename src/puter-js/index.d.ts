@@ -32,11 +32,19 @@ declare class Puter {
 
 // AI Module
 interface AI {
-    chat(prompt: string, options?: ChatOptions): Promise<ChatResponse> | AsyncIterable<ChatResponseChunk>;
-    chat(prompt: string, testMode?: boolean, options?: ChatOptions): Promise<ChatResponse> | AsyncIterable<ChatResponseChunk>;
-    chat(prompt: string, imageURL?: string, testMode?: boolean, options?: ChatOptions): Promise<ChatResponse> | AsyncIterable<ChatResponseChunk>;
-    chat(prompt: string, imageURLArray?: string[], testMode?: boolean, options?: ChatOptions): Promise<ChatResponse> | AsyncIterable<ChatResponseChunk>;
-    chat(messages: ChatMessage[], testMode?: boolean, options?: ChatOptions): Promise<ChatResponse> | AsyncIterable<ChatResponseChunk>;
+    // Streaming overloads
+    chat(prompt: string, options: StreamingChatOptions): AsyncIterable<ChatResponseChunk>;
+    chat(prompt: string, testMode: boolean, options: StreamingChatOptions): AsyncIterable<ChatResponseChunk>;
+    chat(prompt: string, imageURL: string, testMode: boolean, options: StreamingChatOptions): AsyncIterable<ChatResponseChunk>;
+    chat(prompt: string, imageURLArray: string[], testMode: boolean, options: StreamingChatOptions): AsyncIterable<ChatResponseChunk>;
+    chat(messages: ChatMessage[], testMode: boolean, options: StreamingChatOptions): AsyncIterable<ChatResponseChunk>;
+
+    // Non-streaming overloads
+    chat(prompt: string, options?: NonStreamingChatOptions): Promise<ChatResponse>;
+    chat(prompt: string, testMode?: boolean, options?: NonStreamingChatOptions): Promise<ChatResponse>;
+    chat(prompt: string, imageURL?: string, testMode?: boolean, options?: NonStreamingChatOptions): Promise<ChatResponse>;
+    chat(prompt: string, imageURLArray?: string[], testMode?: boolean, options?: NonStreamingChatOptions): Promise<ChatResponse>;
+    chat(messages: ChatMessage[], testMode?: boolean, options?: NonStreamingChatOptions): Promise<ChatResponse>;
 
     img2txt(image: string | File | Blob, testMode?: boolean): Promise<string>;
 
@@ -49,6 +57,9 @@ interface AI {
     txt2speech(text: string, language?: string, voice?: string): Promise<HTMLAudioElement>;
     txt2speech(text: string, language?: string, voice?: string, engine?: string): Promise<HTMLAudioElement>;
 }
+
+type StreamingChatOptions = Omit<ChatOptions, "stream"> & { stream: true };
+type NonStreamingChatOptions = Omit<ChatOptions, "stream"> & { stream?: false | undefined };
 
 interface ChatOptions {
     model?: string;
