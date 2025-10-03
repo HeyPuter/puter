@@ -191,7 +191,7 @@ async function UITaskbar(options){
                 }
             });
 
-            $(popover).on('click', function(e){
+            $(popover).on('click', function(){
                 // close other context menus
                 $(".context-menu").fadeOut(200, function(){
                     $(this).remove();
@@ -199,7 +199,13 @@ async function UITaskbar(options){
                 });
             });
             
-            $(document).on('contextmenu taphold', '.start-app', (e) => {
+            $(popover).on('contextmenu taphold', function(e) {
+                if (!e.target.closest('.launch-search')) {
+                    e.preventDefault();
+                }
+            });
+
+            $(document).on('contextmenu taphold', '.start-app', function(e) {
                 if (e.type === 'taphold' && !isMobile.phone && !isMobile.tablet)
                     return;
 
