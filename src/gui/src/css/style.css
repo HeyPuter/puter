@@ -1411,6 +1411,7 @@ span.header-sort-icon img {
     border-width: 1px !important;
     height: 31px;
     flex-grow: 1;
+    width: initial !important;
 }
 
 .window-filedialog-upload-here {
