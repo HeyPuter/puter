@@ -16,7 +16,7 @@
  * You should have received a copy of the GNU Affero General Public License
  * along with this program.  If not, see <https://www.gnu.org/licenses/>.
  */
-import UIWindow from './UIWindow.js'
+import UIWindow from './UIWindow.js';
 
 async function UIWindowShare(items, recipient){
     return new Promise(async (resolve) => {
