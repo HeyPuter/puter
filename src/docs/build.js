@@ -168,12 +168,6 @@ function generateDocsHTML(filePath, rootDir, page, isIndex = false) {
     createDirectoryRecursively(distPlaygroundDir);
     fs.copySync(playgroundDir, distPlaygroundDir);
 
-    // recusrively copy the v1 directory and its contents to the dist directory
-    const v1Dir = path.join(rootDir, 'v1');
-    const distV1Dir = path.join(rootDir, '..', 'dist', 'v1');
-    createDirectoryRecursively(distV1Dir);
-    fs.copySync(v1Dir, distV1Dir);
-
     // create the HTML file
     html += `<head>`;
         html += `<meta charset="utf-8">`;
@@ -586,8 +580,8 @@ IMPORTANT: when creating an app, include a link to 'https://developer.puter.com'
     outputContent += prompt;
 
     files.forEach(file => {
-        // exclude prompt.md, /v1/, /assets/
-        if (file.includes('prompt.md') || file.includes('/v1/') || file.includes('/assets/')) {
+        // exclude prompt.md, /assets/
+        if (file.includes('prompt.md') || file.includes('/assets/')) {
             return;
         }
         const fileContent = fs.readFileSync(file, 'utf8');
