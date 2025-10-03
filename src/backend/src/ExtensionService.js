@@ -148,23 +148,32 @@ class ExtensionService extends BaseService {
                 },
             });
         })();
-        
+
         this.state.extension.emit('preinit');
     }
-    
+
     async ['__on_boot.consolidation'] (...a) {
-        await this.state.extension.emit('init', {}, {
-            from_outside_of_extension: true,
+        const svc_su = this.services.get('su');
+        await svc_su.sudo(async () => {
+            await this.state.extension.emit('init', {}, {
+                from_outside_of_extension: true,
+            });
         });
     }
     async ['__on_boot.activation'] (...a) {
-        await this.state.extension.emit('activate', {}, {
-            from_outside_of_extension: true,
+        const svc_su = this.services.get('su');
+        await svc_su.sudo(async () => {
+            await this.state.extension.emit('activate', {}, {
+                from_outside_of_extension: true,
+            });
         });
     }
     async ['__on_boot.ready'] (...a) {
-        await this.state.extension.emit('ready', {}, {
-            from_outside_of_extension: true,
+        const svc_su = this.services.get('su');
+        await svc_su.sudo(async () => {
+            await this.state.extension.emit('ready', {}, {
+                from_outside_of_extension: true,
+            });
         });
     }
 
