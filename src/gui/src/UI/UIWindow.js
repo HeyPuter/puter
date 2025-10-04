@@ -3132,7 +3132,7 @@ window.update_window_path = async function(el_window, target_path){
         // system directories with custom icons and predefined names
         if(target_path === window.desktop_path){
             $(el_window).find('.window-head-icon').attr('src', window.icons['folder-desktop.svg']);
-            $(el_window).find('.window-head-title').text('Desktop')
+            $(el_window).find('.window-head-title').text(i18n('desktop'))
         }else if (target_path === window.home_path){
             $(el_window).find('.window-head-icon').attr('src', window.icons['folder-home.svg']);
             $(el_window).find('.window-head-title').text(i18n('home'))
@@ -3141,13 +3141,13 @@ window.update_window_path = async function(el_window, target_path){
             $(el_window).find('.window-head-title').text(i18n('documents'))
         }else if (target_path === window.public_path){
             $(el_window).find('.window-head-icon').attr('src', window.icons['folder-public.svg']);
-            $(el_window).find('.window-head-title').text(i18n('window_title_public'))
+            $(el_window).find('.window-head-title').text(i18n('public'))
         }else if (target_path === window.videos_path){
             $(el_window).find('.window-head-icon').attr('src', window.icons['folder-videos.svg']);
-            $(el_window).find('.window-head-title').text(i18n('window_title_videos'))
+            $(el_window).find('.window-head-title').text(i18n('videos'))
         }else if (target_path === window.pictures_path){
             $(el_window).find('.window-head-icon').attr('src', window.icons['folder-pictures.svg']);
-            $(el_window).find('.window-head-title').text(i18n('window_title_pictures'))
+            $(el_window).find('.window-head-title').text(i18n('pictures'))
         }// root folder of a shared user?
         else if((target_path.split('/').length - 1) === 1 && target_path !== '/'+window.user.username)
             $(el_window).find('.window-head-icon').attr('src', window.icons['shared.svg']);
@@ -3169,9 +3169,21 @@ window.update_window_path = async function(el_window, target_path){
                 $(el_window).attr('data-sort_order', fsentry.sort_order ?? 'asc');
                 $(el_window).attr('data-layout', fsentry.layout ?? 'icons');
                 $(el_window_item_container).attr('data-uid', fsentry.id);
-                // title
+                // title - use i18n for system directories
                 if (target_path === window.home_path)
                     $(el_window).find('.window-head-title').text(i18n('home'))
+                else if (target_path === window.desktop_path)
+                    $(el_window).find('.window-head-title').text(i18n('desktop'))
+                else if (target_path === window.docs_path || target_path === window.documents_path)
+                    $(el_window).find('.window-head-title').text(i18n('documents'))
+                else if (target_path === window.pictures_path)
+                    $(el_window).find('.window-head-title').text(i18n('pictures'))
+                else if (target_path === window.videos_path)
+                    $(el_window).find('.window-head-title').text(i18n('videos'))
+                else if (target_path === window.public_path)
+                    $(el_window).find('.window-head-title').text(i18n('public'))
+                else if (target_path === window.trash_path)
+                    $(el_window).find('.window-head-title').text(i18n('trash'))
                 else
                     $(el_window).find('.window-head-title').text(fsentry.name);
                 // data-name
