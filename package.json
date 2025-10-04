@@ -62,6 +62,7 @@
     "json-colorizer": "^3.0.1",
     "open": "^10.1.0",
     "parse-domain": "^8.2.2",
+    "rollup": "^4.52.4",
     "simple-git": "^3.25.0",
     "string-template": "^1.0.0",
     "uuid": "^9.0.1"
