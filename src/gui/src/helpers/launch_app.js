@@ -352,6 +352,7 @@ const launch_app = async (options)=>{
             credentialless = app_info.metadata.credentialless;
 
         // set_title_to_opened_file
+        // if set_title_to_opened_file is true, set the title to the opened file's name
         if(app_info.metadata?.set_title_to_opened_file !== undefined && typeof app_info.metadata.set_title_to_opened_file === 'boolean' && app_info.metadata.set_title_to_opened_file === true)
             title = options.file_path ? path.basename(options.file_path) : title;
 
