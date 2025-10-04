@@ -574,7 +574,7 @@ class Kernel extends AdvancedBase {
         await fs.promises.writeFile(path_.join(mod_path, 'package.json'), data_json);
         return data;
     }
-    
+
     async run_npm_install (path) {
         const npmCmd = process.platform === "win32" ? "npm.cmd" : "npm";
         const proc = spawn(npmCmd, ["install"], { cwd: path, shell: true, stdio: "inherit" });
