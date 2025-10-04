@@ -432,10 +432,6 @@ const ku = {
     "billing.expanded": "بڵاوکراوەتەوە",
     "billing.accelerated": "بە خێرایی",
     "billing.enjoy_msg": "%% لە هەڵگرتنی هەور و سوودی تر وەربگرە",
-
-    // =============================================================
-    // Missing translations
-    // =============================================================
     "choose_publishing_option":  "هەڵبژێرە چۆن دەتەوێت وێب‌سایتەکەت بڵاوبکەیتەوە:", // In English: "Choose how you want to publish your website:"
     "create_desktop_shortcut": "دروستکردنی کورتەڕەو (سەڕەکی دێسک‌تۆپ)", // In English: "Create Shortcut (Desktop)"
     "create_desktop_shortcut_s":  "دروستکردنی کورتەڕەوەکان (سەڕەکی دێسک‌تۆپ)", // In English: "Create Shortcuts (Desktop)"
@@ -445,7 +441,7 @@ const ku = {
     "new_window": "پەنجەرەی نوێ", // In English: "New Window"
     "open_trash": "زبڵدانە بکەرەوە", // In English: "Open Trash"
     "pick_name_for_worker": "ناوێک بۆ کارمەندەکەت هەلبژێرە", // In English: "Pick a name for your worker:"
-    "publish_as_serverless_worker": " بڵاوکردنەوە وەک کارمەند", // In English: "Publish as Worker"
+    "publish_as_serverless_worker": "بڵاوکردنەوە وەک کارمەند", // In English: "Publish as Worker"
     "toolbar.enter_fullscreen": "بە تەواوی شاشە بچۆرە", // In English: "Enter Full Screen"
     "toolbar.github": "GitHub", // In English: "GitHub"
     "toolbar.refer": "بانگهێشت بکە", // In English: "Refer"
@@ -512,7 +508,6 @@ const ku = {
     "window_folder_empty": "ئەم بوخچەیە بەتاڵە", // In English: "This folder is empty"
     "manage_your_subdomains": "بەڕێوەبردنی ژێر دۆمەینەکانت", // In English: "Manage Your Subdomains"
     "open_containing_folder": "کردنەوەی بوخچەیەکەی کە پەڕگەکە تێدایە", // In English: "Open Containing Folder"
-
   },
 };
 
