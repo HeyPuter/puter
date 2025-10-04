@@ -430,6 +430,12 @@ function generate_edit_app_section(app) {
                     <label for="edit-app-hide-titlebar" style="display: inline;">Hide window titlebar</label>
                 </div>
 
+                <div style="margin-top:30px;">
+                    <input type="checkbox" id="edit-app-set-title-to-file" name="edit-app-set-title-to-file" value="true" ${app.metadata?.set_title_to_opened_file ? 'checked' : ''} ${app.background ? 'disabled' : ''}>
+                    <label for="edit-app-set-title-to-file" style="display: inline;">Automatically set window title to opened file's name</label>
+                    <p>This will set your app's window title to the opened file's name when a user opens a file in your app.</p>
+                </div>
+
                 <h3 style="font-size: 23px; border-bottom: 1px solid #EEE; margin-top: 50px; margin-bottom: 0px;">Misc</h3>
                 <div style="margin-top:30px;">
                     <input type="checkbox" id="edit-app-locked" name="edit-app-locked" value="true" ${app.metadata?.locked ? 'checked' : ''}>
@@ -504,7 +510,8 @@ function trackOriginalValues(){
             resizableWindow: $('#edit-app-window-resizable').is(':checked'),
             hideTitleBar: $('#edit-app-hide-titlebar').is(':checked'),
             locked: $('#edit-app-locked').is(':checked'),
-            fullPageOnLanding: $('#edit-app-fullpage-on-landing').is(':checked')
+            fullPageOnLanding: $('#edit-app-fullpage-on-landing').is(':checked'),
+            setTitleToFile: $('#edit-app-set-title-to-file').is(':checked')
         }
     };
 }
@@ -540,7 +547,8 @@ function hasChanges() {
         $('#edit-app-window-resizable').is(':checked') !== originalValues.checkboxes.resizableWindow ||
         $('#edit-app-hide-titlebar').is(':checked') !== originalValues.checkboxes.hideTitleBar ||
         $('#edit-app-locked').is(':checked') !== originalValues.checkboxes.locked ||
-        $('#edit-app-fullpage-on-landing').is(':checked') !== originalValues.checkboxes.fullPageOnLanding
+        $('#edit-app-fullpage-on-landing').is(':checked') !== originalValues.checkboxes.fullPageOnLanding ||
+        $('#edit-app-set-title-to-file').is(':checked') !== originalValues.checkboxes.setTitleToFile
     );
 }
 
@@ -587,6 +595,7 @@ function resetToOriginalValues() {
     $('#edit-app-hide-titlebar').prop('checked', originalValues.checkboxes.hideTitleBar);
     $('#edit-app-locked').prop('checked', originalValues.checkboxes.locked);
     $('#edit-app-fullpage-on-landing').prop('checked', originalValues.checkboxes.fullPageOnLanding);
+    $('#edit-app-set-title-to-file').prop('checked', originalValues.checkboxes.setTitleToFile);
 
     if (originalValues.icon) {
         $('#edit-app-icon').css('background-image', `url(${originalValues.icon})`);
@@ -1141,6 +1150,7 @@ $(document).on('click', '.edit-app-save-btn', async function (e) {
             window_resizable: $('#edit-app-window-resizable').is(":checked"),
             hide_titlebar: $('#edit-app-hide-titlebar').is(":checked"),
             locked: $(`#edit-app-locked`).is(":checked") ?? false,
+            set_title_to_opened_file: $('#edit-app-set-title-to-file').is(":checked"),
         },
         filetypeAssociations: filetype_associations,
     }).then(async (app) => {
