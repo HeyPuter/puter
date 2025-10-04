@@ -42,6 +42,7 @@ import UIWindowWelcome from "./UIWindowWelcome.js"
 import launch_app from "../helpers/launch_app.js"
 import item_icon from "../helpers/item_icon.js"
 import UIWindowSearch from "./UIWindowSearch.js"
+import UIAIChat from "./AI/UIAIChat.js"
 
 async function UIDesktop(options) {
     // start a transaction if we're not in embedded or fullpage mode
@@ -738,6 +739,12 @@ async function UIDesktop(options) {
 
     window.active_element = el_desktop;
     window.active_item_container = el_desktop;
+
+    // ---------------------------------------------------------------
+    // AI Side Panel
+    // ---------------------------------------------------------------
+    UIAIChat();
+
     // --------------------------------------------------------
     // Dragster
     // Allow dragging of local files onto desktop.
