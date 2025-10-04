@@ -118,6 +118,10 @@ module.exports = class OpenAIUtil {
             
             const choice = chunk.choices[0];
 
+            if ( ! nou(choice.delta.reasoning_content) ) {
+                textblock.addReasoning(choice.delta.reasoning_content);
+            }
+
             if ( ! nou(choice.delta.content) ) {
                 if ( mode === 'tool' ) {
                     toolblock.end();

@@ -35,6 +35,13 @@ class AIChatTextStream extends AIChatConstructStream {
         });
         this.chatStream.stream.write(json + '\n');
     }
+
+    addReasoning (reasoning) {
+        const json = JSON.stringify({
+            type: 'reasoning', reasoning,
+        });
+        this.chatStream.stream.write(json + '\n');
+    }
 }
 
 class AIChatToolUseStream extends AIChatConstructStream {
