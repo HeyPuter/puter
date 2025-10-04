@@ -166,7 +166,26 @@ function UIItem(options){
         // divider
         h += `<div class="item-divider"></div>`;
         // name
-        h += `<pre class="item-name" data-item-id="${item_id}" title="${html_encode(options.name)}">${options.is_trash ? i18n('trash') : html_encode(truncate_filename(options.name))}</pre>`
+        let display_name = options.name;
+        // Use i18n for system directories
+        if (options.is_trash) {
+            display_name = i18n('trash');
+        } else if (options.path === window.desktop_path) {
+            display_name = i18n('desktop');
+        } else if (options.path === window.home_path) {
+            display_name = i18n('home');
+        } else if (options.path === window.docs_path || options.path === window.documents_path) {
+            display_name = i18n('documents');
+        } else if (options.path === window.pictures_path) {
+            display_name = i18n('pictures');
+        } else if (options.path === window.videos_path) {
+            display_name = i18n('videos');
+        } else if (options.path === window.public_path) {
+            display_name = i18n('public');
+        } else {
+            display_name = html_encode(truncate_filename(options.name));
+        }
+        h += `<pre class="item-name" data-item-id="${item_id}" title="${html_encode(options.name)}">${display_name}</pre>`
         // name editor
         h += `<textarea class="item-name-editor hide-scrollbar" spellcheck="false" autocomplete="off" autocorrect="off" autocapitalize="off" data-gramm_editor="false">${html_encode(options.name)}</textarea>`
     h += `</div>`;

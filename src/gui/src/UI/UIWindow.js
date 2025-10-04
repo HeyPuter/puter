@@ -3132,7 +3132,7 @@ window.update_window_path = async function(el_window, target_path){
         // system directories with custom icons and predefined names
         if(target_path === window.desktop_path){
             $(el_window).find('.window-head-icon').attr('src', window.icons['folder-desktop.svg']);
-            $(el_window).find('.window-head-title').text('Desktop')
+            $(el_window).find('.window-head-title').text(i18n('desktop'))
         }else if (target_path === window.home_path){
             $(el_window).find('.window-head-icon').attr('src', window.icons['folder-home.svg']);
             $(el_window).find('.window-head-title').text(i18n('home'))
