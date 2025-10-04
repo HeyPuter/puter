@@ -1,0 +1,18 @@
+<html>
+<body>
+    <script src="https://js.puter.com/v2/"></script>
+    <script>
+        (async () => {
+            // (1) Generate a random app name
+            let appName = puter.randName();
+
+            // (2) Create the app and prints its UID to the page
+            let app = await puter.apps.create(appName, "https://example.com");
+            puter.print(`Created app "${app.name}". UID: ${app.uid}`);
+
+            // (3) Delete the app (cleanup)
+            await puter.apps.delete(appName);
+        })();
+    </script>
+</body>
+</html>

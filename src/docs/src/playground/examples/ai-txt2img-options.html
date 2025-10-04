@@ -1,0 +1,14 @@
+<html>
+<body>
+    <script src="https://js.puter.com/v2/"></script>
+    <script>
+        // Generate am image of a cat playing piano using a specific model and quality set to low
+        puter.ai.txt2img("a cat playing piano", { 
+            model: "gpt-image-1", 
+            quality: "low" 
+        }).then((image)=>{
+            document.body.appendChild(image);
+        });
+    </script>
+</body>
+</html>

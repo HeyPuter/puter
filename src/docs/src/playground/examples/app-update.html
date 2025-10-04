@@ -1,0 +1,21 @@
+<html>
+<body>
+    <script src="https://js.puter.com/v2/"></script>
+    <script>
+        (async () => {
+            // (1) Create a random app
+            let appName = puter.randName();
+            await puter.apps.create(appName, "https://example.com")
+            puter.print(`"${appName}" created<br>`);
+
+            // (2) Update the app
+            let updated_app = await puter.apps.update(appName, {title: "My Updated Test App!"})
+            puter.print(`Changed title to "${updated_app.title}"<br>`);
+
+            // (3) Delete the app (cleanup)
+            await puter.apps.delete(appName)
+        })();
+    </script>
+</body>
+</html>
+```
