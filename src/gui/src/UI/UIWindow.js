@@ -117,6 +117,7 @@ async function UIWindow(options) {
     options.is_maximized = options.is_maximized ?? false;
     options.is_openFileDialog = options.is_openFileDialog ?? false;
     options.is_resizable = options.is_resizable ?? true;
+    options.upload_and_open_on_drag = options.upload_and_open_on_drag ?? false;
 
     // if this is a fullpage window, it won't be resizable
     if(options.is_fullpage){
@@ -257,6 +258,7 @@ async function UIWindow(options) {
                 data-update_window_url = "${options.update_window_url && options.is_visible}"
                 data-user_set_url_params = "${html_encode(user_set_url_params)}"
                 data-initial_zindex = "${zindex}"
+                data-upload_and_open_on_drag = "${options.upload_and_open_on_drag}"
                 style=" z-index: ${zindex}; 
                         ${options.width !== undefined ? 'width: ' + html_encode(options.width) +'; ':''}
                         ${options.height !== undefined ? 'height: ' + html_encode(options.height) +'; ':''}
@@ -1689,7 +1691,7 @@ async function UIWindow(options) {
 
     // --------------------------------------------------------
     // Dragster
-    // Allow dragging of local files onto this window, if it's is_dir
+    // Allow dragging of local files onto this window, if it's is_dir or if upload_and_open_on_drag is true
     // --------------------------------------------------------
     $(el_window_body).dragster({
         enter: function (dragsterEvent, event) {
@@ -1715,6 +1717,19 @@ async function UIWindow(options) {
                 }
                 // de-highlight all windows
                 $('.item-container').removeClass('item-container-active');
+            }
+            // if upload_and_open_on_drag is true, open the file in a new instance of the app
+            else if(options.upload_and_open_on_drag){
+                // upload items
+                window.upload_items(e.dataTransfer.items, window.desktop_path, {
+                    success: (items) => {
+                        // open app
+                        launch_app({
+                            name: options.app,
+                            file_path: $(el_window).attr('data-path'),
+                        })
+                    }
+                })
             }
             e.stopPropagation();
             e.preventDefault();

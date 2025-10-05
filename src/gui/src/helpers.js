@@ -1770,7 +1770,7 @@ window.init_upload_using_dialog = function(el_target_container, target_path = nu
     })
 }
 
-window.upload_items = async function(items, dest_path){
+window.upload_items = async function(items, dest_path, options = {}){
     let upload_progress_window;
     let opid;
 
@@ -1845,6 +1845,11 @@ window.upload_items = async function(items, dest_path){
                 })
                 // remove from active_uploads
                 delete window.active_uploads[opid];
+                // if success callback is provided, call it
+                if(options.success && typeof options.success === 'function'){
+                    console.log('success callback', items);
+                    options.success(items);
+                }
             },
             // error
             error: async function(err){

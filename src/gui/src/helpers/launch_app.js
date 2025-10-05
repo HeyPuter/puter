@@ -356,6 +356,11 @@ const launch_app = async (options)=>{
         if(app_info.metadata?.set_title_to_opened_file !== undefined && typeof app_info.metadata.set_title_to_opened_file === 'boolean' && app_info.metadata.set_title_to_opened_file === true)
             title = options.file_path ? path.basename(options.file_path) : title;
 
+        // upload_on_drag
+        let upload_and_open_on_drag = false;
+        if(app_info.metadata?.upload_and_open_on_drag !== undefined && typeof app_info.metadata.upload_and_open_on_drag === 'boolean')
+            upload_and_open_on_drag = app_info.metadata.upload_and_open_on_drag;
+
         // open window
         el_win = UIWindow({
             element_uuid: uuid,
@@ -380,6 +385,7 @@ const launch_app = async (options)=>{
             is_resizable: window_resizable,
             has_head: ! hide_titlebar,
             show_in_taskbar: app_info.background ? false : window_options?.show_in_taskbar,
+            upload_and_open_on_drag: upload_and_open_on_drag,
         });
 
         // If the app is not in the background, show the window

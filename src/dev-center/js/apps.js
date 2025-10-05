@@ -436,6 +436,12 @@ function generate_edit_app_section(app) {
                     <p>This will set your app's window title to the opened file's name when a user opens a file in your app.</p>
                 </div>
 
+                <div style="margin-top:30px;">
+                    <input type="checkbox" id="edit-app-upload-and-open-on-drag" name="edit-app-upload-and-open-on-drag" value="true" ${app.metadata?.upload_and_open_on_drag ? 'checked' : ''} ${app.background ? 'disabled' : ''}>
+                    <label for="edit-app-upload-and-open-on-drag" style="display: inline;">Upload and open files on drag-and-drop</label>
+                    <p>If checked, when the user drags and drops a file on the app it will be automatically uploaded to their desktop and opened in a new instance of the app.</p>
+                </div>
+
                 <h3 style="font-size: 23px; border-bottom: 1px solid #EEE; margin-top: 50px; margin-bottom: 0px;">Misc</h3>
                 <div style="margin-top:30px;">
                     <input type="checkbox" id="edit-app-locked" name="edit-app-locked" value="true" ${app.metadata?.locked ? 'checked' : ''}>
@@ -511,7 +517,8 @@ function trackOriginalValues(){
             hideTitleBar: $('#edit-app-hide-titlebar').is(':checked'),
             locked: $('#edit-app-locked').is(':checked'),
             fullPageOnLanding: $('#edit-app-fullpage-on-landing').is(':checked'),
-            setTitleToFile: $('#edit-app-set-title-to-file').is(':checked')
+            setTitleToFile: $('#edit-app-set-title-to-file').is(':checked'),
+            uploadOnDrag: $('#edit-app-upload-and-open-on-drag').is(':checked')
         }
     };
 }
@@ -548,7 +555,8 @@ function hasChanges() {
         $('#edit-app-hide-titlebar').is(':checked') !== originalValues.checkboxes.hideTitleBar ||
         $('#edit-app-locked').is(':checked') !== originalValues.checkboxes.locked ||
         $('#edit-app-fullpage-on-landing').is(':checked') !== originalValues.checkboxes.fullPageOnLanding ||
-        $('#edit-app-set-title-to-file').is(':checked') !== originalValues.checkboxes.setTitleToFile
+        $('#edit-app-set-title-to-file').is(':checked') !== originalValues.checkboxes.setTitleToFile ||
+        $('#edit-app-upload-and-open-on-drag').is(':checked') !== originalValues.checkboxes.uploadOnDrag
     );
 }
 
@@ -596,6 +604,7 @@ function resetToOriginalValues() {
     $('#edit-app-locked').prop('checked', originalValues.checkboxes.locked);
     $('#edit-app-fullpage-on-landing').prop('checked', originalValues.checkboxes.fullPageOnLanding);
     $('#edit-app-set-title-to-file').prop('checked', originalValues.checkboxes.setTitleToFile);
+    $('#edit-app-upload-and-open-on-drag').prop('checked', originalValues.checkboxes.uploadOnDrag);
 
     if (originalValues.icon) {
         $('#edit-app-icon').css('background-image', `url(${originalValues.icon})`);
@@ -1151,6 +1160,7 @@ $(document).on('click', '.edit-app-save-btn', async function (e) {
             hide_titlebar: $('#edit-app-hide-titlebar').is(":checked"),
             locked: $(`#edit-app-locked`).is(":checked") ?? false,
             set_title_to_opened_file: $('#edit-app-set-title-to-file').is(":checked"),
+            upload_and_open_on_drag: $('#edit-app-upload-and-open-on-drag').is(":checked"),
         },
         filetypeAssociations: filetype_associations,
     }).then(async (app) => {
