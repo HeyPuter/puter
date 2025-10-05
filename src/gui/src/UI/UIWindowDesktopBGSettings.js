@@ -37,6 +37,7 @@ async function UIWindowDesktopBGSettings(options){
                 h += `<option value="default">${i18n('default')}</option>`;
                 h += `<option value="picture">${i18n('picture')}</option>`;
                 h += `<option value="color">${i18n('color')}</option>`;
+                h += `<option value="bing">${i18n('bing')}</option>`; // Bing option
             h += `</select>`;
 
             // Picture
@@ -70,6 +71,19 @@ async function UIWindowDesktopBGSettings(options){
                     background-position: center;"><input type="color" style="width:25px; height: 25px; opacity:0;"></div>`;
                 h += `</div>`;
             h += `</div>`;
+
+            // Bing Dynamic Wallpaper Section
+            h += `<div class="desktop-bg-settings-wrapper desktop-bg-settings-bing">`;
+                h += `<label>${i18n('Refresh')}:</label>`;
+                h += `<button class="button button-default button-small refresh-bing">${i18n('refresh')}</button>`;
+                h += `<label style="margin-top: 20px;">${i18n('fit')}:</label>`;
+                h += `<select class="desktop-bg-fit-bing" style="width: 150px;">`
+                    h += `<option value="cover">${i18n('cover')}</option>`;
+                    h += `<option value="center">${i18n('center')}</option>`;
+                    h += `<option value="contain">${i18n('contain')}</option>`;
+                    h += `<option value="repeat">${i18n('repeat')}</option>`;
+                h += `</select>`;
+            h += `</div>`
 
             h += `<div style="padding-top: 5px; overflow:hidden; margin-top: 25px; border-top: 1px solid #CCC;">`
                 h += `<button class="button button-primary apply" style="float:right;">${i18n('apply')}</button>`;
@@ -113,8 +127,58 @@ async function UIWindowDesktopBGSettings(options){
         const default_wallpaper = (window.gui_env === 'prod') ? 'https://puter-assets.b-cdn.net/wallpaper.webp' :  '/images/wallpaper.webp';
         $(el_window).find('.desktop-bg-settings-wrapper').hide();
 
+        // Added helper: fetch Bing wallpaper (HTTPS to avoid mixed content) source:https://github.com/zenghongtu/bing-wallpaper
+        async function fetchBingWImage() {
+            try {
+                const resp = await fetch("https://bingw.jasonzeng.dev?resolution=UHD&index=random&w=1000&format=json");
+                const data = await resp.json();
+                if (data && data.url) {return data.url;}
+                return null;
+            } catch (err) {
+                console.error("Error fetching bingw:", err);
+                return null;
+            }
+        }
+
+        // ✅ Add below fetchBingWImage()
+        async function updateBingWallpaper() {
+            const url = await fetchBingWImage();
+            if (url) {
+                const fit = $(el_window).find('.desktop-bg-fit-bing').val() || 'cover';
+                window.set_desktop_background({ url, fit });
+                window.desktop_bg_source = 'bing';
+
+                // Save current timestamp to backend instead of localStorage
+                const payload = {
+                    url,
+                    fit,
+                    color: null,
+                    source: "bing",
+                    last_updated: new Date().toISOString()
+                };
+
+                try {
+                    await $.ajax({
+                        url: window.api_origin + "/set-desktop-bg",
+                        type: 'POST',
+                        data: JSON.stringify(payload),
+                        contentType: "application/json",
+                        headers: { "Authorization": "Bearer " + window.auth_token }
+                    });
+                } catch (err) {
+                    console.error("Failed to persist Bing wallpaper:", err);
+                }
+            }
+        }
+
+
+
+        console.log(window.desktop_bg_url, default_wallpaper,window.desktop_bg_source )
         if(window.desktop_bg_url === default_wallpaper) {
             $(el_window).find('.desktop-bg-type').val('default');
+        }else if (window.desktop_bg_source === 'bing') {
+            $(el_window).find('.desktop-bg-type').val('bing');
+            $(el_window).find('.desktop-bg-settings-bing').show();
         }else if(window.desktop_bg_url !== undefined && window.desktop_bg_url !== null){
             $(el_window).find('.desktop-bg-settings-picture').show();
             $(el_window).find('.desktop-bg-type').val('picture');
@@ -147,13 +211,22 @@ async function UIWindowDesktopBGSettings(options){
             window.set_desktop_background({fit: fit})
         })
 
-        $(el_window).find('.desktop-bg-type').on('change', function(e){
+        $(el_window).find('.desktop-bg-type').on('change', async function(e){
             const type = $(this).val();
             $(el_window).find('.desktop-bg-settings-wrapper').hide();
             if(type === 'picture'){
                 $(el_window).find('.desktop-bg-settings-picture').show();
             }else if(type==='color'){
                 $(el_window).find('.desktop-bg-settings-color').show();
+            }else if(type === 'bing'){ 
+                $(el_window).find('.desktop-bg-settings-bing').show();
+                // immediately load and persist Bing wallpaper daily
+                await updateBingWallpaper();
+                // Schedule automatic daily refresh
+                clearInterval(window.daily_bing_interval);
+                window.daily_bing_interval = setInterval(async () => {
+                    await updateBingWallpaper();
+                }, 24 * 60 * 60 * 1000); // every 24 hours
             }else if(type==='default') {
                 bg_color = undefined;
                 bg_fit = 'cover';
@@ -205,6 +278,11 @@ async function UIWindowDesktopBGSettings(options){
                 selectable_body: false,
             });
         })
+
+        //  Bing refresh button
+        $(el_window).find('.refresh-bing').on('click', async function () {
+            await updateBingWallpaper();
+        });
 
         $(el_window).find('.cancel').on('click', function(){
             $('body').attr('style', original_background_css);
