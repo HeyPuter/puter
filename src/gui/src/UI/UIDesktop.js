@@ -1413,8 +1413,17 @@ async function UIDesktop(options) {
             }
         }
 
-        const stat = await puter.fs.stat({path: item_path, consistency: 'eventual'});
-        
+        try {
+          const stat = await puter.fs.stat({path: item_path, consistency: 'eventual'});
+        } catch ( e ) {
+            window.history.replaceState(null, document.title, '/');
+            UIAlert({
+                message: 'User or path not found.',
+                type: 'error'
+            });
+            return;
+        }
+
         // TODO: DRY everything here with open_item. Unfortunately we can't
         //       use open_item here because it's coupled with UI logic;
         //       it requires a UIItem element and cannot operate on a
