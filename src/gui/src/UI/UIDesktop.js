@@ -1218,7 +1218,7 @@ async function UIDesktop(options) {
     //-----------------------------
     // GUI is ready to launch apps!
     //-----------------------------
-
+    window.dispatchEvent(new CustomEvent('desktop:ready'));
     globalThis.services.emit('gui:ready');
 
     //--------------------------------------------------------------------------------------
