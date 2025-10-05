@@ -11,6 +11,10 @@ export class PTLSSocket extends PSocket {
         super(...args);
         super.on("open", (async() => {
             if (!rustls) {
+                // Safari exists unfortunately without good ReadableStream support. Until that is fixed we need this.
+                if (!globalThis.ReadableByteStreamController) {
+                    await import( /* webpackIgnore: true */ "https://unpkg.com/web-streams-polyfill@3.0.2/dist/polyfill.js");
+                }
                 rustls = (await import( /* webpackIgnore: true */ "https://puter-net.b-cdn.net/rustls.js"))
                 await rustls.default("https://puter-net.b-cdn.net/rustls.wasm")
             }
