@@ -44,6 +44,7 @@ import item_icon from "../helpers/item_icon.js"
 import UIWindowSearch from "./UIWindowSearch.js"
 
 async function UIDesktop(options) {
+    console.log('UIDesktop()');
     // start a transaction if we're not in embedded or fullpage mode
     let transaction;
     if (!window.is_embedded && !window.is_fullpage_mode) {
@@ -1451,6 +1452,7 @@ async function UIDesktop(options) {
                     window_title: path.basename(item_path),
                     maximized: options.maximized,
                     file_signature: open_item_meta.signature,
+                    update_window_url: false
                 });
                 return;
             }
@@ -1752,6 +1754,7 @@ async function UIDesktop(options) {
             }
         }
     });
+    console.log('GUI is ready');
 }
 
 $(document).on('contextmenu taphold', '.taskbar', function (event) {
