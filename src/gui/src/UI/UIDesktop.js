@@ -1231,7 +1231,6 @@ async function UIDesktop(options) {
     launch_app({
         name: 'ai',
         window_options: {
-            left: window.innerWidth - 300,
             is_panel: true,
         }
     })

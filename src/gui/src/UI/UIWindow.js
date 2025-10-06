@@ -232,11 +232,14 @@ async function UIWindow(options) {
         options.width = options.width + 'px';
         options.height = '100%';
         options.top = 0;
+        options.right = '0 !important';
         options.border_radius = '0px';
         options.border = 'none';
         options.box_shadow = 'none';
         options.background_color = 'transparent';
         options.is_visible = false;
+        options.position = 'absolute !important';
+        options.left = 'auto !important';
     }
 
     h += `<div class="window window-active 
@@ -278,9 +281,12 @@ async function UIWindow(options) {
                 data-user_set_url_params = "${html_encode(user_set_url_params)}"
                 data-initial_zindex = "${zindex}"
                 style=" z-index: ${zindex}; 
+                        ${options.right !== undefined ? 'right: ' + html_encode(options.right) +'; ':''}
+                        ${options.left !== undefined ? 'left: ' + html_encode(options.left) +'; ':''}
                         ${options.width !== undefined ? 'width: ' + html_encode(options.width) +'; ':''}
                         ${options.height !== undefined ? 'height: ' + html_encode(options.height) +'; ':''}
                         ${options.border_radius !== undefined ? 'border-radius: ' + html_encode(options.border_radius) +'; ':''}
+                        ${options.position !== undefined ? 'position: ' + html_encode(options.position) +'; ':''}
                     " 
                 >`;
         // window mask
