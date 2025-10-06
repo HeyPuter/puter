@@ -37,7 +37,7 @@ export class MeteringAndBillingService {
         }
         const currentMonth = this.#getMonthYearString();
         return this.#superUserService.sudo(async () => {
-            const totalCost = costOverride ?? USAGE_TYPE_MAPS[usageType] * usageAmount; // TODO DS: apply our policy discounts here eventually
+            const totalCost = (costOverride ?? USAGE_TYPE_MAPS[usageType] * usageAmount) || 0; // TODO DS: apply our policy discounts here eventually
             const appId = actor.type?.app?.uid || GLOBAL_APP_KEY;
             const actorId = actor.type?.user.uuid;
             const pathAndAmountMap = {
@@ -72,6 +72,16 @@ export class MeteringAndBillingService {
                 pathAndAmountMap: {
                     [`${appId}.total`]: totalCost,
                     [`${appId}.count`]: 1,
+                },
+            });
+            const puterConsumptionKey = `${METRICS_PREFIX}:puter:${currentMonth}`; // global consumption across all users and apps
+            this.#kvClientWrapper.incr({
+                key: puterConsumptionKey,
+                pathAndAmountMap: {
+                    'total': totalCost,
+                    [`${usageType}.units`]: usageAmount,
+                    [`${usageType}.cost`]: totalCost,
+                    [`${usageType}.count`]: 1,
                 },
             });
             return (await Promise.all([lastUpdatedPromise, actorUsagesPromise]))[1];
