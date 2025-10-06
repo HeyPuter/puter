@@ -1,6 +1,18 @@
 const { whatis } = require("../../../util/langutil");
 
 module.exports = class Messages {
+    /**
+     * Normalizes a single message into a standardized format with role and content array.
+     * Converts string messages to objects, ensures content is an array of content blocks,
+     * transforms tool_calls into tool_use content blocks, and coerces content items into objects.
+     * 
+     * @param {string|Object} message - The message to normalize, either a string or message object
+     * @param {Object} params - Optional parameters including default role
+     * @returns {Object} Normalized message with role and content array
+     * @throws {Error} If message is not a string or object
+     * @throws {Error} If message has no content property and no tool_calls
+     * @throws {Error} If any content item is not a string or object
+     */
     static normalize_single_message (message, params = {}) {
         params = Object.assign({
             role: 'user',
@@ -65,6 +77,16 @@ module.exports = class Messages {
 
         return message;
     }
+
+    /**
+     * Normalizes an array of messages by applying normalize_single_message to each,
+     * then splits messages with multiple content blocks into separate messages,
+     * and finally merges consecutive messages from the same role.
+     * 
+     * @param {Array} messages - Array of messages to normalize
+     * @param {Object} params - Optional parameters passed to normalize_single_message
+     * @returns {Array} Normalized and merged array of messages
+     */
     static normalize_messages (messages, params = {}) {
         for ( let i=0 ; i < messages.length ; i++ ) {
             messages[i] = this.normalize_single_message(messages[i], params);
@@ -107,6 +129,12 @@ module.exports = class Messages {
         return merged_messages;
     }
 
+    /**
+     * Separates system messages from other messages in the array.
+     * 
+     * @param {Array} messages - Array of messages to process
+     * @returns {Array} Tuple containing [system_messages, non_system_messages]
+     */
     static extract_and_remove_system_messages (messages) {
         let system_messages = [];
         let new_messages = [];
@@ -120,6 +148,15 @@ module.exports = class Messages {
         return [system_messages, new_messages];
     }
 
+    /**
+     * Extracts all text content from messages, handling various message formats.
+     * Processes strings, objects with content arrays, and nested content structures,
+     * joining all text with spaces.
+     * 
+     * @param {Array} messages - Array of messages to extract text from
+     * @returns {string} Concatenated text content from all messages
+     * @throws {Error} If text content is not a string
+     */
     static extract_text (messages) {
         return messages.map(m => {
             if ( whatis(m) === 'string' ) {
