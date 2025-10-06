@@ -40,7 +40,7 @@ const is_whoami = (req) => {
 // in endpoints that do not require authentication, but can
 // provide additional functionality if the user is authenticated.
 const configurable_auth = options => async (req, res, next) => {
-    if ( options.no_options_auth && req.method === 'OPTIONS' ) {
+    if ( options?.no_options_auth && req.method === 'OPTIONS' ) {
         return next();
     }
 
