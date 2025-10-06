@@ -20,11 +20,24 @@
 const { BaseLink } = require("./BaseLink");
 const { KeyPairHelper } = require("./KeyPairHelper");
 
+/**
+ * Client-side link that establishes an encrypted socket.io connection.
+ * Handles AES-256-CBC encryption for message transmission and uses asymmetric
+ * key exchange for secure AES key distribution.
+ */
 class CLink extends BaseLink {
     static MODULES = {
         sioclient: require('socket.io-client'),
     };
 
+    /**
+     * Encrypts the data using AES-256-CBC and sends it through the socket.
+     * The data is JSON stringified, encrypted with a random IV, and transmitted
+     * as a buffer along with the IV.
+     * 
+     * @param {*} data - The data to be encrypted and sent through the socket
+     * @returns {void}
+     */
     _send (data) {
         if ( ! this.socket ) return;
         const require = this.require;
@@ -46,6 +59,9 @@ class CLink extends BaseLink {
         });
     }
 
+    /**
+     * Initializes the client link with local keys, remote server configuration, and logger.
+     */
     constructor ({
         keys,
         log,
@@ -59,6 +75,12 @@ class CLink extends BaseLink {
         this.log = log;
     }
 
+    /**
+     * Establishes a socket.io connection to the configured server address.
+     * Generates an AES key, encrypts it using the server's public key, and sends
+     * it during the handshake. Sets up event handlers for connection lifecycle
+     * and message reception.
+     */
     connect () {
         let address = this.config.address;
         if ( ! (
