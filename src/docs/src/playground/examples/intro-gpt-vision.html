@@ -1,0 +1,17 @@
+<html>
+<body>
+    <script src="https://js.puter.com/v2/"></script>
+    <img src="https://assets.puter.site/doge.jpeg" style="display:block;">
+    <script>
+        // Loading ...
+        puter.print(`Loading...`);
+
+        // Image analysis with GPT-5 nano
+        puter.ai
+            .chat(`What do you see?`, `https://assets.puter.site/doge.jpeg`, {
+                model: "gpt-5-nano",
+            })
+            .then(puter.print);
+    </script>
+</body>
+</html>

@@ -1,0 +1,475 @@
+<html>
+    <head>
+        <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/normalize/8.0.1/normalize.min.css" integrity="sha512-NhSC1YmyruXifcj/KFRWoC561YpHpc5Jtzgvbuzx5VozKpWvQ+4nXhPdFgmx8xqexRcpAglTj9sIBWINXa8x5w==" crossorigin="anonymous" referrerpolicy="no-referrer" />
+        <meta name="viewport" content="width=device-width, initial-scale=1">
+        <link href="https://fonts.googleapis.com/css?family=Roboto:black,bold,medium,regular,light,thin" rel="stylesheet">
+        <title>Puter.js Playground</title>
+
+        <link rel="apple-touch-icon" sizes="57x57" href="/assets/favicon/apple-icon-57x57.png">
+        <link rel="apple-touch-icon" sizes="60x60" href="/assets/favicon/apple-icon-60x60.png">
+        <link rel="apple-touch-icon" sizes="72x72" href="/assets/favicon/apple-icon-72x72.png">
+        <link rel="apple-touch-icon" sizes="76x76" href="/assets/favicon/apple-icon-76x76.png">
+        <link rel="apple-touch-icon" sizes="114x114" href="/assets/favicon/apple-icon-114x114.png">
+        <link rel="apple-touch-icon" sizes="120x120" href="/assets/favicon/apple-icon-120x120.png">
+        <link rel="apple-touch-icon" sizes="144x144" href="/assets/favicon/apple-icon-144x144.png">
+        <link rel="apple-touch-icon" sizes="152x152" href="/assets/favicon/apple-icon-152x152.png">
+        <link rel="apple-touch-icon" sizes="180x180" href="/assets/favicon/apple-icon-180x180.png">
+        <link rel="icon" type="image/png" sizes="192x192"  href="/assets/favicon/android-icon-192x192.png">
+        <link rel="icon" type="image/png" sizes="32x32" href="/assets/favicon/favicon-32x32.png">
+        <link rel="icon" type="image/png" sizes="96x96" href="/assets/favicon/favicon-96x96.png">
+        <link rel="icon" type="image/png" sizes="16x16" href="/assets/favicon/favicon-16x16.png">
+        <link rel="manifest" href="/assets/favicon/manifest.json">
+        <meta name="msapplication-TileColor" content="#ffffff">
+        <meta name="msapplication-TileImage" content="/assets/favicon/ms-icon-144x144.png">
+        <meta name="theme-color" content="#ffffff">
+        <script defer data-domain="docs.puter.com" src="https://plausible.io/js/script.js"></script>
+
+        <style>
+            body {
+                margin: 0;
+                padding: 0;
+                height: 100vh;
+                -webkit-font-smoothing: antialiased;
+            }
+            * {
+                box-sizing: border-box;
+            }
+            body{
+                font-family: 'Roboto', Arial, Helvetica, sans-serif;
+            }
+
+            #output-iframe {
+                width: 100%;
+                height: 100%;
+                border: none;
+            }
+            #run {
+                float: right;
+                margin: 10px;
+                padding: 7px 20px;
+                background-color: #2563eb;
+                color: white;
+                border: none;
+                border-radius: 5px;
+                cursor: pointer;
+                font-weight: bold;
+                user-select: none;
+            }
+            #run:hover {
+                background-color: #1d4ed8;
+            }
+            #run:active {
+                background-color: #1e40af;
+            }
+            #select-example {
+                padding:5px 10px;
+                min-width:300px;
+                font-size: 14px;
+                margin-right: 10px;
+            }
+            .go-to-docs{
+                margin-right: 5px;
+                color: white;
+                text-decoration: none;
+                border: 2px solid white;
+                padding: 5px 7px;
+                box-sizing: border-box;
+                border-radius: 4px;
+                font-size: 15px;
+                float:right;
+            }
+            #code-container{
+                width: 50%;
+                height: 100%;
+                float:left;
+                position: relative;
+            }
+            #output-container{
+                width: calc(50% - 6px); /* Subtract resizer width */
+                height: 100%;
+                float: right;
+                position: relative;
+            }
+            #run span{
+                background-image: url("data:image/svg+xml,%3Csvg%20xmlns%3D%22http%3A%2F%2Fwww.w3.org%2F2000%2Fsvg%22%20width%3D%2224%22%20height%3D%2224%22%20viewBox%3D%220%200%2024%2024%22%20fill%3D%22%23fff%22%20stroke%3D%22%23fff%22%20stroke-width%3D%222%22%20stroke-linecap%3D%22round%22%20stroke-linejoin%3D%22round%22%20class%3D%22lucide%20lucide-play-icon%20lucide-play%22%3E%3Cpath%20d%3D%22M5%205a2%202%200%200%201%203.008-1.728l11.997%206.998a2%202%200%200%201%20.003%203.458l-12%207A2%202%200%200%201%205%2019z%22%2F%3E%3C%2Fsvg%3E");
+                width: 20px;
+                display: block;
+                height: 20px;
+                background-size: 15px;
+                background-repeat: no-repeat;
+                float: left;
+                margin-top: 2px;
+                margin-right: 5px;
+            }
+            .navbar{
+                float: right; display: flex; flex-direction: row; align-items: center;
+            }
+            .navbar a{
+                color: white;
+                text-decoration: none;
+                margin-right: 20px;
+            }
+            .navbar a:hover{
+                text-decoration: underline;
+            }
+            .logo{
+                margin: 0; font-size: 25px; color: white; font-weight: 400; flex-grow:1;
+                font-weight: 300; font-size: 21px; display: flex; align-items: center;
+            }
+            .logo a{
+                color: white;
+                text-decoration: none;
+            }
+            @media (max-width: 500px) {
+                #select-example{
+                    max-width: 300px;
+                    font-size: 13px;
+                    width: 200px;
+                    margin-right:0;
+                }
+
+            }
+            @media (max-width: 768px) {
+                #code-container{
+                    width: 100vw;
+                    height: calc(50vh - 100px);
+                }
+                #output-container{
+                    width: 100vw;
+                    height: calc(50vh - 50px);
+                    margin-top: 50px;
+                }
+                #select-example{
+                    max-width: 300px;
+                }
+                .resizer {
+                    display: none; /* Hide resizer on mobile */
+                }
+            }
+            .resizer {
+                width: 6px;
+                height: 100%;
+                background: #e1e1e1;
+                position: absolute;
+                right: 0;
+                top: 0;
+                cursor: col-resize;
+                z-index: 100;
+                transition: background 0.2s ease;
+                height: calc(100vh - 50px);
+                user-select: none;
+            }
+            .resizer:hover,
+            .resizer.dragging {
+                background: #ccc;
+            }
+        </style>
+    </head>
+<body>
+    <script src="https://code.jquery.com/jquery-3.7.1.min.js" integrity="sha256-/JqT3SQfawRcv/BIHPThkBvs0OEvtFFmqPF/lYI/Cxo=" crossorigin="anonymous"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/monaco-editor/0.45.0/min/vs/loader.min.js" integrity="sha512-ZG31AN9z/CQD1YDDAK4RUAvogwbJHv6bHrumrnMLzdCrVu4HeAqrUX7Jsal/cbUwXGfaMUNmQU04tQ8XXl5Znw==" crossorigin="anonymous" referrerpolicy="no-referrer"></script>
+    <script src="https://js.puter.com/v2/"></script>
+
+    <div style="height: 50px; padding: 10px; background-color: #474e5d; display: flex; flex-direction: row;"> 
+        <h1 class="logo"><a href="/playground/">Puter.js Playground</a></h1>
+        <div style="float:right;" class="navbar">
+            <a href="/" target="_blank" style="margin-right: 35px;">Docs</a>
+            <a style="display: flex; flex-direction: row; align-items: center;" href="https://github.com/heyPuter/puter/" target="_blank"><svg role="img" style="margin-right:4px; margin-bottom: 3px;" width="17" height="17" viewBox="0 0 24 24" fill="#fff" xmlns="http://www.w3.org/2000/svg"><title>GitHub</title><path d="M12 .297c-6.63 0-12 5.373-12 12 0 5.303 3.438 9.8 8.205 11.385.6.113.82-.258.82-.577 0-.285-.01-1.04-.015-2.04-3.338.724-4.042-1.61-4.042-1.61C4.422 18.07 3.633 17.7 3.633 17.7c-1.087-.744.084-.729.084-.729 1.205.084 1.838 1.236 1.838 1.236 1.07 1.835 2.809 1.305 3.495.998.108-.776.417-1.305.76-1.605-2.665-.3-5.466-1.332-5.466-5.93 0-1.31.465-2.38 1.235-3.22-.135-.303-.54-1.523.105-3.176 0 0 1.005-.322 3.3 1.23.96-.267 1.98-.399 3-.405 1.02.006 2.04.138 3 .405 2.28-1.552 3.285-1.23 3.285-1.23.645 1.653.24 2.873.12 3.176.765.84 1.23 1.91 1.23 3.22 0 4.61-2.805 5.625-5.475 5.92.42.36.81 1.096.81 2.22 0 1.606-.015 2.896-.015 3.286 0 .315.21.69.825.57C20.565 22.092 24 17.592 24 12.297c0-6.627-5.373-12-12-12"/></svg><span class="github-stars"></span></a></h1>
+        </div>
+    </div>
+    <div style="height: calc(100vh - 100px);">
+        <div id="code-container">
+            <div style="overflow: hidden; height: 50px; display: flex; flex-direction: row; align-items: center;">
+                <h1 style="user-select: none; margin:0; float:left; font-size: 20px; padding: 10px; flex-grow:1;">Code:</h1>
+                <div style="display: inline-block; float: right;">
+                    Example:
+                    <select id="select-example">
+                        <option disabled selected value> -- select an example -- </option>
+                        <optgroup label="Introduction">
+                            <option value="intro-chatgpt">Chat with GPT-5 nano</option>
+                            <option value="intro-gpt-vision">Image Analysis</option>
+                            <option value="intro-fs-write">Cloud Storage</option>
+                            <option value="intro-kv-set">Key-Value Store</option>
+                            <option value="intro-hosting">Publish a Website</option>
+                            <option value="intro-auth">Authentication</option>
+                        </optgroup>
+                        <optgroup label="AI">
+                            <option value="ai-chatgpt">Chat with GPT-5 nano</option>
+                            <option value="ai-gpt-vision">Image Analysis</option>
+                            <option value="ai-chat-stream">Stream the response</option>
+                            <option value="ai-function-calling">Function Calling</option>
+                            <option value="ai-resume-analyzer">AI Resume Analyzer (File handling)</option>
+                            <option value="ai-chat-openai-o3-mini">Chat with OpenAI o3-mini</option>
+                            <option value="ai-chat-claude">Chat with Claude Sonnet</option>
+                            <option value="ai-chat-deepseek">Chat with DeepSeek</option>
+                            <option value="ai-chat-gemini">Chat with Gemini</option>
+                            <option value="ai-xai">Chat with xAI (Grok)</option>
+                            <option value="ai-img2txt">Extract Text from Image</option>
+                            <option value="ai-txt2img">Text to Image</option>
+                            <option value="ai-txt2img-options">Text to Image with options</option>
+                            <option value="ai-txt2img-image-to-image">Text to Image with image-to-image generation</option>
+                            <option value="ai-txt2speech">Text to Speech</option>
+                            <option value="ai-txt2speech-options">Text to Speech with options</option>
+                            <option value="ai-txt2speech-engines">Text to Speech with engines</option>
+                        </optgroup>
+                        <optgroup label="FileSystem">
+                            <option value="fs-write">Write File</option>
+                            <option value="fs-read">Read File</option>
+                            <option value="fs-mkdir">Make a Directory</option>
+                            <option value="fs-delete">Delete</option>
+                            <option value="fs-readdir">Read Directory</option>
+                            <option value="fs-rename">Rename</option>
+                            <option value="fs-stat">Get File/Directory Info</option>
+                            <option value="fs-copy">Copy File/Directory</option>
+                            <option value="fs-move">Move File/Directory</option>
+                            <option value="fs-upload">Upload</option>
+                            <option value="fs-write-dedupe">Write a file with deduplication</option>
+                            <option value="fs-write-from-input">Create a new file with input coming from a file input</option>
+                            <option value="fs-write-create-missing-parents">Create a file in a directory that does not exist</option>
+                            <option value="fs-mkdir-dedupe">Create a directory with deduplication</option>
+                            <option value="fs-mkdir-create-missing-parents">Create a directory with missing parent directories</option>
+                            <option value="fs-move-create-missing-parents">Move a file with missing parent directories</option>
+                            <option value="fs-delete-directory">Delete a directory</option>
+                        </optgroup>
+                        <optgroup label="Workers">
+                            <option value="workers-create">Create a worker</option>
+                            <option value="workers-list">List workers</option>
+                            <option value="workers-get">Get a worker</option>
+                            <option value="workers-delete">Delete a worker</option>
+                        </optgroup>
+                        <optgroup label="Key-Value Store">
+                            <option value="kv-set">Set</option>
+                            <option value="kv-get">Get</option>
+                            <option value="kv-incr">Increment</option>
+                            <option value="kv-decr">Decrement</option>
+                            <option value="kv-del">Delete</option>
+                            <option value="kv-list">List</option>
+                            <option value="kv-flush">Flush</option>
+                            <option value="kv-name">What's your name?</option>
+                        </optgroup>
+                        <optgroup label="Networking">
+                            <option value="net-basic">Basic TCP Socket</option>
+                            <option value="net-tls">TLS Socket</option>
+                            <option value="net-fetch">Fetch</option>
+                        </optgroup>
+                        <optgroup label="Hosting">
+                            <option value="hosting-create">Create a simple website displaying "Hello world!"</option>
+                            <option value="hosting-list">Create 3 random websites and then list them</option>
+                            <option value="hosting-delete">Create a random website then delete it</option>
+                            <option value="hosting-update">Update a subdomain to point to a new directory</option>
+                            <option value="hosting-get">Retrieve information about a subdomain</option>
+                        </optgroup>
+                        <optgroup label="Authentication">
+                            <option value="auth-sign-in">Sign in</option>
+                            <option value="auth-sign-out">Sign out</option>
+                            <option value="auth-is-signed-in">Check sign in</option>
+                            <option value="auth-get-user">Get user</option>
+                        </optgroup>
+                        <optgroup label="Apps">
+                            <option value="app-todo">To-Do List</option>
+                            <option value="app-ai-chat">AI Chat</option>
+                            <option value="app-camera">Camera Photo Describer</option>
+                            <option value="app-summarizer">Text Summarizer</option>
+                            <option value="app-create">Create an app pointing to example.com</option>
+                            <option value="app-list">Create 3 random apps and then list them</option>
+                            <option value="app-delete">Create a random app then delete it</option>
+                            <option value="app-update">Create a random app then change its title</option>
+                            <option value="app-get">Create a random app then get it</option>
+                        </optgroup>
+                        <optgroup label="Workers">
+                            <option value="workers-management">Workers Management</option>
+                            <option value="workers-exec">Authenticated Worker Requests</option>
+                        </optgroup>
+                    </select>
+                </div>
+            </div>
+            <div id="code" style="height:100%; width: 100%; border-top: 1px solid #CCC;"></div>
+            <div class="resizer"></div>
+        </div>
+        <div id="output-container">
+            <div style="overflow: hidden; height: 50px; display: flex; flex-direction: row; align-items: center;">
+                <h1 style="user-select: none; margin:0; float:left; font-size: 20px; padding: 10px; flex-grow: 1;">Preview:</h1>
+                <button id="run"><span></span>Run</button>
+            </div>
+            <div id="output" style="height: 100%; width: 100%; border: 1px solid #CCC;"></div>
+        </div>
+    </div>
+    <script>
+        let editor;
+        // on document load
+        document.addEventListener('DOMContentLoaded', function() {
+            // load monaco editor
+            require.config({ paths: { 'vs': 'https://cdnjs.cloudflare.com/ajax/libs/monaco-editor/0.45.0/min/vs' }});
+            require(['vs/editor/editor.main'], function() {
+                // get editor element
+                var editorElement = document.getElementById('code');
+                // create editor
+                editor = monaco.editor.create(editorElement, {
+                    language: 'html',
+                    fontFamily: 'monospace',
+                    minimap: {
+                        enabled: false
+                    }
+                });
+                editor.updateOptions({fontFamily: 'monospace'});
+                // if example is specified in url
+                var urlParams = new URLSearchParams(window.location.search);
+                var example = urlParams.get('example');
+                if (example) {
+                    $.get('/playground/examples/' + example + '.html', function(data) {
+                        editor.setValue(data);
+                        // select example in dropdown
+                        $('#select-example').val(example);
+                        // auto run?
+                        var autoRun = urlParams.get('autorun');
+                        if (autoRun) {
+                            loadStringInIframe(editor.getValue());
+                        }
+                    });
+                }else{
+                    // load default example
+                    $.get('/playground/examples/intro-chatgpt.html', function(data) {
+                        editor.setValue(data);
+                        // select example in dropdown
+                        $('#select-example').val('intro-chatgpt');
+                    });
+                }
+            });
+
+            function fetchGitHubData() {
+                // GitHub API fetching and handling
+
+                const url = "https://api.github.com/repos/HeyPuter/puter";
+
+                function formatNumber(num) {
+                    if (num < 1000) {
+                        return num; // return the same number if less than 1000
+                    } else if (num < 1000000) {
+                        return (num / 1000).toFixed(1) + 'K'; // convert to K for thousands
+                    } else {
+                        return (num / 1000000).toFixed(1) + 'M'; // convert to M for millions
+                    }
+                }
+
+                $.getJSON(url, function (data) {
+                    $('.github-stars').text(formatNumber(data.stargazers_count) + "");
+                }).fail(function (jqxhr, textStatus, error) {
+                    let err = textStatus + ", " + error;
+                    console.error("Request Failed: " + err);
+                    $('.github-stars').text('Heyputer/Puter');
+                });
+            }
+
+            fetchGitHubData();
+        });
+        $('#select-example').on('change', function() {
+            var example = $(this).val();
+            $.get('/playground/examples/' + example + '.html', function(data) {
+                editor.setValue(data);
+            });
+
+            // update navigation url but don't add to history
+            var url = new URL(window.location.href);
+            url.searchParams.set('example', example);
+            window.history.replaceState({}, '', url);
+
+            // clear output
+            loadStringInIframe('');
+        });
+
+        // Attach the resize event listener to the window
+        window.addEventListener('resize', ()=>{
+            editor.layout();
+        });
+
+        function loadStringInIframe(str) {
+            // Create a new iframe element
+            var iframe = document.createElement('iframe');
+
+            // set iframe id
+            iframe.id = 'output-iframe';
+
+            // append to output
+            var output = document.getElementById('output');
+            output.innerHTML = '';
+            output.appendChild(iframe);
+
+            // Get the document of the iframe
+            var iframeDoc = iframe.contentDocument || iframe.contentWindow.document;
+
+            // Write the string content into the iframe
+            iframeDoc.open();
+            iframeDoc.write(str);
+            iframeDoc.close();
+        }
+
+        // ctrl + enter to run
+        document.addEventListener('keydown', function(e) {
+            if (e.ctrlKey && e.key === 'Enter') {
+                loadStringInIframe(editor.getValue());
+            }
+        });
+    </script>
+    <script>
+        var code = document.getElementById('code');
+        var run = document.getElementById('run');
+        run.addEventListener('click', function() {
+            loadStringInIframe(editor.getValue());
+        });
+
+        // Resizer functionality
+        const resizer = document.querySelector('.resizer');
+        const codeContainer = document.getElementById('code-container');
+        const outputContainer = document.getElementById('output-container');
+        let isResizing = false;
+        let startX;
+        let startWidthCode;
+        let startWidthOutput;
+
+        resizer.addEventListener('mousedown', (e) => {
+            isResizing = true;
+            resizer.classList.add('dragging');
+            startX = e.pageX;
+            startWidthCode = codeContainer.offsetWidth;
+            startWidthOutput = outputContainer.offsetWidth;
+            
+            // Disable pointer events on iframe during resize
+            const iframe = document.getElementById('output-iframe');
+            if (iframe) {
+                iframe.style.pointerEvents = 'none';
+            }
+        });
+
+        document.addEventListener('mousemove', (e) => {
+            if (!isResizing) return;
+
+            const parentWidth = codeContainer.parentElement.offsetWidth;
+            const diffX = e.pageX - startX;
+            const resizerWidth = 6;
+            
+            const newCodeWidth = ((startWidthCode + diffX) / parentWidth * 100);
+            const newOutputWidth = ((startWidthOutput - diffX) / parentWidth * 100);
+
+            // Set minimum width to 20%
+            if (newCodeWidth >= 20 && newOutputWidth >= 20) {
+                codeContainer.style.width = `${newCodeWidth}%`;
+                outputContainer.style.width = `${newOutputWidth}%`;
+                editor.layout(); // Resize Monaco editor
+            }
+        });
+
+        document.addEventListener('mouseup', () => {
+            if (isResizing) {
+                isResizing = false;
+                resizer.classList.remove('dragging');
+                
+                // Re-enable pointer events on iframe after resize
+                const iframe = document.getElementById('output-iframe');
+                if (iframe) {
+                    iframe.style.pointerEvents = 'auto';
+                }
+            }
+        });
+    </script>
+</body>
+</html>

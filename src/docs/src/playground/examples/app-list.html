@@ -1,0 +1,29 @@
+<html>
+<body>
+    <script src="https://js.puter.com/v2/"></script>
+    <script>
+        (async () => {
+            // (1) Generate 3 random app names
+            let appName_1 = puter.randName();
+            let appName_2 = puter.randName();
+            let appName_3 = puter.randName();
+
+            // (2) Create 3 apps
+            await puter.apps.create(appName_1, 'https://example.com');
+            await puter.apps.create(appName_2, 'https://example.com');
+            await puter.apps.create(appName_3, 'https://example.com');
+
+            // (3) Get all apps (list)
+            let apps = await puter.apps.list();
+
+            // (4) Display the names of the apps
+            puter.print(JSON.stringify(apps.map(app => app.name)));
+
+            // (5) Delete the 3 apps we created earlier (cleanup)
+            await puter.apps.delete(appName_1);
+            await puter.apps.delete(appName_2);
+            await puter.apps.delete(appName_3);
+        })();
+    </script>
+</body>
+</html>
