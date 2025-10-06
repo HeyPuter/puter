@@ -173,7 +173,7 @@ class KV{
         }
 
         options.key = args[0];
-        options.amount = args[1] ?? 1;
+        options.pathAndAmountMap = args[1] ?? { '': 1 };
 
         // key size cannot be larger than MAX_KEY_SIZE
         if ( options.key.length > this.MAX_KEY_SIZE ){
@@ -192,7 +192,7 @@ class KV{
         }
 
         options.key = args[0];
-        options.amount = args[1] ?? 1;
+        options.pathAndAmountMap = args[1] ?? { '': 1 };
 
         // key size cannot be larger than MAX_KEY_SIZE
         if ( options.key.length > this.MAX_KEY_SIZE ){
