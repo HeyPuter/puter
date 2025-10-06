@@ -219,6 +219,26 @@ async function UIWindow(options) {
         if(user_set_url_params.length > 0)
             user_set_url_params = '?'+ user_set_url_params.join('&');
     }
+
+    // --------------------------------------------------------
+    // Panel
+    // --------------------------------------------------------
+    if(options.is_panel){
+        options.width = 400;
+        options.has_head = false;
+        options.show_in_taskbar = false;
+        options.is_resizable = false;
+        options.left = (window.innerWidth - options.width) + 'px';
+        options.width = options.width + 'px';
+        options.height = '100%';
+        options.top = 0;
+        options.border_radius = '0px';
+        options.border = 'none';
+        options.box_shadow = 'none';
+        options.background_color = 'transparent';
+        options.is_visible = false;
+    }
+
     h += `<div class="window window-active 
                         ${options.app === 'explorer' ? 'window-explorer' : ''}
                         ${options.cover_page ? 'window-cover-page' : ''}
@@ -3590,6 +3610,15 @@ window.update_window_layout = function(el_window, layout){
         $(el_window).find('.window-navbar-layout-settings').attr('src', window.icons['layout-details.svg'])
         $(el_window).attr('data-layout', layout)
     }
+}
+
+$.fn.makeWindowVisible = function(options){
+    $(this).each(async function() {
+        if($(this).hasClass('window')){
+            $(this).show();
+            $(this).focusWindow();
+        }
+    })
 }
 
 $.fn.showWindow = async function(options) {

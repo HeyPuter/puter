@@ -42,7 +42,6 @@ import UIWindowWelcome from "./UIWindowWelcome.js"
 import launch_app from "../helpers/launch_app.js"
 import item_icon from "../helpers/item_icon.js"
 import UIWindowSearch from "./UIWindowSearch.js"
-import UIAIChat from "./AI/UIAIChat.js"
 
 async function UIDesktop(options) {
     // start a transaction if we're not in embedded or fullpage mode
@@ -673,6 +672,9 @@ async function UIDesktop(options) {
                 data-sort_order="${!options.desktop_fsentry.sort_order ? 'asc' : options.desktop_fsentry.sort_order}" 
                 data-path="${html_encode(window.desktop_path)}"
             >`;
+
+            // show AI button
+            h += `<div class="btn-show-ai"><svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1" stroke-linecap="round" stroke-linejoin="round" class="lucide lucide-sparkles-icon lucide-sparkles"><path d="M11.017 2.814a1 1 0 0 1 1.966 0l1.051 5.558a2 2 0 0 0 1.594 1.594l5.558 1.051a1 1 0 0 1 0 1.966l-5.558 1.051a2 2 0 0 0-1.594 1.594l-1.051 5.558a1 1 0 0 1-1.966 0l-1.051-5.558a2 2 0 0 0-1.594-1.594l-5.558-1.051a1 1 0 0 1 0-1.966l5.558-1.051a2 2 0 0 0 1.594-1.594z"/><path d="M20 2v4"/><path d="M22 4h-4"/><circle cx="4" cy="20" r="2"/></svg></div>`;
     h += `</div>`;
 
     // Get window sidebar width
@@ -739,11 +741,6 @@ async function UIDesktop(options) {
 
     window.active_element = el_desktop;
     window.active_item_container = el_desktop;
-
-    // ---------------------------------------------------------------
-    // AI Side Panel
-    // ---------------------------------------------------------------
-    UIAIChat();
 
     // --------------------------------------------------------
     // Dragster
@@ -1227,6 +1224,17 @@ async function UIDesktop(options) {
     //-----------------------------
     window.dispatchEvent(new CustomEvent('desktop:ready'));
     globalThis.services.emit('gui:ready');
+
+    //--------------------------------------------------------
+    // Open the AI app
+    //--------------------------------------------------------    
+    launch_app({
+        name: 'ai',
+        window_options: {
+            left: window.innerWidth - 300,
+            is_panel: true,
+        }
+    })
 
     //--------------------------------------------------------------------------------------
     // Determine if an app was launched from URL
@@ -2369,6 +2377,17 @@ window.toggleDesktopIcons = function () {
     // Save preference
     puter.kv.set('desktop_icons_hidden', window.desktop_icons_hidden.toString());
 };
+
+$(document).on('click', '.btn-show-ai', function () {
+    $('.btn-show-ai').hide();
+    $('.window[data-app="ai"]').makeWindowVisible();
+});
+
+$(document).on('click', '.btn-hide-ai', function () {
+    $('.ai-panel').removeClass('ai-panel-open');
+    $('.btn-show-ai').show();
+    $('.btn-hide-ai').hide();
+});
 
 
 export default UIDesktop;

@@ -356,6 +356,18 @@ const launch_app = async (options)=>{
         if(app_info.metadata?.set_title_to_opened_file !== undefined && typeof app_info.metadata.set_title_to_opened_file === 'boolean' && app_info.metadata.set_title_to_opened_file === true)
             title = options.file_path ? path.basename(options.file_path) : title;
 
+        // show_in_taskbar
+        let show_in_taskbar = app_info.background ? false : window_options?.show_in_taskbar;
+        if(window_options?.show_in_taskbar !== undefined)
+            show_in_taskbar = window_options.show_in_taskbar;
+
+        // has_head
+        let has_head = app_info.metadata?.has_head !== undefined ? app_info.metadata.has_head : window_options?.has_head;
+        if(app_info.metadata?.hide_titlebar !== undefined && typeof app_info.metadata.hide_titlebar === 'boolean' && app_info.metadata.hide_titlebar === true)
+            has_head = false;
+        if(window_options?.has_head !== undefined)
+            has_head = window_options.has_head;
+
         // open window
         el_win = UIWindow({
             element_uuid: uuid,
@@ -378,8 +390,8 @@ const launch_app = async (options)=>{
             ...(options.pseudonym ? {pseudonym: options.pseudonym} : {}),
             ...window_options,
             is_resizable: window_resizable,
-            has_head: ! hide_titlebar,
-            show_in_taskbar: app_info.background ? false : window_options?.show_in_taskbar,
+            has_head: has_head,
+            show_in_taskbar: show_in_taskbar,
         });
 
         // If the app is not in the background, show the window
