@@ -129,7 +129,7 @@ class CommandService extends BaseService {
     registerCommands(serviceName, commands) {
         if ( ! this.log ) process.exit(1);
         for (const command of commands) {
-            this.log.info(`registering command ${serviceName}:${command.id}`);
+            this.log.debug(`registering command ${serviceName}:${command.id}`);
             this.commands_.push(new Command({
                 ...command,
                 id: `${serviceName}:${command.id}`,

@@ -47,7 +47,7 @@ class ConfigLoader extends AdvancedBase {
             delete config_values.$requires;
             this.apply_requires(this.path, config_list, { by: name });
         }
-        this.logger.info(
+        this.logger.debug(
             `Applying config: ${path_.relative(this.path, config_path)}` +
             (meta.by ? ` (required by ${meta.by})` : '')
         );

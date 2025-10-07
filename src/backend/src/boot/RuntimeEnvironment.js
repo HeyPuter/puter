@@ -266,7 +266,7 @@ class RuntimeEnvironment extends AdvancedBase {
             generated_values.private_uid_secret = crypto.randomBytes(24).toString('hex');
             generated_values.private_uid_namespace = crypto.randomUUID();
             if ( using_config ) {
-                this.logger.info(
+                this.logger.debug(
                     `Overwriting ${quot(using_config)} because ` +
                     `${hl('--overwrite-config')} is set`
                 );
@@ -302,7 +302,7 @@ class RuntimeEnvironment extends AdvancedBase {
 
         let config_to_load = 'config.json';
         if ( process.env.PUTER_CONFIG_PROFILE ) {
-            this.logger.info(
+            this.logger.debug(
                 hl('PROFILE') + ' ' +
                 quot(process.env.PUTER_CONFIG_PROFILE) + ' ' +
                 `because $PUTER_CONFIG_PROFILE is set`
@@ -330,7 +330,7 @@ class RuntimeEnvironment extends AdvancedBase {
         if ( ! config.config_name ) {
             throw new Error('config_name is required');
         }
-        this.logger.info(hl(`config name`) + ` ${quot(config.config_name)}`);
+        this.logger.debug(hl(`config name`) + ` ${quot(config.config_name)}`);
 
         const mod_paths = [];
         environment.mod_paths = mod_paths;
@@ -359,18 +359,18 @@ class RuntimeEnvironment extends AdvancedBase {
     get_first_suitable_path_ (meta, paths, last_checks) {
         for ( const entry of paths ) {
             const checks = [...(entry.checks ?? []), ...last_checks];
-            this.logger.info(
+            this.logger.debug(
                 `Checking path ${quot(entry.label ?? entry.path)} for ${meta.pathFor}...`
             );
             
             let checks_pass = true;
             for ( const check of checks ) {
-                this.logger.info(
+                this.logger.debug(
                     `-> doing ${quot(check.name)} on path ${quot(entry.path)}...`
                 );
                 const result = check(entry);
                 if ( result === false ) {
-                    this.logger.info(
+                    this.logger.debug(
                         `-> ${quot(check.name)} doesn't like this path`
                     );
                     checks_pass = false;
