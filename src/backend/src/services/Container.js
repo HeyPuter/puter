@@ -183,14 +183,18 @@ class Container {
             await this.instances_[k].construct();
         }
         const init_failures = [];
+        const promises = [];
+        const PARALLEL = config.experimental_parallel_init;
         for ( const k in this.instances_ ) {
             this.logger.info(`initializing ${k}`);
             try {
-                await this.instances_[k].init();
+                if ( PARALLEL ) promises.push(this.instances_[k].init());
+                else await this.instances_[k].init();
             } catch (e) {
                 init_failures.push({ k, e });
             }
         }
+        if ( PARALLEL ) await Promise.all(promises);
 
         if ( init_failures.length ) {
             console.error('init failures', init_failures);
