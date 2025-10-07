@@ -124,6 +124,7 @@ class HLWrite extends HLFilesystemOperation {
         const { _path } = this.modules;
 
         const fs = context.get('services').get('filesystem');
+        const svc_event = context.get('services').get('event');
 
         let parent = values.destination_or_parent;
         let destination = null;
@@ -336,7 +337,11 @@ class HLWrite extends HLFilesystemOperation {
                     stream_to_the_void(thumb_file.stream);
                     return 'thumbnail error: ' + e.message;
                 }
-                thumbnail_promise.resolve(thumbnail);
+                
+                const thumbnailData = {url: thumbnail}
+                await svc_event.emit('thumbnail.created', thumbnailData); // An extension can modify where this thumbnail is stored
+
+                thumbnail_promise.resolve(thumbnailData.url);
             })();
             if ( reason ) {
                 console.log('REASON', reason);
