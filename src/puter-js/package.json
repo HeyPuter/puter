@@ -1,13 +1,13 @@
 {
     "name": "@heyputer/puter.js",
-    "version": "2.0.13",
+    "version": "2.0.14",
     "description": "Puter.js - A JavaScript library for interacting with Puter services.",
     "main": "src/index.js",
     "types": "index.d.ts",
     "typings": "index.d.ts",
     "type": "module",
     "files": [
-        "dist/puter.js",
+        "dist/puter.cjs",
         "src/",
         "index.d.ts"
     ],
@@ -27,7 +27,8 @@
         "start-server": "npx http-server --cors -c-1",
         "start-webpack": "webpack && webpack --output-filename puter.dev.js --watch --devtool source-map",
         "start": "concurrently \"npm run start-server\" \"npm run start-webpack\"",
-        "build": "webpack && { echo \"// Copyright 2024-present Puter Technologies Inc. All rights reserved.\"; echo \"// Generated on $(date '+%Y-%m-%d %H:%M')\n\"; cat ./dist/puter.js; } > temp && mv temp ./dist/puter.js"
+        "build": "webpack && { echo \"// Copyright 2024-present Puter Technologies Inc. All rights reserved.\"; echo \"// Generated on $(date '+%Y-%m-%d %H:%M')\n\"; cat ./dist/puter.js; } > temp && mv temp ./dist/puter.js",
+        "prepublishOnly": "npm run build && mv dist/puter.js dist/puter.cjs && npm version patch"
     },
     "author": "Puter Technologies Inc.",
     "license": "Apache-2.0",
