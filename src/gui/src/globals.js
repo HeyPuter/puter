@@ -174,49 +174,6 @@ $( window ).on( "resize", function() {
     const new_desktop_height = window.innerHeight - window.toolbar_height - window.taskbar_height;
     const new_desktop_width = window.innerWidth;
 
-    $('.window').each((_, el) => {
-        // if window is maximized, do not resize
-        if($(el).attr('data-is_maximized') === "1") return;
-
-        // if data-is_fullpage="1" then the window is in fullpage mode
-        // and should not be resized
-        if($(el).attr('data-is_fullpage') === "1") return;
-
-        const pos = $(el).position();
-        const id = $(el).attr('id');
-
-        if(!window.original_window_position[id]){
-            window.original_window_position[id] = {
-                left: pos.left,
-                top: pos.top
-            }
-        }
-
-        const leftRatio = pos.left / window.desktop_width;
-        const topRatio = pos.top / window.desktop_height;
-
-        let left = new_desktop_width * leftRatio;
-        let top = new_desktop_height * topRatio;
-
-        const maxLeft = new_desktop_width - $(el).width();
-        const maxTop = new_desktop_height - $(el).height();
-
-        // first move the window to the original position
-        const originalLeft = window.original_window_position[id].left;
-        const originalTop = window.original_window_position[id].top;
-
-        if(left < 0) left = 0;
-        else if(left > maxLeft || originalLeft > maxLeft) left = maxLeft;
-
-        if(top < window.toolbar_height) top = window.toolbar_height;
-        else if(top > maxTop || originalTop > maxTop) top = maxTop + window.toolbar_height;
-
-        $(el).css({
-            left,
-            top
-        })
-    })
-
     window.desktop_height = new_desktop_height;
     window.desktop_width = new_desktop_width;
 });
@@ -248,6 +205,9 @@ window.feature_flags = {
     // if true, the user will be able to zip and download directories
     download_directory: true,
 }
+
+// whitelisted users for AI app
+window.ai_app_whitelisted_users = ['admin', 'nj'];
 
 window.is_auto_arrange_enabled = true;
 window.desktop_item_positions = {};
