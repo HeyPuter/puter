@@ -1,16 +1,18 @@
+import { MANAGE_PERM_PREFIX } from "./permissionConts.mjs";
+
 /**
 * The PermissionUtil class provides utility methods for handling
 * permission strings and operations, including splitting, joining,
 * escaping, and unescaping permission components. It also includes
 * functionality to convert permission reading structures into options.
 */
-export class PermissionUtil {
+export  const PermissionUtil =  {
     /**
      * Unescapes a permission component string, converting escape sequences to their literal characters.
      * @param {string} component - The escaped permission component string.
      * @returns {string} The unescaped permission component.
      */
-    static unescape_permission_component(component) {
+    unescape_permission_component(component) {
         let unescaped_str = '';
         // Constant for unescaped permission component string
         const STATE_NORMAL = {};
@@ -33,14 +35,14 @@ export class PermissionUtil {
             }
         }
         return unescaped_str;
-    }
+    },
 
     /**
      * Escapes special characters in a permission component string for safe joining.
      * @param {string} component - The permission component string to escape.
      * @returns {string} The escaped permission component.
      */
-    static escape_permission_component(component) {
+    escape_permission_component(component) {
         let escaped_str = '';
         for ( let i = 0 ; i < component.length ; i++ ) {
             const c = component[i];
@@ -51,31 +53,31 @@ export class PermissionUtil {
             escaped_str += c;
         }
         return escaped_str;
-    }
+    },
 
     /**
      * Splits a permission string into its component parts, unescaping each component.
      * @param {string} permission - The permission string to split.
      * @returns {string[]} Array of unescaped permission components.
      */
-    static split(permission) {
+    split(permission) {
         return permission
             .split(':')
             .map(PermissionUtil.unescape_permission_component)
         ;
-    }
+    },
 
     /**
      * Joins permission components into a single permission string, escaping as needed.
      * @param {...string} components - The permission components to join.
      * @returns {string} The escaped, joined permission string.
      */
-    static join(...components) {
+    join(...components) {
         return components
             .map(PermissionUtil.escape_permission_component)
             .join(':')
         ;
-    }
+    },
 
     /**
      * Converts a permission reading structure into an array of option objects.
@@ -87,7 +89,7 @@ export class PermissionUtil {
      * @param {Array<Object>} [path=[]] - Current path in the reading tree (used internally for recursion).
      * @returns {Array<Object>} Array of option objects with path and data.
      */
-    static reading_to_options(
+    reading_to_options(
         // actual arguments
         reading, parameters = {},
         // recursion state
@@ -121,8 +123,12 @@ export class PermissionUtil {
             }
         }
         return options;
-    }
-}
+    },
+    /** @type {(permission:string)=>boolean} */
+    isManage(permission ){
+        return permission.startsWith(MANAGE_PERM_PREFIX + ':');
+    },
+};
 
 /**
  * Permission rewriters are used to map one set of permission strings to another.

@@ -13,7 +13,7 @@ export default defineConfig([
         },
     },
     {
-        files: ['src/backend/**/*.{js,mjs,cjs}'],
+        files: ['src/backend/**/*.{js,mjs,cjs,ts}'],
         languageOptions: { globals: globals.node },
         rules: {
             'no-unused-vars': ['error', {
@@ -63,7 +63,7 @@ export default defineConfig([
         },
     },
     {
-        files: ['extensions/**/*.{js,mjs,cjs}'],
+        files: ['extensions/**/*.{js,mjs,cjs,ts}'],
         languageOptions: {
             globals: {
                 extension: 'readonly',
