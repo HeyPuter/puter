@@ -69,11 +69,10 @@ class ProcessService extends BaseService {
                 global_config: this.global_config
             });
         }
-        console.log(
+        this.log.debug(
             'command',
-            command,
-            ...args
-        )
+            { command, args },
+        );
         const proc = this.modules.spawn(command, args, {
             shell: true,
             env: {
