@@ -555,6 +555,28 @@ const ipc_listener = async (event, handled) => {
         }, '*');
     }
     //--------------------------------------------------------
+    // showWindow
+    //--------------------------------------------------------
+    else if(event.data.msg === 'showWindow'){
+        let el_window;
+        // show the app window
+        el_window = window.window_for_app_instance(event.data.appInstanceID);
+
+        // show the window
+        $(el_window).makeWindowVisible();
+    }
+    //--------------------------------------------------------
+    // hideWindow
+    //--------------------------------------------------------
+    else if(event.data.msg === 'hideWindow'){
+        let el_window;
+        // hide the app window
+        el_window = window.window_for_app_instance(event.data.appInstanceID);
+
+        // hide the window
+        $(el_window).makeWindowInvisible();
+    }
+    //--------------------------------------------------------
     // mouseMoved
     //--------------------------------------------------------
     else if(event.data.msg === 'mouseMoved'){

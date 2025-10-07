@@ -3627,6 +3627,14 @@ $.fn.makeWindowVisible = function(options){
     })
 }
 
+$.fn.makeWindowInvisible = async function(options) {
+    $(this).each(async function() {
+        if($(this).hasClass('window')){
+            $(this).hide();
+        }
+    })
+}
+
 $.fn.showWindow = async function(options) {
     $(this).each(async function() {
         if($(this).hasClass('window')){

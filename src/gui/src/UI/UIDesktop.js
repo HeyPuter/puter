@@ -2382,15 +2382,7 @@ window.toggleDesktopIcons = function () {
 };
 
 $(document).on('click', '.btn-show-ai', function () {
-    $('.btn-show-ai').hide();
     $('.window[data-app="ai"]').makeWindowVisible();
 });
-
-$(document).on('click', '.btn-hide-ai', function () {
-    $('.ai-panel').removeClass('ai-panel-open');
-    $('.btn-show-ai').show();
-    $('.btn-hide-ai').hide();
-});
-
 
 export default UIDesktop;
