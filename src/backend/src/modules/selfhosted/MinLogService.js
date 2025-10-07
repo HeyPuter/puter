@@ -7,7 +7,7 @@ class MinLogService extends BaseService {
     `
     
     _construct () {
-        this.on = true;
+        this.on = false;
         this.visible = new Set();
         
         this.widget_ = null;
@@ -44,6 +44,7 @@ class MinLogService extends BaseService {
         if ( ! svc_devConsole ) return;
         
         this.widget_ = () => {
+            if ( ! this.on ) return ['minlog is off'];
             const lines = [
                 `\x1B[31;1mSome logs hidden! Type minlog:off to see all logs.\x1B[0m`
             ];

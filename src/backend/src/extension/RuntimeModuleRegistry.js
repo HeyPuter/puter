@@ -16,7 +16,6 @@ class RuntimeModuleRegistry extends AdvancedBase {
         if ( this.modules_.hasOwnProperty(uniqueName) ) {
             throw new Error(`duplicate runtime module: ${uniqueName}`);
         }
-        console.log(`registering with name... ${uniqueName}`);
         this.modules_[uniqueName] = extensionModule;
         extensionModule.runtimeModuleRegistry = this;
     }

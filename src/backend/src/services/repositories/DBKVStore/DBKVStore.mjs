@@ -285,6 +285,7 @@ export class DBKVStore {
         for ( const [path, amount] of Object.entries(pathAndAmountMap) ){
             const pathParts = path.split('.');
             let obj = currVal;
+            if ( obj === null )  continue;
             for ( let i = 0; i < pathParts.length - 1; i++ ){
                 const part = pathParts[i];
                 if ( !obj[part] ){
@@ -295,6 +296,7 @@ export class DBKVStore {
                 }
                 obj = obj[part];
             }
+            if ( obj === null )  continue;
             const lastPart = pathParts[pathParts.length - 1];
             if ( !obj[lastPart] ){
                 obj[lastPart] = 0;

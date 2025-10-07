@@ -123,6 +123,7 @@ config.legacy_token_migrate = true;
 // === OS Information ===
 const os = require('os');
 const fs = require('fs');
+const { Context, context_config } = require('./util/context');
 config.os = {};
 config.os.platform = os.platform();
 
@@ -244,14 +245,32 @@ const config_pointer = {};
     // confusing issues, so we log any time this happens
     config_to_export = new Proxy(config_to_export, {
         set: (target, prop, value, receiver) => {
-            console.log(
+            const logger = Context.get('logger', { allow_fallback: true });
+            logger.debug(
                 '\x1B[36;1mCONFIGURATION MUTATED AT RUNTIME\x1B[0m',
-                prop, 'to', value
+                { prop, value },
             );
             target[prop] = value;
             return true;
         }
     })
 }
+
+// We configure the behavior in context.js from here to avoid a cyclic
+// mutual dependency between it and this file.
+//
+// Previously we had this:
+// context --(are we in "dev" environment?)--> config
+//
+// So we could not add this:
+// config --(where is the logger?) --> context
+//
+// So instead we now have:
+// config --(read this property to determine 'strict' mode)--> context
+// config --(where is the logger?) --> context
+//
+Object.defineProperty(context_config, 'strict', {
+    get: () => config_to_export.env === 'dev',
+});
 
 module.exports = config_to_export;

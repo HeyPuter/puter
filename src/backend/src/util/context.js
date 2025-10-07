@@ -17,7 +17,7 @@
  * along with this program.  If not, see <https://www.gnu.org/licenses/>.
  */
 const { AsyncLocalStorage } = require('async_hooks');
-const config = require('../config');
+const context_config = {};
 
 class Context {
     static USE_NAME_FALLBACK = {};
@@ -46,7 +46,7 @@ class Context {
     static get (k, { allow_fallback } = {}) {
         let x = this.contextAsyncLocalStorage.getStore()?.get('context');
         if ( ! x ) {
-            if ( config.env === 'dev' && ! allow_fallback ) {
+            if ( context_config.strict && ! allow_fallback ) {
                 throw new Error(
                     'FAILED TO GET THE CORRECT CONTEXT'
                 );
@@ -246,4 +246,5 @@ class ContextExpressMiddleware {
 module.exports = {
     Context,
     ContextExpressMiddleware,
+    context_config,
 };

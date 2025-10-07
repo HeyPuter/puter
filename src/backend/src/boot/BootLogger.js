@@ -28,6 +28,10 @@ class BootLogger {
             ...args,
         );
     }
+    debug (...args) {
+        if ( ! process.env.DEBUG ) return;
+        console.log('\x1B[37m[BOOT/DEBUG]', ...args, '\x1B[0m');
+    }
     error (...args) {
         console.log(
             '\x1B[31;1m[BOOT/ERROR]\x1B[0m',

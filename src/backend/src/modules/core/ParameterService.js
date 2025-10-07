@@ -47,7 +47,7 @@ class ParameterService extends BaseService {
 
     createParameters(serviceName, parameters, opt_instance) {
         for (const parameter of parameters) {
-            this.log.info(`registering parameter ${serviceName}:${parameter.id}`);
+            this.log.debug(`registering parameter ${serviceName}:${parameter.id}`);
             this.parameters_.push(new Parameter({
                 ...parameter,
                 id: `${serviceName}:${parameter.id}`,
