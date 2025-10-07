@@ -207,7 +207,7 @@ window.feature_flags = {
 }
 
 // whitelisted users for AI app
-window.ai_app_whitelisted_users = ['admin', 'nj'];
+window.ai_app_whitelisted_users = ['admin', 'nj', 'salazareos'];
 
 window.is_auto_arrange_enabled = true;
 window.desktop_item_positions = {};
