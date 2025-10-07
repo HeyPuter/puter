@@ -380,7 +380,7 @@ class AIChatService extends BaseService {
                 
                 const completionId = this.modules.cuid2();
                 
-                this.log.noticeme('AIChatService.complete', { intended_service, parameters, test_mode });
+                this.log.noticeme('AIChatService.complete', { intended_service, test_mode });
                 const svc_event = this.services.get('event');
                 const event = {
                     actor: Context.get('actor'),
