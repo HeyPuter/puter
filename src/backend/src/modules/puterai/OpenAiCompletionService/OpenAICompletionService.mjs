@@ -145,6 +145,10 @@ export class OpenAICompletionService {
         };
     }
 
+    async check_moderation(text) {
+        return await this.#checkModeration(text);
+    }
+
     /**
     * Completes a chat conversation using OpenAI's API
     * @param {Array} messages - Array of message objects or strings representing the conversation
