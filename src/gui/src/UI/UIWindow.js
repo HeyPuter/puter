@@ -280,6 +280,8 @@ async function UIWindow(options) {
                 data-update_window_url = "${options.update_window_url && options.is_visible}"
                 data-user_set_url_params = "${html_encode(user_set_url_params)}"
                 data-initial_zindex = "${zindex}"
+                data-is_panel ="${options.is_panel ? 1 : 0}"
+                data-is_visible ="${options.is_visible ? 1 : 0}"
                 style=" z-index: ${zindex}; 
                         ${options.right !== undefined ? 'right: ' + html_encode(options.right) +'; ':''}
                         ${options.left !== undefined ? 'left: ' + html_encode(options.left) +'; ':''}
@@ -3623,6 +3625,16 @@ $.fn.makeWindowVisible = function(options){
         if($(this).hasClass('window')){
             $(this).show();
             $(this).focusWindow();
+
+            $(this).attr({
+                'data-is_visible': '1',
+            });
+
+            // if sidepanel, shift desktop toolbar to the left
+            if($(this).attr('data-is_panel') === '1'){
+                $('.toolbar').css('left', `calc(50% - 200px)`);
+                $('.taskbar').css('left', `calc(50% - 200px)`);
+            }
         }
     })
 }
@@ -3631,6 +3643,14 @@ $.fn.makeWindowInvisible = async function(options) {
     $(this).each(async function() {
         if($(this).hasClass('window')){
             $(this).hide();
+            $(this).attr({
+                'data-is_visible': '0',
+            });
+            // if sidepanel, shift desktop toolbar to the right
+            if($(this).attr('data-is_panel') === '1'){
+                $('.toolbar').css('left', `calc(50%)`);
+                $('.taskbar').css('left', `calc(50%)`);
+            }
         }
     })
 }

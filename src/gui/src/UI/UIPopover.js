@@ -74,6 +74,11 @@ function UIPopover(options){
             }else{
                 // Default bottom taskbar behavior - center horizontally
                 x_pos = window.innerWidth/2 - popover_width/2 - 15;
+
+                // if sidepanel (visible), shift to the left
+                if($('.window[data-is_panel][data-is_visible="1"]').length > 0){
+                    x_pos -= 200;
+                }
             }
         }else{
             if(options.position === 'bottom' || options.position === 'top')
