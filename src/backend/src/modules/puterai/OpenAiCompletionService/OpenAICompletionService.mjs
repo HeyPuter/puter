@@ -124,7 +124,7 @@ export class OpenAICompletionService {
     * @property {boolean} flagged - Whether the content was flagged as inappropriate
     * @property {Object} results - Raw moderation results from OpenAI API
     */
-    async #checkModeration(text) {
+    async checkModeration(text) {
         // create moderation
         const results = await this.#openAi.moderations.create({
             input: text,
@@ -143,10 +143,6 @@ export class OpenAICompletionService {
             flagged,
             results,
         };
-    }
-
-    async check_moderation(text) {
-        return await this.#checkModeration(text);
     }
 
     /**
@@ -281,7 +277,7 @@ export class OpenAICompletionService {
             },
             stream,
             completion,
-            moderate: moderation && this.#checkModeration.bind(this),
+            moderate: moderation && this.checkModeration.bind(this),
         });
     }
 }
