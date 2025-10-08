@@ -1,0 +1,20 @@
+{
+    "compilerOptions": {
+        "target": "ES2022",
+        "module": "CommonJS",
+        "moduleResolution": "node10",
+        "rootDir": ".",
+        "strict": true,
+        "esModuleInterop": true,
+        "forceConsistentCasingInFileNames": true,
+        "skipLibCheck": true
+    },
+    "exclude": [
+        "**/*.test.ts",
+        "**/*.spec.ts",
+        "**/test/**",
+        "**/tests/**",
+        "node_modules",
+        "dist"
+    ]
+}

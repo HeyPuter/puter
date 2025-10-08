@@ -1,18 +1,18 @@
 /*
  * Copyright (C) 2024-present Puter Technologies Inc.
- * 
+ *
  * This file is part of Puter.
- * 
+ *
  * Puter is free software: you can redistribute it and/or modify
  * it under the terms of the GNU Affero General Public License as published
  * by the Free Software Foundation, either version 3 of the License, or
  * (at your option) any later version.
- * 
+ *
  * This program is distributed in the hope that it will be useful,
  * but WITHOUT ANY WARRANTY; without even the implied warranty of
  * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
  * GNU Affero General Public License for more details.
- * 
+ *
  * You should have received a copy of the GNU Affero General Public License
  * along with this program.  If not, see <https://www.gnu.org/licenses/>.
  */
@@ -20,10 +20,8 @@
 // METADATA // {"ai-commented":{"service":"claude"}}
 const { default: Anthropic, toFile } = require("@anthropic-ai/sdk");
 const BaseService = require("../../services/BaseService");
-const { TypedValue } = require("../../services/drivers/meta/Runtime");
 const FunctionCalling = require("./lib/FunctionCalling");
 const Messages = require("./lib/Messages");
-const { NodePathSelector } = require("../../filesystem/node/selectors");
 const FSNodeParam = require("../../api/filesystem/FSNodeParam");
 const { LLRead } = require("../../filesystem/ll_operations/ll_read");
 const { Context } = require("../../util/context");
@@ -39,13 +37,12 @@ const { TeePromise } = require('@heyputer/putility').libs.promise;
 class ClaudeService extends BaseService {
     static MODULES = {
         Anthropic: require('@anthropic-ai/sdk'),
-    }
-    
+    };
+
     /**
      * @type {import('@anthropic-ai/sdk').Anthropic}
      */
     anthropic;
-    
 
     /**
     * Initializes the Claude service by creating an Anthropic client instance
@@ -53,7 +50,7 @@ class ClaudeService extends BaseService {
     * @private
     * @returns {Promise<void>}
     */
-    async _init () {
+    async _init() {
         this.anthropic = new Anthropic({
             apiKey: this.config.apiKey,
             // 10 minutes is the default; we need to override the timeout to
@@ -70,24 +67,23 @@ class ClaudeService extends BaseService {
         });
     }
 
-
     /**
     * Returns the default model identifier for Claude API interactions
     * @returns {string} The default model ID 'claude-3-5-sonnet-latest'
     */
-    get_default_model () {
+    get_default_model() {
         return 'claude-3-5-sonnet-latest';
     }
-    
+
     static IMPLEMENTS = {
         ['puter-chat-completion']: {
             /**
              * Returns a list of available models and their details.
              * See AIChatService for more information.
-             * 
+             *
              * @returns Promise<Array<Object>> Array of model details
              */
-            async models () {
+            async models() {
                 return await this.models_();
             },
 
@@ -97,7 +93,7 @@ class ClaudeService extends BaseService {
             * @description Retrieves all available model IDs and their aliases,
             * flattening them into a single array of strings that can be used for model selection
             */
-            async list () {
+            async list() {
                 const models = await this.models_();
                 const model_names = [];
                 for ( const model of models ) {
@@ -115,15 +111,15 @@ class ClaudeService extends BaseService {
             * @param {Array} options.messages - Array of chat messages to process
             * @param {boolean} options.stream - Whether to stream the response
             * @param {string} [options.model] - The Claude model to use, defaults to service default
-            * @returns {TypedValue|Object} Returns either a TypedValue with streaming response or a completion object
+            * @returns {Object} Returns either a TypedValue with streaming response or a completion object
             * @this {ClaudeService}
             */
-            async complete ({ messages, stream, model, tools, max_tokens, temperature}) {
+            async complete({ messages, stream, model, tools, max_tokens, temperature }) {
                 tools = FunctionCalling.make_claude_tools(tools);
-                
+
                 let system_prompts;
                 [system_prompts, messages] = Messages.extract_and_remove_system_messages(messages);
-                
+
                 const sdk_params = {
                     model: model ?? this.get_default_model(),
                     max_tokens: Math.floor(max_tokens) ||
@@ -135,16 +131,16 @@ class ClaudeService extends BaseService {
                     ...(system_prompts ? {
                         system: system_prompts.length > 1
                             ? JSON.stringify(system_prompts)
-                            : JSON.stringify(system_prompts[0])
+                            : JSON.stringify(system_prompts[0]),
                     } : {}),
                     messages,
                     ...(tools ? { tools } : {}),
                 };
-                
+
                 console.log('\x1B[26;1m ===== SDK PARAMETERS', require('util').inspect(sdk_params, undefined, Infinity));
-                
+
                 let beta_mode = false;
-                
+
                 // Perform file uploads
                 const file_delete_tasks = [];
                 {
@@ -166,79 +162,79 @@ class ClaudeService extends BaseService {
                             });
                         }
                     }
-                    
+
                     const promises = [];
-                    for ( const task of file_input_tasks ) promises.push((async () => {
-                        const ll_read = new LLRead();
-                        const stream = await ll_read.run({
-                            actor: Context.get('actor'),
-                            fsNode: task.node,
-                        });
-                        
-                        const require = this.require;
-                        const mime = require('mime-types');
-                        const mimeType = mime.contentType(await task.node.get('name'));
+                    for ( const task of file_input_tasks ) {
+                        promises.push((async () => {
+                            const ll_read = new LLRead();
+                            const stream = await ll_read.run({
+                                actor: Context.get('actor'),
+                                fsNode: task.node,
+                            });
 
-                        beta_mode = true;
-                        const fileUpload = await this.anthropic.beta.files.upload({
-                            file: await toFile(stream, undefined, { type: mimeType })
-                        }, {
-                            betas: ['files-api-2025-04-14']
-                        });
-                        
-                        file_delete_tasks.push({ file_id: fileUpload.id });
-                        // We have to copy a table from the documentation here:
-                        // https://docs.anthropic.com/en/docs/build-with-claude/files
-                        const contentBlockTypeForFileBasedOnMime = (() => {
-                            if ( mimeType.startsWith('image/') ) {
-                                return 'image';
-                            }
-                            if ( mimeType.startsWith('text/') ) {
-                                return 'document';
-                            }
-                            if ( mimeType === 'application/pdf' || mimeType === 'application/x-pdf' ) {
-                                return 'document';
-                            }
-                            return 'container_upload';
-                        })();
-                        
-                        // {
-                        //     'application/pdf': 'document',
-                        //     'text/plain': 'document',
-                        //     'image/': 'image'
-                        // }[mimeType];
+                            const require = this.require;
+                            const mime = require('mime-types');
+                            const mimeType = mime.contentType(await task.node.get('name'));
 
-                        
-                        delete task.contentPart.puter_path,
-                        task.contentPart.type = contentBlockTypeForFileBasedOnMime;
-                        task.contentPart.source = {
-                            type: 'file',
-                            file_id: fileUpload.id,
-                        };
-                    })());
+                            beta_mode = true;
+                            const fileUpload = await this.anthropic.beta.files.upload({
+                                file: await toFile(stream, undefined, { type: mimeType }),
+                            }, {
+                                betas: ['files-api-2025-04-14'],
+                            });
+
+                            file_delete_tasks.push({ file_id: fileUpload.id });
+                            // We have to copy a table from the documentation here:
+                            // https://docs.anthropic.com/en/docs/build-with-claude/files
+                            const contentBlockTypeForFileBasedOnMime = (() => {
+                                if ( mimeType.startsWith('image/') ) {
+                                    return 'image';
+                                }
+                                if ( mimeType.startsWith('text/') ) {
+                                    return 'document';
+                                }
+                                if ( mimeType === 'application/pdf' || mimeType === 'application/x-pdf' ) {
+                                    return 'document';
+                                }
+                                return 'container_upload';
+                            })();
+
+                            // {
+                            //     'application/pdf': 'document',
+                            //     'text/plain': 'document',
+                            //     'image/': 'image'
+                            // }[mimeType];
+
+                            delete task.contentPart.puter_path,
+                            task.contentPart.type = contentBlockTypeForFileBasedOnMime;
+                            task.contentPart.source = {
+                                type: 'file',
+                                file_id: fileUpload.id,
+                            };
+                        })());
+                    }
                     await Promise.all(promises);
                 }
                 const cleanup_files = async () => {
                     const promises = [];
-                    for ( const task of file_delete_tasks ) promises.push((async () => {
-                        try {
-                            await this.anthropic.beta.files.delete(
-                                task.file_id,
-                                { betas: ['files-api-2025-04-14'] }
-                            );
-                        }  catch (e) {
-                            this.errors.report('claude:file-delete-task', {
-                                source: e,
-                                trace: true,
-                                alarm: true,
-                                extra: { file_id: task.file_id },
-                            });
-                        }
-                    })());
+                    for ( const task of file_delete_tasks ) {
+                        promises.push((async () => {
+                            try {
+                                await this.anthropic.beta.files.delete(task.file_id,
+                                                { betas: ['files-api-2025-04-14'] });
+                            }  catch (e) {
+                                this.errors.report('claude:file-delete-task', {
+                                    source: e,
+                                    trace: true,
+                                    alarm: true,
+                                    extra: { file_id: task.file_id },
+                                });
+                            }
+                        })());
+                    }
                     await Promise.all(promises);
                 };
 
-                
                 if ( beta_mode ) {
                     Object.assign(sdk_params, { betas: ['files-api-2025-04-14'] });
                 }
@@ -307,26 +303,25 @@ class ClaudeService extends BaseService {
                         usage_promise.resolve(counts);
                     };
 
-                    return new TypedValue({ $: 'ai-chat-intermediate' }, {
+                    return {
                         init_chat_stream,
                         stream: true,
                         usage_promise: usage_promise,
                         finally_fn: cleanup_files,
-                    });
+                    };
                 }
-                
+
                 const msg = await anthropic.messages.create(sdk_params);
                 await cleanup_files();
-                
+
                 return {
                     message: msg,
                     usage: msg.usage,
-                    finish_reason: 'stop'
+                    finish_reason: 'stop',
                 };
-            }
-        }
-    }
-
+            },
+        },
+    };
 
     /**
     * Retrieves available Claude AI models and their specifications
@@ -340,7 +335,7 @@ class ClaudeService extends BaseService {
     *   - max_output: Maximum output tokens
     *   - training_cutoff: Training data cutoff date
     */
-    async models_ () {
+    async models_() {
         return [
             {
                 id: 'claude-sonnet-4-5-20250929',

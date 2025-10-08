@@ -1,16 +1,10 @@
+// @ts-ignore
 import type { KVStoreInterface } from "../../../modules/kvstore/KVStoreInterfaceService.js";
+// @ts-ignore
 import { SystemActorType, type Actor } from "../../auth/Actor.js";
+// @ts-ignore
 import type { SUService } from "../../SUService.js";
-
-
-// TODO DS: these should be loaded from config or db eventually
-const USAGE_TYPE_MAPS = {
-    // Map with unit to cost measurements in microcent
-    'kv:read': 63,
-    'kv:write': 125,
-    // TODO DS: add more usage types as needed
-}
-
+import { COST_MAPS } from "./costMaps/index.js";
 
 interface ActorWithType extends Actor {
     type: {
@@ -61,7 +55,13 @@ export class MeteringAndBillingService {
 
 
     // TODO DS: track daily and hourly usage as well
-    async incrementUsage(actor: ActorWithType, usageType: keyof typeof USAGE_TYPE_MAPS, usageAmount: number, costOverride?: number) {
+    async incrementUsage(actor: ActorWithType, usageType: keyof typeof COST_MAPS, usageAmount: number, costOverride?: number) {
+
+        if (!usageAmount || !usageType || !actor) {
+            // silent fail for now;
+            console.warn("Invalid usage increment parameters", { actor, usageType, usageAmount, costOverride });
+            return { total: 0 } as UsageByType;
+        }
 
         if (actor.type instanceof SystemActorType || actor.type?.user?.username === 'system') {
             // Don't track for now since it will trigger infinite noise;
@@ -71,7 +71,7 @@ export class MeteringAndBillingService {
         const currentMonth = this.#getMonthYearString();
 
         return this.#superUserService.sudo(async () => {
-            const totalCost = (costOverride ?? USAGE_TYPE_MAPS[usageType] * usageAmount) || 0; // TODO DS: apply our policy discounts here eventually
+            const totalCost = (costOverride ?? COST_MAPS[usageType] * usageAmount) || 0; // TODO DS: apply our policy discounts here eventually
             const appId = actor.type?.app?.uid || GLOBAL_APP_KEY
             const actorId = actor.type?.user.uuid
             const pathAndAmountMap = {
@@ -174,15 +174,7 @@ export class MeteringAndBillingService {
         ]
         return this.#superUserService.sudo(async () => {
             const [usage, addons] = await this.#kvClientWrapper.get({ key: keys }) as [UsageByType | null, PolicyAddOns | null];
-            let totalCost = 0;
-            if (usage) {
-                for (const [usageType, usageData] of Object.entries(usage.thisMonth)) {
-                    if (USAGE_TYPE_MAPS[usageType]) {
-                        totalCost += (USAGE_TYPE_MAPS[usageType] * (usageData.total || 0));
-                    }
-                }
-            }
-            return totalCost;
+            return usage?.total || 0;
         })
     }
 

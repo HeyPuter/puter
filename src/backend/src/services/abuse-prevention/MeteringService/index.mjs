@@ -1,5 +1,5 @@
 import BaseService from '../../BaseService.js';
-import { MeteringAndBillingService } from "./MeteringService.mjs";
+import { MeteringAndBillingService } from "./MeteringService.js";
 
 export class MeteringAndBillingServiceWrapper extends BaseService {
 
