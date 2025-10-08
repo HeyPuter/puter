@@ -19,7 +19,7 @@
 // TODO: database access can be a service
 const { RESOURCE_STATUS_PENDING_CREATE } = require('../modules/puterfs/ResourceService.js');
 const { TraceService } = require('../services/TraceService.js');
-const { NodePathSelector, NodeUIDSelector, NodeInternalIDSelector } = require('./node/selectors.js');
+const { NodePathSelector, NodeUIDSelector, NodeInternalIDSelector, NodeSelector } = require('./node/selectors.js');
 const FSNodeContext = require('./FSNodeContext.js');
 const { Context } = require('../util/context.js');
 const APIError = require('../api/APIError.js');
@@ -29,6 +29,8 @@ const { UserActorType } = require('../services/auth/Actor');
 const { get_user } = require('../helpers');
 const BaseService = require('../services/BaseService');
 const { MANAGE_PERM_PREFIX } = require('../services/auth/permissionConts.mjs');
+const { PuterFSProvider } = require('../modules/puterfs/lib/PuterFSProvider.js');
+const { quot } = require('@heyputer/putility/src/libs/string.js');
 
 class FilesystemService extends BaseService {
     static MODULES = {
@@ -328,6 +330,14 @@ class FilesystemService extends BaseService {
             } else {
                 selector = new NodeInternalIDSelector('mysql', selector.mysql_id);
             }
+        }
+        
+        if ( ! (selector instanceof NodeSelector) ) {
+            throw new Error(
+                'FileSystemService could not resolve the specified node value ' +
+                quot(''+selector) + ` (type: ${typeof selector}) ` +
+                'to a filesystem node selector',
+            );
         }
 
         system_dir_check: {

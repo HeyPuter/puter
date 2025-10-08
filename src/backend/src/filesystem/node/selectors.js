@@ -19,8 +19,22 @@
 const _path = require('path');
 const { PuterPath } = require('../lib/PuterPath');
 
-class NodePathSelector {
+/**
+ * The base class doesn't add any functionality, but it's useful for
+ * `instanceof` checks.
+ */
+class NodeSelector {
+    constructor () {
+        if ( this.constructor === NodeSelector ) {
+            throw new Error('cannot instantiate NodeSelector directly; ' +
+                'that would be like using this: https://devmeme.puter.site/plug.webp');
+        }
+    }
+}
+
+class NodePathSelector extends NodeSelector {
     constructor (path) {
+        super();
         this.value = path;
     }
 
@@ -34,8 +48,9 @@ class NodePathSelector {
     }
 }
 
-class NodeUIDSelector {
+class NodeUIDSelector extends NodeSelector {
     constructor (uid) {
+        super();
         this.value = uid;
     }
 
@@ -58,8 +73,9 @@ class NodeUIDSelector {
     }
 }
 
-class NodeInternalIDSelector {
+class NodeInternalIDSelector extends NodeSelector {
     constructor (service, id, debugInfo) {
+    super();
         this.service = service;
         this.id = id;
         this.debugInfo = debugInfo;
@@ -81,8 +97,9 @@ class NodeInternalIDSelector {
     }
 }
 
-class NodeChildSelector {
+class NodeChildSelector extends NodeSelector {
     constructor (parent, name) {
+        super();
         this.parent = parent;
         this.name = name;
     }
@@ -101,7 +118,7 @@ class NodeChildSelector {
     }
 }
 
-class RootNodeSelector {
+class RootNodeSelector extends NodeSelector {
     static entry = {
         is_dir: true,
         is_root: true,
@@ -114,6 +131,7 @@ class RootNodeSelector {
         node.uid = PuterPath.NULL_UUID;
     }
     constructor () {
+        super();
         this.entry = this.constructor.entry;
     }
 
@@ -122,8 +140,9 @@ class RootNodeSelector {
     }
 }
 
-class NodeRawEntrySelector {
+class NodeRawEntrySelector extends NodeSelector {
     constructor (entry) {
+        super();
         // Fix entries from get_descendants
         if ( ! entry.uuid && entry.uid ) {
             entry.uuid = entry.uid;
@@ -190,6 +209,7 @@ const relativeSelector = (parent, path) => {
 }
 
 module.exports = {
+    NodeSelector,
     NodePathSelector,
     NodeUIDSelector,
     NodeInternalIDSelector,
