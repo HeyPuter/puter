@@ -283,6 +283,11 @@ module.exports = class APIError {
             status: 400,
             message: 'Invalid file metadata.',
         },
+        'unresolved_relative_path': {
+            status: 400,
+            message: ({ path }) => `Unresolved relative path: ${quot(path)}. ` +
+                    "You may need to specify a full path starting with '/'.",
+        },
 
         // Open
         'no_suitable_app': {
