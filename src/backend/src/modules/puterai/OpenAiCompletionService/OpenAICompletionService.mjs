@@ -264,7 +264,7 @@ export class OpenAICompletionService {
         // for now I'm overloading this usage calculator to handle the future promise resolution...
         return OpenAIUtil.handle_completion_output({
             usage_calculator: ({ usage }) => {
-                const modelDetails = this.models().find(m => m.id === model || m.aliases.includes(model));
+                const modelDetails = this.models().find(m => m.id === model || m.aliases?.includes(model));
                 const trackedUsage = {
                     prompt_tokens: (usage.prompt_tokens ?? 0) - (usage.prompt_tokens_details?.cached_tokens ?? 0),
                     completion_tokens: usage.completion_tokens ?? 0,
