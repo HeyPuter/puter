@@ -16,7 +16,7 @@
  * You should have received a copy of the GNU Affero General Public License
  * along with this program.  If not, see <https://www.gnu.org/licenses/>.
  */
-import UIWindow from './UIWindow.js'
+import UIWindow from './UIWindow.js';
 
 async function UIWindowShare(items, recipient){
     return new Promise(async (resolve) => {
@@ -84,6 +84,7 @@ async function UIWindowShare(items, recipient){
                         h += `<select class="access-type" style="width: 170px; margin-bottom: 0; margin-right: 5px;">`;
                             h += `<option value="Viewer">${i18n('Viewer')}</option>`;
                             h += `<option value="Editor">${i18n('Editor')}</option>`;
+                            h += `<option value="Manager">${i18n('Manager')}</option>`;
                         h += `</select>`;
 
                         // Share
@@ -189,6 +190,8 @@ async function UIWindowShare(items, recipient){
                                             perm_list += `<span class="permission-viewer-badge">${i18n('Viewer')}</span>`;
                                         else if(perm.access === 'write')
                                             perm_list += `<span class="permission-editor-badge">${i18n('Editor')}</span>`;
+                                        else if(perm.access === 'manager')
+                                            perm_list += `<span class="permission-manager-badge">${i18n('Manager')}</span>`;
                                         perm_list += `</div>`;
                                         // username
                                         perm_list += `${perm.user.email ?? perm.user.username}`;
@@ -264,6 +267,8 @@ async function UIWindowShare(items, recipient){
             
             if($(el_window).find('.access-type').val() === 'Viewer')
                 access_level = 'read';
+            else if($(el_window).find('.access-type').val() === 'Manager')
+                access_level = 'manage';
 
             $.ajax({
                 url: puter.APIOrigin + "/share",
@@ -296,7 +301,14 @@ async function UIWindowShare(items, recipient){
                     } else {
                         // show success message
                         $(el_window).find('.access-recipient-print').html(recipient_id);
-                        let perm_id = `fs:${items[0].uid}:${access_level}`;
+                        let perm_id;
+
+                        if(access_level === 'manage'){
+                            perm_id = `manage:fs:${items[0].uid}`;
+                        }
+                        else{
+                            perm_id = `fs:${items[0].uid}:${access_level}`;
+                        }
                 
                         // append recipient to list
                         let perm_list = '';
@@ -306,7 +318,9 @@ async function UIWindowShare(items, recipient){
                             if(access_level === 'read')
                                 perm_list += `<span class="permission-viewer-badge">${i18n('Viewer')}</span>`;
                             else if(access_level === 'write')
-                                perm_list += `<span class="permission-editor-badge">i18n('Viewer')</span>`;
+                                perm_list += `<span class="permission-editor-badge">${i18n('Editor')}</span>`;
+                            else if(access_level === 'manage')
+                                perm_list += `<span class="permission-manager-badge">${i18n('Manager')}</span>`;
                             perm_list += `</div>`;
                             // recipient username
                             perm_list += `${recipient_username}`;

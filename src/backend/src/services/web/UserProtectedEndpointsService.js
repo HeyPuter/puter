@@ -24,6 +24,7 @@ const BaseService = require("../BaseService");
 const { UserActorType } = require("../auth/Actor");
 const { Endpoint } = require("../../util/expressutil");
 const APIError = require("../../api/APIError.js");
+const configurable_auth = require("../../middleware/configurable_auth.js");
 
 /**
 * @class UserProtectedEndpointsService
@@ -55,25 +56,29 @@ class UserProtectedEndpointsService extends BaseService {
             const require = this.require;
             const express = require('express');
             return express.Router();
-        })()
+        })();
 
         const { app } = this.services.get('web-server');
         app.use('/user-protected', router);
 
         // Apply edge (unauthenticated) rate-limiting
         router.use((req, res, next) => {
+            if ( req.method === 'OPTIONS' ) return next();
+
             const svc_edgeRateLimit = req.services.get('edge-rate-limit');
             if ( ! svc_edgeRateLimit.check(req.baseUrl + req.path) ) {
                 return APIError.create('too_many_requests').write(res);
             }
             next();
-        })
+        });
 
         // Require authenticated session
-        router.use(auth2);
+        router.use(configurable_auth({ no_options_auth: true }));
 
         // Only allow user sessions, not API tokens for apps
         router.use((req, res, next) => {
+            if ( req.method === 'OPTIONS' ) return next();
+
             const actor = Context.get('actor');
             if ( ! (actor.type instanceof UserActorType) ) {
                 return APIError.create('user_tokens_only').write(res);
@@ -83,6 +88,7 @@ class UserProtectedEndpointsService extends BaseService {
 
         // Prioritize consistency for user object
         router.use(async (req, res, next) => {
+            if ( req.method === 'OPTIONS' ) return next();
             const user = await get_user({ id: req.user.id, force: true });
             req.user = user;
             next();
@@ -90,6 +96,8 @@ class UserProtectedEndpointsService extends BaseService {
 
         // Do not allow temporary users
         router.use(async (req, res, next) => {
+            if ( req.method === 'OPTIONS' ) return next();
+
             if ( req.user.password === null ) {
                 return APIError.create('temporary_account').write(res);
             }
@@ -107,6 +115,8 @@ class UserProtectedEndpointsService extends BaseService {
         * @param {Function} next - Callback to pass control to the next middleware or route handler.
         */
         router.use(async (req, res, next) => {
+            if ( req.method === 'OPTIONS' ) return next();
+
             if ( ! req.body.password ) {
                 return (APIError.create('password_required')).write(res);
             }

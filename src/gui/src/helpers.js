@@ -563,6 +563,8 @@ window.sendWindowWillCloseMsg = function(iframe_element) {
 }
 
 window.logout = ()=>{
+    // clear cache
+    puter._cache.flushall();
     $(document).trigger('logout');
     // document.dispatchEvent(new Event("logout", { bubbles: true}));    
 }

@@ -5254,3 +5254,54 @@ fieldset[name=number-code] {
     text-overflow: ellipsis; 
     white-space: nowrap;
 }
+
+/************************************************************
+ * AI Side Panel
+ ************************************************************/
+
+.btn-send-ai{
+    margin-top: 10px;
+}
+.btn-show-ai{
+    display: none;
+    position: absolute;
+    top: 0;
+    right: 0;
+    width: 30px;
+    height: 30px;
+    background-color: #ffffff;
+    z-index: 5;
+    width: 20px;
+    height: 20px;
+    padding: 5px;
+    top: 5px;
+    right: 5px;
+    border-radius: 5px;
+    background: linear-gradient(to bottom, #f8f8f8, #e0e0e0);
+    cursor: pointer;
+}
+.btn-show-ai svg{
+    width: 100%;
+    height: 100%;
+}
+.btn-show-ai:hover{
+    background: linear-gradient(to bottom, #f8f8f8, #eae9e9);
+}
+
+.device-desktop .btn-show-ai {
+    display: block;
+}
+
+.fullpage-mode .btn-show-ai{
+    display: none;
+}
+
+.btn-hide-ai{
+    display: none;
+    position: absolute;
+    top: 0;
+    right: 0;
+    width: 30px;
+    height: 30px;
+    z-index: 5;
+}

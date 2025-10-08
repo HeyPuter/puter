@@ -26,7 +26,7 @@ const { TYPE_DIRECTORY } = require("../../filesystem/FSNodeContext");
 const { LLRead } = require("../../filesystem/ll_operations/ll_read");
 const { Actor, UserActorType, SiteActorType } = require("../../services/auth/Actor");
 const APIError = require("../../api/APIError");
-const { PermissionUtil } = require("../../services/auth/PermissionUtils.mjs");
+const { PermissionUtil } = require("../../services/auth/permissionUtils.mjs");
 const { default: dedent } = require("dedent");
 
 const AT_DIRECTORY_NAMESPACE = '4aa6dc52-34c1-4b8a-b63c-a62b27f727cf';

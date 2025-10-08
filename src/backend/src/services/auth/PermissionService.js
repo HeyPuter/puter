@@ -25,8 +25,8 @@ const { reading_has_terminal } = require('../../unstructured/permission-scan-lib
 const BaseService = require('../BaseService');
 const { DB_WRITE } = require('../database/consts');
 const { UserActorType, Actor, AppUnderUserActorType } = require('./Actor');
-const { PermissionUtil, PermissionExploder, PermissionImplicator, PermissionRewriter } = require('./PermissionUtils.mjs');
-const PERM_KEY_PREFIX = 'perm';
+const { PERM_KEY_PREFIX, MANAGE_PERM_PREFIX } = require('./permissionConts.mjs');
+const { PermissionUtil, PermissionExploder, PermissionImplicator, PermissionRewriter } = require('./permissionUtils.mjs');
 
 /**
 * @class PermissionService
@@ -125,19 +125,30 @@ class PermissionService extends BaseService {
     * Checks if the actor has any of the specified permissions.
     *
     * @param {Actor} actor - The actor to check permissions for.
-    * @param {Array|string} permission_options - The permissions to check against.
+    * @param {string[]|string} permission_options - The permissions to check against.
     * Can be a single permission string or an array of permission strings.
     * @returns {Promise<boolean>} - True if the actor has at least one of the permissions, false otherwise.
-    *
-    * @note This method currently delegates to `scan()`, but a TODO suggests
-    * an optimized implementation is planned.
     */
     async check(actor, permission_options) {
-        // TODO: optimized implementation for check instead of
-        //       delegating to the scan() method
         const svc_trace = this.services.get('traceService');
         return await svc_trace.spanify('permission:check', async () => {
             const reading = await this.scan(actor, permission_options);
+            const options = PermissionUtil.reading_to_options(reading);
+            return options.length > 0;
+        });
+    }
+    /**
+    * Checks if the actor has grant access to any of the specified permissions.
+    *
+    * @param {Actor} actor - The actor to check if they can manage a permission.
+    * @param {string} permission - The permission to check against.
+    * @returns {Promise<boolean>} - True if the actor has at least one of the permissions, false otherwise.
+    */
+    async canManagePermission(actor, permission) {
+        const svc_trace = this.services.get('traceService');
+        return await svc_trace.spanify('permission:check', async () => {
+            const managePermission = PermissionUtil.join(MANAGE_PERM_PREFIX, ...PermissionUtil.split(permission));
+            const reading = await this.scan(actor, managePermission);
             const options = PermissionUtil.reading_to_options(reading);
             return options.length > 0;
         });
@@ -366,11 +377,10 @@ class PermissionService extends BaseService {
     }
 
     /**
-    * Grants a user permission to interact with another user.
+    * Grants a user permission to an app the user is working with if the user has permission.
     *
     * @param {Actor} actor - The actor granting the permission (must be a user).
     * @param {string} app_uid - The unique identifier or name of the app.
-    * @param {string} username - The username of the user receiving the permission.
     * @param {string} permission - The permission string to grant.
     * @param {Object} [extra={}] - Additional metadata or conditions for the permission.
     * @param {Object} [meta] - Metadata for logging or auditing purposes.
@@ -420,18 +430,17 @@ class PermissionService extends BaseService {
         const sql_cols = Object.keys(audit_values).map((key) => `\`${key}\``).join(', ');
         const sql_vals = Object.keys(audit_values).map(() => '?').join(', ');
 
-        await this.db.write(`INSERT INTO \`audit_user_to_app_permissions\` (${sql_cols}) ` +
+        this.db.write(`INSERT INTO \`audit_user_to_app_permissions\` (${sql_cols}) ` +
             `VALUES (${sql_vals})`,
         Object.values(audit_values));
     }
 
     /**
     * Grants an app a permission for any user, as long as the user granting the
-    * permission also has the permission.
+    * permission can manage permission.
     *
     * @param {Actor} actor - The actor granting the permission (must be a user).
     * @param {string} app_uid - The unique identifier or name of the app.
-    * @param {string} username - The username of the user receiving the permission.
     * @param {string} permission - The permission string to grant.
     * @param {Object} [extra={}] - Additional metadata or conditions for the permission.
     * @param {Object} [meta] - Metadata for logging or auditing purposes.
@@ -451,6 +460,13 @@ class PermissionService extends BaseService {
         }
 
         const app_id = app.id;
+
+        const canManagePerms = await this.canManagePermission(actor, permission);
+        if ( !canManagePerms ){
+            throw APIError.create('permission_denied', null, {
+                permission,
+            });
+        }
 
         // UPSERT permission
         await this.db.write('INSERT INTO `dev_to_app_permissions` (`user_id`, `app_id`, `permission`, `extra`) ' +
@@ -481,7 +497,7 @@ class PermissionService extends BaseService {
         const sql_cols = Object.keys(audit_values).map((key) => `\`${key}\``).join(', ');
         const sql_vals = Object.keys(audit_values).map(() => '?').join(', ');
 
-        await this.db.write(`INSERT INTO \`audit_dev_to_app_permissions\` (${sql_cols}) ` +
+        this.db.write(`INSERT INTO \`audit_dev_to_app_permissions\` (${sql_cols}) ` +
             `VALUES (${sql_vals})`,
         Object.values(audit_values));
     }
@@ -525,7 +541,7 @@ class PermissionService extends BaseService {
         const sql_cols = Object.keys(audit_values).map((key) => `\`${key}\``).join(', ');
         const sql_vals = Object.keys(audit_values).map(() => '?').join(', ');
 
-        await this.db.write(`INSERT INTO \`audit_dev_to_app_permissions\` (${sql_cols}) ` +
+        this.db.write(`INSERT INTO \`audit_dev_to_app_permissions\` (${sql_cols}) ` +
             `VALUES (${sql_vals})`,
         Object.values(audit_values));
     }
@@ -561,7 +577,7 @@ class PermissionService extends BaseService {
         const sql_cols = Object.keys(audit_values).map((key) => `\`${key}\``).join(', ');
         const sql_vals = Object.keys(audit_values).map(() => '?').join(', ');
 
-        await this.db.write(`INSERT INTO \`audit_dev_to_app_permissions\` (${sql_cols}) ` +
+        this.db.write(`INSERT INTO \`audit_dev_to_app_permissions\` (${sql_cols}) ` +
             `VALUES (${sql_vals})`,
         Object.values(audit_values));
     }
@@ -619,7 +635,7 @@ class PermissionService extends BaseService {
         const sql_cols = Object.keys(audit_values).map((key) => `\`${key}\``).join(', ');
         const sql_vals = Object.keys(audit_values).map(() => '?').join(', ');
 
-        await this.db.write(`INSERT INTO \`audit_user_to_app_permissions\` (${sql_cols}) ` +
+        this.db.write(`INSERT INTO \`audit_user_to_app_permissions\` (${sql_cols}) ` +
             `VALUES (${sql_vals})`,
         Object.values(audit_values));
     }
@@ -664,19 +680,10 @@ class PermissionService extends BaseService {
         const sql_cols = Object.keys(audit_values).map((key) => `\`${key}\``).join(', ');
         const sql_vals = Object.keys(audit_values).map(() => '?').join(', ');
 
-        await this.db.write(`INSERT INTO \`audit_user_to_app_permissions\` (${sql_cols}) ` +
+        this.db.write(`INSERT INTO \`audit_user_to_app_permissions\` (${sql_cols}) ` +
             `VALUES (${sql_vals})`,
         Object.values(audit_values));
     }
-
-    /**
-    * @typedef {Object} GrantUserUserPermissionParams
-    * @property {Actor} actor - The actor granting the permission (must be a user).
-    * @property {string} username - The username of the user receiving the permission.
-    * @property {string} permission - The permission string to be granted.
-    * @property {Object} [extra={}] - Additional metadata or conditions for the permission.
-    * @property {Object} [meta] - Metadata for auditing purposes, including a reason for the action.
-    */
 
     /**
     * Grants a permission from one user to another.
@@ -685,75 +692,76 @@ class PermissionService extends BaseService {
     * ensuring that the permission is correctly formatted, the users exist,
     * and that self-granting is not allowed.
     *
-    * @param {GrantUserUserPermissionParams} params - Parameters for granting permission.
+    * @param {Actor} actor
+    * @param {string} username
+    * @param {string} permission
+    * @param {object} extra
+    * @param {object} meta
     * @throws {Error} Throws if the user is not found or if attempting to grant permissions to oneself.
     * @returns {Promise<void>}
     */
     async grant_user_user_permission(actor, username, permission, extra = {}, meta) {
-        const flatRes =  this.#flat_grant_user_user_permission(actor, username, permission, extra, meta);
+        permission = await this._rewrite_permission(permission);
+        const user = await get_user({ username });
+        if ( ! user ) {
+            throw APIError.create('user_does_not_exist', null, {
+                username,
+            });
+        }
+
+        // Don't allow granting permissions to yourself
+        if ( user.id === actor.type.user.id ) {
+            throw new Error('cannot grant permissions to yourself');
+        }
+
+        const canManagePerms = await this.canManagePermission(actor, permission);
+        if ( !canManagePerms ){
+            throw APIError.create('permission_denied', null, {
+                permission,
+            });
+        }
+
+        const flatRes =  this.#flat_grant_user_user_permission(actor, user, permission, extra);
         // shoot this async
-        this.#linked_grant_user_user_permission(actor, username, permission, extra, meta);
+        this.#linked_grant_user_user_permission(actor, user, permission, extra, meta);
         return flatRes;
 
     }
 
     /**
-    * @param {GrantUserUserPermissionParams} params - Parameters for granting permission.
+    * @param {Actor} actor
+    * @param {User} user
+    * @param {string} permission
+    * @param {object} extra
     * @throws {Error} Throws if the user is not found or if attempting to grant permissions to oneself.
     * @returns {Promise<void>}
     */
-    async #flat_grant_user_user_permission(actor, username, permission, extra = {}, _meta) {
-        permission = await this._rewrite_permission(permission);
-        const user = await get_user({ username });
-        if ( ! user ) {
-            throw APIError.create('user_does_not_exist', null, {
-                username,
-            });
-        }
-
-        // Don't allow granting permissions to yourself
-        if ( user.id === actor.type.user.id ) {
-            throw new Error('cannot grant permissions to yourself');
-        }
-
-        // TODO DS: for now I'm just gonna check that the actor has the perm they wanna give
-        const canManagePerms = await this.check(actor, permission);
-
+    async #flat_grant_user_user_permission(actor, user, permission, extra = {}) {
         // UPSERT permission
-        if ( canManagePerms )
-        {
-            await this.services.get('su').sudo(() =>
-                this.kvService.set({
-                    key: PermissionUtil.join(PERM_KEY_PREFIX, user.id, permission),
-                    value: {
-                        ...extra,
-                        issuer_user_id: actor.type.user.id,
-                        permission,
-                        deleted: false,
-                    },
-                }));
-        }
+        await this.services
+            .get('su')
+            .sudo(() => this.kvService.set({
+                key: PermissionUtil.join(PERM_KEY_PREFIX, user.id, permission),
+                value: {
+                    ...extra,
+                    issuer_user_id: actor.type.user.id,
+                    permission,
+                    deleted: false,
+                },
+            }));
+
     }
 
     /**
-    * @param {GrantUserUserPermissionParams} params - Parameters for granting permission.
+    * @param {Actor} actor
+    * @param {User} user
+    * @param {string} permission
+    * @param {object} extra
+    * @param {object} meta
     * @throws {Error} Throws if the user is not found or if attempting to grant permissions to oneself.
     * @returns {Promise<void>}
     */
-    async #linked_grant_user_user_permission(actor, username, permission, extra = {}, meta) {
-        permission = await this._rewrite_permission(permission);
-        const user = await get_user({ username });
-        if ( ! user ) {
-            throw APIError.create('user_does_not_exist', null, {
-                username,
-            });
-        }
-
-        // Don't allow granting permissions to yourself
-        if ( user.id === actor.type.user.id ) {
-            throw new Error('cannot grant permissions to yourself');
-        }
-
+    async #linked_grant_user_user_permission(actor, user, permission, extra = {}, meta) {
         // UPSERT permission
         await this.db.write('INSERT INTO `user_to_user_permissions` (`holder_user_id`, `issuer_user_id`, `permission`, `extra`) ' +
             `VALUES (?, ?, ?, ?) ${
@@ -770,7 +778,7 @@ class PermissionService extends BaseService {
         ]);
 
         // INSERT audit table
-        await  this.db.write('INSERT INTO `audit_user_to_user_permissions` (' +
+        this.db.write('INSERT INTO `audit_user_to_user_permissions` (' +
             '`holder_user_id`, `holder_user_id_keep`, `issuer_user_id`, `issuer_user_id_keep`, ' +
             '`permission`, `action`, `reason`) ' +
             'VALUES (?, ?, ?, ?, ?, ?, ?)',
@@ -809,6 +817,13 @@ class PermissionService extends BaseService {
             });
         }
 
+        const canManagePerms = await this.canManagePermission(actor, permission);
+        if ( !canManagePerms ){
+            throw APIError.create('permission_denied', null, {
+                permission,
+            });
+        }
+
         await this.db.write('INSERT INTO `user_to_group_permissions` (`user_id`, `group_id`, `permission`, `extra`) ' +
             `VALUES (?, ?, ?, ?) ${
                 this.db.case({
@@ -824,7 +839,7 @@ class PermissionService extends BaseService {
         ]);
 
         // INSERT audit table
-        await this.db.write('INSERT INTO `audit_user_to_group_permissions` (' +
+        this.db.write('INSERT INTO `audit_user_to_group_permissions` (' +
             '`user_id`, `user_id_keep`, `group_id`, `group_id_keep`, ' +
             '`permission`, `action`, `reason`) ' +
             'VALUES (?, ?, ?, ?, ?, ?, ?)',
@@ -870,24 +885,28 @@ class PermissionService extends BaseService {
         permission = await this._rewrite_permission(permission);
 
         const user = await get_user({ username });
-        if ( ! user ) {
-            if ( ! user ) {
+        if ( !user ) {
+            if ( !user ) {
                 throw APIError.create('user_does_not_exist', null, {
                     username,
                 });
             }
         }
 
-        // TODO DS: for now I'm just gonna check that the actor has the perm they wanna take away
-        const canManagePerms = await this.check(actor, permission);
+        const canManagePerms = await this.canManagePermission(actor, permission);
 
-        if ( canManagePerms ) {
-            // DELETE permission
-            await this.services.get('su').sudo(() =>
-                this.kvService.set(PermissionUtil.join(PERM_KEY_PREFIX, user.id, permission), {
-                    deleted: true,
-                }));
+        if ( !canManagePerms ){
+            throw APIError.create('permission_denied', null, {
+                permission,
+            });
         }
+
+        // DELETE permission
+        await this.services.get('su').sudo(() =>
+            this.kvService.set(PermissionUtil.join(PERM_KEY_PREFIX, user.id, permission), {
+                deleted: true,
+            }));
+
     }
     /**
      * @param {RevokeUserUserPermissionParams} params - Parameters for revoking permission
@@ -915,7 +934,7 @@ class PermissionService extends BaseService {
         ]);
 
         // INSERT audit table
-        await this.db.write('INSERT INTO `audit_user_to_user_permissions` (' +
+        this.db.write('INSERT INTO `audit_user_to_user_permissions` (' +
             '`holder_user_id`, `holder_user_id_keep`, `issuer_user_id`, `issuer_user_id_keep`, ' +
             '`permission`, `action`, `reason`) ' +
             'VALUES (?, ?, ?, ?, ?, ?, ?)',
@@ -962,7 +981,7 @@ class PermissionService extends BaseService {
         ]);
 
         // INSERT audit table
-        await this.db.write('INSERT INTO `audit_user_to_group_permissions` (' +
+        this.db.write('INSERT INTO `audit_user_to_group_permissions` (' +
             '`user_id`, `user_id_keep`, `group_id`, `group_id_keep`, ' +
             '`permission`, `action`, `reason`) ' +
             'VALUES (?, ?, ?, ?, ?, ?, ?)',
