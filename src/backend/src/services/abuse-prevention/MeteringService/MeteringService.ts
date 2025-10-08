@@ -1,17 +1,12 @@
+// @ts-ignore
 import type { KVStoreInterface } from "../../../modules/kvstore/KVStoreInterfaceService.js";
+// @ts-ignore
 import { SystemActorType, type Actor } from "../../auth/Actor.js";
+// @ts-ignore
+import type { AlarmService } from "../../../modules/core/AlarmService.js";
+// @ts-ignore
 import type { SUService } from "../../SUService.js";
-
-
-// TODO DS: these should be loaded from config or db eventually
-const USAGE_TYPE_MAPS = {
-    // Map with unit to cost measurements in microcent
-    'kv:read': 63,
-    'kv:write': 125,
-    // TODO DS: add more usage types as needed
-}
-
-
+import { COST_MAPS } from "./costMaps/index.js";
 interface ActorWithType extends Actor {
     type: {
         app: { uid: string }
@@ -49,9 +44,11 @@ export class MeteringAndBillingService {
 
     #kvClientWrapper: KVStoreInterface
     #superUserService: SUService
-    constructor(kvClientWrapper: KVStoreInterface, superUserService: SUService) {
+    #alarmService: AlarmService
+    constructor({ kvClientWrapper, superUserService, alarmService }: { kvClientWrapper: KVStoreInterface, superUserService: SUService, alarmService: AlarmService }) {
         this.#superUserService = superUserService;
         this.#kvClientWrapper = kvClientWrapper;
+        this.#alarmService = alarmService;
     }
 
     #getMonthYearString() {
@@ -61,71 +58,88 @@ export class MeteringAndBillingService {
 
 
     // TODO DS: track daily and hourly usage as well
-    async incrementUsage(actor: ActorWithType, usageType: keyof typeof USAGE_TYPE_MAPS, usageAmount: number, costOverride?: number) {
-
-        if (actor.type instanceof SystemActorType || actor.type?.user?.username === 'system') {
-            // Don't track for now since it will trigger infinite noise;
-            return { total: 0 } as UsageByType;
-        }
-
-        const currentMonth = this.#getMonthYearString();
-
-        return this.#superUserService.sudo(async () => {
-            const totalCost = (costOverride ?? USAGE_TYPE_MAPS[usageType] * usageAmount) || 0; // TODO DS: apply our policy discounts here eventually
-            const appId = actor.type?.app?.uid || GLOBAL_APP_KEY
-            const actorId = actor.type?.user.uuid
-            const pathAndAmountMap = {
-                'total': totalCost,
-                [`${usageType}.units`]: usageAmount,
-                [`${usageType}.cost`]: totalCost,
-                [`${usageType}.count`]: 1,
+    async incrementUsage(actor: ActorWithType, usageType: keyof typeof COST_MAPS, usageAmount: number, costOverride?: number) {
+        try {
+            if (!usageAmount || !usageType || !actor) {
+                // silent fail for now;
+                console.warn("Invalid usage increment parameters", { actor, usageType, usageAmount, costOverride });
+                return { total: 0 } as UsageByType;
             }
 
-            const lastUpdatedKey = `${METRICS_PREFIX}:actor:${actorId}:lastUpdated`;
-            const lastUpdatedPromise = this.#kvClientWrapper.set({
-                key: lastUpdatedKey,
-                value: Date.now(),
-            })
+            if (actor.type instanceof SystemActorType || actor.type?.user?.username === 'system') {
+                // Don't track for now since it will trigger infinite noise;
+                return { total: 0 } as UsageByType;
+            }
 
-            const actorUsageKey = `${METRICS_PREFIX}:actor:${actorId}:${currentMonth}`;
-            const actorUsagesPromise = this.#kvClientWrapper.incr({
-                key: actorUsageKey,
-                pathAndAmountMap,
-            })
+            const currentMonth = this.#getMonthYearString();
 
-            const actorAppUsageKey = `${METRICS_PREFIX}:actor:${actorId}:app:${appId}:${currentMonth}`;
-            this.#kvClientWrapper.incr({
-                key: actorAppUsageKey,
-                pathAndAmountMap,
-            })
-
-            const appUsageKey = `${METRICS_PREFIX}:app:${appId}:${currentMonth}`;
-            this.#kvClientWrapper.incr({
-                key: appUsageKey,
-                pathAndAmountMap,
-            })
-
-            const actorAppTotalsKey = `${METRICS_PREFIX}:actor:${actorId}:apps:${currentMonth}`;
-            this.#kvClientWrapper.incr({
-                key: actorAppTotalsKey,
-                pathAndAmountMap: {
-                    [`${appId}.total`]: totalCost,
-                    [`${appId}.count`]: 1,
-                },
-            })
-            const puterConsumptionKey = `${METRICS_PREFIX}:puter:${currentMonth}`; // global consumption across all users and apps
-            this.#kvClientWrapper.incr({
-                key: puterConsumptionKey,
-                pathAndAmountMap: {
+            return this.#superUserService.sudo(async () => {
+                const totalCost = (costOverride ?? COST_MAPS[usageType] * usageAmount) || 0; // TODO DS: apply our policy discounts here eventually
+                const appId = actor.type?.app?.uid || GLOBAL_APP_KEY
+                const actorId = actor.type?.user.uuid
+                const pathAndAmountMap = {
                     'total': totalCost,
                     [`${usageType}.units`]: usageAmount,
                     [`${usageType}.cost`]: totalCost,
                     [`${usageType}.count`]: 1,
                 }
-            })
 
-            return (await Promise.all([lastUpdatedPromise, actorUsagesPromise]))[1] as UsageByType;
-        })
+                const lastUpdatedKey = `${METRICS_PREFIX}:actor:${actorId}:lastUpdated`;
+                const lastUpdatedPromise = this.#kvClientWrapper.set({
+                    key: lastUpdatedKey,
+                    value: Date.now(),
+                })
+
+                const actorUsageKey = `${METRICS_PREFIX}:actor:${actorId}:${currentMonth}`;
+                const actorUsagesPromise = this.#kvClientWrapper.incr({
+                    key: actorUsageKey,
+                    pathAndAmountMap,
+                })
+
+                const actorAppUsageKey = `${METRICS_PREFIX}:actor:${actorId}:app:${appId}:${currentMonth}`;
+                this.#kvClientWrapper.incr({
+                    key: actorAppUsageKey,
+                    pathAndAmountMap,
+                })
+
+                const appUsageKey = `${METRICS_PREFIX}:app:${appId}:${currentMonth}`;
+                this.#kvClientWrapper.incr({
+                    key: appUsageKey,
+                    pathAndAmountMap,
+                })
+
+                const actorAppTotalsKey = `${METRICS_PREFIX}:actor:${actorId}:apps:${currentMonth}`;
+                this.#kvClientWrapper.incr({
+                    key: actorAppTotalsKey,
+                    pathAndAmountMap: {
+                        [`${appId}.total`]: totalCost,
+                        [`${appId}.count`]: 1,
+                    },
+                })
+                const puterConsumptionKey = `${METRICS_PREFIX}:puter:${currentMonth}`; // global consumption across all users and apps
+                this.#kvClientWrapper.incr({
+                    key: puterConsumptionKey,
+                    pathAndAmountMap: {
+                        'total': totalCost,
+                        [`${usageType}.units`]: usageAmount,
+                        [`${usageType}.cost`]: totalCost,
+                        [`${usageType}.count`]: 1,
+                    }
+                })
+
+                return (await Promise.all([lastUpdatedPromise, actorUsagesPromise]))[1] as UsageByType;
+            })
+        } catch (e) {
+            console.error('Metering: Failed to increment usage for actor', actor, 'usageType', usageType, 'usageAmount', usageAmount, e);
+            this.#alarmService.create('metering-service-error', (e as Error).message, {
+                error: e,
+                actor,
+                usageType,
+                usageAmount,
+                costOverride
+            });
+            return { total: 0 } as UsageByType;
+        }
         // TODO DS: this should increment the cost for the given type of operation, and the total cost for daily, weekly and monthly usage
     }
 
@@ -174,15 +188,7 @@ export class MeteringAndBillingService {
         ]
         return this.#superUserService.sudo(async () => {
             const [usage, addons] = await this.#kvClientWrapper.get({ key: keys }) as [UsageByType | null, PolicyAddOns | null];
-            let totalCost = 0;
-            if (usage) {
-                for (const [usageType, usageData] of Object.entries(usage.thisMonth)) {
-                    if (USAGE_TYPE_MAPS[usageType]) {
-                        totalCost += (USAGE_TYPE_MAPS[usageType] * (usageData.total || 0));
-                    }
-                }
-            }
-            return totalCost;
+            return usage?.total || 0;
         })
     }
 

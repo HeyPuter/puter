@@ -7,12 +7,13 @@ export class DBKVStore {
     #db;
     /** @type {import('../../abuse-prevention/MeteringService/MeteringService').MeteringAndBillingService} */
     #meteringService;
-    global_config = {};
+
+    #global_config = {};
     // TODO DS: make table name configurable
-    constructor(sqlDb, meteringService, global_config) {
-        this.#db = sqlDb;
-        this.#meteringService = meteringService;
-        this.global_config = global_config;
+    constructor({ sqlClient, meteringAndBillingService, globalConfig }) {
+        this.#db = sqlClient;
+        this.#meteringService = meteringAndBillingService;
+        this.#global_config = globalConfig;
     }
     async get({ key }) {
         const actor = Context.get('actor');
@@ -98,7 +99,7 @@ export class DBKVStore {
     }
     async set({ key, value, expireAt }) {
         const actor = Context.get('actor');
-        const config = this.global_config;
+        const config = this.#global_config;
 
         // Validate the key
         // get() doesn't String() the key but it only passes it to
