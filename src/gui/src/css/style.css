@@ -5256,7 +5256,7 @@ fieldset[name=number-code] {
 }
 
 /************************************************************
- * AI Side Panel
+ * AI Button
  ************************************************************/
 
 .btn-send-ai{
@@ -5270,7 +5270,7 @@ fieldset[name=number-code] {
     width: 30px;
     height: 30px;
     background-color: #ffffff;
-    z-index: 5;
+    z-index: 2;
     width: 15px;
     height: 15px;
     padding: 5px;
