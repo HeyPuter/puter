@@ -1,5 +1,5 @@
 // @ts-ignore
-import type { KVStoreInterface } from "../../../modules/kvstore/KVStoreInterfaceService.js";
+import type KVStoreInterface from "../../../modules/kvstore/KVStoreInterfaceService.js";
 // @ts-ignore
 import { SystemActorType, type Actor } from "../../auth/Actor.js";
 // @ts-ignore
@@ -102,19 +102,19 @@ export class MeteringAndBillingService {
                 this.#kvClientWrapper.incr({
                     key: puterConsumptionKey,
                     pathAndAmountMap
-                })
+                }).catch((e: Error) => { console.warn(`Failed to increment aux usage data 'puterConsumptionKey' with error: `, e) });
 
                 const actorAppUsageKey = `${METRICS_PREFIX}:actor:${actorId}:app:${appId}:${currentMonth}`;
                 this.#kvClientWrapper.incr({
                     key: actorAppUsageKey,
                     pathAndAmountMap,
-                })
+                }).catch((e: Error) => { console.warn(`Failed to increment aux usage data 'actorAppUsageKey' with error: `, e) });
 
                 const appUsageKey = `${METRICS_PREFIX}:app:${appId}:${currentMonth}`;
                 this.#kvClientWrapper.incr({
                     key: appUsageKey,
                     pathAndAmountMap,
-                })
+                }).catch((e: Error) => { console.warn(`Failed to increment aux usage data 'appUsageKey' with error: `, e) });
 
                 const actorAppTotalsKey = `${METRICS_PREFIX}:actor:${actorId}:apps:${currentMonth}`;
                 this.#kvClientWrapper.incr({
@@ -123,7 +123,7 @@ export class MeteringAndBillingService {
                         [`${appId}.total`]: totalCost,
                         [`${appId}.count`]: 1,
                     },
-                })
+                }).catch((e: Error) => { console.warn(`Failed to increment aux usage data 'actorAppTotalsKey' with error: `, e) });
 
 
                 return (await Promise.all([lastUpdatedPromise, actorUsagesPromise]))[1] as UsageByType;
