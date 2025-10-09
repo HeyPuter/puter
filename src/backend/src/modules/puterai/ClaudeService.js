@@ -93,6 +93,7 @@ class ClaudeService extends BaseService {
             service_name: this.service_name,
             alias: true,
         });
+        this.#meteringAndBillingService = this.services.get('meteringService').meteringAndBillingService; // TODO DS: move to proper extensions
     }
 
     /**
