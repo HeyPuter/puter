@@ -63,7 +63,7 @@ module.exports = {
         HostOSModule,
         CoreModule,
         WebModule,
-        TemplateModule,
+        // TemplateModule,
         AppsModule,
         CaptchaModule,
         EntityStoreModule,

@@ -176,7 +176,14 @@ class DevWatcherService extends BaseService {
 
         const webpacker = webpack(webpackConfig);
         
+        let errorAfterLastEnd = false;
+        let firstEvent = true;
         webpacker.watch({}, (err, stats) => {
+            let hideSuccess = false;
+            if ( firstEvent ) {
+                firstEvent = false;
+                hideSuccess = true;
+            }
             if (err || stats.hasErrors()) {
                 this.log.error(`error information: ${entry.directory} using Webpack`, {
                     err,
@@ -187,7 +194,9 @@ class DevWatcherService extends BaseService {
                 // Normally success messages aren't important, but sometimes it takes
                 // a little bit for the bundle to update so a developer probably would
                 // like to have a visual indication in the console when it happens.
-                this.log.info(`✅ updated ${entry.directory} using Webpack`);
+                if ( ! hideSuccess ) {
+                    this.log.info(`✅ updated ${entry.directory} using Webpack`);
+                }
             }
         });
     }
@@ -244,13 +253,21 @@ class DevWatcherService extends BaseService {
 
         const watcher = rollupModule.watch(rollupConfig);
         let errorAfterLastEnd = false;
+        let firstEvent = true;
         watcher.on('event', (event) => {
             if ( event.code === 'END' ) {
+                let hideSuccess = false;
+                if ( firstEvent ) {
+                    firstEvent = false;
+                    hideSuccess = true;
+                }
                 if ( errorAfterLastEnd ) {
                     errorAfterLastEnd = false;
                     return;
                 }
-                this.log.info(`✅ updated ${entry.directory} using Rollup`);
+                if ( ! hideSuccess ) {
+                    this.log.info(`✅ updated ${entry.directory} using Rollup`);
+                }
             } else if ( event.code === 'ERROR' ) {
                 this.log.error(`error information: ${entry.directory} using Rollup`, {
                     event,
