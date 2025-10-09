@@ -105,6 +105,10 @@ export class OpenAICompletionService {
         return model_names;
     }
 
+    get_default_model(){
+        return this.#defaultModel;
+    }
+
     async complete({ messages, stream, model, tools, max_tokens, temperature }) {
         return await this.#complete(messages, {
             model: model,
