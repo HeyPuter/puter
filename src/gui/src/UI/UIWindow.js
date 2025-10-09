@@ -240,6 +240,9 @@ async function UIWindow(options) {
         options.is_visible = false;
         options.position = 'absolute !important';
         options.left = 'auto !important';
+
+        // panel is not visible by default
+        options.is_visible = false;
     }
 
     h += `<div class="window window-active 
@@ -3973,5 +3976,53 @@ async function saveSidebarOrder(order) {
         console.error('Error saving sidebar order:', err);
     }
 }
+
+// Function to update maximized window positioning based on taskbar position
+window.update_maximized_window_for_taskbar = function(el_window) {
+    const position = window.taskbar_position || 'bottom';
+    
+    // Handle fullpage mode differently
+    if (window.is_fullpage_mode) {
+        $(el_window).css({
+            'top': window.toolbar_height + 'px',
+            'left': '0',
+            'width': '100%',
+            'height': `calc(100% - ${window.toolbar_height}px)`,
+        });
+        return;
+    }
+    
+    if (position === 'bottom') {
+        let height = window.innerHeight - window.taskbar_height - window.toolbar_height - 6;
+        let width = '100%';
+
+        // any open panels?
+        if($('.window[data-is_panel="1"][data-is_visible="1"]').length > 0){
+            width = window.innerWidth - 400 - 2;
+        }
+
+        $(el_window).css({
+            'top': window.toolbar_height + 'px',
+            'left': '0',
+            'width': width,
+            'height': height + 'px',
+        });
+    } else if (position === 'left') {
+        $(el_window).css({
+            'top': window.toolbar_height + 'px',
+            'left': window.taskbar_height + 1 + 'px',
+            'width': `calc(100% - ${window.taskbar_height + 1}px)`,
+            'height': `calc(100% - ${window.toolbar_height}px)`,
+        });
+    } else if (position === 'right') {
+        $(el_window).css({
+            'top': window.toolbar_height + 'px',
+            'left': '0',
+            'width': `calc(100% - ${window.taskbar_height + 1}px)`,
+            'height': `calc(100% - ${window.toolbar_height}px)`,
+        });
+    }
+};
+
 
 export default UIWindow;

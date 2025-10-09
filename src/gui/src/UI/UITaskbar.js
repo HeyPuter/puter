@@ -593,45 +593,6 @@ window.update_desktop_dimensions_for_taskbar = function() {
     }
 };
 
-// Function to update maximized window positioning based on taskbar position
-window.update_maximized_window_for_taskbar = function(el_window) {
-    const position = window.taskbar_position || 'bottom';
-    
-    // Handle fullpage mode differently
-    if (window.is_fullpage_mode) {
-        $(el_window).css({
-            'top': window.toolbar_height + 'px',
-            'left': '0',
-            'width': '100%',
-            'height': `calc(100% - ${window.toolbar_height}px)`,
-        });
-        return;
-    }
-    
-    if (position === 'bottom') {
-        $(el_window).css({
-            'top': window.toolbar_height + 'px',
-            'left': '0',
-            'width': '100%',
-            'height': `calc(100% - ${window.taskbar_height + window.toolbar_height + 6}px)`,
-        });
-    } else if (position === 'left') {
-        $(el_window).css({
-            'top': window.toolbar_height + 'px',
-            'left': window.taskbar_height + 1 + 'px',
-            'width': `calc(100% - ${window.taskbar_height + 1}px)`,
-            'height': `calc(100% - ${window.toolbar_height}px)`,
-        });
-    } else if (position === 'right') {
-        $(el_window).css({
-            'top': window.toolbar_height + 'px',
-            'left': '0',
-            'width': `calc(100% - ${window.taskbar_height + 1}px)`,
-            'height': `calc(100% - ${window.toolbar_height}px)`,
-        });
-    }
-};
-
 //-------------------------------------------
 // Dynamic taskbar item resizing for left/right positions
 //-------------------------------------------
