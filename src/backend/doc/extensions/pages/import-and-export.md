@@ -15,7 +15,7 @@ To import and export in Puter extensions, we use `extension.import()` and `exten
 
 // Just like "module.exports", but for extensions!
 extension.exports = {
-    test_value: 'Hello, extensions!,
+    test_value: 'Hello, extensions!',
 };
 ```
 

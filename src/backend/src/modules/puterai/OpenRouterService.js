@@ -22,6 +22,7 @@ const APIError = require("../../api/APIError");
 const BaseService = require("../../services/BaseService");
 const OpenAIUtil = require("./lib/OpenAIUtil");
 const { Context } = require("../../util/context");
+const { default: ml } = require("../../../../gui/src/i18n/translations/ml");
 
 /**
 * XAIService class - Provides integration with X.AI's API for chat completions
@@ -143,7 +144,7 @@ class OpenRouterService extends BaseService {
                 return OpenAIUtil.handle_completion_output({
                     usage_calculator: async ({ usage }) => {
                         const trackedUsage = OpenAIUtil.extractMeteredUsage(usage);
-                        this.meteringAndBillingService.utilRecordUsageObject(trackedUsage, actor, `openrouter:${modelDetails.id}`);
+                        this.meteringAndBillingService.utilRecordUsageObject(trackedUsage, actor, modelDetails.id);
                         const legacyCostCalculator = OpenAIUtil.create_usage_calculator({
                             model_details: modelDetails,
                         });
