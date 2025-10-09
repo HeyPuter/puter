@@ -38,6 +38,11 @@ const GLOBAL_APP_KEY = 'os-global'; // TODO DS: this should be loaded from confi
 const METRICS_PREFIX = 'metering';
 const POLICY_PREFIX = 'policy';
 const PERIOD_ESCAPE = '_dot_'; // to replace dots in usage types for kvstore paths
+
+type AllPrefixes<T extends string, P extends string = ''> =
+    T extends `${infer C}${infer R}`
+    ? `${P}${C}` | AllPrefixes<R, `${P}${C}`>
+    : P;
 /**
  * Handles usage metering and supports stubbs for billing methods for current scoped actor
  */
@@ -52,6 +57,12 @@ export class MeteringAndBillingService {
         this.#alarmService = alarmService;
     }
 
+    utilRecordUsageObject(trackedUsageObject: Record<string, number>, actor: Actor, modelPrefix: string) {
+        Object.entries(trackedUsageObject).forEach(([usageKind, amount]) => {
+            this.incrementUsage(actor, `${modelPrefix}:${usageKind}`, amount);
+        });
+    }
+
     #getMonthYearString() {
         const now = new Date();
         return `${now.getUTCFullYear()}-${String(now.getUTCMonth() + 1).padStart(2, '0')}`;
@@ -59,7 +70,7 @@ export class MeteringAndBillingService {
 
 
     // TODO DS: track daily and hourly usage as well
-    async incrementUsage(actor: ActorWithType, usageType: keyof typeof COST_MAPS, usageAmount: number, costOverride?: number) {
+    async incrementUsage(actor: ActorWithType, usageType: (keyof typeof COST_MAPS) | (string & {}), usageAmount: number, costOverride?: number) {
         try {
             if (!usageAmount || !usageType || !actor) {
                 // silent fail for now;
@@ -75,7 +86,7 @@ export class MeteringAndBillingService {
             const currentMonth = this.#getMonthYearString();
 
             return this.#superUserService.sudo(async () => {
-                const totalCost = (costOverride ?? COST_MAPS[usageType] * usageAmount) || 0; // TODO DS: apply our policy discounts here eventually
+                const totalCost = (costOverride ?? (COST_MAPS[usageType as keyof typeof COST_MAPS] || 0) * usageAmount) || 0; // TODO DS: apply our policy discounts here eventually
                 usageType = usageType.replace(/\./g, PERIOD_ESCAPE) as keyof typeof COST_MAPS; // replace dots with underscores for kvstore paths, TODO DS: map this back when reading
                 const appId = actor.type?.app?.uid || GLOBAL_APP_KEY
                 const actorId = actor.type?.user.uuid
