@@ -57,9 +57,7 @@ def get_token():
 
 
 def init_server_config():
-    server_process = cxc_toolkit.exec.run_background(
-        "npm start"
-    )
+    server_process = cxc_toolkit.exec.run_background("npm start")
     # wait 10s for the server to start
     time.sleep(10)
     server_process.terminate()
@@ -160,9 +158,7 @@ def run():
     # =========================================================================
     # config client
     # =========================================================================
-    server_process = cxc_toolkit.exec.run_background(
-        "npm start"
-    )
+    cxc_toolkit.exec.run_background("npm start")
     # wait 10s for the server to start
     time.sleep(10)
 
@@ -172,61 +168,9 @@ def run():
     # =========================================================================
     # run the test
     # =========================================================================
-    test_start_monotonic = time.time()
-    test_start_iso = datetime.datetime.now().isoformat(timespec="seconds")
-
-    output_bytes, exit_code = cxc_toolkit.exec.run_command(
+    cxc_toolkit.exec.run_command(
         "node ./tools/api-tester/apitest.js --unit --stop-on-failure"
     )
-    test_duration_seconds = time.time() - test_start_monotonic
-
-    # =========================================================================
-    # process the result
-    # =========================================================================
-    # Extract results between the CI splitters printed by apitest.js
-    extracted_result = None
-    try:
-        output_text = output_bytes.decode("utf-8", errors="ignore")
-        lines = output_text.splitlines()
-
-        begin_phrase = "nightly build results begin"
-        end_phrase = "nightly build results end"
-
-        begin_line_index = next(
-            (i for i, ln in enumerate(lines) if begin_phrase in ln), -1
-        )
-        end_line_index = (
-            next(
-                (
-                    i
-                    for i in range(begin_line_index + 1, len(lines))
-                    if end_phrase in lines[i]
-                ),
-                -1,
-            )
-            if begin_line_index != -1
-            else -1
-        )
-
-        if (
-            begin_line_index != -1
-            and end_line_index != -1
-            and end_line_index > begin_line_index
-        ):
-            extracted_lines = lines[begin_line_index + 1 : end_line_index]
-            extracted_result = "\n".join(extracted_lines).strip("\n")
-        else:
-            print(
-                "[warn] Failed to locate nightly build results markers in output",
-                file=sys.stderr,
-            )
-    except Exception as e:
-        print(f"[warn] Exception while extracting results: {e}", file=sys.stderr)
-
-
-    print(f"Server PID: {server_process.pid}")
-
-    server_process.terminate()
 
 
 if __name__ == "__main__":
