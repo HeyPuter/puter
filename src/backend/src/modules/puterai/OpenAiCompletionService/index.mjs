@@ -40,6 +40,10 @@ export class OpenAICompletionServiceWrapper extends BaseService {
         return await this.openAICompletionService.checkModeration(text);
     }
 
+    get_default_model() {
+        return  this.openAICompletionService.get_default_model();
+    }
+
     static IMPLEMENTS = {
         ['puter-chat-completion']: Object.getOwnPropertyNames(OpenAICompletionService.prototype)
             .filter(n => n !== 'constructor')
