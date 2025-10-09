@@ -80,6 +80,14 @@ const create_usage_calculator = ({ model_details }) => {
     };
 };
 
+const extractMeteredUsage = (usage) => {
+    return {
+        prompt_tokens: usage.prompt_tokens ?? 0,
+        completion_tokens: usage.completion_tokens ?? 0,
+        cached_tokens: usage.prompt_tokens_details?.cached_tokens ?? 0,
+    };
+};
+
 const create_chat_stream_handler = ({
     deviations,
     completion,
@@ -237,4 +245,5 @@ module.exports = {
     create_usage_calculator,
     create_chat_stream_handler,
     handle_completion_output,
+    extractMeteredUsage,
 };

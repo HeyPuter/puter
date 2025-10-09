@@ -27,30 +27,6 @@ const { LLRead } = require("../../filesystem/ll_operations/ll_read");
 const { Context } = require("../../util/context");
 const { TeePromise } = require('@heyputer/putility').libs.promise;
 
-// TODO DS: get this inside the class as a private method once the methods aren't exported directly
-/** @type {(usage: import("@anthropic-ai/sdk/resources/messages.js").Usage | import("@anthropic-ai/sdk/resources/beta/messages/messages.js").BetaUsage) => {}}) */
-const usageFormatterUtil = (usage) => {
-    return {
-        input_tokens: usage?.input_tokens || 0,
-        ephemeral_5m_input_tokens: usage?.cache_creation?.ephemeral_5m_input_tokens || usage.cache_creation_input_tokens || 0, // this is because they're api is a bit inconsistent
-        ephemeral_1h_input_tokens: usage?.cache_creation?.ephemeral_1h_input_tokens || 0,
-        cache_read_input_tokens: usage?.cache_read_input_tokens || 0,
-        output_tokens: usage?.output_tokens || 0,
-    };
-};
-
-// TODO DS: get this inside the class as a private method once the methods aren't exported directly
-const billForUsage = (actor,
-    model,
-    usage,
-    /** @type {import('../../services/abuse-prevention/MeteringService/MeteringService').MeteringAndBillingService} */ meteringAndBillingService) => {
-    Object.entries(usage).forEach(([usageKind, amount]) => {
-        meteringAndBillingService.incrementUsage(actor,
-                        `claude:${model || this.get_default_model()}:${usageKind}`,
-                        amount);
-    });
-};
-
 /**
 * ClaudeService class extends BaseService to provide integration with Anthropic's Claude AI models.
 * Implements the puter-chat-completion interface for handling AI chat interactions.
@@ -113,7 +89,7 @@ class ClaudeService extends BaseService {
              * @returns Promise<Array<Object>> Array of model details
              */
             async models() {
-                return await this.models_();
+                return this.models_();
             },
 
             /**
@@ -123,7 +99,7 @@ class ClaudeService extends BaseService {
             * flattening them into a single array of strings that can be used for model selection
             */
             async list() {
-                const models = await this.models_();
+                const models = this.models_();
                 const model_names = [];
                 for ( const model of models ) {
                     model_names.push(model.id);
@@ -279,7 +255,7 @@ class ClaudeService extends BaseService {
                         for await ( const event of completion ) {
 
                             const usageObject = (event?.usage ?? event?.message?.usage ?? {});
-                            const meteredData = usageFormatterUtil (usageObject);
+                            const meteredData = this.usageFormatterUtil(usageObject);
                             Object.keys(meteredData).forEach((key) => {
                                 if ( ! usageSum[key] ) usageSum[key] = 0;
                                 usageSum[key] += meteredData[key];
@@ -329,7 +305,7 @@ class ClaudeService extends BaseService {
                         }
                         chatStream.end();
 
-                        billForUsage(actor, model || this.get_default_model(), usageSum, this.#meteringAndBillingService);
+                        this.billForUsage(actor, model || this.get_default_model(), usageSum);
                         // TODO DS: Legacy cost metering, remove when new is ready
                         usage_promise.resolve({
                             input_tokens: usageSum.input_tokens,
@@ -348,7 +324,7 @@ class ClaudeService extends BaseService {
                 const msg = await anthropic.messages.create(sdk_params);
                 await cleanup_files();
 
-                billForUsage(actor, model || this.get_default_model(), usageFormatterUtil(msg.usage), this.#meteringAndBillingService);
+                this.billForUsage(actor, model || this.get_default_model(), this.usageFormatterUtil(msg.usage));
 
                 // TODO DS: cleanup old usage tracking
                 return {
@@ -360,9 +336,26 @@ class ClaudeService extends BaseService {
         },
     };
 
+    // TODO DS: get this inside the class as a private method once the methods aren't exported directly
+    /** @type {(usage: import("@anthropic-ai/sdk/resources/messages.js").Usage | import("@anthropic-ai/sdk/resources/beta/messages/messages.js").BetaUsage) => {}}) */
+    usageFormatterUtil(usage) {
+        return {
+            input_tokens: usage?.input_tokens || 0,
+            ephemeral_5m_input_tokens: usage?.cache_creation?.ephemeral_5m_input_tokens || usage.cache_creation_input_tokens || 0, // this is because they're api is a bit inconsistent
+            ephemeral_1h_input_tokens: usage?.cache_creation?.ephemeral_1h_input_tokens || 0,
+            cache_read_input_tokens: usage?.cache_read_input_tokens || 0,
+            output_tokens: usage?.output_tokens || 0,
+        };
+    };
+
+    // TODO DS: get this inside the class as a private method once the methods aren't exported directly
+    billForUsage(actor, model, usage) {
+        this.#meteringAndBillingService.utilRecordUsageObject(usage, actor, `claude:${this.models_().find(m => [m.id, ...(m.aliases || [])].includes(model)).id}`);
+    };
+
     /**
     * Retrieves available Claude AI models and their specifications
-    * @returns {Promise<Array>} Array of model objects containing:
+    * @returns Array of model objects containing:
     *   - id: Model identifier
     *   - name: Display name
     *   - aliases: Alternative names for the model
@@ -372,7 +365,7 @@ class ClaudeService extends BaseService {
     *   - max_output: Maximum output tokens
     *   - training_cutoff: Training data cutoff date
     */
-    async models_() {
+    models_() {
         return [
             {
                 id: 'claude-sonnet-4-5-20250929',

@@ -48,7 +48,7 @@ export class OpenAICompletionService {
 
     #models;
 
-    /** @type {import('../../../services/abuse-prevention/MeteringService/index.mjs').MeteringAndBillingServiceWrapper} */
+    /** @type {import('../../../services/abuse-prevention/MeteringService/MeteringService').MeteringAndBillingService} */
     #meteringAndBillingService;
 
     constructor({ serviceName, config, globalConfig, aiChatService, meteringAndBillingService, models = OPEN_AI_MODELS, defaultModel = 'gpt-4.1-nano' }) {
@@ -270,9 +270,8 @@ export class OpenAICompletionService {
                     completion_tokens: usage.completion_tokens ?? 0,
                     cached_tokens: usage.prompt_tokens_details?.cached_tokens ?? 0,
                 };
-                Object.entries(trackedUsage).forEach(([usageKind, amount]) => {
-                    this.#meteringAndBillingService.incrementUsage(actor, `openai:${modelDetails.id}:${usageKind}`, amount);
-                });
+
+                this.#meteringAndBillingService.utilRecordUsageObject(trackedUsage, actor, `openai:${modelDetails.id}`);
                 const legacyCostCalculator = OpenAIUtil.create_usage_calculator({
                     model_details: modelDetails,
                 });
