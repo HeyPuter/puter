@@ -85,7 +85,7 @@ This key will persist for 20 minutes, even if the server restarts.
 ```javascript
 kv.expire({
     key: 'some-key',
-    ttl: 1000 * 60 * 20, // 1 minute
+    ttl: 1000 * 60 * 20, // 20 minutes
 });
 ```
 

@@ -569,7 +569,7 @@ class Kernel extends AdvancedBase {
         };
         const data_json = JSON.stringify(data);
         
-        console.log('WRITING TO', path_.join(mod_path, 'package.json'));
+        this.bootLogger.debug('WRITING TO: ' + path_.join(mod_path, 'package.json'));
         
         await fs.promises.writeFile(path_.join(mod_path, 'package.json'), data_json);
         return data;

@@ -7,12 +7,13 @@ export class DBKVStore {
     #db;
     /** @type {import('../../abuse-prevention/MeteringService/MeteringService').MeteringAndBillingService} */
     #meteringService;
-    global_config = {};
+
+    #global_config = {};
     // TODO DS: make table name configurable
-    constructor(sqlDb, meteringService, global_config) {
-        this.#db = sqlDb;
-        this.#meteringService = meteringService;
-        this.global_config = global_config;
+    constructor({ sqlClient, meteringAndBillingService, globalConfig }) {
+        this.#db = sqlClient;
+        this.#meteringService = meteringAndBillingService;
+        this.#global_config = globalConfig;
     }
     async get({ key }) {
         const actor = Context.get('actor');
@@ -98,7 +99,7 @@ export class DBKVStore {
     }
     async set({ key, value, expireAt }) {
         const actor = Context.get('actor');
-        const config = this.global_config;
+        const config = this.#global_config;
 
         // Validate the key
         // get() doesn't String() the key but it only passes it to
@@ -284,6 +285,7 @@ export class DBKVStore {
         for ( const [path, amount] of Object.entries(pathAndAmountMap) ){
             const pathParts = path.split('.');
             let obj = currVal;
+            if ( obj === null )  continue;
             for ( let i = 0; i < pathParts.length - 1; i++ ){
                 const part = pathParts[i];
                 if ( !obj[part] ){
@@ -294,6 +296,7 @@ export class DBKVStore {
                 }
                 obj = obj[part];
             }
+            if ( obj === null )  continue;
             const lastPart = pathParts[pathParts.length - 1];
             if ( !obj[lastPart] ){
                 obj[lastPart] = 0;

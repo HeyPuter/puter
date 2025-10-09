@@ -6,9 +6,11 @@ export class DBKVServiceWrapper extends BaseService {
     kvStore = undefined;
     _init() {
         /** @type {DBKVStore} */
-        this.kvStore = new DBKVStore(this.services.get('database').get(DB_READ, 'kvstore'),
-                        this.services.get('meteringService').as('meteringService'),
-                        this.global_config);
+        this.kvStore = new DBKVStore({
+            sqlClient: this.services.get('database').get(DB_READ, 'kvstore'),
+            meteringAndBillingService: this.services.get('meteringService').meteringAndBillingService,
+            globalConfig: this.global_config,
+        });
     }
     static IMPLEMENTS = {
         ['puter-kvstore']: Object.getOwnPropertyNames(DBKVStore.prototype)

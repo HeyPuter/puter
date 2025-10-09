@@ -4,7 +4,18 @@
  * so it made sense to defy them here as well.
  */
 
+/**
+ * Utility class for handling Google Gemini API message transformations and streaming.
+ */
 module.exports = class GeminiSquareHole {
+    /**
+     * Transforms messages from standard format to Gemini API format.
+     * Converts 'content' to 'parts', 'assistant' role to 'model', and transforms
+     * tool_use/tool_result/text parts into Gemini's expected structure.
+     * 
+     * @param {Array} messages - Array of message objects to transform
+     * @returns {Promise<Array>} Transformed messages compatible with Gemini API
+     */
     static process_input_messages = async (messages) => {
         messages = messages.slice();
 
@@ -48,6 +59,13 @@ module.exports = class GeminiSquareHole {
         return messages;
     }
 
+    /**
+     * Creates a function that calculates token usage and associated costs from Gemini API response metadata.
+     * 
+     * @param {Object} params - Configuration object
+     * @param {Object} params.model_details - Model details including id and cost structure
+     * @returns {Function} Function that takes usageMetadata and returns an array of token usage objects with costs
+     */
     static create_usage_calculator = ({ model_details }) => {
         return ({ usageMetadata }) => {
             const tokens = [];
@@ -70,6 +88,16 @@ module.exports = class GeminiSquareHole {
         };
     };
 
+    /**
+     * Creates a handler function for processing Gemini API streaming chat responses.
+     * The handler processes chunks from the stream, managing text and tool call content blocks,
+     * and resolves usage metadata when streaming completes.
+     * 
+     * @param {Object} params - Configuration object
+     * @param {Object} params.stream - Gemini GenerateContentStreamResult stream
+     * @param {Object} params.usage_promise - Promise to resolve with final usage metadata
+     * @returns {Function} Async function that processes the chat stream and manages content blocks
+     */
     static create_chat_stream_handler = ({
         stream, // GenerateContentStreamResult:stream
         usage_promise,

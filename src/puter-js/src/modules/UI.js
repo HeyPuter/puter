@@ -930,6 +930,18 @@ class UI extends EventListener {
         })
     }
 
+    showWindow = function() {
+        this.#postMessageWithObject('showWindow');
+    }
+
+    hideWindow = function() {
+        this.#postMessageWithObject('hideWindow');
+    }
+
+    toggleWindow = function() {
+        this.#postMessageWithObject('toggleWindow');
+    }
+
     setMenubar = function(spec) {
         this.#postMessageWithObject('setMenubar', spec);
     }

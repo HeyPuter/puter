@@ -43,7 +43,9 @@ interface Extension extends RouterMethods {
 declare global {
   // Declare the extension variable
   const extension: Extension;
-  const config: { [k: string | number | symbol]: unknown };
+  const config: Record<string | number | symbol, unknown>;
+  const global_config: Record<string | number | symbol, unknown>;
 }
 
-export {};
+export { };
+

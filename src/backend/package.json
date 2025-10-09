@@ -71,6 +71,9 @@
     "recursive-readdir": "^2.2.3",
     "response-time": "^2.3.2",
     "seedrandom": "^3.0.5",
+    "sharp": "^0.34.3",
+    "sharp-bmp": "^0.1.5",
+    "sharp-ico": "^0.1.5",
     "socket.io": "^4.6.2",
     "socket.io-client": "^4.6.2",
     "ssh2": "^1.13.0",
@@ -87,10 +90,7 @@
     "validator": "^13.9.0",
     "winston": "^3.9.0",
     "winston-daily-rotate-file": "^4.7.1",
-    "yargs": "^17.7.2",
-    "sharp": "^0.34.3",
-    "sharp-bmp": "^0.1.5",
-    "sharp-ico": "^0.1.5"
+    "yargs": "^17.7.2"
   },
   "devDependencies": {
     "@types/node": "^20.5.3",
@@ -99,7 +99,7 @@
     "nodemon": "^3.1.0",
     "nyc": "^15.1.0",
     "sinon": "^15.2.0",
-    "typescript": "^5.1.6",
+    "typescript": "^5.9.3",
     "vitest": "^3.2.4"
   },
   "author": "Puter Technologies Inc.",

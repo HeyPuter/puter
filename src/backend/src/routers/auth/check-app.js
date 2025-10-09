@@ -20,7 +20,7 @@ const APIError = require("../../api/APIError");
 const eggspress = require("../../api/eggspress");
 const { get_app } = require("../../helpers");
 const { UserActorType, Actor, AppUnderUserActorType } = require("../../services/auth/Actor");
-const { PermissionUtil } = require("../../services/auth/PermissionUtils.mjs");
+const { PermissionUtil } = require("../../services/auth/permissionUtils.mjs");
 const { Context } = require("../../util/context");
 
 module.exports = eggspress('/auth/check-app', {

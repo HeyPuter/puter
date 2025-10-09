@@ -1,12 +1,11 @@
 const BaseService = require("../../services/BaseService");
 const { GoogleGenerativeAI } = require('@google/generative-ai');
 const GeminiSquareHole = require("./lib/GeminiSquareHole");
-const { TypedValue } = require("../../services/drivers/meta/Runtime");
 const putility = require("@heyputer/putility");
 const FunctionCalling = require("./lib/FunctionCalling");
 
 class GeminiService extends BaseService {
-    async _init () {
+    async _init() {
         const svc_aiChat = this.services.get('ai-chat');
         svc_aiChat.register_provider({
             service_name: this.service_name,
@@ -16,10 +15,10 @@ class GeminiService extends BaseService {
 
     static IMPLEMENTS = {
         ['puter-chat-completion']: {
-            async models () {
+            async models() {
                 return await this.models_();
             },
-            async list () {
+            async list() {
                 const models = await this.models_();
                 const model_names = [];
                 for ( const model of models ) {
@@ -31,7 +30,7 @@ class GeminiService extends BaseService {
                 return model_names;
             },
 
-            async complete ({ messages, stream, model, tools, max_tokens, temperature }) {
+            async complete({ messages, stream, model, tools, max_tokens, temperature }) {
                 tools = FunctionCalling.make_gemini_tools(tools);
 
                 const genAI = new GoogleGenerativeAI(this.config.apiKey);
@@ -41,33 +40,31 @@ class GeminiService extends BaseService {
                     generationConfig: {
                         temperature: temperature,                   // Set temperature (0.0 to 1.0). Defaults to 0.7
                         maxOutputTokens: max_tokens,       // Note: it's maxOutputTokens, not max_tokens
-                      }
+                    },
                 });
 
                 messages = await GeminiSquareHole.process_input_messages(messages);
 
                 // History is separate, so the last message gets special treatment.
                 const last_message = messages.pop();
-                const last_message_parts = last_message.parts.map(
-                    part => typeof part === 'string' ? part :
-                            typeof part.text === 'string' ? part.text :
-                            part
-                );
+                const last_message_parts = last_message.parts.map(part => typeof part === 'string' ? part :
+                    typeof part.text === 'string' ? part.text :
+                        part);
 
                 const chat = genModel.startChat({
                     history: messages,
                 });
-                
+
                 const usage_calculator = GeminiSquareHole.create_usage_calculator({
                     model_details: (await this.models_()).find(m => m.id === model),
                 });
-                    
+
                 if ( stream ) {
-                    const genResult = await chat.sendMessageStream(last_message_parts)
+                    const genResult = await chat.sendMessageStream(last_message_parts);
                     const stream = genResult.stream;
 
                     const usage_promise = new putility.libs.promise.TeePromise();
-                    return new TypedValue({ $: 'ai-chat-intermediate' }, {
+                    return {
                         stream: true,
                         init_chat_stream:
                             GeminiSquareHole.create_chat_stream_handler({
@@ -76,9 +73,9 @@ class GeminiService extends BaseService {
                         usage_promise: usage_promise.then(usageMetadata => {
                             return usage_calculator({ usageMetadata });
                         }),
-                    })
+                    };
                 } else {
-                    const genResult = await chat.sendMessage(last_message_parts)
+                    const genResult = await chat.sendMessage(last_message_parts);
 
                     const message = genResult.response.candidates[0];
                     message.content = message.content.parts;
@@ -88,11 +85,11 @@ class GeminiService extends BaseService {
                     result.usage = usage_calculator(genResult.response);
                     return result;
                 }
-            }
-        }
-    }
+            },
+        },
+    };
 
-    async models_ () {
+    async models_() {
         return [
             {
                 id: 'gemini-1.5-flash',

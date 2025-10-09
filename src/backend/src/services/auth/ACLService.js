@@ -26,7 +26,8 @@ const { Context } = require('../../util/context');
 const { Endpoint } = require('../../util/expressutil');
 const BaseService = require('../BaseService');
 const { AppUnderUserActorType, UserActorType, Actor, SystemActorType, AccessTokenActorType } = require('./Actor');
-const { PermissionUtil } = require('./PermissionUtils.mjs');
+const { MANAGE_PERM_PREFIX } = require('./permissionConts.mjs');
+const { PermissionUtil } = require('./permissionUtils.mjs');
 
 /**
 * ACLService class handles Access Control List functionality for the Puter filesystem.
@@ -72,7 +73,7 @@ class ACLService extends BaseService {
         *
         * @param {Actor} actor - The actor requesting permission
         * @param {FSNode} resource - The filesystem resource to check permissions for
-        * @param {('see'| 'list'| 'read'| 'write')} mode - The permission mode to check ('see', 'list', 'read', 'write')
+        * @param {('see'| 'list'| 'read'| 'write' | 'manage')} mode - The permission mode to check ('see', 'list', 'read', 'write', 'manage')
         * @returns {Promise<boolean>} True if actor has permission, false otherwise
         */
         return await Context.get().sub({ logdent: ld }).arun(async () => {
@@ -227,11 +228,13 @@ class ACLService extends BaseService {
             });
         }
 
-        let uid, _;
+        let uid;
 
         if ( typeof resource === 'string' && mode === undefined ) {
             const perm_parts = PermissionUtil.split(resource);
-            ([_, uid, mode] = perm_parts);
+            const isManage = PermissionUtil.isManage(resource);
+            uid = perm_parts.at(isManage ? -1 : -2); // always will end with fs:uid:mode
+            mode = isManage ? MANAGE_PERM_PREFIX : perm_parts.at(-1);
             resource = await svc_fs.node(new NodePathSelector(uid));
             if ( ! resource ) {
                 throw APIError.create('subject_does_not_exist');
@@ -249,7 +252,7 @@ class ACLService extends BaseService {
 
         const perms_on_this = stat[await resource.get('path')] ?? [];
 
-        const mode_parts = perms_on_this.map(perm => PermissionUtil.split(perm)[2]);
+        const mode_parts = perms_on_this.map(perm => PermissionUtil.isManage(perm) ? MANAGE_PERM_PREFIX : PermissionUtil.split(perm).at(-1));
 
         // If mode already present, do nothing
         if ( mode_parts.includes(mode) ) {
@@ -259,7 +262,7 @@ class ACLService extends BaseService {
         // If higher mode already present, do nothing
         if ( options.only_if_higher ) {
             const higher_modes = this._higher_modes(mode);
-            if ( mode_parts.some(m => higher_modes.includes(m)) ) {
+            if ( mode_parts.some(m => m === MANAGE_PERM_PREFIX ||  higher_modes.includes(m)) ) {
                 return false;
             }
         }
@@ -267,12 +270,12 @@ class ACLService extends BaseService {
         uid = uid ?? await resource.get('uid');
 
         // If mode not present, add it
-        await svc_perm.grant_user_user_permission(issuer, holder.type.user.username, PermissionUtil.join('fs', uid, mode));
+        await svc_perm.grant_user_user_permission(issuer, holder.type.user.username, mode === MANAGE_PERM_PREFIX ? PermissionUtil.join(MANAGE_PERM_PREFIX, 'fs', uid) : PermissionUtil.join('fs', uid, mode));
 
         // Remove other modes
         for ( const perm of perms_on_this ) {
-            const perm_parts = PermissionUtil.split(perm);
-            if ( perm_parts[2] === mode ) continue;
+            const existingPermMode = PermissionUtil.isManage(perm) ? MANAGE_PERM_PREFIX : PermissionUtil.split(perm).at(-1);
+            if ( existingPermMode === mode ) continue;
 
             await svc_perm.revoke_user_user_permission(issuer, holder.type.user.username, perm);
         }
@@ -323,7 +326,7 @@ class ACLService extends BaseService {
     *
     * @param {Actor} actor - The actor requesting access (User, System, AccessToken, or AppUnderUser)
     * @param {FSNode} fsNode - The filesystem node to check permissions for
-    * @param {'see'| 'list' | 'read' | 'write'} mode - The permission mode to check ('see', 'list', 'read', 'write')
+    * @param {'see'| 'list' | 'read' | 'write' | 'manage'} mode - The permission mode to check ('see', 'list', 'read', 'write', 'manage)
     * @returns {Promise<boolean>} True if actor has permission, false otherwise
     *
     * @description
@@ -483,11 +486,10 @@ class ACLService extends BaseService {
          */
         const svc_permission = await context.get('services').get('permission');
 
-        const modes = [mode];
         let perm_fsNode = fsNode;
         while ( !await perm_fsNode.get('is-root') ) {
             const uid = await perm_fsNode.get('uid');
-            const permissionsToCheck = modes.map(mode => PermissionUtil.join('fs', uid, mode));
+            const permissionsToCheck =  [mode === MANAGE_PERM_PREFIX ? PermissionUtil.join(MANAGE_PERM_PREFIX, 'fs', uid) : PermissionUtil.join('fs', uid, mode)];
             const reading = await svc_permission.scan(actor, permissionsToCheck);
             const options = PermissionUtil.reading_to_options(reading);
             if ( options.length > 0 ) {

@@ -79,7 +79,7 @@ const install = async ({ context, services, app, useapi, modapi }) => {
         def('Library', Library);
 
         def('core.util.helpers', require('./helpers'));
-        def('core.util.permission', require('./services/auth/PermissionUtils.mjs').PermissionUtil);
+        def('core.util.permission', require('./services/auth/permissionUtils.mjs').PermissionUtil);
         def('puter.middlewares.auth', require('./middleware/auth2'));
         def('puter.middlewares.configurable_auth', require('./middleware/configurable_auth'));
         def('puter.middlewares.anticsrf', require('./middleware/anticsrf'));
@@ -412,7 +412,7 @@ const install = async ({ context, services, app, useapi, modapi }) => {
     const { WorkerService } = require('./services/worker/WorkerService');
     services.registerService("worker-service", WorkerService);
 
-    const { MeteringAndBillingServiceWrapper } = require('./services/abuse-prevention/MeteringService/index.mjs');
+    const { MeteringAndBillingServiceWrapper } = require("./services/abuse-prevention/MeteringService/index.mjs");
     services.registerService('meteringService', MeteringAndBillingServiceWrapper);
 
     const { PermissionShortcutService } = require('./services/auth/PermissionShortcutService');

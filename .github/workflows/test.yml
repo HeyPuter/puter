@@ -25,6 +25,7 @@ jobs:
     - name: Build
       run: |
         rm package-lock.json
+        npm install -g npm@latest
         npm install
         npm run test
 
@@ -42,6 +43,13 @@ jobs:
         uses: actions/setup-node@v4
         with:
           node-version: ${{ matrix.node-version }}
+
+      - name: Build
+        run: |
+          rm package-lock.json
+          npm install -g npm@latest
+          npm install
+          npm run test
           
       - name: API Test
         run: |
