@@ -7,6 +7,7 @@ root.geometry("1000x600")
 
 tk.Label(text="Install Puter as Desktop Environment in Your System", font=("Arial", 20)).grid(row=1, column=0, sticky="w")
 tk.Label(text="Select Your Linux Distribution", font=("Arial", 15)).grid(row=2, column=0, sticky="w")
+tk.Label(text="-"*root.winfo_screenwidth(), font=("Arial", 15)).grid(row=3, column=0, sticky="w")
 
 text = '''
 exec "chromium --kiosk https://puter.com"
@@ -43,10 +44,16 @@ def fedora():
     os.system("pkexec bash -c \"sudo dnf install sway chromium -y\"")
     install_sway()
 
-tk.Button(text="Ubuntu", command=ubuntu).grid(row=3, column=0, sticky="w")
-tk.Button(text="Debian", command=ubuntu).grid(row=4, column=0, sticky="w")
-tk.Button(text="Pardus", command=ubuntu).grid(row=5, column=0, sticky="w")
-tk.Button(text="Fedora", command=fedora).grid(row=6, column=0, sticky="w")
-tk.Button(text="RHEL", command=fedora).grid(row=7, column=0, sticky="w")
+tk.Label(text="Option 1: Debian Based Distributions", font=("Arial", 12)).grid(row=4, column=0, sticky="w")
+tk.Label(text="Works with Debian, Ubuntu, Pardus, ZorinOS, Linux Mint, and more", font=("Arial", 10)).grid(row=5, column=0, sticky="w")
+
+tk.Button(text="Install", command=ubuntu).grid(row=6, column=0, sticky="w")
+
+tk.Label(text=" ", font=("Arial", 12)).grid(row=7, column=0, sticky="w")
+
+tk.Label(text="Option 2: Debian Based Distributions", font=("Arial", 12)).grid(row=9, column=0, sticky="w")
+tk.Label(text="Works with RHEL, Fedora, Ultramarine, Alma, Rocky, and more.", font=("Arial", 10)).grid(row=10, column=0, sticky="w")
+
+tk.Button(text="Install", command=fedora).grid(row=11, column=0, sticky="w")
 
 root.mainloop()
