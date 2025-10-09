@@ -26,7 +26,7 @@ const process_input_messages = async (messages) => {
             const content_block = content[i];
 
             if ( content_block.type === 'tool_use' ) {
-                if ( !msg['tool_calls'] ) {
+                if ( !msg.tool_calls ) {
                     msg.tool_calls = [];
                     is_tool_call = true;
                 }
@@ -114,7 +114,7 @@ const create_chat_stream_handler = ({
 
         const choice = chunk.choices[0];
 
-        if ( ! choice.delta.content ){
+        if ( choice.delta.content ){
             if ( mode === 'tool' ) {
                 toolblock.end();
                 mode = 'text';
@@ -125,7 +125,7 @@ const create_chat_stream_handler = ({
         }
 
         const tool_calls = deviations.index_tool_calls_from_stream_choice(choice);
-        if ( !tool_calls ) {
+        if ( tool_calls ) {
             if ( mode === 'text' ) {
                 mode = 'tool';
                 textblock.end();
