@@ -27,6 +27,7 @@
         "start-server": "npx http-server --cors -c-1",
         "start-webpack": "webpack --stats=errors-only && webpack --output-filename puter.dev.js --watch --devtool source-map --stats=errors-only",
         "start": "concurrently \"npm run start-server\" \"npm run start-webpack\"",
+        "test": "npx http-server --cors -c-1 -o /test",
         "build": "webpack && { echo \"// Copyright 2024-present Puter Technologies Inc. All rights reserved.\"; echo \"// Generated on $(date '+%Y-%m-%d %H:%M')\n\"; cat ./dist/puter.js; } > temp && mv temp ./dist/puter.js",
         "prepublishOnly": "npm run build && mv dist/puter.js dist/puter.cjs && npm version patch"
     },
@@ -34,6 +35,7 @@
     "license": "Apache-2.0",
     "devDependencies": {
         "concurrently": "^8.2.2",
+        "http-server": "^14.1.1",
         "webpack-cli": "^5.1.4"
     },
     "dependencies": {
