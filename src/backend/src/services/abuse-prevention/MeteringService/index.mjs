@@ -12,16 +12,4 @@ export class MeteringAndBillingServiceWrapper extends BaseService {
             alarmService: this.services.get('alarm'),
         });
     }
-
-    static IMPLEMENTS = {
-        ['meteringService']: Object.getOwnPropertyNames(MeteringAndBillingService.prototype)
-            .filter(n => n !== 'constructor')
-            .reduce((acc, fn) => ({
-                ...acc,
-                [fn]: async function(...a) {
-                    return await this.meteringAndBillingService[fn](...a);
-                },
-            }), {}),
-    };
-
 }

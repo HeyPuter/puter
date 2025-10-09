@@ -27,6 +27,30 @@ const { LLRead } = require("../../filesystem/ll_operations/ll_read");
 const { Context } = require("../../util/context");
 const { TeePromise } = require('@heyputer/putility').libs.promise;
 
+// TODO DS: get this inside the class as a private method once the methods aren't exported directly
+/** @type {(usage: import("@anthropic-ai/sdk/resources/messages.js").Usage | import("@anthropic-ai/sdk/resources/beta/messages/messages.js").BetaUsage) => {}}) */
+const usageFormatterUtil = (usage) => {
+    return {
+        input_tokens: usage?.input_tokens || 0,
+        ephemeral_5m_input_tokens: usage?.cache_creation?.ephemeral_5m_input_tokens || usage.cache_creation_input_tokens || 0, // this is because they're api is a bit inconsistent
+        ephemeral_1h_input_tokens: usage?.cache_creation?.ephemeral_1h_input_tokens || 0,
+        cache_read_input_tokens: usage?.cache_read_input_tokens || 0,
+        output_tokens: usage?.output_tokens || 0,
+    };
+};
+
+// TODO DS: get this inside the class as a private method once the methods aren't exported directly
+const billForUsage = (actor,
+    model,
+    usage,
+    /** @type {import('../../services/abuse-prevention/MeteringService/MeteringService').MeteringAndBillingService} */ meteringAndBillingService) => {
+    Object.entries(usage).forEach(([usageKind, amount]) => {
+        meteringAndBillingService.incrementUsage(actor,
+                        `claude:${model || this.get_default_model()}:${usageKind}`,
+                        amount);
+    });
+};
+
 /**
 * ClaudeService class extends BaseService to provide integration with Anthropic's Claude AI models.
 * Implements the puter-chat-completion interface for handling AI chat interactions.
@@ -50,6 +74,10 @@ class ClaudeService extends BaseService {
     * @private
     * @returns {Promise<void>}
     */
+
+    /** @type {import('../../services/abuse-prevention/MeteringService/MeteringService').MeteringAndBillingService} */
+    #meteringAndBillingService;
+
     async _init() {
         this.anthropic = new Anthropic({
             apiKey: this.config.apiKey,
@@ -65,6 +93,7 @@ class ClaudeService extends BaseService {
             service_name: this.service_name,
             alias: true,
         });
+        this.#meteringAndBillingService = this.services.get('meteringService').meteringAndBillingService; // TODO DS: move to proper extensions
     }
 
     /**
@@ -143,78 +172,77 @@ class ClaudeService extends BaseService {
 
                 // Perform file uploads
                 const file_delete_tasks = [];
-                {
-                    const actor = Context.get('actor');
-                    const { user } = actor.type;
+                const actor = Context.get('actor');
+                const { user } = actor.type;
 
-                    const file_input_tasks = [];
-                    for ( const message of messages ) {
-                        // We can assume `message.content` is not undefined because
-                        // Messages.normalize_single_message ensures this.
-                        for ( const contentPart of message.content ) {
-                            if ( ! contentPart.puter_path ) continue;
-                            file_input_tasks.push({
-                                node: await (new FSNodeParam(contentPart.puter_path)).consolidate({
-                                    req: { user },
-                                    getParam: () => contentPart.puter_path,
-                                }),
-                                contentPart,
-                            });
-                        }
+                const file_input_tasks = [];
+                for ( const message of messages ) {
+                    // We can assume `message.content` is not undefined because
+                    // Messages.normalize_single_message ensures this.
+                    for ( const contentPart of message.content ) {
+                        if ( ! contentPart.puter_path ) continue;
+                        file_input_tasks.push({
+                            node: await (new FSNodeParam(contentPart.puter_path)).consolidate({
+                                req: { user },
+                                getParam: () => contentPart.puter_path,
+                            }),
+                            contentPart,
+                        });
                     }
-
-                    const promises = [];
-                    for ( const task of file_input_tasks ) {
-                        promises.push((async () => {
-                            const ll_read = new LLRead();
-                            const stream = await ll_read.run({
-                                actor: Context.get('actor'),
-                                fsNode: task.node,
-                            });
-
-                            const require = this.require;
-                            const mime = require('mime-types');
-                            const mimeType = mime.contentType(await task.node.get('name'));
-
-                            beta_mode = true;
-                            const fileUpload = await this.anthropic.beta.files.upload({
-                                file: await toFile(stream, undefined, { type: mimeType }),
-                            }, {
-                                betas: ['files-api-2025-04-14'],
-                            });
-
-                            file_delete_tasks.push({ file_id: fileUpload.id });
-                            // We have to copy a table from the documentation here:
-                            // https://docs.anthropic.com/en/docs/build-with-claude/files
-                            const contentBlockTypeForFileBasedOnMime = (() => {
-                                if ( mimeType.startsWith('image/') ) {
-                                    return 'image';
-                                }
-                                if ( mimeType.startsWith('text/') ) {
-                                    return 'document';
-                                }
-                                if ( mimeType === 'application/pdf' || mimeType === 'application/x-pdf' ) {
-                                    return 'document';
-                                }
-                                return 'container_upload';
-                            })();
-
-                            // {
-                            //     'application/pdf': 'document',
-                            //     'text/plain': 'document',
-                            //     'image/': 'image'
-                            // }[mimeType];
-
-                            delete task.contentPart.puter_path,
-                            task.contentPart.type = contentBlockTypeForFileBasedOnMime;
-                            task.contentPart.source = {
-                                type: 'file',
-                                file_id: fileUpload.id,
-                            };
-                        })());
-                    }
-                    await Promise.all(promises);
                 }
+
+                const promises = [];
+                for ( const task of file_input_tasks ) {
+                    promises.push((async () => {
+                        const ll_read = new LLRead();
+                        const stream = await ll_read.run({
+                            actor: Context.get('actor'),
+                            fsNode: task.node,
+                        });
+
+                        const require = this.require;
+                        const mime = require('mime-types');
+                        const mimeType = mime.contentType(await task.node.get('name'));
+
+                        beta_mode = true;
+                        const fileUpload = await this.anthropic.beta.files.upload({
+                            file: await toFile(stream, undefined, { type: mimeType }),
+                        }, {
+                            betas: ['files-api-2025-04-14'],
+                        });
+
+                        file_delete_tasks.push({ file_id: fileUpload.id });
+                        // We have to copy a table from the documentation here:
+                        // https://docs.anthropic.com/en/docs/build-with-claude/files
+                        const contentBlockTypeForFileBasedOnMime = (() => {
+                            if ( mimeType.startsWith('image/') ) {
+                                return 'image';
+                            }
+                            if ( mimeType.startsWith('text/') ) {
+                                return 'document';
+                            }
+                            if ( mimeType === 'application/pdf' || mimeType === 'application/x-pdf' ) {
+                                return 'document';
+                            }
+                            return 'container_upload';
+                        })();
+
+                        // {
+                        //     'application/pdf': 'document',
+                        //     'text/plain': 'document',
+                        //     'image/': 'image'
+                        // }[mimeType];
+
+                        delete task.contentPart.puter_path,
+                        task.contentPart.type = contentBlockTypeForFileBasedOnMime;
+                        task.contentPart.source = {
+                            type: 'file',
+                            file_id: fileUpload.id,
+                        };
+                    })());
+                }
+                await Promise.all(promises);
+
                 const cleanup_files = async () => {
                     const promises = [];
                     for ( const task of file_delete_tasks ) {
@@ -245,17 +273,17 @@ class ClaudeService extends BaseService {
 
                     const init_chat_stream = async ({ chatStream }) => {
                         const completion = await anthropic.messages.stream(sdk_params);
-                        const counts = { input_tokens: 0, output_tokens: 0 };
+                        const usageSum = {};
 
                         let message, contentBlock;
                         for await ( const event of completion ) {
-                            const input_tokens =
-                                (event?.usage ?? event?.message?.usage)?.input_tokens;
-                            const output_tokens =
-                                (event?.usage ?? event?.message?.usage)?.output_tokens;
 
-                            if ( input_tokens ) counts.input_tokens += input_tokens;
-                            if ( output_tokens ) counts.output_tokens += output_tokens;
+                            const usageObject = (event?.usage ?? event?.message?.usage ?? {});
+                            const meteredData = usageFormatterUtil (usageObject);
+                            Object.keys(meteredData).forEach((key) => {
+                                if ( ! usageSum[key] ) usageSum[key] = 0;
+                                usageSum[key] += meteredData[key];
+                            });
 
                             if ( event.type === 'message_start' ) {
                                 message = chatStream.message();
@@ -300,7 +328,13 @@ class ClaudeService extends BaseService {
                             }
                         }
                         chatStream.end();
-                        usage_promise.resolve(counts);
+
+                        billForUsage(actor, model || this.get_default_model(), usageSum, this.#meteringAndBillingService);
+                        // TODO DS: Legacy cost metering, remove when new is ready
+                        usage_promise.resolve({
+                            input_tokens: usageSum.input_tokens,
+                            output_tokens: usageSum.input_tokens,
+                        });
                     };
 
                     return {
@@ -314,6 +348,9 @@ class ClaudeService extends BaseService {
                 const msg = await anthropic.messages.create(sdk_params);
                 await cleanup_files();
 
+                billForUsage(actor, model || this.get_default_model(), usageFormatterUtil(msg.usage), this.#meteringAndBillingService);
+
+                // TODO DS: cleanup old usage tracking
                 return {
                     message: msg,
                     usage: msg.usage,
