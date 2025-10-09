@@ -37,6 +37,7 @@ const POLICY_TYPES = {
 const GLOBAL_APP_KEY = 'os-global'; // TODO DS: this should be loaded from config or db eventually
 const METRICS_PREFIX = 'metering';
 const POLICY_PREFIX = 'policy';
+const PERIOD_ESCAPE = '_dot_'; // to replace dots in usage types for kvstore paths
 /**
  * Handles usage metering and supports stubbs for billing methods for current scoped actor
  */
@@ -75,6 +76,7 @@ export class MeteringAndBillingService {
 
             return this.#superUserService.sudo(async () => {
                 const totalCost = (costOverride ?? COST_MAPS[usageType] * usageAmount) || 0; // TODO DS: apply our policy discounts here eventually
+                usageType = usageType.replace(/\./g, PERIOD_ESCAPE) as keyof typeof COST_MAPS; // replace dots with underscores for kvstore paths, TODO DS: map this back when reading
                 const appId = actor.type?.app?.uid || GLOBAL_APP_KEY
                 const actorId = actor.type?.user.uuid
                 const pathAndAmountMap = {
@@ -94,6 +96,12 @@ export class MeteringAndBillingService {
                 const actorUsagesPromise = this.#kvClientWrapper.incr({
                     key: actorUsageKey,
                     pathAndAmountMap,
+                })
+
+                const puterConsumptionKey = `${METRICS_PREFIX}:puter:${currentMonth}`; // global consumption across all users and apps
+                this.#kvClientWrapper.incr({
+                    key: puterConsumptionKey,
+                    pathAndAmountMap
                 })
 
                 const actorAppUsageKey = `${METRICS_PREFIX}:actor:${actorId}:app:${appId}:${currentMonth}`;
@@ -116,16 +124,7 @@ export class MeteringAndBillingService {
                         [`${appId}.count`]: 1,
                     },
                 })
-                const puterConsumptionKey = `${METRICS_PREFIX}:puter:${currentMonth}`; // global consumption across all users and apps
-                this.#kvClientWrapper.incr({
-                    key: puterConsumptionKey,
-                    pathAndAmountMap: {
-                        'total': totalCost,
-                        [`${usageType}.units`]: usageAmount,
-                        [`${usageType}.cost`]: totalCost,
-                        [`${usageType}.count`]: 1,
-                    }
-                })
+
 
                 return (await Promise.all([lastUpdatedPromise, actorUsagesPromise]))[1] as UsageByType;
             })
