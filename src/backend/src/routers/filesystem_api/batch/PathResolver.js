@@ -96,6 +96,9 @@ module.exports = class PathResolver {
         if ( inputPath === '~' ) {
             return `/${username}`;
         }
+        if ( inputPath.startsWith('.') ) {
+            throw APIError.create('unresolved_relative_path', null, { path: inputPath });
+        }
         const refName = this.getReferenceUsed(inputPath);
         if ( refName === null ) return inputPath;
 
