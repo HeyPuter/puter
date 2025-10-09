@@ -72,7 +72,7 @@ class DNSService extends BaseService {
         });
 
         server.on('listening', () => {
-            this.log.info('Fake DNS server listening', server.addresses());
+            this.log.debug('Fake DNS server listening', server.addresses());
             
             if ( this.config.test_server_selftest ) (async () => {
                 await sleep(5000);

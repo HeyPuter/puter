@@ -86,7 +86,7 @@ class WebServerService extends BaseService {
             return res.sendStatus(200);
         });
 
-        this.log.noticeme('web server setup done');
+        this.log.debug('web server setup done');
     }
     
     install_post_middlewares_ ({ app }) {
@@ -168,7 +168,7 @@ class WebServerService extends BaseService {
         for ( let i = 0 ; i < ports_to_try.length ; i++ ) {
             const port = ports_to_try[i];
             const is_last_port = i === ports_to_try.length - 1;
-            if ( auto_port ) this.log.info('trying port: ' + port);
+            if ( auto_port ) this.log.debug('trying port: ' + port);
             try {
                 server = http.createServer(this.app).listen(port);
                 server.timeout = 1000 * 60 * 60 * 2; // 2 hours
