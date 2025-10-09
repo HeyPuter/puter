@@ -51,6 +51,22 @@ class SelfHostedModule extends AdvancedBase {
         {
             services.registerService('__dev-watcher', DevWatcherService, {
                 root: path_.resolve(__dirname, RELATIVE_PATH),
+                rollup: [
+                    {
+                        name: 'phoenix',
+                        directory: 'src/phoenix',
+                        env: {
+                            PUTER_JS_URL: ({ global_config: config }) => config.origin + '/sdk/puter.dev.js',
+                        },
+                    },
+                    {
+                        name: 'terminal',
+                        directory: 'src/terminal',
+                        env: {
+                            PUTER_JS_URL: ({ global_config: config }) => config.origin + '/sdk/puter.dev.js',
+                        },
+                    },
+                ],
                 webpack: [
                     {
                         name: 'puter.js',
@@ -74,33 +90,6 @@ class SelfHostedModule extends AdvancedBase {
                     },
                 ],
                 commands: [
-                    {
-                        name: 'terminal:rollup-watch',
-                        directory: 'src/terminal',
-                        command: 'npx',
-                        args: ['rollup', '-c', 'rollup.config.js', '--watch'],
-                        env: {
-                            PUTER_JS_URL: ({ global_config: config }) => config.origin + '/sdk/puter.dev.js',
-                        },
-                    },
-                    {
-                        name: 'phoenix:rollup-watch',
-                        directory: 'src/phoenix',
-                        command: 'npx',
-                        args: ['rollup', '-c', 'rollup.config.js', '--watch'],
-                        env: {
-                            PUTER_JS_URL: ({ global_config: config }) => config.origin + '/sdk/puter.dev.js',
-                        },
-                    },
-                    {
-                        name: 'git:rollup-watch',
-                        directory: 'src/git',
-                        command: 'npx',
-                        args: ['rollup', '-c', 'rollup.config.js', '--watch'],
-                        env: {
-                            PUTER_JS_URL: ({ global_config: config }) => config.origin + '/sdk/puter.dev.js',
-                        },
-                    },
                 ],
             });
         }
