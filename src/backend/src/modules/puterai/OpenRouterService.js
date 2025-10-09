@@ -139,7 +139,7 @@ class OpenRouterService extends BaseService {
                     } : {}),
                 });
 
-                const modelDetails =  await this.models_().find(m => m.id === 'openrouter:' + model);
+                const modelDetails =  (await this.models_()).find(m => m.id === 'openrouter:' + model);
                 return OpenAIUtil.handle_completion_output({
                     usage_calculator: async ({ usage }) => {
                         const trackedUsage = OpenAIUtil.extractMeteredUsage(usage);
