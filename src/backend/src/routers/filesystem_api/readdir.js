@@ -49,7 +49,7 @@ module.exports = eggspress('/readdir', {
         log = x.get('services').get('log-service').create('readdir', {
             concern: 'filesystem',
         });
-        log.info(`readdir: ${req.body.subject || req.body.path || req.body.uid}`);
+        log.debug(`readdir: ${req.body.subject || req.body.path || req.body.uid}`);
     }
 
     const subject = req.values.subject;

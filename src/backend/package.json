@@ -24,7 +24,6 @@
     "@pagerduty/pdjs": "^2.2.4",
     "@smithy/node-http-handler": "^2.2.2",
     "args": "^5.0.3",
-    "aws-sdk": "^2.1383.0",
     "axios": "^1.8.2",
     "bcrypt": "^5.1.0",
     "better-sqlite3": "^11.9.0",
