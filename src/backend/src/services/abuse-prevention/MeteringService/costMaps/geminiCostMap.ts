@@ -9,9 +9,9 @@
  */
 export const GEMINI_COST_MAP = {
     // Gemini api usage types (costs per token in microcents)
-    "gemini:gemini-2.0-flash:input": 10,
-    "gemini:gemini-2.0-flash:output": 40,
-    "gemini:gemini-1.5-flash:input": 7.5,
-    "gemini:gemini-1.5-flash:output": 30,
-    'gemini-2.5-flash-image-preview1024x1024': 3_900_000
+    "gemini:gemini-2.0-flash:promptTokenCount": 10,
+    "gemini:gemini-2.0-flash:candidatesTokenCount": 40,
+    "gemini:gemini-1.5-flash:promptTokenCount": 3,
+    "gemini:gemini-1.5-flash:candidatesTokenCount": 2,
+    "gemini:gemini-2.5-flash-image-preview:1024x1024": 3_900_000
 }

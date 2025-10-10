@@ -1,24 +1,25 @@
 /*
  * Copyright (C) 2024-present Puter Technologies Inc.
- * 
+ *
  * This file is part of Puter.
- * 
+ *
  * Puter is free software: you can redistribute it and/or modify
  * it under the terms of the GNU Affero General Public License as published
  * by the Free Software Foundation, either version 3 of the License, or
  * (at your option) any later version.
- * 
+ *
  * This program is distributed in the hope that it will be useful,
  * but WITHOUT ANY WARRANTY; without even the implied warranty of
  * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
  * GNU Affero General Public License for more details.
- * 
+ *
  * You should have received a copy of the GNU Affero General Public License
  * along with this program.  If not, see <https://www.gnu.org/licenses/>.
  */
 
 // METADATA // {"ai-commented":{"service":"claude"}}
 const BaseService = require("../../services/BaseService");
+const { Context } = require("../../util/context");
 const OpenAIUtil = require("./lib/OpenAIUtil");
 
 /**
@@ -31,20 +32,20 @@ const OpenAIUtil = require("./lib/OpenAIUtil");
 class XAIService extends BaseService {
     static MODULES = {
         openai: require('openai'),
-    }
+    };
+    /** @type {import('../../services/abuse-prevention/MeteringService/MeteringService').MeteringAndBillingService} */
+    meteringAndBillingService;
 
-
-    adapt_model (model) {
+    adapt_model(model) {
         return model;
     }
-    
 
     /**
     * Initializes the XAI service by setting up the OpenAI client and registering with the AI chat provider
     * @private
     * @returns {Promise<void>} Resolves when initialization is complete
     */
-    async _init () {
+    async _init() {
         this.openai = new this.modules.openai.OpenAI({
             apiKey: this.global_config.services.xai.apiKey,
             baseURL: "https://api.x.ai/v1",
@@ -55,14 +56,14 @@ class XAIService extends BaseService {
             service_name: this.service_name,
             alias: true,
         });
+        this.meteringAndBillingService = this.services.get('meteringService').meteringAndBillingService; // TODO DS: move to proper extensions
     }
-
 
     /**
     * Returns the default model identifier for the XAI service
     * @returns {string} The default model ID 'grok-beta'
     */
-    get_default_model () {
+    get_default_model() {
         return 'grok-beta';
     }
 
@@ -71,11 +72,11 @@ class XAIService extends BaseService {
             /**
              * Returns a list of available models and their details.
              * See AIChatService for more information.
-             * 
-             * @returns Promise<Array<Object>> Array of model details
+             *
+             * @returns Array<Object> Array of model details
              */
-            async models () {
-                return await this.models_();
+            models() {
+                return this.models_();
             },
             /**
             * Returns a list of available model names including their aliases
@@ -83,7 +84,7 @@ class XAIService extends BaseService {
             * @description Retrieves all available model IDs and their aliases,
             * flattening them into a single array of strings that can be used for model selection
             */
-            async list () {
+            async list() {
                 const models = await this.models_();
                 const model_names = [];
                 for ( const model of models ) {
@@ -99,11 +100,11 @@ class XAIService extends BaseService {
              * AI Chat completion method.
              * See AIChatService for more details.
              */
-            async complete ({ messages, stream, model, tools }) {
+            async complete({ messages, stream, model, tools }) {
                 model = this.adapt_model(model);
 
                 messages = await OpenAIUtil.process_input_messages(messages);
-                
+
                 const completion = await this.openai.chat.completions.create({
                     messages,
                     model: model ?? this.get_default_model(),
@@ -115,27 +116,42 @@ class XAIService extends BaseService {
                     } : {}),
                 });
 
-                return OpenAIUtil.handle_completion_output({
-                    usage_calculator: OpenAIUtil.create_usage_calculator({
-                        model_details: (await this.models_()).find(m => m.id === model),
-                    }),
-                    stream, completion,
-                });
-            }
-        }
-    }
+                // Metering integration
+                const actor = Context.get('actor');
 
+                return OpenAIUtil.handle_completion_output({
+                    usage_calculator: ({ usage }) => {
+                        const modelDetails = this.models().find(m => m.id === model || m.aliases?.includes(model));
+                        const trackedUsage = {
+                            prompt_tokens: (usage.prompt_tokens ?? 0) - (usage.prompt_tokens_details?.cached_tokens ?? 0),
+                            completion_tokens: usage.completion_tokens ?? 0,
+                            cached_tokens: usage.prompt_tokens_details?.cached_tokens ?? 0,
+                        };
+
+                        this.meteringAndBillingService.utilRecordUsageObject(trackedUsage, actor, `openai:${modelDetails.id}`);
+                        const legacyCostCalculator = OpenAIUtil.create_usage_calculator({
+                            model_details: modelDetails,
+                        });
+
+                        return legacyCostCalculator({ usage });
+                    },
+                    stream,
+                    completion,
+                });
+            },
+        },
+    };
 
     /**
     * Retrieves available AI models and their specifications
-    * @returns {Promise<Array>} Array of model objects containing:
+    * @returns Array of model objects containing:
     *   - id: Model identifier string
     *   - name: Human readable model name
     *   - context: Maximum context window size
     *   - cost: Pricing information object with currency and rates
     * @private
     */
-    async models_ () {
+    models_() {
         return [
             {
                 id: 'grok-beta',
@@ -169,7 +185,7 @@ class XAIService extends BaseService {
                     tokens: 1_000_000,
                     input: 300,
                     output: 1500,
-                }
+                },
             },
             {
                 id: 'grok-3-fast',
@@ -180,7 +196,7 @@ class XAIService extends BaseService {
                     tokens: 1_000_000,
                     input: 500,
                     output: 2500,
-                }
+                },
             },
             {
                 id: 'grok-3-mini',
@@ -191,7 +207,7 @@ class XAIService extends BaseService {
                     tokens: 1_000_000,
                     input: 30,
                     output: 50,
-                }
+                },
             },
             {
                 id: 'grok-3-mini-fast',
@@ -202,7 +218,7 @@ class XAIService extends BaseService {
                     tokens: 1_000_000,
                     input: 60,
                     output: 400,
-                }
+                },
             },
             {
                 id: 'grok-2-vision',
@@ -213,7 +229,7 @@ class XAIService extends BaseService {
                     tokens: 1_000_000,
                     input: 200,
                     output: 1000,
-                }
+                },
             },
             {
                 id: 'grok-2',
@@ -224,7 +240,7 @@ class XAIService extends BaseService {
                     tokens: 1_000_000,
                     input: 200,
                     output: 1000,
-                }
+                },
             },
         ];
     }

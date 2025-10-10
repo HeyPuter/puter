@@ -7,9 +7,9 @@
 // Pattern: "aws-textract:{api}:page"
 // Example: "aws-textract:detect-document-text:page" → 150 microcents per page
 // 
-// Note: 1,000,000 microcents = $0.01 USD. $1.50 per 1,000 pages = 150 microcents per page.
+// Note: 1,000,000 microcents = $0.01 USD. $1.50 per 1,000 pages = $0.0015 per page = 0.15 cents per page = 150000 microcents per page.
 //
 export const AWS_TEXTRACT_COST_MAP = {
-    // Detect Document Text API: $1.50 per 1,000 pages (150 microcents per page)
-    "aws-textract:detect-document-text:page": 150,
+    // Detect Document Text API: $1.50 per 1,000 pages (150000 microcents per page)
+    "aws-textract:detect-document-text:page": 150000,
 };
