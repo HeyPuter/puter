@@ -47,6 +47,13 @@ class PuterFSProvider extends putility.AdvancedBase {
         _path: require('path'),
         uuidv4: require('uuid').v4,
         config: require('../../../config.js'),
+    };
+
+    constructor (...a) {
+        super(...a);
+
+        this.log_fsentriesNotFound = (this.modules.config.logging ?? [])
+            .includes('fsentries-not-found');
     }
 
     get_capabilities () {
@@ -185,7 +192,9 @@ class PuterFSProvider extends putility.AdvancedBase {
         }
 
         if ( ! entry ) {
-            controls.log.warn(`entry not found: ${selector.describe(true)}`);
+            if ( this.log_fsentriesNotFound ) {
+                controls.log.warn(`entry not found: ${selector.describe(true)}`);
+            }
         }
 
         if ( entry === null || typeof entry !== 'object' ) {

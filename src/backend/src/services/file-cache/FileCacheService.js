@@ -53,7 +53,7 @@ class FileCacheService extends AdvancedBase {
         path_: require('path'),
     }
 
-    constructor ({ services, my_config }) {
+    constructor ({ services, my_config, config: global_config }) {
         super({ services });
 
         this.log = services.get('log-service').create(this.constructor.name);
@@ -74,6 +74,9 @@ class FileCacheService extends AdvancedBase {
             initial: 0.5,
             alpha: 0.2,
         });
+        
+        this.logging_enabled = (global_config.logging ?? [])
+            .includes('file-cache');
 
         this.init();
 
