@@ -185,7 +185,7 @@ class PuterFSProvider extends putility.AdvancedBase {
         }
 
         if ( ! entry ) {
-            controls.log.info(`entry not found: ${selector.describe(true)}`);
+            controls.log.warn(`entry not found: ${selector.describe(true)}`);
         }
 
         if ( entry === null || typeof entry !== 'object' ) {

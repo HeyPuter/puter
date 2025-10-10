@@ -50,7 +50,9 @@ class BaseService extends concepts.Service {
         Object.defineProperty(this, 'config', {
             get: () => configOverride ?? config.services?.[name] ?? {},
             set: why => {
-                console.warn('replacing config like this is probably a bad idea');
+                // TODO: uncomment and fix these in legacy services
+                //       (not very important; low priority)
+                // console.warn('replacing config like this is probably a bad idea');
                 configOverride = why;
             },
         });

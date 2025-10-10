@@ -102,11 +102,6 @@ class BroadcastService extends BaseService {
                 });
             });
         });
-        
-        
-        this.log.noticeme(
-            require('node:util').inspect(this.config)
-        );
     }
     
     _register_commands (commands) {
