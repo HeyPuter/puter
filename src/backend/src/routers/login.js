@@ -59,13 +59,15 @@ const complete_ = async ({ req, res, user }) => {
 router.post('/login', express.json(), body_parser_error_handler, 
     // Add diagnostic middleware to log captcha data
     (req, res, next) => {
-        console.log('====== LOGIN CAPTCHA DIAGNOSTIC ======');
-        console.log('LOGIN REQUEST RECEIVED with captcha data:', {
-            hasCaptchaToken: !!req.body.captchaToken,
-            hasCaptchaAnswer: !!req.body.captchaAnswer,
-            captchaToken: req.body.captchaToken ? req.body.captchaToken.substring(0, 8) + '...' : undefined,
-            captchaAnswer: req.body.captchaAnswer
-        });
+        if ( process.env.DEBUG ) {
+            console.log('====== LOGIN CAPTCHA DIAGNOSTIC ======');
+            console.log('LOGIN REQUEST RECEIVED with captcha data:', {
+                hasCaptchaToken: !!req.body.captchaToken,
+                hasCaptchaAnswer: !!req.body.captchaAnswer,
+                captchaToken: req.body.captchaToken ? req.body.captchaToken.substring(0, 8) + '...' : undefined,
+                captchaAnswer: req.body.captchaAnswer
+            });
+        }
         next();
     },
     requireCaptcha({ strictMode: true, eventType: 'login' }), 
