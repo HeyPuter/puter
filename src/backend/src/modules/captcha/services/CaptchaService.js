@@ -71,7 +71,7 @@ class CaptchaService extends BaseService {
      */
     async _init() {
         if (!this.enabled) {
-            this.log.debug('Captcha service is disabled');
+            this.log.info('Captcha service is disabled');
             return;
         }
 
@@ -328,7 +328,7 @@ class CaptchaService extends BaseService {
             });
 
             this.endpointsRegistered = true;
-            this.log.debug('Captcha service endpoints registered successfully');
+            this.log.info('Captcha service endpoints registered successfully');
             
             // Emit an event that captcha service is ready
             try {

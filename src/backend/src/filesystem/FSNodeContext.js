@@ -323,7 +323,7 @@ module.exports = class FSNodeContext {
             },
         };
 
-        this.log.debug('fetching entry: ' + this.selector.describe());
+        this.log.info('fetching entry: ' + this.selector.describe());
 
         const entry = await this.provider.stat({
             selector: this.selector,

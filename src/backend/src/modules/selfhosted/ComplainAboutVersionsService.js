@@ -54,7 +54,7 @@ class ComplainAboutVersionsService extends BaseService {
         const cur_date_obj = new Date();
 
         if ( cur_date_obj < eol_date ) {
-            this.log.debug('node.js version looks good');
+            this.log.info('node.js version looks good');
             return;
         }
 
@@ -75,13 +75,22 @@ class ComplainAboutVersionsService extends BaseService {
             return str;
         })();
 
-        this.log.warn(`Node.js version ${major} is past EOL by ${timeago}`);
+        const svc_devConsole = this.services.get('dev-console');
+        svc_devConsole.add_widget(() => {
+            const widget_lines = [];
+            widget_lines.push(
+                `Node.js version ${major} is past EOL by ${timeago};`,
+                `Everything should work, but you should still upgrade.`,
+            );
+            surrounding_box('31;1', widget_lines);
+            return widget_lines;
+        });
     }
 
     async get_eol_data_ () {
         const require = this.require;
         const axios = require('axios');
-        const url = 'https://endoflife.date/api/nodejs.json';
+        const url = 'https://endoflife.date/api/nodejs.json'
         let data;
         try {
             ({ data } = await axios.get(url));

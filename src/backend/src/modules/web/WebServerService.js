@@ -86,7 +86,7 @@ class WebServerService extends BaseService {
             return res.sendStatus(200);
         });
 
-        this.log.debug('web server setup done');
+        this.log.noticeme('web server setup done');
     }
     
     install_post_middlewares_ ({ app }) {
@@ -117,7 +117,7 @@ class WebServerService extends BaseService {
         const services = this.services;
         await services.emit('start.webserver');
         await services.emit('ready.webserver');
-        // this.print_puter_logo_();
+        this.print_puter_logo_();
     }
 
 
@@ -168,7 +168,7 @@ class WebServerService extends BaseService {
         for ( let i = 0 ; i < ports_to_try.length ; i++ ) {
             const port = ports_to_try[i];
             const is_last_port = i === ports_to_try.length - 1;
-            if ( auto_port ) this.log.debug('trying port: ' + port);
+            if ( auto_port ) this.log.info('trying port: ' + port);
             try {
                 server = http.createServer(this.app).listen(port);
                 server.timeout = 1000 * 60 * 60 * 2; // 2 hours
@@ -223,13 +223,21 @@ class WebServerService extends BaseService {
                 console.log('Error opening browser', e);
             }
         }
-
-        const link = `\x1B[34;1m${strutil.osclink(url)}\x1B[0m`;
-        const lines = [
-            `Puter is now live at: ${link}`,
-        ];
+        /**
+        * Starts the HTTP server.
+        *
+        * This method sets up the Express server, initializes middleware, and starts the HTTP server.
+        * It handles error handling, authentication, and other necessary configurations.
+        *
+        * @returns {Promise} A Promise that resolves when the server is listening.
+        */
         this.startup_widget = () => {
 
+            const link = `\x1B[34;1m${strutil.osclink(url)}\x1B[0m`;
+            const lines = [
+                `Puter is now live at: ${link}`,
+                `Type web:dismiss to un-stick this message`,
+            ];
             const lengths = [
                 (`Puter is now live at: `).length + url.length,
                 lines[1].length,
@@ -237,16 +245,9 @@ class WebServerService extends BaseService {
             surrounding_box('34;1', lines, lengths);
             return lines;
         };
-        if ( this.config.old_widget_behavior ) {
+        {
             const svc_devConsole = this.services.get('dev-console', { optional: true });
             if ( svc_devConsole ) svc_devConsole.add_widget(this.startup_widget);
-        } else {
-            const svc_devConsole = this.services.get('dev-console', { optional: true });
-            svc_devConsole.notice({
-                colors: { bg: '38;2;0;0;0;48;2;0;202;252;1', bginv: '38;2;0;202;252' },
-                title: 'Puter is live!',
-                lines,
-            });
         }
 
         server.timeout = 1000 * 60 * 60 * 2; // 2 hours
@@ -390,11 +391,12 @@ class WebServerService extends BaseService {
                     fields.status, fields.responseTime,
                 ].join(' ');
 
-                const log = this.services.get('log-service').create('morgan');
+                const log = this.services.get('log-service').create('morgan', {
+                    concern: 'web'
+                });
                 try {
                     this.context.arun(() => {
-                        log.info(message);
-                        log.debug(message, fields);
+                        log.info(message, fields);
                     });
                 } catch (e) {
                     console.log('failed to log this message properly:', message, fields);

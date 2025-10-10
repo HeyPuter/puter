@@ -113,9 +113,7 @@ class PropType extends AdvancedBase {
             this.chains.factory && [...this.chains.factory].reverse()
         ) || [];
 
-        if ( process.env.DEBUG ) {
-            console.log('FACTORIES', factories);
-        }
+        console.log('FACTORIES', factories)
 
         for ( const factory of factories ) {
             const result = await factory(extra);

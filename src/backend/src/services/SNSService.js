@@ -20,6 +20,8 @@
 const { Endpoint } = require("../util/expressutil");
 const BaseService = require("./BaseService");
 
+const aws = require('aws-sdk');
+const sns = new aws.SNS();
 const { LRUCache: LRU } = require('lru-cache');
 const crypto = require('crypto');
 const axios = require('axios');
@@ -50,6 +52,10 @@ const TEST_CERT = ``;
 const TEST_MESSAGE = {};
 
 class SNSService extends BaseService {
+    static MODULES = {
+        AWS: require('aws-sdk'),
+    };
+
     _construct () {
         this.cert_cache = new LRU({
             // Guide uses 5000 here but that seems excessive
@@ -141,6 +147,10 @@ class SNSService extends BaseService {
                 res.status(200).send('Thanks SNS');
             },
         }).attach(app);
+    }
+
+    _init () {
+        this.sns = new this.modules.AWS.SNS();
     }
 
     async verify_message_ (message, options = {}) {
