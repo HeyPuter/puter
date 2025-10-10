@@ -24,7 +24,6 @@ const BaseService = require("../../services/BaseService.js");
 
 const config = require('../../config.js');
 var http = require('http');
-const fs = require('fs');
 const auth = require('../../middleware/auth.js');
 const measure = require('../../middleware/measure.js');
 const { surrounding_box, es_import_promise } = require('../../fun/dev-console-ui-utils.js');
@@ -51,15 +50,14 @@ class WebServerService extends BaseService {
         ['on-finished']: require('on-finished'),
         morgan: require('morgan'),
     };
-    
+
     _construct () {
         this.undefined_origin_allowed = [];
     }
-    
+
     allow_undefined_origin (route) {
         this.undefined_origin_allowed.push(route);
     }
-
 
     /**
     * This method initializes the backend web server for Puter. It sets up the Express app, configures middleware, and starts the HTTP server.
@@ -88,7 +86,7 @@ class WebServerService extends BaseService {
 
         this.log.debug('web server setup done');
     }
-    
+
     install_post_middlewares_ ({ app }) {
         app.use(async (req, res, next) => {
             const svc_event = this.services.get('event');
@@ -105,7 +103,6 @@ class WebServerService extends BaseService {
         });
     }
 
-
     /**
     * Starts the web server and listens for incoming connections.
     * This method sets up the Express app, sets up middleware, and starts the server on the specified port.
@@ -119,7 +116,6 @@ class WebServerService extends BaseService {
         await services.emit('ready.webserver');
         // this.print_puter_logo_();
     }
-
 
     /**
     * This method starts the web server by listening on the specified port. It tries multiple ports if the first one is in use.
@@ -149,14 +145,6 @@ class WebServerService extends BaseService {
         let server;
 
         const auto_port = config.http_port === 'auto';
-        /**
-        * Initializes the web server and starts listening for incoming requests.
-        *
-        * @param {Object} services - An object containing other services such as logger, config, etc.
-        */
-        WebServerService.prototype._initWebServer = function (services) {
-         // Implementation goes here
-        };
         let ports_to_try = auto_port ? (() => {
             const ports = [];
             for ( let i = 0 ; i < 20 ; i++ ) {
@@ -272,7 +260,7 @@ class WebServerService extends BaseService {
                     socket.token = auth_res.token;
                     // join user room
                     socket.join(socket.user.id);
-                    
+
                     // setTimeout 0 is needed because we need to send
                     // the notifications after this handler is done
                     // setTimeout(() => {
@@ -307,11 +295,10 @@ class WebServerService extends BaseService {
                 });
             });
         });
-        
+
         this.server_ = server;
         await this.services.emit('install.websockets');
     }
-    
 
     /**
     * Starts the Puter web server and sets up routes, middleware, and error handling.
@@ -322,7 +309,6 @@ class WebServerService extends BaseService {
     get_server () {
         return this.server_;
     }
-
 
     /**
     * Handles starting and managing the Puter web server.
@@ -338,9 +324,8 @@ class WebServerService extends BaseService {
 
         this.middlewares = { auth };
 
-
         const require = this.require;
-        
+
         const config = this.global_config;
         new ContextExpressMiddleware({
             parent: globalThis.root_context.sub({
@@ -363,49 +348,48 @@ class WebServerService extends BaseService {
         {
             const morgan = require('morgan');
             const stream = {
-            write: (message) => {
-                const [method, url, status, responseTime] = message.split(' ')
-                const fields = {
-                method,
-                url,
-                status: parseInt(status, 10),
-                responseTime: parseFloat(responseTime),
-                };
-                if ( url.includes('android-icon') ) return;
+                write: (message) => {
+                    const [method, url, status, responseTime] = message.split(' ')
+                    const fields = {
+                        method,
+                        url,
+                        status: parseInt(status, 10),
+                        responseTime: parseFloat(responseTime),
+                    };
+                    if ( url.includes('android-icon') ) return;
 
-                // remove `puter.auth.*` query params
-                const safe_url = (u => {
-                    // We need to prepend an arbitrary domain to the URL
-                    const url = new URL('https://example.com' + u);
-                    const search = url.searchParams;
-                    for ( const key of search.keys() ) {
-                        if ( key.startsWith('puter.auth.') ) search.delete(key);
+                    // remove `puter.auth.*` query params
+                    const safe_url = (u => {
+                        // We need to prepend an arbitrary domain to the URL
+                        const url = new URL('https://example.com' + u);
+                        const search = url.searchParams;
+                        for ( const key of search.keys() ) {
+                            if ( key.startsWith('puter.auth.') ) search.delete(key);
+                        }
+                        return url.pathname + '?' + search.toString();
+                    })(fields.url);
+                    fields.url = safe_url;
+                    // re-write message
+                    message = [
+                        fields.method, fields.url,
+                        fields.status, fields.responseTime,
+                    ].join(' ');
+
+                    const log = this.services.get('log-service').create('morgan');
+                    try {
+                        this.context.arun(() => {
+                            log.info(message);
+                            log.debug(message, fields);
+                        });
+                    } catch (e) {
+                        console.log('failed to log this message properly:', message, fields);
+                        console.error(e);
                     }
-                    return url.pathname + '?' + search.toString();
-                })(fields.url);
-                fields.url = safe_url;
-                // re-write message
-                message = [
-                    fields.method, fields.url,
-                    fields.status, fields.responseTime,
-                ].join(' ');
-
-                const log = this.services.get('log-service').create('morgan');
-                try {
-                    this.context.arun(() => {
-                        log.info(message);
-                        log.debug(message, fields);
-                    });
-                } catch (e) {
-                    console.log('failed to log this message properly:', message, fields);
-                    console.error(e);
-                }
-            }
+                },
             };
 
             app.use(morgan(':method :url :status :response-time', { stream }));
         }
-
 
         /**
         * Initialize the web server, start it, and handle any related logic.
@@ -425,7 +409,7 @@ class WebServerService extends BaseService {
 
             return eggspress('/wut', {
                 allowedMethods: ['GET'],
-            }, async (req, res, next) => {
+            }, async (req, res, _next) => {
                 // throw new Error('throwy error');
                 return res.status(200).send('test endpoint');
             });
@@ -434,14 +418,6 @@ class WebServerService extends BaseService {
         (() => {
             const onFinished = require('on-finished');
             app.use((req, res, next) => {
-                /**
-                * Starts the web server and sets up routes, middleware, and web sockets.
-                *
-                * @returns {Promise<void>} Resolves once the server is up and running.
-                */
-                WebServerService.prototype._initWebServer = async function() {
-                 // Your comment here
-                };
                 onFinished(res, () => {
                     if ( res.statusCode !== 500 ) return;
                     if ( req.__error_handled ) return;
@@ -463,7 +439,7 @@ class WebServerService extends BaseService {
             // The browser likely doesn't follow the HTTP/1.1 spec
             // (bot client?) and express is handling this badly by
             // not setting the header at all. (that's my theory)
-            if( req.hostname === undefined ) {
+            if ( req.hostname === undefined ) {
                 res.status(400).send(
                     'Please verify your browser is up-to-date.'
                 );
@@ -511,8 +487,8 @@ class WebServerService extends BaseService {
                 req.is_custom_domain = true;
                 next();
             }
-        })
-        
+        });
+
         // Validate IP with any IP checkers
         app.use(async (req, res, next)=>{
             const svc_event = this.services.get('event');
@@ -588,7 +564,7 @@ class WebServerService extends BaseService {
             }
             next();
         });
-        
+
         const uaParser = require('ua-parser-js');
         app.use(function (req, res, next) {
             const ua_header = req.headers['user-agent'];
@@ -606,7 +582,7 @@ class WebServerService extends BaseService {
 
         app.use(function (req, res, next) {
             const origin = req.headers.origin;
-            
+
             const is_site =
                 req.hostname.endsWith(config.static_hosting_domain) ||
                 req.hostname === 'docs.puter.com'
