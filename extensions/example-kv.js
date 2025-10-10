@@ -25,6 +25,6 @@ extension.on('init', async () => {
         // and just a little bit longer
         // await sleep(100);
 
-        console.log('kv key should no longer have the value', await kv.get('example-kv-key'));
+        console.log('kv key should no longer have the value', kv.get('example-kv-key'));
     })();
 });
