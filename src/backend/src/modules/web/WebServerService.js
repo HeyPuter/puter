@@ -390,11 +390,12 @@ class WebServerService extends BaseService {
                     fields.status, fields.responseTime,
                 ].join(' ');
 
-                const log = this.services.get('log-service').create('morgan');
+                const log = this.services.get('log-service').create('morgan', {
+                    concern: 'web'
+                });
                 try {
                     this.context.arun(() => {
-                        log.info(message);
-                        log.debug(message, fields);
+                        log.info(message, fields);
                     });
                 } catch (e) {
                     console.log('failed to log this message properly:', message, fields);
