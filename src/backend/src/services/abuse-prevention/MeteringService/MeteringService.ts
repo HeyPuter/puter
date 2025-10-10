@@ -39,10 +39,6 @@ const METRICS_PREFIX = 'metering';
 const POLICY_PREFIX = 'policy';
 const PERIOD_ESCAPE = '_dot_'; // to replace dots in usage types for kvstore paths
 
-type AllPrefixes<T extends string, P extends string = ''> =
-    T extends `${infer C}${infer R}`
-    ? `${P}${C}` | AllPrefixes<R, `${P}${C}`>
-    : P;
 /**
  * Handles usage metering and supports stubbs for billing methods for current scoped actor
  */

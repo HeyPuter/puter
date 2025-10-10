@@ -92,6 +92,7 @@ const create_chat_stream_handler = ({
     deviations,
     completion,
     usage_calculator,
+    usage_promise,
 }) => async ({ chatStream }) => {
     deviations = Object.assign({
         // affected by: Groq
@@ -153,6 +154,9 @@ const create_chat_stream_handler = ({
             }
         }
     }
+
+    usage_promise.resolve(last_usage);
+
     if ( mode === 'text' ) textblock.end();
     if ( mode === 'tool' ) toolblock.end();
     message.end();
