@@ -6,7 +6,7 @@ import { MANAGE_PERM_PREFIX } from "./permissionConts.mjs";
 * escaping, and unescaping permission components. It also includes
 * functionality to convert permission reading structures into options.
 */
-export  const PermissionUtil =  {
+export const PermissionUtil =  {
     /**
      * Unescapes a permission component string, converting escape sequences to their literal characters.
      * @param {string} component - The escaped permission component string.
@@ -125,7 +125,7 @@ export  const PermissionUtil =  {
         return options;
     },
     /** @type {(permission:string)=>boolean} */
-    isManage(permission ){
+    isManage(permission){
         return permission.startsWith(MANAGE_PERM_PREFIX + ':');
     },
 };

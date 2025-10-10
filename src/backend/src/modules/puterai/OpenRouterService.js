@@ -22,7 +22,6 @@ const APIError = require("../../api/APIError");
 const BaseService = require("../../services/BaseService");
 const OpenAIUtil = require("./lib/OpenAIUtil");
 const { Context } = require("../../util/context");
-const { default: ml } = require("../../../../gui/src/i18n/translations/ml");
 
 /**
 * XAIService class - Provides integration with X.AI's API for chat completions
@@ -39,9 +38,6 @@ class OpenRouterService extends BaseService {
         axios: require('axios'),
     };
 
-    /** @type {import('../../services/abuse-prevention/MeteringService/MeteringService').MeteringAndBillingService} */
-    meteringAndBillingService;
-
     /**
     * Gets the system prompt used for AI interactions
     * @returns {string} The base system prompt that identifies the AI as running on Puter
@@ -49,6 +45,9 @@ class OpenRouterService extends BaseService {
     adapt_model(model) {
         return model;
     }
+
+    /** @type {import('../../services/abuse-prevention/MeteringService/MeteringService').MeteringAndBillingService} */
+    meteringAndBillingService;
 
     /**
     * Initializes the XAI service by setting up the OpenAI client and registering with the AI chat provider
@@ -142,7 +141,7 @@ class OpenRouterService extends BaseService {
 
                 const modelDetails =  (await this.models_()).find(m => m.id === 'openrouter:' + model);
                 return OpenAIUtil.handle_completion_output({
-                    usage_calculator: async ({ usage }) => {
+                    usage_calculator: ({ usage }) => {
                         const trackedUsage = OpenAIUtil.extractMeteredUsage(usage);
                         this.meteringAndBillingService.utilRecordUsageObject(trackedUsage, actor, modelDetails.id);
                         const legacyCostCalculator = OpenAIUtil.create_usage_calculator({
