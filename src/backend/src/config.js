@@ -246,7 +246,7 @@ const config_pointer = {};
     config_to_export = new Proxy(config_to_export, {
         set: (target, prop, value, receiver) => {
             const logger = Context.get('logger', { allow_fallback: true });
-            logger.debug(
+            logger?.debug(
                 '\x1B[36;1mCONFIGURATION MUTATED AT RUNTIME\x1B[0m',
                 { prop, value },
             );
