@@ -27,10 +27,19 @@ module.exports = {
     handler: async (socket, data) => {
         // Import gRPC client and protobuf classes from common
         const {
-            client,
+            getClient,
             PullRequest,
             PullRequestItem,
         } = require('./common');
+
+        const client = getClient();
+        if (!client) {
+            // Client-replica service is not available
+            return socket.emit('replica/pull_diff/error', {
+                success: false,
+                error: { message: 'client-replica service is not available' },
+            });
+        }
 
         try {
             // Build the PullRequest message

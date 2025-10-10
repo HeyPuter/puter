@@ -31,7 +31,7 @@ class ReplicaManager {
         this.fs_tree = null;
         this.last_local_update = 0; // milliseconds since epoch
 
-        this.debug = true;
+        this.debug = false;
     }
 
     /**
@@ -384,6 +384,18 @@ class ReplicaManager {
         }
 
         this.available = false;
+    }
+
+    /**
+     * Set the debug flag
+     */
+    setDebug(enabled) {
+        this.debug = enabled;
+
+        // Update widget visibility if the function exists (in GUI environment)
+        if (typeof window !== 'undefined' && window.updateReplicaWidgetVisibility) {
+            window.updateReplicaWidgetVisibility();
+        }
     }
 }
 

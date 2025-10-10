@@ -5430,7 +5430,7 @@ fieldset[name=number-code] {
 .replica-status-widget {
     position: fixed;
     top: 10px;
-    right: 10px;
+    right: 50px;
     background: rgba(0, 0, 0, 0.8);
     color: white;
     padding: 8px 12px;
@@ -5444,6 +5444,10 @@ fieldset[name=number-code] {
     box-shadow: 0 2px 8px rgba(0, 0, 0, 0.3);
     backdrop-filter: blur(10px);
     border: 1px solid rgba(255, 255, 255, 0.1);
+}
+
+.replica-status-widget.hidden {
+    display: none;
 }
 
 .replica-status-label {

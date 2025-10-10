@@ -715,11 +715,10 @@ async function UIDesktop(options) {
         window.update_user_preferences(user_preferences);
     }
 
-    // Add replica status widget
-    h += `<div id="replica-status-widget" class="replica-status-widget">
+    // Add replica status widget (always create, but conditionally show)
+    h += `<div id="replica-status-widget" class="replica-status-widget" style="display: ${puter.fs.replica.debug ? 'flex' : 'none'};">
             <div class="replica-status-label">client-replica:</div>
             <div class="replica-status-value" id="replica-status-value">false</div>
-            <input type="checkbox" id="replica-status-toggle" class="replica-status-toggle">
           </div>`;
 
     // Append to <body>
@@ -728,33 +727,25 @@ async function UIDesktop(options) {
     // Initialize replica status widget function
     window.updateReplicaStatusWidget = function() {
         const statusElement = document.getElementById('replica-status-value');
-        const toggleElement = document.getElementById('replica-status-toggle');
-        if (statusElement && toggleElement) {
+        if (statusElement) {
             const isAvailable = puter.fs.replica.available === true;
             statusElement.textContent = isAvailable.toString();
             statusElement.className = `replica-status-value ${isAvailable}`;
-            toggleElement.checked = isAvailable;
         }
     };
 
-    // Handle toggle change
-    window.handleReplicaToggle = function() {
-        const toggleElement = document.getElementById('replica-status-toggle');
-        const statusElement = document.getElementById('replica-status-value');
-        if (toggleElement && statusElement) {
-            const newValue = toggleElement.checked;
-            statusElement.textContent = newValue.toString();
-            statusElement.className = `replica-status-value ${newValue}`;
-            puter.fs.replica.available = newValue;
+
+    // Function to show/hide widget based on debug flag
+    window.updateReplicaWidgetVisibility = function() {
+        const widget = document.getElementById('replica-status-widget');
+        if (widget) {
+            widget.style.display = puter.fs.replica.debug ? 'flex' : 'none';
         }
     };
 
     // Initialize widget and start polling
     setTimeout(() => {
-        const toggleElement = document.getElementById('replica-status-toggle');
-        if (toggleElement) {
-            toggleElement.addEventListener('change', window.handleReplicaToggle);
-        }
+        // Start polling immediately - the visibility is controlled by CSS
         setInterval(window.updateReplicaStatusWidget, 100);
     }, 100);
 
