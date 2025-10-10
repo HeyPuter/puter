@@ -438,7 +438,7 @@ class ACLService extends BaseService {
                     await appdata_node.is_above(fsNode)
                 )
             ) {
-                this.log.debug('TRUE BECAUSE APPDATA');
+                console.log('TRUE BECAUSE APPDATA');
                 return true;
             }
         }

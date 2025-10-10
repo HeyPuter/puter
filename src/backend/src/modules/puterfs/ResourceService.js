@@ -62,7 +62,7 @@ class ResourceService extends BaseService {
             };
         });
         entry.onFree = entry.freePromise.then.bind(entry.freePromise);
-        this.log.debug(`registering resource`, { uid: entry.uid });
+        this.log.info(`registering resource`, { uid: entry.uid });
         this.uidToEntry[entry.uid] = entry;
         if ( entry.path ) {
             this.uidToPath[entry.uid] = entry.path;
@@ -72,7 +72,7 @@ class ResourceService extends BaseService {
     }
 
     free (uid) {
-        this.log.debug(`freeing`, { uid });
+        this.log.info(`freeing`, { uid });
         const entry = this.uidToEntry[uid];
         if ( ! entry ) return;
         delete this.uidToEntry[uid];
