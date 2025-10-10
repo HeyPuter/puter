@@ -64,7 +64,7 @@ class HLReadDir extends HLFilesystemOperation {
         
         let children;
 
-        this.log.debug('READDIR',
+        this.log.noticeme('READDIR',
             {
             userdir: await subject.isUserDirectory(),
             namediff: await subject.get('name') !== user.username

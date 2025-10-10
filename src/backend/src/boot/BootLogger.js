@@ -17,6 +17,11 @@
  * along with this program.  If not, see <https://www.gnu.org/licenses/>.
  */
 class BootLogger {
+    constructor () {
+        console.log(
+            `\x1B[36;1mBoot logger started :)\x1B[0m`,
+        );
+    }
     info (...args) {
         console.log(
             '\x1B[36;1m[BOOT/INFO]\x1B[0m',

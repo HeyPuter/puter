@@ -41,8 +41,8 @@ class SelfHostedModule extends AdvancedBase {
         const { DBKVServiceWrapper } = require("../../services/repositories/DBKVStore/index.mjs");
         services.registerService('puter-kvstore', DBKVServiceWrapper);
 
-        // const MinLogService = require('./MinLogService');
-        // services.registerService('min-log', MinLogService);
+        const MinLogService = require('./MinLogService');
+        services.registerService('min-log', MinLogService);
 
         // TODO: sucks
         const RELATIVE_PATH = '../../../../../';
@@ -51,45 +51,47 @@ class SelfHostedModule extends AdvancedBase {
         {
             services.registerService('__dev-watcher', DevWatcherService, {
                 root: path_.resolve(__dirname, RELATIVE_PATH),
-                rollup: [
+                commands: [
                     {
-                        name: 'phoenix',
-                        directory: 'src/phoenix',
-                        env: {
-                            PUTER_JS_URL: ({ global_config: config }) => config.origin + '/sdk/puter.dev.js',
-                        },
-                    },
-                    {
-                        name: 'terminal',
-                        directory: 'src/terminal',
-                        env: {
-                            PUTER_JS_URL: ({ global_config: config }) => config.origin + '/sdk/puter.dev.js',
-                        },
-                    },
-                ],
-                webpack: [
-                    {
-                        name: 'puter.js',
+                        name: 'puter.js:webpack-watch',
                         directory: 'src/puter-js',
-                        onConfig: config => {
-                            config.output.filename = 'puter.dev.js';
-                            config.devtool = 'source-map';
-                        },
+                        command: 'npm',
+                        args: ['run', 'start-webpack'],
                         env: {
                             PUTER_ORIGIN: ({ global_config: config }) => config.origin,
                             PUTER_API_ORIGIN: ({ global_config: config }) => config.api_base_url,
                         },
                     },
                     {
-                        name: 'gui',
+                        name: 'gui:webpack-watch',
                         directory: 'src/gui',
+                        command: 'npm',
+                        args: ['run', 'start-webpack'],
                     },
                     {
-                        name: 'emulator',
-                        directory: 'src/emulator',
+                        name: 'terminal:rollup-watch',
+                        directory: 'src/terminal',
+                        command: 'npx',
+                        args: ['rollup', '-c', 'rollup.config.js', '--watch'],
+                        env: {
+                            PUTER_JS_URL: ({ global_config: config }) => config.origin + '/sdk/puter.dev.js',
+                        },
                     },
-                ],
-                commands: [
+                    {
+                        name: 'phoenix:rollup-watch',
+                        directory: 'src/phoenix',
+                        command: 'npx',
+                        args: ['rollup', '-c', 'rollup.config.js', '--watch'],
+                        env: {
+                            PUTER_JS_URL: ({ global_config: config }) => config.origin + '/sdk/puter.dev.js',
+                        },
+                    },
+                    {
+                        name: 'emulator:webpack-watch',
+                        directory: 'src/emulator',
+                        command: 'npm',
+                        args: ['run', 'start-webpack'],
+                    },
                 ],
             });
         }

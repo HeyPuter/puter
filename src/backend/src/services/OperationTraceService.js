@@ -62,7 +62,7 @@ class OperationFrame {
         this.status_ = status;
         this._calc_effective_status();
 
-        this.log.debug(
+        this.log.info(
             `FRAME STATUS ${status.label} ` +
             (status !== this.effective_status_
                 ? `(effective: ${this.effective_status_.label}) `
@@ -275,7 +275,7 @@ class OperationTraceService {
             x
         });
         parent && parent.push_child(frame);
-        this.log.debug(`FRAME START ` + frame.describe());
+        this.log.info(`FRAME START ` + frame.describe());
         if ( ! parent ) {
             // NOTE: only uncomment in local testing for now;
             //   this will cause a memory leak until frame

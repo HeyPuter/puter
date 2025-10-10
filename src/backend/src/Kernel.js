@@ -218,6 +218,8 @@ class Kernel extends AdvancedBase {
             await services.ready;
             globalThis.services = services;
             const log = services.get('log-service').create('init');
+            log.info('services ready');
+
             log.system('server ready', {
                 deployment_type: globalThis.deployment_type,
             });
@@ -409,7 +411,6 @@ class Kernel extends AdvancedBase {
             `const { use: puter } = globalThis.__puter_extension_globals__.useapi;`,
             `const extension = globalThis.__puter_extension_globals__` +
                 `.extensionObjectRegistry[${JSON.stringify(extension_id)}];`,
-            `const console = extension.console;`,
             `const runtime = extension.runtime;`,
             `const config = extension.config;`,
             `const registry = extension.registry;`,
@@ -463,8 +464,6 @@ class Kernel extends AdvancedBase {
                 return deep_proto_merge(user_config, builtin_config);
             },
         });
-        
-        mod.extension.name = packageJSON.name;
         
         const maybe_promise = (typ => typ.trim().toLowerCase())(packageJSON.type ?? '') === 'module'
             ? await import(path_.join(require_dir, packageJSON.main ?? 'index.js'))
@@ -578,34 +577,18 @@ class Kernel extends AdvancedBase {
 
     async run_npm_install (path) {
         const npmCmd = process.platform === "win32" ? "npm.cmd" : "npm";
-        const proc = spawn(npmCmd, ["install"], { cwd: path, stdio: "pipe" });
-
-        let buffer = '';
-
-        proc.stdout.on('data', (data) => {
-            buffer += data.toString();
-        });
-
-        proc.stderr.on('data', (data) => {
-            buffer += data.toString();
-        });
-
+        const proc = spawn(npmCmd, ["install"], { cwd: path, shell: true, stdio: "inherit" });
         return new Promise((rslv, rjct) => {
             proc.on('close', code => {
                 if ( code !== 0 ) {
-                    // Print buffered output on error
-                    if ( buffer ) process.stdout.write(buffer);
-                    rjct(new Error(`exit code: ${code}`));
-                    return;
+                    throw new Error(`exit code: ${code}`);
                 }
                 rslv();
             });
             proc.on('error', err => {
-                // Print buffered output on error
-                if ( buffer ) process.stdout.write(buffer);
                 rjct(err);
-            });
-        });
+            })
+        })
     }
 }
 
