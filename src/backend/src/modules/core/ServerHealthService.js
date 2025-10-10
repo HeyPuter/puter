@@ -106,7 +106,7 @@ class ServerHealthService extends BaseService {
                 mem_total: meminfo.MemTotal,
             };
             
-            this.log.info('memory', log_fields);
+            this.log.debug('memory', log_fields);
 
             Object.assign(this.stats_, log_fields);
 

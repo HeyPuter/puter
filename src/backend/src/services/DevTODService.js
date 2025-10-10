@@ -17,6 +17,7 @@
  * You should have received a copy of the GNU Affero General Public License
  * along with this program.  If not, see <https://www.gnu.org/licenses/>.
  */
+const putility = require("@heyputer/putility");
 const { surrounding_box } = require("../fun/dev-console-ui-utils");
 const BaseService = require("./BaseService");
 
@@ -88,28 +89,39 @@ class DevTODService extends BaseService {
     */
     async ['__on_boot.consolidation'] () {
         let random_tip = tips[Math.floor(Math.random() * tips.length)];
-        random_tip = wordwrap(
-            random_tip,
-            process.stdout.columns
-                ? process.stdout.columns - 6 : 50
-        );
-        this.tod_widget = () => {
-            const lines = [
-                ...random_tip,
-            ];
-            if ( ! this.global_config.minimal_console ) {
-                lines.unshift("\x1B[1mTip of the Day\x1B[0m");
-                lines.push("Type tod:dismiss to un-stick this message");
-            }
-            surrounding_box('33;1', lines);
-            return lines;
+        if ( this.config.old_widget_behavior ) {
+            random_tip = wordwrap(
+                random_tip,
+                process.stdout.columns
+                    ? process.stdout.columns - 6 : 50,
+            );
+        
+            this.tod_widget = () => {
+                const lines = [
+                    ...random_tip,
+                ];
+                if ( ! this.global_config.minimal_console ) {
+                    lines.unshift("\x1B[1mTip of the Day\x1B[0m");
+                    lines.push("Type tod:dismiss to un-stick this message");
+                }
+                surrounding_box('33;1', lines);
+                return lines;
+            };
+
+            this.tod_widget.unimportant = true;
+
+            const svc_devConsole = this.services.get('dev-console', { optional: true });
+            if ( ! svc_devConsole ) return;
+            svc_devConsole.add_widget(this.tod_widget);
+        } else {
+            const svc_devConsole = this.services.get('dev-console', { optional: true });
+            if ( ! svc_devConsole ) return;
+            svc_devConsole.notice({
+                colors: { bg: '38;2;0;0;0;48;2;255;255;0;1', bginv: '38;2;255;255;0' },
+                title: 'Tip of the Day',
+                lines: putility.libs.string.wrap_text(random_tip),
+            });
         }
-
-        this.tod_widget.unimportant = true;
-
-        const svc_devConsole = this.services.get('dev-console', { optional: true });
-        if ( ! svc_devConsole ) return;
-        svc_devConsole.add_widget(this.tod_widget);
     }
 
     _register_commands (commands) {

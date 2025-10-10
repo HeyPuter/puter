@@ -192,7 +192,7 @@ module.exports = class DatabaseFSEntryFetcher extends BaseService {
 
         if ( result[0] ) return result[0];
 
-        this.log.info(`findByPath (not cached): ${path}`)
+        this.log.debug(`findByPath (not cached): ${path}`)
 
         const loop = async () => {
             for ( let i=0 ; i < parts.length ; i++ ) {

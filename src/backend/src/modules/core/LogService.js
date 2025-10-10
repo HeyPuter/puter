@@ -524,7 +524,8 @@ class LogService extends BaseService {
         }
 
         this.log = this.create('log-service');
-        this.log.system('log service started', {
+        this.log.system('log service started');
+        this.log.debug('log service configuration', {
             output_lvl: this.output_lvl,
             log_directory: this.log_directory,
         });

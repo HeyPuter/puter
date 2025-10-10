@@ -90,7 +90,18 @@ class DevConsoleService extends BaseService {
         this.widgets = this.widgets.filter(w => w !== id_or_outputter);
         this.mark_updated();
     }
+    
+    notice ({ colors, title, lines }) {
+        colors = colors ?? {
+            bg: '46',
+            bginv: '36',
+        };
 
+        console.log(`\x1B[${colors.bginv}m▐\x1B[0m\x1B[${colors.bg}m ${title} \x1B[0m`);
+        for ( const line of lines ) {
+            console.log(`\x1B[${colors.bginv}m▐▌\x1B[0m${line}\x1B[0m`);
+        }
+    }
 
     /**
      * Updates the displayed output based on the current state of widgets.
@@ -142,7 +153,7 @@ class DevConsoleService extends BaseService {
         for ( let i = this.widgets.length-1 ; i >= 0 ; i-- ) {
             if ( size_ok() ) break;
             const w = this.widgets[i];
-            if ( w.critical ) continue; 
+            if ( w.critical ) continue;
             n_hidden++;
             const [start, length] = positions[i];
             this.static_lines.splice(start, length);
