@@ -550,10 +550,10 @@ func (s *server) buildUserFSTree(userID int64) (*pb.MerkleTree, error) {
 		}
 
 		node := &pb.MerkleNode{
-			Uuid:       uuid,
-			MerkleHash: "",
-			ParentUuid: parentUIDStr,
-			FsEntry:    &pb.FSEntry{Metadata: metadataStruct},
+			Uuid:          uuid,
+			MerkleHash:    "",
+			ParentUuid:    parentUIDStr,
+			FsEntry:       &pb.FSEntry{Metadata: metadataStruct},
 			ChildrenUuids: make(map[string]bool),
 		}
 
@@ -681,7 +681,7 @@ func runServer(configPath string) error {
 		db: db,
 	})
 
-	log.Printf("Starting FS Tree Manager server on :%d", config.Server.Port)
+	log.Printf("server started on port %d", config.Server.Port)
 	if err := grpcServer.Serve(lis); err != nil {
 		return fmt.Errorf("failed to serve: %v", err)
 	}
