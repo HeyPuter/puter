@@ -346,6 +346,16 @@ class WebServerService extends BaseService {
 
         // Instrument logging to use our log service
         {
+            // Switch log function at config time; info log is configurable
+            const logfn = (config.logging ?? []).includes('http')
+                ? (log, { message, fields }) => {
+                    log.info(message);
+                    log.debug(message, fields);
+                }
+                : (log, { message, fields }) => {
+                    log.debug(message, fields);
+                };
+
             const morgan = require('morgan');
             const stream = {
                 write: (message) => {
@@ -378,8 +388,7 @@ class WebServerService extends BaseService {
                     const log = this.services.get('log-service').create('morgan');
                     try {
                         this.context.arun(() => {
-                            log.info(message);
-                            log.debug(message, fields);
+                            logfn(log, { message, fields });
                         });
                     } catch (e) {
                         console.log('failed to log this message properly:', message, fields);
