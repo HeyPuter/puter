@@ -146,6 +146,12 @@ class RequesterIdentificationExpressMiddleware extends AdvancedBase {
         const x = Context.get();
 
         const requester = Requester.from_request(req);
+
+        // console.log(`<xiaochen-debugger> req.url: ${req.url}, req.headers: ${JSON.stringify(req.headers)}`);
+        // if (req.url.includes('replica')) {
+        //     console.log(`<xiaochen-debugger> req.url: ${req.url}, req.headers: ${JSON.stringify(req.headers)}`);
+        // }
+
         const is_bot = this.modules.isbot(requester.ua);
         requester.is_bot = is_bot;
 
