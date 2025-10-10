@@ -179,7 +179,7 @@ class PermissionService extends BaseService {
     }
     async #scan(actor, permission_options, _reserved, state) {
         if ( ! state ) {
-            this.log.debug('scan', {
+            this.log.info('scan', {
                 actor: actor.uid,
                 permission_options,
             });

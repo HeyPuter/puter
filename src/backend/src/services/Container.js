@@ -216,7 +216,7 @@ class Container {
     */
     async emit (id, ...args) {
         if ( this.logger ) {
-            this.logger.debug(`services:event ${id}`, { args });
+            this.logger.info(`services:event ${id}`, { args });
         }
 
         const promises = [];
