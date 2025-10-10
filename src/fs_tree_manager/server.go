@@ -554,6 +554,7 @@ func (s *server) buildUserFSTree(userID int64) (*pb.MerkleTree, error) {
 			MerkleHash: "",
 			ParentUuid: parentUIDStr,
 			FsEntry:    &pb.FSEntry{Metadata: metadataStruct},
+			ChildrenUuids: make(map[string]bool),
 		}
 
 		nodes[uuid] = node
