@@ -22,27 +22,60 @@ const {
 const { Struct } = require('google-protobuf/google/protobuf/struct_pb.js');
 
 const config = require('../../../config');
-const fsTreeManagerUrl = config.services?.['client-replica']?.fs_tree_manager_url;
 
-// Create gRPC client
-const client = new FSTreeManagerClient(fsTreeManagerUrl, grpc.credentials.createInsecure(), {
-    // Reconnect backoff (defaults can be slow: ~20s→120s)
-    //
-    // ref:
-    // - https://grpc.github.io/grpc/core/group__grpc__arg__keys.html
-    // - https://github.com/grpc/grpc/blob/master/doc/connection-backoff.md
-    'grpc.initial_reconnect_backoff_ms': 500,
-    'grpc.min_reconnect_backoff_ms': 500,
-    'grpc.max_reconnect_backoff_ms': 5000,
+// Singleton client instance
+let clientInstance = null;
 
-    // // Keepalive so dead TCPs are detected quickly
-    // 'grpc.keepalive_time_ms': 15000,           // send PING every 15s
-    // 'grpc.keepalive_timeout_ms': 5000,         // wait 5s for PING ack
-    // 'grpc.keepalive_permit_without_calls': 1,  // allow pings when idle
+/**
+ * Get the gRPC client for the FS Tree Manager service
+ * Returns null if the client-replica service is not configured or disabled
+ * Creates and caches the client instance on first call
+ * @returns {FSTreeManagerClient|null} The gRPC client or null if not available
+ */
+function getClient() {
+    // Return cached instance if available
+    if ( clientInstance !== null ) {
+        return clientInstance;
+    }
 
-    // // (Optional) be polite about PING cadence
-    // 'grpc.http2.min_time_between_pings_ms': 10000,
-});
+    const clientReplicaConfig = config.services?.['client-replica'];
+
+    // Return null if config is missing or disabled
+    if ( !clientReplicaConfig || !clientReplicaConfig.enabled ) {
+        clientInstance = null;
+        return null;
+    }
+
+    const fsTreeManagerUrl = clientReplicaConfig.fs_tree_manager_url;
+
+    // Return null if URL is not configured
+    if ( !fsTreeManagerUrl ) {
+        clientInstance = null;
+        return null;
+    }
+
+    // Create and cache gRPC client
+    clientInstance = new FSTreeManagerClient(fsTreeManagerUrl, grpc.credentials.createInsecure(), {
+        // Reconnect backoff (defaults can be slow: ~20s→120s)
+        //
+        // ref:
+        // - https://grpc.github.io/grpc/core/group__grpc__arg__keys.html
+        // - https://github.com/grpc/grpc/blob/master/doc/connection-backoff.md
+        'grpc.initial_reconnect_backoff_ms': 500,
+        'grpc.min_reconnect_backoff_ms': 500,
+        'grpc.max_reconnect_backoff_ms': 5000,
+
+        // // Keepalive so dead TCPs are detected quickly
+        // 'grpc.keepalive_time_ms': 15000,           // send PING every 15s
+        // 'grpc.keepalive_timeout_ms': 5000,         // wait 5s for PING ack
+        // 'grpc.keepalive_permit_without_calls': 1,  // allow pings when idle
+
+        // // (Optional) be polite about PING cadence
+        // 'grpc.http2.min_time_between_pings_ms': 10000,
+    });
+
+    return clientInstance;
+}
 
 /**
  * Sends a new filesystem entry to the gRPC service
@@ -59,6 +92,13 @@ async function sendFSNew(userId, metadata) {
         }
         if ( !metadata ) {
             reject(new Error('Metadata is required'));
+            return;
+        }
+
+        const client = getClient();
+        if ( !client ) {
+            // Client-replica service is not available, silently resolve
+            resolve();
             return;
         }
 
@@ -96,6 +136,13 @@ async function sendFSRemove(userId, uuid) {
             return;
         }
 
+        const client = getClient();
+        if ( !client ) {
+            // Client-replica service is not available, silently resolve
+            resolve();
+            return;
+        }
+
         const request = new RemoveFSEntryRequest();
         request.setUserId(userId);
         request.setUuid(uuid);
@@ -115,6 +162,13 @@ async function sendFSPurge(userId) {
     return new Promise((resolve, reject) => {
         if ( !userId ) {
             reject(new Error('User ID is required'));
+            return;
+        }
+
+        const client = getClient();
+        if ( !client ) {
+            // Client-replica service is not available, silently resolve
+            resolve();
             return;
         }
 
@@ -216,8 +270,8 @@ function buildFsEntry(metadataObj) {
 }
 
 module.exports = {
-    // gRPC client and protobuf classes
-    client,
+    // gRPC client function and protobuf classes
+    getClient,
     FSEntry,
     NewFSEntryRequest,
     RemoveFSEntryRequest,
