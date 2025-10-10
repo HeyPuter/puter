@@ -381,7 +381,7 @@ class RuntimeEnvironment extends AdvancedBase {
             if ( ! checks_pass ) continue;
 
             this.logger.info(
-                `${hl(meta.pathFor)} ${quot(entry.path)}`
+                `${hl('USING')} ${quot(entry.path)} for ${meta.pathFor}.`
             )
 
             return entry;

@@ -68,40 +68,9 @@ const format_as_usd = (amount) => {
     return '$' + amount.toFixed(2);
 }
 
-// wrap.js
-const wrap_text = (text, width = 71) => {
-    const out = [];
-    const paras = text.split(/\r?\n\s*\r?\n/); // split on blank lines
-
-    for (const p of paras) {
-        const words = p.trim().replace(/\s+/g, ' ').split(' ');
-        if (words.length === 1 && words[0] === '') { out.push(''); continue; }
-
-        let line = '';
-        for (const w of words) {
-            if (line.length === 0) {
-                // start new line; do NOT split long words
-                line = w;
-            } else if (line.length + 1 + w.length <= width) {
-                line += ' ' + w;
-            } else {
-                out.push(line);
-                line = w; // put word on its own new line (even if > width)
-            }
-        }
-        if (line) out.push(line);
-        out.push(''); // blank line between paragraphs
-    }
-
-    // remove the extra trailing blank line
-    if (out.length && out[out.length - 1] === '') out.pop();
-
-    return out;
-};
-
 module.exports = {
     quot,
     osclink,
     format_as_usd,
-    wrap_text,
 };
+
