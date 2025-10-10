@@ -467,7 +467,7 @@ class DriverService extends BaseService {
         
         effective_policy = effective_policy.policy;
         
-        this.log.debug('Invoking Driver Call', {
+        this.log.info('Invoking Driver Call', {
             service_name,
             iface,
             method,
