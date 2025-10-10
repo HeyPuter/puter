@@ -27,9 +27,18 @@ module.exports = {
     handler: async (socket, _data) => {
         // Import gRPC client and protobuf classes from common
         const {
-            client,
+            getClient,
             FetchReplicaRequest,
         } = require('./common');
+
+        const client = getClient();
+        if ( !client ) {
+            // Client-replica service is not available
+            return socket.emit('replica/fetch/error', {
+                success: false,
+                error: { message: 'client-replica service is not available' },
+            });
+        }
 
         // Build the request message
         const requestMsg = new FetchReplicaRequest();

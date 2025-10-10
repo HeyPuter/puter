@@ -316,6 +316,10 @@ TODO
 - `puter.fs.replica.debug` - toggle debug widget and logs, may be merged with `puter.debugMode` in the future
 - `puter.fs.replica.fs_tree` - the in-memory FS Tree, should only be used by internal code
 
+### Websocket Lifecycle & Events
+
+TODO
+
 ### Code Location
 
 - `src/puter-js/src/modules/FileSystem/replica` - puter-js client
