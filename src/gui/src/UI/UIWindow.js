@@ -3637,9 +3637,8 @@ $.fn.makeWindowVisible = function(options){
             if($(this).attr('data-is_panel') === '1'){
                 $('.toolbar').css('left', `calc(50% - 200px)`);
 
-                if(window.taskbar_position === 'bottom'){
-                    $('.taskbar').css('left', `calc(50% - 200px)`);
-                }
+                // update taskbar position
+                update_taskbar_position(window.taskbar_position);
             }
         }
     })
@@ -3656,9 +3655,8 @@ $.fn.makeWindowInvisible = async function(options) {
             if($(this).attr('data-is_panel') === '1'){
                 $('.toolbar').css('left', `calc(50%)`);
 
-                if(window.taskbar_position === 'bottom'){
-                    $('.taskbar').css('left', `calc(50%)`);
-                }
+                // update taskbar position
+                update_taskbar_position(window.taskbar_position);
             }
         }
     })
