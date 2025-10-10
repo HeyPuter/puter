@@ -242,7 +242,7 @@ class WebServerService extends BaseService {
             if ( svc_devConsole ) svc_devConsole.add_widget(this.startup_widget);
         } else {
             const svc_devConsole = this.services.get('dev-console', { optional: true });
-            svc_devConsole.notice({
+            if ( svc_devConsole ) svc_devConsole.notice({
                 colors: { bg: '38;2;0;0;0;48;2;0;202;252;1', bginv: '38;2;0;202;252' },
                 title: 'Puter is live!',
                 lines,
