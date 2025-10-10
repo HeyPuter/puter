@@ -3634,10 +3634,12 @@ $.fn.makeWindowVisible = function(options){
             });
 
             // if sidepanel, shift desktop toolbar to the left 
-            // only if taskbar is at the bottom
-            if($(this).attr('data-is_panel') === '1' && window.taskbar_position === 'bottom'){
+            if($(this).attr('data-is_panel') === '1'){
                 $('.toolbar').css('left', `calc(50% - 200px)`);
-                $('.taskbar').css('left', `calc(50% - 200px)`);
+
+                if(window.taskbar_position === 'bottom'){
+                    $('.taskbar').css('left', `calc(50% - 200px)`);
+                }
             }
         }
     })
@@ -3651,9 +3653,12 @@ $.fn.makeWindowInvisible = async function(options) {
                 'data-is_visible': '0',
             });
             // if sidepanel, shift desktop toolbar to the right
-            if($(this).attr('data-is_panel') === '1' && window.taskbar_position === 'bottom'){
+            if($(this).attr('data-is_panel') === '1'){
                 $('.toolbar').css('left', `calc(50%)`);
-                $('.taskbar').css('left', `calc(50%)`);
+
+                if(window.taskbar_position === 'bottom'){
+                    $('.taskbar').css('left', `calc(50%)`);
+                }
             }
         }
     })
