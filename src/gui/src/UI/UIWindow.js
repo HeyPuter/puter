@@ -3633,8 +3633,9 @@ $.fn.makeWindowVisible = function(options){
                 'data-is_visible': '1',
             });
 
-            // if sidepanel, shift desktop toolbar to the left
-            if($(this).attr('data-is_panel') === '1'){
+            // if sidepanel, shift desktop toolbar to the left 
+            // only if taskbar is at the bottom
+            if($(this).attr('data-is_panel') === '1' && window.taskbar_position === 'bottom'){
                 $('.toolbar').css('left', `calc(50% - 200px)`);
                 $('.taskbar').css('left', `calc(50% - 200px)`);
             }
@@ -3650,7 +3651,7 @@ $.fn.makeWindowInvisible = async function(options) {
                 'data-is_visible': '0',
             });
             // if sidepanel, shift desktop toolbar to the right
-            if($(this).attr('data-is_panel') === '1'){
+            if($(this).attr('data-is_panel') === '1' && window.taskbar_position === 'bottom'){
                 $('.toolbar').css('left', `calc(50%)`);
                 $('.taskbar').css('left', `calc(50%)`);
             }
@@ -4008,10 +4009,17 @@ window.update_maximized_window_for_taskbar = function(el_window) {
             'height': height + 'px',
         });
     } else if (position === 'left') {
+        let width = window.innerWidth - window.taskbar_height - 1;
+
+        // any open panels?
+        if($('.window[data-is_panel="1"][data-is_visible="1"]').length > 0){
+            width = `calc(100% - ${window.taskbar_height + 1}px - 400px - 1px)`;
+        }
+
         $(el_window).css({
             'top': window.toolbar_height + 'px',
             'left': window.taskbar_height + 1 + 'px',
-            'width': `calc(100% - ${window.taskbar_height + 1}px)`,
+            'width': width,
             'height': `calc(100% - ${window.toolbar_height}px)`,
         });
     } else if (position === 'right') {
