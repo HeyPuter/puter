@@ -4009,10 +4009,17 @@ window.update_maximized_window_for_taskbar = function(el_window) {
             'height': height + 'px',
         });
     } else if (position === 'left') {
+        let width = window.innerWidth - window.taskbar_height - 1;
+
+        // any open panels?
+        if($('.window[data-is_panel="1"][data-is_visible="1"]').length > 0){
+            width = `calc(100% - ${window.taskbar_height + 1}px - 400px - 1px)`;
+        }
+
         $(el_window).css({
             'top': window.toolbar_height + 'px',
             'left': window.taskbar_height + 1 + 'px',
-            'width': `calc(100% - ${window.taskbar_height + 1}px)`,
+            'width': width,
             'height': `calc(100% - ${window.toolbar_height}px)`,
         });
     } else if (position === 'right') {
