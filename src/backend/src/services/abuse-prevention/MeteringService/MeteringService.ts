@@ -1,12 +1,13 @@
 // @ts-ignore
-import type KVStoreInterface from "../../../modules/kvstore/KVStoreInterfaceService.js";
-// @ts-ignore
 import { SystemActorType, type Actor } from "../../auth/Actor.js";
 // @ts-ignore
 import type { AlarmService } from "../../../modules/core/AlarmService.js";
 // @ts-ignore
+import type { DBKVStore } from '../../repositories/DBKVStore/DBKVStore.mjs';
+// @ts-ignore
 import type { SUService } from "../../SUService.js";
 import { COST_MAPS } from "./costMaps/index.js";
+import { SUB_POLICIES } from "./subPolicies/index.js";
 interface ActorWithType extends Actor {
     type: {
         app: { uid: string }
@@ -26,14 +27,6 @@ interface UsageByType {
     [serviceName: string]: number
 }
 
-
-// NOTE: create daily and hourly entry buckets that expire at given ranges 2 days for hours, 6 months for daily
-// Store consumed microcents whenever a consumption event goes through
-// keep timestamp of consumption last updated to limit burst usage
-
-const POLICY_TYPES = {
-    'free': {} // TODO DS: define what needs to go here
-}
 const GLOBAL_APP_KEY = 'os-global'; // TODO DS: this should be loaded from config or db eventually
 const METRICS_PREFIX = 'metering';
 const POLICY_PREFIX = 'policy';
@@ -44,16 +37,16 @@ const PERIOD_ESCAPE = '_dot_'; // to replace dots in usage types for kvstore pat
  */
 export class MeteringAndBillingService {
 
-    #kvClientWrapper: KVStoreInterface
+    #kvClientWrapper: DBKVStore
     #superUserService: SUService
     #alarmService: AlarmService
-    constructor({ kvClientWrapper, superUserService, alarmService }: { kvClientWrapper: KVStoreInterface, superUserService: SUService, alarmService: AlarmService }) {
+    constructor({ kvClientWrapper, superUserService, alarmService }: { kvClientWrapper: DBKVStore, superUserService: SUService, alarmService: AlarmService }) {
         this.#superUserService = superUserService;
         this.#kvClientWrapper = kvClientWrapper;
         this.#alarmService = alarmService;
     }
 
-    utilRecordUsageObject(trackedUsageObject: Record<string, number>, actor: Actor, modelPrefix: string) {
+    utilRecordUsageObject(trackedUsageObject: Record<string, number>, actor: ActorWithType, modelPrefix: string) {
         Object.entries(trackedUsageObject).forEach(([usageKind, amount]) => {
             this.incrementUsage(actor, `${modelPrefix}:${usageKind}`, amount);
         });
@@ -146,7 +139,6 @@ export class MeteringAndBillingService {
             });
             return { total: 0 } as UsageByType;
         }
-        // TODO DS: this should increment the cost for the given type of operation, and the total cost for daily, weekly and monthly usage
     }
 
     async getActorCurrentMonthUsageDetails(actor: ActorWithType) {
@@ -182,31 +174,14 @@ export class MeteringAndBillingService {
         })
     }
 
-    async getCurrentMonthsConsumedCredit(actor: ActorWithType) {
-        if (!actor.type?.user?.uuid) {
-            throw new Error('Actor must be a user to get consumed credits');
-        }
-        const currentMonth = this.#getMonthYearString();
-        // batch get actor usage for the month, and actor policy, and actor policy addons to then compute cost
-        const keys = [
-            `${METRICS_PREFIX}:actor:${actor.type.user.uuid}:${currentMonth}`,
-            `${POLICY_PREFIX}:actor:${actor.type.user.uuid}:addons`,
-        ]
-        return this.#superUserService.sudo(async () => {
-            const [usage, addons] = await this.#kvClientWrapper.get({ key: keys }) as [UsageByType | null, PolicyAddOns | null];
-            return usage?.total || 0;
-        })
-    }
-
-    async getActorPolicy(actor: ActorWithType) {
+    async getActorPolicy(actor: ActorWithType): Promise<(keyof typeof SUB_POLICIES) | null> {
         if (!actor.type?.user.uuid) {
             throw new Error('Actor must be a user to get policy');
         }
         const key = `${POLICY_PREFIX}:actor:${actor.type.user.uuid}`;
         return this.#superUserService.sudo(async () => {
             const policy = await this.#kvClientWrapper.get({ key });
-            policy
-            return (policy || 'free') as keyof typeof POLICY_TYPES;
+            return policy as (keyof typeof SUB_POLICIES) || null;
         })
     }
 
@@ -236,7 +211,7 @@ export class MeteringAndBillingService {
         })
 
     }
-    handlePolicyPurchase(actor: ActorWithType, policyType: keyof typeof POLICY_TYPES) {
+    handlePolicyPurchase(actor: ActorWithType, policyType: keyof typeof SUB_POLICIES) {
 
 
         // TODO DS: this should leverage extensions to call billing implementations
