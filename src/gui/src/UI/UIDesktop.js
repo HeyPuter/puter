@@ -1548,7 +1548,6 @@ async function UIDesktop(options) {
     };
 
     // hovering over a hidden toolbar will show it
-    console.log('.toolbar-hidden mouseenter');
     $(document).on('mouseenter', '.toolbar-hidden', function () {
         // if a window is being dragged, don't show the toolbar
         if(window.a_window_is_being_dragged)
@@ -1574,7 +1573,6 @@ async function UIDesktop(options) {
     });
 
     // hovering over a visible toolbar will show it and cancel hiding
-    console.log('.toolbar:not(.toolbar-hidden) mouseenter');
     $(document).on('mouseenter', '.toolbar:not(.toolbar-hidden)', function () {
         // if a window is being dragged, don't show the toolbar
         if(window.a_window_is_being_dragged)
@@ -1588,7 +1586,6 @@ async function UIDesktop(options) {
         isMouseNearToolbar = true;
     });
 
-    console.log('.toolbar mouseenter');
     $(document).on('mouseenter', '.toolbar', function () {
         if(window.is_fullpage_mode)
             $('.toolbar').focus();
