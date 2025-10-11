@@ -1,27 +1,28 @@
 /*
  * Copyright (C) 2024-present Puter Technologies Inc.
- * 
+ *
  * This file is part of Puter.
- * 
+ *
  * Puter is free software: you can redistribute it and/or modify
  * it under the terms of the GNU Affero General Public License as published
  * by the Free Software Foundation, either version 3 of the License, or
  * (at your option) any later version.
- * 
+ *
  * This program is distributed in the hope that it will be useful,
  * but WITHOUT ANY WARRANTY; without even the implied warranty of
  * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
  * GNU Affero General Public License for more details.
- * 
+ *
  * You should have received a copy of the GNU Affero General Public License
  * along with this program.  If not, see <https://www.gnu.org/licenses/>.
  */
 
 // METADATA // {"ai-commented":{"service":"claude"}}
 const BaseService = require("../../services/BaseService");
-const { TypedValue } = require("../../services/drivers/meta/Runtime");
+const { Context } = require("../../util/context");
 const OpenAIUtil = require("./lib/OpenAIUtil");
 
+/** @type {import('../../services/abuse-prevention/MeteringService/MeteringService').MeteringAndBillingService} */
 
 /**
 * Service class for integrating with Groq AI's language models.
@@ -33,17 +34,18 @@ const OpenAIUtil = require("./lib/OpenAIUtil");
 * @extends BaseService
 */
 class GroqAIService extends BaseService {
+    /** @type {import('../../services/abuse-prevention/MeteringService/MeteringService').MeteringAndBillingService} */
+    meteringAndBillingService;
     static MODULES = {
         Groq: require('groq-sdk'),
-    }
-
+    };
 
     /**
     * Initializes the GroqAI service by setting up the Groq client and registering with the AI chat provider
     * @returns {Promise<void>}
     * @private
     */
-    async _init () {
+    async _init() {
         const Groq = require('groq-sdk');
         this.client = new Groq({
             apiKey: this.config.apiKey,
@@ -54,26 +56,26 @@ class GroqAIService extends BaseService {
             service_name: this.service_name,
             alias: true,
         });
+        this.meteringAndBillingService = this.services.get('meteringService').meteringAndBillingService; // TODO DS: move to proper extensions
     }
-
 
     /**
     * Returns the default model ID for the Groq AI service
     * @returns {string} The default model ID 'llama-3.1-8b-instant'
     */
-    get_default_model () {
+    get_default_model() {
         return 'llama-3.1-8b-instant';
     }
-    
+
     static IMPLEMENTS = {
         'puter-chat-completion': {
             /**
              * Returns a list of available models and their details.
              * See AIChatService for more information.
-             * 
+             *
              * @returns Promise<Array<Object>> Array of model details
              */
-            async models () {
+            async models() {
                 return await this.models_();
             },
             /**
@@ -82,7 +84,7 @@ class GroqAIService extends BaseService {
             * @description Retrieves all available model IDs and their aliases,
             * flattening them into a single array of strings that can be used for model selection
             */
-            async list () {
+            async list() {
                 // They send: { "object": "list", data }
                 const funny_wrapper = await this.client.models.list();
                 return funny_wrapper.data;
@@ -95,7 +97,7 @@ class GroqAIService extends BaseService {
             * @param {boolean} [options.stream] - Whether to stream the response
             * @returns {TypedValue|Object} Returns either a TypedValue with streaming response or completion object with usage stats
             */
-            async complete ({ messages, model, stream, tools, max_tokens, temperature }) {
+            async complete({ messages, model, stream, tools, max_tokens, temperature }) {
                 model = model ?? this.get_default_model();
 
                 messages = await OpenAIUtil.process_input_messages(messages);
@@ -106,42 +108,52 @@ class GroqAIService extends BaseService {
                     }
                 }
 
+                const actor = Context.get('actor');
+
                 const completion = await this.client.chat.completions.create({
                     messages,
                     model,
                     stream,
                     tools,
                     max_completion_tokens: max_tokens, // max_tokens has been deprecated
-                    temperature
+                    temperature,
                 });
+
+                const modelDetails = (await this.models_()).find(m => m.id === model);
 
                 return OpenAIUtil.handle_completion_output({
                     deviations: {
                         index_usage_from_stream_chunk: chunk =>
                             chunk.x_groq?.usage,
                     },
-                    usage_calculator: OpenAIUtil.create_usage_calculator({
-                        model_details: (await this.models_()).find(m => m.id === model),
-                    }),
-                    stream, completion,
+                    usage_calculator: ({ usage }) => {
+                        const trackedUsage = OpenAIUtil.extractMeteredUsage(usage);
+                        this.meteringAndBillingService.utilRecordUsageObject(trackedUsage, actor, `groq:${modelDetails.id}`);
+                        // Still return legacy cost calculation for compatibility
+                        const legacyCostCalculator = OpenAIUtil.create_usage_calculator({
+                            model_details: modelDetails,
+                        });
+                        return legacyCostCalculator({ usage });
+                    },
+                    stream,
+                    completion,
                 });
-            }
-        }
+            },
+        },
     };
-
 
     /**
     * Returns an array of available AI models with their specifications
-    * 
+    *
     * Each model object contains:
     * - id: Unique identifier for the model
     * - name: Human-readable name
     * - context: Maximum context window size in tokens
     * - cost: Pricing details including currency and token rates
-    * 
+    *
     * @returns {Array<Object>} Array of model specification objects
     */
-    models_ () {
+    models_() {
         return [
             {
                 id: 'gemma2-9b-it',
@@ -164,7 +176,7 @@ class GroqAIService extends BaseService {
                     tokens: 1_000_000,
                     input: 7,
                     output: 7,
-                }
+                },
             },
             {
                 id: 'llama3-groq-70b-8192-tool-use-preview',
@@ -196,8 +208,8 @@ class GroqAIService extends BaseService {
                     "currency": "usd-cents",
                     "tokens": 1000000,
                     "input": 59,
-                    "output": 79
-                }
+                    "output": 79,
+                },
             },
             {
                 // This was only available on their Discord, not
@@ -209,8 +221,8 @@ class GroqAIService extends BaseService {
                     "currency": "usd-cents",
                     "tokens": 1000000,
                     "input": 59,
-                    "output": 99
-                }
+                    "output": 99,
+                },
             },
             {
                 "id": "llama-3.1-8b-instant",
@@ -220,7 +232,7 @@ class GroqAIService extends BaseService {
                     "currency": "usd-cents",
                     "tokens": 1000000,
                     "input": 5,
-                    "output": 8
+                    "output": 8,
                 },
                 max_tokens: 131072,
             },
@@ -234,7 +246,7 @@ class GroqAIService extends BaseService {
                     input: 20,
                     output: 20,
                 },
-                max_tokens:1024,
+                max_tokens: 1024,
             },
             {
                 id: 'meta-llama/llama-prompt-guard-2-86m',
@@ -246,7 +258,7 @@ class GroqAIService extends BaseService {
                     input: 4,
                     output: 4,
                 },
-                max_tokens:512,
+                max_tokens: 512,
             },
             {
                 "id": "llama-3.2-1b-preview",
@@ -256,7 +268,7 @@ class GroqAIService extends BaseService {
                     "currency": "usd-cents",
                     "tokens": 1000000,
                     "input": 4,
-                    "output": 4
+                    "output": 4,
                 },
             },
             {
@@ -267,8 +279,8 @@ class GroqAIService extends BaseService {
                     "currency": "usd-cents",
                     "tokens": 1000000,
                     "input": 6,
-                    "output": 6
-                }
+                    "output": 6,
+                },
             },
             {
                 id: 'llama-3.2-11b-vision-preview',
@@ -278,7 +290,7 @@ class GroqAIService extends BaseService {
                     tokens: 1_000_000,
                     input: 18,
                     output: 18,
-                }
+                },
             },
             {
                 id: 'llama-3.2-90b-vision-preview',
@@ -298,8 +310,8 @@ class GroqAIService extends BaseService {
                     "currency": "usd-cents",
                     "tokens": 1000000,
                     "input": 59,
-                    "output": 79
-                }
+                    "output": 79,
+                },
             },
             {
                 "id": "llama3-8b-8192",
@@ -309,8 +321,8 @@ class GroqAIService extends BaseService {
                     "currency": "usd-cents",
                     "tokens": 1000000,
                     "input": 5,
-                    "output": 8
-                }
+                    "output": 8,
+                },
             },
             {
                 "id": "mixtral-8x7b-32768",
@@ -320,8 +332,8 @@ class GroqAIService extends BaseService {
                     "currency": "usd-cents",
                     "tokens": 1000000,
                     "input": 24,
-                    "output": 24
-                }
+                    "output": 24,
+                },
             },
             {
                 "id": "llama-guard-3-8b",
@@ -331,9 +343,9 @@ class GroqAIService extends BaseService {
                     "currency": "usd-cents",
                     "tokens": 1000000,
                     "input": 20,
-                    "output": 20
-                }
-            }
+                    "output": 20,
+                },
+            },
         ];
     }
 }

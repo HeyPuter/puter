@@ -23,6 +23,9 @@ const BaseService = require("../../services/BaseService");
 const { TypedValue } = require("../../services/drivers/meta/Runtime");
 const { nou } = require("../../util/langutil");
 const { TeePromise } = require('@heyputer/putility').libs.promise;
+const { Together } = require('together-ai');
+const OpenAIUtil = require("./lib/OpenAIUtil");
+const { Context } = require("../../util/context");
 
 /**
 * TogetherAIService class provides integration with Together AI's language models.
@@ -32,8 +35,11 @@ const { TeePromise } = require('@heyputer/putility').libs.promise;
 * @extends BaseService
 */
 class TogetherAIService extends BaseService {
+    /**
+    * @type {import('../../services/abuse-prevention/MeteringService/MeteringService').MeteringAndBillingService}
+    */
+    meteringAndBillingService;
     static MODULES = {
-        ['together-ai']: require('together-ai'),
         kv: globalThis.kv,
         uuidv4: require('uuid').v4,
     };
@@ -45,8 +51,6 @@ class TogetherAIService extends BaseService {
     * @private
     */
     async _init() {
-        const require = this.require;
-        const Together = require('together-ai');
         this.together = new Together({
             apiKey: this.config.apiKey,
         });
@@ -57,6 +61,7 @@ class TogetherAIService extends BaseService {
             service_name: this.service_name,
             alias: true,
         });
+        this.meteringAndBillingService = this.services.get('meteringService').meteringAndBillingService;
     }
 
     /**
@@ -99,11 +104,16 @@ class TogetherAIService extends BaseService {
                     throw new Error('Model Fallback Test 1');
                 }
 
+                /** @type {import('together-ai/streaming.mjs').Stream<import("together-ai/resources/chat/completions.mjs").ChatCompletionChunk>} */
                 const completion = await this.together.chat.completions.create({
                     model: model ?? this.get_default_model(),
                     messages: messages,
                     stream,
                 });
+
+                // Metering integration
+                const actor = Context.get('actor');
+                const modelId = model ?? this.get_default_model();
 
                 if ( stream ) {
                     let usage_promise = new TeePromise();
@@ -118,10 +128,14 @@ class TogetherAIService extends BaseService {
                         for await ( const chunk of completion ) {
                             // DRY: same as openai
                             if ( chunk.usage ) {
+                                // TODO DS: get rid of legacy usage
                                 usage_promise.resolve({
                                     input_tokens: chunk.usage.prompt_tokens,
                                     output_tokens: chunk.usage.completion_tokens,
                                 });
+                                // Metering: record usage for streamed chunks
+                                const trackedUsage = OpenAIUtil.extractMeteredUsage(chunk.usage);
+                                this.meteringAndBillingService.utilRecordUsageObject(trackedUsage, actor, modelId);
                             }
 
                             if ( chunk.choices.length < 1 ) continue;
@@ -151,6 +165,8 @@ class TogetherAIService extends BaseService {
                     input_tokens: completion.usage.prompt_tokens,
                     output_tokens: completion.usage.completion_tokens,
                 };
+                // Metering: record usage for non-streamed completion
+                this.meteringAndBillingService.utilRecordUsageObject(completion.usage, actor, modelId);
                 return ret;
             },
         },

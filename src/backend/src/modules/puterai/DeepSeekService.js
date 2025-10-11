@@ -1,55 +1,58 @@
 /*
  * Copyright (C) 2024-present Puter Technologies Inc.
- * 
+ *
  * This file is part of Puter.
- * 
+ *
  * Puter is free software: you can redistribute it and/or modify
  * it under the terms of the GNU Affero General Public License as published
  * by the Free Software Foundation, either version 3 of the License, or
  * (at your option) any later version.
- * 
+ *
  * This program is distributed in the hope that it will be useful,
  * but WITHOUT ANY WARRANTY; without even the implied warranty of
  * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
  * GNU Affero General Public License for more details.
- * 
+ *
  * You should have received a copy of the GNU Affero General Public License
  * along with this program.  If not, see <https://www.gnu.org/licenses/>.
  */
 
 // METADATA // {"ai-commented":{"service":"claude"}}
 const BaseService = require("../../services/BaseService");
+const { Context } = require("../../util/context");
 const OpenAIUtil = require("./lib/OpenAIUtil");
 const dedent = require('dedent');
 
 /**
-* DeepSeekService class - Provides integration with X.AI's API for chat completions
+* DeepSeekService class - Provides integration with DeepSeek's API for chat completions
 * Extends BaseService to implement the puter-chat-completion interface.
 * Handles model management, message adaptation, streaming responses,
-* and usage tracking for X.AI's language models like Grok.
+* and usage tracking for DeepSeek's language models like DeepSeek Chat and Reasoner.
 * @extends BaseService
 */
 class DeepSeekService extends BaseService {
     static MODULES = {
         openai: require('openai'),
-    }
+    };
 
-
+    /**
+    * @type {import('../../services/abuse-prevention/MeteringService/MeteringService').MeteringAndBillingService}
+    */
+    meteringAndBillingService;
     /**
     * Gets the system prompt used for AI interactions
     * @returns {string} The base system prompt that identifies the AI as running on Puter
     */
-    adapt_model (model) {
+    adapt_model(model) {
         return model;
     }
-    
 
     /**
     * Initializes the XAI service by setting up the OpenAI client and registering with the AI chat provider
     * @private
     * @returns {Promise<void>} Resolves when initialization is complete
     */
-    async _init () {
+    async _init() {
         this.openai = new this.modules.openai.OpenAI({
             apiKey: this.global_config.services.deepseek.apiKey,
             baseURL: 'https://api.deepseek.com',
@@ -60,15 +63,15 @@ class DeepSeekService extends BaseService {
             service_name: this.service_name,
             alias: true,
         });
+        this.meteringAndBillingService = this.services.get('meteringService').meteringAndBillingService;
     }
 
-
     /**
-    * Returns the default model identifier for the XAI service
-    * @returns {string} The default model ID 'grok-beta'
+    * Returns the default model identifier for the DeepSeek service
+    * @returns {string} The default model ID 'deepseek-chat'
     */
-    get_default_model () {
-        return 'grok-beta';
+    get_default_model() {
+        return 'deepseek-chat';
     }
 
     static IMPLEMENTS = {
@@ -76,10 +79,10 @@ class DeepSeekService extends BaseService {
             /**
              * Returns a list of available models and their details.
              * See AIChatService for more information.
-             * 
+             *
              * @returns Promise<Array<Object>> Array of model details
              */
-            async models () {
+            async models() {
                 return await this.models_();
             },
             /**
@@ -88,7 +91,7 @@ class DeepSeekService extends BaseService {
             * @description Retrieves all available model IDs and their aliases,
             * flattening them into a single array of strings that can be used for model selection
             */
-            async list () {
+            async list() {
                 const models = await this.models_();
                 const model_names = [];
                 for ( const model of models ) {
@@ -104,7 +107,7 @@ class DeepSeekService extends BaseService {
              * AI Chat completion method.
              * See AIChatService for more details.
              */
-            async complete ({ messages, stream, model, tools, max_tokens, temperature }) {
+            async complete({ messages, stream, model, tools, max_tokens, temperature }) {
                 model = this.adapt_model(model);
 
                 messages = await OpenAIUtil.process_input_messages(messages);
@@ -114,7 +117,7 @@ class DeepSeekService extends BaseService {
                         message.content = "";
                     }
                 }
-                
+
                 // Function calling is just broken on DeepSeek - it never awknowledges
                 // the tool results and instead keeps calling the function over and over.
                 // (see https://github.com/deepseek-ai/DeepSeek-V3/issues/15)
@@ -130,17 +133,17 @@ class DeepSeekService extends BaseService {
 
                     Tool call ${message.tool_call_id} returned: ${message.content}.
                 `);
-                for ( let i=messages.length-1; i >= 0 ; i-- ) {
+                for ( let i = messages.length - 1; i >= 0 ; i-- ) {
                     const message = messages[i];
                     if ( message.role === 'tool' ) {
-                        messages.splice(i+1, 0, {
+                        messages.splice(i + 1, 0, {
                             role: 'system',
                             content: [
                                 {
                                     type: 'text',
                                     text: TOOL_TEXT(message),
-                                }
-                            ]
+                                },
+                            ],
                         });
                     }
                 }
@@ -156,14 +159,26 @@ class DeepSeekService extends BaseService {
                         stream_options: { include_usage: true },
                     } : {}),
                 });
-                
-                return OpenAIUtil.handle_completion_output({
-                    stream, completion,
-                });
-            }
-        }
-    }
 
+                // Metering integration now handled via usage_calculator in OpenAIUtil.handle_completion_output
+                const actor = Context.get('actor');
+                const modelDetails = (await this.models_()).find(m => m.id === (model ?? this.get_default_model()));
+
+                return OpenAIUtil.handle_completion_output({
+                    usage_calculator: ({ usage }) => {
+                        const trackedUsage = OpenAIUtil.extractMeteredUsage(usage);
+                        this.meteringAndBillingService.utilRecordUsageObject(trackedUsage, actor, `deepseek:${modelDetails.id}`);
+                        const legacyCostCalculator = OpenAIUtil.create_usage_calculator({
+                            model_details: modelDetails,
+                        });
+                        return legacyCostCalculator({ usage });
+                    },
+                    stream,
+                    completion,
+                });
+            },
+        },
+    };
 
     /**
     * Retrieves available AI models and their specifications
@@ -174,7 +189,7 @@ class DeepSeekService extends BaseService {
     *   - cost: Pricing information object with currency and rates
     * @private
     */
-    async models_ () {
+    async models_() {
         return [
             {
                 id: 'deepseek-chat',
@@ -199,7 +214,7 @@ class DeepSeekService extends BaseService {
                     output: 168,
                 },
                 max_tokens: 64000,
-            }
+            },
         ];
     }
 }
@@ -207,4 +222,3 @@ class DeepSeekService extends BaseService {
 module.exports = {
     DeepSeekService,
 };
-

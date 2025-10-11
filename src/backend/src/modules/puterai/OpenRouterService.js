@@ -142,7 +142,12 @@ class OpenRouterService extends BaseService {
                 const modelDetails =  (await this.models_()).find(m => m.id === 'openrouter:' + model);
                 return OpenAIUtil.handle_completion_output({
                     usage_calculator: ({ usage }) => {
-                        const trackedUsage = OpenAIUtil.extractMeteredUsage(usage);
+                        // custom open router logic because they're pricing are weird
+                        const trackedUsage = {
+                            prompt: usage.prompt_tokens ?? 0,
+                            completion: usage.completion_tokens ?? 0,
+                            input_cache_read: usage.prompt_tokens_details.cached_tokens ?? 0,
+                        };
                         this.meteringAndBillingService.utilRecordUsageObject(trackedUsage, actor, modelDetails.id);
                         const legacyCostCalculator = OpenAIUtil.create_usage_calculator({
                             model_details: modelDetails,

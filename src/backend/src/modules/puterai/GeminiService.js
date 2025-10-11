@@ -3,14 +3,21 @@ const { GoogleGenerativeAI } = require('@google/generative-ai');
 const GeminiSquareHole = require("./lib/GeminiSquareHole");
 const putility = require("@heyputer/putility");
 const FunctionCalling = require("./lib/FunctionCalling");
+const { Context } = require("../../util/context");
 
 class GeminiService extends BaseService {
+    /**
+    * @type {import('../../services/abuse-prevention/MeteringService/MeteringService').MeteringAndBillingService}
+    */
+    meteringAndBillingService = undefined;
+
     async _init() {
         const svc_aiChat = this.services.get('ai-chat');
         svc_aiChat.register_provider({
             service_name: this.service_name,
             alias: true,
         });
+        this.meteringAndBillingService = this.services.get('meteringService').meteringAndBillingService;
     }
 
     static IMPLEMENTS = {
@@ -33,9 +40,10 @@ class GeminiService extends BaseService {
             async complete({ messages, stream, model, tools, max_tokens, temperature }) {
                 tools = FunctionCalling.make_gemini_tools(tools);
 
+                model = model ?? 'gemini-2.0-flash';
                 const genAI = new GoogleGenerativeAI(this.config.apiKey);
                 const genModel = genAI.getGenerativeModel({
-                    model: model ?? 'gemini-2.0-flash',
+                    model,
                     tools,
                     generationConfig: {
                         temperature: temperature,                   // Set temperature (0.0 to 1.0). Defaults to 0.7
@@ -59,6 +67,9 @@ class GeminiService extends BaseService {
                     model_details: (await this.models_()).find(m => m.id === model),
                 });
 
+                // Metering integration
+                const actor = Context.get('actor');
+                const meteringPrefix = `gemini:${model}`;
                 if ( stream ) {
                     const genResult = await chat.sendMessageStream(last_message_parts);
                     const stream = genResult.stream;
@@ -68,9 +79,16 @@ class GeminiService extends BaseService {
                         stream: true,
                         init_chat_stream:
                             GeminiSquareHole.create_chat_stream_handler({
-                                stream, usage_promise,
+                                stream,
+                                usage_promise,
                             }),
                         usage_promise: usage_promise.then(usageMetadata => {
+                            const trackedUsage = {
+                                prompt_tokens: usageMetadata.promptTokenCount - (usageMetadata.cachedContentTokenCount || 0),
+                                completion_tokens: usageMetadata.candidatesTokenCount,
+                                cached_tokens: usageMetadata.cachedContentTokenCount || 0,
+                            };
+                            this.meteringAndBillingService.utilRecordUsageObject(trackedUsage, actor, meteringPrefix);
                             return usage_calculator({ usageMetadata });
                         }),
                     };
@@ -83,6 +101,13 @@ class GeminiService extends BaseService {
 
                     const result = { message };
                     result.usage = usage_calculator(genResult.response);
+                    // TODO DS: dedup this logic
+                    const trackedUsage = {
+                        prompt_tokens: genResult.response.usageMetadata.promptTokenCount - (genResult.cachedContentTokenCount || 0),
+                        completion_tokens: genResult.response.usageMetadata.candidatesTokenCount,
+                        cached_tokens: genResult.response.usageMetadata.cachedContentTokenCount || 0,
+                    };
+                    this.meteringAndBillingService.utilRecordUsageObject(trackedUsage, actor, meteringPrefix);
                     return result;
                 }
             },

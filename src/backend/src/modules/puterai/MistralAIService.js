@@ -1,18 +1,18 @@
 /*
  * Copyright (C) 2024-present Puter Technologies Inc.
- * 
+ *
  * This file is part of Puter.
- * 
+ *
  * Puter is free software: you can redistribute it and/or modify
  * it under the terms of the GNU Affero General Public License as published
  * by the Free Software Foundation, either version 3 of the License, or
  * (at your option) any later version.
- * 
+ *
  * This program is distributed in the hope that it will be useful,
  * but WITHOUT ANY WARRANTY; without even the implied warranty of
  * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
  * GNU Affero General Public License for more details.
- * 
+ *
  * You should have received a copy of the GNU Affero General Public License
  * along with this program.  If not, see <https://www.gnu.org/licenses/>.
  */
@@ -21,6 +21,7 @@
 const BaseService = require("../../services/BaseService");
 const axios = require('axios');
 const OpenAIUtil = require("./lib/OpenAIUtil");
+const { Context } = require("../../util/context");
 
 /**
 * MistralAIService class extends BaseService to provide integration with the Mistral AI API.
@@ -30,20 +31,22 @@ const OpenAIUtil = require("./lib/OpenAIUtil");
 * for different models and implements the puter-chat-completion interface.
 */
 class MistralAIService extends BaseService {
+    /** @type {import('../../services/abuse-prevention/MeteringService/MeteringService').MeteringAndBillingService} */
+    meteringAndBillingService;
     static MODULES = {
         '@mistralai/mistralai': require('@mistralai/mistralai'),
-    }
+    };
     /**
     * Initializes the service's cost structure for different Mistral AI models.
     * Sets up pricing information for various models including token costs for input/output.
     * Each model entry specifies currency (usd-cents) and costs per million tokens.
     * @private
     */
-    _construct () {
+    _construct() {
         this.costs_ = {
             'mistral-large-latest': {
                 aliases: ['mistral-large-2411'],
-                cost:{
+                cost: {
                     currency: 'usd-cents',
                     tokens: 1_000_000,
                     input: 200,
@@ -233,7 +236,7 @@ class MistralAIService extends BaseService {
     * Each model entry specifies currency (USD cents) and costs per million tokens.
     * @private
     */
-    async _init () {
+    async _init() {
         const require = this.require;
         const { Mistral } = require('@mistralai/mistralai');
         this.api_base_url = 'https://api.mistral.ai/v1';
@@ -247,6 +250,8 @@ class MistralAIService extends BaseService {
             alias: true,
         });
 
+        this.meteringAndBillingService = this.services.get('meteringService').meteringAndBillingService;
+
         // TODO: make this event-driven so it doesn't hold up boot
         await this.populate_models_();
     }
@@ -257,24 +262,26 @@ class MistralAIService extends BaseService {
     * @private
     * @returns {Promise<void>}
     */
-    async populate_models_ () {
+    async populate_models_() {
         const resp = await axios({
             method: 'get',
             url: this.api_base_url + '/models',
             headers: {
-                Authorization: `Bearer ${this.config.apiKey}`
-            }
-        })
+                Authorization: `Bearer ${this.config.apiKey}`,
+            },
+        });
 
         const response_json = resp.data;
         const models = response_json.data;
         this.models_array_ = [];
         for ( const api_model of models ) {
-            
+
             let cost = this.costs_[api_model.id];
-            if ( ! cost ) for ( const alias of api_model.aliases ) {
-                cost = this.costs_[alias];
-                if ( cost ) break;
+            if ( ! cost ) {
+                for ( const alias of api_model.aliases ) {
+                    cost = this.costs_[alias];
+                    if ( cost ) break;
+                }
             }
             if ( ! cost ) continue;
             const model = {
@@ -299,7 +306,7 @@ class MistralAIService extends BaseService {
     * @async
     * @returns {void}
     */
-    get_default_model () {
+    get_default_model() {
         return 'mistral-large-latest';
     }
     static IMPLEMENTS = {
@@ -307,10 +314,10 @@ class MistralAIService extends BaseService {
             /**
              * Returns a list of available models and their details.
              * See AIChatService for more information.
-             * 
+             *
              * @returns Promise<Array<Object>> Array of model details
              */
-            async models () {
+            async models() {
                 return this.models_array_;
             },
 
@@ -320,7 +327,7 @@ class MistralAIService extends BaseService {
             * @description Retrieves all available model IDs and their aliases,
             * flattening them into a single array of strings that can be used for model selection
             */
-            async list () {
+            async list() {
                 return this.models_array_.map(m => m.id);
             },
 
@@ -328,7 +335,7 @@ class MistralAIService extends BaseService {
              * AI Chat completion method.
              * See AIChatService for more details.
              */
-            async complete ({ messages, stream, model, tools, max_tokens, temperature }) {
+            async complete({ messages, stream, model, tools, max_tokens, temperature }) {
 
                 messages = await OpenAIUtil.process_input_messages(messages);
                 for ( const message of messages ) {
@@ -344,6 +351,7 @@ class MistralAIService extends BaseService {
 
                 console.log('MESSAGES TO MISTRAL', messages);
 
+                const actor = Context.get('actor');
                 const completion = await this.client.chat[
                     stream ? 'stream' : 'complete'
                 ]({
@@ -351,9 +359,11 @@ class MistralAIService extends BaseService {
                     ...(tools ? { tools } : {}),
                     messages,
                     max_tokens: max_tokens,
-                    temperature
+                    temperature,
                 });
-            
+
+                const modelDetails = this.models_array_.find(m => m.id === (model ?? this.get_default_model()));
+
                 return await OpenAIUtil.handle_completion_output({
                     deviations: {
                         index_usage_from_stream_chunk: chunk => {
@@ -374,14 +384,23 @@ class MistralAIService extends BaseService {
                             completion_tokens: completion.usage.completionTokens,
                         }),
                     },
-                    completion, stream,
-                    usage_calculator: OpenAIUtil.create_usage_calculator({
-                        model_details: this.models_array_.find(m => m.id === model),
-                    }),
+                    completion,
+                    stream,
+                    usage_calculator: ({ usage }) => {
+                        const trackedUsage = OpenAIUtil.extractMeteredUsage(usage);
+                        if ( this.meteringAndBillingService ) {
+                            this.meteringAndBillingService.utilRecordUsageObject(trackedUsage, actor, `mistral:${modelDetails.id}`);
+                        }
+                        // Still return legacy cost calculation for compatibility
+                        const legacyCostCalculator = OpenAIUtil.create_usage_calculator({
+                            model_details: modelDetails,
+                        });
+                        return legacyCostCalculator({ usage });
+                    },
                 });
-            }
-        }
-    }
+            },
+        },
+    };
 }
 
 module.exports = { MistralAIService };

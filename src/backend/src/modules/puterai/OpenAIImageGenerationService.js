@@ -1,18 +1,18 @@
 /*
  * Copyright (C) 2024-present Puter Technologies Inc.
- * 
+ *
  * This file is part of Puter.
- * 
+ *
  * Puter is free software: you can redistribute it and/or modify
  * it under the terms of the GNU Affero General Public License as published
  * by the Free Software Foundation, either version 3 of the License, or
  * (at your option) any later version.
- * 
+ *
  * This program is distributed in the hope that it will be useful,
  * but WITHOUT ANY WARRANTY; without even the implied warranty of
  * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
  * GNU Affero General Public License for more details.
- * 
+ *
  * You should have received a copy of the GNU Affero General Public License
  * along with this program.  If not, see <https://www.gnu.org/licenses/>.
  */
@@ -23,7 +23,6 @@ const BaseService = require("../../services/BaseService");
 const { TypedValue } = require("../../services/drivers/meta/Runtime");
 const { Context } = require("../../util/context");
 
-
 /**
 * Service class for generating images using OpenAI's DALL-E API.
 * Extends BaseService to provide image generation capabilities through
@@ -32,11 +31,14 @@ const { Context } = require("../../util/context");
 * validation, and spending tracking.
 */
 class OpenAIImageGenerationService extends BaseService {
+    /** @type {import('../../services/abuse-prevention/MeteringService/MeteringService').MeteringAndBillingService} */
+    meteringAndBillingService;
+
     static MODULES = {
         openai: require('openai'),
-    }
-    
-    _construct () {
+    };
+
+    _construct() {
         this.models_ = {
             'gpt-image-1': {
                 "low:1024x1024": 0.011,
@@ -47,7 +49,7 @@ class OpenAIImageGenerationService extends BaseService {
                 "medium:1536x1024": 0.063,
                 "high:1024x1024": 0.167,
                 "high:1024x1536": 0.25,
-                "high:1536x1024": 0.25
+                "high:1536x1024": 0.25,
             },
             'dall-e-3': {
                 '1024x1024': 0.04,
@@ -64,29 +66,31 @@ class OpenAIImageGenerationService extends BaseService {
             },
         };
     }
-    
+
     /**
     * Initializes the OpenAI client with API credentials from config
     * @private
     * @async
     * @returns {Promise<void>}
     */
-    async _init () {
+    async _init() {
         const sk_key =
             this.config?.openai?.secret_key ??
             this.global_config.openai?.secret_key;
 
         this.openai = new this.modules.openai.OpenAI({
-            apiKey: sk_key
+            apiKey: sk_key,
         });
+
+        this.meteringAndBillingService = this.services.get('meteringService').meteringAndBillingService;
     }
 
     static IMPLEMENTS = {
         ['driver-capabilities']: {
-            supports_test_mode (iface, method_name) {
+            supports_test_mode(iface, method_name) {
                 return iface === 'puter-image-generation' &&
                     method_name === 'generate';
-            }
+            },
         },
         ['puter-image-generation']: {
             /**
@@ -98,9 +102,9 @@ class OpenAIImageGenerationService extends BaseService {
             * @returns {Promise<string>} URL of the generated image
             * @throws {Error} If prompt is not a string or ratio is invalid
             */
-            async generate (params) {
+            async generate(params) {
                 const { prompt, quality, test_mode, model, ratio } = params;
-                
+
                 if ( test_mode ) {
                     return new TypedValue({
                         $: 'string:url:web',
@@ -110,28 +114,28 @@ class OpenAIImageGenerationService extends BaseService {
                 const url = await this.generate(prompt, {
                     quality,
                     ratio: ratio || this.constructor.RATIO_SQUARE,
-                    model
+                    model,
                 });
 
                 const image = new TypedValue({
                     $: 'string:url:web',
-                    content_type: 'image'
+                    content_type: 'image',
                 }, url);
 
                 return image;
-            }
-        }
+            },
+        },
     };
 
     static RATIO_SQUARE = { w: 1024, h: 1024 };
     static RATIO_PORTRAIT = { w: 1024, h: 1792 };
     static RATIO_LANDSCAPE = { w: 1792, h: 1024 };
-    
+
     // GPT-Image-1 specific ratios
     static RATIO_GPT_PORTRAIT = { w: 1024, h: 1536 };
     static RATIO_GPT_LANDSCAPE = { w: 1536, h: 1024 };
 
-    async generate (prompt, {
+    async generate(prompt, {
         ratio,
         model,
         quality,
@@ -146,8 +150,8 @@ class OpenAIImageGenerationService extends BaseService {
 
         // Somewhat sane defaults
         model = model ?? 'gpt-image-1';
-        quality = quality ?? 'low'
-        
+        quality = quality ?? 'low';
+
         if ( ! this.models_[model] ) {
             throw APIError.create('field_invalid', null, {
                 key: 'model',
@@ -156,7 +160,7 @@ class OpenAIImageGenerationService extends BaseService {
                 got: model,
             });
         }
-        
+
         // Validate quality based on the model
         const validQualities = this._getValidQualities(model);
         if ( quality !== undefined && !validQualities.includes(quality) ) {
@@ -166,7 +170,7 @@ class OpenAIImageGenerationService extends BaseService {
                 got: quality,
             });
         }
-                
+
         const size = `${ratio.w}x${ratio.h}`;
         const price_key = this._buildPriceKey(model, quality, size);
         if ( ! this.models_[model][price_key] ) {
@@ -177,7 +181,7 @@ class OpenAIImageGenerationService extends BaseService {
                 got: price_key,
             });
         }
-        
+
         const user_private_uid = Context.get('actor')?.private_uid ?? 'UNKNOWN';
         if ( user_private_uid === 'UNKNOWN' ) {
             this.errors.report('chat-completion-service:unknown-user', {
@@ -186,20 +190,20 @@ class OpenAIImageGenerationService extends BaseService {
                 trace: true,
             });
         }
-        
+
         const exact_cost = this.models_[model][price_key]
             * 100 // $ USD to cents USD
-            * Math.pow(10,6) // cents to microcents
-        
+            * Math.pow(10, 6); // cents to microcents
+
         const svc_cost = this.services.get('cost');
         const usageAllowed = await svc_cost.get_funding_allowed({
             minimum: exact_cost,
         });
-        
+
         if ( ! usageAllowed ) {
             throw APIError.create('insufficient_funds');
         }
-        
+
         // We can charge immediately
         await svc_cost.record_cost({ cost: exact_cost });
 
@@ -208,11 +212,18 @@ class OpenAIImageGenerationService extends BaseService {
             user: user_private_uid,
             prompt,
             size,
-            quality
+            quality,
         });
-        
+
         const result = await this.openai.images.generate(apiParams);
-            
+
+        const actor = Context.get('actor');
+        // For image generation, usage is typically image count and resolution
+        const trackedUsage = {
+            [price_key]: 1,
+        };
+        this.meteringAndBillingService.utilRecordUsageObject(trackedUsage, actor, `openai:${model}`);
+
         // Tiny base64 result for testing
         // const result = {
         //     data: [
@@ -235,18 +246,18 @@ class OpenAIImageGenerationService extends BaseService {
             size: `${ratio.w}x${ratio.h}`,
         };
 
-        if (quality) {
+        if ( quality ) {
             spending_meta.size = quality + ":" + spending_meta.size;
         }
 
         const svc_spending = Context.get('services').get('spending');
         svc_spending.record_spending('openai', 'image-generation', spending_meta);
         const url = result.data?.[0]?.url || (result.data?.[0]?.b64_json ? "data:image/png;base64," + result.data[0].b64_json : null);
-        
-        if (!url) {
+
+        if ( !url ) {
             throw new Error('Failed to extract image URL from OpenAI response');
         }
-        
+
         return url;
     }
 
@@ -257,13 +268,13 @@ class OpenAIImageGenerationService extends BaseService {
      * @private
      */
     _getValidQualities(model) {
-        if (model === 'gpt-image-1') {
+        if ( model === 'gpt-image-1' ) {
             return ['low', 'medium', 'high'];
         }
-        if (model === 'dall-e-2') {
+        if ( model === 'dall-e-2' ) {
             return [''];
-        } 
-        if (model === 'dall-e-3') {
+        }
+        if ( model === 'dall-e-3' ) {
             return ['', 'hd'];
         }
         // Fallback for unknown models - assume no quality tiers
@@ -279,7 +290,7 @@ class OpenAIImageGenerationService extends BaseService {
      * @private
      */
     _buildPriceKey(model, quality, size) {
-        if (model === 'gpt-image-1') {
+        if ( model === 'gpt-image-1' ) {
             // gpt-image-1 uses format: "quality:size" - default to low if not specified
             const qualityLevel = quality || 'low';
             return `${qualityLevel}:${size}`;
@@ -303,7 +314,7 @@ class OpenAIImageGenerationService extends BaseService {
             size: baseParams.size,
         };
 
-        if (model === 'gpt-image-1') {
+        if ( model === 'gpt-image-1' ) {
             // gpt-image-1 requires the model parameter and uses different quality mapping
             apiParams.model = model;
             // Default to low quality if not specified, consistent with _buildPriceKey
@@ -311,7 +322,7 @@ class OpenAIImageGenerationService extends BaseService {
         } else {
             // dall-e models
             apiParams.model = model;
-            if (baseParams.quality === 'hd') {
+            if ( baseParams.quality === 'hd' ) {
                 apiParams.quality = 'hd';
             }
         }
@@ -327,24 +338,24 @@ class OpenAIImageGenerationService extends BaseService {
      */
     _getValidRatios(model) {
         const commonRatios = [this.constructor.RATIO_SQUARE];
-        
-        if (model === 'gpt-image-1') {
+
+        if ( model === 'gpt-image-1' ) {
             return [
                 ...commonRatios,
                 this.constructor.RATIO_GPT_PORTRAIT,
-                this.constructor.RATIO_GPT_LANDSCAPE
+                this.constructor.RATIO_GPT_LANDSCAPE,
             ];
         } else {
             // DALL-E models
             return [
                 ...commonRatios,
                 this.constructor.RATIO_PORTRAIT,
-                this.constructor.RATIO_LANDSCAPE
+                this.constructor.RATIO_LANDSCAPE,
             ];
         }
     }
 
-    _validate_ratio (ratio, model) {
+    _validate_ratio(ratio, model) {
         const validRatios = this._getValidRatios(model);
         return validRatios.includes(ratio);
     }

@@ -19,35 +19,35 @@
 
 export const XAI_COST_MAP = {
     // Grok Beta
-    "xai:grok-beta:input": 500,
-    "xai:grok-beta:output": 1500,
+    "xai:grok-beta:prompt_tokens": 500,
+    "xai:grok-beta:completion-tokens": 1500,
 
     // Grok Vision Beta
-    "xai:grok-vision-beta:input": 500,
-    "xai:grok-vision-beta:output": 1500,
+    "xai:grok-vision-beta:prompt_tokens": 500,
+    "xai:grok-vision-beta:completion-tokens": 1500,
     "xai:grok-vision-beta:image": 1000,
 
     // Grok 3
-    "xai:grok-3:input": 300,
-    "xai:grok-3:output": 1500,
+    "xai:grok-3:prompt_tokens": 300,
+    "xai:grok-3:completion-tokens": 1500,
 
     // Grok 3 Fast
-    "xai:grok-3-fast:input": 500,
-    "xai:grok-3-fast:output": 2500,
+    "xai:grok-3-fast:prompt_tokens": 500,
+    "xai:grok-3-fast:completion-tokens": 2500,
 
     // Grok 3 Mini
-    "xai:grok-3-mini:input": 30,
-    "xai:grok-3-mini:output": 50,
+    "xai:grok-3-mini:prompt_tokens": 30,
+    "xai:grok-3-mini:completion-tokens": 50,
 
     // Grok 3 Mini Fast
-    "xai:grok-3-mini-fast:input": 60,
-    "xai:grok-3-mini-fast:output": 400,
+    "xai:grok-3-mini-fast:prompt_tokens": 60,
+    "xai:grok-3-mini-fast:completion-tokens": 400,
 
     // Grok 2 Vision
-    "xai:grok-2-vision:input": 200,
-    "xai:grok-2-vision:output": 1000,
+    "xai:grok-2-vision:prompt_tokens": 200,
+    "xai:grok-2-vision:completion-tokens": 1000,
 
     // Grok 2
-    "xai:grok-2:input": 200,
-    "xai:grok-2:output": 1000,
+    "xai:grok-2:prompt_tokens": 200,
+    "xai:grok-2:completion-tokens": 1000,
 };
