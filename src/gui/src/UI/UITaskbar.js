@@ -27,14 +27,17 @@ async function UITaskbar(options){
 
     options = options ?? {};
     options.content = options.content ?? '';
+    let taskbar_position;
 
     // if first visit ever, set taskbar position to left
     if(window.first_visit_ever){
-        await puter.kv.set('taskbar_position', 'left');
+        puter.kv.set('taskbar_position', 'left');
+        taskbar_position = 'left';
     }
 
-    // Load taskbar position preference from storage
-    let taskbar_position = await puter.kv.get('taskbar_position');
+    // Load taskbar position preference from KV
+    taskbar_position = await puter.kv.get('taskbar_position');
+
     // if this is not first visit, set taskbar position to bottom since it's from a user that
     // used puter before customizing taskbar position was added and the taskbar position was set to bottom
     if (!taskbar_position) {
@@ -504,6 +507,16 @@ window.update_taskbar_position = async function(new_position) {
     setTimeout(() => {
         window.adjust_taskbar_item_sizes();
     }, 10);
+
+
+    // adjust position if sidepanel is open
+    if(window.taskbar_position === 'bottom'){
+        if($('.window[data-is_panel="1"][data-is_visible="1"]').length > 0){
+            $('.taskbar').css('left', `calc(50% - 200px)`);
+        } else if($('.window[data-is_panel="1"][data-is_visible="0"]').length > 0){
+            $('.taskbar').css('left', `calc(50%)`);
+        }
+    }
     
     // Reinitialize all taskbar item tooltips with new position
     $('.taskbar-item').each(function() {

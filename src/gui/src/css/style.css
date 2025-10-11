@@ -2423,7 +2423,7 @@ label {
 
 /* Left positioned taskbar */
 .taskbar.taskbar-position-left {
-    left: 0;
+    left: 0 !important;
     top: 0;
     width: 50px;
     transform: none;
@@ -2440,7 +2440,7 @@ label {
 
 /* Right positioned taskbar */
 .taskbar.taskbar-position-right {
-    right: 0;
+    right: 0 !important;
     top: 0;
     left: auto;
     bottom: auto;
