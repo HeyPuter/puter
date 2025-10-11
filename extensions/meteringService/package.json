@@ -1,0 +1,5 @@
+{
+  "name": "@heyputer/extension-metering-service",
+  "main": "main.js",
+  "type": "module"
+}
