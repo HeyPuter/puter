@@ -222,7 +222,7 @@ class OpenAIImageGenerationService extends BaseService {
         const trackedUsage = {
             [price_key]: 1,
         };
-        this.meteringAndBillingService.utilRecordUsageObject(trackedUsage, actor, model);
+        this.meteringAndBillingService.utilRecordUsageObject(trackedUsage, actor, `openai:${model}`);
 
         // Tiny base64 result for testing
         // const result = {

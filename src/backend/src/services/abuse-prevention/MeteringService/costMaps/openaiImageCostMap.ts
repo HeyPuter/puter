@@ -25,13 +25,13 @@ export const OPENAI_IMAGE_COST_MAP = {
     "openai:dall-e-2:256x256": toMicroCents(0.016),          // $0.016
 
     // gpt-image-1
-    "low:1024x1024": toMicroCents(0.011),
-    "low:1024x1536": toMicroCents(0.016),
-    "low:1536x1024": toMicroCents(0.016),
-    "medium:1024x1024": toMicroCents(0.042),
-    "medium:1024x1536": toMicroCents(0.063),
-    "medium:1536x1024": toMicroCents(0.063),
-    "high:1024x1024": toMicroCents(0.167),
-    "high:1024x1536": toMicroCents(0.25),
-    "high:1536x1024": toMicroCents(0.25),
+    "openai:gpt-image-1:low:1024x1024": toMicroCents(0.011),
+    "openai:gpt-image-1:low:1024x1536": toMicroCents(0.016),
+    "openai:gpt-image-1:low:1536x1024": toMicroCents(0.016),
+    "openai:gpt-image-1:medium:1024x1024": toMicroCents(0.042),
+    "openai:gpt-image-1:medium:1024x1536": toMicroCents(0.063),
+    "openai:gpt-image-1:medium:1536x1024": toMicroCents(0.063),
+    "openai:gpt-image-1:high:1024x1024": toMicroCents(0.167),
+    "openai:gpt-image-1:high:1024x1536": toMicroCents(0.25),
+    "openai:gpt-image-1:high:1536x1024": toMicroCents(0.25),
 };
