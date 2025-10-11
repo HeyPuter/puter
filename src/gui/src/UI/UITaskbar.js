@@ -27,29 +27,26 @@ async function UITaskbar(options){
 
     options = options ?? {};
     options.content = options.content ?? '';
+
     let taskbar_position;
 
     // if first visit ever, set taskbar position to left
     if(window.first_visit_ever){
         puter.kv.set('taskbar_position', 'left');
         taskbar_position = 'left';
+    }else{
+        taskbar_position = await puter.kv.get('taskbar_position');
+        // if this is not first visit, set taskbar position to bottom since it's from a user that
+        // used puter before customizing taskbar position was added and the taskbar position was set to bottom
+        if (!taskbar_position) {
+            taskbar_position = 'bottom'; // default position
+            puter.kv.set('taskbar_position', taskbar_position);
+        }
     }
 
-    // Load taskbar position preference from KV
-    taskbar_position = await puter.kv.get('taskbar_position');
-
-    // if this is not first visit, set taskbar position to bottom since it's from a user that
-    // used puter before customizing taskbar position was added and the taskbar position was set to bottom
-    if (!taskbar_position) {
-        taskbar_position = 'bottom'; // default position
-        await puter.kv.set('taskbar_position', taskbar_position);
-    }
-    
     // Force bottom position on mobile devices
     if (isMobile.phone || isMobile.tablet) {
         taskbar_position = 'bottom';
-        // Update the stored preference to bottom for mobile devices
-        await puter.kv.set('taskbar_position', taskbar_position);
     }
     
     // Set global taskbar position
@@ -507,16 +504,6 @@ window.update_taskbar_position = async function(new_position) {
     setTimeout(() => {
         window.adjust_taskbar_item_sizes();
     }, 10);
-
-
-    // adjust position if sidepanel is open
-    if(window.taskbar_position === 'bottom'){
-        if($('.window[data-is_panel="1"][data-is_visible="1"]').length > 0){
-            $('.taskbar').css('left', `calc(50% - 200px)`);
-        } else if($('.window[data-is_panel="1"][data-is_visible="0"]').length > 0){
-            $('.taskbar').css('left', `calc(50%)`);
-        }
-    }
     
     // Reinitialize all taskbar item tooltips with new position
     $('.taskbar-item').each(function() {
