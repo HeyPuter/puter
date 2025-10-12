@@ -123,62 +123,27 @@ export class PuterJSFileSystemModule extends AdvancedBase {
         // });
 
         this.socket.on('item.renamed', (item) => {
-            // delete old item from cache
-            puter._cache.del('item:' + item.old_path);
-            // if a directory
-            if(item.is_dir){
-                // delete readdir
-                puter._cache.del('readdir:' + item.old_path);
-                // descendants items
-                const descendants = puter._cache.keys('item:' + item.old_path + '/*');
-                for(const descendant of descendants){
-                    console.log('Deleting cache for:', descendant);
-                    puter._cache.del(descendant);
-                }
-                // descendants readdirs
-                const descendants_readdir = puter._cache.keys('readdir:' + item.old_path + '/*');
-                for(const descendant of descendants_readdir){
-                    console.log('Deleting cache for:', descendant);
-                    puter._cache.del(descendant);
-                }
-            }
-            // parent readdir
-            puter._cache.del('readdir:' + path.dirname(item.old_path));
+            puter._cache.flushall();
+            console.log('Flushed cache for item.renamed');
         });
 
         this.socket.on('item.removed', (item) => {
             // check original_client_socket_id and if it matches this.socket.id, don't invalidate cache
             puter._cache.flushall();
-            console.log('Flushed cache for item.deleted');
+            console.log('Flushed cache for item.removed');
         });
 
         this.socket.on('item.added', (item) => {
-            // delete item from cache
-            puter._cache.del('item:' + item.path);
-            // delete readdir from cache
-            puter._cache.del('readdir:' + item.path);
-            // delete descendant items from cache
-            const descendant_items = puter._cache.keys('item:' + item.path + '/*');
-            for(const descendant of descendant_items){
-                puter._cache.del(descendant);
-            }
-            // delete descendant readdirs from cache
-            const descendant_readdirs = puter._cache.keys('readdir:' + item.path + '/*');
-            for(const descendant of descendant_readdirs){
-                puter._cache.del(descendant);
-            }
-            // delete parent readdir from cache
-            puter._cache.del('readdir:' + path.dirname(item.path));
+            puter._cache.flushall();
+            console.log('Flushed cache for item.added');
         });
 
         this.socket.on('item.updated', (item) => {
-            // check original_client_socket_id and if it matches this.socket.id, don't invalidate cache
             puter._cache.flushall();
             console.log('Flushed cache for item.updated');
         });
 
         this.socket.on('item.moved', (item) => {
-            // check original_client_socket_id and if it matches this.socket.id, don't invalidate cache
             puter._cache.flushall();
             console.log('Flushed cache for item.moved');
         });
