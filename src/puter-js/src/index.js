@@ -497,7 +497,7 @@ const puterInit = (function() {
             // initialize loop for updating caches for major directories
             if(this.env === 'gui'){
                 // check and update gui fs cache regularly
-                setInterval(puter.checkAndUpdateGUIFScache, 5000);
+                setInterval(puter.checkAndUpdateGUIFScache, 10000);
             }
             // reinitialize submodules
             this.updateSubmodules();
