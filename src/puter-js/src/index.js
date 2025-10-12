@@ -131,6 +131,7 @@ const puterInit = (function() {
 
             // Initialize the cache using kv.js
             this._cache = new kvjs({dbName: 'puter_cache'});
+            this._opscache = new kvjs();
 
             // "modules" in puter.js are external interfaces for the developer
             this.modules_ = [];
@@ -493,10 +494,21 @@ const puterInit = (function() {
                     console.error('Error accessing localStorage:', error);
                 }
             }
+            // initialize loop for updating caches for major directories
+            if(this.env === 'gui'){
+                // check and update gui fs cache regularly
+                setInterval(puter.checkAndUpdateGUIFScache, 10000);
+            }
             // reinitialize submodules
             this.updateSubmodules();
+
             // rao
             this.request_rao_();
+
+            // perform whoami and cache results
+            puter.getUser().then((user) => {
+                this.whoami = user;
+            });
         };
 
         setAPIOrigin = function(APIOrigin) {
@@ -666,7 +678,12 @@ const puterInit = (function() {
                 // If we went from online to offline, purge the cache
                 if ( wasOnline && !isOnline ) {
                     console.log('Network connection lost - purging cache');
-                    this.purgeCache();
+                    try {
+                        this._cache.flushall();
+                        console.log('Cache purged successfully');
+                    } catch( error ) {
+                        console.error('Error purging cache:', error);
+                    }
                 }
 
                 // Update the previous state
@@ -688,18 +705,48 @@ const puterInit = (function() {
         };
 
         /**
-         * Purges all cached data
-         * @public
+         * Checks and updates the GUI FS cache for most-commonly used paths
+         * @private
          */
-        purgeCache = function() {
-            try {
-                this._cache.flushall();
-                console.log('Cache purged successfully');
-            } catch( error ) {
-                console.error('Error purging cache:', error);
-            }
-        };
+        checkAndUpdateGUIFScache = function(){
+            // only run in gui environment
+            if(puter.env !== 'gui') return;
+            // only run if user is authenticated
+            if(!puter.whoami) return;
 
+            let username = puter.whoami.username;
+
+            // common paths
+            let home_path = `/${username}`;
+            let desktop_path = `/${username}/Desktop`;
+            let documents_path = `/${username}/Documents`;
+            let public_path = `/${username}/Public`;
+
+            // Home
+            if(!puter._cache.get('readdir:' + home_path)){
+                console.log(`/${username} is not cached, refetching cache`);
+                // fetch home
+                puter.fs.readdir(home_path);
+            }
+            // Desktop
+            if(!puter._cache.get('readdir:' + desktop_path)){
+                console.log(`/${username}/Desktop is not cached, refetching cache`);
+                // fetch desktop
+                puter.fs.readdir(desktop_path);
+            }
+            // Documents
+            if(!puter._cache.get('readdir:' + documents_path)){
+                console.log(`/${username}/Documents is not cached, refetching cache`);
+                // fetch documents
+                puter.fs.readdir(documents_path);
+            }
+            // Public
+            if(!puter._cache.get('readdir:' + public_path)){
+                console.log(`/${username}/Public is not cached, refetching cache`);
+                // fetch public
+                puter.fs.readdir(public_path);
+            }
+        }
     }
 
     // Create a new Puter object and return it
