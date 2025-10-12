@@ -3,12 +3,13 @@
 
 // Define models to test
 const TEST_MODELS = [
-    "openrouter:openai/gpt-4.1-mini",
-    "openrouter:anthropic/claude-3.5-sonnet-20240620",
-    "gpt-4o-mini",
-    "openai/gpt-4.1-nano",
+    "openrouter:openai/gpt-5-nano",
+    "openrouter:anthropic/claude-sonnet-4",
+    "google/gemini-2.5-pro",
+    "deepseek-chat",
+    "gpt-5-nano",
+    "openai/gpt-5-nano",
     "claude-sonnet-4-latest",
-    // Add more models as needed
 ];
 
 // Core test functions that can be reused across models
