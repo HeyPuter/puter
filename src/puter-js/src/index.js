@@ -704,6 +704,10 @@ const puterInit = (function() {
             }
         };
 
+        /**
+         * Checks and updates the GUI FS cache for most-commonly used paths
+         * @private
+         */
         checkAndUpdateGUIFScache = function(){
             // only run in gui environment
             if(puter.env !== 'gui') return;
