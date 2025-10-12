@@ -19,7 +19,7 @@ const init = (authToken) => {
         }
     });
     goodContext.globalThis = goodContext;
-    const code = readFileSync(`${resolve(__filename, '..')}/../dist/puter.js`, 'utf8');
+    const code = readFileSync(`${resolve(__filename, '..')}/../dist/puter.cjs`, 'utf8');
     const context = vm.createContext(goodContext);
     vm.runInNewContext(code, context);
     if ( authToken ) {
