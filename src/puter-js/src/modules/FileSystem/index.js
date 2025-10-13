@@ -134,8 +134,12 @@ export class PuterJSFileSystemModule extends AdvancedBase {
         });
 
         this.socket.on('item.added', (item) => {
-            puter._cache.flushall();
-            console.log('Flushed cache for item.added');
+            // remove readdir cache for parent
+            puter._cache.del('readdir:' + path.dirname(item.path));
+            console.log('deleted cache for readdir:' + path.dirname(item.path));
+            // remove item cache for parent directory
+            puter._cache.del('item:' + path.dirname(item.path));
+            console.log('deleted cache for item:' + path.dirname(item.path));
         });
 
         this.socket.on('item.updated', (item) => {
