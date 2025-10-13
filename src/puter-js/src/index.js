@@ -506,7 +506,7 @@ const puterInit = (function() {
             this.request_rao_();
 
             // perform whoami and cache results
-            puter.getUser().then((user) => {
+            this.getUser().then((user) => {
                 this.whoami = user;
             });
         };
