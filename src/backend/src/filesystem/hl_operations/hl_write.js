@@ -337,9 +337,11 @@ class HLWrite extends HLFilesystemOperation {
                     stream_to_the_void(thumb_file.stream);
                     return 'thumbnail error: ' + e.message;
                 }
-                
-                const thumbnailData = {url: thumbnail}
-                await svc_event.emit('thumbnail.created', thumbnailData); // An extension can modify where this thumbnail is stored
+
+                const thumbnailData = { url: thumbnail }
+                if (thumbnailData.url) {
+                    await svc_event.emit('thumbnail.created', thumbnailData); // An extension can modify where this thumbnail is stored
+                }
 
                 thumbnail_promise.resolve(thumbnailData.url);
             })();
