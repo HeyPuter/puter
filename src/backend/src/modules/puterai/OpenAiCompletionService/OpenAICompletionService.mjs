@@ -48,7 +48,7 @@ export class OpenAICompletionService {
 
     #models;
 
-    /** @type {import('../../../services/abuse-prevention/MeteringService/MeteringService').MeteringAndBillingService} */
+    /** @type {import('../../../services/MeteringService/MeteringService.js').MeteringAndBillingService} */
     #meteringAndBillingService;
 
     constructor({ serviceName, config, globalConfig, aiChatService, meteringAndBillingService, models = OPEN_AI_MODELS, defaultModel = 'gpt-4.1-nano' }) {

@@ -51,7 +51,7 @@ class ClaudeService extends BaseService {
     * @returns {Promise<void>}
     */
 
-    /** @type {import('../../services/abuse-prevention/MeteringService/MeteringService').MeteringAndBillingService} */
+    /** @type {import('../../services/MeteringService/MeteringService').MeteringAndBillingService} */
     #meteringAndBillingService;
 
     async _init() {

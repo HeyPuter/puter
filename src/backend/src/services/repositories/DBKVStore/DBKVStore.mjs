@@ -5,7 +5,7 @@ import { Context } from "../../../util/context.js";
 const GLOBAL_APP_KEY = 'global';
 export class DBKVStore {
     #db;
-    /** @type {import('../../abuse-prevention/MeteringService/MeteringService').MeteringAndBillingService} */
+    /** @type {import('../../MeteringService/MeteringService.js').MeteringAndBillingService} */
     #meteringService;
 
     #global_config = {};

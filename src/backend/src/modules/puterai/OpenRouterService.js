@@ -46,7 +46,7 @@ class OpenRouterService extends BaseService {
         return model;
     }
 
-    /** @type {import('../../services/abuse-prevention/MeteringService/MeteringService').MeteringAndBillingService} */
+    /** @type {import('../../services/MeteringService/MeteringService').MeteringAndBillingService} */
     meteringAndBillingService;
 
     /**

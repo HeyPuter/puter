@@ -1,8 +1,8 @@
 {
     "compilerOptions": {
         "target": "ES2022",
-        "module": "CommonJS",
-        "moduleResolution": "node10",
+        "module": "node16",
+        "moduleResolution": "node16",
         "rootDir": ".",
         "strict": true,
         "esModuleInterop": true,
@@ -15,6 +15,7 @@
         "**/test/**",
         "**/tests/**",
         "node_modules",
-        "dist"
+        "dist",
+        "extensions"
     ]
 }

@@ -33,7 +33,7 @@ class XAIService extends BaseService {
     static MODULES = {
         openai: require('openai'),
     };
-    /** @type {import('../../services/abuse-prevention/MeteringService/MeteringService').MeteringAndBillingService} */
+    /** @type {import('../../services/MeteringService/MeteringService').MeteringAndBillingService} */
     meteringAndBillingService;
 
     adapt_model(model) {

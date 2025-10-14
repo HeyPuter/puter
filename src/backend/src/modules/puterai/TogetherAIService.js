@@ -36,7 +36,7 @@ const { Context } = require("../../util/context");
 */
 class TogetherAIService extends BaseService {
     /**
-    * @type {import('../../services/abuse-prevention/MeteringService/MeteringService').MeteringAndBillingService}
+    * @type {import('../../services/MeteringService/MeteringService').MeteringAndBillingService}
     */
     meteringAndBillingService;
     static MODULES = {

@@ -1,9 +1,9 @@
-import BaseService from '../../BaseService.js';
+import BaseService from '../BaseService.js';
 import { MeteringAndBillingService } from "./MeteringService.js";
 
 export class MeteringAndBillingServiceWrapper extends BaseService {
 
-    /** @type {import('./MeteringService').MeteringAndBillingService} */
+    /** @type {import('./MeteringService.js').MeteringAndBillingService} */
     meteringAndBillingService = undefined;
     _init() {
         this.meteringAndBillingService = new MeteringAndBillingService({

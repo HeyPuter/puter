@@ -36,7 +36,7 @@ class DeepSeekService extends BaseService {
     };
 
     /**
-    * @type {import('../../services/abuse-prevention/MeteringService/MeteringService').MeteringAndBillingService}
+    * @type {import('../../services/MeteringService/MeteringService').MeteringAndBillingService}
     */
     meteringAndBillingService;
     /**

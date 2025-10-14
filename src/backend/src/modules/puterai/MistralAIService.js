@@ -31,7 +31,7 @@ const { Context } = require("../../util/context");
 * for different models and implements the puter-chat-completion interface.
 */
 class MistralAIService extends BaseService {
-    /** @type {import('../../services/abuse-prevention/MeteringService/MeteringService').MeteringAndBillingService} */
+    /** @type {import('../../services/MeteringService/MeteringService').MeteringAndBillingService} */
     meteringAndBillingService;
     static MODULES = {
         '@mistralai/mistralai': require('@mistralai/mistralai'),
