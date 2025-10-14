@@ -1,11 +1,11 @@
 // @ts-ignore
-import { SystemActorType, type Actor } from "../../auth/Actor.js";
+import { SystemActorType, type Actor } from "../auth/Actor.js";
 // @ts-ignore
-import type { AlarmService } from "../../../modules/core/AlarmService.js";
+import type { AlarmService } from "../../modules/core/AlarmService.js";
 // @ts-ignore
-import type { DBKVStore } from '../../repositories/DBKVStore/DBKVStore.mjs';
+import type { DBKVStore } from '../repositories/DBKVStore/DBKVStore.mjs';
 // @ts-ignore
-import type { SUService } from "../../SUService.js";
+import type { SUService } from "../SUService.js";
 import { COST_MAPS } from "./costMaps/index.js";
 import { SUB_POLICIES } from "./subPolicies/index.js";
 interface ActorWithType extends Actor {
@@ -151,25 +151,59 @@ export class MeteringAndBillingService {
             `${METRICS_PREFIX}:actor:${actor.type.user.uuid}:${currentMonth}`,
             `${METRICS_PREFIX}:actor:${actor.type.user.uuid}:apps:${currentMonth}`
         ]
-        return this.#superUserService.sudo(async () => {
+
+        return await this.#superUserService.sudo(async () => {
             const [usage, appTotals] = await this.#kvClientWrapper.get({ key: keys }) as [UsageByType | null, Record<string, UsageByType> | null];
-            return {
-                usage: usage || { total: 0 },
-                appTotals: appTotals || {},
+            // only show details of app based on actor, aggregate all as others, except if app is global one or null, then show all
+            const appId = actor.type?.app?.uid
+            if (appTotals && appId) {
+                const filteredAppTotals: Record<string, UsageByType> = {};
+                let othersTotal: UsageByType | null = null;
+                Object.entries(appTotals).forEach(([appKey, appUsage]) => {
+                    if (appKey === appId) {
+                        filteredAppTotals[appKey] = appUsage;
+                    } else {
+                        Object.entries(appUsage).forEach(([usageKind, amount]) => {
+                            if (!othersTotal![usageKind]) {
+                                othersTotal![usageKind] = 0;
+                            }
+                            othersTotal![usageKind] += amount;
+                        })
+                    }
+                });
+                if (othersTotal) {
+                    filteredAppTotals['others'] = othersTotal;
+                }
+                return {
+                    usage: usage || { total: 0 },
+                    appTotals: filteredAppTotals,
+                }
+            } else {
+                return {
+                    usage: usage || { total: 0 },
+                    appTotals: appTotals || {},
+                }
             }
         })
     }
 
-    async getActorCurrentMonthAppUsageDetails(actor: ActorWithType, appId: string) {
+    async getActorCurrentMonthAppUsageDetails(actor: ActorWithType, appId?: string) {
         if (!actor.type?.user?.uuid) {
             throw new Error('Actor must be a user to get usage details');
         }
+
+        appId = appId || actor.type?.app?.uid || GLOBAL_APP_KEY;
         // batch get actor usage, per app usage, and actor app totals for the month
         const currentMonth = this.#getMonthYearString();
         const key = `${METRICS_PREFIX}:actor:${actor.type.user.uuid}:app:${appId}:${currentMonth}`
 
-        return this.#superUserService.sudo(async () => {
+        return await this.#superUserService.sudo(async () => {
             const usage = await this.#kvClientWrapper.get({ key }) as UsageByType | null;
+            // only show usage if actor app is the same or if global app ( null appId )
+            const actorAppId = actor.type?.app?.uid
+            if (actorAppId && actorAppId !== appId && appId !== GLOBAL_APP_KEY) {
+                throw new Error('Actor can only get usage details for their own app or global app');
+            }
             return usage || { total: 0 };
         })
     }

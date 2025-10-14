@@ -412,7 +412,7 @@ const install = async ({ context, services, app, useapi, modapi }) => {
     const { WorkerService } = require('./services/worker/WorkerService');
     services.registerService("worker-service", WorkerService);
 
-    const { MeteringAndBillingServiceWrapper } = require("./services/abuse-prevention/MeteringService/index.mjs");
+    const { MeteringAndBillingServiceWrapper } = require("./services/MeteringService/MeteringServiceWrapper.mjs");
     services.registerService('meteringService', MeteringAndBillingServiceWrapper);
 
     const { PermissionShortcutService } = require('./services/auth/PermissionShortcutService');

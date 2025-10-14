@@ -1,10 +1,9 @@
-import * as utils from '../lib/utils.js'
+import * as utils from '../lib/utils.js';
 
 class Auth{
     // Used to generate a unique message id for each message sent to the host environment
     // we start from 1 because 0 is falsy and we want to avoid that for the message id
     #messageID = 1;
-
 
     /**
      * Creates a new instance with the given authentication token, API origin, and app ID,
@@ -14,7 +13,7 @@ class Auth{
      * @param {string} APIOrigin - Origin of the API server. Used to build the API endpoint URLs.
      * @param {string} appID - ID of the app to use.
      */
-    constructor (context) {
+    constructor(context) {
         this.authToken = context.authToken;
         this.APIOrigin = context.APIOrigin;
         this.appID = context.appID;
@@ -27,22 +26,22 @@ class Auth{
      * @memberof [Auth]
      * @returns {void}
      */
-    setAuthToken (authToken) {
+    setAuthToken(authToken) {
         this.authToken = authToken;
     }
 
     /**
      * Sets the API origin.
-     * 
+     *
      * @param {string} APIOrigin - The new API origin.
      * @memberof [Auth]
      * @returns {void}
      */
-    setAPIOrigin (APIOrigin) {
+    setAPIOrigin(APIOrigin) {
         this.APIOrigin = APIOrigin;
     }
-    
-    signIn = (options) =>{
+
+    signIn = (options) => {
         options = options || {};
 
         return new Promise((resolve, reject) => {
@@ -50,17 +49,17 @@ class Auth{
             let w = 600;
             let h = 600;
             let title = 'Puter';
-            var left = (screen.width/2)-(w/2);
-            var top = (screen.height/2)-(h/2);
-            
+            var left = (screen.width / 2) - (w / 2);
+            var top = (screen.height / 2) - (h / 2);
+
             // Store reference to the popup window
-            const popup = window.open(puter.defaultGUIOrigin + '/action/sign-in?embedded_in_popup=true&msg_id=' + msg_id + (window.crossOriginIsolated ? '&cross_origin_isolated=true' : '') +(options.attempt_temp_user_creation ? '&attempt_temp_user_creation=true' : ''), 
-            title, 
-            'toolbar=no, location=no, directories=no, status=no, menubar=no, scrollbars=no, resizable=no, copyhistory=no, width='+w+', height='+h+', top='+top+', left='+left);
+            const popup = window.open(`${puter.defaultGUIOrigin}/action/sign-in?embedded_in_popup=true&msg_id=${msg_id}${window.crossOriginIsolated ? '&cross_origin_isolated=true' : ''}${options.attempt_temp_user_creation ? '&attempt_temp_user_creation=true' : ''}`,
+                            title,
+                            `toolbar=no, location=no, directories=no, status=no, menubar=no, scrollbars=no, resizable=no, copyhistory=no, width=${w}, height=${h}, top=${top}, left=${left}`);
 
             // Set up interval to check if popup was closed
             const checkClosed = setInterval(() => {
-                if (popup.closed) {
+                if ( popup.closed ) {
                     clearInterval(checkClosed);
                     // Remove the message listener
                     window.removeEventListener('message', messageHandler);
@@ -69,21 +68,23 @@ class Auth{
             }, 100);
 
             function messageHandler(e) {
-                if(e.data.msg_id == msg_id){
+                if ( e.data.msg_id == msg_id ){
                     // Clear the interval since we got a response
                     clearInterval(checkClosed);
-                    
+
                     // remove redundant attributes
                     delete e.data.msg_id;
                     delete e.data.msg;
 
-                    if(e.data.success){
+                    if ( e.data.success ){
                         // set the auth token
                         puter.setAuthToken(e.data.token);
 
                         resolve(e.data);
-                    }else
+                    } else
+                    {
                         reject(e.data);
+                    }
 
                     // delete the listener
                     window.removeEventListener('message', messageHandler);
@@ -92,20 +93,24 @@ class Auth{
 
             window.addEventListener('message', messageHandler);
         });
-    }
+    };
 
-    isSignedIn = () =>{
-        if(puter.authToken)
+    isSignedIn = () => {
+        if ( puter.authToken )
+        {
             return true;
+        }
         else
+        {
             return false;
-    }
+        }
+    };
 
     getUser = function(...args){
         let options;
 
         // If first argument is an object, it's the options
-        if (typeof args[0] === 'object' && args[0] !== null) {
+        if ( typeof args[0] === 'object' && args[0] !== null ) {
             options = args[0];
         } else {
             // Otherwise, we assume separate arguments are provided
@@ -122,45 +127,125 @@ class Auth{
             utils.setupXhrEventHandlers(xhr, options.success, options.error, resolve, reject);
 
             xhr.send();
-        })
-    }
+        });
+    };
 
-    signOut = () =>{
+    signOut = () => {
         puter.resetAuthToken();
-    }
+    };
 
-    async whoami () {
+    async whoami() {
         try {
-            const resp = await fetch(this.APIOrigin + '/whoami', {
+            const resp = await fetch(`${this.APIOrigin}/whoami`, {
                 headers: {
-                    Authorization: `Bearer ${this.authToken}`
-                }
+                    Authorization: `Bearer ${this.authToken}`,
+                },
             });
-            
+
             const result = await resp.json();
-            
+
             // Log the response
-            if (globalThis.puter?.apiCallLogger?.isEnabled()) {
+            if ( globalThis.puter?.apiCallLogger?.isEnabled() ) {
                 globalThis.puter.apiCallLogger.logRequest({
                     service: 'auth',
                     operation: 'whoami',
                     params: {},
-                    result: result
+                    result: result,
                 });
             }
-            
+
             return result;
-        } catch (error) {
+        } catch( error ) {
             // Log the error
-            if (globalThis.puter?.apiCallLogger?.isEnabled()) {
+            if ( globalThis.puter?.apiCallLogger?.isEnabled() ) {
                 globalThis.puter.apiCallLogger.logRequest({
                     service: 'auth',
                     operation: 'whoami',
                     params: {},
                     error: {
                         message: error.message || error.toString(),
-                        stack: error.stack
-                    }
+                        stack: error.stack,
+                    },
+                });
+            }
+            throw error;
+        }
+    }
+
+    async getMonthlyUsage() {
+        try {
+            const resp = await fetch(`${this.APIOrigin}/v2/usage`, {
+                headers: {
+                    Authorization: `Bearer ${this.authToken}`,
+                },
+            });
+
+            const result = await resp.json();
+
+            // Log the response
+            if ( globalThis.puter?.apiCallLogger?.isEnabled() ) {
+                globalThis.puter.apiCallLogger.logRequest({
+                    service: 'auth',
+                    operation: 'usage',
+                    params: {},
+                    result: result,
+                });
+            }
+
+            return result;
+        } catch( error ) {
+            // Log the error
+            if ( globalThis.puter?.apiCallLogger?.isEnabled() ) {
+                globalThis.puter.apiCallLogger.logRequest({
+                    service: 'auth',
+                    operation: 'usage',
+                    params: {},
+                    error: {
+                        message: error.message || error.toString(),
+                        stack: error.stack,
+                    },
+                });
+            }
+            throw error;
+        }
+    }
+
+    async getDetailedAppUsage(appId) {
+        if ( !appId ) {
+            throw new Error('appId is required');
+        }
+
+        try {
+            const resp = await fetch(`${this.APIOrigin}/v2/usage/${appId}`, {
+                headers: {
+                    Authorization: `Bearer ${this.authToken}`,
+                },
+            });
+
+            const result = await resp.json();
+
+            // Log the response
+            if ( globalThis.puter?.apiCallLogger?.isEnabled() ) {
+                globalThis.puter.apiCallLogger.logRequest({
+                    service: 'auth',
+                    operation: 'detailed_app_usage',
+                    params: { appId },
+                    result: result,
+                });
+            }
+
+            return result;
+        } catch( error ) {
+            // Log the error
+            if ( globalThis.puter?.apiCallLogger?.isEnabled() ) {
+                globalThis.puter.apiCallLogger.logRequest({
+                    service: 'auth',
+                    operation: 'detailed_app_usage',
+                    params: { appId },
+                    error: {
+                        message: error.message || error.toString(),
+                        stack: error.stack,
+                    },
                 });
             }
             throw error;
@@ -168,4 +253,4 @@ class Auth{
     }
 }
 
-export default Auth
+export default Auth;

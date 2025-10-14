@@ -44,7 +44,7 @@ const VALID_ENGINES = ['standard', 'neural', 'long-form', 'generative'];
 * @extends BaseService
 */
 class AWSPollyService extends BaseService {
-    /** @type {import('../../services/abuse-prevention/MeteringService/MeteringService').MeteringAndBillingService} */
+    /** @type {import('../../services/MeteringService/MeteringService').MeteringAndBillingService} */
     meteringAndBillingService;
 
     static MODULES = {

@@ -31,7 +31,7 @@ const { Context } = require("../../util/context");
 * Handles both S3-stored and buffer-based document processing with automatic region management.
 */
 class AWSTextractService extends BaseService {
-    /** @type {import('../../services/abuse-prevention/MeteringService/MeteringService').MeteringAndBillingService} */
+    /** @type {import('../../services/MeteringService/MeteringService').MeteringAndBillingService} */
     meteringAndBillingService;
     /**
     * AWS Textract service for OCR functionality

@@ -30,7 +30,7 @@ const { GoogleGenAI } = require('@google/genai');
 * the puter-image-generation interface.
 */
 class GeminiImageGenerationService extends BaseService {
-    /** @type {import('../../services/abuse-prevention/MeteringService/MeteringService').MeteringAndBillingService} */
+    /** @type {import('../../services/MeteringService/MeteringService').MeteringAndBillingService} */
     meteringAndBillingService;
     static MODULES = {
     };

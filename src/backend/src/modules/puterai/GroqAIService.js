@@ -22,7 +22,7 @@ const BaseService = require("../../services/BaseService");
 const { Context } = require("../../util/context");
 const OpenAIUtil = require("./lib/OpenAIUtil");
 
-/** @type {import('../../services/abuse-prevention/MeteringService/MeteringService').MeteringAndBillingService} */
+/** @type {import('../../services/MeteringService/MeteringService').MeteringAndBillingService} */
 
 /**
 * Service class for integrating with Groq AI's language models.
@@ -34,7 +34,7 @@ const OpenAIUtil = require("./lib/OpenAIUtil");
 * @extends BaseService
 */
 class GroqAIService extends BaseService {
-    /** @type {import('../../services/abuse-prevention/MeteringService/MeteringService').MeteringAndBillingService} */
+    /** @type {import('../../services/MeteringService/MeteringService').MeteringAndBillingService} */
     meteringAndBillingService;
     static MODULES = {
         Groq: require('groq-sdk'),

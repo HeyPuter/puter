@@ -31,7 +31,7 @@ const { Context } = require("../../util/context");
 * validation, and spending tracking.
 */
 class OpenAIImageGenerationService extends BaseService {
-    /** @type {import('../../services/abuse-prevention/MeteringService/MeteringService').MeteringAndBillingService} */
+    /** @type {import('../../services/MeteringService/MeteringService').MeteringAndBillingService} */
     meteringAndBillingService;
 
     static MODULES = {
