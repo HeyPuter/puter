@@ -1,0 +1,13 @@
+services:
+  fs_tree_manager:
+    image: fs_tree_manager:latest
+    volumes:
+      - ./config.yaml:/config.yaml:ro
+    extra_hosts:
+      # Resolve host.docker.internal to the host's gateway IP, works on
+      # linux/macos/windows.
+      - "host.docker.internal:host-gateway"
+    restart: on-failure
+    mem_limit: 4g
+    ports:
+      - "50052:50052"
