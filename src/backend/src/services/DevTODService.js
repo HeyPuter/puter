@@ -20,6 +20,7 @@
 const putility = require("@heyputer/putility");
 const { surrounding_box } = require("../fun/dev-console-ui-utils");
 const BaseService = require("./BaseService");
+const config = require("../config");
 
 const tips = (
     // CLI tips
@@ -88,6 +89,7 @@ class DevTODService extends BaseService {
     * @returns {Promise<void>}
     */
     async ['__on_boot.consolidation'] () {
+        if ( ! config.tipofday ) return;
         let random_tip = tips[Math.floor(Math.random() * tips.length)];
         if ( this.config.old_widget_behavior ) {
             random_tip = wordwrap(
