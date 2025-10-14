@@ -41,7 +41,17 @@ const WINSTON_LEVELS = {
     http: 30,
     verbose: 40,
     debug: 50,
-    silly: 60
+    silly: 60,
+};
+
+let display_log_level = process.env.DEBUG ? 100 : 3;
+const display_log_level_label = {
+    0: 'ERRO',
+    1: 'WARN',
+    2: 'INFO',
+    3: 'SYSTEM',
+    4: 'DEBUG',
+    100: 'ALL',
 };
 
 
@@ -193,7 +203,7 @@ class DevLogger {
 
         if ( this.off ) return;
         
-        if ( ! process.env.DEBUG && log_lvl.ordinal >= 4 ) return;
+        if ( ! process.env.DEBUG && log_lvl.ordinal > display_log_level ) return;
 
         const ld = Context.get('logdent', { allow_fallback: true })
         const prefix = globalThis.dev_console_indent_on
@@ -430,7 +440,22 @@ class LogService extends BaseService {
                     globalThis.dev_console_indent_on =
                         ! globalThis.dev_console_indent_on;
                 }
-            }
+            },
+            {
+                id: 'get-level',
+                description: 'get the current log level for displayed logs',
+                handler: async (args, log) => {
+                    log.log(`${display_log_level} (${display_log_level_label[display_log_level] ?? '?'})`);
+                },
+            },
+            {
+                id: 'set-level',
+                description: 'set the new log level for displayed logs',
+                handler: async (args, log) => {
+                    display_log_level = Number(args[0]);
+                    log.log(`${display_log_level} (${display_log_level_label[display_log_level] ?? '?'})`);
+                },
+            },
         ]);
     }
     /**

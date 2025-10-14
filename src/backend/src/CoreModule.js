@@ -269,7 +269,11 @@ const install = async ({ context, services, app, useapi, modapi }) => {
     });
     services.registerService('__refresh-assocs', RefreshAssociationsService);
     services.registerService('__prod-debugging', MakeProdDebuggingLessAwfulService);
-    if ( config.env == 'dev' && ! config.no_devconsole ) {
+    if ( config.env == 'dev' && ! config.no_devsocket ) {
+        const { DevSocketService } = require('./services/DevSocketService.js');
+        services.registerService('dev-socket', DevSocketService);
+    }
+    if ( (config.env == 'dev' && ! config.no_devconsole && process.env.DEVCONSOLE) || config.devconsole ) {
         const { DevConsoleService } = require('./services/DevConsoleService');
         services.registerService('dev-console', DevConsoleService);
     } else {
