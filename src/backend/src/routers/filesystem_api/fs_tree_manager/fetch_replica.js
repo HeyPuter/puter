@@ -19,12 +19,23 @@
 
 'use strict';
 
+const { Context } = require('../../../../util/context');
+
 // -----------------------------------------------------------------------//
 // WebSocket handler for replica/fetch
 // -----------------------------------------------------------------------//
 module.exports = {
     event: 'replica/fetch',
     handler: async (socket, _data) => {
+        const svc_permission = Context.get('services').get('permission');
+        const can_access = await svc_permission.check('endpoint:replica/fetch');
+        if ( ! can_access ) {
+            return socket.emit('replica/fetch/error', {
+                success: false,
+                error: { message: 'permission denied' },
+            });
+        }
+
         // Import gRPC client and protobuf classes from common
         const {
             getClient,
