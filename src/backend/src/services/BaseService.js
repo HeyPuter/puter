@@ -101,6 +101,17 @@ class BaseService extends concepts.Service {
             log_fields.concern = this.constructor.CONCERN;
         }
         this.log = services.get('log-service').create(this.service_name, log_fields);
+
+        // INFO logs are treated as DEBUG logs instead if...
+        if (
+            // The configuration file explicitly says to do so
+            this.config.log_debug ||
+            // The class has `static LOG_DEBUG = true`; AND,
+            // the configuration file does NOT explicitly say NOT to do this
+            (! this.config.log_info && this.constructor.LOG_DEBUG)
+        ) {
+            this.log.info = this.log.debug;
+        }
         this.errors = services.get('error-service').create(this.log);
 
         await (this._init || NOOP).call(this, this.args);

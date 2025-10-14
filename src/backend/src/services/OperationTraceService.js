@@ -34,6 +34,7 @@ const CONTEXT_KEY = Context.make_context_key('operation-trace');
 * @description The `OperationFrame` class represents a frame within an operation trace. It is designed to manage the state, attributes, and hierarchy of frames within an operational context. This class provides methods to set status, calculate effective status, add tags, attributes, messages, errors, children, and describe the frame. It also includes methods to recursively search through frames to find attributes and handle frame completion.
 */
 class OperationFrame {
+    static LOG_DEBUG = true;
     constructor ({ parent, label, x }) {
         this.parent = parent;
         this.label = label;
