@@ -133,7 +133,6 @@ const install = async ({ context, services, app, useapi, modapi }) => {
     const { HTTPThumbnailService } = require('./services/thumbnails/HTTPThumbnailService');
     const { PureJSThumbnailService } = require('./services/thumbnails/PureJSThumbnailService');
     const { NAPIThumbnailService } = require('./services/thumbnails/NAPIThumbnailService');
-    const { DevConsoleService } = require('./services/DevConsoleService');
     const { RateLimitService } = require('./services/sla/RateLimitService');
     const { AuthService } = require('./services/auth/AuthService');
     const { PreAuthService } = require("./services/auth/PreAuthService");
@@ -270,8 +269,12 @@ const install = async ({ context, services, app, useapi, modapi }) => {
     });
     services.registerService('__refresh-assocs', RefreshAssociationsService);
     services.registerService('__prod-debugging', MakeProdDebuggingLessAwfulService);
-    if ( config.env == 'dev' ) {
+    if ( config.env == 'dev' && ! config.no_devconsole ) {
+        const { DevConsoleService } = require('./services/DevConsoleService');
         services.registerService('dev-console', DevConsoleService);
+    } else {
+        const { NullDevConsoleService } = require('./services/NullDevConsoleService');
+        services.registerService('dev-console', NullDevConsoleService);
     }
 
     const { EventService } = require('./services/EventService');
