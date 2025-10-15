@@ -17,7 +17,15 @@
  * You should have received a copy of the GNU Affero General Public License
  * along with this program.  If not, see <https://www.gnu.org/licenses/>.
  */
-const log_epoch = Date.now();
+const { display_time, module_epoch } = require('@heyputer/putility/src/libs/time.js');
+const config = require('../../../config.js');
+
+// Example:
+// log("booting");            // → "14:07:12 booting"
+// (next day) log("tick");    // → "16 00:00:01 tick"
+// (next month) log("tick");  // → "11-01 00:00:01 tick"
+// (next year) log("tick");   // → "2026-01-01 00:00:01 tick"
+
 
 /**
 * Stringifies a log entry into a formatted string for console output.
@@ -39,18 +47,26 @@ const stringify_log_entry = ({ prefix, log_lvl, crumbs, message, fields, objects
         if ( ! m ) return;
         lines.push(m);
         m = '';
+    };
+    
+    m = '';
+
+    if ( ! config.show_relative_time ) {
+        m += `${display_time(fields.timestamp)} `;
     }
 
-    m = prefix ? `${prefix} ` : '';
+    m += prefix ? `${prefix} ` : '';
     m += `\x1B[${log_lvl.esc}m[${log_lvl.label}\x1B[0m`;
     for ( const crumb of crumbs ) {
         m += `::${crumb}`;
     }
     m += `\x1B[${log_lvl.esc}m]\x1B[0m`;
     if ( fields.timestamp ) {
-        // display seconds since logger epoch
-        const n = (fields.timestamp - log_epoch) / 1000;
-        m += ` (${n.toFixed(3)}s)`;
+        if ( config.show_relative_time ) {
+            // display seconds since logger epoch
+            const n = (fields.timestamp - module_epoch) / 1000;
+            m += ` (${n.toFixed(3)}s)`;
+        }
     }
     m += ` ${message} `;
     lf();
@@ -69,5 +85,4 @@ const stringify_log_entry = ({ prefix, log_lvl, crumbs, message, fields, objects
 
 module.exports = {
     stringify_log_entry,
-    log_epoch,
 };
