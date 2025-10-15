@@ -41,9 +41,9 @@ export class MeteringAndBillingService {
         this.#eventService = eventService;
     }
 
-    utilRecordUsageObject(trackedUsageObject: Record<string, number>, actor: Actor, modelPrefix: string) {
+    utilRecordUsageObject<T extends Record<string, number>>(trackedUsageObject: T, actor: Actor, modelPrefix: string, costsOverrides?: Record<keyof T, number>) {
         Object.entries(trackedUsageObject).forEach(([usageKind, amount]) => {
-            this.incrementUsage(actor, `${modelPrefix}:${usageKind}`, amount);
+            this.incrementUsage(actor, `${modelPrefix}:${usageKind}`, amount, costsOverrides?.[usageKind as keyof T]);
         });
     }
 
@@ -57,7 +57,6 @@ export class MeteringAndBillingService {
         try {
             if ( !usageAmount || !usageType || !actor ) {
                 // silent fail for now;
-                console.warn('Invalid usage increment parameters', { actor, usageType, usageAmount, costOverride });
                 return { total: 0 } as UsageByType;
             }
 
@@ -70,6 +69,17 @@ export class MeteringAndBillingService {
 
             return this.#superUserService.sudo(async () => {
                 const totalCost = (costOverride ?? (COST_MAPS[usageType as keyof typeof COST_MAPS] || 0) * usageAmount) || 0; // TODO DS: apply our policy discounts here eventually
+
+                if ( totalCost === 0 && costOverride === undefined ) {
+                    // could be something is off, there are some models that cost nothing from openrouter, but then our overrides should not be undefined, so will flag
+                    this.#alarmService.create('metering-service-warning', "potential abuse vector", {
+                        actor,
+                        usageType,
+                        usageAmount,
+                        costOverride,
+                    });
+                }
+
                 usageType = usageType.replace(/\./g, PERIOD_ESCAPE) as keyof typeof COST_MAPS; // replace dots with underscores for kvstore paths, TODO DS: map this back when reading
                 const appId = actor.type?.app?.uid || GLOBAL_APP_KEY;
                 const actorId = actor.type?.user.uuid;

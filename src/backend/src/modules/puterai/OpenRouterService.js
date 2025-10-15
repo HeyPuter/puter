@@ -140,6 +140,7 @@ class OpenRouterService extends BaseService {
                 });
 
                 const modelDetails =  (await this.models_()).find(m => m.id === 'openrouter:' + model);
+                const rawPriceModelDetails =  (await this.models_(true)).find(m => m.id === 'openrouter:' + model);
                 return OpenAIUtil.handle_completion_output({
                     usage_calculator: ({ usage }) => {
                         // custom open router logic because they're pricing are weird
@@ -148,7 +149,10 @@ class OpenRouterService extends BaseService {
                             completion: usage.completion_tokens ?? 0,
                             input_cache_read: usage.prompt_tokens_details.cached_tokens ?? 0,
                         };
-                        this.meteringAndBillingService.utilRecordUsageObject(trackedUsage, actor, modelDetails.id);
+                        const costOverwrites = Object.fromEntries(Object.keys(trackedUsage).map((k) => {
+                            return [k, rawPriceModelDetails.cost[k] * trackedUsage[k]];
+                        }));
+                        this.meteringAndBillingService.utilRecordUsageObject(trackedUsage, actor, modelDetails.id, costOverwrites);
                         const legacyCostCalculator = OpenAIUtil.create_usage_calculator({
                             model_details: modelDetails,
                         });
@@ -163,27 +167,31 @@ class OpenRouterService extends BaseService {
 
     /**
     * Retrieves available AI models and their specifications
-    * @returns {Promise<Array>} Array of model objects containing:
+    * @returns  Array of model objects containing:
     *   - id: Model identifier string
     *   - name: Human readable model name
     *   - context: Maximum context window size
     *   - cost: Pricing information object with currency and rates
     * @private
     */
-    async models_() {
+    async models_(rawPriceKeys = false) {
         const axios = this.require('axios');
 
-        const cached_models = this.modules.kv.get(`${this.kvkey}:models`);
-        if ( cached_models ) {
-            return cached_models;
+        let models = this.modules.kv.get(`${this.kvkey}:models`);
+        if ( !models ) {
+            const resp = await axios.request({
+                method: 'GET',
+                url: this.api_base_url + '/models',
+            });
+            models = resp.data.data;
+            this.modules.kv.set(`${this.kvkey}:models`, models);
         }
-        const resp = await axios.request({
-            method: 'GET',
-            url: this.api_base_url + '/models',
-        });
-        const resp_models = resp.data.data;
         const coerced_models = [];
-        for ( const model of resp_models ) {
+        for ( const model of models ) {
+            const microcentCosts = rawPriceKeys ? Object.fromEntries(Object.entries(model.pricing).map(([k, v]) => [k, Math.round(v * 1_000_000 * 100)])) : {
+                input: Math.round(model.pricing.prompt * 1_000_000 * 100),
+                output: Math.round(model.pricing.completion * 1_000_000 * 100),
+            };
             coerced_models.push({
                 id: 'openrouter:' + model.id,
                 name: model.name + ' (OpenRouter)',
@@ -191,12 +199,10 @@ class OpenRouterService extends BaseService {
                 cost: {
                     currency: 'usd-cents',
                     tokens: 1_000_000,
-                    input: model.pricing.prompt * 1000000 * 100,
-                    output: model.pricing.completion * 1000000 * 100,
+                    ...microcentCosts,
                 },
             });
         }
-        this.modules.kv.set(`${this.kvkey}:models`, coerced_models);
         return coerced_models;
     }
 }
