@@ -13,8 +13,8 @@ extension.on('metering:registerAvailablePolicies', async (
         console.warn('WARNING!!! unlimitedUsage is enabled, this is not recommended for production use');
         event.availablePolicies.push({
             id: 'unlimited',
-            monthUsageAllowence: 500_000_000 * 100_000_000, // unless you're like, jeff's, mark's and elon's illegitamate son, you probably won't hit $5m a month
-            monthlyStorageAllowence: 100_000 * 1024 * 1024, // 100MiB
+            monthUsageAllowance: 500_000_000 * 100_000_000, // unless you're like, jeff's, mark's and elon's illegitamate son, you probably won't hit $5m a month
+            monthlyStorageAllowance: 100_000 * 1024 * 1024, // 100MiB
         });
     }
 });

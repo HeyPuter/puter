@@ -10,10 +10,10 @@ extension.get('/meteringAndBilling/usage', { subdomain: 'api' }, async (req, res
         throw Error('actor not found in context');
     }
     const actorUsagePromise = meteringAndBillingService.getActorCurrentMonthUsageDetails(actor);
-    const actorAllowenceInfoPromise = meteringAndBillingService.getAllowedUsage(actor);
+    const actorAllowanceInfoPromise = meteringAndBillingService.getAllowedUsage(actor);
 
-    const [actorUsage, allowenceInfo] = await Promise.all([actorUsagePromise, actorAllowenceInfoPromise]);
-    res.status(200).json({ ...actorUsage, allowenceInfo });
+    const [actorUsage, alowanceInfo] = await Promise.all([actorUsagePromise, actorAllowanceInfoPromise]);
+    res.status(200).json({ ...actorUsage, alowanceInfo });
     return;
 });
 
