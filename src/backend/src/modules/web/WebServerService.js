@@ -114,7 +114,7 @@ class WebServerService extends BaseService {
         const services = this.services;
         await services.emit('start.webserver');
         await services.emit('ready.webserver');
-        // this.print_puter_logo_();
+        this.log.info('in case you care, ready.webserver hooks are done');
     }
 
     /**
@@ -211,6 +211,9 @@ class WebServerService extends BaseService {
                 console.log('Error opening browser', e);
             }
         }
+        
+
+        if ( ! config.disable_fun ) this.print_puter_logo_();
 
         const link = `\x1B[34;1m${strutil.osclink(url)}\x1B[0m`;
         const lines = [
