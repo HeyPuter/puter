@@ -89,7 +89,18 @@ class DefaultUserService extends BaseService {
         );
         if ( ! is_default_password ) return;
 
-        console.log(`password for admin is: ${tmp_password}`);
+        // console.log(`password for admin is: ${tmp_password}`);
+        const svc_devConsole = this.services.get('dev-console');
+
+        svc_devConsole.notice({
+            colors: { bg: '38;2;0;0;0;48;2;0;252;202;1', bginv: '38;2;0;252;202' },
+            title: 'Your default \'admin\' login',
+            lines: [
+                'username: admin',
+                'password: ' + tmp_password,
+                'You should change this password.',
+            ],
+        });
 
         // show console widget
         this.default_user_widget = ({ is_docker }) => {
@@ -115,7 +126,6 @@ class DefaultUserService extends BaseService {
         };
         this.default_user_widget.critical = true;
         this.start_poll_({ tmp_password, user });
-        const svc_devConsole = this.services.get('dev-console');
         svc_devConsole.add_widget(this.default_user_widget);
     }
     start_poll_ ({ tmp_password, user }) {
