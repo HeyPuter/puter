@@ -208,19 +208,19 @@ export class MeteringAndBillingService {
     }
 
     async getRemainingUsage(actor: Actor) {
-        const allowedUsagePromise = this.getAllowedUsage(actor);
-        const currentUsagePromise = this.getActorCurrentMonthUsageDetails(actor);
-        const [allowedUsage, currentUsageDetails] = await Promise.all([allowedUsagePromise, currentUsagePromise]);
-        return Math.max(0, allowedUsage.remaining - (currentUsageDetails.usage.total || 0));
+        const allowedUsage = await this.getAllowedUsage(actor);
+        return allowedUsage.remaining || 0;
 
     }
 
     async getAllowedUsage(actor: Actor) {
         const userSubscriptionPromise = this.getActorSubscription(actor);
         const userPolicyAddonsPromise = this.getActorPolicyAddons(actor);
+        const currentUsagePromise = this.getActorCurrentMonthUsageDetails(actor);
 
-        const [userSubscription, userPolicyAddons] = await Promise.all([userSubscriptionPromise, userPolicyAddonsPromise]);
-        return { remaining: userSubscription.monthUsageAllowence + (userPolicyAddons?.purchasedCredits || 0),
+        const [userSubscription, userPolicyAddons, currentMonthUsage] = await Promise.all([userSubscriptionPromise, userPolicyAddonsPromise, currentUsagePromise]);
+        return {
+            remaining: Math.max(0, userSubscription.monthUsageAllowence + (userPolicyAddons?.purchasedCredits || 0) - currentMonthUsage.usage.total),
             monthUsageAllowence: userSubscription?.monthUsageAllowence,
             userPolicyAddons,
         };
