@@ -142,7 +142,7 @@ $(document).on('click', '.driver-usage-details', function() {
             h += `
             <tr>
                 <td>${key}</td>
-                <td>${window.format_credits(res.usage[key].units)}</td>
+                <td>${window.number_format(res.usage[key].units, {decimals: 0, thousandSeparator: ','})}</td>
                 <td>${window.number_format(res.usage[key].cost / 100_000_000, { decimals: 2, prefix: '$' })}</td>
             </tr>`;
         }

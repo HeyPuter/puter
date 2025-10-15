@@ -4610,6 +4610,7 @@ fieldset[name=number-code] {
 .driver-usage-details-content-table {
     width: 100%;
     border-collapse: collapse;
+    margin-bottom: 30px;
 }
 
 .driver-usage-details-content-table thead {
