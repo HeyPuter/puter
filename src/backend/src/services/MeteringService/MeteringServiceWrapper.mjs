@@ -10,6 +10,7 @@ export class MeteringAndBillingServiceWrapper extends BaseService {
             kvClientWrapper: this.services.get('puter-kvstore').as('puter-kvstore'),
             superUserService: this.services.get('su'),
             alarmService: this.services.get('alarm'),
+            eventService: this.services.get('event'),
         });
     }
 }

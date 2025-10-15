@@ -1,10 +1,34 @@
 import js from '@eslint/js';
 import stylistic from '@stylistic/eslint-plugin';
+import tseslintPlugin from '@typescript-eslint/eslint-plugin';
+import tseslintParser from '@typescript-eslint/parser';
 import { defineConfig } from 'eslint/config';
 import globals from 'globals';
 import controlStructureSpacing from './control-structure-spacing.js';
 
 export default defineConfig([
+    // TypeScript support block
+    {
+        files: ['**/*.ts'],
+        languageOptions: {
+            parser: tseslintParser,
+            parserOptions: {
+                ecmaVersion: 'latest',
+                sourceType: 'module',
+                project: './tsconfig.json',
+            },
+        },
+        plugins: {
+            '@typescript-eslint': tseslintPlugin,
+        },
+        rules: {
+            // Recommended rules for TypeScript
+            '@typescript-eslint/no-explicit-any': 'warn',
+            '@typescript-eslint/no-unused-vars': ['error', { argsIgnorePattern: '^_' }],
+            '@typescript-eslint/ban-ts-comment': 'warn',
+            '@typescript-eslint/consistent-type-definitions': ['error', 'interface'],
+        },
+    },
     {
         plugins: {
             js,
@@ -115,10 +139,10 @@ export default defineConfig([
         },
     },
     {
-        files: ['**/*.{js,mjs,cjs}'],
+        files: ['**/*.{js,mjs,cjs,ts}'],
         ignores: [
-            'src/backend/**/*.{js,mjs,cjs}',
-            'extensions/**/*.{js,mjs,cjs}',
+            'src/backend/**/*.{js,mjs,cjs,ts}',
+            'extensions/**/*.{js,mjs,cjs,ts}',
         ],
         languageOptions: { globals: globals.browser },
         rules: {
@@ -165,8 +189,8 @@ export default defineConfig([
         },
     },
     {
-        files: ['**/*.{js,mjs,cjs}'],
-        ignores: ['src/backend/**/*.{js,mjs,cjs}'],
+        files: ['**/*.{js,mjs,cjs,ts}'],
+        ignores: ['src/backend/**/*.{js,mjs,cjs,ts}'],
         languageOptions: { globals: globals.browser },
         rules: {
             'no-unused-vars': ['error', {

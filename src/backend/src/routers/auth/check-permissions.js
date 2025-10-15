@@ -34,11 +34,6 @@ module.exports = eggspress('/auth/check-permissions', {
 
     const actor = context.get('actor');
 
-    // Apps cannot (currently) check permissions on behalf of users
-    if ( ! ( actor.type instanceof UserActorType ) ) {
-        throw APIError.create('forbidden');
-    }
-
     const permEntryPromises = [...new Set(permsToCheck)].map(async (perm) => {
         try {
             return [perm, permissionService.check(actor, perm)];

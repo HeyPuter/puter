@@ -2,14 +2,18 @@
   "compilerOptions": {
     "target": "ES2020",
     "allowJs": true,
-    "module": "esnext",
-    "moduleResolution": "node",
+    "module": "node16",
+    "moduleResolution": "node16",
     "baseUrl": ".",
     "outDir": "/dev/null",
     "paths": {
-      "../src/*": ["../src/*"]
+      "../src/*": [
+        "../src/*"
+      ]
     },
-    "typeRoots": ["../node_modules/@types"],
+    "typeRoots": [
+      "../node_modules/@types"
+    ],
     "esModuleInterop": true,
     "allowSyntheticDefaultImports": true,
     "strict": true
