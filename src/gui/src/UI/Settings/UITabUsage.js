@@ -42,7 +42,7 @@ export default {
                 </div>
                 <div class="driver-usage-container">
                     <div class="driver-usage-header">
-                        <h3 style="margin:0; font-size: 14px; flex-grow: 1;">${i18n('total_usage')}</h3>
+                        <h3 style="margin:0; font-size: 14px; flex-grow: 1;">${i18n('credits')}</h3>
                         <div style="font-size: 13px; margin-bottom: 3px;">
                             <span id="total-usage"></span>
                             <span> used of </span>
