@@ -25,7 +25,7 @@ export default {
     html: () => {
         return `
             <h1>${i18n('usage')}</h1>
-            <div class="driver-usage" style="margin-top: 30px;">
+            <div class="driver-usage">
                 <div class="driver-usage-header">
                     <h3 style="margin:0; font-size: 14px; flex-grow: 1;">${i18n('storage_usage')}</h3>
                     <div style="font-size: 13px; margin-bottom: 3px;">
@@ -40,7 +40,7 @@ export default {
                     <div id="storage-bar"></div>
                     <div id="storage-bar-host"></div>
                 </div>
-                <div class="driver-usage-container">
+                <div class="driver-usage-container" style="margin-top: 30px;">
                     <div class="driver-usage-header">
                         <h3 style="margin:0; font-size: 14px; flex-grow: 1;">${i18n('credits')}</h3>
                         <div style="font-size: 13px; margin-bottom: 3px;">
