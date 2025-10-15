@@ -25,5 +25,5 @@ export const COST_MAPS = {
     ...OPENAI_IMAGE_COST_MAP,
     ...OPENROUTER_COST_MAP,
     ...TOGETHER_COST_MAP,
-    ...XAI_COST_MAP
-}
+    ...XAI_COST_MAP,
+};
