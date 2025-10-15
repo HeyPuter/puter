@@ -128,7 +128,7 @@ class LLWriteBase extends LLFilesystemOperation {
 
         hashPromise.then(hash => {
             const svc_event = Context.get('services').get('event');
-            console.log('\x1B[36;1m[fs.write]', uuid, hash);
+            this.log.debug('<fs.write>', { uuid, hash });
             svc_event.emit('outer.fs.write-hash', {
                 hash, uuid,
             });

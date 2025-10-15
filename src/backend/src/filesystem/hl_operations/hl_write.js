@@ -312,7 +312,7 @@ class HLWrite extends HLFilesystemOperation {
                 if ( values.thumbnail ) return 'already thumbnail';
 
                 const content_type = mime.contentType(target_name);
-                console.log('CONTENT TYPE', content_type);
+                this.log.debug('CONTENT TYPE', content_type);
                 if ( ! content_type ) return 'no content type';
                 if ( ! thumbnails.is_supported_mimetype(content_type) ) return 'unsupported content type';
                 if ( ! thumbnails.is_supported_size(values.file.size) ) return 'too large';
@@ -346,7 +346,7 @@ class HLWrite extends HLFilesystemOperation {
                 thumbnail_promise.resolve(thumbnailData.url);
             })();
             if ( reason ) {
-                console.log('REASON', reason);
+                this.log.debug('REASON', reason);
                 thumbnail_promise.resolve(undefined);
 
                 // values.file.stream = logging_stream(values.file.stream);
