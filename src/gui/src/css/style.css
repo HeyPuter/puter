@@ -4502,7 +4502,7 @@ fieldset[name=number-code] {
 #storage-bar-wrapper {
     width: 100%;
     height: 20px;
-    border: 1px solid #efefef;
+    border: 1px solid #dddddd;
     border-radius: 3px;
     background-color: #fbfbfb;
     position: relative;
@@ -4539,7 +4539,7 @@ fieldset[name=number-code] {
 .usage-progbar-wrapper {
     width: 100%;
     height: 20px;
-    border: 1px solid #efefef;
+    border: 1px solid #dddddd;
     border-radius: 3px;
     background-color: #fbfbfb;
     position: relative;
@@ -4569,6 +4569,7 @@ fieldset[name=number-code] {
     flex-grow: 1;
     display: flex;
     flex-direction: column;
+    margin-top: 20px;
 }
 .driver-usage-details-text{
     cursor: pointer !important;
