@@ -21,6 +21,7 @@ const { AdvancedBase } = require("@heyputer/putility");
 const EmitterFeature = require("@heyputer/putility/src/features/EmitterFeature");
 const { Context } = require("./util/context");
 const { ExtensionServiceState } = require("./ExtensionService");
+const { display_time } = require("@heyputer/putility/src/libs/time");
 
 /**
  * This class creates the `extension` global that is seen by Puter backend
@@ -281,7 +282,7 @@ class Extension extends AdvancedBase {
     get console () {
         const extensionConsole = Object.create(console);
         extensionConsole.log = (...a) => {
-            console.log(`\x1B[${this.terminal_color};1m(extension/${this.name})\x1B[0m`, ...a);
+            console.log(`${display_time(new Date())} \x1B[${this.terminal_color};1m(extension/${this.name})\x1B[0m`, ...a);
         };
         return extensionConsole;
     }
