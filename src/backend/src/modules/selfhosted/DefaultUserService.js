@@ -92,15 +92,13 @@ class DefaultUserService extends BaseService {
         // console.log(`password for admin is: ${tmp_password}`);
         const svc_devConsole = this.services.get('dev-console');
 
-        svc_devConsole.notice({
-            colors: { bg: '38;2;0;0;0;48;2;0;252;202;1', bginv: '38;2;0;252;202' },
-            title: 'Your default \'admin\' login',
-            lines: [
-                'username: admin',
-                'password: ' + tmp_password,
-                'You should change this password.',
-            ],
-        });
+        console.log('\n');
+        console.log("************************************************");
+        console.log('* Your default login credentials are:');
+        console.log(`* Username: \x1b[1m${USERNAME}\x1b[0m`);
+        console.log(`* Password: \x1b[1m${tmp_password}\x1b[0m`);
+        console.log("************************************************");
+        console.log('\n');
 
         // show console widget
         this.default_user_widget = ({ is_docker }) => {
