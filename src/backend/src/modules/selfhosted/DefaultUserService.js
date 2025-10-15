@@ -27,6 +27,7 @@ const { buffer_to_stream } = require("../../util/streamutil");
 const BaseService = require("../../services/BaseService");
 const { Actor, UserActorType } = require("../../services/auth/Actor");
 const { DB_WRITE } = require("../../services/database/consts");
+const { TEAL } = require("../../services/NullDevConsoleService");
 const { quot } = require('@heyputer/putility').libs.string;
 
 const USERNAME = 'admin';
@@ -92,13 +93,26 @@ class DefaultUserService extends BaseService {
         // console.log(`password for admin is: ${tmp_password}`);
         const svc_devConsole = this.services.get('dev-console');
 
+        // console.log('\n');
+        // console.log("************************************************");
+        // console.log('* Your default login credentials are:');
+        // console.log(`* Username: \x1b[1m${USERNAME}\x1b[0m`);
+        // console.log(`* Password: \x1b[1m${tmp_password}\x1b[0m`);
+        // console.log("************************************************");
+        // console.log('\n');
+
         console.log('\n');
-        console.log("************************************************");
-        console.log('* Your default login credentials are:');
-        console.log(`* Username: \x1b[1m${USERNAME}\x1b[0m`);
-        console.log(`* Password: \x1b[1m${tmp_password}\x1b[0m`);
-        console.log("************************************************");
+        svc_devConsole.notice({
+            colors: TEAL,
+            style: 'stars',
+            title: 'Your default login credentials are',
+            lines: [
+                'Username: \x1b[1madmin\x1b[0m',
+                `Password: \x1b[1m${tmp_password}\x1b[0m`,
+            ],
+        });
         console.log('\n');
+
 
         // show console widget
         this.default_user_widget = ({ is_docker }) => {

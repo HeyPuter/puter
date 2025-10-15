@@ -99,9 +99,16 @@ const wrap_text = (text, width = 71) => {
     return out;
 };
 
+const ansi_visible_length = str => {
+    // Regex that matches ANSI escape sequences
+    const ansiRegex = /\x1b\[[0-9;]*m/g;
+    return str.replace(ansiRegex, '').length;
+};
+
 module.exports = {
     quot,
     osclink,
     format_as_usd,
     wrap_text,
+    ansi_visible_length,
 };
