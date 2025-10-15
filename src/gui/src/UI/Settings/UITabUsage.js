@@ -94,6 +94,12 @@ export default {
                             <div class="usage-progbar-wrapper" style="width: 100%;">
                                 <div class="usage-progbar" style="width: ${Number(entry.usage_percentage)}%;"><span class="usage-progbar-percent">${Number(entry.usage_percentage)}%</span></div>
                             </div>
+                            <div class="driver-usage-details" style="margin-top: 5px; font-size: 13px; cursor: pointer;">
+                                <div class="caret"><svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" fill="currentColor" class="bi bi-caret-right-fill" viewBox="0 0 16 16"><path d="m12.14 8.753-5.482 4.796c-.646.566-1.658.106-1.658-.753V3.204a1 1 0 0 1 1.659-.753l5.48 4.796a1 1 0 0 1 0 1.506z"/></svg></div>
+                                <span class="driver-usage-details-text disable-user-select">View usage details</span>
+                            </div>
+                            <div class="driver-usage-details-content" style="display: none;">
+                            </div>
                         </div>
                     `;
                 });
@@ -194,3 +200,45 @@ export default {
         });
     },
 };
+
+$(document).on('click', '.driver-usage-details', function() {
+    $('.driver-usage-details-content').toggleClass('active');
+    $('.driver-usage-details').toggleClass('active');
+
+    // change the text of the driver-usage-details-text depending on the class
+    if($('.driver-usage-details').hasClass('active')){
+        $('.driver-usage-details-text').text('Hide usage details');
+    }else{
+        $('.driver-usage-details-text').text('View usage details');
+    }
+
+    puter.auth.getMonthlyUsage().then(res => {
+        let h = '<table class="driver-usage-details-content-table">';
+
+        h += `<thead>
+            <tr>
+                <th>Resource</th>
+                <th>Units</th>
+                <th>Cost</th>
+            </tr>
+        </thead>`;
+
+        h += `<tbody>`;
+        for(let key in res.usage){
+            // value must be object
+            if(typeof res.usage[key] !== 'object')
+                continue;
+
+            h += `
+            <tr>
+                <td>${key}</td>
+                <td>${window.format_credits(res.usage[key].units)}</td>
+                <td>${window.number_format(res.usage[key].cost / 100_000_000, { decimals: 2, prefix: '$' })}</td>
+            </tr>`;
+        }
+        h += `</tbody>`;
+        h += '</table>';
+
+        $('.driver-usage-details-content').html(h);
+    });
+});
