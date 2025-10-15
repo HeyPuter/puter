@@ -25,13 +25,15 @@ export default {
     html: () => {
         return `
             <h1>${i18n('usage')}</h1>
-            <div class="driver-usage">
-                <h3 style="margin-bottom: 5px; font-size: 14px;">${i18n('storage_usage')}</h3>
-                <div style="font-size: 13px; margin-bottom: 3px;">
-                    <span id="storage-used"></span>
-                    <span> used of </span>
-                    <span id="storage-capacity"></span>
-                    <span id="storage-puter-used-w" style="display:none;">&nbsp;(<span id="storage-puter-used"></span> ${i18n('storage_puter_used')})</span>
+            <div class="driver-usage" style="margin-top: 30px;">
+                <div class="driver-usage-header">
+                    <h3 style="margin:0; font-size: 14px; flex-grow: 1;">${i18n('storage_usage')}</h3>
+                    <div style="font-size: 13px; margin-bottom: 3px;">
+                        <span id="storage-used"></span>
+                        <span> used of </span>
+                        <span id="storage-capacity"></span>
+                        <span id="storage-puter-used-w" style="display:none;">&nbsp;(<span id="storage-puter-used"></span> ${i18n('storage_puter_used')})</span>
+                    </div>
                 </div>
                 <div id="storage-bar-wrapper">
                     <span id="storage-used-percent"></span>
@@ -85,12 +87,14 @@ export default {
                             style="margin-bottom: 10px;"
                             data-id="${sanitize_id(entry.id)}"
                         >
-                            <h3 style="margin-bottom: 5px; font-size: 14px;">${html_encode(name)}:</h3>
-                            <span style="font-size: 13px; margin-bottom: 3px;">${i18n('used_of', {
-                                ...entry,
-                                used: window.format_credits(entry.used),
-                                available: window.format_credits(entry.available),
-                            })}</span>
+                            <div class="driver-usage-header">
+                                <h3 style="margin:0; font-size: 14px; flex-grow: 1;">${html_encode(name)}:</h3>
+                                <span style="font-size: 13px; margin-bottom: 3px;">${i18n('used_of', {
+                                    ...entry,
+                                    used: window.format_credits(entry.used),
+                                    available: window.format_credits(entry.available),
+                                })}</span>
+                            </div>
                             <div class="usage-progbar-wrapper" style="width: 100%;">
                                 <div class="usage-progbar" style="width: ${Number(entry.usage_percentage)}%;"><span class="usage-progbar-percent">${Number(entry.usage_percentage)}%</span></div>
                             </div>
@@ -98,7 +102,7 @@ export default {
                                 <div class="caret"><svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" fill="currentColor" class="bi bi-caret-right-fill" viewBox="0 0 16 16"><path d="m12.14 8.753-5.482 4.796c-.646.566-1.658.106-1.658-.753V3.204a1 1 0 0 1 1.659-.753l5.48 4.796a1 1 0 0 1 0 1.506z"/></svg></div>
                                 <span class="driver-usage-details-text disable-user-select">View usage details</span>
                             </div>
-                            <div class="driver-usage-details-content" style="display: none;">
+                            <div class="driver-usage-details-content hide-scrollbar" style="display: none;">
                             </div>
                         </div>
                     `;
