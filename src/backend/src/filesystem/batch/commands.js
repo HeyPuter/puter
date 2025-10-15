@@ -86,7 +86,6 @@ class MkdirCommand extends BatchCommand {
             });
             return;
         }
-        console.log('USING SLOW MKDIR');
 
         const hl_mkdir = new HLMkdir();
         const response = await hl_mkdir.run({
