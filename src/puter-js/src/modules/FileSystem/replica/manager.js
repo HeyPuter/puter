@@ -30,16 +30,24 @@ class ReplicaManager {
         this.fs_tree = null;
         this.last_local_update = 0; // milliseconds since epoch
 
+        // debug variables
         this.debug = false;
+        this.local_read = 0;
+        this.remote_read = 0;
     }
 
     /**
      * Initialize the replica manager for the current user.
      */
     async initialize(context) {
+        // check input
+        if ( !context || !context.authToken || !context.APIOrigin ) {
+            console.error(`[replica manager] failed to initialize, context is invalid: ${JSON.stringify(context, null, 2)}`);
+            return;
+        }
+
         this.authToken = context.authToken;
         this.APIOrigin = context.APIOrigin;
-        this.appID = context.appID;
 
         // Fetch username from whoami endpoint if not provided in context
         if ( !context.username ) {
@@ -72,6 +80,8 @@ class ReplicaManager {
 
     connect() {
         if ( this.socket ) {
+            // The disconnect action will not impact other components since each socket
+            // object get their own session.
             this.socket.disconnect();
         }
 
@@ -89,15 +99,21 @@ class ReplicaManager {
      */
     bindEvents() {
         this.socket.on('connect', () => {
+            console.log('[replica manager] websocket connected');
+
             this.fetchReplica();
             this.startPullDiff();
         });
 
         this.socket.on('disconnect', () => {
+            console.log('[replica manager] websocket disconnected');
+
             this.cleanup('disconnected');
         });
 
         this.socket.on('reconnect', (_attempt) => {
+            console.log('[replica manager] websocket reconnected');
+
             this.fetchReplica();
             this.startPullDiff();
         });
@@ -342,7 +358,7 @@ class ReplicaManager {
 
     // Do cleanup and mark replica as unavailable.
     cleanup(reason) {
-        console.log(`replica manager cleanup, reason: ${reason}`);
+        console.log(`[replica manager] cleanup, reason: ${reason}`);
 
         if ( this.pullDiffInterval ) {
             clearInterval(this.pullDiffInterval);
@@ -350,10 +366,7 @@ class ReplicaManager {
         }
 
         if ( this.socket ) {
-            // shouldn't disconnect since this socket is also used by the
-            // other components
-            //
-            // this.socket.disconnect();
+            this.socket.disconnect();
         }
 
         this.available = false;

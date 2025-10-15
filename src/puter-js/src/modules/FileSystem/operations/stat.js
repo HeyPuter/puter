@@ -34,6 +34,9 @@ const stat = async function (...args) {
                     options.success(result);
                 }
                 resolve(result);
+
+                // update debug variable
+                puter.fs.replica.local_read++;
             } catch( error ) {
                 if ( options.error ) {
                     options.error(error);

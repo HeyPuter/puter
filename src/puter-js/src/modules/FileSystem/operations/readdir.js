@@ -34,6 +34,11 @@ const readdir = async function (...args) {
                         options.success(result);
                     }
                     resolve(result);
+
+                    // update debug variable
+                    const result_path = result[0]?.path;
+                    console.log(`[readdir] local read, options: ${JSON.stringify(options, null, 2)}, result_path: ${result_path}`);
+                    puter.fs.replica.local_read++;
                 } catch( error ) {
                     if ( options.error ) {
                         options.error(error);
@@ -43,6 +48,8 @@ const readdir = async function (...args) {
             });
         }
     }
+    console.log(`[readdir] remote read, options: ${JSON.stringify(options, null, 2)}`);
+    puter.fs.replica.remote_read++;
 
     return new Promise(async (resolve, reject) => {
         // consistency levels
