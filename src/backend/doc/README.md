@@ -16,3 +16,4 @@ Steve Ballmer impression so it's definitely worth it.
 - [Boot Sequence](./contributors/boot-sequence.md)
 - [Kernel](./Kernel.md)
 - [Modules](./contributors/modules.md)
+- [Configuring Logs](./log_config.md)

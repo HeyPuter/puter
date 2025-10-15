@@ -19,6 +19,7 @@
 
 // METADATA // {"def":"core.expect"}
 const { v4: uuidv4 } = require('uuid');
+const global_config = require('../../../config');
 
 /**
 * @class WorkUnit
@@ -51,7 +52,9 @@ class WorkUnit {
         this.checkpoint_ = null;
     }
     checkpoint (label) {
-        console.log('CHECKPOINT', label);
+        if ( ( global_config.logging ?? [] ).includes('checkpoint') ) {
+            console.log('CHECKPOINT', label);
+        }
         this.checkpoint_ = label;
     }
 }
