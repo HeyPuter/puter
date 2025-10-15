@@ -26,6 +26,8 @@ const { TeePromise } = require('@heyputer/putility').libs.promise;
 const { WorkUnit } = require('../../modules/core/lib/expect');
 
 class BatchExecutor extends AdvancedBase {
+    static LOG_LEVEL = true;
+
     constructor (x, { actor, log, errors }) {
         super();
         this.x = x;
@@ -168,7 +170,7 @@ class BatchExecutor extends AdvancedBase {
             this.counter++;
             const { log, total, total_tbd, counter } = this;
             const total_str = total_tbd ? `TBD(>${total})` : `${total}`;
-            log.noticeme(`Batch Progress: ${counter} / ${total_str} operations`);
+            log.debug(`Batch Progress: ${counter} / ${total_str} operations`);
             return result;
         });
 

@@ -264,7 +264,7 @@ class OperationTraceService {
 
     add_frame_sync (label, x) {
         if ( x ) {
-            this.log.noticeme(
+            this.log.debug(
                 'add_frame_sync() called with explicit context: ' +
                 x.describe()
             );
