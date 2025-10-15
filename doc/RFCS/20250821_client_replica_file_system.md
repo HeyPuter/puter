@@ -313,8 +313,9 @@ TODO
 
 - `puter.fs.replica.available` - whether the client-replica is available
 - `puter.fs.replica.last_local_update` - the timestamp of the last local update
-- `puter.fs.replica.debug` - toggle debug widget and logs, may be merged with `puter.debugMode` in the future
+- `puter.fs.replica.setDebug(true/false)` - toggle debug widget and logs, may be merged with `puter.debugMode` in the future
 - `puter.fs.replica.fs_tree` - the in-memory FS Tree, should only be used by internal code
+- `puter.fs.replica.local_read` - count of local read operations performed by puter-js, used for debugging
 
 ### Client-Replica Lifecycle
 
@@ -390,3 +391,7 @@ The **Change Propagation Time** on original synchronize model is negligible. But
 ### Last-Updated Time for "Stale Replica Fetch"
 
 ### Alternative Storage Models
+
+## TODO
+
+- [ ] puter-js readdir support path with `~` (e.g: `~/Desktop`)

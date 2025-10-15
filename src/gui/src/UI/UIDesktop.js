@@ -590,6 +590,8 @@ async function UIDesktop(options) {
     });
 
     window.socket.on('item.added', async (item) => {
+        console.log(`[xiaochen-debug] item.added: ${JSON.stringify(item, null, 2)}`);
+
         // if item is empty, don't proceed
         if (_.isEmpty(item))
             return;
