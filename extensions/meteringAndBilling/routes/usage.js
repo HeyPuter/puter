@@ -2,19 +2,22 @@
 const meteringAndBillingServiceWrapper = extension.import('service:meteringService');
 
 // TODO DS: move this to its own router and just use under this path
-extension.get('/v2/usage', { subdomain: 'api' }, async (req, res) => {
+extension.get('/meteringAndBilling/usage', { subdomain: 'api' }, async (req, res) => {
     const meteringAndBillingService = meteringAndBillingServiceWrapper.meteringAndBillingService;
 
     const actor = req.actor;
     if ( !actor ) {
         throw Error('actor not found in context');
     }
-    const actorUsage = await meteringAndBillingService.getActorCurrentMonthUsageDetails(actor);
-    res.status(200).json(actorUsage);
+    const actorUsagePromise = meteringAndBillingService.getActorCurrentMonthUsageDetails(actor);
+    const actorAllowenceInfoPromise = meteringAndBillingService.getAllowedUsage(actor);
+
+    const [actorUsage, allowenceInfo] = await Promise.all([actorUsagePromise, actorAllowenceInfoPromise]);
+    res.status(200).json({ ...actorUsage, allowenceInfo });
     return;
 });
 
-extension.get('/v2/usage/:appId', { subdomain: 'api' }, async (req, res) => {
+extension.get('/meteringAndBilling/usage/:appId', { subdomain: 'api' }, async (req, res) => {
     const meteringAndBillingService = meteringAndBillingServiceWrapper.meteringAndBillingService;
 
     const actor = req.actor;
@@ -32,4 +35,4 @@ extension.get('/v2/usage/:appId', { subdomain: 'api' }, async (req, res) => {
     return;
 });
 
-console.debug('Loaded /v2/usage route');
+console.debug('Loaded /meteringAndBilling/usage route');

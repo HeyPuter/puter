@@ -1,6 +1,6 @@
 import BaseService from '../../BaseService.js';
 import { DB_READ } from '../../database/consts.js';
-import { DBKVStore } from './DBKVStore.mjs';
+import { DBKVStore } from './DBKVStore.js';
 
 export class DBKVServiceWrapper extends BaseService {
     kvStore = undefined;
