@@ -17,8 +17,10 @@
  * You should have received a copy of the GNU Affero General Public License
  * along with this program.  If not, see <https://www.gnu.org/licenses/>.
  */
+const { ansi_visible_length } = require('@heyputer/putility/src/libs/string');
 const { consoleLogManager } = require('../util/consolelog');
 const BaseService = require('./BaseService');
+const { NullDevConsoleService } = require('./NullDevConsoleService');
 
 
 /**
@@ -91,18 +93,8 @@ class DevConsoleService extends BaseService {
         this.mark_updated();
     }
     
-    notice ({ colors, title, lines }) {
-        colors = colors ?? {
-            bg: '46',
-            bginv: '36',
-        };
-
-        console.log(`\x1B[${colors.bginv}m▐\x1B[0m\x1B[${colors.bg}m ${title} \x1B[0m`);
-        for ( const line of lines ) {
-            console.log(`\x1B[${colors.bginv}m▐▌\x1B[0m${line}\x1B[0m`);
-        }
-    }
-
+    notice = NullDevConsoleService.notice;
+    
     /**
      * Updates the displayed output based on the current state of widgets.
      * This method collects output from all active widgets, handles any errors, 
