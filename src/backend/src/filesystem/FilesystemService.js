@@ -295,7 +295,7 @@ class FilesystemService extends BaseService {
                         [new_path, old_path.length + 1, `${old_path}%`, user_id]);
 
         const log = this.services.get('log-service').create('update_child_paths');
-        log.info(`updated ${old_path} -> ${new_path}`);
+        log.debug(`updated ${old_path} -> ${new_path}`);
 
         monitor.end();
     }
