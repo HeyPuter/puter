@@ -230,8 +230,8 @@ export class MeteringAndBillingService {
 
         const [userSubscription, userPolicyAddons, currentMonthUsage] = await Promise.all([userSubscriptionPromise, userPolicyAddonsPromise, currentUsagePromise]);
         return {
-            remaining: Math.max(0, userSubscription.monthUsageAllowance + (userPolicyAddons?.purchasedCredits || 0) - currentMonthUsage.usage.total),
-            monthUsageAllowance: userSubscription?.monthUsageAllowance,
+            remaining: Math.max(0, (userSubscription.monthUsageAllowance || 0) + (userPolicyAddons?.purchasedCredits || 0) - (currentMonthUsage.usage.total || 0)),
+            monthUsageAllowance: userSubscription.monthUsageAllowance,
             userPolicyAddons,
         };
     }
@@ -272,7 +272,7 @@ export class MeteringAndBillingService {
         const availablePolicies = [ ...availablePoliciesEvent.availablePolicies, ...SUB_POLICIES ];
         const userSubscriptionId = userSubscriptionEvent.userSubscriptionId as unknown as typeof SUB_POLICIES[number]['id'] || defaultSubscriptionId;
 
-        return availablePolicies.find(({ id }) => id === userSubscriptionId || id === defaultSubscriptionId)!;
+        return availablePolicies.find(({ id }) => id === userSubscriptionId) || availablePolicies.find(({ id }) => id === defaultSubscriptionId)!;
     }
 
     async getActorPolicyAddons(actor: Actor) {
