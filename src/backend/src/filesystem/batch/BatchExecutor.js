@@ -44,6 +44,8 @@ class BatchExecutor extends AdvancedBase {
         this.concurrent_ops = 0;
         this.max_concurrent_ops = 20;
         this.ops_promise = null;
+        
+        this.log_batchCommands = (config.logging ?? []).includes('batch-commands');
     }
 
     async ready_for_more () {
@@ -66,7 +68,9 @@ class BatchExecutor extends AdvancedBase {
 
         const { expectations } = this;
         const command_cls = commands[op.op];
-        console.log(command_cls, JSON.stringify(op, null, 2));
+        if ( this.log_batchCommands ) {
+            console.log(command_cls, JSON.stringify(op, null, 2));
+        }
         delete op.op;
 
         const workUnit = WorkUnit.create();
