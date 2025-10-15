@@ -4496,9 +4496,9 @@ fieldset[name=number-code] {
 #storage-bar-wrapper {
     width: 100%;
     height: 20px;
-    border: 1px solid #8a9096;
+    border: 1px solid #efefef;
     border-radius: 3px;
-    background-color: #fff;
+    background-color: #fbfbfb;
     position: relative;
     display: flex;
     align-items: center;
@@ -4533,9 +4533,9 @@ fieldset[name=number-code] {
 .usage-progbar-wrapper {
     width: 100%;
     height: 20px;
-    border: 1px solid #8a9096;
+    border: 1px solid #efefef;
     border-radius: 3px;
-    background-color: #fff;
+    background-color: #fbfbfb;
     position: relative;
     display: flex;
     align-items: center;
