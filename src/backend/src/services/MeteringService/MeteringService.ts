@@ -220,8 +220,8 @@ export class MeteringAndBillingService {
 
         const [userSubscription, userPolicyAddons, currentMonthUsage] = await Promise.all([userSubscriptionPromise, userPolicyAddonsPromise, currentUsagePromise]);
         return {
-            remaining: Math.max(0, userSubscription.monthUsageAllowence + (userPolicyAddons?.purchasedCredits || 0) - currentMonthUsage.usage.total),
-            monthUsageAllowence: userSubscription?.monthUsageAllowence,
+            remaining: Math.max(0, userSubscription.monthUsageAllowance + (userPolicyAddons?.purchasedCredits || 0) - currentMonthUsage.usage.total),
+            monthUsageAllowance: userSubscription?.monthUsageAllowance,
             userPolicyAddons,
         };
     }
