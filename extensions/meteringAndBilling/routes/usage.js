@@ -12,8 +12,8 @@ extension.get('/meteringAndBilling/usage', { subdomain: 'api' }, async (req, res
     const actorUsagePromise = meteringAndBillingService.getActorCurrentMonthUsageDetails(actor);
     const actorAllowanceInfoPromise = meteringAndBillingService.getAllowedUsage(actor);
 
-    const [actorUsage, alowanceInfo] = await Promise.all([actorUsagePromise, actorAllowanceInfoPromise]);
-    res.status(200).json({ ...actorUsage, alowanceInfo });
+    const [actorUsage, allowanceInfo] = await Promise.all([actorUsagePromise, actorAllowanceInfoPromise]);
+    res.status(200).json({ ...actorUsage, allowanceInfo });
     return;
 });
 
