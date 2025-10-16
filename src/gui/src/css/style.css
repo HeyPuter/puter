@@ -4573,6 +4573,7 @@ fieldset[name=number-code] {
 }
 .driver-usage-details-text{
     cursor: pointer !important;
+    font-weight: 500;
 }
 .driver-usage-details-content {
     display: none;
@@ -4591,15 +4592,25 @@ fieldset[name=number-code] {
     cursor: pointer;
     display: flex;
     align-items: center;
+    height: 25px;
 }
 
 .driver-usage-details .caret {
     transition: transform 0.1s ease-in-out;
     margin-right: 3px;
     display: inline-block;
-    width: 16px;
-    height: 16px;
-    opacity: 0.7;
+    width: 20px;
+    height: 20px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    opacity: 0.6;
+    margin-left: -3px;
+}
+
+.driver-usage-details .caret svg{
+    width: 14px;
+    height: 14px;
 }
 
 .driver-usage-details.active .caret {

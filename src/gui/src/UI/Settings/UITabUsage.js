@@ -89,7 +89,7 @@ async function update_usage_details($el_window){
     $($el_window).find('.update-usage-details-icon').css('animation', 'spin 1s linear infinite');
     
     const monthlyUsagePromise = puter.auth.getMonthlyUsage().then(res => {
-        let monthlyAllowance = res.allowanceInfo?.monthUsageAllowance;
+        let monthlyAllowance = res.allowanceInfo?.monthUsageAllowance + res.allowanceInfo?.addons?.purchasedCredits ?? 0;
         let remaining = res.allowanceInfo?.remaining;
         let totalUsage = monthlyAllowance - remaining;
         let totalUsagePercentage = (totalUsage / monthlyAllowance * 100).toFixed(0);
