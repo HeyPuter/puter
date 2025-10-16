@@ -1,6 +1,6 @@
+import path from '../../lib/path.js';
 import io from '../../lib/socket.io/socket.io.esm.min.js';
 import * as utils from '../../lib/utils.js';
-import path from '../../lib/path.js';
 
 // Constants
 // 
@@ -29,6 +29,7 @@ import getReadURL from './operations/getReadUrl.js';
 
 // client-replica
 import replica from "./replica/manager.js";
+// import replica from "./replica/manager.ts";
 
 export class PuterJSFileSystemModule extends AdvancedBase {
 
