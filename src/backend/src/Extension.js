@@ -293,7 +293,7 @@ class Extension extends AdvancedBase {
             if ( ! svc_log ) {
                 const realConsole = globalThis.original_console_object ?? console;
                 realConsole[(level => {
-                    if ( ['error', 'warn'].includes(level) ) return level;
+                    if ( ['error', 'warn', 'debug'].includes(level) ) return level;
                     return 'log';
                 })(level)](`${display_time(new Date())} \x1B[${this.terminal_color};1m(extension/${this.name})\x1B[0m`, ...a);
                 return;

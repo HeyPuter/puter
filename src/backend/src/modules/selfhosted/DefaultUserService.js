@@ -101,7 +101,8 @@ class DefaultUserService extends BaseService {
         // console.log("************************************************");
         // console.log('\n');
 
-        console.log('\n');
+        const realConsole = globalThis.original_console_object ?? console;
+        realConsole.log('\n');
         svc_devConsole.notice({
             colors: TEAL,
             style: 'stars',
@@ -111,7 +112,7 @@ class DefaultUserService extends BaseService {
                 `Password: \x1b[1m${tmp_password}\x1b[0m`,
             ],
         });
-        console.log('\n');
+        realConsole.log('\n');
 
 
         // show console widget
