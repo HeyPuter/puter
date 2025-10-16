@@ -278,12 +278,31 @@ class Extension extends AdvancedBase {
         }
         this.only_one_init_fn = callback;
     }
-    
+
     get console () {
         const extensionConsole = Object.create(console);
         extensionConsole.log = (...a) => {
-            const realConsole = globalThis.original_console_object ?? console;
-            realConsole.log(`${display_time(new Date())} \x1B[${this.terminal_color};1m(extension/${this.name})\x1B[0m`, ...a);
+            let svc_log;
+
+            try {
+                svc_log = this.services.get('log-service');
+            } catch ( _e ) {
+                // NOOP
+            }
+            
+            if ( ! svc_log ) {
+                const realConsole = globalThis.original_console_object ?? console;
+                realConsole.log(`${display_time(new Date())} \x1B[${this.terminal_color};1m(extension/${this.name})\x1B[0m`, ...a);
+                return;
+            }
+
+            const extensionLogger = svc_log.create(`extension/${this.name}`);
+            const util = require('node:util');
+            const consoleStyle = a.map(arg => {
+                if ( typeof arg === 'string' ) return arg;
+                return util.inspect(arg, undefined, undefined, true);
+            }).join(' ');
+            extensionLogger.info(consoleStyle);
         };
         return extensionConsole;
     }
