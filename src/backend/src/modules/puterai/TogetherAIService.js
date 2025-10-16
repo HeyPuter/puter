@@ -22,7 +22,6 @@ const { PassThrough } = require("stream");
 const BaseService = require("../../services/BaseService");
 const { TypedValue } = require("../../services/drivers/meta/Runtime");
 const { nou } = require("../../util/langutil");
-const { TeePromise } = require('@heyputer/putility').libs.promise;
 const { Together } = require('together-ai');
 const OpenAIUtil = require("./lib/OpenAIUtil");
 const { Context } = require("../../util/context");
@@ -115,9 +114,9 @@ class TogetherAIService extends BaseService {
                 const actor = Context.get('actor');
                 const modelId = model ?? this.get_default_model();
 
-                if ( stream ) {
-                    let usage_promise = new TeePromise();
+                const modelDetails = (await this.models_()).find(m => m.id === modelId);
 
+                if ( stream ) {
                     const stream = new PassThrough();
                     const retval = new TypedValue({
                         $: 'stream',
@@ -128,14 +127,13 @@ class TogetherAIService extends BaseService {
                         for await ( const chunk of completion ) {
                             // DRY: same as openai
                             if ( chunk.usage ) {
-                                // TODO DS: get rid of legacy usage
-                                usage_promise.resolve({
-                                    input_tokens: chunk.usage.prompt_tokens,
-                                    output_tokens: chunk.usage.completion_tokens,
-                                });
                                 // Metering: record usage for streamed chunks
                                 const trackedUsage = OpenAIUtil.extractMeteredUsage(chunk.usage);
-                                this.meteringAndBillingService.utilRecordUsageObject(trackedUsage, actor, modelId);
+                                const costOverrides = {
+                                    prompt_tokens: trackedUsage.prompt_tokens * (modelDetails?.cost?.input ?? 0),
+                                    completion_tokens: trackedUsage.completion_tokens * (modelDetails?.cost?.output ?? 0),
+                                };
+                                this.meteringAndBillingService.utilRecordUsageObject(trackedUsage, actor, modelId, costOverrides);
                             }
 
                             if ( chunk.choices.length < 1 ) continue;
@@ -155,7 +153,6 @@ class TogetherAIService extends BaseService {
                     return {
                         stream: true,
                         response: retval,
-                        usage_promise: usage_promise,
                     };
                 }
 
@@ -175,7 +172,7 @@ class TogetherAIService extends BaseService {
     /**
     * Fetches and caches available AI models from Together API
     * @private
-    * @returns {Promise<Array>} Array of model objects containing id, name, context length,
+    * @returns Array of model objects containing id, name, context length,
     *                          description and pricing information
     * @remarks Models are cached for 5 minutes in KV store
     */

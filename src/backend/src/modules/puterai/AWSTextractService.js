@@ -32,7 +32,9 @@ const { Context } = require("../../util/context");
 */
 class AWSTextractService extends BaseService {
     /** @type {import('../../services/MeteringService/MeteringService').MeteringAndBillingService} */
-    meteringAndBillingService;
+    get meteringAndBillingService(){
+        return this.services.get('meteringService').meteringAndBillingService;
+    }
     /**
     * AWS Textract service for OCR functionality
     * Provides document analysis capabilities using AWS Textract API
@@ -104,13 +106,6 @@ class AWSTextractService extends BaseService {
     };
 
     /**
-    * Service initialization: set up metering service
-    */
-    async _init() {
-        this.meteringAndBillingService = this.services.get('meteringService').meteringAndBillingService;
-    }
-
-    /**
     * Creates AWS credentials object for authentication
     * @private
     * @returns {Object} Object containing AWS access key ID and secret access key
@@ -150,23 +145,14 @@ class AWSTextractService extends BaseService {
             client, document, using_s3,
         } = await this._get_client_and_document(file_facade);
 
-        const min_cost = 150 // cents per 1000 pages
-            * Math.pow(10, 6) // microcents per cent
-            / 1000 // pages
-            ; // works out to 150,000 microcents per page
+        const actor = Context.get('actor');
+        const usageType = "aws-textract:detect-document-text:page";
 
-        const svc_cost = this.services.get('cost');
-        const usageAllowed = await svc_cost.get_funding_allowed({
-            minimum: min_cost,
-        });
+        const usageAllowed = await this.meteringAndBillingService.hasEnoughCreditsFor(actor, usageType, 1); // allow them to pass if they have enough for 1 page atleast
 
         if ( ! usageAllowed ) {
             throw APIError.create('insufficient_funds');
         }
-
-        // Note: we are using the synchronous command, so cost
-        // should always be the same (only 1 page allowed)
-        await svc_cost.record_cost({ cost: min_cost });
 
         const command = new AnalyzeDocumentCommand({
             Document: document,
@@ -198,7 +184,6 @@ class AWSTextractService extends BaseService {
         }
 
         // Metering integration for Textract OCR usage
-        const actor = Context.get('actor');
         // AWS Textract metering: track page count, block count, cost, document size if available
         let pageCount = 0;
         if ( textractResp.Blocks ) {
@@ -206,10 +191,7 @@ class AWSTextractService extends BaseService {
                 if ( block.BlockType === 'PAGE' ) pageCount += 1;
             }
         }
-        const trackedUsage = {
-            page: pageCount || 1,
-        };
-        this.meteringAndBillingService.utilRecordUsageObject(trackedUsage, actor, "aws-textract:detect-document-text");
+        this.meteringAndBillingService.incrementUsage(actor, usageType, pageCount || 1);
 
         return textractResp;
     }

@@ -161,7 +161,6 @@ const install = async ({ context, services, app, useapi, modapi }) => {
     const { OwnerLimitedES } = require('./om/entitystorage/OwnerLimitedES');
     const { ESBuilder } = require('./om/entitystorage/ESBuilder');
     const { Eq, Or } = require('./om/query/query');
-    const { TrackSpendingService } = require('./services/TrackSpendingService');
     const { MakeProdDebuggingLessAwfulService } = require('./services/MakeProdDebuggingLessAwfulService');
     const { ConfigurableCountingService } = require('./services/ConfigurableCountingService');
     const { FSLockService } = require('./services/fs/FSLockService');
@@ -259,7 +258,6 @@ const install = async ({ context, services, app, useapi, modapi }) => {
     services.registerService('context-init', ContextInitService);
     services.registerService('identification', IdentificationService);
     services.registerService('auth-audit', AuthAuditService);
-    services.registerService('spending', TrackSpendingService);
     services.registerService('counting', ConfigurableCountingService);
     services.registerService('thumbnails', StrategizedService, {
         strategy_key: 'engine',
@@ -320,9 +318,6 @@ const install = async ({ context, services, app, useapi, modapi }) => {
 
     const { DevTODService } = require('./services/DevTODService');
     services.registerService('__dev-tod', DevTODService);
-
-    const { CostService } = require("./services/drivers/CostService");
-    services.registerService('cost', CostService);
 
     const { DriverService } = require("./services/drivers/DriverService");
     services.registerService('driver', DriverService);

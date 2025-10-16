@@ -1,14 +1,9 @@
 // OpenAI Image Generation Cost Map (microcents per image)
 // Pricing for DALL-E 2 and DALL-E 3 models based on image dimensions.
-// All costs are in microcents (1/1,000,000th of a cent). Example: 1,000,000 microcents = $0.01 USD.
-//
-// Source: [`TrackSpendingService.js`](../../../../TrackSpendingService.js) ImageGenerationStrategy static models
-//
+// All costs are in microcents (1/1,000,000th of a cent). Example: 1,000,000 microcents = $0.01 USD.//
 // Naming pattern: "openai:{model}:{size}" or "openai:{model}:hd:{size}" for HD images
 
 import { toMicroCents } from "../utils";
-
-
 
 export const OPENAI_IMAGE_COST_MAP = {
     // DALL-E 3

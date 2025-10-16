@@ -76,11 +76,6 @@ service used
 This event is emitted for ai prompt cost calculated operations.
 
 
-### `ai.prompt.report-usage`
-
-This event is emitted for ai prompt report usage operations.
-
-
 ### `ai.prompt.validate`
 
 This event is emitted when a validate is being validated.
