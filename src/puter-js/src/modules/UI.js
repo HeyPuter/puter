@@ -765,6 +765,12 @@ class UI extends EventListener {
         })
     }
 
+    requestUpgrade = function() {
+        return new Promise((resolve) => {
+            this.#postMessageWithCallback('requestUpgrade', resolve, {  });
+        })
+    }
+
     showSaveFilePicker = function(content, suggestedName, type){
         const undefinedOnCancel = new putility.libs.promise.TeePromise();
         const resolveOnlyPromise = new Promise((resolve, reject) => {

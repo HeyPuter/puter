@@ -141,6 +141,11 @@ const ipc_listener = async (event, handled) => {
         return;
     }
 
+    // --------------------------------------------------------
+    // Dispatch custom event so that extensions can listen to it
+    // --------------------------------------------------------
+    window.dispatchEvent(new CustomEvent('ipc:message', { detail: event.data }));
+
     // todo validate all event.data stuff coming from the client (e.g. event.data.message, .msg, ...)
     //-------------------------------------------------
     // READY
