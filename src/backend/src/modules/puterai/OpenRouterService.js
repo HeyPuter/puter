@@ -147,7 +147,7 @@ class OpenRouterService extends BaseService {
                         const trackedUsage = {
                             prompt: usage.prompt_tokens ?? 0,
                             completion: usage.completion_tokens ?? 0,
-                            input_cache_read: usage.prompt_tokens_details.cached_tokens ?? 0,
+                            input_cache_read: usage.prompt_tokens_details?.cached_tokens ?? 0,
                         };
                         const costOverwrites = Object.fromEntries(Object.keys(trackedUsage).map((k) => {
                             return [k, rawPriceModelDetails.cost[k] * trackedUsage[k]];
