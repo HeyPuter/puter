@@ -21,6 +21,14 @@ Sometimes "enabling" a log means moving its log level from `debug` to `info`.
 - `http`: http requests
 - `fsentries-not-found`: information about files that were stat'd but weren't there
 
+#### Other log options
+
+- Setting `log_upcoming_alarms` to `true` will log alarms before they are created.
+  This would be useful if AlarmService itself is failing.
+- Setting `trace_logs` to `true` will display a stack trace below every log message.
+  This can be useful if you don't know where a particular log is coming from and
+  want to track it down.
+
 #### Service-level log configuration
 
 Services can be configured to change their logging behavior. Services will have one of
