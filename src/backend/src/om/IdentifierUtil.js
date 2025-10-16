@@ -52,7 +52,6 @@ class IdentifierUtil extends AdvancedBase {
 
         // Construct a query predicate based on the keys
         const key_eqs = [];
-        console.log('OBJECT', object, match_found)
         for ( const key of match_found ) {
             key_eqs.push(new Eq({
                 key,

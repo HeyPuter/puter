@@ -255,8 +255,6 @@ module.exports = {
             const actor = Context.get('actor');
             const permission = descriptor.fs_permission ?? 'see';
 
-            console.log('actor??', actor, value, permission);
-
             const svc_acl = Context.get('services').get('acl');
             if ( await value.get('path') === '/' ) {
                 return APIError.create('forbidden');

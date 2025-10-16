@@ -239,7 +239,6 @@ class HLWrite extends HLFilesystemOperation {
         }
 
         if ( dest_exists ) {
-            console.log('DESTINATION EXISTS', dedupe_name)
             if ( ! overwrite && ! dedupe_name ) {
                 throw APIError.create('item_with_same_name_exists', null, {
                     entry_name: target_name
