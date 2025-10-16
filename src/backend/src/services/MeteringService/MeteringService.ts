@@ -134,7 +134,7 @@ export class MeteringAndBillingService {
                         await this.#kvStore.incr({
                             key: `${POLICY_PREFIX}:actor:${actorId}:addons`,
                             pathAndAmountMap: {
-                                consumedPurchaseCredits: Math.max(overageUsage, actorAddons.purchasedCredits - actorAddons.consumedPurchaseCredits), // don't go over the purchased credits, technically a race condition here, but optimistically rare
+                                consumedPurchaseCredits: Math.max(overageUsage, actorAddons.purchasedCredits - (actorAddons.consumedPurchaseCredits || 0)), // don't go over the purchased credits, technically a race condition here, but optimistically rare
                             },
                         });
                     }
