@@ -235,6 +235,7 @@ class WebServerService extends BaseService {
             const svc_devConsole = this.services.get('dev-console', { optional: true });
             if ( svc_devConsole ) svc_devConsole.notice({
                 colors: { bg: '38;2;0;0;0;48;2;0;202;252;1', bginv: '38;2;0;202;252' },
+                style: 'stars',
                 title: 'Puter is live!',
                 lines,
             });
