@@ -108,9 +108,7 @@ class ParallelTasks {
         const span = this.tracer.startSpan(name);
         return context.with(trace.setSpan(context.active(), span), async () => {
             try {
-                console.log('AA :: BEFORE');
                 const res = await fn();
-                console.log('AA :: AFTER');
                 this.ongoing_--;
                 this.check_queue_();
                 return res;
@@ -124,7 +122,6 @@ class ParallelTasks {
     }
 
     check_queue_ () {
-        console.log('CHECKING QUQUE', this.ongoing_, this.queue_.length);
         while ( this.ongoing_ < this.max && this.queue_.length > 0 ) {
             const [name, fn, p] = this.queue_.shift();
             const run_p = this.run_(name, fn);
