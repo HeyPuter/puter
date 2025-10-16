@@ -4573,6 +4573,7 @@ fieldset[name=number-code] {
 }
 .driver-usage-details-text{
     cursor: pointer !important;
+    font-weight: 500;
 }
 .driver-usage-details-content {
     display: none;
