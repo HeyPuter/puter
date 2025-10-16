@@ -282,7 +282,8 @@ class Extension extends AdvancedBase {
     get console () {
         const extensionConsole = Object.create(console);
         extensionConsole.log = (...a) => {
-            console.log(`${display_time(new Date())} \x1B[${this.terminal_color};1m(extension/${this.name})\x1B[0m`, ...a);
+            const realConsole = globalThis.original_console_object ?? console;
+            realConsole.log(`${display_time(new Date())} \x1B[${this.terminal_color};1m(extension/${this.name})\x1B[0m`, ...a);
         };
         return extensionConsole;
     }

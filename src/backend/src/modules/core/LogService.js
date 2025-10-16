@@ -122,7 +122,7 @@ class LogContext {
                 typeof fields[k].toLogFields === 'function'
             ) fields[k] = fields[k].toLogFields();
         }
-        if ( Context.get('injected_logger') ) {
+        if ( Context.get('injected_logger', { allow_fallback: true }) ) {
             Context.get('injected_logger').log(
                 message + (fields ? ('; fields: ' + JSON.stringify(fields)) : ''),
             );
@@ -557,6 +557,31 @@ class LogService extends BaseService {
 
         this.services.logger = this.create('services-container');
         globalThis.root_context.set('logger', this.create('root-context'));
+
+        {
+            const util = require('util');
+            const logger = this.create('console');
+
+            if ( ! globalThis.original_console_object ) {
+                globalThis.original_console_object = console;
+            }
+            
+            // Keep console prototype
+            const logconsole = Object.create(console);
+            
+            // Override simple log functions
+            const logfn = level => (...a) => {
+                logger[level](a.map(arg => {
+                    if ( typeof arg === 'string' ) return arg;
+                    return util.inspect(arg, undefined, undefined, true);
+                }).join(' '));
+            };
+            logconsole.log = logfn('info');
+            logconsole.warn = logfn('warn');
+            logconsole.error = logfn('error');
+            
+            globalThis.console = logconsole;
+        }
     }
 
     /**
