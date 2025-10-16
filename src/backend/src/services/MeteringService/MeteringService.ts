@@ -6,25 +6,7 @@ import type { SUService } from '../SUService.js';
 import { DEFAULT_FREE_SUBSCRIPTION, DEFAULT_TEMP_SUBSCRIPTION, GLOBAL_APP_KEY, METRICS_PREFIX, PERIOD_ESCAPE, POLICY_PREFIX } from './consts.js';
 import { COST_MAPS } from './costMaps/index.js';
 import { SUB_POLICIES } from './subPolicies/index.js';
-
-interface PolicyAddOns {
-    purchasedCredits: number
-    purchasedStorage: number
-    rateDiscounts: {
-        [usageType: string]: number | string // TODO DS: string to support graduated discounts eventually
-    }
-}
-interface UsageByType {
-    total: number
-    [serviceName: string]: number
-}
-
-interface MeteringAndBillingServiceDeps {
-    kvStore: DBKVStore,
-    superUserService: SUService,
-    alarmService: AlarmService
-    eventService: EventService
-}
+import { MeteringAndBillingServiceDeps, UsageAddons, UsageByType } from './types.js';
 /**
  * Handles usage metering and supports stubbs for billing methods for current scoped actor
  */
@@ -90,17 +72,11 @@ export class MeteringAndBillingService {
                     [`${usageType}.count`]: 1,
                 };
 
-                const lastUpdatedKey = `${METRICS_PREFIX}:actor:${actorId}:lastUpdated`;
-                const lastUpdatedPromise = this.#kvStore.set({
-                    key: lastUpdatedKey,
-                    value: Date.now(),
-                });
-
                 const actorUsageKey = `${METRICS_PREFIX}:actor:${actorId}:${currentMonth}`;
                 const actorUsagesPromise = this.#kvStore.incr({
                     key: actorUsageKey,
                     pathAndAmountMap,
-                });
+                }) as Promise<UsageByType>;
 
                 const puterConsumptionKey = `${METRICS_PREFIX}:puter:${currentMonth}`; // global consumption across all users and apps
                 this.#kvStore.incr({
@@ -137,7 +113,33 @@ export class MeteringAndBillingService {
                     console.warn('Failed to increment aux usage data \'actorAppTotalsKey\' with error: ', e);
                 });
 
-                return (await Promise.all([lastUpdatedPromise, actorUsagesPromise]))[1] as UsageByType;
+                const lastUpdatedKey = `${METRICS_PREFIX}:actor:${actorId}:lastUpdated`;
+                this.#kvStore.set({
+                    key: lastUpdatedKey,
+                    value: Date.now(),
+                }).catch((e: Error) => {
+                    console.warn('Failed to set lastUpdatedKey with error: ', e);
+                });
+
+                // update addon usage if we are over the allowance
+                const actorSubscriptionPromise = this.getActorSubscription(actor);
+                const actorAddonsPromise = this.getActorAddons(actor);
+                const [actorUsages, actorSubscription, actorAddons] =  (await Promise.all([actorUsagesPromise, actorSubscriptionPromise, actorAddonsPromise]));
+                if ( actorUsages.total > actorSubscription.monthUsageAllowance && actorAddons.purchasedCredits ) {
+                    // if we are now over the allowance, start consuming purchased credits
+                    const withinBoundsUsage = Math.max(0, actorSubscription.monthUsageAllowance - actorUsages.total + totalCost);
+                    const overageUsage = totalCost - withinBoundsUsage;
+
+                    if ( overageUsage > 0 ) {
+                        await this.#kvStore.incr({
+                            key: `${POLICY_PREFIX}:actor:${actorId}:addons`,
+                            pathAndAmountMap: {
+                                consumedPurchaseCredits: Math.max(overageUsage, actorAddons.purchasedCredits - actorAddons.consumedPurchaseCredits), // don't go over the purchased credits, technically a race condition here, but optimistically rare
+                            },
+                        });
+                    }
+                }
+                return actorUsages;
             });
         } catch (e) {
             console.error('Metering: Failed to increment usage for actor', actor, 'usageType', usageType, 'usageAmount', usageAmount, e);
@@ -225,14 +227,14 @@ export class MeteringAndBillingService {
 
     async getAllowedUsage(actor: Actor) {
         const userSubscriptionPromise = this.getActorSubscription(actor);
-        const userPolicyAddonsPromise = this.getActorPolicyAddons(actor);
+        const userAddonsPromise = this.getActorAddons(actor);
         const currentUsagePromise = this.getActorCurrentMonthUsageDetails(actor);
 
-        const [userSubscription, userPolicyAddons, currentMonthUsage] = await Promise.all([userSubscriptionPromise, userPolicyAddonsPromise, currentUsagePromise]);
+        const [userSubscription, addons, currentMonthUsage] = await Promise.all([userSubscriptionPromise, userAddonsPromise, currentUsagePromise]);
         return {
-            remaining: Math.max(0, (userSubscription.monthUsageAllowance || 0) + (userPolicyAddons?.purchasedCredits || 0) - (currentMonthUsage.usage.total || 0)),
+            remaining: Math.max(0, (userSubscription.monthUsageAllowance || 0) + (addons?.purchasedCredits || 0) - (currentMonthUsage.usage.total || 0) - (addons?.consumedPurchaseCredits || 0)),
             monthUsageAllowance: userSubscription.monthUsageAllowance,
-            userPolicyAddons,
+            addons,
         };
     }
 
@@ -275,14 +277,14 @@ export class MeteringAndBillingService {
         return availablePolicies.find(({ id }) => id === userSubscriptionId) || availablePolicies.find(({ id }) => id === defaultSubscriptionId)!;
     }
 
-    async getActorPolicyAddons(actor: Actor) {
+    async getActorAddons(actor: Actor) {
         if ( !actor.type?.user?.uuid ) {
             throw new Error('Actor must be a user to get policy addons');
         }
         const key = `${POLICY_PREFIX}:actor:${actor.type.user?.uuid}:addons`;
         return this.#superUserService.sudo(async () => {
-            const policyAddOns = await this.#kvStore.get({ key });
-            return (policyAddOns ?? {}) as PolicyAddOns;
+            const addons = await this.#kvStore.get({ key });
+            return (addons ?? {}) as UsageAddons;
         });
     }
 
