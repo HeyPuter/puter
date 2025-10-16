@@ -607,6 +607,10 @@ class LogService extends BaseService {
         try {
             // skip messages that are above the output level
             if ( log_lvl.ordinal > this.output_lvl ) return;
+            
+            if ( this.config.trace_logs ) {
+                fields.stack = (new Error('logstack')).stack;
+            }
 
             for ( const logger of this.loggers ) {
                 logger.onLogMessage(

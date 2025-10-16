@@ -38,7 +38,7 @@ const config = require('../../../config.js');
 *   @param {Object} objects - Objects to be logged.
 * @returns {string} A formatted string representation of the log entry.
 */
-const stringify_log_entry = ({ prefix, log_lvl, crumbs, message, fields, objects }) => {
+const stringify_log_entry = ({ prefix, log_lvl, crumbs, message, fields, objects, stack }) => {
     const { colorize } = require('json-colorizer');
 
     let lines = [], m;
@@ -94,6 +94,7 @@ const stringify_log_entry = ({ prefix, log_lvl, crumbs, message, fields, objects
         }
 
         if ( k === 'timestamp' ) continue;
+        if ( k === 'stack' ) continue;
         let v; try {
             v = colorize(JSON.stringify(fields[k]));
         } catch (e) {
@@ -101,6 +102,9 @@ const stringify_log_entry = ({ prefix, log_lvl, crumbs, message, fields, objects
         }
         m += ` \x1B[1m${k}:\x1B[0m ${v}`;
         lf();
+    }
+    if ( fields.stack ) {
+        lines.push(fields.stack);
     }
     return lines.join('\n');
 };
