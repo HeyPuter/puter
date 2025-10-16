@@ -74,6 +74,16 @@ const stringify_log_entry = ({ prefix, log_lvl, crumbs, message, fields, objects
     m += ` ${message} `;
     lf();
     for ( const k in fields ) {
+        // Extensions always have the system actor in context which makes logs
+        // too verbose. To combat this, we disable logging the 'actor' field
+        // when the actor's username is 'system' and the `crumbs` include a
+        // string that starts with 'extension'.
+        if ( k === 'actor' && crumbs.some(crumb => crumb.startsWith('extension/')) ) {
+            if ( typeof fields[k] === 'object' && fields[k]?.username === 'system' ) {
+                continue;
+            }
+        }
+
         if ( k === 'timestamp' ) continue;
         let v; try {
             v = colorize(JSON.stringify(fields[k]));
