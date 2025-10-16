@@ -23,10 +23,23 @@ async function bootstrap(page: import('@playwright/test').Page) {
     }, { api_url: testConfig.api_url, auth_token: testConfig.auth_token })
 
     // Wait for replica to be available
+    const replicaWaitStart = Date.now()
+    console.log(`[xiaochen-debug] Starting replica wait at ${new Date().toISOString()}`)
+
     await page.waitForFunction(() => {
         const puter = (window as any).puter
         return puter?.fs?.replica?.available === true
     }, null, { timeout: 10_000 })
+
+    const replicaWaitEnd = Date.now()
+    const replicaWaitDuration = replicaWaitEnd - replicaWaitStart
+    console.log(`[xiaochen-debug] Replica wait completed in ${replicaWaitDuration}ms (${(replicaWaitDuration / 1000).toFixed(2)}s)`)
+
+    await page.evaluate(() => {
+        const puter = (window as any).puter
+        const available = puter?.fs?.replica?.available
+        console.log(`[xiaochen-debug] available: ${available}`)
+    })
 }
 
 test('multi-session: mkdir in A, then readdir in B', async ({ browser }) => {
