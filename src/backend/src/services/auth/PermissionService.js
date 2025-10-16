@@ -245,16 +245,17 @@ class PermissionService extends BaseService {
         const linkedPermsReading = await linkedPermsReadingPromise;
         const options = PermissionUtil.reading_to_options(linkedPermsReading);
 
-        options.forEach((perm, index) => {
-            const possiblePerm = linkedPermsReading[index];
-            this.kvService.set({
-                key: PermissionUtil.join(PERM_KEY_PREFIX, actor.type.user.id, perm.permission),
-                value: {
-                    permission: perm.permission,
-                    issuer_user_id: possiblePerm.data.issuer_user_id,
-                    ...perm.data,
-                },
-            });
+        options.forEach((perm) => {
+            if ( perm.permission ){
+                this.kvService.set({
+                    key: PermissionUtil.join(PERM_KEY_PREFIX, actor.type.user.id, perm.permission),
+                    value: {
+                        permission: perm.permission,
+                        issuer_user_id: perm.data?.[0]?.issuer_user_id,
+                        data: perm.data,
+                    },
+                });
+            }
         });
         return flatPermsReading;
     }
