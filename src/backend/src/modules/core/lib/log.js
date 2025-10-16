@@ -56,12 +56,21 @@ const stringify_log_entry = ({ prefix, log_lvl, crumbs, message, fields, objects
     }
 
     m += prefix ? `${prefix} ` : '';
-    m += `\x1B[${log_lvl.esc}m[${log_lvl.label}\x1B[0m`;
+    let levelLabelShown = false;
+    if ( log_lvl.label !== 'INFO' || ! config.log_hide_info_label ) {
+        levelLabelShown = true;
+        m += `\x1B[${log_lvl.esc}m[${log_lvl.label}\x1B[0m`;
+    } else {
+        m += `\x1B[${log_lvl.esc}m[\x1B[0m`;
+    }
     for ( let crumb of crumbs ) {
         if ( crumb.startsWith('extension/') ) {
             crumb = `\x1B[34;1m${crumb}\x1B[0m`;
         }
-        m += `::${crumb}`;
+        if ( levelLabelShown ) {
+            m += '::';
+        } else levelLabelShown = true;
+        m += crumb;
     }
     m += `\x1B[${log_lvl.esc}m]\x1B[0m`;
     if ( fields.timestamp ) {
