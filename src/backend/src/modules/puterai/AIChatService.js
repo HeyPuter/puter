@@ -21,7 +21,6 @@
 const { PassThrough } = require("stream");
 const APIError = require("../../api/APIError");
 const config = require("../../config");
-const { PermissionUtil } = require("../../services/auth/permissionUtils.mjs");
 const BaseService = require("../../services/BaseService");
 const { DB_WRITE } = require("../../services/database/consts");
 const { TypedValue } = require("../../services/drivers/meta/Runtime");
@@ -48,6 +47,10 @@ class AIChatService extends BaseService {
         cuid2: require('@paralleldrive/cuid2').createId,
     };
 
+    /** @type {import('../../services/MeteringService/MeteringService').MeteringAndBillingService} */
+    get meteringAndBillingService(){
+        return this.services.get('meteringService').meteringAndBillingService;
+    }
     /**
     * Initializes the service by setting up core properties.
     * Creates empty arrays for providers and model lists,
@@ -57,7 +60,6 @@ class AIChatService extends BaseService {
     */
     _construct() {
         this.providers = [];
-
         this.simple_model_list = [];
         this.detail_model_list = [];
         this.detail_model_map = {};
@@ -90,76 +92,6 @@ class AIChatService extends BaseService {
         this.kvkey = this.modules.uuidv4();
 
         this.db = this.services.get('database').get(DB_WRITE, 'ai-usage');
-
-        const svc_event = this.services.get('event');
-        svc_event.on('ai.prompt.report-usage', async (_, details) => {
-            // Only skip usage reporting for fake-chat if it's not using the costly model
-            if ( details.service_used === 'fake-chat' && details.model_used !== 'costly' ) return;
-            if ( details.service_used === 'usage-limited-chat' ) return;
-
-            const values = {
-                user_id: details.actor?.type?.user?.id,
-                app_id: details.actor?.type?.app?.id ?? null,
-                service_name: details.service_used,
-                model_name: details.model_used,
-            };
-
-            let model_details;
-
-            // New format
-            if ( Array.isArray(details.usage) ) {
-                values.cost = details.usage.reduce((acc, u) => {
-                    return acc + u.cost;
-                }, 0);
-            } else {
-                values.value_uint_1 = details.usage?.input_tokens;
-                values.value_uint_2 = details.usage?.output_tokens;
-
-                model_details = this.get_model_details(values.model_name, {
-                    service_used: values.service_name,
-                });
-                if ( model_details ) {
-                    values.cost = 0 + // for formatting
-
-                        model_details.cost.input  * details.usage.input_tokens
-                        //            cents/MTok                        tokens
-                                                +
-
-                        model_details.cost.output * details.usage.output_tokens
-                        //            cents/MTok                        tokens
-                    ;
-                } else {
-                    this.log.error('could not find model details', { details });
-                }
-            }
-
-            this.log.noticeme('USAGE INFO', { usage: details.usage });
-            this.log.noticeme('COST INFO', values);
-
-            await svc_event.emit('ai.prompt.cost-calculated', {
-                actor: Context.get('actor'),
-                model_details,
-                usage: details.usage,
-                completionId: details.completionId,
-                service: values.service_name,
-                model: values.model_name,
-                cost: values.cost,
-            });
-
-            const svc_cost = this.services.get('cost');
-            svc_cost.record_cost({ cost: values.cost });
-
-            // USD cost from microcents
-            const cost_usc = values.cost / 1000000;
-            const cost_usd = cost_usc / 100;
-
-            // Add to TrackSpendingService
-            const svc_spending = this.services.get('spending');
-            svc_spending.record_cost(`${details.service_used}:chat-completion`, {
-                timestamp: Date.now(),
-                cost: cost_usd,
-            });
-        });
 
         const svc_apiErrpr = this.services.get('api-error');
         svc_apiErrpr.register({
@@ -352,17 +284,11 @@ class AIChatService extends BaseService {
             * structure:
             *
             *    {
-            *     usage_promise: Promise,
             *     stream: true,
             *     response: stream {
             *       content_type: 'application/x-ndjson',
             *     }
             *   }
-            *
-            * The `usage_promise` is a promise that resolves to the usage
-            * information for the completion. This is used to report usage
-            * as soon as possible regardless of when it is reported in the
-            * stream.
             *
             * @param {Object} options - The completion options
             * @param {Array} options.messages - Array of chat messages to process
@@ -427,9 +353,7 @@ class AIChatService extends BaseService {
                 });
 
                 // Updated: Check usage and get a boolean result instead of throwing error
-                const svc_cost = this.services.get('cost');
-                const available = await svc_cost.get_available_amount();
-
+                const actor = Context.get('actor');
                 const model_details = this.get_model_details(model_used, {
                     service_used,
                 });
@@ -449,11 +373,8 @@ class AIChatService extends BaseService {
                 const model_output_cost = model_details.cost.output;
                 const model_max_tokens = model_details.max_tokens;
                 const text = Messages.extract_text(parameters.messages);
-                const approximate_input_cost = text.length / 4 * model_input_cost;
-                const usageAllowed = await svc_cost.get_funding_allowed({
-                    available,
-                    minimum: approximate_input_cost,
-                });
+                const approximate_input_cost = text.length / 4 * model_input_cost; // TODO DS: guesstimate tokens better,
+                const usageAllowed = await this.meteringAndBillingService.hasEnoughCredits(actor, approximate_input_cost);
 
                 // Handle usage limits reached case
                 if ( !usageAllowed ) {
@@ -464,8 +385,10 @@ class AIChatService extends BaseService {
                     intended_service = service_used;
                 }
 
+                // available is no longer defined, so use meteringService to get available credits
+                const availableCredits = await this.meteringAndBillingService.getRemainingUsage(actor);
                 const max_allowed_output_amount =
-                    available - approximate_input_cost;
+                    availableCredits - approximate_input_cost;
 
                 const max_allowed_output_tokens =
                     max_allowed_output_amount / model_output_cost;
@@ -558,8 +481,8 @@ class AIChatService extends BaseService {
                         });
 
                         // Check usage for fallback model too (with updated method)
-                        const svc_cost = this.services.get('cost');
-                        const fallbackUsageAllowed = await svc_cost.get_funding_allowed();
+                        const actor = Context.get('actor');
+                        const fallbackUsageAllowed = await this.meteringAndBillingService.hasEnoughCredits(actor, 1);
 
                         // If usage not allowed for fallback, use usage-limited-chat instead
                         if ( !fallbackUsageAllowed ) {
@@ -624,18 +547,6 @@ class AIChatService extends BaseService {
                 const username = Context.get('actor').type?.user?.username;
 
                 if ( ret.result.stream ) {
-                    (async () => {
-                        const usage_promise = ret.result.usage_promise;
-                        const usage = await usage_promise;
-                        await svc_event.emit('ai.prompt.report-usage', {
-                            actor: Context.get('actor'),
-                            completionId,
-                            service_used,
-                            model_used,
-                            usage,
-                        });
-                    })();
-
                     if ( ret.result.init_chat_stream ) {
                         const stream = new PassThrough();
                         const retval = new TypedValue({
@@ -671,15 +582,6 @@ class AIChatService extends BaseService {
                     }
 
                     return ret.result.response;
-                } else {
-                    await svc_event.emit('ai.prompt.report-usage', {
-                        actor: Context.get('actor'),
-                        completionId,
-                        username,
-                        service_used,
-                        model_used,
-                        usage: ret.result.usage,
-                    });
                 }
 
                 await svc_event.emit('ai.prompt.complete', {
@@ -705,58 +607,6 @@ class AIChatService extends BaseService {
             },
         },
     };
-
-    /**
-    * Checks if the user has permission to use AI services and verifies usage limits
-    *
-    * @param {Object} params - The check parameters
-    * @param {Object} params.actor - The user/actor making the request
-    * @param {string} params.service - The AI service being used
-    * @param {string} params.model - The model being accessed
-    * @throws {APIError} If usage is not allowed or limits are exceeded
-    * @private
-    */
-    async check_usage_({ actor, service, model }) {
-        const svc_permission = this.services.get('permission');
-        const svc_event = this.services.get('event');
-        const reading = await svc_permission.scan(actor, `paid-services:ai-chat`);
-        const options = PermissionUtil.reading_to_options(reading);
-
-        // Query current ai usage in terms of cost (only from the past month)
-        const oneMonthAgo = new Date();
-        oneMonthAgo.setMonth(oneMonthAgo.getMonth() - 1);
-        const oneMonthAgoStr = oneMonthAgo.toISOString().slice(0, 19).replace('T', ' ');
-
-        const [row] = await this.db.read('SELECT SUM(`cost`) AS sum FROM `ai_usage` ' +
-            'WHERE `user_id` = ? AND `created_at` >= ?',
-        [actor.type.user.id, oneMonthAgoStr]);
-
-        const cost_used = row?.sum || 0;
-
-        const event = {
-            allowed: true,
-            actor,
-            service,
-            model,
-            cost_used,
-            permission_options: options,
-        };
-        await svc_event.emit('ai.prompt.check-usage', event);
-
-        // If the user has exceeded their usage limit, apply usage-limited-chat which lets them know
-        if ( event.error || ! event.allowed ) {
-            // Instead of throwing an error, modify the intended_service
-            const client_driver_call = Context.get('client_driver_call');
-            client_driver_call.intended_service = 'usage-limited-chat';
-            client_driver_call.response_metadata.usage_limited = true;
-
-            // Return false to indicate that the user has gone over their limit and service has been changed
-            return false;
-        }
-
-        // Return true if the user has tokens to spend
-        return true;
-    }
 
     /**
     * Moderates chat messages for inappropriate content using OpenAI's moderation service

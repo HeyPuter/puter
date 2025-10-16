@@ -31,7 +31,9 @@ const { GoogleGenAI } = require('@google/genai');
 */
 class GeminiImageGenerationService extends BaseService {
     /** @type {import('../../services/MeteringService/MeteringService').MeteringAndBillingService} */
-    meteringAndBillingService;
+    get meteringAndBillingService(){
+        return this.services.get('meteringService').meteringAndBillingService;
+    }
     static MODULES = {
     };
 
@@ -51,7 +53,6 @@ class GeminiImageGenerationService extends BaseService {
     */
     async _init() {
         this.genAI = new GoogleGenAI({ apiKey: this.global_config.services.gemini.apiKey });
-        this.meteringAndBillingService = this.services.get('meteringService').meteringAndBillingService;
     }
 
     static IMPLEMENTS = {
@@ -154,7 +155,8 @@ class GeminiImageGenerationService extends BaseService {
             });
         }
 
-        const user_private_uid = Context.get('actor')?.private_uid ?? 'UNKNOWN';
+        const actor = Context.get('actor');
+        const user_private_uid = actor?.private_uid ?? 'UNKNOWN';
         if ( user_private_uid === 'UNKNOWN' ) {
             this.errors.report('chat-completion-service:unknown-user', {
                 message: 'failed to get a user ID for a Gemini request',
@@ -163,21 +165,13 @@ class GeminiImageGenerationService extends BaseService {
             });
         }
 
-        const exact_cost = this.models_[model][price_key]
-            * 100 // $ USD to cents USD
-            * Math.pow(10, 6); // cents to microcents
+        const usageType = `gemini:${model}:${price_key}`;
 
-        const svc_cost = this.services.get('cost');
-        const usageAllowed = await svc_cost.get_funding_allowed({
-            minimum: exact_cost,
-        });
+        const usageAllowed = await this.meteringAndBillingService.hasEnoughCreditsFor(actor, usageType, 1);
 
         if ( !usageAllowed ) {
             throw APIError.create('insufficient_funds');
         }
-
-        // We can charge immediately
-        await svc_cost.record_cost({ cost: exact_cost });
 
         // Construct the prompt based on whether we have an input image
         let contents;
@@ -201,6 +195,9 @@ class GeminiImageGenerationService extends BaseService {
             model: "gemini-2.5-flash-image-preview",
             contents: contents,
         });
+        // Metering usage tracking
+        // Gemini usage: always 1 image, resolution, cost, model
+        this.meteringAndBillingService.incrementUsage(actor, usageType, 1);
         let url = undefined;
         for ( const part of response.candidates[0].content.parts ) {
             if ( part.text ) {
@@ -214,23 +211,6 @@ class GeminiImageGenerationService extends BaseService {
         if ( !url ) {
             throw new Error('Failed to extract image URL from Gemini response');
         }
-
-        // Metering usage tracking
-        const actor = Context.get('actor');
-        // Gemini usage: always 1 image, resolution, cost, model
-        const trackedUsage = {
-            [price_key]: 1,
-        };
-        this.meteringAndBillingService.utilRecordUsageObject(trackedUsage, actor, `gemini:${model}`);
-
-        const spending_meta = {
-            model,
-            size: `${ratio.w}x${ratio.h}`,
-        };
-
-        // Legacy spending record for analytics
-        const svc_spending = Context.get('services').get('spending');
-        svc_spending.record_spending('gemini', 'image-generation', spending_meta);
 
         return url;
     }

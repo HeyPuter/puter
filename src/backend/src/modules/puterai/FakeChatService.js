@@ -129,7 +129,6 @@ class FakeChatService extends BaseService {
                             }) + '\n');
                             chatStream.end();
                         },
-                        usage_promise: new Promise(rslv => rslv(resp.usage)),
                     };
                 }
 

@@ -25,7 +25,6 @@ const Messages = require("./lib/Messages");
 const FSNodeParam = require("../../api/filesystem/FSNodeParam");
 const { LLRead } = require("../../filesystem/ll_operations/ll_read");
 const { Context } = require("../../util/context");
-const { TeePromise } = require('@heyputer/putility').libs.promise;
 
 /**
 * ClaudeService class extends BaseService to provide integration with Anthropic's Claude AI models.
@@ -245,8 +244,6 @@ class ClaudeService extends BaseService {
                 const anthropic = (c => beta_mode ? c.beta : c)(this.anthropic);
 
                 if ( stream ) {
-                    let usage_promise = new TeePromise();
-
                     const init_chat_stream = async ({ chatStream }) => {
                         const completion = await anthropic.messages.stream(sdk_params);
                         const usageSum = {};
@@ -306,17 +303,11 @@ class ClaudeService extends BaseService {
                         chatStream.end();
 
                         this.billForUsage(actor, model || this.get_default_model(), usageSum);
-                        // TODO DS: Legacy cost metering, remove when new is ready
-                        usage_promise.resolve({
-                            input_tokens: usageSum.input_tokens,
-                            output_tokens: usageSum.input_tokens,
-                        });
                     };
 
                     return {
                         init_chat_stream,
                         stream: true,
-                        usage_promise: usage_promise,
                         finally_fn: cleanup_files,
                     };
                 }

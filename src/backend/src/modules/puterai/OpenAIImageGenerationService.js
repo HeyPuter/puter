@@ -32,7 +32,9 @@ const { Context } = require("../../util/context");
 */
 class OpenAIImageGenerationService extends BaseService {
     /** @type {import('../../services/MeteringService/MeteringService').MeteringAndBillingService} */
-    meteringAndBillingService;
+    get meteringAndBillingService(){
+        return this.services.get('meteringService').meteringAndBillingService;
+    }
 
     static MODULES = {
         openai: require('openai'),
@@ -81,8 +83,6 @@ class OpenAIImageGenerationService extends BaseService {
         this.openai = new this.modules.openai.OpenAI({
             apiKey: sk_key,
         });
-
-        this.meteringAndBillingService = this.services.get('meteringService').meteringAndBillingService;
     }
 
     static IMPLEMENTS = {
@@ -182,7 +182,8 @@ class OpenAIImageGenerationService extends BaseService {
             });
         }
 
-        const user_private_uid = Context.get('actor')?.private_uid ?? 'UNKNOWN';
+        const actor = Context.get('actor');
+        const user_private_uid = actor?.private_uid ?? 'UNKNOWN';
         if ( user_private_uid === 'UNKNOWN' ) {
             this.errors.report('chat-completion-service:unknown-user', {
                 message: 'failed to get a user ID for an OpenAI request',
@@ -191,21 +192,12 @@ class OpenAIImageGenerationService extends BaseService {
             });
         }
 
-        const exact_cost = this.models_[model][price_key]
-            * 100 // $ USD to cents USD
-            * Math.pow(10, 6); // cents to microcents
-
-        const svc_cost = this.services.get('cost');
-        const usageAllowed = await svc_cost.get_funding_allowed({
-            minimum: exact_cost,
-        });
+        const usageType = `openai:${model}:${price_key}`;
+        const usageAllowed = await this.meteringAndBillingService.hasEnoughCreditsFor(actor, usageType, 1);
 
         if ( ! usageAllowed ) {
             throw APIError.create('insufficient_funds');
         }
-
-        // We can charge immediately
-        await svc_cost.record_cost({ cost: exact_cost });
 
         // Build API parameters based on model
         const apiParams = this._buildApiParams(model, {
@@ -217,29 +209,8 @@ class OpenAIImageGenerationService extends BaseService {
 
         const result = await this.openai.images.generate(apiParams);
 
-        const actor = Context.get('actor');
         // For image generation, usage is typically image count and resolution
-        const trackedUsage = {
-            [price_key]: 1,
-        };
-        this.meteringAndBillingService.utilRecordUsageObject(trackedUsage, actor, `openai:${model}`);
-
-        // Tiny base64 result for testing
-        // const result = {
-        //     data: [
-        //         {
-        //             url: 'data:image/png;base64,' +
-        //                 'iVBORw0KGgoAAAANSUhEUgAAAAgAAAAICAIAAABLbSncAAAA' +
-        //                 '2ElEQVR4nADIADf/AkRgiOi4oaIHfdeNCE2vFMURlKdHdb/H' +
-        //                 '4wRTROeyGdCpn089i13t42v73DQSsCwSDAsEBLH783BZu1si' +
-        //                 'LkiwqfGwHAC/8bL0NggaA47QKDuRDp0NRgtALj8W+mSm9BIH' +
-        //                 'PMGYegR+bu/c85wWQGLYrjLhis9E8AE1F/AFbCMA53+9d73t' +
-        //                 '/QKPbbdLHZY8wB4OewzT8CrCBG3RE7kyWAXuJvaHHHzFhbIN' +
-        //                 '1hryGU5vvwD6liTD3hytRktVRRAaRi71k2PYCro6AlYBAAD/' +
-        //                 '/wWtWjI5xEefAAAAAElFTkSuQmCC'
-        //         }
-        //     ]
-        // };
+        this.meteringAndBillingService.incrementUsage(actor, usageType, 1);
 
         const spending_meta = {
             model,
@@ -250,8 +221,6 @@ class OpenAIImageGenerationService extends BaseService {
             spending_meta.size = quality + ":" + spending_meta.size;
         }
 
-        const svc_spending = Context.get('services').get('spending');
-        svc_spending.record_spending('openai', 'image-generation', spending_meta);
         const url = result.data?.[0]?.url || (result.data?.[0]?.b64_json ? "data:image/png;base64," + result.data[0].b64_json : null);
 
         if ( !url ) {

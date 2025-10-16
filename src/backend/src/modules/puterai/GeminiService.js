@@ -1,7 +1,6 @@
 const BaseService = require("../../services/BaseService");
 const { GoogleGenerativeAI } = require('@google/generative-ai');
 const GeminiSquareHole = require("./lib/GeminiSquareHole");
-const putility = require("@heyputer/putility");
 const FunctionCalling = require("./lib/FunctionCalling");
 const { Context } = require("../../util/context");
 
@@ -74,23 +73,21 @@ class GeminiService extends BaseService {
                     const genResult = await chat.sendMessageStream(last_message_parts);
                     const stream = genResult.stream;
 
-                    const usage_promise = new putility.libs.promise.TeePromise();
                     return {
                         stream: true,
                         init_chat_stream:
                             GeminiSquareHole.create_chat_stream_handler({
                                 stream,
-                                usage_promise,
+                                usageCallback: (usageMetadata) => {
+                                    // TODO DS: dedup this logic
+                                    const trackedUsage = {
+                                        prompt_tokens: usageMetadata.promptTokenCount - (usageMetadata.cachedContentTokenCount || 0),
+                                        completion_tokens: usageMetadata.candidatesTokenCount,
+                                        cached_tokens: usageMetadata.cachedContentTokenCount || 0,
+                                    };
+                                    this.meteringAndBillingService.utilRecordUsageObject(trackedUsage, actor, meteringPrefix);
+                                },
                             }),
-                        usage_promise: usage_promise.then(usageMetadata => {
-                            const trackedUsage = {
-                                prompt_tokens: usageMetadata.promptTokenCount - (usageMetadata.cachedContentTokenCount || 0),
-                                completion_tokens: usageMetadata.candidatesTokenCount,
-                                cached_tokens: usageMetadata.cachedContentTokenCount || 0,
-                            };
-                            this.meteringAndBillingService.utilRecordUsageObject(trackedUsage, actor, meteringPrefix);
-                            return usage_calculator({ usageMetadata });
-                        }),
                     };
                 } else {
                     const genResult = await chat.sendMessage(last_message_parts);

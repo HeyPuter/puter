@@ -1,5 +1,3 @@
-const putility = require("@heyputer/putility");
-
 /**
      * Process input messages from Puter's normalized format to OpenAI's format
      * May make changes in-place.
@@ -91,7 +89,7 @@ const extractMeteredUsage = (usage) => {
 const create_chat_stream_handler = ({
     deviations,
     completion,
-    usage_promise,
+    usage_calculator,
 }) => async ({ chatStream }) => {
     deviations = Object.assign({
         // affected by: Groq
@@ -154,7 +152,8 @@ const create_chat_stream_handler = ({
         }
     }
 
-    usage_promise.resolve(last_usage);
+    // TODO DS: this is a bit too abstracted... this is basically just doing the metering now
+    usage_calculator({ usage: last_usage });
 
     if ( mode === 'text' ) textblock.end();
     if ( mode === 'tool' ) toolblock.end();
@@ -182,13 +181,10 @@ const handle_completion_output = async ({
     }, deviations);
 
     if ( stream ) {
-        let usage_promise = new putility.libs.promise.TeePromise();
-
         const init_chat_stream =
             create_chat_stream_handler({
                 deviations,
                 completion,
-                usage_promise,
                 usage_calculator,
             });
 
@@ -196,12 +192,6 @@ const handle_completion_output = async ({
             stream: true,
             init_chat_stream,
             finally_fn,
-            usage_promise: usage_promise.then(usage => {
-                return usage_calculator ? usage_calculator({ usage }) : {
-                    input_tokens: usage.prompt_tokens,
-                    output_tokens: usage.completion_tokens,
-                };
-            }),
         };
     }
 

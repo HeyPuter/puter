@@ -44,8 +44,11 @@ const VALID_ENGINES = ['standard', 'neural', 'long-form', 'generative'];
 * @extends BaseService
 */
 class AWSPollyService extends BaseService {
+
     /** @type {import('../../services/MeteringService/MeteringService').MeteringAndBillingService} */
-    meteringAndBillingService;
+    get meteringAndBillingService() {
+        return this.services.get('meteringService').meteringAndBillingService;
+    }
 
     static MODULES = {
         kv: globalThis.kv,
@@ -59,10 +62,6 @@ class AWSPollyService extends BaseService {
     */
     async _construct() {
         this.clients_ = {};
-    }
-
-    async _init() {
-        this.meteringAndBillingService = this.services.get('meteringService').meteringAndBillingService;
     }
 
     static IMPLEMENTS = {
@@ -131,19 +130,15 @@ class AWSPollyService extends BaseService {
                     throw APIError.create('invalid_engine', null, { engine, valid_engines: VALID_ENGINES });
                 }
 
-                const microcents_per_character = ENGINE_PRICING[engine];
-                const exact_cost = microcents_per_character * text.length;
+                const actor = Context.get('actor');
 
-                const svc_cost = this.services.get('cost');
-                const usageAllowed = await svc_cost.get_funding_allowed({
-                    minimum: exact_cost,
-                });
+                const usageType = `aws-polly:${engine}:character`;
+
+                const usageAllowed = await this.meteringAndBillingService.hasEnoughCreditsFor(actor, usageType, text.length);
 
                 if ( ! usageAllowed ) {
                     throw APIError.create('insufficient_funds');
                 }
-                // We can charge immediately
-                await svc_cost.record_cost({ cost: exact_cost });
 
                 const polly_speech = await this.synthesize_speech(text, {
                     format: 'mp3',
@@ -153,13 +148,8 @@ class AWSPollyService extends BaseService {
                     engine,
                 });
 
-                // Metering integration for TTS usage
-                const actor = Context.get('actor');
                 // AWS Polly TTS metering: track character count, voice, engine, cost, audio duration if available
-                const trackedUsage = {
-                    character: text.length,
-                };
-                this.meteringAndBillingService.utilRecordUsageObject(trackedUsage, actor, `aws-polly:${engine}`);
+                this.meteringAndBillingService.incrementUsage(actor, usageType, text.length);
 
                 const speech = new TypedValue({
                     $: 'stream',

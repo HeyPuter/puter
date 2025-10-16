@@ -112,17 +112,12 @@ class UsageLimitedChatService extends BaseService {
                         chatStream.end();
                     }, 10);
 
-                    // Return a TypedValue with usage_promise for proper integration
                     return {
                         stream: true,
                         init_chat_stream: async ({ chatStream: cs }) => {
                             // Copy contents from our stream to the provided one
                             chatStream.pipe(cs.stream);
                         },
-                        usage_promise: Promise.resolve({
-                            input_tokens: 0,
-                            output_tokens: 1,
-                        }),
                     };
                 }
 

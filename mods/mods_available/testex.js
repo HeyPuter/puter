@@ -8,10 +8,6 @@ extension.on('ai.prompt.complete', event => {
     console.log('GOT AI.PROMPT.COMPLETE EVENT', event);
 });
 
-extension.on('ai.prompt.report-usage', event => {
-    console.log('GOT AI.PROMPT.REPORT-USAGE EVENT', event);
-});
-
 extension.on('ai.prompt.validate', event => {
     console.log('GOT AI.PROMPT.VALIDATE EVENT', event);
 });
@@ -155,4 +151,3 @@ extension.on('web.socket.user-connected', event => {
 extension.on('wisp.get-policy', event => {
     console.log('GOT WISP.GET-POLICY EVENT', event);
 });
-

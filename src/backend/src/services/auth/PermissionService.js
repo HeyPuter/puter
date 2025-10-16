@@ -72,8 +72,8 @@ class PermissionService extends BaseService {
         this.kvAvgTimes = { count: 0, avg: 0, max: 0 };
         this.dbAvgTimes = { count: 0, avg: 0, max: 0 };
     }
-    
-    async ['__on_boot.consolidation'] () {
+
+    async ['__on_boot.consolidation']() {
         const svc_event = this.services.get('event');
         // Event to allow extensions to add permissions
         {
@@ -260,120 +260,104 @@ class PermissionService extends BaseService {
     }
 
     async #flat_validateUserPerms({ actor, permissions }){
-        const start = Date.now();
-        try {
         /** @type {Promise<Record<string, unknown>[]>} */
-            const validPerms = (await this.services.get('su').sudo(() => (
-                this.kvService.get({
-                    key: [...new Set(permissions.map(perm => PermissionUtil.join(PERM_KEY_PREFIX, actor.type.user.id, perm)))],
-                })
-            ))).filter(Boolean);
+        const validPerms = (await this.services.get('su').sudo(() => (
+            this.kvService.get({
+                key: [...new Set(permissions.map(perm => PermissionUtil.join(PERM_KEY_PREFIX, actor.type.user.id, perm)))],
+            })
+        ))).filter(Boolean);
 
-            let permDeleted = false;
-            // We no longer fetch up the tree, if user was given this perm, then they have it
-            for ( const validPerm of validPerms ){
-                const { permission, issuer_user_id, deleted, ...extra } = validPerm;
-                if ( deleted ){
-                    permDeleted = true;
-                    continue;
-                }
-                const issuer_actor = new Actor({
-                    type: new UserActorType({
-                        user: await get_user({ id: issuer_user_id }),
-                    }),
-                });
-                // return first perm that allows them in here
-                return [{
-                    $: 'option',
-                    via: 'user',
-                    has_terminal: true,
-                    permission: permission,
-                    data: extra,
-                    holder_username: actor.type.user.username,
-                    issuer_username: issuer_actor.type.user.username,
-                    issuer_user_id: issuer_actor.type.user.uuid,
-                    reading: [],
-                }];
-
+        let permDeleted = false;
+        // We no longer fetch up the tree, if user was given this perm, then they have it
+        for ( const validPerm of validPerms ){
+            const { permission, issuer_user_id, deleted, ...extra } = validPerm;
+            if ( deleted ){
+                permDeleted = true;
+                continue;
             }
-            return permDeleted ? [{
-                deleted: true,
-            }] : [];
-        } finally {
-            const end = Date.now();
-            this.kvAvgTimes.avg = (this.kvAvgTimes.avg * this.kvAvgTimes.count +  (end - start)) / (this.kvAvgTimes.count + 1);
-            this.kvAvgTimes.count++;
-            this.kvAvgTimes.max = Math.max(this.kvAvgTimes.max, end - start);
+            const issuer_actor = new Actor({
+                type: new UserActorType({
+                    user: await get_user({ id: issuer_user_id }),
+                }),
+            });
+                // return first perm that allows them in here
+            return [{
+                $: 'option',
+                via: 'user',
+                has_terminal: true,
+                permission: permission,
+                data: extra,
+                holder_username: actor.type.user.username,
+                issuer_username: issuer_actor.type.user.username,
+                issuer_user_id: issuer_actor.type.user.uuid,
+                reading: [],
+            }];
+
         }
+        return permDeleted ? [{
+            deleted: true,
+        }] : [];
+
     }
     async #linked_validateUserPerms({ actor, permissions, state }){
+        let sqlPermQuery = permissions.map(_perm => {
+            return '`permission` = ?';
+        }).join(' OR ');
 
-        const start = Date.now();
-        try {
-            let sqlPermQuery = permissions.map(_perm => {
-                return '`permission` = ?';
-            }).join(' OR ');
-
-            if ( permissions.length > 1 ) {
-                sqlPermQuery = `(${sqlPermQuery})`;
-            }
-
-            const rows = await this.db.read('SELECT * FROM `user_to_user_permissions` ' +
-                `WHERE \`holder_user_id\` = ? AND ${
-                    sqlPermQuery}`,
-            [
-                actor.type.user.id,
-                ...permissions,
-            ]);
-
-            const readings = [];
-            // Return the first matching permission where the
-            // issuer also has the permission granted
-            for ( const row of rows ) {
-                row.extra = this.db.case({
-                    mysql: () => row.extra,
-                    otherwise: () => JSON.parse(row.extra ?? '{}'),
-                })();
-
-                const issuer_actor = new Actor({
-                    type: new UserActorType({
-                        user: await get_user({ id: row.issuer_user_id }),
-                    }),
-                });
-
-                let should_continue = false;
-                for ( const seen_actor of state.anti_cycle_actors ) {
-                    if ( seen_actor.type.user.id === issuer_actor.type.user.id ) {
-                        should_continue = true;
-                        break;
-                    }
-                }
-
-                if ( should_continue ) continue;
-
-                const issuer_reading = await this.scan(issuer_actor, row.permission, undefined, state);
-
-                const has_terminal = reading_has_terminal({ reading: issuer_reading });
-
-                readings.push({
-                    $: 'path',
-                    via: 'user',
-                    has_terminal,
-                    permission: row.permission,
-                    data: row.extra,
-                    holder_username: actor.type.user.username,
-                    issuer_username: issuer_actor.type.user.username,
-                    issuer_user_id: issuer_actor.type.user.uuid,
-                    reading: issuer_reading,
-                });
-            }
-            return readings;
-        } finally {
-            const end = Date.now();
-            this.dbAvgTimes.avg = (this.dbAvgTimes.avg * this.dbAvgTimes.count +  (end - start)) / (this.dbAvgTimes.count + 1);
-            this.dbAvgTimes.count++;
-            this.dbAvgTimes.max = Math.max(this.dbAvgTimes.max, end - start);
+        if ( permissions.length > 1 ) {
+            sqlPermQuery = `(${sqlPermQuery})`;
         }
+
+        const rows = await this.db.read('SELECT * FROM `user_to_user_permissions` ' +
+            `WHERE \`holder_user_id\` = ? AND ${
+                sqlPermQuery}`,
+        [
+            actor.type.user.id,
+            ...permissions,
+        ]);
+
+        const readings = [];
+        // Return the first matching permission where the
+        // issuer also has the permission granted
+        for ( const row of rows ) {
+            row.extra = this.db.case({
+                mysql: () => row.extra,
+                otherwise: () => JSON.parse(row.extra ?? '{}'),
+            })();
+
+            const issuer_actor = new Actor({
+                type: new UserActorType({
+                    user: await get_user({ id: row.issuer_user_id }),
+                }),
+            });
+
+            let should_continue = false;
+            for ( const seen_actor of state.anti_cycle_actors ) {
+                if ( seen_actor.type.user.id === issuer_actor.type.user.id ) {
+                    should_continue = true;
+                    break;
+                }
+            }
+
+            if ( should_continue ) continue;
+
+            const issuer_reading = await this.scan(issuer_actor, row.permission, undefined, state);
+
+            const has_terminal = reading_has_terminal({ reading: issuer_reading });
+
+            readings.push({
+                $: 'path',
+                via: 'user',
+                has_terminal,
+                permission: row.permission,
+                data: row.extra,
+                holder_username: actor.type.user.username,
+                issuer_username: issuer_actor.type.user.username,
+                issuer_user_id: issuer_actor.type.user.uuid,
+                reading: issuer_reading,
+            });
+        }
+        return readings;
     }
 
     /**

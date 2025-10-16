@@ -20,7 +20,7 @@ interface UsageByType {
 }
 
 interface MeteringAndBillingServiceDeps {
-    kvClientWrapper: DBKVStore,
+    kvStore: DBKVStore,
     superUserService: SUService,
     alarmService: AlarmService
     eventService: EventService
@@ -30,13 +30,13 @@ interface MeteringAndBillingServiceDeps {
  */
 export class MeteringAndBillingService {
 
-    #kvClientWrapper: DBKVStore;
+    #kvStore: DBKVStore;
     #superUserService: SUService;
     #alarmService: AlarmService;
     #eventService: EventService;
-    constructor({ kvClientWrapper, superUserService, alarmService, eventService }: MeteringAndBillingServiceDeps) {
+    constructor({ kvStore, superUserService, alarmService, eventService }: MeteringAndBillingServiceDeps) {
         this.#superUserService = superUserService;
-        this.#kvClientWrapper = kvClientWrapper;
+        this.#kvStore = kvStore;
         this.#alarmService = alarmService;
         this.#eventService = eventService;
     }
@@ -91,19 +91,19 @@ export class MeteringAndBillingService {
                 };
 
                 const lastUpdatedKey = `${METRICS_PREFIX}:actor:${actorId}:lastUpdated`;
-                const lastUpdatedPromise = this.#kvClientWrapper.set({
+                const lastUpdatedPromise = this.#kvStore.set({
                     key: lastUpdatedKey,
                     value: Date.now(),
                 });
 
                 const actorUsageKey = `${METRICS_PREFIX}:actor:${actorId}:${currentMonth}`;
-                const actorUsagesPromise = this.#kvClientWrapper.incr({
+                const actorUsagesPromise = this.#kvStore.incr({
                     key: actorUsageKey,
                     pathAndAmountMap,
                 });
 
                 const puterConsumptionKey = `${METRICS_PREFIX}:puter:${currentMonth}`; // global consumption across all users and apps
-                this.#kvClientWrapper.incr({
+                this.#kvStore.incr({
                     key: puterConsumptionKey,
                     pathAndAmountMap,
                 }).catch((e: Error) => {
@@ -111,7 +111,7 @@ export class MeteringAndBillingService {
                 });
 
                 const actorAppUsageKey = `${METRICS_PREFIX}:actor:${actorId}:app:${appId}:${currentMonth}`;
-                this.#kvClientWrapper.incr({
+                this.#kvStore.incr({
                     key: actorAppUsageKey,
                     pathAndAmountMap,
                 }).catch((e: Error) => {
@@ -119,7 +119,7 @@ export class MeteringAndBillingService {
                 });
 
                 const appUsageKey = `${METRICS_PREFIX}:app:${appId}:${currentMonth}`;
-                this.#kvClientWrapper.incr({
+                this.#kvStore.incr({
                     key: appUsageKey,
                     pathAndAmountMap,
                 }).catch((e: Error) => {
@@ -127,7 +127,7 @@ export class MeteringAndBillingService {
                 });
 
                 const actorAppTotalsKey = `${METRICS_PREFIX}:actor:${actorId}:apps:${currentMonth}`;
-                this.#kvClientWrapper.incr({
+                this.#kvStore.incr({
                     key: actorAppTotalsKey,
                     pathAndAmountMap: {
                         [`${appId}.total`]: totalCost,
@@ -164,7 +164,7 @@ export class MeteringAndBillingService {
         ];
 
         return await this.#superUserService.sudo(async () => {
-            const [usage, appTotals] = await this.#kvClientWrapper.get({ key: keys }) as [UsageByType | null, Record<string, UsageByType> | null];
+            const [usage, appTotals] = await this.#kvStore.get({ key: keys }) as [UsageByType | null, Record<string, UsageByType> | null];
             // only show details of app based on actor, aggregate all as others, except if app is global one or null, then show all
             const appId = actor.type?.app?.uid;
             if ( appTotals && appId ) {
@@ -207,7 +207,7 @@ export class MeteringAndBillingService {
         const key = `${METRICS_PREFIX}:actor:${actor.type.user.uuid}:app:${appId}:${currentMonth}`;
 
         return await this.#superUserService.sudo(async () => {
-            const usage = await this.#kvClientWrapper.get({ key }) as UsageByType | null;
+            const usage = await this.#kvStore.get({ key }) as UsageByType | null;
             // only show usage if actor app is the same or if global app ( null appId )
             const actorAppId = actor.type?.app?.uid;
             if ( actorAppId && actorAppId !== appId && appId !== GLOBAL_APP_KEY ) {
@@ -281,7 +281,7 @@ export class MeteringAndBillingService {
         }
         const key = `${POLICY_PREFIX}:actor:${actor.type.user?.uuid}:addons`;
         return this.#superUserService.sudo(async () => {
-            const policyAddOns = await this.#kvClientWrapper.get({ key });
+            const policyAddOns = await this.#kvStore.get({ key });
             return (policyAddOns ?? {}) as PolicyAddOns;
         });
     }
@@ -293,7 +293,7 @@ export class MeteringAndBillingService {
         }
         const key = `${POLICY_PREFIX}:actor:${actor.type.user?.uuid}:addons`;
         return this.#superUserService.sudo(async () => {
-            await this.#kvClientWrapper.incr({
+            await this.#kvStore.incr({
                 key,
                 pathAndAmountMap: {
                     purchasedCredits: tokenAmount,
