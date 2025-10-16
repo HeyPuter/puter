@@ -24,7 +24,7 @@ export default {
     icon: 'speedometer-outline.svg',
     html: () => {
         return `
-            <h1>${i18n('usage')}</h1>
+            <h1>${i18n('usage')}<button class="update-usage-details" style="float:right;"><svg class="update-usage-details-icon" xmlns="http://www.w3.org/2000/svg" width="16" height="16" fill="currentColor" class="bi bi-arrow-clockwise" viewBox="0 0 16 16"> <path fill-rule="evenodd" d="M8 3a5 5 0 1 0 4.546 2.914.5.5 0 0 1 .908-.417A6 6 0 1 1 8 2z"/> <path d="M8 4.466V.534a.25.25 0 0 1 .41-.192l2.36 1.966c.12.1.12.284 0 .384L8.41 4.658A.25.25 0 0 1 8 4.466"/> </svg></button></h1>
             <div class="driver-usage">
                 <div class="driver-usage-header">
                     <h3 style="margin:0; font-size: 14px; flex-grow: 1;">${i18n('storage_usage')}</h3>
@@ -64,49 +64,9 @@ export default {
             </div>`;
     },
     init: ($el_window) => {
-        puter.auth.getMonthlyUsage().then(res => {
-            let monthlyAllowance = res.allowanceInfo?.monthUsageAllowance;
-            let remaining = res.allowanceInfo?.remaining;
-            let totalUsage = monthlyAllowance - remaining;
-            let totalUsagePercentage = (totalUsage / monthlyAllowance * 100).toFixed(0);
-
-            $('#total-usage').html(window.number_format(totalUsage / 100_000_000, { decimals: 2, prefix: '$' }));
-            $('#total-capacity').html(window.number_format(monthlyAllowance / 100_000_000, { decimals: 2, prefix: '$' }));
-            $('.usage-progbar-percent').html(totalUsagePercentage + '%');
-            $('.usage-progbar').css('width', totalUsagePercentage + '%');
-            
-        });
-
-        puter.fs.space().then(res => {
-            let usage_percentage = (res.used / res.capacity * 100).toFixed(0);
-            usage_percentage = usage_percentage > 100 ? 100 : usage_percentage;
-
-            let general_used = res.used;
-
-            let host_usage_percentage = 0;
-            if ( res.host_used ) {
-                $('#storage-puter-used').html(window.byte_format(res.used));
-                $('#storage-puter-used-w').show();
-
-                general_used = res.host_used;
-                host_usage_percentage = ((res.host_used - res.used) / res.capacity * 100).toFixed(0);
-            }
-
-            $('#storage-used').html(window.byte_format(general_used));
-            $('#storage-capacity').html(window.byte_format(res.capacity));
-            $('#storage-used-percent').html(
-                usage_percentage + '%' +
-                (host_usage_percentage > 0
-                    ? ' / ' + host_usage_percentage + '%' : '')
-            );
-            $('#storage-bar').css('width', usage_percentage + '%');
-            $('#storage-bar-host').css('width', host_usage_percentage + '%');
-            if (usage_percentage >= 100) {
-                $('#storage-bar').css({
-                    'border-top-right-radius': '3px',
-                    'border-bottom-right-radius': '3px',
-                });
-            }
+        update_usage_details($el_window);
+        $($el_window).find('.update-usage-details').on('click', function() {
+            update_usage_details($el_window);
         });
     },
 };
@@ -121,8 +81,25 @@ $(document).on('click', '.driver-usage-details', function() {
     }else{
         $('.driver-usage-details-text').text('View usage details');
     }
+});
 
-    puter.auth.getMonthlyUsage().then(res => {
+async function update_usage_details($el_window){
+    // Add spinning animation and record start time
+    const startTime = Date.now();
+    $($el_window).find('.update-usage-details-icon').css('animation', 'spin 1s linear infinite');
+    
+    const monthlyUsagePromise = puter.auth.getMonthlyUsage().then(res => {
+        let monthlyAllowance = res.allowanceInfo?.monthUsageAllowance;
+        let remaining = res.allowanceInfo?.remaining;
+        let totalUsage = monthlyAllowance - remaining;
+        let totalUsagePercentage = (totalUsage / monthlyAllowance * 100).toFixed(0);
+
+        $('#total-usage').html(window.number_format(totalUsage / 100_000_000, { decimals: 2, prefix: '$' }));
+        $('#total-capacity').html(window.number_format(monthlyAllowance / 100_000_000, { decimals: 2, prefix: '$' }));
+        $('.usage-progbar-percent').html(totalUsagePercentage + '%');
+        $('.usage-progbar').css('width', totalUsagePercentage + '%');
+        
+        // build the table for the usage details
         let h = '<table class="driver-usage-details-content-table">';
 
         h += `<thead>
@@ -151,4 +128,49 @@ $(document).on('click', '.driver-usage-details', function() {
 
         $('.driver-usage-details-content').html(h);
     });
-});
+
+    const spacePromise = puter.fs.space().then(res => {
+        let usage_percentage = (res.used / res.capacity * 100).toFixed(0);
+        usage_percentage = usage_percentage > 100 ? 100 : usage_percentage;
+
+        let general_used = res.used;
+
+        let host_usage_percentage = 0;
+        if ( res.host_used ) {
+            $('#storage-puter-used').html(window.byte_format(res.used));
+            $('#storage-puter-used-w').show();
+
+            general_used = res.host_used;
+            host_usage_percentage = ((res.host_used - res.used) / res.capacity * 100).toFixed(0);
+        }
+
+        $('#storage-used').html(window.byte_format(general_used));
+        $('#storage-capacity').html(window.byte_format(res.capacity));
+        $('#storage-used-percent').html(
+            usage_percentage + '%' +
+            (host_usage_percentage > 0
+                ? ' / ' + host_usage_percentage + '%' : '')
+        );
+        $('#storage-bar').css('width', usage_percentage + '%');
+        $('#storage-bar-host').css('width', host_usage_percentage + '%');
+        if (usage_percentage >= 100) {
+            $('#storage-bar').css({
+                'border-top-right-radius': '3px',
+                'border-bottom-right-radius': '3px',
+            });
+        }
+    });
+
+    // Wait for both promises to complete
+    await Promise.all([monthlyUsagePromise, spacePromise]);
+    
+    // Ensure spinning continues for at least 1 second
+    const elapsed = Date.now() - startTime;
+    const minDuration = 1000; // 1 second
+    if (elapsed < minDuration) {
+        await new Promise(resolve => setTimeout(resolve, minDuration - elapsed));
+    }
+    
+    // Remove spinning animation
+    $($el_window).find('.update-usage-details-icon').css('animation', '');
+}
