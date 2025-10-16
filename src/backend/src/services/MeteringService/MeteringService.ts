@@ -169,16 +169,16 @@ export class MeteringAndBillingService {
             const appId = actor.type?.app?.uid;
             if ( appTotals && appId ) {
                 const filteredAppTotals: Record<string, UsageByType> = {};
-                let othersTotal: UsageByType | null = null;
+                let othersTotal: UsageByType = {} as UsageByType;
                 Object.entries(appTotals).forEach(([appKey, appUsage]) => {
                     if ( appKey === appId ) {
                         filteredAppTotals[appKey] = appUsage;
                     } else {
                         Object.entries(appUsage).forEach(([usageKind, amount]) => {
-                            if ( !othersTotal![usageKind] ) {
-                                othersTotal![usageKind] = 0;
+                            if ( !othersTotal[usageKind] ) {
+                                othersTotal[usageKind] = 0;
                             }
-                            othersTotal![usageKind] += amount;
+                            othersTotal[usageKind] += amount;
                         });
                     }
                 });
