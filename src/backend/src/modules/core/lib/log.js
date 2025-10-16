@@ -57,7 +57,10 @@ const stringify_log_entry = ({ prefix, log_lvl, crumbs, message, fields, objects
 
     m += prefix ? `${prefix} ` : '';
     m += `\x1B[${log_lvl.esc}m[${log_lvl.label}\x1B[0m`;
-    for ( const crumb of crumbs ) {
+    for ( let crumb of crumbs ) {
+        if ( crumb.startsWith('extension/') ) {
+            crumb = `\x1B[34;1m${crumb}\x1B[0m`;
+        }
         m += `::${crumb}`;
     }
     m += `\x1B[${log_lvl.esc}m]\x1B[0m`;
