@@ -4618,21 +4618,21 @@ fieldset[name=number-code] {
 }
 
 .driver-usage-details-content-table thead th {
-    padding: 5px;
+    padding: 7px 5px;
     border: 1px solid #e0e0e0;
     text-align: left;
-    font-size: 14px;
+    font-size: 13px;
     font-weight: 500;
 }
 
 .driver-usage-details-content-table td {
-    padding: 5px;
+    padding: 7px 5px;
     border: 1px solid #e0e0e0;
     max-width: 0;
     overflow: hidden;
     white-space: nowrap;
     text-overflow: ellipsis;
-    font-size: 14px;
+    font-size: 13px;
 }
 
 .driver-usage-details-content-table td:first-child {
