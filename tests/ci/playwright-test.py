@@ -145,7 +145,7 @@ def update_client_config():
 
 
 def run():
-    WORK_DIR = "/home/xiaochen/code/puter"
+    WORK_DIR = "."
     os.chdir(WORK_DIR)
 
     # =========================================================================
