@@ -254,7 +254,7 @@ class WSPushService extends BaseService {
         const { socket_id } = metadata;
 
         if (!socket_id) {
-            this.log.error('missing socket id', { metadata });
+            this.log.warn('missing socket id', { metadata });
         }
 
         this.log.info('socket id: ' + socket_id);

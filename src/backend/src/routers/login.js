@@ -38,7 +38,6 @@ const complete_ = async ({ req, res, user }) => {
     });
 
     // send response
-    console.log('200 response?');
     return res.send({
         proceed: true,
         next_step: 'complete',
@@ -155,7 +154,6 @@ router.post('/login', express.json(), body_parser_error_handler,
                 });
             }
 
-            console.log('UMM?');
             return await complete_({ req, res, user });
         }else{
             return res.status(400).send('Incorrect password.')
