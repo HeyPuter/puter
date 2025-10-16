@@ -20,5 +20,5 @@ extension.on('metering:registerAvailablePolicies', async (
 });
 
 extension.on('metering:getUserSubscription', async (/** @type {{actor: import('@heyputer/backend/src/services/auth/Actor').Actor, userSubscriptionId: string}} */event) => {
-    event.userSubscriptionId = event.actor.type.user.subscription.active ? event.actor.type.user.subscription.tier : undefined;
+    event.userSubscriptionId = event?.actor?.type?.user?.subscription?.active ? event.actor.type.user.subscription?.tier : undefined;
 });
