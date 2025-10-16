@@ -5390,3 +5390,25 @@ fieldset[name=number-code] {
     height: 30px;
     z-index: 5;
 }
+
+.update-usage-details{
+    float: right;
+    background: none;
+    border: none;
+    cursor: pointer;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    height: 30px;
+    width: 30px;
+    border-radius: 5px;
+}
+
+.update-usage-details:hover{
+    background: #f0f0f0;
+}
+
+.update-usage-details svg{
+    width: 20px;
+    height: 20px;
+}
