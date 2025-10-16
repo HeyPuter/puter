@@ -21,17 +21,15 @@ class NullDevConsoleService extends BaseService {
         };
         
         // line length
-        let longest_lines_length = 0;
+        let longest = 0;
         for ( const line of lines ) {
             const this_lines_length = ansi_visible_length(line);
-            if ( this_lines_length > longest_lines_length ) {
-                longest_lines_length = this_lines_length;
+            if ( this_lines_length > longest ) {
+                longest = this_lines_length;
             }
         }
         
-        if ( title.length > longest_lines_length ) {
-            longest_lines_length = title.length;
-        }
+        const longestWithTitle = Math.max(longest, ansi_visible_length(title));
         
         ({
             highlighter: () => {
@@ -40,8 +38,19 @@ class NullDevConsoleService extends BaseService {
                     console.log(`\x1B[${colors.bginv}m▐▌\x1B[0m${line}\x1B[0m`);
                 }
             },
+            highlighter2: () => {
+                let top = '';
+                for ( let i = title.length + 2; i < longest+3; i++ ) top += `\x1B[${colors.bginv}m▁\x1B[0m`;
+                console.log(`\x1B[${colors.bginv}m▐\x1B[0m\x1B[${colors.bg}m ${title}${top || ' '}\x1B[0m`);
+                for ( const line of lines ) {
+                    const diff = line.length - ansi_visible_length(line);
+                    console.log(`\x1B[${colors.bginv}m▐▌\x1B[0m${line.padEnd(longest + diff)}` +
+                        `\x1B[${colors.bginv}m▐\x1B[0m`);
+                }
+                console.log(` \x1B[${colors.bginv}m${Array(longest + 2).fill('▔').join('')}\x1B[0m`);
+            },
             stars: () => {
-                const len = longest_lines_length + 1;
+                const len = longestWithTitle + 1;
                 const horiz = Array(len).fill('*').join('');
                 console.log(`\x1B[${colors.bginv}m**${horiz}**\x1B[0m`);
                 console.log(`\x1B[${colors.bginv}m*\x1B[0m ${(title + ':').padEnd(len)} \x1B[${colors.bginv}m*\x1B[0m`);
@@ -51,7 +60,7 @@ class NullDevConsoleService extends BaseService {
                 }
                 console.log(`\x1B[${colors.bginv}m**${horiz}**\x1B[0m`);
             },
-        })[style ?? 'highlighter']();
+        })[style ?? 'highlighter2']();
     }
     turn_on_the_warning_lights () {}
     add_widget () {}

@@ -18,6 +18,8 @@
  * along with this program.  If not, see <https://www.gnu.org/licenses/>.
  */
 
+/*eslint no-control-regex: 'off'*/
+
 /**
 * Quotes a string value, handling special cases for undefined, null, functions, objects and numbers.
 * Escapes quotes and returns a JSON-stringified version with quote character normalization.
@@ -101,8 +103,30 @@ const wrap_text = (text, width = 71) => {
 
 const ansi_visible_length = str => {
     // Regex that matches ANSI escape sequences
-    const ansiRegex = /\x1b\[[0-9;]*m/g;
-    return str.replace(ansiRegex, '').length;
+    const escape_regexes = [
+        {
+            name: 'oscAll',
+            re: '/\x1B\][^\x07]*(?:\x07|\x1B\\)/g',
+        },
+        {
+            name: 'osc8:start',
+            re: /\x1B\]8;[^\x07\x1B\\]*;[^\x07\x1B\\]*(?:\x07|\x1B\\)/g,
+        },
+        {
+            name: 'osc8:end',
+            re: /\x1B\]8;;(?:\x07|\x1B\\)/g,
+        },
+        {
+            name: 'csi',
+            re: /\x1B\[[0-?]*[ -/]*[@-~]/g,
+        },
+        // /\x1b\[[0-9;]*m/g,
+    ];
+
+    /* eslint-disable */
+    return escape_regexes.reduce(
+        (str, { re }) => str.replace(re, ''), str).length;
+    /* eslint-enable */
 };
 
 module.exports = {
