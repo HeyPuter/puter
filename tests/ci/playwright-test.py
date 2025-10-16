@@ -60,16 +60,9 @@ def get_token():
     CONTEXT.TOKEN = response_json["token"]
 
 
-def init_server_config():
-    server_process = cxc_toolkit.exec.run_background("npm start")
-    # wait 10s for the server to start
-    time.sleep(10)
-    server_process.terminate()
-
-
 # create the admin user and print its password
 def get_admin_password():
-    output_bytes, exit_code = cxc_toolkit.exec.run_command(
+    output, _ = cxc_toolkit.exec.run_command(
         "npm start",
         stream_output=False,
         kill_on_output="password for admin",
@@ -79,7 +72,7 @@ def get_admin_password():
     time.sleep(10)
 
     # print the line that contains "password"
-    lines = output_bytes.decode("utf-8", errors="ignore").splitlines()
+    lines = output.splitlines()
     admin_password = None
     for line in lines:
         if "password" in line:
@@ -95,36 +88,7 @@ def get_admin_password():
     CONTEXT.ADMIN_PASSWORD = admin_password
 
 
-def update_server_config():
-    # Load the config file
-    config_file = f"{os.getcwd()}/volatile/config/config.json"
-
-    with open(config_file, "r") as f:
-        config = json.load(f)
-
-    # Ensure services and mountpoint sections exist
-    if "services" not in config:
-        config["services"] = {}
-    if "mountpoint" not in config["services"]:
-        config["services"]["mountpoint"] = {}
-    if "mountpoints" not in config["services"]["mountpoint"]:
-        config["services"]["mountpoint"]["mountpoints"] = {}
-
-    # Add the mountpoint configuration
-    mountpoint_config = {
-        "/": {"mounter": "puterfs"},
-        "/admin/tmp": {"mounter": "memoryfs"},
-    }
-
-    # Merge mountpoints (overwrite existing ones)
-    config["services"]["mountpoint"]["mountpoints"].update(mountpoint_config)
-
-    # Write the updated config back
-    with open(config_file, "w") as f:
-        json.dump(config, f, indent=2)
-
-
-def update_client_config():
+def init_client_config():
     # Load the example config
     example_config_path = f"{os.getcwd()}/tests/example-client-config.yaml"
     config_path = f"{os.getcwd()}/tests/client-config.yaml"
@@ -161,10 +125,8 @@ def run():
     # =========================================================================
     # config server
     # =========================================================================
-    # cxc_toolkit.exec.run_command("npm install")
-    # init_server_config()
+    cxc_toolkit.exec.run_command("npm install")
     get_admin_password()
-    # update_server_config()
 
     # =========================================================================
     # start backend server
@@ -179,7 +141,7 @@ def run():
     # config client
     # =========================================================================
     get_token()
-    update_client_config()
+    init_client_config()
 
     # =========================================================================
     # start fs-tree-manager server
@@ -195,7 +157,7 @@ def run():
     # run the test
     # =========================================================================
     cxc_toolkit.exec.run_command(
-        "npx playwright test",
+        "npx playwright test --reporter=line",
         work_dir=f"{WORK_DIR}/tests/playwright",
     )
 

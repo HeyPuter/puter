@@ -17,29 +17,102 @@
  * along with this program.  If not, see <https://www.gnu.org/licenses/>.
  */
 
+// @ts-ignore - No type definitions available for socket.io
 import io from '../../../lib/socket.io/socket.io.esm.min.js';
+// @ts-ignore - No type definitions available for tree.js
 import FSTree from './tree.js';
 
+interface Context {
+    authToken: string;
+    APIOrigin: string;
+    username?: string;
+}
+
+interface FSEntry {
+    path: string;
+    parent_uid: string | null;
+    [key: string]: unknown;
+}
+
+interface NodeData {
+    uuid: string;
+    merkle_hash: string;
+    fs_entry: FSEntry;
+    children?: NodeData[];
+}
+
+interface FSNode {
+    uuid: string;
+    merkle_hash: string;
+    parent_uuid: string | null;
+    fs_entry: FSEntry;
+    children_uuids: { [uuid: string]: boolean };
+}
+
+interface FSTreeData {
+    rootId: string;
+    nodes: { [uuid: string]: FSNode };
+}
+
+interface PullRequestItem {
+    uuid: string;
+    merkle_hash: string;
+}
+
+interface PullRequest {
+    user_name: string;
+    pull_request: PullRequestItem[];
+}
+
+interface PushRequestItem {
+    uuid: string;
+    merkle_hash: string;
+    fs_entry: FSEntry;
+    children?: PushRequestItem[];
+}
+
+interface ReplicaFetchSuccessData {
+    data: FSTreeData;
+}
+
+interface ReplicaPullDiffSuccessData {
+    data: {
+        push_request: PushRequestItem[];
+    };
+}
+
+interface ReplicaErrorData {
+    error: {
+        message: string;
+    };
+}
+
+interface Socket {
+    disconnect(): void;
+    on(event: string, callback: (...args: any[]) => void): void;
+    emit(event: string, data: any): void;
+}
+
 class ReplicaManager {
-    constructor() {
-        this.socket = null;
-        this.username = null;
-        this.pullDiffInterval = null;
+    private socket: Socket | null = null;
+    private username: string | null = null;
+    private pullDiffInterval: ReturnType<typeof setInterval> | null = null;
+    private authToken: string = '';
+    private APIOrigin: string = '';
 
-        this.available = false;
-        this.fs_tree = null;
-        this.last_local_update = 0; // milliseconds since epoch
+    public available: boolean = false;
+    public fs_tree: FSTree | null = null;
+    public last_local_update: number = 0; // milliseconds since epoch
 
-        // debug variables
-        this.debug = false;
-        this.local_read = 0;
-        this.remote_read = 0;
-    }
+    // debug variables
+    public debug: boolean = false;
+    public local_read: number = 0;
+    public remote_read: number = 0;
 
     /**
      * Initialize the replica manager for the current user.
      */
-    async initialize(context) {
+    async initialize(context: Context): Promise<void> {
         // check input
         if ( !context || !context.authToken || !context.APIOrigin ) {
             console.error(`[replica manager] failed to initialize, context is invalid: ${JSON.stringify(context, null, 2)}`);
@@ -62,7 +135,7 @@ class ReplicaManager {
     /**
      * Fetch username from whoami endpoint using direct API call
      */
-    async fetchUsername() {
+    async fetchUsername(): Promise<string> {
         try {
             const resp = await fetch(`${this.APIOrigin}/whoami`, {
                 headers: {
@@ -78,7 +151,7 @@ class ReplicaManager {
         }
     }
 
-    connect() {
+    connect(): void {
         if ( this.socket ) {
             // The disconnect action will not impact other components since each socket
             // object get their own session.
@@ -89,7 +162,7 @@ class ReplicaManager {
             auth: {
                 auth_token: this.authToken,
             },
-        });
+        }) as Socket;
 
         this.bindEvents();
     }
@@ -97,7 +170,9 @@ class ReplicaManager {
     /**
      * Bind websocket events
      */
-    bindEvents() {
+    bindEvents(): void {
+        if ( !this.socket ) return;
+
         this.socket.on('connect', () => {
             console.log('[replica manager] websocket connected');
 
@@ -111,30 +186,30 @@ class ReplicaManager {
             this.cleanup('disconnected');
         });
 
-        this.socket.on('reconnect', (_attempt) => {
+        this.socket.on('reconnect', (_attempt: number) => {
             console.log('[replica manager] websocket reconnected');
 
             this.fetchReplica();
             this.startPullDiff();
         });
 
-        this.socket.on('error', (error) => {
+        this.socket.on('error', (error: unknown) => {
             this.cleanup(`error: ${error}`);
         });
 
-        this.socket.on('replica/fetch/success', (data) => {
+        this.socket.on('replica/fetch/success', (data: ReplicaFetchSuccessData) => {
             this.handleFetchReplicaSuccess(data);
         });
 
-        this.socket.on('replica/fetch/error', (data) => {
+        this.socket.on('replica/fetch/error', (data: ReplicaErrorData) => {
             this.cleanup(`failed to fetch replica: ${data.error.message}`);
         });
 
-        this.socket.on('replica/pull_diff/success', (data) => {
+        this.socket.on('replica/pull_diff/success', (data: ReplicaPullDiffSuccessData) => {
             this.handlePullDiffSuccess(data);
         });
 
-        this.socket.on('replica/pull_diff/error', (data) => {
+        this.socket.on('replica/pull_diff/error', (data: ReplicaErrorData) => {
             this.cleanup(`failed to pull diff: ${data.error.message}`);
         });
     }
@@ -142,11 +217,13 @@ class ReplicaManager {
     /**
      * Fetch the replica from server for the current user.
      */
-    fetchReplica() {
+    fetchReplica(): void {
         if ( !this.username ) {
             console.warn('Replica Manager: No username available for fetching replica');
             return;
         }
+
+        if ( !this.socket ) return;
 
         const userRootPath = `/${this.username}`;
 
@@ -161,7 +238,7 @@ class ReplicaManager {
     /**
      * Handle successful replica fetch
      */
-    handleFetchReplicaSuccess(data) {
+    handleFetchReplicaSuccess(data: ReplicaFetchSuccessData): void {
         // Initialize the FSTree
         this.fs_tree = new FSTree(data.data);
         this.available = true;
@@ -169,7 +246,7 @@ class ReplicaManager {
         console.log('client-replica initialized for user:', this.username);
     }
 
-    handlePullDiffSuccess(data) {
+    handlePullDiffSuccess(data: ReplicaPullDiffSuccessData): void {
         const pushRequest = data?.data?.push_request;
 
         // check terminal conditions
@@ -187,11 +264,11 @@ class ReplicaManager {
             console.log(`push request from server: ${paths}`);
         }
 
-        const nextPullRequest = [];
+        const nextPullRequest: PullRequestItem[] = [];
 
         for ( const pushItem of pushRequest ) {
             // process level-1 node
-            const node = this.fs_tree.nodes[pushItem.uuid];
+            const node = this.fs_tree!.nodes[pushItem.uuid];
             if ( node ) {
                 // update existing
                 node.fs_entry = pushItem.fs_entry;
@@ -215,16 +292,16 @@ class ReplicaManager {
 
                 // fsentry removed from server, remove it in local as well
                 //
-                // NB: Must use a snapshot to avoid the “mutate-while-iterating” trap.
+                // NB: Must use a snapshot to avoid the "mutate-while-iterating" trap.
                 for ( const localChildId of [...localChildren] ) {
                     if ( !serverChildren.includes(localChildId) ) {
                         this.removeNodeAndDescendants(localChildId);
                     }
                 }
 
-                // NB: Must use a snapshot to avoid the “mutate-while-iterating” trap.
+                // NB: Must use a snapshot to avoid the "mutate-while-iterating" trap.
                 for ( const child of [...pushItem.children] ) {
-                    const localChild = this.fs_tree.nodes[child.uuid];
+                    const localChild = this.fs_tree!.nodes[child.uuid];
 
                     if ( !localChild ) {
                         // new fsentry on remote, add it and fetch its children
@@ -250,7 +327,7 @@ class ReplicaManager {
         }
 
         // Send next pull request if there are nodes to update
-        if ( nextPullRequest.length > 0 ) {
+        if ( nextPullRequest.length > 0 && this.socket ) {
             this.socket.emit('replica/pull_diff', {
                 user_name: this.username,
                 pull_request: nextPullRequest,
@@ -261,8 +338,8 @@ class ReplicaManager {
     /**
      * Add a new node to the tree
      */
-    addNode(nodeData) {
-        const newNode = {
+    addNode(nodeData: NodeData): void {
+        const newNode: FSNode = {
             uuid: nodeData.uuid,
             merkle_hash: nodeData.merkle_hash,
             parent_uuid: nodeData.fs_entry.parent_uid,
@@ -270,11 +347,11 @@ class ReplicaManager {
             children_uuids: {},
         };
 
-        this.fs_tree.nodes[nodeData.uuid] = newNode;
+        this.fs_tree!.nodes[nodeData.uuid] = newNode;
 
         // Add to parent's children
         if ( nodeData.fs_entry.parent_uid ) {
-            const parentNode = this.fs_tree.nodes[nodeData.fs_entry.parent_uid];
+            const parentNode = this.fs_tree!.nodes[nodeData.fs_entry.parent_uid];
             if ( parentNode ) {
                 if ( !parentNode.children_uuids ) {
                     parentNode.children_uuids = {};
@@ -287,15 +364,15 @@ class ReplicaManager {
     /**
      * Remove a node and all its descendants from the local replica
      */
-    removeNodeAndDescendants(nodeId) {
-        const node = this.fs_tree.nodes[nodeId];
+    removeNodeAndDescendants(nodeId: string): void {
+        const node = this.fs_tree!.nodes[nodeId];
         if ( !node ) {
             return;
         }
 
         // Remove from parent's children
         if ( node.parent_uuid ) {
-            const parentNode = this.fs_tree.nodes[node.parent_uuid];
+            const parentNode = this.fs_tree!.nodes[node.parent_uuid];
             if ( parentNode && parentNode.children_uuids ) {
                 delete parentNode.children_uuids[nodeId];
             }
@@ -309,10 +386,10 @@ class ReplicaManager {
         }
 
         // Remove the node itself
-        delete this.fs_tree.nodes[nodeId];
+        delete this.fs_tree!.nodes[nodeId];
     }
 
-    startPullDiff() {
+    startPullDiff(): void {
         // Clear any existing interval
         if ( this.pullDiffInterval ) {
             clearInterval(this.pullDiffInterval);
@@ -324,7 +401,7 @@ class ReplicaManager {
         }, 5000);
     }
 
-    pullDiff() {
+    pullDiff(): void {
         // check terminal conditions
         if ( !this.available ) {
             return;
@@ -336,11 +413,11 @@ class ReplicaManager {
         }
 
         try {
-            const rootNode = this.fs_tree.nodes[this.fs_tree.rootId];
+            const rootNode = this.fs_tree!.nodes[this.fs_tree!.rootId];
             if ( rootNode && rootNode.merkle_hash ) {
                 // Create PullRequest format according to proto definition
-                const pullRequest = {
-                    user_name: this.username,
+                const pullRequest: PullRequest = {
+                    user_name: this.username!,
                     pull_request: [
                         {
                             uuid: rootNode.uuid,
@@ -349,15 +426,18 @@ class ReplicaManager {
                     ],
                 };
 
-                this.socket.emit('replica/pull_diff', pullRequest);
+                if ( this.socket ) {
+                    this.socket.emit('replica/pull_diff', pullRequest);
+                }
             }
-        } catch( error ) {
-            this.cleanup(`error in pullDiff: ${error.message}`);
+        } catch( error: unknown ) {
+            const errorMessage = error instanceof Error ? error.message : String(error);
+            this.cleanup(`error in pullDiff: ${errorMessage}`);
         }
     }
 
     // Do cleanup and mark replica as unavailable.
-    cleanup(reason) {
+    cleanup(reason: string): void {
         console.log(`[replica manager] cleanup, reason: ${reason}`);
 
         if ( this.pullDiffInterval ) {
@@ -375,12 +455,12 @@ class ReplicaManager {
     /**
      * Set the debug flag
      */
-    setDebug(enabled) {
+    setDebug(enabled: boolean): void {
         this.debug = enabled;
 
         // Update widget visibility if the function exists (in GUI environment)
-        if ( typeof window !== 'undefined' && window.updateReplicaWidgetVisibility ) {
-            window.updateReplicaWidgetVisibility();
+        if ( typeof window !== 'undefined' && (window as unknown as { updateReplicaWidgetVisibility?: () => void }).updateReplicaWidgetVisibility ) {
+            (window as unknown as { updateReplicaWidgetVisibility: () => void }).updateReplicaWidgetVisibility();
         }
     }
 }

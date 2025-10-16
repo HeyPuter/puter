@@ -13,6 +13,7 @@
   "devDependencies": {
     "@eslint/js": "^9.35.0",
     "@stylistic/eslint-plugin": "^5.3.1",
+    "@types/ws": "^8.18.1",
     "@typescript-eslint/eslint-plugin": "^8.46.1",
     "@typescript-eslint/parser": "^8.46.1",
     "chalk": "^4.1.0",
@@ -27,6 +28,7 @@
     "license-check-and-add": "^4.0.5",
     "mocha": "^10.6.0",
     "nodemon": "^3.1.0",
+    "ts-node": "^10.9.2",
     "typescript": "^5.4.5",
     "uglify-js": "^3.17.4",
     "vite-plugin-static-copy": "^3.1.3",

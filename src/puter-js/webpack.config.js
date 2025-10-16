@@ -16,6 +16,18 @@ export default {
         filename: 'puter.js',
         path: path.resolve(__dirname, 'dist'),
     },
+    module: {
+        rules: [
+            {
+                test: /\.ts$/,
+                use: 'ts-loader',
+                exclude: /node_modules/,
+            },
+        ],
+    },
+    resolve: {
+        extensions: ['.ts', '.js'],
+    },
     plugins: [
         new webpack.DefinePlugin({
             'globalThis.PUTER_ORIGIN_ENV': JSON.stringify(process.env.PUTER_ORIGIN || 'https://puter.com'),

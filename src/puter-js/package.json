@@ -34,8 +34,11 @@
     "author": "Puter Technologies Inc.",
     "license": "Apache-2.0",
     "devDependencies": {
+        "@types/node": "^24.8.0",
         "concurrently": "^8.2.2",
         "http-server": "^14.1.1",
+        "ts-loader": "^9.5.4",
+        "typescript": "^5.9.3",
         "webpack-cli": "^5.1.4"
     },
     "dependencies": {

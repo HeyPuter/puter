@@ -57,7 +57,7 @@ module.exports = {
 
         client.fetchReplica(requestMsg, (err, resp) => {
             if ( err ) {
-                console.error('FetchReplica error:', err);
+                console.error(`FetchReplica error: ${err.message}`);
                 return socket.emit('replica/fetch/error', {
                     success: false,
                     error: { message: 'failed to fetch replica', details: err.message },
