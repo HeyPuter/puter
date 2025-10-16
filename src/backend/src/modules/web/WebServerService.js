@@ -685,6 +685,7 @@ class WebServerService extends BaseService {
     */
     // comment above line 497
     print_puter_logo_() {
+        const realConsole = globalThis.original_console_object;
         if ( this.global_config.env !== 'dev' ) return;
         const logos = require('../../fun/logos.js');
         let last_logo = undefined;
@@ -703,10 +704,10 @@ class WebServerService extends BaseService {
                 lines[i] = ' '.repeat(pad_left) + lines[i] + ' '.repeat(pad_right);
             }
             const txt = lines.join('\n');
-            console.log('\n\x1B[34;1m' + txt + '\x1B[0m\n');
+            realConsole.log('\n\x1B[34;1m' + txt + '\x1B[0m\n');
         }
         if ( config.os.archbtw ) {
-            console.log('\x1B[34;1mPuter is running on Arch btw\x1B[0m');
+            realConsole.log('\x1B[34;1mPuter is running on Arch btw\x1B[0m');
         }
     }
 }
