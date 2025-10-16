@@ -15,7 +15,6 @@ Try entering the 'help' command.
 
 class DevSocketService extends BaseService {
     async ['__on_boot.consolidation'] () {
-        this.log.noticeme('dev socket service');
         this.sock = process.env.DEV_SOCKET_PATH ??
             path_.join(process.cwd(), 'dev.sock');
 

@@ -22,7 +22,7 @@ const LOG_LEVEL_ERRO = logSeverity(0, 'ERRO', '31;1', 'error');
 const LOG_LEVEL_WARN = logSeverity(1, 'WARN', '33;1', 'warn');
 const LOG_LEVEL_INFO = logSeverity(2, 'INFO', '36;1', 'info');
 const LOG_LEVEL_NOTICEME = logSeverity(3, 'NOTICE_ME', '33;1', 'error');
-const LOG_LEVEL_SYSTEM = logSeverity(3, 'SYSTEM', '33;1', 'system');
+const LOG_LEVEL_SYSTEM = logSeverity(3, 'SYSTEM', '36;1', 'system');
 const LOG_LEVEL_DEBU = logSeverity(4, 'DEBU', '37', 'debug');
 const LOG_LEVEL_TICK = logSeverity(10, 'TICK', '34;1', 'info');
 
