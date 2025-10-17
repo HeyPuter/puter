@@ -93,6 +93,11 @@ def get_admin_password():
 
     if not CONTEXT.ADMIN_PASSWORD:
         print("Error: No admin password found")
+
+        # print the log file
+        with open("/tmp/backend.log", "r") as f:
+            print(f.read())
+
         exit(1)
 
 
