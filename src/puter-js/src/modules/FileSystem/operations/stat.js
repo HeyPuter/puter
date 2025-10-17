@@ -1,6 +1,14 @@
 import * as utils from '../../../lib/utils.js';
 import getAbsolutePathForApp from '../utils/getAbsolutePathForApp.js';
 
+// Track in-flight requests to avoid duplicate backend calls
+// Each entry stores: { promise, timestamp }
+const inflightRequests = new Map();
+
+// Time window (in ms) to group duplicate requests together
+// Requests made within this window will share the same backend call
+const DEDUPLICATION_WINDOW_MS = 2000; // 2 seconds
+
 const stat = async function (...args) {
     let options;
 
@@ -24,17 +32,6 @@ const stat = async function (...args) {
             options.consistency = 'strong';
         }
 
-        // If auth token is not provided and we are in the web environment, 
-        // try to authenticate with Puter
-        if(!puter.authToken && puter.env === 'web'){
-            try{
-                await puter.ui.authenticateWithPuter();
-            }catch(e){
-                // if authentication fails, throw an error
-                reject('Authentication failed.');
-            }
-        }
-
         // Generate cache key based on path or uid
         let cacheKey;
         if(options.path){
@@ -50,41 +47,106 @@ const stat = async function (...args) {
             }
         }
 
-        // create xhr object
-        const xhr = utils.initXhr('/stat', this.APIOrigin, undefined, "post", "text/plain;actually=json");
+        // Generate deduplication key based on all request parameters
+        const deduplicationKey = JSON.stringify({
+            path: options.path,
+            uid: options.uid,
+            returnSubdomains: options.returnSubdomains,
+            returnPermissions: options.returnPermissions,
+            returnVersions: options.returnVersions,
+            returnSize: options.returnSize,
+            consistency: options.consistency,
+        });
 
-        // set up event handlers for load and error events
-        utils.setupXhrEventHandlers(xhr, options.success, options.error, async (result) => {
-            // Calculate the size of the result for cache eligibility check
-            const resultSize = JSON.stringify(result).length;
+        // Check if there's already an in-flight request for the same parameters
+        const existingEntry = inflightRequests.get(deduplicationKey);
+        const now = Date.now();
+        
+        if (existingEntry) {
+            const timeSinceRequest = now - existingEntry.timestamp;
             
-            // Cache the result if it's not bigger than MAX_CACHE_SIZE
-            const MAX_CACHE_SIZE = 20 * 1024 * 1024;
+            // Only reuse the request if it's within the deduplication window
+            if (timeSinceRequest < DEDUPLICATION_WINDOW_MS) {
+                // Wait for the existing request and return its result
+                try {
+                    const result = await existingEntry.promise;
+                    resolve(result);
+                } catch (error) {
+                    reject(error);
+                }
+                return;
+            } else {
+                // Request is too old, remove it from the tracker
+                inflightRequests.delete(deduplicationKey);
+            }
+        }
 
-            if(resultSize <= MAX_CACHE_SIZE){
-                // UPSERT the cache
-                puter._cache.set(cacheKey, result);
+        // Create a promise for this request and store it to deduplicate concurrent calls
+        const requestPromise = new Promise(async (resolveRequest, rejectRequest) => {
+            // If auth token is not provided and we are in the web environment, 
+            // try to authenticate with Puter
+            if(!puter.authToken && puter.env === 'web'){
+                try{
+                    await puter.ui.authenticateWithPuter();
+                }catch(e){
+                    // if authentication fails, throw an error
+                    rejectRequest('Authentication failed.');
+                    return;
+                }
+            }
+
+            // create xhr object
+            const xhr = utils.initXhr('/stat', this.APIOrigin, undefined, "post", "text/plain;actually=json");
+
+            // set up event handlers for load and error events
+            utils.setupXhrEventHandlers(xhr, options.success, options.error, async (result) => {
+                // Calculate the size of the result for cache eligibility check
+                const resultSize = JSON.stringify(result).length;
+                
+                // Cache the result if it's not bigger than MAX_CACHE_SIZE
+                const MAX_CACHE_SIZE = 20 * 1024 * 1024;
+
+                if(resultSize <= MAX_CACHE_SIZE){
+                    // UPSERT the cache
+                    puter._cache.set(cacheKey, result);
+                }
+                
+                resolveRequest(result);
+            }, rejectRequest);
+
+            let dataToSend = {};
+            if (options.uid !== undefined) {
+                dataToSend.uid = options.uid;
+            } else if (options.path !== undefined) {
+                // If dirPath is not provided or it's not starting with a slash, it means it's a relative path
+                // in that case, we need to prepend the app's root directory to it
+                dataToSend.path = getAbsolutePathForApp(options.path);
             }
             
+            dataToSend.return_subdomains = options.returnSubdomains;
+            dataToSend.return_permissions = options.returnPermissions;
+            dataToSend.return_versions = options.returnVersions;
+            dataToSend.return_size = options.returnSize;
+            dataToSend.auth_token = this.authToken;
+
+            xhr.send(JSON.stringify(dataToSend));
+        });
+
+        // Store the promise and timestamp in the in-flight tracker
+        inflightRequests.set(deduplicationKey, {
+            promise: requestPromise,
+            timestamp: now,
+        });
+
+        // Wait for the request to complete and clean up
+        try {
+            const result = await requestPromise;
+            inflightRequests.delete(deduplicationKey);
             resolve(result);
-        }, reject);
-
-        let dataToSend = {};
-        if (options.uid !== undefined) {
-            dataToSend.uid = options.uid;
-        } else if (options.path !== undefined) {
-            // If dirPath is not provided or it's not starting with a slash, it means it's a relative path
-            // in that case, we need to prepend the app's root directory to it
-            dataToSend.path = getAbsolutePathForApp(options.path);
+        } catch (error) {
+            inflightRequests.delete(deduplicationKey);
+            reject(error);
         }
-        
-        dataToSend.return_subdomains = options.returnSubdomains;
-        dataToSend.return_permissions = options.returnPermissions;
-        dataToSend.return_versions = options.returnVersions;
-        dataToSend.return_size = options.returnSize;
-        dataToSend.auth_token = this.authToken;
-
-        xhr.send(JSON.stringify(dataToSend));
     })
 }
 
