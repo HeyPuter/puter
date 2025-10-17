@@ -326,6 +326,9 @@ class WorkerService extends BaseService {
             async endLogs({ workerName, authorization }) {
                 return await this.exec_({ runtime, code });
             },
+            async getLoggingUrl({ }) {
+                return this.config.loggingUrl;
+            }
         }
     }
     async ['__on_driver.register.interfaces']() {
@@ -381,19 +384,11 @@ class WorkerService extends BaseService {
                     },
                     result: { type: 'json' },
                 },
-                endLogs: {
-                    description: 'Get logs for your backend worker',
+                getLoggingUrl: {
+                    description: 'Get logging endpoint for your backend worker',
                     parameters: {
-                        workerName: {
-                            type: "string",
-                            description: "The name of the worker you want the logs of"
-                        },
-                        authorization: {
-                            type: "string",
-                            description: "Puter token"
-                        }
                     },
-                    result: { type: 'json' },
+                    result: { type: 'string' },
                 },
                 destroy: {
                     description: 'Get rid of your backend worker',
