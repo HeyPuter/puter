@@ -722,25 +722,50 @@ const puterInit = (function() {
             let documents_path = `/${username}/Documents`;
             let public_path = `/${username}/Public`;
 
-            // Home
+            // item:Home
+            if(!puter._cache.get('item:' + home_path)){
+                console.log(`/${username} item is not cached, refetching cache`);
+                // fetch home
+                puter.fs.stat(home_path);
+            }
+            // item:Desktop
+            if(!puter._cache.get('item:' + desktop_path)){
+                console.log(`/${username}/Desktop item is not cached, refetching cache`);
+                // fetch desktop
+                puter.fs.stat(desktop_path);
+            }
+            // item:Documents
+            if(!puter._cache.get('item:' + documents_path)){
+                console.log(`/${username}/Documents item is not cached, refetching cache`);
+                // fetch documents
+                puter.fs.stat(documents_path);
+            }
+            // item:Public
+            if(!puter._cache.get('item:' + public_path)){
+                console.log(`/${username}/Public item is not cached, refetching cache`);
+                // fetch public
+                puter.fs.stat(public_path);
+            }
+
+            // readdir:Home
             if(!puter._cache.get('readdir:' + home_path)){
                 console.log(`/${username} is not cached, refetching cache`);
                 // fetch home
                 puter.fs.readdir(home_path);
             }
-            // Desktop
+            // readdir:Desktop
             if(!puter._cache.get('readdir:' + desktop_path)){
                 console.log(`/${username}/Desktop is not cached, refetching cache`);
                 // fetch desktop
                 puter.fs.readdir(desktop_path);
             }
-            // Documents
+            // readdir:Documents
             if(!puter._cache.get('readdir:' + documents_path)){
                 console.log(`/${username}/Documents is not cached, refetching cache`);
                 // fetch documents
                 puter.fs.readdir(documents_path);
             }
-            // Public
+            // readdir:Public
             if(!puter._cache.get('readdir:' + public_path)){
                 console.log(`/${username}/Public is not cached, refetching cache`);
                 // fetch public
