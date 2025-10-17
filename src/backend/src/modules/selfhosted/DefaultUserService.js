@@ -101,6 +101,9 @@ class DefaultUserService extends BaseService {
         // console.log("************************************************");
         // console.log('\n');
 
+        // NB: this is needed for the CI to extract the password
+        console.log(`password for admin is: ${tmp_password}`);
+
         const realConsole = globalThis.original_console_object ?? console;
         realConsole.log('\n');
         svc_devConsole.notice({

@@ -65,30 +65,40 @@ def init_server_config():
 
 # create the admin user and print its password
 def get_admin_password():
-    output_bytes, exit_code = cxc_toolkit.exec.run_command(
-        "npm start",
-        stream_output=False,
-        kill_on_output="password for admin",
+    # output_bytes, exit_code = cxc_toolkit.exec.run_command(
+    #     "npm start",
+    #     stream_output=False,
+    #     kill_on_output="password for admin",
+    # )
+
+    backend_process = cxc_toolkit.exec.run_background(
+        "npm start", log_path="/tmp/backend.log"
     )
 
-    # wait for the server to terminate
+    # NB: run_command + kill_on_output may wait indefinitely, use run_background + hard limit instead
     time.sleep(10)
 
-    # print the line that contains "password"
-    lines = output_bytes.decode("utf-8", errors="ignore").splitlines()
-    admin_password = None
+    backend_process.terminate()
+
+    # read the log file
+    with open("/tmp/backend.log", "r") as f:
+        lines = f.readlines()
     for line in lines:
-        if "password" in line:
+        if "password for admin" in line:
             print(f"found password line: ---{line}---")
-            # Parse password from "password for admin is: bbb236b2"
-            if "password for admin is:" in line:
-                admin_password = line.split("password for admin is:")[1].strip()
-                print(f"Extracted admin password: {admin_password}")
-                break
+            admin_password = line.split("password for admin is:")[1].strip()
+            print(f"Extracted admin password: {admin_password}")
+            CONTEXT.ADMIN_PASSWORD = admin_password
+            return
 
-    print(f"password for admin: {admin_password}")
+    if not CONTEXT.ADMIN_PASSWORD:
+        print("Error: No admin password found")
 
-    CONTEXT.ADMIN_PASSWORD = admin_password
+        # print the log file
+        with open("/tmp/backend.log", "r") as f:
+            print(f.read())
+
+        exit(1)
 
 
 def update_server_config():
