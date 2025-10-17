@@ -79,7 +79,7 @@ async function UIWindowPublishWebsite(target_dir_uid, target_dir_name, target_di
                 h += `<label style="margin-bottom: 10px; display: block;">${i18n('pick_name_for_website')}</label>`;
                 h += `<div style="font-family: monospace; display: flex; align-items: center; background: #f8f9fa; padding: 8px; border-radius: 6px; border: 1px solid #dee2e6;">`;
                     h += `<span style="color: #666;">${html_encode(window.extractProtocol(window.url))}://</span>`;
-                    h += `<input class="publish-website-subdomain" style="border: none; background: #ffffff; outline: none; width: 150px; padding: 7px !important; " type="text" autocomplete="subdomain" spellcheck="false" autocorrect="off" autocapitalize="off" data-gramm_editor="false"/>`;
+                    h += `<input class="publish-website-subdomain" style="border: none; background: #ffffff; outline: none; padding: 7px !important; " type="text" autocomplete="subdomain" spellcheck="false" autocorrect="off" autocapitalize="off" data-gramm_editor="false"/>`;
                     h += `<span style="color: #666;">.${html_encode(window.hosting_domain)}</span>`;
                 h += `</div>`;
             h += `</div>`;
