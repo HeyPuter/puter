@@ -165,6 +165,11 @@ def run():
     # run the test
     # =========================================================================
     cxc_toolkit.exec.run_command(
+        "npx playwright install --with-deps",
+        work_dir=f"{WORK_DIR}/tests/playwright",
+    )
+
+    cxc_toolkit.exec.run_command(
         "npx playwright test --reporter=line",
         work_dir=f"{WORK_DIR}/tests/playwright",
     )
