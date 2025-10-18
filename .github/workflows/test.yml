@@ -52,7 +52,7 @@ jobs:
 
   playwright-test-tmp:
     runs-on: ubuntu-latest
-    timeout-minutes: 10
+    timeout-minutes: 5
 
     defaults:
       run:
@@ -89,7 +89,7 @@ jobs:
 
   playwright-test:
     runs-on: ubuntu-latest
-    timeout-minutes: 10
+    timeout-minutes: 5
 
     strategy:
       matrix:
