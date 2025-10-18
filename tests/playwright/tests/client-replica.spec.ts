@@ -29,7 +29,7 @@ async function bootstrap(page: import('@playwright/test').Page) {
     }, null, { timeout: 10_000 });
 }
 
-test('multi-session: mkdir in A, then readdir in B', async ({ browser }) => {
+test('multi-session - mkdir', async ({ browser }) => {
     const ctxA = await browser.newContext();
     const ctxB = await browser.newContext();
     const pageA = await ctxA.newPage();

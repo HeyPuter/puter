@@ -1,7 +1,7 @@
 #! /usr/bin/env python3
 
 # test the client-replica feature
-# - need browser environment
+# - need browser environment (since socket.io doesn't work in node)
 # - test multi-server setup
 # - test change-propagation-time
 # - test local read
@@ -60,32 +60,32 @@ def get_token():
     CONTEXT.TOKEN = response_json["token"]
 
 
-# create the admin user and print its password
 def get_admin_password():
-    output, _ = cxc_toolkit.exec.run_command(
-        "npm start",
-        stream_output=False,
-        kill_on_output="password for admin",
+    backend_process = cxc_toolkit.exec.run_background(
+        "npm start", log_path="/tmp/backend.log"
     )
 
-    # wait for the server to terminate
+    # NB: run_command + kill_on_output may wait indefinitely, use run_background + hard limit instead
     time.sleep(10)
 
-    # print the line that contains "password"
-    lines = output.splitlines()
-    admin_password = None
+    backend_process.terminate()
+
+    # read the log file
+    with open("/tmp/backend.log", "r") as f:
+        lines = f.readlines()
     for line in lines:
-        if "password" in line:
+        if "password for admin" in line:
             print(f"found password line: ---{line}---")
-            # Parse password from "password for admin is: bbb236b2"
-            if "password for admin is:" in line:
-                admin_password = line.split("password for admin is:")[1].strip()
-                print(f"Extracted admin password: {admin_password}")
-                break
+            admin_password = line.split("password for admin is:")[1].strip()
+            print(f"Extracted admin password: {admin_password}")
+            CONTEXT.ADMIN_PASSWORD = admin_password
+            return
 
-    print(f"password for admin: {admin_password}")
-
-    CONTEXT.ADMIN_PASSWORD = admin_password
+    if not CONTEXT.ADMIN_PASSWORD:
+        print("Error: No admin password found")
+        with open("/tmp/backend.log", "r") as f:
+            print(f.read())
+        exit(1)
 
 
 def init_client_config():
