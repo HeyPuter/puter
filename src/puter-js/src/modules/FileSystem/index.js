@@ -27,6 +27,8 @@ import FSItem from '../FSItem.js';
 import deleteFSEntry from './operations/deleteFSEntry.js';
 import getReadURL from './operations/getReadUrl.js';
 
+// client-replica
+import replica from "./replica/manager.js";
 
 export class PuterJSFileSystemModule extends AdvancedBase {
 
@@ -46,6 +48,9 @@ export class PuterJSFileSystemModule extends AdvancedBase {
     getReadURL = getReadURL;
     readdir = readdir;
     stat = stat;
+
+    // client-replica
+    replica = replica;
 
     FSItem = FSItem;
 
@@ -78,6 +83,16 @@ export class PuterJSFileSystemModule extends AdvancedBase {
         this.cacheUpdateTimer = null;
         // Connect socket.
         this.initializeSocket();
+
+        // Initialize replica manager
+        replica.initialize({
+            authToken: this.authToken,
+            APIOrigin: this.APIOrigin,
+            appID: this.appID,
+            username: context.username
+        }).catch(error => {
+            console.error('Failed to initialize replica manager:', error);
+        });
 
         // We need to use `Object.defineProperty` instead of passing
         // `authToken` and `APIOrigin` because they will change.
@@ -221,6 +236,13 @@ export class PuterJSFileSystemModule extends AdvancedBase {
 
         // reset socket
         this.initializeSocket();
+        // reinitialize replica manager
+        replica.initialize({
+            authToken: this.authToken,
+            APIOrigin: this.APIOrigin,
+            appID: this.appID,
+            username: this.context.username
+        });
     }
 
     /**
@@ -234,6 +256,13 @@ export class PuterJSFileSystemModule extends AdvancedBase {
         this.APIOrigin = APIOrigin;
         // reset socket
         this.initializeSocket();
+        // reinitialize replica manager
+        replica.initialize({
+            authToken: this.authToken,
+            APIOrigin: this.APIOrigin,
+            appID: this.appID,
+            username: this.context.username
+        });
     }
 
     /**

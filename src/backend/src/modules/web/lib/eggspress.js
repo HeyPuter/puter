@@ -187,9 +187,6 @@ module.exports = function eggspress (route, settings, handler) {
         return next();
       }
     }
-    if ( config.env === 'dev' && process.env.DEBUG ) {
-      console.log(`request url: ${req.url}, body: ${JSON.stringify(req.body)}`);
-    }
     try {
       const expected_ctx = res.locals.ctx;
       const received_ctx = Context.get(undefined, { allow_fallback: true });

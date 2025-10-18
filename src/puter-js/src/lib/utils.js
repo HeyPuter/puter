@@ -611,10 +611,6 @@ function arrayBufferToDataUri(arrayBuffer) {
     });
 }
 
-export {parseResponse, uuidv4, handle_resp, handle_error, initXhr, setupXhrEventHandlers, driverCall,
-    TeePromise,
-    make_driver_method,
-    blob_to_url,
-    arrayBufferToDataUri,
-    blobToDataUri,
+export {
+    arrayBufferToDataUri, blob_to_url, blobToDataUri, driverCall, handle_error, handle_resp, initXhr, make_driver_method, parseResponse, setupXhrEventHandlers, TeePromise, uuidv4
 };
