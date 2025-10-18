@@ -54,10 +54,6 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 5
 
-    defaults:
-      run:
-        working-directory: ./tests/playwright
-
     strategy:
       matrix:
         node-version: [22.x]
@@ -76,15 +72,17 @@ jobs:
 
       - name: Install Playwright Browsers
         run: npx playwright install --with-deps
+        working-directory: ./tests/playwright
 
       - name: Run Playwright tests
         run: npx playwright test
+        working-directory: ./tests/playwright
 
       - uses: actions/upload-artifact@v4
         if: ${{ !cancelled() }}
         with:
           name: playwright-report
-          path: playwright-report/
+          path: tests/playwright/playwright-report/
           retention-days: 30
 
   playwright-test:
