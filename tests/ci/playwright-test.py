@@ -88,6 +88,13 @@ def get_admin_password():
         exit(1)
 
 
+def init_server_config():
+    server_process = cxc_toolkit.exec.run_background("npm start")
+    # wait 10s for the server to start
+    time.sleep(10)
+    server_process.terminate()
+
+
 def init_client_config():
     # Load the example config
     example_config_path = f"{os.getcwd()}/tests/example-client-config.yaml"
@@ -126,6 +133,7 @@ def run():
     # config server
     # =========================================================================
     cxc_toolkit.exec.run_command("npm install")
+    init_server_config()
     get_admin_password()
 
     # =========================================================================
