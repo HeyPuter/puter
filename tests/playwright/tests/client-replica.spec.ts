@@ -30,8 +30,10 @@ async function bootstrap(page: import('@playwright/test').Page) {
 }
 
 test('multi-session: mkdir in A, then readdir in B', async ({ browser }) => {
-    const pageA = await browser.newPage();
-    const pageB = await browser.newPage();
+    const ctxA = await browser.newContext();
+    const ctxB = await browser.newContext();
+    const pageA = await ctxA.newPage();
+    const pageB = await ctxB.newPage();
     await Promise.all([bootstrap(pageA), bootstrap(pageB)]);
 
     // Paths
@@ -51,10 +53,10 @@ test('multi-session: mkdir in A, then readdir in B', async ({ browser }) => {
     // --- Session B: observe AFTER mkdir ---
     const entries = await pageB.evaluate(async ({ testPath }) => {
         const puter = (window as any).puter;
-        return await puter.fs.readdir(testPath, { consistency: 'eventual' });
+        return await puter.fs.readdir(testPath);
     }, { testPath });
 
     expect(entries.some((e: any) => e.name === dirName)).toBe(true);
 
-    await Promise.all([pageA.close(), pageB.close()]);
+    await Promise.all([ctxA.close(), ctxB.close()]);
 });
