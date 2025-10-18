@@ -84,16 +84,6 @@ export class PuterJSFileSystemModule extends AdvancedBase {
         // Connect socket.
         this.initializeSocket();
 
-        // Initialize replica manager
-        replica.initialize({
-            authToken: this.authToken,
-            APIOrigin: this.APIOrigin,
-            appID: this.appID,
-            username: context.username
-        }).catch(error => {
-            console.error('Failed to initialize replica manager:', error);
-        });
-
         // We need to use `Object.defineProperty` instead of passing
         // `authToken` and `APIOrigin` because they will change.
         const api_info = {};
@@ -236,12 +226,12 @@ export class PuterJSFileSystemModule extends AdvancedBase {
 
         // reset socket
         this.initializeSocket();
-        // reinitialize replica manager
+
+        // initialize replica manager
         replica.initialize({
             authToken: this.authToken,
             APIOrigin: this.APIOrigin,
-            appID: this.appID,
-            username: this.context.username
+            username: this.context.username,
         });
     }
 
@@ -256,13 +246,6 @@ export class PuterJSFileSystemModule extends AdvancedBase {
         this.APIOrigin = APIOrigin;
         // reset socket
         this.initializeSocket();
-        // reinitialize replica manager
-        replica.initialize({
-            authToken: this.authToken,
-            APIOrigin: this.APIOrigin,
-            appID: this.appID,
-            username: this.context.username
-        });
     }
 
     /**

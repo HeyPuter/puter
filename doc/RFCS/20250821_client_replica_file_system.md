@@ -316,9 +316,15 @@ TODO
 - `puter.fs.replica.debug` - toggle debug widget and logs, may be merged with `puter.debugMode` in the future
 - `puter.fs.replica.fs_tree` - the in-memory FS Tree, should only be used by internal code
 
-### Websocket Lifecycle & Events
+### Client-Replica Lifecycle
 
-TODO
+1. Fetch the replica from server on `puter.setAuthToken`, establish a websocket connection if it's missing.
+2. On websocket connected, start the pull diff process.
+3. On websocket disconnected, stop the pull diff process.
+
+**Race Condition**:
+
+- `fetch replica` and `pull diff` is protected by a lock.
 
 ### Code Location
 
