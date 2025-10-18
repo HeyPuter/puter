@@ -34,37 +34,6 @@ import item_icon from '../helpers/item_icon.js';
 
 const el_body = document.getElementsByTagName('body')[0];
 
-// Function to get snap dimensions and positions based on taskbar position
-function getSnapDimensions() {
-    const taskbar_position = window.taskbar_position || 'bottom';
-    
-    let available_width, available_height, start_x, start_y;
-    
-    if (taskbar_position === 'left') {
-        available_width = window.innerWidth - window.taskbar_height;
-        available_height = window.innerHeight - window.toolbar_height;
-        start_x = window.taskbar_height;
-        start_y = window.toolbar_height;
-    } else if (taskbar_position === 'right') {
-        available_width = window.innerWidth - window.taskbar_height;
-        available_height = window.innerHeight - window.toolbar_height;
-        start_x = 0;
-        start_y = window.toolbar_height;
-    } else { // bottom (default)
-        available_width = window.innerWidth;
-        available_height = window.innerHeight - window.toolbar_height - window.taskbar_height;
-        start_x = 0;
-        start_y = window.toolbar_height;
-    }
-    
-    return {
-        available_width,
-        available_height,
-        start_x,
-        start_y
-    };
-}
-
 async function UIWindow(options) {
     const win_id = window.global_element_id++;
     window.last_window_zindex++;
@@ -77,7 +46,7 @@ async function UIWindow(options) {
         options.dominant = true;
  
     // we don't want to increment window_counter for dominant windows
-    if(!options.dominant)
+    if(!options.dominant && !options.is_panel)
         window.window_counter++;
 
     // add this window's id to the window_stack
@@ -162,16 +131,18 @@ async function UIWindow(options) {
     }
 
     // left
+    let desktop_width = window.innerWidth - ( is_panel_open() ? PANEL_WIDTH : 0);
     if(!options.dominant && !options.center){
-        options.left = options.left ?? ((window.innerWidth/2 - options.width/2) +(window.window_counter-1) % 10 * 30) + 'px';
+        options.left = options.left ?? ((desktop_width/2 - options.width/2) +(window.window_counter-1) % 10 * 30) + 'px';
     }else if(!options.dominant && options.center){
-        options.left = options.left ?? ((window.innerWidth/2 - options.width/2)) + 'px';
+        options.left = options.left ?? ((desktop_width/2 - options.width/2)) + 'px';
     }
     else if(options.dominant){
-        options.left = (window.innerWidth/2 - options.width/2) + 'px';
+        options.left = (desktop_width/2 - options.width/2) + 'px';
     }   
-    else
-        options.left = options.left ?? ((window.innerWidth/2 - options.width/2) + 'px');
+    else{
+        options.left = options.left ?? ((desktop_width/2 - options.width/2) + 'px');
+    }
  
     // top
     if(!options.dominant && !options.center){
@@ -224,7 +195,7 @@ async function UIWindow(options) {
     // Panel
     // --------------------------------------------------------
     if(options.is_panel){
-        options.width = 400;
+        options.width = PANEL_WIDTH;
         options.has_head = false;
         options.show_in_taskbar = false;
         options.is_resizable = false;
@@ -3637,6 +3608,7 @@ $.fn.makeWindowVisible = function(options){
             if($(this).attr('data-is_panel') === '1'){
                 $('.toolbar').css('left', `calc(50% - 200px)`);
 
+                $('.window[data-is_panel="0"]').css('transform', `translateX(-${window.PANEL_WIDTH/2}px)`);
                 // update taskbar position
                 update_taskbar_position(window.taskbar_position);
             }
@@ -3655,6 +3627,7 @@ $.fn.makeWindowInvisible = async function(options) {
             if($(this).attr('data-is_panel') === '1'){
                 $('.toolbar').css('left', `calc(50%)`);
 
+                $('.window[data-is_panel="0"]').css('transform', `translateX(0px)`);
                 // update taskbar position
                 update_taskbar_position(window.taskbar_position);
             }
@@ -4001,8 +3974,8 @@ window.update_maximized_window_for_taskbar = function(el_window) {
         let width = '100%';
 
         // any open panels?
-        if($('.window[data-is_panel="1"][data-is_visible="1"]').length > 0){
-            width = window.innerWidth - 400 - 2;
+        if(is_panel_open()){
+            width = window.innerWidth - PANEL_WIDTH - 2;
         }
 
         $(el_window).css({
@@ -4015,8 +3988,8 @@ window.update_maximized_window_for_taskbar = function(el_window) {
         let width = window.innerWidth - window.taskbar_height - 1;
 
         // any open panels?
-        if($('.window[data-is_panel="1"][data-is_visible="1"]').length > 0){
-            width = `calc(100% - ${window.taskbar_height + 1}px - 400px - 1px)`;
+        if(is_panel_open()){
+            width = `calc(100% - ${window.taskbar_height + 1}px - ${PANEL_WIDTH}px - 1px)`;
         }
 
         $(el_window).css({
@@ -4035,5 +4008,44 @@ window.update_maximized_window_for_taskbar = function(el_window) {
     }
 };
 
+// Function to get snap dimensions and positions based on taskbar position
+function getSnapDimensions() {
+    const taskbar_position = window.taskbar_position || 'bottom';
+    
+    let available_width, available_height, start_x, start_y;
+    
+    if (taskbar_position === 'left') {
+        available_width = window.innerWidth - window.taskbar_height;
+        available_height = window.innerHeight - window.toolbar_height;
+        start_x = window.taskbar_height;
+        start_y = window.toolbar_height;
+    } else if (taskbar_position === 'right') {
+        available_width = window.innerWidth - window.taskbar_height;
+        available_height = window.innerHeight - window.toolbar_height;
+        start_x = 0;
+        start_y = window.toolbar_height;
+    } else { // bottom (default)
+        available_width = window.innerWidth;
+        available_height = window.innerHeight - window.toolbar_height - window.taskbar_height;
+        start_x = 0;
+        start_y = window.toolbar_height;
+    }
+    
+    // Adjust for open panel
+    if (is_panel_open()) {
+        available_width = available_width - PANEL_WIDTH;
+    }
+    
+    return {
+        available_width,
+        available_height,
+        start_x,
+        start_y
+    };
+}
+
+window.is_panel_open = function(){
+    return $('.window[data-is_panel="1"][data-is_visible="1"]').length > 0;
+}
 
 export default UIWindow;
