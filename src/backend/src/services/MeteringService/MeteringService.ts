@@ -125,7 +125,7 @@ export class MeteringAndBillingService {
                 const actorSubscriptionPromise = this.getActorSubscription(actor);
                 const actorAddonsPromise = this.getActorAddons(actor);
                 const [actorUsages, actorSubscription, actorAddons] =  (await Promise.all([actorUsagesPromise, actorSubscriptionPromise, actorAddonsPromise]));
-                if ( actorUsages.total > actorSubscription.monthUsageAllowance && actorAddons.purchasedCredits ) {
+                if ( actorUsages.total > actorSubscription.monthUsageAllowance && actorAddons.purchasedCredits && actorAddons.purchasedCredits > (actorAddons.consumedPurchaseCredits || 0) ) {
                     // if we are now over the allowance, start consuming purchased credits
                     const withinBoundsUsage = Math.max(0, actorSubscription.monthUsageAllowance - actorUsages.total + totalCost);
                     const overageUsage = totalCost - withinBoundsUsage;
@@ -138,6 +138,16 @@ export class MeteringAndBillingService {
                             },
                         });
                     }
+                }
+                if ( actorUsages.total > (actorSubscription.monthUsageAllowance) * 2 && (actorAddons.purchasedCredits || 0) <= (actorAddons.consumedPurchaseCredits || 0) ) {
+                    this.#alarmService.create('metering-service-usage-limit-exceeded', `Actor ${actorId} has exceeded their usage allowance significantly`, {
+                        actor,
+                        usageType,
+                        usageAmount,
+                        costOverride,
+                        totalUsage: actorUsages.total,
+                        monthUsageAllowance: actorSubscription.monthUsageAllowance,
+                    });
                 }
                 return actorUsages;
             });

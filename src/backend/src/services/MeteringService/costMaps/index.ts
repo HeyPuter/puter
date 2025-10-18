@@ -2,6 +2,7 @@ import { AWS_POLLY_COST_MAP } from "./awsPollyCostMap";
 import { AWS_TEXTRACT_COST_MAP } from "./awsTextractCostMap";
 import { CLAUDE_COST_MAP } from "./claudeCostMap";
 import { DEEPSEEK_COST_MAP } from "./deepSeekCostMap";
+import { FILE_SYSTEM_COST_MAP } from "./fileSystemCostMap";
 import { GEMINI_COST_MAP } from "./geminiCostMap";
 import { GROQ_COST_MAP } from "./groqCostMap";
 import { KV_COST_MAP } from "./kvCostMap";
@@ -26,4 +27,5 @@ export const COST_MAPS = {
     ...OPENROUTER_COST_MAP,
     ...TOGETHER_COST_MAP,
     ...XAI_COST_MAP,
+    ...FILE_SYSTEM_COST_MAP,
 };
