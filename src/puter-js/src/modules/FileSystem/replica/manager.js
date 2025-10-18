@@ -23,7 +23,6 @@ import FSTree from './tree.js';
 class ReplicaManager {
     constructor() {
         this.socket = null;
-        this.isInitialized = false;
         this.username = null;
         this.pullDiffInterval = null;
 
@@ -35,13 +34,9 @@ class ReplicaManager {
     }
 
     /**
-     * Initialize the replica manager with context
+     * Initialize the replica manager for the current user.
      */
     async initialize(context) {
-        if ( this.isInitialized ) {
-            return;
-        }
-
         this.authToken = context.authToken;
         this.APIOrigin = context.APIOrigin;
         this.appID = context.appID;
@@ -53,8 +48,6 @@ class ReplicaManager {
             this.username = context.username;
         }
 
-        this.isInitialized = true;
-
         this.connect();
     }
 
@@ -63,7 +56,7 @@ class ReplicaManager {
      */
     async fetchUsername() {
         try {
-            const resp = await fetch(this.APIOrigin + '/whoami', {
+            const resp = await fetch(`${this.APIOrigin}/whoami`, {
                 headers: {
                     Authorization: `Bearer ${this.authToken}`,
                 },
@@ -96,10 +89,7 @@ class ReplicaManager {
      */
     bindEvents() {
         this.socket.on('connect', () => {
-            // init
-            this.fetchUserRoot();
-
-            // background cron job
+            this.fetchReplica();
             this.startPullDiff();
         });
 
@@ -108,23 +98,12 @@ class ReplicaManager {
         });
 
         this.socket.on('reconnect', (_attempt) => {
-            // Refetch user's root path on reconnection
-            this.fetchUserRoot();
-
-            // Restart pull diff on reconnection
+            this.fetchReplica();
             this.startPullDiff();
         });
 
-        this.socket.on('reconnect_attempt', (_attempt) => {
-        });
-
-        this.socket.on('reconnect_error', (error) => {
-        });
-
-        this.socket.on('reconnect_failed', () => {
-        });
-
         this.socket.on('error', (error) => {
+            this.cleanup(`error: ${error}`);
         });
 
         this.socket.on('replica/fetch/success', (data) => {
@@ -132,7 +111,7 @@ class ReplicaManager {
         });
 
         this.socket.on('replica/fetch/error', (data) => {
-            this.handleFetchReplicaError(data);
+            this.cleanup(`failed to fetch replica: ${data.error.message}`);
         });
 
         this.socket.on('replica/pull_diff/success', (data) => {
@@ -140,16 +119,16 @@ class ReplicaManager {
         });
 
         this.socket.on('replica/pull_diff/error', (data) => {
-            this.handlePullDiffError(data);
+            this.cleanup(`failed to pull diff: ${data.error.message}`);
         });
     }
 
     /**
-     * Fetch the user's root path
+     * Fetch the replica from server for the current user.
      */
-    fetchUserRoot() {
+    fetchReplica() {
         if ( !this.username ) {
-            console.warn('Replica Manager: No username available for fetching root');
+            console.warn('Replica Manager: No username available for fetching replica');
             return;
         }
 
@@ -157,7 +136,9 @@ class ReplicaManager {
 
         this.socket.emit('replica/fetch', {
             path: userRootPath,
-            requestId: 'user_root', // Special request ID for user root
+
+            // TODO (xiaochen): remove this
+            requestId: 'user_root',
         });
     }
 
@@ -170,10 +151,6 @@ class ReplicaManager {
         this.available = true;
 
         console.log('client-replica initialized for user:', this.username);
-    }
-
-    handleFetchReplicaError(data) {
-        this.cleanup('failed to fetch replica: ' + data.message);
     }
 
     handlePullDiffSuccess(data) {
@@ -263,10 +240,6 @@ class ReplicaManager {
                 pull_request: nextPullRequest,
             });
         }
-    }
-
-    handlePullDiffError(data) {
-        this.cleanup('failed to pull diff: ' + data.message);
     }
 
     /**
@@ -363,7 +336,7 @@ class ReplicaManager {
                 this.socket.emit('replica/pull_diff', pullRequest);
             }
         } catch( error ) {
-            this.cleanup('error in pullDiff: ' + error.message);
+            this.cleanup(`error in pullDiff: ${error.message}`);
         }
     }
 
@@ -393,7 +366,7 @@ class ReplicaManager {
         this.debug = enabled;
 
         // Update widget visibility if the function exists (in GUI environment)
-        if (typeof window !== 'undefined' && window.updateReplicaWidgetVisibility) {
+        if ( typeof window !== 'undefined' && window.updateReplicaWidgetVisibility ) {
             window.updateReplicaWidgetVisibility();
         }
     }
