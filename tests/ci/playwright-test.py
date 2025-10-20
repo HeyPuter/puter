@@ -21,6 +21,9 @@ import yaml
 import cxc_toolkit
 
 
+PUTER_ROOT = os.getcwd()
+
+
 class Context:
     def __init__(self):
         self.ADMIN_PASSWORD = None
@@ -88,36 +91,72 @@ def get_admin_password():
         exit(1)
 
 
-def init_server_config():
+def init_backend_config():
+    # init config.json
     server_process = cxc_toolkit.exec.run_background("npm start")
     # wait 10s for the server to start
     time.sleep(10)
     server_process.terminate()
 
+    example_config_path = f"{PUTER_ROOT}/volatile/config/config.json"
+    config_path = f"{PUTER_ROOT}/volatile/config/config.json"
 
-def init_client_config():
-    # Load the example config
-    example_config_path = f"{os.getcwd()}/tests/example-client-config.yaml"
-    config_path = f"{os.getcwd()}/tests/client-config.yaml"
+    # load
+    with open(example_config_path, "r") as f:
+        config = json.load(f)
 
+    # update
+    config["client-replica"] = {
+        "enabled": True,
+        "fs_tree_manager_url": "localhost:50052",
+    }
+
+    # write
+    with open(config_path, "w") as f:
+        json.dump(config, f, indent=2)
+
+
+def init_fs_tree_manager_config():
+    example_config_path = f"{PUTER_ROOT}/src/fs_tree_manager/example-config.yaml"
+    config_path = f"{PUTER_ROOT}/src/fs_tree_manager/config.yaml"
+
+    # load
     with open(example_config_path, "r") as f:
         config = yaml.safe_load(f)
 
-    # Update the token
+    # update
+    config["database"]["driver"] = "sqlite3"
+    config["database"]["sqlite3"][
+        "path"
+    ] = f"{PUTER_ROOT}/volatile/runtime/puter-database.sqlite"
+
+    # write
+    with open(config_path, "w") as f:
+        yaml.dump(config, f, default_flow_style=False, indent=2)
+
+
+def init_client_config():
+    example_config_path = f"{os.getcwd()}/tests/example-client-config.yaml"
+    config_path = f"{os.getcwd()}/tests/client-config.yaml"
+
+    # load
+    with open(example_config_path, "r") as f:
+        config = yaml.safe_load(f)
+
     if not CONTEXT.TOKEN:
         print("Warning: No token available in CONTEXT")
         exit(1)
 
+    # update
     config["auth_token"] = CONTEXT.TOKEN
 
-    # Write the updated config
+    # write
     with open(config_path, "w") as f:
         yaml.dump(config, f, default_flow_style=False, indent=2)
 
 
 def run():
-    WORK_DIR = "."
-    os.chdir(WORK_DIR)
+    os.chdir(PUTER_ROOT)
 
     # =========================================================================
     # clean ports
@@ -133,14 +172,14 @@ def run():
     # config server
     # =========================================================================
     cxc_toolkit.exec.run_command("npm install")
-    init_server_config()
+    init_backend_config()
     get_admin_password()
 
     # =========================================================================
     # start backend server
     # =========================================================================
     cxc_toolkit.exec.run_background(
-        "npm start", work_dir=WORK_DIR, log_path="/tmp/backend.log"
+        "npm start", work_dir=PUTER_ROOT, log_path="/tmp/backend.log"
     )
     # wait 10s for the server to start
     time.sleep(10)
@@ -156,7 +195,7 @@ def run():
     # =========================================================================
     cxc_toolkit.exec.run_background(
         "go run server.go",
-        work_dir=f"{WORK_DIR}/src/fs_tree_manager",
+        work_dir=f"{PUTER_ROOT}/src/fs_tree_manager",
         log_path="/tmp/fs-tree-manager.log",
     )
     time.sleep(10)
@@ -166,17 +205,17 @@ def run():
     # =========================================================================
     cxc_toolkit.exec.run_command(
         "npm install",
-        work_dir=f"{WORK_DIR}/tests/playwright",
+        work_dir=f"{PUTER_ROOT}/tests/playwright",
     )
 
     cxc_toolkit.exec.run_command(
         "npx playwright install --with-deps",
-        work_dir=f"{WORK_DIR}/tests/playwright",
+        work_dir=f"{PUTER_ROOT}/tests/playwright",
     )
 
     cxc_toolkit.exec.run_command(
         "npx playwright test --reporter=line",
-        work_dir=f"{WORK_DIR}/tests/playwright",
+        work_dir=f"{PUTER_ROOT}/tests/playwright",
     )
 
 
