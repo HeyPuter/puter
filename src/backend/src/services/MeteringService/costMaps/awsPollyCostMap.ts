@@ -11,14 +11,14 @@
 
 export const AWS_POLLY_COST_MAP = {
     // Standard engine: $4.00 per 1M characters (400 microcents per character)
-    'aws-polly:standard:character': 400,
+    "aws-polly:standard:character": 400,
 
     // Neural engine: $16.00 per 1M characters (1600 microcents per character)
-    'aws-polly:neural:character': 1600,
+    "aws-polly:neural:character": 1600,
 
     // Long-form engine: $100.00 per 1M characters (10000 microcents per character)
-    'aws-polly:long-form:character': 10000,
+    "aws-polly:long-form:character": 10000,
 
     // Generative engine: $30.00 per 1M characters (3000 microcents per character)
-    'aws-polly:generative:character': 3000,
+    "aws-polly:generative:character": 3000,
 };
