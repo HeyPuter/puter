@@ -139,6 +139,7 @@ export class MeteringAndBillingService {
                         });
                     }
                 }
+                // alert if significantly over allowance and no purchased credits left
                 if ( actorUsages.total > (actorSubscription.monthUsageAllowance) * 2 && (actorAddons.purchasedCredits || 0) <= (actorAddons.consumedPurchaseCredits || 0) ) {
                     this.#alarmService.create('metering-service-usage-limit-exceeded', `Actor ${actorId} has exceeded their usage allowance significantly`, {
                         actor,
