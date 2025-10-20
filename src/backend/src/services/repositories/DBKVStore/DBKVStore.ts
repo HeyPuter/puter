@@ -1,11 +1,11 @@
-import murmurhash from "murmurhash";
+import murmurhash from 'murmurhash';
 // eslint-disable-next-line @typescript-eslint/ban-ts-comment
 // @ts-ignore
 import APIError from '../../../api/APIError.js';
 // eslint-disable-next-line @typescript-eslint/ban-ts-comment
 // @ts-ignore
-import { Context } from "../../../util/context.js";
-import type { MeteringAndBillingService } from "../../MeteringService/MeteringService.js";
+import { Context } from '../../../util/context.js';
+import type { MeteringAndBillingService } from '../../MeteringService/MeteringService.js';
 
 const GLOBAL_APP_KEY = 'global';
 
@@ -258,13 +258,16 @@ export class DBKVStore {
         return await this.#expireat(key, timestamp);
     }
 
-    async incr<T extends Record<string, number>>({ key, pathAndAmountMap }: { key: string, pathAndAmountMap: T }): Promise<T extends { "": number } ? number : Record<string, number>> {
+    async incr<T extends Record<string, number>>({ key, pathAndAmountMap }: { key: string, pathAndAmountMap: T }): Promise<T extends { '': number } ? number : Record<string, number>> {
+        if ( Object.values(pathAndAmountMap).find((v) => typeof v !== 'number') ) {
+            throw new Error('All values in pathAndAmountMap must be numbers');
+        }
         let currVal = await this.get({ key });
         const pathEntries = Object.entries(pathAndAmountMap);
         if ( typeof currVal !== 'object' && pathEntries.length <= 1 && !pathEntries[0]?.[0] ) {
             const amount = pathEntries[0]?.[1] ?? 1;
             this.set({ key, value: (Number(currVal) || 0) + amount });
-            return ((Number(currVal) || 0) + amount) as T extends { "": number } ? number : Record<string, number>;
+            return ((Number(currVal) || 0) + amount) as T extends { '': number } ? number : Record<string, number>;
         }
         // TODO DS: support arrays this also needs dynamodb implementation
         if ( Array.isArray(currVal) ) {
@@ -302,7 +305,7 @@ export class DBKVStore {
             obj[lastPart] += amount;
         }
         this.set({ key, value: currVal });
-        return currVal as T extends { "": number } ? number : Record<string, number>;
+        return currVal as T extends { '': number } ? number : Record<string, number>;
     }
 
     async decr(...params: Parameters<typeof DBKVStore.prototype.incr>): ReturnType<typeof DBKVStore.prototype.incr> {

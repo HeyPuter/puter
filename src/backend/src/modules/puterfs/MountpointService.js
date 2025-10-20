@@ -17,15 +17,13 @@
  * You should have received a copy of the GNU Affero General Public License
  * along with this program.  If not, see <https://www.gnu.org/licenses/>.
  */
-// const Mountpoint = o => ({ ...o });
-
-const { RootNodeSelector, NodeUIDSelector, NodeChildSelector, NodePathSelector, NodeInternalIDSelector, NodeSelector, try_infer_attributes } = require("../../filesystem/node/selectors");
+const { RootNodeSelector, NodeUIDSelector, NodeChildSelector, NodePathSelector, try_infer_attributes } = require("../../filesystem/node/selectors");
 const BaseService = require("../../services/BaseService");
 
 /**
  * This will eventually be a service which manages the storage
  * backends for mountpoints.
- * 
+ *
  * For the moment, this is a way to access the storage backend
  * in situations where ContextInitService isn't able to
  * initialize a context.
@@ -40,29 +38,16 @@ const BaseService = require("../../services/BaseService");
 * and their associated storage backends in future implementations.
 */
 class MountpointService extends BaseService {
-    _construct () {
-        this.mounters_ = {};
-        this.mountpoints_ = {};
+
+    #storage = {};
+    #mounters = {};
+    #mountpoints = {};
+
+    register_mounter(name, mounter) {
+        this.#mounters[name] = mounter;
     }
 
-    register_mounter (name, mounter) {
-        this.mounters_[name] = mounter;
-    }
-
-    /**
-    * Initializes the MountpointService instance
-    * Sets up initial state with null storage backend
-    * @private
-    * @async
-    * @returns {Promise<void>}
-    */
-    async _init () {
-        // key: name of provider class (e.g: "PuterFSProvider", "MemoryFSProvider")
-        // value: storage instance
-        this.storage_ = {};
-    }
-
-    async ['__on_boot.consolidation'] () {
+    async ['__on_boot.consolidation']() {
         const mountpoints = this.config.mountpoints ?? {
             '/': {
                 mounter: 'puterfs',
@@ -72,38 +57,38 @@ class MountpointService extends BaseService {
         for ( const path of Object.keys(mountpoints) ) {
             const { mounter: mounter_name, options } =
                 mountpoints[path];
-            const mounter = this.mounters_[mounter_name];
+            const mounter = this.#mounters[mounter_name];
             const provider = await mounter.mount({
                 path,
-                options
+                options,
             });
-            this.mountpoints_[path] = {
+            this.#mountpoints[path] = {
                 provider,
             };
         }
 
         this.services.emit('filesystem.ready', {
-            mountpoints: Object.keys(this.mountpoints_),
+            mountpoints: Object.keys(this.#mountpoints),
         });
     }
-    
-    async get_provider (selector) {
+
+    async get_provider(selector) {
         // If there is only one provider, we don't need to do any of this,
         // and that's a big deal because the current implementation requires
         // fetching a filesystem entry before we even have operation-level
         // transient memoization instantiated.
-        if ( Object.keys(this.mountpoints_).length === 1 ) {
-            return Object.values(this.mountpoints_)[0].provider;
+        if ( Object.keys(this.#mountpoints).length === 1 ) {
+            return Object.values(this.#mountpoints)[0].provider;
         }
-        
+
         try_infer_attributes(selector);
 
         if ( selector instanceof RootNodeSelector ) {
-            return this.mountpoints_['/'].provider;
+            return this.#mountpoints['/'].provider;
         }
 
         if ( selector instanceof NodeUIDSelector ) {
-            for ( const [path, { provider }] of Object.entries(this.mountpoints_) ) {
+            for ( const { provider } of Object.values(this.#mountpoints) ) {
                 const result = await provider.quick_check({
                     selector,
                 });
@@ -128,7 +113,7 @@ class MountpointService extends BaseService {
         selector.setPropertiesKnownBySelector(probe);
         if ( probe.path ) {
             let longest_mount_path = '';
-            for ( const path of Object.keys(this.mountpoints_) ) {
+            for ( const path of Object.keys(this.#mountpoints) ) {
                 if ( ! probe.path.startsWith(path) ) {
                     continue;
                 }
@@ -138,25 +123,25 @@ class MountpointService extends BaseService {
             }
 
             if ( longest_mount_path ) {
-                return this.mountpoints_[longest_mount_path].provider;
+                return this.#mountpoints[longest_mount_path].provider;
             }
         }
 
         // Use root mountpoint as fallback
-        return this.mountpoints_['/'].provider;
+        return this.#mountpoints['/'].provider;
     }
-    
+
     // Temporary solution - we'll develop this incrementally
-    set_storage (provider, storage) {
-        this.storage_[provider] = storage;
+    set_storage(provider, storage) {
+        this.#storage[provider] = storage;
     }
 
     /**
     * Gets the current storage backend instance
     * @returns {Object} The storage backend instance
     */
-    get_storage (provider) {
-        const storage = this.storage_[provider];
+    get_storage(provider) {
+        const storage = this.#storage[provider];
         if ( ! storage ) {
             throw new Error(`MountpointService.get_storage: storage for provider "${provider}" not found`);
         }
