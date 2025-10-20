@@ -1,18 +1,18 @@
 /*
  * Copyright (C) 2024-present Puter Technologies Inc.
- *
+ * 
  * This file is part of Puter.
- *
+ * 
  * Puter is free software: you can redistribute it and/or modify
  * it under the terms of the GNU Affero General Public License as published
  * by the Free Software Foundation, either version 3 of the License, or
  * (at your option) any later version.
- *
+ * 
  * This program is distributed in the hope that it will be useful,
  * but WITHOUT ANY WARRANTY; without even the implied warranty of
  * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
  * GNU Affero General Public License for more details.
- *
+ * 
  * You should have received a copy of the GNU Affero General Public License
  * along with this program.  If not, see <https://www.gnu.org/licenses/>.
  */
@@ -20,48 +20,43 @@
 const putility = require('@heyputer/putility');
 const { MultiDetachable } = putility.libs.listener;
 const { TDetachable } = putility.traits;
-const { NodeInternalIDSelector, NodeChildSelector, NodeUIDSelector } = require('../../../filesystem/node/selectors');
-const { Context } = require('../../../util/context');
+const { TeePromise } = putility.libs.promise;
+
+const { NodeInternalIDSelector, NodeChildSelector, NodeUIDSelector, RootNodeSelector, NodePathSelector, NodeSelector } = require("../../../filesystem/node/selectors");
+const { Context } = require("../../../util/context");
 const fsCapabilities = require('../../../filesystem/definitions/capabilities');
 const { UploadProgressTracker } = require('../../../filesystem/storage/UploadProgressTracker');
 const FSNodeContext = require('../../../filesystem/FSNodeContext');
 const { RESOURCE_STATUS_PENDING_CREATE } = require('../ResourceService');
 const { ParallelTasks } = require('../../../util/otelutil');
+
 const { TYPE_DIRECTORY } = require('../../../filesystem/FSNodeContext');
 const APIError = require('../../../api/APIError');
 const { MODE_WRITE } = require('../../../services/fs/FSLockService');
 const { DB_WRITE } = require('../../../services/database/consts');
 const { stuck_detector_stream, hashing_stream } = require('../../../util/streamutil');
+
 const crypto = require('crypto');
 const { OperationFrame } = require('../../../services/OperationTraceService');
-const path = require('path');
-const uuidv4 = require('uuid').v4;
-const config = require('../../../config.js');
-const { Actor } = require('../../../services/auth/Actor.js');
-const { UserActorType } = require('../../../services/auth/Actor.js');
-const { get_user } = require('../../../helpers.js');
 
 const STUCK_STATUS_TIMEOUT = 10 * 1000;
 const STUCK_ALARM_TIMEOUT = 20 * 1000;
 
 class PuterFSProvider extends putility.AdvancedBase {
+    static MODULES = {
+        _path: require('path'),
+        uuidv4: require('uuid').v4,
+        config: require('../../../config.js'),
+    };
 
-    get #services() { // we really should just pass services in constructor, global state is a bit messy
-        return Context.get('services');
-    }
-
-    /** @type {import('../../../services/MeteringService/MeteringService.js').MeteringAndBillingService} */
-    get #meteringService() {
-        return this.#services.get('meteringService').meteringAndBillingService;
-    }
-
-    constructor(...a) {
+    constructor (...a) {
         super(...a);
-        this.log_fsentriesNotFound = (config.logging ?? [])
+
+        this.log_fsentriesNotFound = (this.modules.config.logging ?? [])
             .includes('fsentries-not-found');
     }
 
-    get_capabilities() {
+    get_capabilities () {
         return new Set([
             fsCapabilities.THUMBNAIL,
             fsCapabilities.UUID,
@@ -80,16 +75,16 @@ class PuterFSProvider extends putility.AdvancedBase {
 
     /**
      * Check if a given node exists.
-     *
+     * 
      * @param {Object} param
      * @param {NodeSelector} param.selector - The selector used for checking.
      * @returns {Promise<boolean>} - True if the node exists, false otherwise.
      */
-    async quick_check({
+    async quick_check ({
         selector,
     }) {
         // a wrapper that access underlying database directly
-        const fsEntryFetcher = this.#services.get('fsEntryFetcher');
+        const fsEntryFetcher = Context.get('services').get('fsEntryFetcher');
 
         // shortcut: has full path
         if ( selector?.path ) {
@@ -105,14 +100,18 @@ class PuterFSProvider extends putility.AdvancedBase {
 
         // shortcut: parent uid + child name
         if ( selector instanceof NodeChildSelector && selector.parent instanceof NodeUIDSelector ) {
-            return await fsEntryFetcher.nameExistsUnderParent(selector.parent.uid,
-                            selector.name);
+            return await fsEntryFetcher.nameExistsUnderParent(
+                selector.parent.uid,
+                selector.name,
+            );
         }
 
         // shortcut: parent id + child name
         if ( selector instanceof NodeChildSelector && selector.parent instanceof NodeInternalIDSelector ) {
-            return await fsEntryFetcher.nameExistsUnderParentID(selector.parent.id,
-                            selector.name);
+            return await fsEntryFetcher.nameExistsUnderParentID(
+                selector.parent.id,
+                selector.name,
+            );
         }
 
         // TODO (xiaochen): we should fallback to stat but we cannot at this moment
@@ -120,7 +119,7 @@ class PuterFSProvider extends putility.AdvancedBase {
         return false;
     }
 
-    async stat({
+    async stat ({
         selector,
         options,
         controls,
@@ -135,7 +134,7 @@ class PuterFSProvider extends putility.AdvancedBase {
             fsEntryService,
             fsEntryFetcher,
             resourceService,
-        } = this.#services.values;
+        } = Context.get('services').values;
 
         if ( options.tracer == null ) {
             options.tracer = traceService.tracer;
@@ -152,10 +151,10 @@ class PuterFSProvider extends putility.AdvancedBase {
         await new Promise (rslv => {
             const detachables = new MultiDetachable();
 
-            const callback = (_resolver) => {
+            const callback = (resolver) => {
                 detachables.as(TDetachable).detach();
                 rslv();
-            };
+            }
 
             // either the resource is free
             {
@@ -163,7 +162,9 @@ class PuterFSProvider extends putility.AdvancedBase {
                 // Promise that will be resolved when the resource
                 // is free no matter what, and then it will be
                 // garbage collected.
-                resourceService.waitForResource(selector).then(callback.bind(null, 'resourceService'));
+                resourceService.waitForResource(
+                    selector
+                ).then(callback.bind(null, 'resourceService'));
             }
 
             // or pending information about the resource
@@ -175,7 +176,8 @@ class PuterFSProvider extends putility.AdvancedBase {
                 // is guaranteed to resolve eventually, and then this
                 // detachable will be detached by `callback` so the
                 // listener can be garbage collected.
-                const det = fsEntryService.waitForEntry(node, callback.bind(null, 'fsEntryService'));
+                const det = fsEntryService.waitForEntry(
+                    node, callback.bind(null, 'fsEntryService'));
                 if ( det ) detachables.add(det);
             }
         });
@@ -185,7 +187,8 @@ class PuterFSProvider extends putility.AdvancedBase {
             entry = await fsEntryService.get(maybe_uid, options);
             controls.log.debug('got an entry from the future');
         } else {
-            entry = await fsEntryFetcher.find(selector, options);
+            entry = await fsEntryFetcher.find(
+                selector, options);
         }
 
         if ( ! entry ) {
@@ -199,33 +202,38 @@ class PuterFSProvider extends putility.AdvancedBase {
         }
 
         if ( entry.id ) {
-            controls.provide_selector(new NodeInternalIDSelector('mysql', entry.id, {
-                source: 'FSNodeContext optimization',
-            }));
+            controls.provide_selector(
+                new NodeInternalIDSelector('mysql', entry.id, {
+                    source: 'FSNodeContext optimization'
+                })
+            );
         }
 
         return entry;
     }
 
-    async readdir({ node }) {
+    async readdir ({ context, node }) {
         const uuid = await node.get('uid');
-        const svc_fsentry = this.#services.get('fsEntryService');
+        const services = context.get('services');
+        const svc_fsentry = services.get('fsEntryService');
         const child_uuids = await svc_fsentry
             .fast_get_direct_descendants(uuid);
         return child_uuids;
     }
 
-    async move({ context, node, new_parent, new_name, metadata }) {
+    async move ({ context, node, new_parent, new_name, metadata }) {
+        const { _path } = this.modules;
 
+        const services = context.get('services');
         const old_path = await node.get('path');
-        const new_path = path.join(await new_parent.get('path'), new_name);
+        const new_path = _path.join(await new_parent.get('path'), new_name);
 
-        const svc_fsEntry = this.#services.get('fsEntryService');
+        const svc_fsEntry = services.get('fsEntryService');
         const op_update = await svc_fsEntry.update(node.uid, {
             ...(
                 await node.get('parent_uid') !== await new_parent.get('uid')
-                    ? { parent_uid: await new_parent.get('uid') }
-                    : {}
+                ? { parent_uid: await new_parent.get('uid') }
+                : {}
             ),
             path: new_path,
             name: new_name,
@@ -242,10 +250,10 @@ class PuterFSProvider extends putility.AdvancedBase {
 
         await op_update.awaitDone();
 
-        const svc_fs = this.#services.get('filesystem');
+        const svc_fs = services.get('filesystem');
         await svc_fs.update_child_paths(old_path, node.entry.path, user_id);
 
-        const svc_event = this.#services.get('event');
+        const svc_event = services.get('event');
 
         const promises = [];
         promises.push(svc_event.emit('fs.move.file', {
@@ -261,17 +269,22 @@ class PuterFSProvider extends putility.AdvancedBase {
         return node;
     }
 
-    async copy_tree({ context, source, parent, target_name }) {
-        return await this.#copy_tree({ context, source, parent, target_name });
+    async copy_tree ({ context, source, parent, target_name }) {
+        return await this.copy_tree_(
+            { context, source, parent, target_name });
     }
-    async #copy_tree({ context, source, parent, target_name }) {
+    async copy_tree_ ({ context, source, parent, target_name }) {
+        // Modules
+        const { _path, uuidv4 } = this.modules;
+
         // Services
-        const svc_event = this.#services.get('event');
-        const svc_trace = this.#services.get('traceService');
-        const svc_size = this.#services.get('sizeService');
-        const svc_resource = this.#services.get('resourceService');
-        const svc_fsEntry = this.#services.get('fsEntryService');
-        const svc_fs = this.#services.get('filesystem');
+        const services = context.get('services');
+        const svc_event = services.get('event');
+        const svc_trace = services.get('traceService');
+        const svc_size = services.get('sizeService');
+        const svc_resource = services.get('resourceService');
+        const svc_fsEntry = services.get('fsEntryService');
+        const svc_fs = services.get('filesystem');
 
         // Context
         const actor = Context.get('actor');
@@ -279,7 +292,7 @@ class PuterFSProvider extends putility.AdvancedBase {
 
         const tracer = svc_trace.tracer;
         const uuid = uuidv4();
-        const timestamp = Math.round(Date.now() / 1000);
+        const ts = Math.round(Date.now()/1000);
         await parent.fetchEntry();
         await source.fetchEntry({ thumbnail: true });
 
@@ -290,13 +303,13 @@ class PuterFSProvider extends putility.AdvancedBase {
             ...(source.entry.is_shortcut ? {
                 is_shortcut: source.entry.is_shortcut,
                 shortcut_to: source.entry.shortcut_to,
-            } : {}),
+            } :{}),
             parent_uid: parent.uid,
             name: target_name,
-            created: timestamp,
-            modified: timestamp,
+            created: ts,
+            modified: ts,
 
-            path: path.join(await parent.get('path'), target_name),
+            path: _path.join(await parent.get('path'), target_name),
 
             // if property exists but the value is undefined,
             // it will still be included in the INSERT, causing
@@ -310,7 +323,7 @@ class PuterFSProvider extends putility.AdvancedBase {
         svc_event.emit('fs.pending.file', {
             fsentry: FSNodeContext.sanitize_pending_entry_info(raw_fsentry),
             context: context,
-        });
+        })
 
         if ( await source.get('has-s3') ) {
             Object.assign(raw_fsentry, {
@@ -320,7 +333,7 @@ class PuterFSProvider extends putility.AdvancedBase {
                 bucket_region: source.entry.bucket_region,
             });
 
-            await tracer.startActiveSpan('fs:cp:storage-copy', async span => {
+            await tracer.startActiveSpan(`fs:cp:storage-copy`, async span => {
                 let progress_tracker = new UploadProgressTracker();
 
                 svc_event.emit('fs.storage.progress.copy', {
@@ -329,7 +342,7 @@ class PuterFSProvider extends putility.AdvancedBase {
                     meta: {
                         item_uid: uuid,
                         item_path: raw_fsentry.path,
-                    },
+                    }
                 });
 
                 // const storage = new PuterS3StorageStrategy({ services: svc });
@@ -363,19 +376,27 @@ class PuterFSProvider extends putility.AdvancedBase {
         let node;
 
         const tasks = new ParallelTasks({ tracer, max: 4 });
-        await context.arun('fs:cp:parallel-portion', async () => {
+        await context.arun(`fs:cp:parallel-portion`, async () => {
             // Add child copy tasks if this is a directory
             if ( source.entry.is_dir ) {
-                const children = await svc_fsEntry.fast_get_direct_descendants(source.uid);
+                const children = await svc_fsEntry.fast_get_direct_descendants(
+                    source.uid
+                );
                 for ( const child_uuid of children ) {
-                    tasks.add('fs:cp:copy-child', async () => {
-                        const child_node = await svc_fs.node(new NodeUIDSelector(child_uuid));
+                    tasks.add(`fs:cp:copy-child`, async () => {
+                        const child_node = await svc_fs.node(
+                            new NodeUIDSelector(child_uuid)
+                        );
                         const child_name = await child_node.get('name');
                         // TODO: this should be LLCopy instead
-                        await this.#copy_tree({
+                        await this.copy_tree_({
                             context,
-                            source: await svc_fs.node(new NodeUIDSelector(child_uuid)),
-                            parent: await svc_fs.node(new NodeUIDSelector(uuid)),
+                            source: await svc_fs.node(
+                                new NodeUIDSelector(child_uuid)
+                            ),
+                            parent: await svc_fs.node(
+                                new NodeUIDSelector(uuid)
+                            ),
                             target_name: child_name,
                         });
                     });
@@ -383,7 +404,7 @@ class PuterFSProvider extends putility.AdvancedBase {
             }
 
             // Add task to await entry
-            tasks.add('fs:cp:entry-op', async () => {
+            tasks.add(`fs:cp:entry-op`, async () => {
                 await entryOp.awaitDone();
                 svc_resource.free(uuid);
                 const copy_fsNode = await svc_fs.node(new NodeUIDSelector(uuid));
@@ -396,7 +417,7 @@ class PuterFSProvider extends putility.AdvancedBase {
                 svc_event.emit('fs.create.file', {
                     node,
                     context,
-                });
+                })
             }, { force: true });
 
             await tasks.awaitAll();
@@ -408,70 +429,66 @@ class PuterFSProvider extends putility.AdvancedBase {
         return node;
     }
 
-    async unlink({ context, node }) {
+    async unlink ({ context, node }) {
         if ( await node.get('type') === TYPE_DIRECTORY ) {
-            console.log(`\x1B[31;1m===N=====${await node.get('path')}=========\x1B[0m`);
+            console.log(`\x1B[31;1m===N=====${await node.get('path')}=========\x1B[0m`)
             throw new APIError(409, 'Cannot unlink a directory.');
         }
 
-        await this.#rmnode({ context, node });
+        await this.rmnode_({ context, node });
     }
 
-    async rmdir({ context, node, options = {} }) {
+    async rmdir ({ context, node, options = {} }) {
         if ( await node.get('type') !== TYPE_DIRECTORY ) {
-            console.log(`\x1B[31;1m===D1====${await node.get('path')}=========\x1B[0m`);
+            console.log(`\x1B[31;1m===D1====${await node.get('path')}=========\x1B[0m`)
             throw new APIError(409, 'Cannot rmdir a file.');
         }
 
         if ( await node.get('immutable') ) {
-            console.log(`\x1B[31;1m===D2====${await node.get('path')}=========\x1B[0m`);
+            console.log(`\x1B[31;1m===D2====${await node.get('path')}=========\x1B[0m`)
             throw APIError.create('immutable');
         }
 
         // Services
-        const svc_fsEntry = this.#services.get('fsEntryService');
+        const services = context.get('services');
+        const svc_fsEntry = services.get('fsEntryService');
 
-        const children = await svc_fsEntry.fast_get_direct_descendants(await node.get('uid'));
+        const children = await svc_fsEntry.fast_get_direct_descendants(
+            await node.get('uid')
+        );
 
         if ( children.length > 0 && ! options.ignore_not_empty ) {
-            console.log(`\x1B[31;1m===D3====${await node.get('path')}=========\x1B[0m`);
+            console.log(`\x1B[31;1m===D3====${await node.get('path')}=========\x1B[0m`)
             throw APIError.create('not_empty');
         }
 
-        await this.#rmnode({ context, node, options });
+        await this.rmnode_({ context, node, options });
     }
 
-    async #rmnode({ node, options: _options }) {
+    async rmnode_ ({ context, node, options }) {
         // Services
-        const svc_size = this.#services.get('sizeService');
-        const svc_fsEntry = this.#services.get('fsEntryService');
+        const services = context.get('services');
+        const svc_size = services.get('sizeService');
+        const svc_fsEntry = services.get('fsEntryService');
 
         if ( await node.get('immutable') ) {
             throw new APIError(403, 'File is immutable.');
         }
 
-        const userId = await node.get('user_id');
-        const fileSize = await node.get('size');
-        svc_size.change_usage(userId,
-                        -1 * fileSize);
+        svc_size.change_usage(
+            await node.get('user_id'),
+            -1 * await node.get('size')
+        );
 
-        const ownerActor =  new Actor({
-            type: new UserActorType({
-                user: await get_user({ id: userId }),
-            }),
-        });
-
-        this.#meteringService.incrementUsage(ownerActor, 'filesystem:delete:bytes', fileSize);
-
-        const tracer = this.#services.get('traceService').tracer;
+        const tracer = services.get('traceService').tracer;
         const tasks = new ParallelTasks({ tracer, max: 4 });
 
-        tasks.add('remove-fsentry', async () => {
+        tasks.add(`remove-fsentry`, async () => {
             await svc_fsEntry.delete(await node.get('uid'));
         });
 
         if ( await node.get('has-s3') ) {
-            tasks.add('remove-from-s3', async () => {
+            tasks.add(`remove-from-s3`, async () => {
                 // const storage = new PuterS3StorageStrategy({ services: svc });
                 const storage = Context.get('storage');
                 const state_delete = storage.create_delete();
@@ -486,7 +503,7 @@ class PuterFSProvider extends putility.AdvancedBase {
 
     /**
      * Create a new directory.
-     *
+     * 
      * @param {Object} param
      * @param {Context} param.context
      * @param {FSNode} param.parent
@@ -494,35 +511,41 @@ class PuterFSProvider extends putility.AdvancedBase {
      * @param {boolean} param.immutable
      * @returns {Promise<FSNode>}
      */
-    async mkdir({ context, parent, name, immutable }) {
+    async mkdir({ context, parent, name, immutable}) {
         const { actor, thumbnail } = context.values;
 
-        const svc_fslock = this.#services.get('fslock');
-        const lock_handle = await svc_fslock.lock_child(await parent.get('path'),
-                        name,
-                        MODE_WRITE);
+        const svc_fslock = context.get('services').get('fslock');
+        const lock_handle = await svc_fslock.lock_child(
+            await parent.get('path'),
+            name,
+            MODE_WRITE,
+        );
 
         try {
+            const { _path, uuidv4 } = this.modules;
+
             const ts = Math.round(Date.now() / 1000);
             const uid = uuidv4();
-            const resourceService = this.#services.get('resourceService');
-            const svc_fsEntry = this.#services.get('fsEntryService');
-            const svc_event = this.#services.get('event');
-            const fs = this.#services.get('filesystem');
+            const resourceService = context.get('services').get('resourceService');
+            const svc_fsEntry = context.get('services').get('fsEntryService');
+            const svc_event = context.get('services').get('event');
+            const fs = context.get('services').get('filesystem');
 
-            const existing = await fs.node(new NodeChildSelector(parent.selector, name));
+            const existing = await fs.node(
+                new NodeChildSelector(parent.selector, name)
+            );
 
-            if ( await existing.exists() ) {
+            if (await existing.exists()) {
                 throw APIError.create('item_with_same_name_exists', null, {
                     entry_name: name,
                 });
             }
 
-            const svc_acl = this.#services.get('acl');
-            if ( ! await parent.exists() ) {
+            const svc_acl = context.get('services').get('acl');
+            if (! await parent.exists()) {
                 throw APIError.create('subject_does_not_exist');
             }
-            if ( ! await svc_acl.check(actor, parent, 'write') ) {
+            if (! await svc_acl.check(actor, parent, 'write')) {
                 throw await svc_acl.get_safe_acl_error(actor, parent, 'write');
             }
 
@@ -535,7 +558,7 @@ class PuterFSProvider extends putility.AdvancedBase {
                 is_dir: 1,
                 uuid: uid,
                 parent_uid: await parent.get('uid'),
-                path: path.join(await parent.get('path'), name),
+                path: _path.join(await parent.get('path'), name),
                 user_id: actor.type.user.id,
                 name,
                 created: ts,
@@ -559,7 +582,7 @@ class PuterFSProvider extends putility.AdvancedBase {
                 context: Context.get(),
             });
 
-            return node;
+            return node
         } finally {
             await lock_handle.unlock();
         }
@@ -568,7 +591,7 @@ class PuterFSProvider extends putility.AdvancedBase {
     /**
      * Write a new file to the filesystem. Throws an error if the destination
      * already exists.
-     *
+     * 
      * @param {Object} param
      * @param {Context} param.context
      * @param {FSNode} param.parent: The parent directory of the file.
@@ -576,22 +599,25 @@ class PuterFSProvider extends putility.AdvancedBase {
      * @param {File} param.file: The file to write.
      * @returns {Promise<FSNode>}
      */
-    async write_new({ context, parent, name, file }) {
-        const {
-            tmp, fsentry_tmp, message, actor: inputActor, app_id,
-        } = context.values;
-        const actor = inputActor ?? Context.get('actor');
+    async write_new({context, parent, name, file}) {
+        const { _path, uuidv4, config } = this.modules;
 
-        const sizeService = this.#services.get('sizeService');
-        const resourceService = this.#services.get('resourceService');
-        const svc_fsEntry = this.#services.get('fsEntryService');
-        const svc_event = this.#services.get('event');
-        const fs = this.#services.get('filesystem');
+        const {
+            tmp, fsentry_tmp, message, actor: actor_let, app_id,
+        } = context.values;
+        let actor = actor_let ?? Context.get('actor');
+
+        const svc = Context.get('services');
+        const sizeService = svc.get('sizeService');
+        const resourceService = svc.get('resourceService');
+        const svc_fsEntry = svc.get('fsEntryService');
+        const svc_event = svc.get('event');
+        const fs = svc.get('filesystem');
 
         // TODO: fs:decouple-versions
         //       add version hook externally so LLCWrite doesn't
         //       need direct database access
-        const db = this.#services.get('database').get(DB_WRITE, 'filesystem');
+        const db = svc.get('database').get(DB_WRITE, 'filesystem');
 
         const uid = uuidv4();
 
@@ -599,47 +625,47 @@ class PuterFSProvider extends putility.AdvancedBase {
         let bucket_region = config.s3_region ?? config.region;
         let bucket = config.s3_bucket;
 
-        const svc_acl = this.#services.get('acl');
+        const svc_acl = context.get('services').get('acl');
         if ( ! await svc_acl.check(actor, parent, 'write') ) {
             throw await svc_acl.get_safe_acl_error(actor, parent, 'write');
         }
 
-        const storage_resp = await this.#storage_upload({
+        const storage_resp = await this._storage_upload({
             uuid: uid,
-            bucket,
-            bucket_region,
-            file,
+            bucket, bucket_region, file,
             tmp: {
                 ...tmp,
-                path: path.join(await parent.get('path'), name),
-            },
+                path: _path.join(await parent.get('path'), name),
+            }
         });
 
         fsentry_tmp.thumbnail = await fsentry_tmp.thumbnail_promise;
         delete fsentry_tmp.thumbnail_promise;
 
-        const timestamp = Math.round(Date.now() / 1000);
+        const ts = Math.round(Date.now() / 1000);
         const raw_fsentry = {
             uuid: uid,
             is_dir: 0,
             user_id: actor.type.user.id,
-            created: timestamp,
-            accessed: timestamp,
-            modified: timestamp,
+            created: ts,
+            accessed: ts,
+            modified: ts,
             parent_uid: await parent.get('uid'),
             name,
             size: file.size,
-            path: path.join(await parent.get('path'), name),
+            path: _path.join(await parent.get('path'), name),
             ...fsentry_tmp,
+
             bucket_region,
             bucket,
+
             associated_app_id: app_id ?? null,
         };
 
         svc_event.emit('fs.pending.file', {
             fsentry: FSNodeContext.sanitize_pending_entry_info(raw_fsentry),
             context,
-        });
+        })
 
         resourceService.register({
             uid,
@@ -648,16 +674,6 @@ class PuterFSProvider extends putility.AdvancedBase {
 
         const filesize = file.size;
         sizeService.change_usage(actor.type.user.id, filesize);
-
-        // Meter ingress
-        const ownerId = await parent.get('user_id');
-        const ownerActor =  new Actor({
-            type: new UserActorType({
-                user: await get_user({ id: ownerId }),
-            }),
-        });
-
-        this.#meteringService.incrementUsage(ownerActor, 'filesystem:ingress:bytes', filesize);
 
         const entryOp = await svc_fsEntry.insert(raw_fsentry);
 
@@ -668,18 +684,20 @@ class PuterFSProvider extends putility.AdvancedBase {
             const new_item_node = await fs.node(new NodeUIDSelector(uid));
             const new_item = await new_item_node.get('entry');
             const store_version_id = storage_resp.VersionId;
-            if ( store_version_id ){
+            if( store_version_id ){
                 // insert version into db
-                db.write('INSERT INTO `fsentry_versions` (`user_id`, `fsentry_id`, `fsentry_uuid`, `version_id`, `message`, `ts_epoch`) VALUES (?, ?, ?, ?, ?, ?)',
-                                [
-                                    actor.type.user.id,
-                                    new_item.id,
-                                    new_item.uuid,
-                                    store_version_id,
-                                    message ?? null,
-                                    timestamp,
-                                ]);
-            }
+                db.write(
+                    "INSERT INTO `fsentry_versions` (`user_id`, `fsentry_id`, `fsentry_uuid`, `version_id`, `message`, `ts_epoch`) VALUES (?, ?, ?, ?, ?, ?)",
+                    [
+                        actor.type.user.id,
+                        new_item.id,
+                        new_item.uuid,
+                        store_version_id,
+                        message ?? null,
+                        ts,
+                    ]
+                );
+        }
         })();
 
         const node = await fs.node(new NodeUIDSelector(uid));
@@ -695,7 +713,7 @@ class PuterFSProvider extends putility.AdvancedBase {
     /**
      * Overwrite an existing file. Throws an error if the destination does not
      * exist.
-     *
+     * 
      * @param {Object} param
      * @param {Context} param.context
      * @param {FSNodeContext} param.node: The node to write to.
@@ -704,21 +722,22 @@ class PuterFSProvider extends putility.AdvancedBase {
      */
     async write_overwrite({ context, node, file }) {
         const {
-            tmp, fsentry_tmp, message, actor: inputActor,
+            tmp, fsentry_tmp, message, actor: actor_let
         } = context.values;
-        const actor = inputActor ?? Context.get('actor');
+        let actor = actor_let ?? Context.get('actor');
 
-        const sizeService = this.#services.get('sizeService');
-        const resourceService = this.#services.get('resourceService');
-        const svc_fsEntry = this.#services.get('fsEntryService');
-        const svc_event = this.#services.get('event');
+        const svc = Context.get('services');
+        const sizeService = svc.get('sizeService');
+        const resourceService = svc.get('resourceService');
+        const svc_fsEntry = svc.get('fsEntryService');
+        const svc_event = svc.get('event');
 
         // TODO: fs:decouple-versions
         //       add version hook externally so LLCWrite doesn't
         //       need direct database access
-        const db = this.#services.get('database').get(DB_WRITE, 'filesystem');
+        const db = svc.get('database').get(DB_WRITE, 'filesystem');
 
-        const svc_acl = this.#services.get('acl');
+        const svc_acl = context.get('services').get('acl');
         if ( ! await svc_acl.check(actor, node, 'write') ) {
             throw await svc_acl.get_safe_acl_error(actor, node, 'write');
         }
@@ -728,15 +747,13 @@ class PuterFSProvider extends putility.AdvancedBase {
         const bucket_region = node.entry.bucket_region;
         const bucket = node.entry.bucket;
 
-        const state_upload = await this.#storage_upload({
+        const state_upload = await this._storage_upload({
             uuid: node.entry.uuid,
-            bucket,
-            bucket_region,
-            file,
+            bucket, bucket_region, file,
             tmp: {
                 ...tmp,
                 path: await node.get('path'),
-            },
+            }
         });
 
         if ( fsentry_tmp?.thumbnail_promise ) {
@@ -760,15 +777,6 @@ class PuterFSProvider extends putility.AdvancedBase {
         const filesize = file.size;
         sizeService.change_usage(actor.type.user.id, filesize);
 
-        // Meter ingress
-        const ownerId = await node.get('user_id');
-        const ownerActor =  new Actor({
-            type: new UserActorType({
-                user: await get_user({ id: ownerId }),
-            }),
-        });
-        this.#meteringService.incrementUsage(ownerActor, 'filesystem:ingress:bytes', filesize);
-
         const entryOp = await svc_fsEntry.update(uid, raw_fsentry_delta);
 
         // depends on fsentry, does not depend on S3
@@ -778,7 +786,7 @@ class PuterFSProvider extends putility.AdvancedBase {
         })();
 
         const cachePromise = (async () => {
-            const svc_fileCache = this.#services.get('file-cache');
+            const svc_fileCache = context.get('services').get('file-cache');
             await svc_fileCache.invalidate(node);
         })();
 
@@ -791,7 +799,7 @@ class PuterFSProvider extends putility.AdvancedBase {
         })();
 
         // TODO (xiaochen): determine if this can be removed, post_insert handler need
-        // to skip events from other servers (why? 1. current write logic is inside
+        // to skip events from other servers (why? 1. current write logic is inside 
         // the local server 2. broadcast system conduct "fire-and-forget" behavior)
         state_upload.post_insert({
             db, user: actor.type.user, node, uid, message, ts,
@@ -801,26 +809,24 @@ class PuterFSProvider extends putility.AdvancedBase {
 
         return node;
     }
-    /**
-    * @param {Object} param
-    * @param {File} param.file: The file to write.
-    * @returns
-    */
-    async #storage_upload({
+
+
+    async _storage_upload ({
         uuid,
-        bucket,
-        bucket_region,
-        file,
+        bucket, bucket_region, file,
         tmp,
     }) {
-        const log = this.#services.get('log-service').create('fs.#storage_upload');
-        const errors = this.#services.get('error-service').create(log);
-        const svc_event = this.#services.get('event');
+        const { config } = this.modules;
 
-        const svc_mountpoint = this.#services.get('mountpoint');
+        const svc = Context.get('services');
+        const log = svc.get('log-service').create('fs._storage_upload');
+        const errors = svc.get('error-service').create(log);
+        const svc_event = svc.get('event');
+
+        const svc_mountpoint = svc.get('mountpoint');
         const storage = svc_mountpoint.get_storage(this.constructor.name);
 
-        bucket ??= config.s3_bucket;
+        bucket        ??= config.s3_bucket;
         bucket_region ??= config.s3_region ?? config.region;
 
         let upload_tracker = new UploadProgressTracker();
@@ -831,10 +837,10 @@ class PuterFSProvider extends putility.AdvancedBase {
             meta: {
                 item_uid: uuid,
                 item_path: tmp.path,
-            },
-        });
+            }
+        })
 
-        if ( !file.buffer ) {
+        if ( ! file.buffer ) {
             let stream = file.stream;
             let alarm_timeout = null;
             stream = stuck_detector_stream(stream, {
@@ -861,9 +867,9 @@ class PuterFSProvider extends putility.AdvancedBase {
                 on_unstuck: () => {
                     clearTimeout(alarm_timeout);
                     this.frame.status = OperationFrame.FRAME_STATUS_WORKING;
-                },
+                }
             });
-            file = { ...file, stream };
+            file = { ...file, stream, };
         }
 
         let hashPromise;
@@ -878,7 +884,7 @@ class PuterFSProvider extends putility.AdvancedBase {
         }
 
         hashPromise.then(hash => {
-            const svc_event = this.#services.get('event');
+            const svc_event = Context.get('services').get('event');
             svc_event.emit('outer.fs.write-hash', {
                 hash, uuid,
             });

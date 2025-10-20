@@ -1,1 +1,1 @@
-export const toMicroCents = (dollars: number) => dollars * 1_000_000 * 100;
+export const toMicroCents = (dollars: number) => Math.round(dollars * 1_000_000 * 100);
