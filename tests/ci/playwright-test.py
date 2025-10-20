@@ -49,6 +49,7 @@ def get_token():
             "Content-Type": "application/json",
             "Accept": "application/json",
             "Origin": "http://api.puter.localhost:4100",
+            "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/123.0.0.0 Safari/537.36",
         },
         json=login_data,
         timeout=30,
@@ -134,6 +135,8 @@ def init_fs_tree_manager_config():
     with open(config_path, "w") as f:
         yaml.dump(config, f, default_flow_style=False, indent=2)
 
+    print(f"fs-tree-manager config initialized at {config_path}")
+
 
 def init_client_config():
     example_config_path = f"{os.getcwd()}/tests/example-client-config.yaml"
@@ -193,6 +196,8 @@ def run():
     # =========================================================================
     # start fs-tree-manager server
     # =========================================================================
+    init_fs_tree_manager_config()
+
     cxc_toolkit.exec.run_background(
         "go run server.go",
         work_dir=f"{PUTER_ROOT}/src/fs_tree_manager",
@@ -214,7 +219,9 @@ def run():
     )
 
     cxc_toolkit.exec.run_command(
-        "npx playwright test --reporter=line",
+        "npx playwright test",
+        # "npx playwright test --reporter=line",
+        # "npx playwright test --reporter=github",
         work_dir=f"{PUTER_ROOT}/tests/playwright",
     )
 

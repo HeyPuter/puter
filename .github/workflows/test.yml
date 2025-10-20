@@ -50,44 +50,6 @@ jobs:
           pip install -r ./tests/ci/requirements.txt
           ./tests/ci/api-test.py
 
-  playwright-test-tmp:
-    runs-on: ubuntu-latest
-    timeout-minutes: 5
-
-    strategy:
-      matrix:
-        node-version: [22.x]
-
-    steps:
-      - uses: actions/checkout@v4
-
-      - name: Use Node.js ${{ matrix.node-version }}
-        uses: actions/setup-node@v4
-        with:
-          node-version: ${{ matrix.node-version }}
-
-      - name: Install dependencies
-        run: npm install
-
-      - name: Install dependencies (playwright)
-        run: npm install
-        working-directory: ./tests/playwright
-
-      - name: Install Playwright Browsers
-        run: npx playwright install --with-deps
-        working-directory: ./tests/playwright
-
-      - name: Run Playwright tests
-        run: npx playwright test
-        working-directory: ./tests/playwright
-
-      - uses: actions/upload-artifact@v4
-        if: ${{ !cancelled() }}
-        with:
-          name: playwright-report-tmp
-          path: tests/playwright/playwright-report/
-          retention-days: 30
-
   playwright-test:
     runs-on: ubuntu-latest
     timeout-minutes: 10
@@ -112,9 +74,25 @@ jobs:
       - uses: actions/upload-artifact@v4
         if: ${{ !cancelled() }}
         with:
-          name: playwright-report
+          name: server-logs
           path: |
-            tests/playwright/playwright-report/
             /tmp/backend.log
             /tmp/fs-tree-manager.log
-          retention-days: 30
+          retention-days: 3
+
+      - uses: actions/upload-artifact@v4
+        if: ${{ !cancelled() }}
+        with:
+          name: config-files
+          path: |
+            ./volatile/config/config.json
+            ./src/fs_tree_manager/config.yaml
+            ./tests/client-config.yaml
+          retention-days: 3
+
+      - uses: actions/upload-artifact@v4
+        if: ${{ !cancelled() }}
+        with:
+          name: playwright-report
+          path: tests/playwright/playwright-report/
+          retention-days: 3

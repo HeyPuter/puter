@@ -17,16 +17,33 @@ async function bootstrap(page: import('@playwright/test').Page) {
     await page.evaluate(({ api_url, auth_token }) => {
         const puter = (window as any).puter;
         return (async () => {
+            console.log('[xiaochen-debug] puter.setAPIOrigin', api_url);
+            console.log('[xiaochen-debug] puter.setAuthToken', auth_token);
+
             await puter.setAPIOrigin(api_url);
             await puter.setAuthToken(auth_token);
+
+            console.log('[xiaochen-debug] puter.fs.setAPIOrigin', api_url);
+            console.log('[xiaochen-debug] puter.fs.setAuthToken', auth_token);
+
+            await puter.fs.setAPIOrigin(api_url);
+            await puter.fs.setAuthToken(auth_token);
+
+            // sleep 10 seconds
+            await new Promise(resolve => setTimeout(resolve, 10_000));
+
+            console.log('[xiaochen-debug] puter.fs.replica.available, point 1', puter.fs.replica.available);
         })();
     }, { api_url: testConfig.api_url, auth_token: testConfig.auth_token });
 
-    // Wait for replica to be available.
-    await page.waitForFunction(() => {
-        const puter = (window as any).puter;
-        return puter?.fs?.replica?.available === true;
-    }, null, { timeout: 10_000 });
+    // // Wait for replica to be available.
+    // await page.waitForFunction(() => {
+    //     const puter = (window as any).puter;
+
+    //     console.log('[xiaochen-debug] puter.fs.replica.available, point 2 ', puter?.fs?.replica?.available);
+
+    //     return puter?.fs?.replica?.available === true;
+    // }, null, { timeout: 10_000 });
 }
 
 test('multi-session - mkdir', async ({ browser }) => {

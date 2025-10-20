@@ -276,8 +276,12 @@ class WebServerService extends BaseService {
             }
         });
 
+        console.log('[xiaochen-debug] socketio.use done');
+
         const context = Context.get();
         socketio.on('connection', (socket) => {
+            console.log('[xiaochen-debug] socketio.on connection handler done');
+
             socket.on('disconnect', () => {
             });
             socket.on('trash.is_empty', (msg) => {
@@ -293,6 +297,7 @@ class WebServerService extends BaseService {
                     socket.on(replicaFetchHandler.event, (data) => {
                         replicaFetchHandler.handler(socket, data);
                     });
+                    console.log('[xiaochen-debug] event registered: replica/fetch');
                 }
 
                 const replicaPullDiffHandler = require('../../routers/filesystem_api/fs_tree_manager/pull_diff');
@@ -300,6 +305,7 @@ class WebServerService extends BaseService {
                     socket.on(replicaPullDiffHandler.event, (data) => {
                         replicaPullDiffHandler.handler(socket, data);
                     });
+                    console.log('[xiaochen-debug] event registered: replica/pull_diff');
                 }
             }
 

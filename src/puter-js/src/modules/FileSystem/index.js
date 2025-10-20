@@ -216,6 +216,8 @@ export class PuterJSFileSystemModule extends AdvancedBase {
      * @returns {void}
      */
     setAuthToken(authToken) {
+        console.log('[xiaochen-debug] FileSystem.setAuthToken', authToken);
+
         this.authToken = authToken;
 
         // Check cache timestamp and purge if needed (only in GUI environment)
