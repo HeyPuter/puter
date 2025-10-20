@@ -107,7 +107,7 @@ def init_backend_config():
         config = json.load(f)
 
     # update
-    config["client-replica"] = {
+    config["services"]["client-replica"] = {
         "enabled": True,
         "fs_tree_manager_url": "localhost:50052",
     }
