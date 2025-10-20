@@ -28,13 +28,14 @@ const { AssignableMethodsFeature } = require("../traits/AssignableMethodsFeature
 // and is utilized throughout the OperationTraceService to manage frames.
 const CONTEXT_KEY = Context.make_context_key('operation-trace');
 
+
 /**
 * @class OperationFrame
 * @description The `OperationFrame` class represents a frame within an operation trace. It is designed to manage the state, attributes, and hierarchy of frames within an operational context. This class provides methods to set status, calculate effective status, add tags, attributes, messages, errors, children, and describe the frame. It also includes methods to recursively search through frames to find attributes and handle frame completion.
 */
 class OperationFrame {
     static LOG_DEBUG = true;
-    constructor({ parent, label, x }) {
+    constructor ({ parent, label, x }) {
         this.parent = parent;
         this.label = label;
         this.tags = [];
@@ -47,28 +48,31 @@ class OperationFrame {
         this.id = require('uuid').v4();
 
         this.log = (x ?? Context).get('services').get('log-service').create(
-                        `frame:${this.id}`,
-                        { concern: 'filesystem' });
+            `frame:${this.id}`,
+            { concern: 'filesystem' },
+        );
     }
 
     static FRAME_STATUS_PENDING = { label: 'pending' };
-    static FRAME_STATUS_WORKING = { label: 'working' };
+    static FRAME_STATUS_WORKING = { label: 'working', };
     static FRAME_STATUS_STUCK = { label: 'stuck' };
     static FRAME_STATUS_READY = { label: 'ready' };
     static FRAME_STATUS_DONE = { label: 'done' };
 
-    set status(status) {
+    set status (status) {
         this.status_ = status;
         this._calc_effective_status();
 
-        this.log.debug(`FRAME STATUS ${status.label} ` +
+        this.log.debug(
+            `FRAME STATUS ${status.label} ` +
             (status !== this.effective_status_
                 ? `(effective: ${this.effective_status_.label}) `
                 : ''),
-        {
-            tags: this.tags,
-            ...this.attributes,
-        });
+            {
+                tags: this.tags,
+                ...this.attributes,
+            }
+        );
 
         if ( this.parent ) {
             this.parent._calc_effective_status();
@@ -80,7 +84,7 @@ class OperationFrame {
     *
     * @param {Object} status - The new status to set.
     */
-    _calc_effective_status() {
+    _calc_effective_status () {
         for ( const child of this.children ) {
             if ( child.status === OperationFrame.FRAME_STATUS_STUCK ) {
                 this.effective_status_ = OperationFrame.FRAME_STATUS_STUCK;
@@ -109,6 +113,7 @@ class OperationFrame {
         }
     }
 
+
     /**
     * Gets the effective status of the operation frame.
     *
@@ -119,47 +124,48 @@ class OperationFrame {
     *
     * @return {Object} The effective status of the operation frame.
     */
-    get status() {
+    get status () {
         return this.effective_status_;
     }
 
-    tag(...tags) {
+    tag (...tags) {
         this.tags.push(...tags);
         return this;
     }
 
-    attr(key, value) {
+    attr (key, value) {
         this.attributes[key] = value;
         return this;
     }
 
     // recursively go through frames to find the attribute
-    get_attr(key) {
+    get_attr (key) {
         if ( this.attributes[key] ) return this.attributes[key];
         if ( this.parent ) return this.parent.get_attr(key);
     }
 
-    log(message) {
+    log (message) {
         this.messages.push(message);
         return this;
     }
 
-    error(err) {
+    error (err) {
         this.error_ = err;
         return this;
     }
 
-    push_child(frame) {
+    push_child (frame) {
         this.children.push(frame);
         return this;
     }
+
 
     /**
     * Recursively traverses the frame hierarchy to find the root frame.
     *
     * @returns {OperationFrame} The root frame of the current frame hierarchy.
     */
-    get_root_frame() {
+    get_root_frame () {
         let frame = this;
         while ( frame.parent ) {
             frame = frame.parent;
@@ -167,17 +173,18 @@ class OperationFrame {
         return frame;
     }
 
+
     /**
     * Marks the operation frame as done.
     * This method sets the status of the operation frame to 'done' and updates
     * the effective status accordingly. It triggers a recalculation of the
     * effective status for parent frames if necessary.
     */
-    done() {
+    done () {
         this.status = OperationFrame.FRAME_STATUS_DONE;
     }
 
-    describe(show_tree, highlight_frame) {
+    describe (show_tree, highlight_frame) {
         let s = this.label + ` (${this.children.length})`;
         if ( this.tags.length ) {
             s += ' ' + this.tags.join(' ');
@@ -193,6 +200,7 @@ class OperationFrame {
         const prefix_last = '└─';
         const prefix_deep = '│ ';
         const prefix_deep_end = '  ';
+
 
         /**
         * Recursively builds a string representation of the frame and its children.
@@ -211,12 +219,13 @@ class OperationFrame {
                 if ( child === highlight_frame ) s += `\x1B[0m`;
                 recurse(child, prefix + (is_last ? prefix_deep_end : prefix_deep));
             }
-        };
+        }
 
         if ( show_tree ) recurse(this, '');
         return s;
     }
 }
+
 
 /**
 * @class OperationTraceService
@@ -227,7 +236,7 @@ class OperationFrame {
 class OperationTraceService {
     static CONCERN = 'filesystem';
 
-    constructor({ services }) {
+    constructor ({ services }) {
         this.log = services.get('log-service').create('operation-trace', {
             concern: this.constructor.CONCERN,
         });
@@ -235,6 +244,7 @@ class OperationTraceService {
         // TODO: replace with kv.js set
         this.ongoing = {};
     }
+
 
     /**
     * Adds a new operation frame to the trace.
@@ -248,20 +258,22 @@ class OperationTraceService {
     * @param {?Object} [x] - The context for the operation frame.
     * @returns {OperationFrame} The new operation frame.
     */
-    async add_frame(label) {
+    async add_frame (label) {
         return this.add_frame_sync(label);
     }
 
-    add_frame_sync(label, x) {
+    add_frame_sync (label, x) {
         if ( x ) {
-            this.log.debug('add_frame_sync() called with explicit context: ' +
-                x.describe());
+            this.log.debug(
+                'add_frame_sync() called with explicit context: ' +
+                x.describe()
+            );
         }
         let parent = (x ?? Context).get(this.ckey('frame'));
         const frame = new OperationFrame({
             parent: parent || null,
             label,
-            x,
+            x
         });
         parent && parent.push_child(frame);
         this.log.debug(`FRAME START ` + frame.describe());
@@ -274,10 +286,11 @@ class OperationTraceService {
         return frame;
     }
 
-    ckey(key) {
+    ckey (key) {
         return CONTEXT_KEY + ':' + key;
     }
 }
+
 
 /**
 * @class BaseOperation
@@ -293,7 +306,8 @@ class BaseOperation extends AdvancedBase {
         new ContextAwareFeature(),
         new OtelFeature(['run']),
         new AssignableMethodsFeature(),
-    ];
+    ]
+
 
     /**
     * Executes the operation with the provided values.
@@ -302,23 +316,23 @@ class BaseOperation extends AdvancedBase {
     * executes the `_run` method, and handles post-run logic. It also manages the status of child frames
     * and handles errors, updating the frame's attributes accordingly.
     *
-    * @param {Object} firstArg - The values to be used in the operation. TODO DS: support multiple args with old state assignment?
-    * @param {...unknown} rest - rest of args passed in only to children
+    * @param {Object} values - The values to be used in the operation.
     * @returns {Promise<*>} - The result of the operation.
     * @throws {Error} - If the frame is missing or any other error occurs during the operation.
     */
-    async run(firstArg, ...rest) {
-        this.values = firstArg;
+    async run (values) {
+        this.values = values;
 
-        firstArg.user = firstArg.user ??
-            (firstArg.actor ? firstArg.actor.type.user : undefined);
+        values.user = values.user ??
+            (values.actor ? values.actor.type.user : undefined);
 
         // getting context with a new operation frame
-        let x, frame;
-        x = Context.get();
-        const operationTraceSvc = x.get('services').get('operationTrace');
-        frame = await operationTraceSvc.add_frame(this.constructor.name);
-        x = x.sub({ [operationTraceSvc.ckey('frame')]: frame });
+        let x, frame; {
+            x = Context.get();
+            const operationTraceSvc = x.get('services').get('operationTrace');
+            frame = await operationTraceSvc.add_frame(this.constructor.name);
+            x = x.sub({ [operationTraceSvc.ckey('frame')]: frame });
+        }
 
         // the frame will be an explicit property as well as being in context
         // (for convenience)
@@ -326,12 +340,12 @@ class BaseOperation extends AdvancedBase {
 
         // let's make the logger for it too
         this.log = x.get('services').get('log-service').create(
-                        this.constructor.name, {
-                            operation: frame.id,
-                            ...(this.constructor.CONCERN ? {
-                                concern: this.constructor.CONCERN,
-                            } : {}),
-                        });
+            this.constructor.name, {
+                operation: frame.id,
+                ...(this.constructor.CONCERN ? {
+                    concern: this.constructor.CONCERN,
+                } : {})
+            });
 
         // Run operation in new context
         try {
@@ -345,7 +359,7 @@ class BaseOperation extends AdvancedBase {
                 }
                 frame.status = OperationFrame.FRAME_STATUS_WORKING;
                 this.checkpoint('._run()');
-                const res = await this._run(firstArg, ...rest); // TODO DS: simplify this, why are the passed in values being stored in class state?
+                const res = await this._run();
                 this.checkpoint('._post_run()');
                 const { any_async } = this._post_run();
                 this.checkpoint('delegate .run_() returned');
@@ -364,22 +378,23 @@ class BaseOperation extends AdvancedBase {
         }
     }
 
-    checkpoint(name) {
+    checkpoint (name) {
         this.frame.checkpoint = name;
     }
 
-    field(key, value) {
+    field (key, value) {
         this.frame.attributes[key] = value;
     }
 
+
     /**
      * Actions to perform after running.
-     *
+     * 
      * If child operation frames think they're still pending, mark them as stuck;
      * all child frames at least reach working state before the parent operation
-     * completes.
+     * completes. 
      */
-    _post_run() {
+    _post_run () {
         let any_async = false;
         for ( const child of this.frame.children ) {
             if ( child.status === OperationFrame.FRAME_STATUS_PENDING ) {

@@ -54,7 +54,7 @@ export class MeteringAndBillingService {
 
                 if ( totalCost === 0 && costOverride === undefined ) {
                     // could be something is off, there are some models that cost nothing from openrouter, but then our overrides should not be undefined, so will flag
-                    this.#alarmService.create('metering-service-warning', 'potential abuse vector', {
+                    this.#alarmService.create('metering-service-warning', "potential abuse vector", {
                         actor,
                         usageType,
                         usageAmount,
@@ -125,7 +125,7 @@ export class MeteringAndBillingService {
                 const actorSubscriptionPromise = this.getActorSubscription(actor);
                 const actorAddonsPromise = this.getActorAddons(actor);
                 const [actorUsages, actorSubscription, actorAddons] =  (await Promise.all([actorUsagesPromise, actorSubscriptionPromise, actorAddonsPromise]));
-                if ( actorUsages.total > actorSubscription.monthUsageAllowance && actorAddons.purchasedCredits && actorAddons.purchasedCredits > (actorAddons.consumedPurchaseCredits || 0) ) {
+                if ( actorUsages.total > actorSubscription.monthUsageAllowance && actorAddons.purchasedCredits ) {
                     // if we are now over the allowance, start consuming purchased credits
                     const withinBoundsUsage = Math.max(0, actorSubscription.monthUsageAllowance - actorUsages.total + totalCost);
                     const overageUsage = totalCost - withinBoundsUsage;
@@ -138,17 +138,6 @@ export class MeteringAndBillingService {
                             },
                         });
                     }
-                }
-                // alert if significantly over allowance and no purchased credits left
-                if ( actorUsages.total > (actorSubscription.monthUsageAllowance) * 2 && (actorAddons.purchasedCredits || 0) <= (actorAddons.consumedPurchaseCredits || 0) ) {
-                    this.#alarmService.create('metering-service-usage-limit-exceeded', `Actor ${actorId} has exceeded their usage allowance significantly`, {
-                        actor,
-                        usageType,
-                        usageAmount,
-                        costOverride,
-                        totalUsage: actorUsages.total,
-                        monthUsageAllowance: actorSubscription.monthUsageAllowance,
-                    });
                 }
                 return actorUsages;
             });
