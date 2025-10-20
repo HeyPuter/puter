@@ -66,6 +66,14 @@ jobs:
         with:
           node-version: ${{ matrix.node-version }}
 
+      - name: Install Dependencies
+        run: npm install
+        working-directory: ./tests/playwright
+
+      - name: Install Playwright Browsers
+        run: npx playwright install --with-deps
+        working-directory: ./tests/playwright
+
       - name: Playwright Test
         run: |
           pip install -r ./tests/ci/requirements.txt

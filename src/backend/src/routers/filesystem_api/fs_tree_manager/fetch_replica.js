@@ -27,7 +27,7 @@ const { Context } = require('../../../util/context');
 module.exports = {
     event: 'replica/fetch',
     handler: async (socket, _data) => {
-        console.log('[xiaochen-debug] fetch_replica.handler, socket:', socket);
+        console.log('[xiaochen-debug] fetch_replica.handler, socket.user.id:', socket.user.id);
 
         // const svc_permission = Context.get('services').get('permission');
         // const can_access = await svc_permission.check('endpoint:replica/fetch');
@@ -45,7 +45,7 @@ module.exports = {
         } = require('./common');
 
         const client = getClient();
-        if (!client) {
+        if ( !client ) {
             // Client-replica service is not available
             return socket.emit('replica/fetch/error', {
                 success: false,
@@ -58,7 +58,7 @@ module.exports = {
         requestMsg.setUserId(socket.user.id);
 
         client.fetchReplica(requestMsg, (err, resp) => {
-            if (err) {
+            if ( err ) {
                 console.error(`FetchReplica error: ${err.message}`);
                 return socket.emit('replica/fetch/error', {
                     success: false,

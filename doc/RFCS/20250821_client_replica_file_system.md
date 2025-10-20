@@ -14,6 +14,12 @@
   - [FS-Tree Manager](#fs-tree-manager)
   - [FS Hooks](#fs-hooks)
   - [Adaptation to the Existing Codebase](#adaptation-to-the-existing-codebase)
+  - [Anomaly - Stale Fetch Due to Local Update](#anomaly---stale-fetch-due-to-local-update)
+  - [Anomaly - Stale Fetch Due to Failed Event Notification](#anomaly---stale-fetch-due-to-failed-event-notification)
+  - [Anomaly - Overlapping FS Syncs](#anomaly---overlapping-fs-syncs)
+  - [Puter-JS Variables](#puter-js-variables)
+  - [Client-Replica Lifecycle](#client-replica-lifecycle)
+  - [Code Location](#code-location)
 - [Scalability](#scalability)
   - [First Stage - Single Instance](#first-stage---single-instance)
   - [Second Stage - Partitioned FS-Tree Manager](#second-stage---partitioned-fs-tree-manager)
@@ -27,6 +33,7 @@
 - [Alternatives and Trade-offs](#alternatives-and-trade-offs)
   - [Last-Updated Time for "Stale Replica Fetch"](#last-updated-time-for-stale-replica-fetch)
   - [Alternative Storage Models](#alternative-storage-models)
+- [TODO](#todo)
 
 ## Summary
 
@@ -316,6 +323,7 @@ TODO
 - `puter.fs.replica.setDebug(true/false)` - toggle debug widget and logs, may be merged with `puter.debugMode` in the future
 - `puter.fs.replica.fs_tree` - the in-memory FS Tree, should only be used by internal code
 - `puter.fs.replica.local_read` - count of local read operations performed by puter-js, used for debugging
+- `puter.fs.replica.remote_read` - count of remote read operations performed by puter-js, used for debugging
 
 ### Client-Replica Lifecycle
 

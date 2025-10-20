@@ -198,6 +198,11 @@ def run():
     # =========================================================================
     init_fs_tree_manager_config()
 
+    cxc_toolkit.exec.run_command(
+        "go mod download",
+        work_dir=f"{PUTER_ROOT}/src/fs_tree_manager",
+    )
+
     cxc_toolkit.exec.run_background(
         "go run server.go",
         work_dir=f"{PUTER_ROOT}/src/fs_tree_manager",
@@ -213,10 +218,11 @@ def run():
         work_dir=f"{PUTER_ROOT}/tests/playwright",
     )
 
-    cxc_toolkit.exec.run_command(
-        "npx playwright install --with-deps",
-        work_dir=f"{PUTER_ROOT}/tests/playwright",
-    )
+    # # this command requires sudo privileges
+    # cxc_toolkit.exec.run_command(
+    #     "npx playwright install --with-deps",
+    #     work_dir=f"{PUTER_ROOT}/tests/playwright",
+    # )
 
     cxc_toolkit.exec.run_command(
         "npx playwright test",
