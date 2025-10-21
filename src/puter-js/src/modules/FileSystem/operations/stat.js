@@ -13,7 +13,7 @@ const stat = async function (...args) {
     let options;
 
     // If first argument is an object, it's the options
-    if (typeof args[0] === 'object' && args[0] !== null) {
+    if ( typeof args[0] === 'object' && args[0] !== null ) {
         options = args[0];
     } else {
         // Otherwise, we assume separate arguments are provided
@@ -26,22 +26,39 @@ const stat = async function (...args) {
         };
     }
 
+    if ( puter.fs.replica.available ) {
+        return new Promise(async (resolve, reject) => {
+            try {
+                const result = await puter.fs.replica.fs_tree.stat(options);
+                if ( options.success ) {
+                    options.success(result);
+                }
+                resolve(result);
+            } catch( error ) {
+                if ( options.error ) {
+                    options.error(error);
+                }
+                reject(error);
+            }
+        });
+    }
+
     return new Promise(async (resolve, reject) => {
         // consistency levels
-        if(!options.consistency){
+        if ( !options.consistency ) {
             options.consistency = 'strong';
         }
 
         // Generate cache key based on path or uid
         let cacheKey;
-        if(options.path){
+        if ( options.path ) {
             cacheKey = 'item:' + options.path;
         }
 
-        if(options.consistency === 'eventual' && !options.returnSubdomains && !options.returnPermissions && !options.returnVersions && !options.returnSize){
+        if ( options.consistency === 'eventual' && !options.returnSubdomains && !options.returnPermissions && !options.returnVersions && !options.returnSize ) {
             // Check cache
             const cachedResult = await puter._cache.get(cacheKey);
-            if(cachedResult){
+            if ( cachedResult ) {
                 resolve(cachedResult);
                 return;
             }

@@ -13,7 +13,7 @@ const readdir = async function (...args) {
     let options;
 
     // If first argument is an object, it's the options
-    if (typeof args[0] === 'object' && args[0] !== null) {
+    if ( typeof args[0] === 'object' && args[0] !== null ) {
         options = args[0];
     } else {
         // Otherwise, we assume separate arguments are provided
@@ -24,27 +24,47 @@ const readdir = async function (...args) {
         };
     }
 
+    if ( puter.fs.replica.available ) {
+        const homePath = puter.fs.replica.fs_tree.root;
+        if ( options.path && options.path.startsWith(homePath) ) {
+            return new Promise(async (resolve, reject) => {
+                try {
+                    const result = await puter.fs.replica.fs_tree.readdir(options);
+                    if ( options.success ) {
+                        options.success(result);
+                    }
+                    resolve(result);
+                } catch( error ) {
+                    if ( options.error ) {
+                        options.error(error);
+                    }
+                    reject(error);
+                }
+            });
+        }
+    }
+
     return new Promise(async (resolve, reject) => {
         // consistency levels
-        if(!options.consistency){
+        if ( !options.consistency ) {
             options.consistency = 'strong';
         }
 
         // Either path or uid is required
-        if(!options.path && !options.uid){
+        if ( !options.path && !options.uid ) {
             throw new Error({ code: 'NO_PATH_OR_UID', message: 'Either path or uid must be provided.' });
         }
 
         // Generate cache key based on path or uid
         let cacheKey;
-        if(options.path){
+        if ( options.path ) {
             cacheKey = 'readdir:' + options.path;
         }
 
-        if(options.consistency === 'eventual'){
+        if ( options.consistency === 'eventual' ) {
             // Check cache
             const cachedResult = await puter._cache.get(cacheKey);
-            if(cachedResult){
+            if ( cachedResult ) {
                 resolve(cachedResult);
                 return;
             }

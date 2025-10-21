@@ -1,0 +1,120 @@
+syntax = "proto3";
+
+import "google/protobuf/struct.proto";
+import "google/protobuf/empty.proto";
+
+package fs_tree_manager;
+
+option go_package = "github.com/puter/fs_tree_manager";
+
+// For all RPC requests, user identifier is always needed since replicas are
+// stored separately for each user.
+//
+// We use user_id instead of user_name/user_uuid since it's more accessible:
+// - fsentry include user_id but not user_name/user_uuid
+// (https://github.com/HeyPuter/puter/blob/847b3a07a4ec59e724063f460a4c26cb62b04d42/src/backend/src/services/database/sqlite_setup/0001_create-tables.sql#L81)
+// - user_id is included in the fs events listener where user_name/user_uuid are
+// not available
+// (https://github.com/HeyPuter/puter/blob/847b3a07a4ec59e724063f460a4c26cb62b04d42/src/backend/src/services/WSPushService.js#L165-L166)
+//
+// We provide simple {New/Remove}FSEntry APIs as a straightforward way to
+// accommodate the wide variety of file system operations. These APIs should
+// always results in an coherent MerkleTree.
+service FSTreeManager {
+  rpc FetchReplica(FetchReplicaRequest) returns (MerkleTree);
+  rpc PullDiff(PullRequest) returns (PushRequest);
+
+  // Insert a new FSEntry into the tree, update its parent's children list as
+  // well.
+  rpc NewFSEntry(NewFSEntryRequest) returns (google.protobuf.Empty);
+
+  // Remove an FSEntry (and all its descendants) from the tree, update its
+  // parent's children list as well.
+  rpc RemoveFSEntry(RemoveFSEntryRequest) returns (google.protobuf.Empty);
+
+  // For any fs operations that cannot be handled by New/Remove APIs, just purge
+  // the replica.
+  //
+  // The final goal is to remove this RPC, after we can always mutate the
+  // fs-tree properly.
+  rpc PurgeReplica(PurgeReplicaRequest) returns (google.protobuf.Empty);
+}
+
+message FetchReplicaRequest { int64 user_id = 1; }
+
+message NewFSEntryRequest {
+  int64 user_id = 1;
+  FSEntry fs_entry = 2;
+}
+
+message RemoveFSEntryRequest {
+  int64 user_id = 1;
+
+  // Use UUID instead of FSEntry since:
+  // 1. UUID is enough to identify a node
+  // 2. FSEntry is inaccessable in many cases
+  string uuid = 2;
+}
+
+message PurgeReplicaRequest { int64 user_id = 1; }
+
+message MerkleNode {
+  // We use the stable uuid from fs_entry so pointers to it stay valid when this
+  // node is updated.
+  string uuid = 1;
+
+  // We use string instead of uint64 for several reasons:
+  // 1. JS is error prone when handling uint64/bigint and it's time-consuming to
+  //    troubleshoot.
+  // 2. It's easier to come up with a consistent order on string type.
+  string merkle_hash = 2;
+
+  // Use map to avoid duplicate children uuids. The value doesn't matter, it's
+  // there just because protobuf doesn't have built-in set type.
+  map<string, bool> children_uuids = 3;
+
+  string parent_uuid = 4;
+
+  FSEntry fs_entry = 5;
+}
+
+// The motivation of the heap design instead of embedded trees is elaborated in
+// the RFC (doc/RFCS/20250821_client_replica_file_system.md)
+message MerkleTree {
+  string root_uuid = 1;
+
+  // uuid -> node
+  map<string, MerkleNode> nodes = 2;
+}
+
+message FSEntry {
+  // TODO (xiaochen): Make it a static type step by step.
+  //
+  // A static type is more robust and less error-prone. For instance, a
+  // FSEntry has uuid field in database but uid is desired in the puter-js
+  // and GUI client. We can guarantee the presence of desired fields by
+  // using a static type.
+  google.protobuf.Struct metadata = 1;
+}
+
+message PullRequest {
+  int64 user_id = 1;
+  repeated PullRequestItem pull_request = 2;
+}
+
+message PullRequestItem {
+  string uuid = 1;
+  string merkle_hash = 2;
+}
+
+message PushRequest {
+  int64 user_id = 1;
+  repeated PushRequestItem push_request = 2;
+}
+
+message PushRequestItem {
+  string uuid = 1;
+  string merkle_hash = 2;
+  FSEntry fs_entry = 3;
+  repeated PushRequestItem children = 4;
+}

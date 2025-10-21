@@ -17,31 +17,31 @@
  * along with this program.  If not, see <https://www.gnu.org/licenses/>.
  */
 
-import path from "../lib/path.js"
-import UIWindowClaimReferral from "./UIWindowClaimReferral.js"
-import UIContextMenu from './UIContextMenu.js'
-import UIItem from './UIItem.js'
-import UIAlert from './UIAlert.js'
-import UIWindow from './UIWindow.js'
-import UIWindowSaveAccount from './UIWindowSaveAccount.js';
-import UIWindowDesktopBGSettings from "./UIWindowDesktopBGSettings.js"
-import UIWindowMyWebsites from "./UIWindowMyWebsites.js"
-import UIWindowFeedback from "./UIWindowFeedback.js"
-import UIWindowLogin from "./UIWindowLogin.js"
-import UIWindowQR from "./UIWindowQR.js"
-import UIWindowRefer from "./UIWindowRefer.js"
-import UITaskbar from "./UITaskbar.js"
+import item_icon from "../helpers/item_icon.js"
+import launch_app from "../helpers/launch_app.js"
 import new_context_menu_item from "../helpers/new_context_menu_item.js"
 import refresh_item_container from "../helpers/refresh_item_container.js"
+import truncate_filename from '../helpers/truncate_filename.js'
 import changeLanguage from "../i18n/i18nChangeLanguage.js"
+import path from "../lib/path.js"
 import UIWindowSettings from "./Settings/UIWindowSettings.js"
-import UIWindowTaskManager from "./UIWindowTaskManager.js"
-import truncate_filename from '../helpers/truncate_filename.js';
+import UIAlert from './UIAlert.js'
+import UIContextMenu from './UIContextMenu.js'
+import UIItem from './UIItem.js'
 import UINotification from "./UINotification.js"
-import UIWindowWelcome from "./UIWindowWelcome.js"
-import launch_app from "../helpers/launch_app.js"
-import item_icon from "../helpers/item_icon.js"
+import UITaskbar from "./UITaskbar.js"
+import UIWindow from './UIWindow.js'
+import UIWindowClaimReferral from "./UIWindowClaimReferral.js"
+import UIWindowDesktopBGSettings from "./UIWindowDesktopBGSettings.js"
+import UIWindowFeedback from "./UIWindowFeedback.js"
+import UIWindowLogin from "./UIWindowLogin.js"
+import UIWindowMyWebsites from "./UIWindowMyWebsites.js"
+import UIWindowQR from "./UIWindowQR.js"
+import UIWindowRefer from "./UIWindowRefer.js"
+import UIWindowSaveAccount from './UIWindowSaveAccount.js'
 import UIWindowSearch from "./UIWindowSearch.js"
+import UIWindowTaskManager from "./UIWindowTaskManager.js"
+import UIWindowWelcome from "./UIWindowWelcome.js"
 
 async function UIDesktop(options) {
     // start a transaction if we're not in embedded or fullpage mode
@@ -715,8 +715,48 @@ async function UIDesktop(options) {
         window.update_user_preferences(user_preferences);
     }
 
+    // Add replica status widget
+    h += `<div id="replica-status-widget" class="replica-status-widget">
+            <div class="replica-status-label">client-replica:</div>
+            <div class="replica-status-value" id="replica-status-value">false</div>
+            <input type="checkbox" id="replica-status-toggle" class="replica-status-toggle">
+          </div>`;
+
     // Append to <body>
     $('body').append(h);
+
+    // Initialize replica status widget function
+    window.updateReplicaStatusWidget = function() {
+        const statusElement = document.getElementById('replica-status-value');
+        const toggleElement = document.getElementById('replica-status-toggle');
+        if (statusElement && toggleElement) {
+            const isAvailable = puter.fs.replica.available === true;
+            statusElement.textContent = isAvailable.toString();
+            statusElement.className = `replica-status-value ${isAvailable}`;
+            toggleElement.checked = isAvailable;
+        }
+    };
+
+    // Handle toggle change
+    window.handleReplicaToggle = function() {
+        const toggleElement = document.getElementById('replica-status-toggle');
+        const statusElement = document.getElementById('replica-status-value');
+        if (toggleElement && statusElement) {
+            const newValue = toggleElement.checked;
+            statusElement.textContent = newValue.toString();
+            statusElement.className = `replica-status-value ${newValue}`;
+            puter.fs.replica.available = newValue;
+        }
+    };
+
+    // Initialize widget and start polling
+    setTimeout(() => {
+        const toggleElement = document.getElementById('replica-status-toggle');
+        if (toggleElement) {
+            toggleElement.addEventListener('change', window.handleReplicaToggle);
+        }
+        setInterval(window.updateReplicaStatusWidget, 100);
+    }, 100);
 
     // Set desktop height based on taskbar height
     $('.desktop').css('height', `calc(100vh - ${window.taskbar_height + window.toolbar_height}px)`)

@@ -32,6 +32,7 @@ const { is_valid_path } = require('../validation');
 const { HLRemove } = require('./hl_remove');
 const { LLMkdir } = require('../ll_operations/ll_mkdir');
 
+
 class MkTree extends HLFilesystemOperation {
     static DESCRIPTION = `
         High-level operation for making directory trees
@@ -373,7 +374,10 @@ class HLMkdir extends HLFilesystemOperation {
             });
 
             await this.created.awaitStableEntry();
-            return await this.created.getSafeEntry();
+            const response = await this.created.getSafeEntry();
+            
+            
+            return response;
         }
 
         const ll_mkdir = new LLMkdir();
@@ -396,6 +400,7 @@ class HLMkdir extends HLFilesystemOperation {
             response.parent_dirs_created.push(await node.getSafeEntry());
         }
         response.requested_path = values.path;
+
 
         return response;
     }

@@ -1,0 +1,13 @@
+database:
+  driver: "sqlite3"
+  sqlite3:
+    path: "/var/puter/puter-database.sqlite"
+  mysql:
+    db_host: "127.0.0.1"
+    db_port: 8889
+    db_user: "root"
+    db_password: "my-secret-pw"
+    db_database: "bayshore"
+
+server:
+  port: 50052

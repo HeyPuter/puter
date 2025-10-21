@@ -69,7 +69,9 @@ class HLMkLink extends HLFilesystemOperation {
         });
 
         await created.awaitStableEntry();
-        return await created.getSafeEntry();
+        const response = await created.getSafeEntry();
+        
+        return response;
     }
 }
 

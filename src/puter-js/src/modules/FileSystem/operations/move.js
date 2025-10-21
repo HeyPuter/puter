@@ -53,8 +53,35 @@ const move = function (...args) {
         // create xhr object
         const xhr = utils.initXhr('/move', this.APIOrigin, this.authToken);
 
+        // inject the client-replica update hook to the success callback
+        const originalSuccess = options.success;
+        const wrappedSuccess = (...args) => {
+            if (originalSuccess) {
+                originalSuccess(...args);
+            }
+
+            // ================== client-replica hook start ==================
+            if ( puter.fs.replica.available ) {
+                if ( args.length !== 1 ) {
+                    console.error('client-replica: move hook only supports 1 argument, got', args);
+                    return;
+                }
+                if ( puter.fs.replica.debug ) {
+                    console.log('local move hook, args:', args);
+                }
+                const moved = args[0]?.moved;
+                if ( !moved ) {
+                    console.error('client-replica: move object is empty, got', args);
+                    return;
+                }
+                puter.fs.replica.fs_tree.removeFSEntry(moved.uid);
+                puter.fs.replica.fs_tree.newFSEntry(moved);
+                puter.fs.replica.last_local_update = Date.now();
+            }
+        };
+
         // set up event handlers for load and error events
-        utils.setupXhrEventHandlers(xhr, options.success, options.error, resolve, reject);
+        utils.setupXhrEventHandlers(xhr, wrappedSuccess, options.error, resolve, reject);
 
         xhr.send(JSON.stringify({
             source: options.source,
