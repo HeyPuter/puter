@@ -1,6 +1,6 @@
+import path from '../../lib/path.js';
 import io from '../../lib/socket.io/socket.io.esm.min.js';
 import * as utils from '../../lib/utils.js';
-import path from '../../lib/path.js';
 
 // Constants
 // 
@@ -27,6 +27,9 @@ import FSItem from '../FSItem.js';
 import deleteFSEntry from './operations/deleteFSEntry.js';
 import getReadURL from './operations/getReadUrl.js';
 
+// client-replica
+import replica from "./replica/manager.js";
+// import replica from "./replica/manager.ts";
 
 export class PuterJSFileSystemModule extends AdvancedBase {
 
@@ -46,6 +49,9 @@ export class PuterJSFileSystemModule extends AdvancedBase {
     getReadURL = getReadURL;
     readdir = readdir;
     stat = stat;
+
+    // client-replica
+    replica = replica;
 
     FSItem = FSItem;
 
@@ -210,6 +216,8 @@ export class PuterJSFileSystemModule extends AdvancedBase {
      * @returns {void}
      */
     setAuthToken(authToken) {
+        console.log('[xiaochen-debug] FileSystem.setAuthToken', authToken);
+
         this.authToken = authToken;
 
         // Check cache timestamp and purge if needed (only in GUI environment)
@@ -221,6 +229,13 @@ export class PuterJSFileSystemModule extends AdvancedBase {
 
         // reset socket
         this.initializeSocket();
+
+        // initialize replica manager
+        replica.initialize({
+            authToken: this.authToken,
+            APIOrigin: this.APIOrigin,
+            username: this.context.username,
+        });
     }
 
     /**

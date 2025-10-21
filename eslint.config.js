@@ -10,6 +10,7 @@ export default defineConfig([
     // TypeScript support block
     {
         files: ['**/*.ts'],
+        ignores: ['**/*.test.ts', '**/*.spec.ts', '**/test/**', '**/tests/**'],
         languageOptions: {
             parser: tseslintParser,
             parserOptions: {
@@ -23,6 +24,26 @@ export default defineConfig([
         },
         rules: {
             // Recommended rules for TypeScript
+            '@typescript-eslint/no-explicit-any': 'warn',
+            '@typescript-eslint/no-unused-vars': ['error', { argsIgnorePattern: '^_' }],
+            '@typescript-eslint/ban-ts-comment': 'warn',
+            '@typescript-eslint/consistent-type-definitions': ['error', 'interface'],
+        },
+    },
+    // TypeScript support for test files (without project requirement)
+    {
+        files: ['**/*.test.ts', '**/*.spec.ts', '**/test/**/*.ts', '**/tests/**/*.ts'],
+        languageOptions: {
+            parser: tseslintParser,
+            parserOptions: {
+                ecmaVersion: 'latest',
+                sourceType: 'module',
+            },
+        },
+        plugins: {
+            '@typescript-eslint': tseslintPlugin,
+        },
+        rules: {
             '@typescript-eslint/no-explicit-any': 'warn',
             '@typescript-eslint/no-unused-vars': ['error', { argsIgnorePattern: '^_' }],
             '@typescript-eslint/ban-ts-comment': 'warn',

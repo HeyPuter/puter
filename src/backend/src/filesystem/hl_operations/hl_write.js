@@ -33,6 +33,7 @@ const { HLFilesystemOperation } = require("./definitions");
 const { MkTree } = require("./hl_mkdir");
 const { Actor } = require("../../services/auth/Actor");
 const { LLCWrite, LLOWrite } = require("../ll_operations/ll_write");
+const { sendFSNew } = require("../../routers/filesystem_api/fs_tree_manager/common");
 
 class WriteCommonFeature {
     install_in_instance (instance) {
@@ -429,6 +430,22 @@ class HLWrite extends HLFilesystemOperation {
         this.checkpoint('after await stable entry');
         const response = await this.written.getSafeEntry({ thumbnail: true });
         this.checkpoint('after get safe entry');
+
+        // ================== client-replica hook start ==================
+        // "write" hook
+        (async () => {
+            try {
+                const user_id = values?.user?.id;
+                if ( ! user_id ) {
+                    console.error('user_id is missing');
+                    return;
+                }
+                await sendFSNew(user_id, response);
+            } catch( e ) {
+                console.error(e);
+            }
+        })();
+        // ================== client-replica hook end ====================
 
         return response;
     }

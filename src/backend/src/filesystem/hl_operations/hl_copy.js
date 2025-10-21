@@ -216,6 +216,7 @@ class HLCopy extends HLFilesystemOperation {
 
         await this.copied.awaitStableEntry();
         const response = await this.copied.getSafeEntry({ thumbnail: true });
+        
         return {
             copied : response,
             overwritten

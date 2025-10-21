@@ -276,13 +276,43 @@ class WebServerService extends BaseService {
             }
         });
 
+        console.log('[xiaochen-debug] socketio.use done');
+
         const context = Context.get();
         socketio.on('connection', (socket) => {
+            console.log('[xiaochen-debug] socketio.on connection handler done');
+
             socket.on('disconnect', () => {
             });
             socket.on('trash.is_empty', (msg) => {
                 socket.broadcast.to(socket.user.id).emit('trash.is_empty', msg);
             });
+            
+            // ======================================================================
+            // client-replica related handlers
+            // ======================================================================
+            if (config.services?.['client-replica']?.enabled) {
+                const replicaFetchHandler = require('../../routers/filesystem_api/fs_tree_manager/fetch_replica');
+                if (replicaFetchHandler.event && replicaFetchHandler.handler) {
+                    socket.on(replicaFetchHandler.event, (data) => {
+                        replicaFetchHandler.handler(socket, data);
+                    });
+                    console.log('[xiaochen-debug] event registered: replica/fetch');
+                }
+
+                const replicaPullDiffHandler = require('../../routers/filesystem_api/fs_tree_manager/pull_diff');
+                if (replicaPullDiffHandler.event && replicaPullDiffHandler.handler) {
+                    socket.on(replicaPullDiffHandler.event, (data) => {
+                        replicaPullDiffHandler.handler(socket, data);
+                    });
+                    console.log('[xiaochen-debug] event registered: replica/pull_diff');
+                }
+            }
+
+            // ======================================================================
+            // other handlers
+            // ======================================================================
+            
             const svc_event = this.services.get('event');
             svc_event.emit('web.socket.connected', {
                 socket,

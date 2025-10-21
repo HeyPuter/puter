@@ -45,10 +45,28 @@ jsconfig.json
 # the exact tree installed in the node_modules folder
 package-lock.json
 
+# ======================================================================
+# fs tree manager
+# ======================================================================
+src/fs_tree_manager/config.yaml
+
+# ======================================================================
+# playwright test (currently only test the client-replica)
+# ======================================================================
+tests/client-config.yaml
+
+# ======================================================================
+# auto-generated js and js.map files
+# ======================================================================
+src/puter-js/src/modules/FileSystem/replica/manager.js
+src/puter-js/src/modules/FileSystem/replica/manager.js.map
+
+# ======================================================================
+# other
+# ======================================================================
 # AI STUFF
 AGENTS.md
 .roo
-
 
 # source maps
 *.map

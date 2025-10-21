@@ -40,9 +40,33 @@ const deleteFSEntry = async function(...args) {
         // create xhr object
         const xhr = utils.initXhr('/delete', this.APIOrigin, this.authToken);
 
-        // set up event handlers for load and error events
-        utils.setupXhrEventHandlers(xhr, options.success, options.error, resolve, reject);
+        const originalSuccess = options.success;
+        const wrappedSuccess = (...args) => {
+            if ( originalSuccess ) {
+                originalSuccess(...args);
+            }
 
+            // ================== client-replica hook start ==================
+            if ( puter.fs.replica.available ) {
+                for ( const path of paths ) {
+                    if ( puter.fs.replica.debug ) {
+                        console.log('local deleteFSEntry hook, path:', path);
+                    }
+                    const fs_entry = puter.fs.replica.fs_tree.findNodeByPath(path);
+                    if ( !fs_entry ) {
+                        console.error('client-replica: fs_entry not found, path:', path);
+                        continue;
+                    }
+                    puter.fs.replica.fs_tree.removeFSEntry(fs_entry.uuid);
+                    puter.fs.replica.last_local_update = Date.now();
+                }
+            }
+            // ================== client-replica hook end ====================
+        };
+
+        // set up event handlers for load and error events
+        utils.setupXhrEventHandlers(xhr, wrappedSuccess, options.error, resolve, reject);
+        
         // convert paths to absolute paths
         paths = paths.map((path) => {
             return getAbsolutePathForApp(path);
