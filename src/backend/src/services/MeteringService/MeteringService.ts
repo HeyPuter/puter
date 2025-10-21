@@ -1,6 +1,7 @@
+import murmurhash from 'murmurhash';
 import type { AlarmService } from '../../modules/core/AlarmService.js';
 import { SystemActorType, type Actor } from '../auth/Actor.js';
-import type { EventService } from '../EventService'; // Type-only import for TS safety
+import type { EventService } from '../EventService';
 import type { DBKVStore } from '../repositories/DBKVStore/DBKVStore';
 import type { SUService } from '../SUService.js';
 import { DEFAULT_FREE_SUBSCRIPTION, DEFAULT_TEMP_SUBSCRIPTION, GLOBAL_APP_KEY, METRICS_PREFIX, PERIOD_ESCAPE, POLICY_PREFIX } from './consts.js';
@@ -34,6 +35,18 @@ export class MeteringAndBillingService {
         return `${now.getUTCFullYear()}-${String(now.getUTCMonth() + 1).padStart(2, '0')}`;
     }
 
+    /**
+     * Adds some randomized number from 0-999 to the usage key to help spread writes
+     * @param userId
+     * @param appId
+     * @returns
+     */
+    #generateGloabalUsageKey(userId: string, appId: string, currentMonth: string) {
+        const hashOfUserAndApp = murmurhash.v3(`${userId}:${appId}`) % 1000;
+        const key = `${METRICS_PREFIX}:puter:${hashOfUserAndApp}:${currentMonth}`;
+        return key;
+    }
+
     // TODO DS: track daily and hourly usage as well
     async incrementUsage(actor: Actor, usageType: (keyof typeof COST_MAPS) | (string & {}), usageAmount: number, costOverride?: number) {
         try {
@@ -64,7 +77,7 @@ export class MeteringAndBillingService {
 
                 usageType = usageType.replace(/\./g, PERIOD_ESCAPE) as keyof typeof COST_MAPS; // replace dots with underscores for kvstore paths, TODO DS: map this back when reading
                 const appId = actor.type?.app?.uid || GLOBAL_APP_KEY;
-                const actorId = actor.type?.user.uuid;
+                const userId = actor.type?.user.uuid;
                 const pathAndAmountMap = {
                     'total': totalCost,
                     [`${usageType}.units`]: usageAmount,
@@ -72,13 +85,13 @@ export class MeteringAndBillingService {
                     [`${usageType}.count`]: 1,
                 };
 
-                const actorUsageKey = `${METRICS_PREFIX}:actor:${actorId}:${currentMonth}`;
+                const actorUsageKey = `${METRICS_PREFIX}:actor:${userId}:${currentMonth}`;
                 const actorUsagesPromise = this.#kvStore.incr({
                     key: actorUsageKey,
                     pathAndAmountMap,
                 }) as Promise<UsageByType>;
 
-                const puterConsumptionKey = `${METRICS_PREFIX}:puter:${currentMonth}`; // global consumption across all users and apps
+                const puterConsumptionKey = this.#generateGloabalUsageKey(userId, appId, currentMonth); // global consumption across all users and apps
                 this.#kvStore.incr({
                     key: puterConsumptionKey,
                     pathAndAmountMap,
@@ -86,7 +99,7 @@ export class MeteringAndBillingService {
                     console.warn('Failed to increment aux usage data \'puterConsumptionKey\' with error: ', e);
                 });
 
-                const actorAppUsageKey = `${METRICS_PREFIX}:actor:${actorId}:app:${appId}:${currentMonth}`;
+                const actorAppUsageKey = `${METRICS_PREFIX}:actor:${userId}:app:${appId}:${currentMonth}`;
                 this.#kvStore.incr({
                     key: actorAppUsageKey,
                     pathAndAmountMap,
@@ -102,7 +115,7 @@ export class MeteringAndBillingService {
                     console.warn('Failed to increment aux usage data \'appUsageKey\' with error: ', e);
                 });
 
-                const actorAppTotalsKey = `${METRICS_PREFIX}:actor:${actorId}:apps:${currentMonth}`;
+                const actorAppTotalsKey = `${METRICS_PREFIX}:actor:${userId}:apps:${currentMonth}`;
                 this.#kvStore.incr({
                     key: actorAppTotalsKey,
                     pathAndAmountMap: {
@@ -113,7 +126,7 @@ export class MeteringAndBillingService {
                     console.warn('Failed to increment aux usage data \'actorAppTotalsKey\' with error: ', e);
                 });
 
-                const lastUpdatedKey = `${METRICS_PREFIX}:actor:${actorId}:lastUpdated`;
+                const lastUpdatedKey = `${METRICS_PREFIX}:actor:${userId}:lastUpdated`;
                 this.#kvStore.set({
                     key: lastUpdatedKey,
                     value: Date.now(),
@@ -132,7 +145,7 @@ export class MeteringAndBillingService {
 
                     if ( overageUsage > 0 ) {
                         await this.#kvStore.incr({
-                            key: `${POLICY_PREFIX}:actor:${actorId}:addons`,
+                            key: `${POLICY_PREFIX}:actor:${userId}:addons`,
                             pathAndAmountMap: {
                                 consumedPurchaseCredits: Math.min(overageUsage, actorAddons.purchasedCredits - (actorAddons.consumedPurchaseCredits || 0)), // don't go over the purchased credits, technically a race condition here, but optimistically rare
                             },
@@ -140,8 +153,13 @@ export class MeteringAndBillingService {
                     }
                 }
                 // alert if significantly over allowance and no purchased credits left
-                if ( actorUsages.total > (actorSubscription.monthUsageAllowance) * 2 && (actorAddons.purchasedCredits || 0) <= (actorAddons.consumedPurchaseCredits || 0) ) {
-                    this.#alarmService.create('metering-service-usage-limit-exceeded', `Actor ${actorId} has exceeded their usage allowance significantly`, {
+                const allowedUsageMultiple = Math.floor(actorUsages.total / actorSubscription.monthUsageAllowance);
+                const previousAllowedUsageMultiple = Math.floor((actorUsages.total - totalCost) / actorSubscription.monthUsageAllowance);
+                const isOver2x = allowedUsageMultiple >= 2;
+                const isChangeOverPastOverage = previousAllowedUsageMultiple < allowedUsageMultiple;
+                const hasNoAddonCredit = (actorAddons.purchasedCredits || 0) <= (actorAddons.consumedPurchaseCredits || 0);
+                if ( isOver2x && isChangeOverPastOverage && hasNoAddonCredit ) {
+                    this.#alarmService.create('metering-service-usage-limit-exceeded', `Actor ${userId} has exceeded their usage allowance significantly`, {
                         actor,
                         usageType,
                         usageAmount,
