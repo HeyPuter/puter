@@ -16,153 +16,152 @@
  * You should have received a copy of the GNU Affero General Public License
  * along with this program.  If not, see <https://www.gnu.org/licenses/>.
  */
-const APIError = require("../../api/APIError");
-const { Sequence } = require("../../codex/Sequence");
-const { MemoryFSProvider } = require("../../modules/puterfs/customfs/MemoryFSProvider");
+const APIError = require('../../api/APIError');
+const { get_user } = require('../../helpers');
+const { MemoryFSProvider } = require('../../modules/puterfs/customfs/MemoryFSProvider');
+const { UserActorType } = require('../../services/auth/Actor');
+const { Actor } = require('../../services/auth/Actor');
+const { DB_WRITE } = require('../../services/database/consts');
+const { Context } = require('../../util/context');
+const { buffer_to_stream } = require('../../util/streamutil');
+const { TYPE_SYMLINK, TYPE_DIRECTORY } = require('../FSNodeContext');
+const { LLFilesystemOperation } = require('./definitions');
 
-const { DB_WRITE } = require("../../services/database/consts");
-const { buffer_to_stream } = require("../../util/streamutil");
-const { TYPE_SYMLINK, TYPE_DIRECTORY } = require("../FSNodeContext");
-const { LLFilesystemOperation } = require("./definitions");
-
-const dry_checks = [
-        async function check_ACL_for_read (a) {
-            if ( a.get('no_acl') ) return;
-            const context = a.iget('context');
-            const svc_acl = context.get('services').get('acl');
-            const { fsNode, actor } = a.values();
-            if ( ! await svc_acl.check(actor, fsNode, 'read') ) {
-                throw await svc_acl.get_safe_acl_error(actor, fsNode, 'read');
-            }
-        },
-        async function type_check_for_read (a) {
-            const fsNode = a.get('fsNode');
-            if ( await fsNode.get('type') === TYPE_DIRECTORY ) {
-                throw APIError.create('cannot_read_a_directory');
-            }
-        },
-];
+const checkACLForRead = async (aclService, actor, fsNode, skip = false) => {
+    if ( skip ) {
+        return;
+    }
+    if ( !await aclService.check(actor, fsNode, 'read') ) {
+        throw await aclService.get_safe_acl_error(actor, fsNode, 'read');
+    }
+};
+const typeCheckForRead = async (fsNode) => {
+    if ( await fsNode.get('type') === TYPE_DIRECTORY ) {
+        throw APIError.create('cannot_read_a_directory');
+    }
+};
 
 class LLRead extends LLFilesystemOperation {
     static CONCERN = 'filesystem';
-    static METHODS = {
-        _run: new Sequence({
-            async before_each (a, step) {
-                const operation = a.iget();
-                operation.checkpoint('step:' + step.name);
+    async _run({ fsNode, no_acl, actor, offset, length, range, version_id } = {}){
+        // extract services from context
+        const aclService = Context.get('services').get('acl');
+        const db = Context.get('services')
+            .get('database').get(DB_WRITE, 'filesystem');
+        const fileCacheService = Context.get('services').get('file-cache');
+
+        // validate input
+        if ( !await fsNode.exists() ){
+            throw APIError.create('subject_does_not_exist');
+        }
+        // validate initial node
+        await checkACLForRead(aclService, actor, fsNode, no_acl);
+        await typeCheckForRead(fsNode);
+
+        let type = await fsNode.get('type');
+        let traversedCount = 0;
+        while ( type === TYPE_SYMLINK ) {
+            fsNode = await fsNode.getTarget();
+            type = await fsNode.get('type');
+            traversedCount++;
+        }
+
+        // validate symlink leaf node
+        if ( traversedCount > 0 ) {
+            await checkACLForRead(aclService, actor, fsNode, no_acl);
+            await typeCheckForRead(fsNode);
+        }
+
+        // calculate range inputs
+        const has_range = (
+            offset !== undefined &&
+            offset !== 0
+        ) || (
+            length !== undefined &&
+            length != await fsNode.get('size')
+        ) || range !== undefined;
+
+        // timestamp access
+        await db.write('UPDATE `fsentries` SET `accessed` = ? WHERE `id` = ?',
+                        [Date.now() / 1000, fsNode.mysql_id]);
+
+        const ownerId = await fsNode.get('user_id');
+        const ownerActor =  new Actor({
+            type: new UserActorType({
+                user: await get_user({ id: ownerId }),
+            }),
+        });
+
+        //define metering service
+
+        /** @type {import("../../services/MeteringService/MeteringService").MeteringAndBillingService} */
+        const meteringService = Context.get('services').get('meteringService').meteringAndBillingService;
+        // check file cache
+        const maybe_buffer = await fileCacheService.try_get(fsNode); // TODO DS: do we need those cache hit logs?
+        if ( maybe_buffer ) {
+            // Meter cached egress
+            // return cached stream
+            if ( has_range && (length || offset) ) {
+                meteringService.incrementUsage(ownerActor, 'filesystem:cached-egress:bytes', length);
+                return buffer_to_stream(maybe_buffer.slice(offset, offset + length));
             }
-        }, [
-            async function check_that_node_exists (a) {
-                if ( ! await a.get('fsNode').exists() ) {
-                    throw APIError.create('subject_does_not_exist');
+            meteringService.incrementUsage(ownerActor, 'filesystem:cached-egress:bytes', await fsNode.get('size'));
+            return buffer_to_stream(maybe_buffer);
+        }
+
+        // if no cache attempt reading from storageProvider (s3)
+        const svc_mountpoint = Context.get('services').get('mountpoint');
+        const provider = await svc_mountpoint.get_provider(fsNode.selector);
+        const storage = svc_mountpoint.get_storage(provider.constructor.name);
+
+        // Empty object here is in the case of local fiesystem,
+        // where s3:location will return null.
+        // TODO: storage interface shouldn't have S3-specific properties.
+        const location = await fsNode.get('s3:location') ?? {};
+        const stream = (await storage.create_read_stream(await fsNode.get('uid'), {
+            // TODO: fs:decouple-s3
+            bucket: location.bucket,
+            bucket_region: location.bucket_region,
+            version_id,
+            key: location.key,
+            memory_file: fsNode.entry,
+            ...(range ? { range } : (has_range ? {
+                range: `bytes=${offset}-${offset + length - 1}`,
+            } : {})),
+        }));
+
+        // Meter ingress
+        const size = await (async () => {
+            if ( range ){
+                const match = range.match(/bytes=(\d+)-(\d+)/);
+                if ( match ) {
+                    const start = parseInt(match[1], 10);
+                    const end = parseInt(match[2], 10);
+                    return end - start + 1;
                 }
-            },
-            ...dry_checks,
-            async function resolve_symlink (a) {
-                let fsNode = a.get('fsNode');
-                let type = await fsNode.get('type');
-                while ( type === TYPE_SYMLINK ) {
-                    fsNode = await fsNode.getTarget();
-                    type = await fsNode.get('type');
+            }
+            if ( has_range ) {
+                return length;
+            }
+            return await fsNode.get('size');
+        })();
+        meteringService.incrementUsage(ownerActor, 'filesystem:egress:bytes', size);
+
+        // cache if whole file read
+        if ( !has_range ) {
+            // only cache for non-memoryfs providers
+            if ( ! (fsNode.provider instanceof MemoryFSProvider) ) {
+                const res = await fileCacheService.maybe_store(fsNode, stream);
+                if ( res.stream ) {
+                    // return with split cached stream
+                    return res.stream;
                 }
-                a.set('fsNode', fsNode);
-            },
-            ...dry_checks,
-            async function calculate_has_range (a) {
-                const { offset, length, range } = a.values();
-                const fsNode = a.get('fsNode');
-                const has_range = (
-                    offset !== undefined &&
-                    offset !== 0
-                ) || (
-                    length !== undefined &&
-                    length != await fsNode.get('size')
-                ) || range !== undefined;
-                a.set('has_range', has_range);
-            },
-            async function update_accessed (a) {
-                const context = a.iget('context');
-                const db = context.get('services')
-                    .get('database').get(DB_WRITE, 'filesystem');
-
-                const fsNode = a.get('fsNode');
-
-                await db.write(
-                    'UPDATE `fsentries` SET `accessed` = ? WHERE `id` = ?',
-                    [Date.now()/1000, fsNode.mysql_id]
-                );
-            },
-            async function check_for_cached_copy (a) {
-                const context = a.iget('context');
-                const svc_fileCache = context.get('services').get('file-cache');
-
-                const { fsNode, offset, length } = a.values();
-
-                const maybe_buffer = await svc_fileCache.try_get(fsNode, a.log);
-                if ( maybe_buffer ) {
-                    a.log.cache(true, 'll_read');
-                    const { has_range } = a.values();
-                    if ( has_range && (length || offset) ) {
-                        return a.stop(
-                            buffer_to_stream(maybe_buffer.slice(offset, offset+length))
-                        );
-                    }
-                    return a.stop(
-                        buffer_to_stream(maybe_buffer)
-                    );
-                }
-
-                a.log.cache(false, 'll_read');
-            },
-            async function create_S3_read_stream (a) {
-                const context = a.iget('context');
-
-                const { fsNode, version_id, offset, length, has_range, range } = a.values();
-
-                const svc_mountpoint = context.get('services').get('mountpoint');
-                const provider = await svc_mountpoint.get_provider(fsNode.selector);
-                const storage = svc_mountpoint.get_storage(provider.constructor.name);
-
-                // Empty object here is in the case of local fiesystem,
-                // where s3:location will return null.
-                // TODO: storage interface shouldn't have S3-specific properties.
-                const location = await fsNode.get('s3:location') ?? {};
-
-                const stream = (await storage.create_read_stream(await fsNode.get('uid'), {
-                    // TODO: fs:decouple-s3
-                    bucket: location.bucket,
-                    bucket_region: location.bucket_region,
-                    version_id,
-                    key: location.key,
-                    memory_file: fsNode.entry,
-                    ...(range? {range} : (has_range ? {
-                        range: `bytes=${offset}-${offset+length-1}`
-                    } : {})),
-                }));
-
-                a.set('stream', stream);
-            },
-            async function store_in_cache (a) {
-                const context = a.iget('context');
-                const svc_fileCache = context.get('services').get('file-cache');
-
-                const { fsNode, stream, has_range, range} = a.values();
-
-                if ( ! has_range ) {
-                    // only cache for non-memoryfs providers
-                    if ( ! (fsNode.provider instanceof MemoryFSProvider) ) {
-                        const res = await svc_fileCache.maybe_store(fsNode, stream);
-                        if ( res.stream ) a.set('stream', res.stream);
-                    }
-                }
-            },
-            async function return_stream (a) {
-                return a.get('stream');
-            },
-        ]),
-    };
+            }
+        }
+        return stream;
+    }
 }
 
 module.exports = {
-    LLRead
+    LLRead,
 };
