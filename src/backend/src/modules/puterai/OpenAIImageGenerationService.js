@@ -76,12 +76,22 @@ class OpenAIImageGenerationService extends BaseService {
     * @returns {Promise<void>}
     */
     async _init() {
-        const sk_key =
-            this.config?.openai?.secret_key ??
-            this.global_config.openai?.secret_key;
+        let apiKey =
+            this.config?.services?.openai?.apiKey ??
+            this.global_config?.services?.openai?.apiKey;
+
+        if ( !apiKey ) {
+            apiKey =
+                this.config?.openai?.secret_key ??
+                this.global_config.openai?.secret_key;
+
+            // Log a warning to inform users about the deprecated format
+            console.warn('The `openai.secret_key` configuration format is deprecated. ' +
+                'Please use `services.openai.apiKey` instead.');
+        }
 
         this.openai = new this.modules.openai.OpenAI({
-            apiKey: sk_key,
+            apiKey,
         });
     }
 
