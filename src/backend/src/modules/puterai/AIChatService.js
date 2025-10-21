@@ -324,6 +324,7 @@ class AIChatService extends BaseService {
 
                 if ( ! test_mode && ! await this.moderate(parameters) ) {
                     test_mode = true;
+                    throw APIError.create('moderation_failed');
                 }
 
                 if ( ! test_mode ) {
@@ -622,6 +623,7 @@ class AIChatService extends BaseService {
     * Returns true if OpenAI service is unavailable or all messages pass moderation.
     */
     async moderate({ messages }) {
+        if ( process.env.TEST_MODERATION_FAILURE ) return false;
         for ( const msg of messages ) {
             const texts = [];
 

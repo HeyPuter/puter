@@ -509,6 +509,12 @@ module.exports = class APIError {
             status: 400,
             message: ({ engine, valid_engines }) => `Invalid engine: ${quot(engine)}. Valid engines are: ${valid_engines.map(quot).join(', ')}.`,
         },
+        
+        // Abuse prevention
+        'moderation_failed': {
+            status: 422,
+            message: `Content moderation failed`,
+        },
     };
 
     /**
