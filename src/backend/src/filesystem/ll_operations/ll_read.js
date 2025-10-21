@@ -27,7 +27,10 @@ const { buffer_to_stream } = require('../../util/streamutil');
 const { TYPE_SYMLINK, TYPE_DIRECTORY } = require('../FSNodeContext');
 const { LLFilesystemOperation } = require('./definitions');
 
-const checkACLForRead = async (aclService, actor, fsNode) => {
+const checkACLForRead = async (aclService, actor, fsNode, skip = false) => {
+    if ( skip ) {
+        return;
+    }
     if ( !await aclService.check(actor, fsNode, 'read') ) {
         throw await aclService.get_safe_acl_error(actor, fsNode, 'read');
     }
@@ -51,11 +54,10 @@ class LLRead extends LLFilesystemOperation {
         if ( !await fsNode.exists() ){
             throw APIError.create('subject_does_not_exist');
         }
-        if ( no_acl ) return;
-
         // validate initial node
-        await checkACLForRead(aclService, actor, fsNode);
+        await checkACLForRead(aclService, actor, fsNode, no_acl);
         await typeCheckForRead(fsNode);
+
         let type = await fsNode.get('type');
         while ( type === TYPE_SYMLINK ) {
             fsNode = await fsNode.getTarget();
