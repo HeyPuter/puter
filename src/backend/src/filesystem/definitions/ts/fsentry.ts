@@ -9,12 +9,24 @@ import { BinaryReader, BinaryWriter } from "@bufbuild/protobuf/wire";
 
 export const protobufPackage = "";
 
+/**
+ * The FSEntry from client's (puter-js, http API) perspective, it's used for
+ * - end to end test
+ * - backend logic
+ * - communication between servers
+ */
 export interface FSEntry {
   uuid: string;
+  /** Same as uuid, used for backward compatibility. */
+  uid: string;
   name: string;
   path: string;
-  parentUuid: string;
-  isDir: boolean;
+  parent_uuid: string;
+  /** Same as parent_uuid, used for backward compatibility. */
+  parent_uid: string;
+  /** Same as parent_uuid, used for backward compatibility. */
+  parent_id: string;
+  is_dir: boolean;
   created: number;
   modified: number;
   accessed: number;
@@ -22,7 +34,20 @@ export interface FSEntry {
 }
 
 function createBaseFSEntry(): FSEntry {
-  return { uuid: "", name: "", path: "", parentUuid: "", isDir: false, created: 0, modified: 0, accessed: 0, size: 0 };
+  return {
+    uuid: "",
+    uid: "",
+    name: "",
+    path: "",
+    parent_uuid: "",
+    parent_uid: "",
+    parent_id: "",
+    is_dir: false,
+    created: 0,
+    modified: 0,
+    accessed: 0,
+    size: 0,
+  };
 }
 
 export const FSEntry: MessageFns<FSEntry> = {
@@ -30,29 +55,38 @@ export const FSEntry: MessageFns<FSEntry> = {
     if (message.uuid !== "") {
       writer.uint32(10).string(message.uuid);
     }
+    if (message.uid !== "") {
+      writer.uint32(18).string(message.uid);
+    }
     if (message.name !== "") {
-      writer.uint32(18).string(message.name);
+      writer.uint32(26).string(message.name);
     }
     if (message.path !== "") {
-      writer.uint32(26).string(message.path);
+      writer.uint32(34).string(message.path);
     }
-    if (message.parentUuid !== "") {
-      writer.uint32(34).string(message.parentUuid);
+    if (message.parent_uuid !== "") {
+      writer.uint32(42).string(message.parent_uuid);
     }
-    if (message.isDir !== false) {
-      writer.uint32(40).bool(message.isDir);
+    if (message.parent_uid !== "") {
+      writer.uint32(50).string(message.parent_uid);
+    }
+    if (message.parent_id !== "") {
+      writer.uint32(58).string(message.parent_id);
+    }
+    if (message.is_dir !== false) {
+      writer.uint32(64).bool(message.is_dir);
     }
     if (message.created !== 0) {
-      writer.uint32(48).int64(message.created);
+      writer.uint32(72).int64(message.created);
     }
     if (message.modified !== 0) {
-      writer.uint32(56).int64(message.modified);
+      writer.uint32(80).int64(message.modified);
     }
     if (message.accessed !== 0) {
-      writer.uint32(64).int64(message.accessed);
+      writer.uint32(88).int64(message.accessed);
     }
     if (message.size !== 0) {
-      writer.uint32(72).int64(message.size);
+      writer.uint32(96).int64(message.size);
     }
     return writer;
   },
@@ -77,7 +111,7 @@ export const FSEntry: MessageFns<FSEntry> = {
             break;
           }
 
-          message.name = reader.string();
+          message.uid = reader.string();
           continue;
         }
         case 3: {
@@ -85,7 +119,7 @@ export const FSEntry: MessageFns<FSEntry> = {
             break;
           }
 
-          message.path = reader.string();
+          message.name = reader.string();
           continue;
         }
         case 4: {
@@ -93,31 +127,31 @@ export const FSEntry: MessageFns<FSEntry> = {
             break;
           }
 
-          message.parentUuid = reader.string();
+          message.path = reader.string();
           continue;
         }
         case 5: {
-          if (tag !== 40) {
+          if (tag !== 42) {
             break;
           }
 
-          message.isDir = reader.bool();
+          message.parent_uuid = reader.string();
           continue;
         }
         case 6: {
-          if (tag !== 48) {
+          if (tag !== 50) {
             break;
           }
 
-          message.created = longToNumber(reader.int64());
+          message.parent_uid = reader.string();
           continue;
         }
         case 7: {
-          if (tag !== 56) {
+          if (tag !== 58) {
             break;
           }
 
-          message.modified = longToNumber(reader.int64());
+          message.parent_id = reader.string();
           continue;
         }
         case 8: {
@@ -125,11 +159,35 @@ export const FSEntry: MessageFns<FSEntry> = {
             break;
           }
 
-          message.accessed = longToNumber(reader.int64());
+          message.is_dir = reader.bool();
           continue;
         }
         case 9: {
           if (tag !== 72) {
+            break;
+          }
+
+          message.created = longToNumber(reader.int64());
+          continue;
+        }
+        case 10: {
+          if (tag !== 80) {
+            break;
+          }
+
+          message.modified = longToNumber(reader.int64());
+          continue;
+        }
+        case 11: {
+          if (tag !== 88) {
+            break;
+          }
+
+          message.accessed = longToNumber(reader.int64());
+          continue;
+        }
+        case 12: {
+          if (tag !== 96) {
             break;
           }
 
@@ -148,10 +206,13 @@ export const FSEntry: MessageFns<FSEntry> = {
   fromJSON(object: any): FSEntry {
     return {
       uuid: isSet(object.uuid) ? globalThis.String(object.uuid) : "",
+      uid: isSet(object.uid) ? globalThis.String(object.uid) : "",
       name: isSet(object.name) ? globalThis.String(object.name) : "",
       path: isSet(object.path) ? globalThis.String(object.path) : "",
-      parentUuid: isSet(object.parentUuid) ? globalThis.String(object.parentUuid) : "",
-      isDir: isSet(object.isDir) ? globalThis.Boolean(object.isDir) : false,
+      parent_uuid: isSet(object.parent_uuid) ? globalThis.String(object.parent_uuid) : "",
+      parent_uid: isSet(object.parent_uid) ? globalThis.String(object.parent_uid) : "",
+      parent_id: isSet(object.parent_id) ? globalThis.String(object.parent_id) : "",
+      is_dir: isSet(object.is_dir) ? globalThis.Boolean(object.is_dir) : false,
       created: isSet(object.created) ? globalThis.Number(object.created) : 0,
       modified: isSet(object.modified) ? globalThis.Number(object.modified) : 0,
       accessed: isSet(object.accessed) ? globalThis.Number(object.accessed) : 0,
@@ -164,17 +225,26 @@ export const FSEntry: MessageFns<FSEntry> = {
     if (message.uuid !== "") {
       obj.uuid = message.uuid;
     }
+    if (message.uid !== "") {
+      obj.uid = message.uid;
+    }
     if (message.name !== "") {
       obj.name = message.name;
     }
     if (message.path !== "") {
       obj.path = message.path;
     }
-    if (message.parentUuid !== "") {
-      obj.parentUuid = message.parentUuid;
+    if (message.parent_uuid !== "") {
+      obj.parent_uuid = message.parent_uuid;
     }
-    if (message.isDir !== false) {
-      obj.isDir = message.isDir;
+    if (message.parent_uid !== "") {
+      obj.parent_uid = message.parent_uid;
+    }
+    if (message.parent_id !== "") {
+      obj.parent_id = message.parent_id;
+    }
+    if (message.is_dir !== false) {
+      obj.is_dir = message.is_dir;
     }
     if (message.created !== 0) {
       obj.created = Math.round(message.created);
@@ -197,10 +267,13 @@ export const FSEntry: MessageFns<FSEntry> = {
   fromPartial(object: DeepPartial<FSEntry>): FSEntry {
     const message = createBaseFSEntry();
     message.uuid = object.uuid ?? "";
+    message.uid = object.uid ?? "";
     message.name = object.name ?? "";
     message.path = object.path ?? "";
-    message.parentUuid = object.parentUuid ?? "";
-    message.isDir = object.isDir ?? false;
+    message.parent_uuid = object.parent_uuid ?? "";
+    message.parent_uid = object.parent_uid ?? "";
+    message.parent_id = object.parent_id ?? "";
+    message.is_dir = object.is_dir ?? false;
     message.created = object.created ?? 0;
     message.modified = object.modified ?? 0;
     message.accessed = object.accessed ?? 0;
