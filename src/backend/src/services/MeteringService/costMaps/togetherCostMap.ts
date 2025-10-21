@@ -7,6 +7,6 @@
 
 export const TOGETHER_COST_MAP = {
     // Test model (hardcoded)
-    'together:model-fallback-test-1:input': 10,
-    'together:model-fallback-test-1:output': 10,
+    "together:model-fallback-test-1:input": 10,
+    "together:model-fallback-test-1:output": 10,
 };
