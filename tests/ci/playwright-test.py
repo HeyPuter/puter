@@ -208,6 +208,9 @@ def run():
         work_dir=f"{PUTER_ROOT}/src/fs_tree_manager",
         log_path="/tmp/fs-tree-manager.log",
     )
+
+    # NB: "go mod download" and "go run server.go" may take a long time in github
+    # action environment, I don't know why.
     time.sleep(60)
 
     # =========================================================================
