@@ -174,7 +174,7 @@ class Auth{
 
     async getMonthlyUsage() {
         try {
-            const resp = await fetch(`${this.APIOrigin}/meteringAndBilling/usage`, {
+            const resp = await fetch(`${this.APIOrigin}/metering/usage`, {
                 headers: {
                     Authorization: `Bearer ${this.authToken}`,
                 },
@@ -216,7 +216,7 @@ class Auth{
         }
 
         try {
-            const resp = await fetch(`${this.APIOrigin}/meteringAndBilling/usage/${appId}`, {
+            const resp = await fetch(`${this.APIOrigin}/metering/usage/${appId}`, {
                 headers: {
                     Authorization: `Bearer ${this.authToken}`,
                 },

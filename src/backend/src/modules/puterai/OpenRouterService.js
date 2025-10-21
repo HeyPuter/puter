@@ -18,10 +18,10 @@
  */
 
 // METADATA // {"ai-commented":{"service":"claude"}}
-const APIError = require("../../api/APIError");
-const BaseService = require("../../services/BaseService");
-const OpenAIUtil = require("./lib/OpenAIUtil");
-const { Context } = require("../../util/context");
+const APIError = require('../../api/APIError');
+const BaseService = require('../../services/BaseService');
+const OpenAIUtil = require('./lib/OpenAIUtil');
+const { Context } = require('../../util/context');
 
 /**
 * XAIService class - Provides integration with X.AI's API for chat completions
@@ -46,8 +46,8 @@ class OpenRouterService extends BaseService {
         return model;
     }
 
-    /** @type {import('../../services/MeteringService/MeteringService').MeteringAndBillingService} */
-    meteringAndBillingService;
+    /** @type {import('../../services/MeteringService/MeteringService').MeteringService} */
+    meteringService;
 
     /**
     * Initializes the XAI service by setting up the OpenAI client and registering with the AI chat provider
@@ -67,7 +67,7 @@ class OpenRouterService extends BaseService {
             service_name: this.service_name,
             alias: true,
         });
-        this.meteringAndBillingService = this.services.get('meteringService').meteringAndBillingService; // TODO DS: move to proper extensions
+        this.meteringService = this.services.get('meteringService').meteringService; // TODO DS: move to proper extensions
     }
 
     /**
@@ -152,7 +152,7 @@ class OpenRouterService extends BaseService {
                         const costOverwrites = Object.fromEntries(Object.keys(trackedUsage).map((k) => {
                             return [k, rawPriceModelDetails.cost[k] * trackedUsage[k]];
                         }));
-                        this.meteringAndBillingService.utilRecordUsageObject(trackedUsage, actor, modelDetails.id, costOverwrites);
+                        this.meteringService.utilRecordUsageObject(trackedUsage, actor, modelDetails.id, costOverwrites);
                         const legacyCostCalculator = OpenAIUtil.create_usage_calculator({
                             model_details: modelDetails,
                         });

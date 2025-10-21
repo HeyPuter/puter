@@ -18,10 +18,10 @@
  */
 
 // METADATA // {"ai-commented":{"service":"claude"}}
-const APIError = require("../../api/APIError");
-const BaseService = require("../../services/BaseService");
-const { TypedValue } = require("../../services/drivers/meta/Runtime");
-const { Context } = require("../../util/context");
+const APIError = require('../../api/APIError');
+const BaseService = require('../../services/BaseService');
+const { TypedValue } = require('../../services/drivers/meta/Runtime');
+const { Context } = require('../../util/context');
 
 /**
 * Service class for generating images using OpenAI's DALL-E API.
@@ -31,9 +31,9 @@ const { Context } = require("../../util/context");
 * validation, and spending tracking.
 */
 class OpenAIImageGenerationService extends BaseService {
-    /** @type {import('../../services/MeteringService/MeteringService').MeteringAndBillingService} */
-    get meteringAndBillingService(){
-        return this.services.get('meteringService').meteringAndBillingService;
+    /** @type {import('../../services/MeteringService/MeteringService').MeteringService} */
+    get meteringService(){
+        return this.services.get('meteringService').meteringService;
     }
 
     static MODULES = {
@@ -43,15 +43,15 @@ class OpenAIImageGenerationService extends BaseService {
     _construct() {
         this.models_ = {
             'gpt-image-1': {
-                "low:1024x1024": 0.011,
-                "low:1024x1536": 0.016,
-                "low:1536x1024": 0.016,
-                "medium:1024x1024": 0.042,
-                "medium:1024x1536": 0.063,
-                "medium:1536x1024": 0.063,
-                "high:1024x1024": 0.167,
-                "high:1024x1536": 0.25,
-                "high:1536x1024": 0.25,
+                'low:1024x1024': 0.011,
+                'low:1024x1536': 0.016,
+                'low:1536x1024': 0.016,
+                'medium:1024x1024': 0.042,
+                'medium:1024x1536': 0.063,
+                'medium:1536x1024': 0.063,
+                'high:1024x1024': 0.167,
+                'high:1024x1536': 0.25,
+                'high:1536x1024': 0.25,
             },
             'dall-e-3': {
                 '1024x1024': 0.04,
@@ -193,7 +193,7 @@ class OpenAIImageGenerationService extends BaseService {
         }
 
         const usageType = `openai:${model}:${price_key}`;
-        const usageAllowed = await this.meteringAndBillingService.hasEnoughCreditsFor(actor, usageType, 1);
+        const usageAllowed = await this.meteringService.hasEnoughCreditsFor(actor, usageType, 1);
 
         if ( ! usageAllowed ) {
             throw APIError.create('insufficient_funds');
@@ -210,7 +210,7 @@ class OpenAIImageGenerationService extends BaseService {
         const result = await this.openai.images.generate(apiParams);
 
         // For image generation, usage is typically image count and resolution
-        this.meteringAndBillingService.incrementUsage(actor, usageType, 1);
+        this.meteringService.incrementUsage(actor, usageType, 1);
 
         const spending_meta = {
             model,
@@ -218,10 +218,10 @@ class OpenAIImageGenerationService extends BaseService {
         };
 
         if ( quality ) {
-            spending_meta.size = quality + ":" + spending_meta.size;
+            spending_meta.size = quality + ':' + spending_meta.size;
         }
 
-        const url = result.data?.[0]?.url || (result.data?.[0]?.b64_json ? "data:image/png;base64," + result.data[0].b64_json : null);
+        const url = result.data?.[0]?.url || (result.data?.[0]?.b64_json ? 'data:image/png;base64,' + result.data[0].b64_json : null);
 
         if ( !url ) {
             throw new Error('Failed to extract image URL from OpenAI response');

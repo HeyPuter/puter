@@ -5,20 +5,20 @@ import APIError from '../../../api/APIError.js';
 // eslint-disable-next-line @typescript-eslint/ban-ts-comment
 // @ts-ignore
 import { Context } from '../../../util/context.js';
-import type { MeteringAndBillingService } from '../../MeteringService/MeteringService.js';
+import type { MeteringService } from '../../MeteringService/MeteringService.js';
 
 const GLOBAL_APP_KEY = 'global';
 
 export class DBKVStore {
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     #db: any;
-    #meteringService: MeteringAndBillingService;
+    #meteringService: MeteringService;
     #global_config: Record<string, unknown> = {};
 
     // TODO DS: make table name configurable
-    constructor({ sqlClient, meteringAndBillingService, globalConfig }: { sqlClient: unknown, meteringAndBillingService: MeteringAndBillingService, globalConfig: Record<string, unknown> }) {
+    constructor({ sqlClient, meteringService, globalConfig }: { sqlClient: unknown, meteringService: MeteringService, globalConfig: Record<string, unknown> }) {
         this.#db = sqlClient;
-        this.#meteringService = meteringAndBillingService;
+        this.#meteringService = meteringService;
         this.#global_config = globalConfig;
     }
 

@@ -48,13 +48,13 @@ export class OpenAICompletionService {
 
     #models;
 
-    /** @type {import('../../../services/MeteringService/MeteringService.js').MeteringAndBillingService} */
-    #meteringAndBillingService;
+    /** @type {import('../../../services/MeteringService/MeteringService.js').MeteringService} */
+    #meteringService;
 
-    constructor({ serviceName, config, globalConfig, aiChatService, meteringAndBillingService, models = OPEN_AI_MODELS, defaultModel = 'gpt-4.1-nano' }) {
+    constructor({ serviceName, config, globalConfig, aiChatService, meteringService, models = OPEN_AI_MODELS, defaultModel = 'gpt-4.1-nano' }) {
         this.#models = models;
         this.#defaultModel = defaultModel;
-        this.#meteringAndBillingService = meteringAndBillingService;
+        this.#meteringService = meteringService;
         let apiKey =
             config?.services?.openai?.apiKey ??
             globalConfig?.services?.openai?.apiKey;
@@ -208,7 +208,7 @@ export class OpenAICompletionService {
                     delete task.contentPart.puter_path;
                     task.contentPart.type = 'text';
                     task.contentPart.text = `{error: input file exceeded maximum of ${MAX_FILE_SIZE} bytes; ` +
-                        `the user did not write this message}`; // "poor man's system prompt"
+                        'the user did not write this message}'; // "poor man's system prompt"
                     return; // "continue"
                 }
 
@@ -236,8 +236,8 @@ export class OpenAICompletionService {
                     };
                 } else {
                     task.contentPart.type = 'text';
-                    task.contentPart.text = `{error: input file has unsupported MIME type; ` +
-                        `the user did not write this message}`; // "poor man's system prompt"
+                    task.contentPart.text = '{error: input file has unsupported MIME type; ' +
+                        'the user did not write this message}'; // "poor man's system prompt"
                 }
             })());
         }
@@ -271,7 +271,7 @@ export class OpenAICompletionService {
                     cached_tokens: usage.prompt_tokens_details?.cached_tokens ?? 0,
                 };
 
-                this.#meteringAndBillingService.utilRecordUsageObject(trackedUsage, actor, `openai:${modelDetails.id}`);
+                this.#meteringService.utilRecordUsageObject(trackedUsage, actor, `openai:${modelDetails.id}`);
                 const legacyCostCalculator = OpenAIUtil.create_usage_calculator({
                     model_details: modelDetails,
                 });

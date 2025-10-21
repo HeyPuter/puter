@@ -18,17 +18,17 @@
  */
 
 // METADATA // {"ai-commented":{"service":"claude"}}
-const { PassThrough } = require("stream");
-const APIError = require("../../api/APIError");
-const config = require("../../config");
-const BaseService = require("../../services/BaseService");
-const { DB_WRITE } = require("../../services/database/consts");
-const { TypedValue } = require("../../services/drivers/meta/Runtime");
-const { Context } = require("../../util/context");
-const { AsModeration } = require("./lib/AsModeration");
-const FunctionCalling = require("./lib/FunctionCalling");
-const Messages = require("./lib/Messages");
-const Streaming = require("./lib/Streaming");
+const { PassThrough } = require('stream');
+const APIError = require('../../api/APIError');
+const config = require('../../config');
+const BaseService = require('../../services/BaseService');
+const { DB_WRITE } = require('../../services/database/consts');
+const { TypedValue } = require('../../services/drivers/meta/Runtime');
+const { Context } = require('../../util/context');
+const { AsModeration } = require('./lib/AsModeration');
+const FunctionCalling = require('./lib/FunctionCalling');
+const Messages = require('./lib/Messages');
+const Streaming = require('./lib/Streaming');
 
 // Maximum number of fallback attempts when a model fails, including the first attempt
 const MAX_FALLBACKS = 3 + 1; // includes first attempt
@@ -47,9 +47,9 @@ class AIChatService extends BaseService {
         cuid2: require('@paralleldrive/cuid2').createId,
     };
 
-    /** @type {import('../../services/MeteringService/MeteringService').MeteringAndBillingService} */
-    get meteringAndBillingService(){
-        return this.services.get('meteringService').meteringAndBillingService;
+    /** @type {import('../../services/MeteringService/MeteringService').MeteringService} */
+    get meteringService(){
+        return this.services.get('meteringService').meteringService;
     }
     /**
     * Initializes the service by setting up core properties.
@@ -98,7 +98,7 @@ class AIChatService extends BaseService {
             max_tokens_exceeded: {
                 status: 400,
                 message: ({ input_tokens, max_tokens }) =>
-                    `Input exceeds maximum token count. ` +
+                    'Input exceeds maximum token count. ' +
                     `Input has ${input_tokens} tokens, ` +
                     `but the maximum is ${max_tokens}.`,
             },
@@ -360,7 +360,7 @@ class AIChatService extends BaseService {
 
                 if ( ! model_details ) {
                     // TODO (xiaochen): replace with a standard link
-                    const available_models_url = this.global_config.origin + "/puterai/chat/models";
+                    const available_models_url = this.global_config.origin + '/puterai/chat/models';
 
                     throw APIError.create('field_invalid', null, {
                         key: 'model',
@@ -374,7 +374,7 @@ class AIChatService extends BaseService {
                 const model_max_tokens = model_details.max_tokens;
                 const text = Messages.extract_text(parameters.messages);
                 const approximate_input_cost = text.length / 4 * model_input_cost; // TODO DS: guesstimate tokens better,
-                const usageAllowed = await this.meteringAndBillingService.hasEnoughCredits(actor, approximate_input_cost);
+                const usageAllowed = await this.meteringService.hasEnoughCredits(actor, approximate_input_cost);
 
                 // Handle usage limits reached case
                 if ( !usageAllowed ) {
@@ -386,7 +386,7 @@ class AIChatService extends BaseService {
                 }
 
                 // available is no longer defined, so use meteringService to get available credits
-                const availableCredits = await this.meteringAndBillingService.getRemainingUsage(actor);
+                const availableCredits = await this.meteringService.getRemainingUsage(actor);
                 const max_allowed_output_amount =
                     availableCredits - approximate_input_cost;
 
@@ -482,7 +482,7 @@ class AIChatService extends BaseService {
 
                         // Check usage for fallback model too (with updated method)
                         const actor = Context.get('actor');
-                        const fallbackUsageAllowed = await this.meteringAndBillingService.hasEnoughCredits(actor, 1);
+                        const fallbackUsageAllowed = await this.meteringService.hasEnoughCredits(actor, 1);
 
                         // If usage not allowed for fallback, use usage-limited-chat instead
                         if ( !fallbackUsageAllowed ) {

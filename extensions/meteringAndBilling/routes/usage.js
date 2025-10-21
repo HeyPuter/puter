@@ -1,24 +1,24 @@
-/** @type {import('@heyputer/backend/src/services/MeteringService/MeteringServiceWrapper.mjs').MeteringAndBillingServiceWrapper} */
-const meteringAndBillingServiceWrapper = extension.import('service:meteringService');
+/** @type {import('@heyputer/backend/src/services/MeteringService/MeteringServiceWrapper.mjs').MeteringServiceWrapper} */
+const meteringServiceWrapper = extension.import('service:meteringService');
 
 // TODO DS: move this to its own router and just use under this path
-extension.get('/meteringAndBilling/usage', { subdomain: 'api' }, async (req, res) => {
-    const meteringAndBillingService = meteringAndBillingServiceWrapper.meteringAndBillingService;
+extension.get('/metering/usage', { subdomain: 'api' }, async (req, res) => {
+    const meteringService = meteringServiceWrapper.meteringService;
 
     const actor = req.actor;
     if ( !actor ) {
         throw Error('actor not found in context');
     }
-    const actorUsagePromise = meteringAndBillingService.getActorCurrentMonthUsageDetails(actor);
-    const actorAllowanceInfoPromise = meteringAndBillingService.getAllowedUsage(actor);
+    const actorUsagePromise = meteringService.getActorCurrentMonthUsageDetails(actor);
+    const actorAllowanceInfoPromise = meteringService.getAllowedUsage(actor);
 
     const [actorUsage, allowanceInfo] = await Promise.all([actorUsagePromise, actorAllowanceInfoPromise]);
     res.status(200).json({ ...actorUsage, allowanceInfo });
     return;
 });
 
-extension.get('/meteringAndBilling/usage/:appId', { subdomain: 'api' }, async (req, res) => {
-    const meteringAndBillingService = meteringAndBillingServiceWrapper.meteringAndBillingService;
+extension.get('/metering/usage/:appId', { subdomain: 'api' }, async (req, res) => {
+    const meteringService = meteringServiceWrapper.meteringService;
 
     const actor = req.actor;
     if ( !actor ) {
@@ -30,9 +30,9 @@ extension.get('/meteringAndBilling/usage/:appId', { subdomain: 'api' }, async (r
         return;
     }
 
-    const appUsage = await meteringAndBillingService.getActorCurrentMonthAppUsageDetails(actor, appId);
+    const appUsage = await meteringService.getActorCurrentMonthAppUsageDetails(actor, appId);
     res.status(200).json(appUsage);
     return;
 });
 
-console.debug('Loaded /meteringAndBilling/usage route');
+console.debug('Loaded /metering/usage route');

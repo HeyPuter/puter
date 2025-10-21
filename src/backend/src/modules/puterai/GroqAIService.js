@@ -18,11 +18,11 @@
  */
 
 // METADATA // {"ai-commented":{"service":"claude"}}
-const BaseService = require("../../services/BaseService");
-const { Context } = require("../../util/context");
-const OpenAIUtil = require("./lib/OpenAIUtil");
+const BaseService = require('../../services/BaseService');
+const { Context } = require('../../util/context');
+const OpenAIUtil = require('./lib/OpenAIUtil');
 
-/** @type {import('../../services/MeteringService/MeteringService').MeteringAndBillingService} */
+/** @type {import('../../services/MeteringService/MeteringService').MeteringService} */
 
 /**
 * Service class for integrating with Groq AI's language models.
@@ -34,8 +34,8 @@ const OpenAIUtil = require("./lib/OpenAIUtil");
 * @extends BaseService
 */
 class GroqAIService extends BaseService {
-    /** @type {import('../../services/MeteringService/MeteringService').MeteringAndBillingService} */
-    meteringAndBillingService;
+    /** @type {import('../../services/MeteringService/MeteringService').MeteringService} */
+    meteringService;
     static MODULES = {
         Groq: require('groq-sdk'),
     };
@@ -56,7 +56,7 @@ class GroqAIService extends BaseService {
             service_name: this.service_name,
             alias: true,
         });
-        this.meteringAndBillingService = this.services.get('meteringService').meteringAndBillingService; // TODO DS: move to proper extensions
+        this.meteringService = this.services.get('meteringService').meteringService; // TODO DS: move to proper extensions
     }
 
     /**
@@ -104,7 +104,7 @@ class GroqAIService extends BaseService {
                 for ( const message of messages ) {
                     // Curiously, DeepSeek has the exact same deviation
                     if ( message.tool_calls && Array.isArray(message.content) ) {
-                        message.content = "";
+                        message.content = '';
                     }
                 }
 
@@ -128,7 +128,7 @@ class GroqAIService extends BaseService {
                     },
                     usage_calculator: ({ usage }) => {
                         const trackedUsage = OpenAIUtil.extractMeteredUsage(usage);
-                        this.meteringAndBillingService.utilRecordUsageObject(trackedUsage, actor, `groq:${modelDetails.id}`);
+                        this.meteringService.utilRecordUsageObject(trackedUsage, actor, `groq:${modelDetails.id}`);
                         // Still return legacy cost calculation for compatibility
                         const legacyCostCalculator = OpenAIUtil.create_usage_calculator({
                             model_details: modelDetails,
@@ -201,38 +201,38 @@ class GroqAIService extends BaseService {
                 },
             },
             {
-                "id": "llama-3.1-70b-versatile",
-                "name": "Llama 3.1 70B Versatile 128k",
-                "context": 128000,
-                "cost": {
-                    "currency": "usd-cents",
-                    "tokens": 1000000,
-                    "input": 59,
-                    "output": 79,
+                'id': 'llama-3.1-70b-versatile',
+                'name': 'Llama 3.1 70B Versatile 128k',
+                'context': 128000,
+                'cost': {
+                    'currency': 'usd-cents',
+                    'tokens': 1000000,
+                    'input': 59,
+                    'output': 79,
                 },
             },
             {
                 // This was only available on their Discord, not
                 // on the pricing page.
-                "id": "llama-3.1-70b-specdec",
-                "name": "Llama 3.1 8B Instant 128k",
-                "context": 128000,
-                "cost": {
-                    "currency": "usd-cents",
-                    "tokens": 1000000,
-                    "input": 59,
-                    "output": 99,
+                'id': 'llama-3.1-70b-specdec',
+                'name': 'Llama 3.1 8B Instant 128k',
+                'context': 128000,
+                'cost': {
+                    'currency': 'usd-cents',
+                    'tokens': 1000000,
+                    'input': 59,
+                    'output': 99,
                 },
             },
             {
-                "id": "llama-3.1-8b-instant",
-                "name": "Llama 3.1 8B Instant 128k",
-                "context": 131072,
-                "cost": {
-                    "currency": "usd-cents",
-                    "tokens": 1000000,
-                    "input": 5,
-                    "output": 8,
+                'id': 'llama-3.1-8b-instant',
+                'name': 'Llama 3.1 8B Instant 128k',
+                'context': 131072,
+                'cost': {
+                    'currency': 'usd-cents',
+                    'tokens': 1000000,
+                    'input': 5,
+                    'output': 8,
                 },
                 max_tokens: 131072,
             },
@@ -261,25 +261,25 @@ class GroqAIService extends BaseService {
                 max_tokens: 512,
             },
             {
-                "id": "llama-3.2-1b-preview",
-                "name": "Llama 3.2 1B (Preview) 8k",
-                "context": 128000,
-                "cost": {
-                    "currency": "usd-cents",
-                    "tokens": 1000000,
-                    "input": 4,
-                    "output": 4,
+                'id': 'llama-3.2-1b-preview',
+                'name': 'Llama 3.2 1B (Preview) 8k',
+                'context': 128000,
+                'cost': {
+                    'currency': 'usd-cents',
+                    'tokens': 1000000,
+                    'input': 4,
+                    'output': 4,
                 },
             },
             {
-                "id": "llama-3.2-3b-preview",
-                "name": "Llama 3.2 3B (Preview) 8k",
-                "context": 128000,
-                "cost": {
-                    "currency": "usd-cents",
-                    "tokens": 1000000,
-                    "input": 6,
-                    "output": 6,
+                'id': 'llama-3.2-3b-preview',
+                'name': 'Llama 3.2 3B (Preview) 8k',
+                'context': 128000,
+                'cost': {
+                    'currency': 'usd-cents',
+                    'tokens': 1000000,
+                    'input': 6,
+                    'output': 6,
                 },
             },
             {
@@ -303,47 +303,47 @@ class GroqAIService extends BaseService {
                 },
             },
             {
-                "id": "llama3-70b-8192",
-                "name": "Llama 3 70B 8k",
-                "context": 8192,
-                "cost": {
-                    "currency": "usd-cents",
-                    "tokens": 1000000,
-                    "input": 59,
-                    "output": 79,
+                'id': 'llama3-70b-8192',
+                'name': 'Llama 3 70B 8k',
+                'context': 8192,
+                'cost': {
+                    'currency': 'usd-cents',
+                    'tokens': 1000000,
+                    'input': 59,
+                    'output': 79,
                 },
             },
             {
-                "id": "llama3-8b-8192",
-                "name": "Llama 3 8B 8k",
-                "context": 8192,
-                "cost": {
-                    "currency": "usd-cents",
-                    "tokens": 1000000,
-                    "input": 5,
-                    "output": 8,
+                'id': 'llama3-8b-8192',
+                'name': 'Llama 3 8B 8k',
+                'context': 8192,
+                'cost': {
+                    'currency': 'usd-cents',
+                    'tokens': 1000000,
+                    'input': 5,
+                    'output': 8,
                 },
             },
             {
-                "id": "mixtral-8x7b-32768",
-                "name": "Mixtral 8x7B Instruct 32k",
-                "context": 32768,
-                "cost": {
-                    "currency": "usd-cents",
-                    "tokens": 1000000,
-                    "input": 24,
-                    "output": 24,
+                'id': 'mixtral-8x7b-32768',
+                'name': 'Mixtral 8x7B Instruct 32k',
+                'context': 32768,
+                'cost': {
+                    'currency': 'usd-cents',
+                    'tokens': 1000000,
+                    'input': 24,
+                    'output': 24,
                 },
             },
             {
-                "id": "llama-guard-3-8b",
-                "name": "Llama Guard 3 8B 8k",
-                "context": 8192,
-                "cost": {
-                    "currency": "usd-cents",
-                    "tokens": 1000000,
-                    "input": 20,
-                    "output": 20,
+                'id': 'llama-guard-3-8b',
+                'name': 'Llama Guard 3 8B 8k',
+                'context': 8192,
+                'cost': {
+                    'currency': 'usd-cents',
+                    'tokens': 1000000,
+                    'input': 20,
+                    'output': 20,
                 },
             },
         ];

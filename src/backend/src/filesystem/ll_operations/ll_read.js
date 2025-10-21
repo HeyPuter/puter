@@ -94,8 +94,8 @@ class LLRead extends LLFilesystemOperation {
 
         //define metering service
 
-        /** @type {import("../../services/MeteringService/MeteringService").MeteringAndBillingService} */
-        const meteringService = Context.get('services').get('meteringService').meteringAndBillingService;
+        /** @type {import("../../services/MeteringService/MeteringService").MeteringService} */
+        const meteringService = Context.get('services').get('meteringService').meteringService;
         // check file cache
         const maybe_buffer = await fileCacheService.try_get(fsNode); // TODO DS: do we need those cache hit logs?
         if ( maybe_buffer ) {

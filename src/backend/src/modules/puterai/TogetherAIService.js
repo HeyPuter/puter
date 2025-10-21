@@ -18,13 +18,13 @@
  */
 
 // METADATA // {"ai-commented":{"service":"claude"}}
-const { PassThrough } = require("stream");
-const BaseService = require("../../services/BaseService");
-const { TypedValue } = require("../../services/drivers/meta/Runtime");
-const { nou } = require("../../util/langutil");
+const { PassThrough } = require('stream');
+const BaseService = require('../../services/BaseService');
+const { TypedValue } = require('../../services/drivers/meta/Runtime');
+const { nou } = require('../../util/langutil');
 const { Together } = require('together-ai');
-const OpenAIUtil = require("./lib/OpenAIUtil");
-const { Context } = require("../../util/context");
+const OpenAIUtil = require('./lib/OpenAIUtil');
+const { Context } = require('../../util/context');
 
 /**
 * TogetherAIService class provides integration with Together AI's language models.
@@ -35,9 +35,9 @@ const { Context } = require("../../util/context");
 */
 class TogetherAIService extends BaseService {
     /**
-    * @type {import('../../services/MeteringService/MeteringService').MeteringAndBillingService}
+    * @type {import('../../services/MeteringService/MeteringService').MeteringService}
     */
-    meteringAndBillingService;
+    meteringService;
     static MODULES = {
         kv: globalThis.kv,
         uuidv4: require('uuid').v4,
@@ -60,7 +60,7 @@ class TogetherAIService extends BaseService {
             service_name: this.service_name,
             alias: true,
         });
-        this.meteringAndBillingService = this.services.get('meteringService').meteringAndBillingService;
+        this.meteringService = this.services.get('meteringService').meteringService;
     }
 
     /**
@@ -133,7 +133,7 @@ class TogetherAIService extends BaseService {
                                     prompt_tokens: trackedUsage.prompt_tokens * (modelDetails?.cost?.input ?? 0),
                                     completion_tokens: trackedUsage.completion_tokens * (modelDetails?.cost?.output ?? 0),
                                 };
-                                this.meteringAndBillingService.utilRecordUsageObject(trackedUsage, actor, modelId, costOverrides);
+                                this.meteringService.utilRecordUsageObject(trackedUsage, actor, modelId, costOverrides);
                             }
 
                             if ( chunk.choices.length < 1 ) continue;
@@ -163,7 +163,7 @@ class TogetherAIService extends BaseService {
                     output_tokens: completion.usage.completion_tokens,
                 };
                 // Metering: record usage for non-streamed completion
-                this.meteringAndBillingService.utilRecordUsageObject(completion.usage, actor, modelId);
+                this.meteringService.utilRecordUsageObject(completion.usage, actor, modelId);
                 return ret;
             },
         },
