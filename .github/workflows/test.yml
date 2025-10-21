@@ -2,9 +2,9 @@ name: test
 
 on:
   push:
-    branches: [ "main" ]
+    branches: ["main"]
   pull_request:
-    branches: [ "main" ]
+    branches: ["main"]
 
 jobs:
   test:
@@ -15,19 +15,19 @@ jobs:
         node-version: [20.x, 22.x]
 
     steps:
-    - uses: actions/checkout@v4
+      - uses: actions/checkout@v4
 
-    - name: Use Node.js ${{ matrix.node-version }}
-      uses: actions/setup-node@v4
-      with:
-        node-version: ${{ matrix.node-version }}
+      - name: Use Node.js ${{ matrix.node-version }}
+        uses: actions/setup-node@v4
+        with:
+          node-version: ${{ matrix.node-version }}
 
-    - name: Build
-      run: |
-        rm package-lock.json
-        npm install -g npm@latest
-        npm install
-        npm run test
+      - name: Build
+        run: |
+          rm package-lock.json
+          npm install -g npm@latest
+          npm install
+          npm run test
 
   api-test:
     runs-on: ubuntu-latest
@@ -44,8 +44,63 @@ jobs:
         uses: actions/setup-node@v4
         with:
           node-version: ${{ matrix.node-version }}
-          
+
       - name: API Test
         run: |
-          pip install -r ./tools/api-tester/ci/requirements.txt
-          ./tools/api-tester/ci/run.py
+          pip install -r ./tests/ci/requirements.txt
+          ./tests/ci/api-test.py
+
+  playwright-test:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+
+    strategy:
+      matrix:
+        node-version: [22.x]
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Use Node.js ${{ matrix.node-version }}
+        uses: actions/setup-node@v4
+        with:
+          node-version: ${{ matrix.node-version }}
+
+      - name: Install Dependencies
+        run: npm install
+        working-directory: ./tests/playwright
+
+      - name: Install Playwright Browsers
+        run: npx playwright install --with-deps
+        working-directory: ./tests/playwright
+
+      - name: Playwright Test
+        run: |
+          pip install -r ./tests/ci/requirements.txt
+          ./tests/ci/playwright-test.py
+
+      - uses: actions/upload-artifact@v4
+        if: ${{ !cancelled() }}
+        with:
+          name: server-logs
+          path: |
+            /tmp/backend.log
+            /tmp/fs-tree-manager.log
+          retention-days: 3
+
+      - uses: actions/upload-artifact@v4
+        if: ${{ !cancelled() }}
+        with:
+          name: config-files
+          path: |
+            ./volatile/config/config.json
+            ./src/fs_tree_manager/config.yaml
+            ./tests/client-config.yaml
+          retention-days: 3
+
+      - uses: actions/upload-artifact@v4
+        if: ${{ !cancelled() }}
+        with:
+          name: playwright-report
+          path: tests/playwright/playwright-report/
+          retention-days: 3
