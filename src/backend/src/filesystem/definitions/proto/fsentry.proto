@@ -1,0 +1,13 @@
+syntax = "proto3";
+
+message FSEntry {
+  string uuid = 1;
+  string name = 2;
+  string path = 3;
+  string parent_uuid = 4;
+  bool is_dir = 5;
+  int64 created = 6;
+  int64 modified = 7;
+  int64 accessed = 8;
+  int64 size = 9;
+}
