@@ -62,6 +62,9 @@ class FilesystemAPIService extends BaseService {
         
         app.use(require('../routers/filesystem_api/search'))
         
+        // temporary or alpha
+        app.use(require('../routers/filesystem_api/update'))
+        
         // v1
         app.use(require('../routers/writeFile'))
         app.use(require('../routers/file'))
