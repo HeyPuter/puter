@@ -47,6 +47,18 @@ export class MeteringAndBillingService {
         return key;
     }
 
+    /**
+     * adds some randomized number from 0-99 to the usage key to help spread writes
+     * @param appId
+     * @param currentMonth
+     * @returns
+     */
+    #generateAppUsageKey(appId: string, currentMonth: string) {
+        const hashOfApp = murmurhash.v3(`${appId}`) % 100;
+        const key = `${METRICS_PREFIX}:app:${appId}:${hashOfApp}:${currentMonth}`;
+        return key;
+    }
+
     // TODO DS: track daily and hourly usage as well
     async incrementUsage(actor: Actor, usageType: (keyof typeof COST_MAPS) | (string & {}), usageAmount: number, costOverride?: number) {
         try {
@@ -107,7 +119,7 @@ export class MeteringAndBillingService {
                     console.warn('Failed to increment aux usage data \'actorAppUsageKey\' with error: ', e);
                 });
 
-                const appUsageKey = `${METRICS_PREFIX}:app:${appId}:${currentMonth}`;
+                const appUsageKey = this.#generateAppUsageKey(appId, currentMonth);
                 this.#kvStore.incr({
                     key: appUsageKey,
                     pathAndAmountMap,
@@ -314,6 +326,24 @@ export class MeteringAndBillingService {
         return this.#superUserService.sudo(async () => {
             const addons = await this.#kvStore.get({ key });
             return (addons ?? {}) as UsageAddons;
+        });
+    }
+
+    async getActorAppUsage(actor: Actor, appId: string) {
+        if ( !actor.type?.user?.uuid ) {
+            throw new Error('Actor must be a user to get app usage');
+        }
+
+        // only allow actor to get their own app usage
+        if ( actor.type?.app?.uid && actor.type?.app?.uid !== appId ) {
+            throw new Error('Actor can only get usage for their own app');
+        }
+
+        const currentMonth = this.#getMonthYearString();
+        const key = `${METRICS_PREFIX}:actor:${actor.type.user.uuid}:app:${appId}:${currentMonth}`;
+        return this.#superUserService.sudo(async () => {
+            const usage = await this.#kvStore.get({ key });
+            return (usage ?? { total: 0 }) as UsageByType;
         });
     }
 
