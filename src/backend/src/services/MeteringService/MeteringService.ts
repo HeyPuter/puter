@@ -7,17 +7,17 @@ import type { SUService } from '../SUService.js';
 import { DEFAULT_FREE_SUBSCRIPTION, DEFAULT_TEMP_SUBSCRIPTION, GLOBAL_APP_KEY, METRICS_PREFIX, PERIOD_ESCAPE, POLICY_PREFIX } from './consts.js';
 import { COST_MAPS } from './costMaps/index.js';
 import { SUB_POLICIES } from './subPolicies/index.js';
-import { MeteringAndBillingServiceDeps, UsageAddons, UsageByType } from './types.js';
+import { MeteringServiceDeps, UsageAddons, UsageByType } from './types.js';
 /**
  * Handles usage metering and supports stubbs for billing methods for current scoped actor
  */
-export class MeteringAndBillingService {
+export class MeteringService {
 
     #kvStore: DBKVStore;
     #superUserService: SUService;
     #alarmService: AlarmService;
     #eventService: EventService;
-    constructor({ kvStore, superUserService, alarmService, eventService }: MeteringAndBillingServiceDeps) {
+    constructor({ kvStore, superUserService, alarmService, eventService }: MeteringServiceDeps) {
         this.#superUserService = superUserService;
         this.#kvStore = kvStore;
         this.#alarmService = alarmService;

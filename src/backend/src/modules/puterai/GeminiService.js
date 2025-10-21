@@ -1,14 +1,14 @@
-const BaseService = require("../../services/BaseService");
+const BaseService = require('../../services/BaseService');
 const { GoogleGenerativeAI } = require('@google/generative-ai');
-const GeminiSquareHole = require("./lib/GeminiSquareHole");
-const FunctionCalling = require("./lib/FunctionCalling");
-const { Context } = require("../../util/context");
+const GeminiSquareHole = require('./lib/GeminiSquareHole');
+const FunctionCalling = require('./lib/FunctionCalling');
+const { Context } = require('../../util/context');
 
 class GeminiService extends BaseService {
     /**
-    * @type {import('../../services/MeteringService/MeteringService').MeteringAndBillingService}
+    * @type {import('../../services/MeteringService/MeteringService').MeteringService}
     */
-    meteringAndBillingService = undefined;
+    meteringService = undefined;
 
     async _init() {
         const svc_aiChat = this.services.get('ai-chat');
@@ -16,7 +16,7 @@ class GeminiService extends BaseService {
             service_name: this.service_name,
             alias: true,
         });
-        this.meteringAndBillingService = this.services.get('meteringService').meteringAndBillingService;
+        this.meteringService = this.services.get('meteringService').meteringService;
     }
 
     static IMPLEMENTS = {
@@ -85,7 +85,7 @@ class GeminiService extends BaseService {
                                         completion_tokens: usageMetadata.candidatesTokenCount,
                                         cached_tokens: usageMetadata.cachedContentTokenCount || 0,
                                     };
-                                    this.meteringAndBillingService.utilRecordUsageObject(trackedUsage, actor, meteringPrefix);
+                                    this.meteringService.utilRecordUsageObject(trackedUsage, actor, meteringPrefix);
                                 },
                             }),
                     };
@@ -104,7 +104,7 @@ class GeminiService extends BaseService {
                         completion_tokens: genResult.response.usageMetadata.candidatesTokenCount,
                         cached_tokens: genResult.response.usageMetadata.cachedContentTokenCount || 0,
                     };
-                    this.meteringAndBillingService.utilRecordUsageObject(trackedUsage, actor, meteringPrefix);
+                    this.meteringService.utilRecordUsageObject(trackedUsage, actor, meteringPrefix);
                     return result;
                 }
             },

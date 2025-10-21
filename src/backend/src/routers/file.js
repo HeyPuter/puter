@@ -30,8 +30,8 @@ const { Actor } = require('../services/auth/Actor');
 // -----------------------------------------------------------------------//
 router.get('/file', async (req, res, next) => {
     // services and "services"
-    /** @type {import('../services/MeteringService/MeteringService').MeteringAndBillingService} */
-    const meteringService = req.services.get('meteringService').meteringAndBillingService;
+    /** @type {import('../services/MeteringService/MeteringService').MeteringService} */
+    const meteringService = req.services.get('meteringService').meteringService;
     const log = req.services.get('log-service').create('/file');
     const errors = req.services.get('error-service').create(log);
     const db = req.services.get('database').get(DB_WRITE, 'filesystem');

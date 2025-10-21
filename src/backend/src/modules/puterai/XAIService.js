@@ -18,9 +18,9 @@
  */
 
 // METADATA // {"ai-commented":{"service":"claude"}}
-const BaseService = require("../../services/BaseService");
-const { Context } = require("../../util/context");
-const OpenAIUtil = require("./lib/OpenAIUtil");
+const BaseService = require('../../services/BaseService');
+const { Context } = require('../../util/context');
+const OpenAIUtil = require('./lib/OpenAIUtil');
 
 /**
 * XAIService class - Provides integration with X.AI's API for chat completions
@@ -33,8 +33,8 @@ class XAIService extends BaseService {
     static MODULES = {
         openai: require('openai'),
     };
-    /** @type {import('../../services/MeteringService/MeteringService').MeteringAndBillingService} */
-    meteringAndBillingService;
+    /** @type {import('../../services/MeteringService/MeteringService').MeteringService} */
+    meteringService;
 
     adapt_model(model) {
         return model;
@@ -48,7 +48,7 @@ class XAIService extends BaseService {
     async _init() {
         this.openai = new this.modules.openai.OpenAI({
             apiKey: this.global_config.services.xai.apiKey,
-            baseURL: "https://api.x.ai/v1",
+            baseURL: 'https://api.x.ai/v1',
         });
 
         const svc_aiChat = this.services.get('ai-chat');
@@ -56,7 +56,7 @@ class XAIService extends BaseService {
             service_name: this.service_name,
             alias: true,
         });
-        this.meteringAndBillingService = this.services.get('meteringService').meteringAndBillingService; // TODO DS: move to proper extensions
+        this.meteringService = this.services.get('meteringService').meteringService; // TODO DS: move to proper extensions
     }
 
     /**
@@ -128,7 +128,7 @@ class XAIService extends BaseService {
                             cached_tokens: usage.prompt_tokens_details?.cached_tokens ?? 0,
                         };
 
-                        this.meteringAndBillingService.utilRecordUsageObject(trackedUsage, actor, `openai:${modelDetails.id}`);
+                        this.meteringService.utilRecordUsageObject(trackedUsage, actor, `openai:${modelDetails.id}`);
                         const legacyCostCalculator = OpenAIUtil.create_usage_calculator({
                             model_details: modelDetails,
                         });

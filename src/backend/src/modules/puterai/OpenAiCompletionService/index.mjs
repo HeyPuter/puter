@@ -31,8 +31,8 @@ export class OpenAICompletionServiceWrapper extends BaseService {
             serviceName: this.service_name,
             config: this.config,
             globalConfig: this.global_config,
-            aiChatService: this.services.get("ai-chat"),
-            meteringAndBillingService: this.services.get('meteringService').meteringAndBillingService,
+            aiChatService: this.services.get('ai-chat'),
+            meteringService: this.services.get('meteringService').meteringService,
         });
     }
 

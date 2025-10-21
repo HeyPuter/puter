@@ -1,12 +1,12 @@
 import BaseService from '../BaseService.js';
-import { MeteringAndBillingService } from "./MeteringService.js";
+import { MeteringService } from './MeteringService.js';
 
-export class MeteringAndBillingServiceWrapper extends BaseService {
+export class MeteringServiceWrapper extends BaseService {
 
-    /** @type {import('./MeteringService.js').MeteringAndBillingService} */
-    meteringAndBillingService = undefined;
+    /** @type {import('./MeteringService.js').MeteringService} */
+    meteringService = undefined;
     _init() {
-        this.meteringAndBillingService = new MeteringAndBillingService({
+        this.meteringService = new MeteringService({
             kvStore: this.services.get('puter-kvstore').as('puter-kvstore'),
             superUserService: this.services.get('su'),
             alarmService: this.services.get('alarm'),

@@ -18,13 +18,13 @@
  */
 
 // METADATA // {"ai-commented":{"service":"claude"}}
-const { default: Anthropic, toFile } = require("@anthropic-ai/sdk");
-const BaseService = require("../../services/BaseService");
-const FunctionCalling = require("./lib/FunctionCalling");
-const Messages = require("./lib/Messages");
-const FSNodeParam = require("../../api/filesystem/FSNodeParam");
-const { LLRead } = require("../../filesystem/ll_operations/ll_read");
-const { Context } = require("../../util/context");
+const { default: Anthropic, toFile } = require('@anthropic-ai/sdk');
+const BaseService = require('../../services/BaseService');
+const FunctionCalling = require('./lib/FunctionCalling');
+const Messages = require('./lib/Messages');
+const FSNodeParam = require('../../api/filesystem/FSNodeParam');
+const { LLRead } = require('../../filesystem/ll_operations/ll_read');
+const { Context } = require('../../util/context');
 
 /**
 * ClaudeService class extends BaseService to provide integration with Anthropic's Claude AI models.
@@ -50,8 +50,8 @@ class ClaudeService extends BaseService {
     * @returns {Promise<void>}
     */
 
-    /** @type {import('../../services/MeteringService/MeteringService').MeteringAndBillingService} */
-    #meteringAndBillingService;
+    /** @type {import('../../services/MeteringService/MeteringService').MeteringService} */
+    #meteringService;
 
     async _init() {
         this.anthropic = new Anthropic({
@@ -68,7 +68,7 @@ class ClaudeService extends BaseService {
             service_name: this.service_name,
             alias: true,
         });
-        this.#meteringAndBillingService = this.services.get('meteringService').meteringAndBillingService; // TODO DS: move to proper extensions
+        this.#meteringService = this.services.get('meteringService').meteringService; // TODO DS: move to proper extensions
     }
 
     /**
@@ -341,7 +341,7 @@ class ClaudeService extends BaseService {
 
     // TODO DS: get this inside the class as a private method once the methods aren't exported directly
     billForUsage(actor, model, usage) {
-        this.#meteringAndBillingService.utilRecordUsageObject(usage, actor, `claude:${this.models_().find(m => [m.id, ...(m.aliases || [])].includes(model)).id}`);
+        this.#meteringService.utilRecordUsageObject(usage, actor, `claude:${this.models_().find(m => [m.id, ...(m.aliases || [])].includes(model)).id}`);
     };
 
     /**

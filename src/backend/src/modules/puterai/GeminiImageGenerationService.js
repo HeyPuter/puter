@@ -18,10 +18,10 @@
  */
 
 // METADATA // {"ai-commented":{"service":"claude"}}
-const APIError = require("../../api/APIError");
-const BaseService = require("../../services/BaseService");
-const { TypedValue } = require("../../services/drivers/meta/Runtime");
-const { Context } = require("../../util/context");
+const APIError = require('../../api/APIError');
+const BaseService = require('../../services/BaseService');
+const { TypedValue } = require('../../services/drivers/meta/Runtime');
+const { Context } = require('../../util/context');
 const { GoogleGenAI } = require('@google/genai');
 
 /**
@@ -30,9 +30,9 @@ const { GoogleGenAI } = require('@google/genai');
 * the puter-image-generation interface.
 */
 class GeminiImageGenerationService extends BaseService {
-    /** @type {import('../../services/MeteringService/MeteringService').MeteringAndBillingService} */
-    get meteringAndBillingService(){
-        return this.services.get('meteringService').meteringAndBillingService;
+    /** @type {import('../../services/MeteringService/MeteringService').MeteringService} */
+    get meteringService(){
+        return this.services.get('meteringService').meteringService;
     }
     static MODULES = {
     };
@@ -40,7 +40,7 @@ class GeminiImageGenerationService extends BaseService {
     _construct() {
         this.models_ = {
             'gemini-2.5-flash-image-preview': {
-                "1024x1024": 0.039,
+                '1024x1024': 0.039,
             },
         };
     }
@@ -167,7 +167,7 @@ class GeminiImageGenerationService extends BaseService {
 
         const usageType = `gemini:${model}:${price_key}`;
 
-        const usageAllowed = await this.meteringAndBillingService.hasEnoughCreditsFor(actor, usageType, 1);
+        const usageAllowed = await this.meteringService.hasEnoughCreditsFor(actor, usageType, 1);
 
         if ( !usageAllowed ) {
             throw APIError.create('insufficient_funds');
@@ -192,19 +192,19 @@ class GeminiImageGenerationService extends BaseService {
         }
 
         const response = await this.genAI.models.generateContent({
-            model: "gemini-2.5-flash-image-preview",
+            model: 'gemini-2.5-flash-image-preview',
             contents: contents,
         });
         // Metering usage tracking
         // Gemini usage: always 1 image, resolution, cost, model
-        this.meteringAndBillingService.incrementUsage(actor, usageType, 1);
+        this.meteringService.incrementUsage(actor, usageType, 1);
         let url = undefined;
         for ( const part of response.candidates[0].content.parts ) {
             if ( part.text ) {
                 // do nothing here
             } else if ( part.inlineData ) {
                 const imageData = part.inlineData.data;
-                url = "data:image/png;base64," + imageData;
+                url = 'data:image/png;base64,' + imageData;
             }
         }
 

@@ -18,11 +18,11 @@
  */
 
 // METADATA // {"ai-commented":{"service":"claude"}}
-const { PollyClient, SynthesizeSpeechCommand, DescribeVoicesCommand } = require("@aws-sdk/client-polly");
-const BaseService = require("../../services/BaseService");
-const { TypedValue } = require("../../services/drivers/meta/Runtime");
-const APIError = require("../../api/APIError");
-const { Context } = require("../../util/context");
+const { PollyClient, SynthesizeSpeechCommand, DescribeVoicesCommand } = require('@aws-sdk/client-polly');
+const BaseService = require('../../services/BaseService');
+const { TypedValue } = require('../../services/drivers/meta/Runtime');
+const APIError = require('../../api/APIError');
+const { Context } = require('../../util/context');
 
 // Polly price calculation per engine
 const ENGINE_PRICING = {
@@ -45,9 +45,9 @@ const VALID_ENGINES = ['standard', 'neural', 'long-form', 'generative'];
 */
 class AWSPollyService extends BaseService {
 
-    /** @type {import('../../services/MeteringService/MeteringService').MeteringAndBillingService} */
-    get meteringAndBillingService() {
-        return this.services.get('meteringService').meteringAndBillingService;
+    /** @type {import('../../services/MeteringService/MeteringService').MeteringService} */
+    get meteringService() {
+        return this.services.get('meteringService').meteringService;
     }
 
     static MODULES = {
@@ -134,7 +134,7 @@ class AWSPollyService extends BaseService {
 
                 const usageType = `aws-polly:${engine}:character`;
 
-                const usageAllowed = await this.meteringAndBillingService.hasEnoughCreditsFor(actor, usageType, text.length);
+                const usageAllowed = await this.meteringService.hasEnoughCreditsFor(actor, usageType, text.length);
 
                 if ( ! usageAllowed ) {
                     throw APIError.create('insufficient_funds');
@@ -149,7 +149,7 @@ class AWSPollyService extends BaseService {
                 });
 
                 // AWS Polly TTS metering: track character count, voice, engine, cost, audio duration if available
-                this.meteringAndBillingService.incrementUsage(actor, usageType, text.length);
+                this.meteringService.incrementUsage(actor, usageType, text.length);
 
                 const speech = new TypedValue({
                     $: 'stream',

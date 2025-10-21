@@ -8,7 +8,7 @@ export class DBKVServiceWrapper extends BaseService {
         /** @type {DBKVStore} */
         this.kvStore = new DBKVStore({
             sqlClient: this.services.get('database').get(DB_READ, 'kvstore'),
-            meteringAndBillingService: this.services.get('meteringService').meteringAndBillingService,
+            meteringService: this.services.get('meteringService').meteringService,
             globalConfig: this.global_config,
         });
     }

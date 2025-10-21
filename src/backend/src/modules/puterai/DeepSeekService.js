@@ -18,9 +18,9 @@
  */
 
 // METADATA // {"ai-commented":{"service":"claude"}}
-const BaseService = require("../../services/BaseService");
-const { Context } = require("../../util/context");
-const OpenAIUtil = require("./lib/OpenAIUtil");
+const BaseService = require('../../services/BaseService');
+const { Context } = require('../../util/context');
+const OpenAIUtil = require('./lib/OpenAIUtil');
 const dedent = require('dedent');
 
 /**
@@ -36,9 +36,9 @@ class DeepSeekService extends BaseService {
     };
 
     /**
-    * @type {import('../../services/MeteringService/MeteringService').MeteringAndBillingService}
+    * @type {import('../../services/MeteringService/MeteringService').MeteringService}
     */
-    meteringAndBillingService;
+    meteringService;
     /**
     * Gets the system prompt used for AI interactions
     * @returns {string} The base system prompt that identifies the AI as running on Puter
@@ -63,7 +63,7 @@ class DeepSeekService extends BaseService {
             service_name: this.service_name,
             alias: true,
         });
-        this.meteringAndBillingService = this.services.get('meteringService').meteringAndBillingService;
+        this.meteringService = this.services.get('meteringService').meteringService;
     }
 
     /**
@@ -114,7 +114,7 @@ class DeepSeekService extends BaseService {
                 for ( const message of messages ) {
                     // DeepSeek doesn't appreciate arrays here
                     if ( message.tool_calls && Array.isArray(message.content) ) {
-                        message.content = "";
+                        message.content = '';
                     }
                 }
 
@@ -167,7 +167,7 @@ class DeepSeekService extends BaseService {
                 return OpenAIUtil.handle_completion_output({
                     usage_calculator: ({ usage }) => {
                         const trackedUsage = OpenAIUtil.extractMeteredUsage(usage);
-                        this.meteringAndBillingService.utilRecordUsageObject(trackedUsage, actor, `deepseek:${modelDetails.id}`);
+                        this.meteringService.utilRecordUsageObject(trackedUsage, actor, `deepseek:${modelDetails.id}`);
                         const legacyCostCalculator = OpenAIUtil.create_usage_calculator({
                             model_details: modelDetails,
                         });

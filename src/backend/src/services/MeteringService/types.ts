@@ -1,7 +1,7 @@
-import type { AlarmService } from "../../modules/core/AlarmService";
-import type { EventService } from "../EventService";
-import type { DBKVStore } from "../repositories/DBKVStore/DBKVStore";
-import type { SUService } from "../SUService";
+import type { AlarmService } from '../../modules/core/AlarmService';
+import type { EventService } from '../EventService';
+import type { DBKVStore } from '../repositories/DBKVStore/DBKVStore';
+import type { SUService } from '../SUService';
 
 export interface UsageAddons {
     purchasedCredits: number // total extra credits purchased - not expirable
@@ -16,7 +16,7 @@ export interface UsageByType {
     [serviceName: string]: number
 }
 
-export interface MeteringAndBillingServiceDeps {
+export interface MeteringServiceDeps {
     kvStore: DBKVStore,
     superUserService: SUService,
     alarmService: AlarmService

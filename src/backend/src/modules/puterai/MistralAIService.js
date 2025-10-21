@@ -18,10 +18,10 @@
  */
 
 // METADATA // {"ai-commented":{"service":"claude"}}
-const BaseService = require("../../services/BaseService");
+const BaseService = require('../../services/BaseService');
 const axios = require('axios');
-const OpenAIUtil = require("./lib/OpenAIUtil");
-const { Context } = require("../../util/context");
+const OpenAIUtil = require('./lib/OpenAIUtil');
+const { Context } = require('../../util/context');
 
 /**
 * MistralAIService class extends BaseService to provide integration with the Mistral AI API.
@@ -31,8 +31,8 @@ const { Context } = require("../../util/context");
 * for different models and implements the puter-chat-completion interface.
 */
 class MistralAIService extends BaseService {
-    /** @type {import('../../services/MeteringService/MeteringService').MeteringAndBillingService} */
-    meteringAndBillingService;
+    /** @type {import('../../services/MeteringService/MeteringService').MeteringService} */
+    meteringService;
     static MODULES = {
         '@mistralai/mistralai': require('@mistralai/mistralai'),
     };
@@ -250,7 +250,7 @@ class MistralAIService extends BaseService {
             alias: true,
         });
 
-        this.meteringAndBillingService = this.services.get('meteringService').meteringAndBillingService;
+        this.meteringService = this.services.get('meteringService').meteringService;
 
         // TODO: make this event-driven so it doesn't hold up boot
         await this.populate_models_();
@@ -371,7 +371,7 @@ class MistralAIService extends BaseService {
 
                             const snake_usage = {};
                             for ( const key in chunk.usage ) {
-                                const snakeKey = key.replace(/([A-Z])/g, "_$1").toLowerCase();
+                                const snakeKey = key.replace(/([A-Z])/g, '_$1').toLowerCase();
                                 snake_usage[snakeKey] = chunk.usage[key];
                             }
 
@@ -388,9 +388,7 @@ class MistralAIService extends BaseService {
                     stream,
                     usage_calculator: ({ usage }) => {
                         const trackedUsage = OpenAIUtil.extractMeteredUsage(usage);
-                        if ( this.meteringAndBillingService ) {
-                            this.meteringAndBillingService.utilRecordUsageObject(trackedUsage, actor, `mistral:${modelDetails.id}`);
-                        }
+                        this.meteringService.utilRecordUsageObject(trackedUsage, actor, `mistral:${modelDetails.id}`);
                         // Still return legacy cost calculation for compatibility
                         const legacyCostCalculator = OpenAIUtil.create_usage_calculator({
                             model_details: modelDetails,

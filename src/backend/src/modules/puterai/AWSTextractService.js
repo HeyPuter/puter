@@ -18,11 +18,11 @@
  */
 
 // METADATA // {"ai-commented":{"service":"claude"}}
-const { TextractClient, AnalyzeDocumentCommand, InvalidS3ObjectException } = require("@aws-sdk/client-textract");
+const { TextractClient, AnalyzeDocumentCommand, InvalidS3ObjectException } = require('@aws-sdk/client-textract');
 
-const BaseService = require("../../services/BaseService");
-const APIError = require("../../api/APIError");
-const { Context } = require("../../util/context");
+const BaseService = require('../../services/BaseService');
+const APIError = require('../../api/APIError');
+const { Context } = require('../../util/context');
 
 /**
 * AWSTextractService class - Provides OCR (Optical Character Recognition) functionality using AWS Textract
@@ -31,9 +31,9 @@ const { Context } = require("../../util/context");
 * Handles both S3-stored and buffer-based document processing with automatic region management.
 */
 class AWSTextractService extends BaseService {
-    /** @type {import('../../services/MeteringService/MeteringService').MeteringAndBillingService} */
-    get meteringAndBillingService(){
-        return this.services.get('meteringService').meteringAndBillingService;
+    /** @type {import('../../services/MeteringService/MeteringService').MeteringService} */
+    get meteringService(){
+        return this.services.get('meteringService').meteringService;
     }
     /**
     * AWS Textract service for OCR functionality
@@ -146,9 +146,9 @@ class AWSTextractService extends BaseService {
         } = await this._get_client_and_document(file_facade);
 
         const actor = Context.get('actor');
-        const usageType = "aws-textract:detect-document-text:page";
+        const usageType = 'aws-textract:detect-document-text:page';
 
-        const usageAllowed = await this.meteringAndBillingService.hasEnoughCreditsFor(actor, usageType, 1); // allow them to pass if they have enough for 1 page atleast
+        const usageAllowed = await this.meteringService.hasEnoughCreditsFor(actor, usageType, 1); // allow them to pass if they have enough for 1 page atleast
 
         if ( ! usageAllowed ) {
             throw APIError.create('insufficient_funds');
@@ -191,7 +191,7 @@ class AWSTextractService extends BaseService {
                 if ( block.BlockType === 'PAGE' ) pageCount += 1;
             }
         }
-        this.meteringAndBillingService.incrementUsage(actor, usageType, pageCount || 1);
+        this.meteringService.incrementUsage(actor, usageType, pageCount || 1);
 
         return textractResp;
     }

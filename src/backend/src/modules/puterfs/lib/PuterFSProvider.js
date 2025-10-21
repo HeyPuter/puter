@@ -50,9 +50,9 @@ class PuterFSProvider extends putility.AdvancedBase {
         return Context.get('services');
     }
 
-    /** @type {import('../../../services/MeteringService/MeteringService.js').MeteringAndBillingService} */
+    /** @type {import('../../../services/MeteringService/MeteringService.js').MeteringService} */
     get #meteringService() {
-        return this.#services.get('meteringService').meteringAndBillingService;
+        return this.#services.get('meteringService').meteringService;
     }
 
     constructor(...a) {
