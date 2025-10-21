@@ -208,7 +208,7 @@ def run():
         work_dir=f"{PUTER_ROOT}/src/fs_tree_manager",
         log_path="/tmp/fs-tree-manager.log",
     )
-    time.sleep(10)
+    time.sleep(60)
 
     # =========================================================================
     # run the test
