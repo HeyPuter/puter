@@ -1,6 +1,6 @@
 {
     "name": "@heyputer/puter.js",
-    "version": "2.0.16",
+    "version": "2.0.15",
     "description": "Puter.js - A JavaScript library for interacting with Puter services.",
     "main": "src/index.js",
     "types": "index.d.ts",
@@ -40,6 +40,6 @@
     },
     "dependencies": {
         "@heyputer/kv.js": "^0.2.1",
-        "@heyputer/putility": "^1.1.1"
+        "@heyputer/putility": "^1.0.3"
     }
 }
