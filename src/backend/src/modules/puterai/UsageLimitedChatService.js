@@ -18,10 +18,10 @@
  */
 
 // METADATA // {"ai-commented":{"service":"claude"}}
-const { default: dedent } = require("dedent");
-const BaseService = require("../../services/BaseService");
-const { PassThrough } = require("stream");
-const Streaming = require("./lib/Streaming");
+const { default: dedent } = require('dedent');
+const BaseService = require('../../services/BaseService');
+const { PassThrough } = require('stream');
+const Streaming = require('./lib/Streaming');
 
 /**
 * UsageLimitedChatService - A specialized chat service that returns resource exhaustion messages.
@@ -116,38 +116,38 @@ class UsageLimitedChatService extends BaseService {
                         stream: true,
                         init_chat_stream: async ({ chatStream: cs }) => {
                             // Copy contents from our stream to the provided one
-                            chatStream.pipe(cs.stream);
+                            chatStream.stream.pipe(cs.stream);
                         },
                     };
                 }
 
                 // Non-streaming response
                 return {
-                    "index": 0,
+                    'index': 0,
                     message: {
-                        "id": "00000000-0000-0000-0000-000000000000",
-                        "type": "message",
-                        "role": "assistant",
-                        "model": "usage-limited",
-                        "content": [
+                        'id': '00000000-0000-0000-0000-000000000000',
+                        'type': 'message',
+                        'role': 'assistant',
+                        'model': 'usage-limited',
+                        'content': [
                             {
-                                "type": "text",
-                                "text": limitMessage,
+                                'type': 'text',
+                                'text': limitMessage,
                             },
                         ],
-                        "stop_reason": "end_turn",
-                        "stop_sequence": null,
-                        "usage": {
-                            "input_tokens": 0,
-                            "output_tokens": 1,
+                        'stop_reason': 'end_turn',
+                        'stop_sequence': null,
+                        'usage': {
+                            'input_tokens': 0,
+                            'output_tokens': 1,
                         },
                     },
-                    "usage": {
-                        "input_tokens": 0,
-                        "output_tokens": 1,
+                    'usage': {
+                        'input_tokens': 0,
+                        'output_tokens': 1,
                     },
-                    "logprobs": null,
-                    "finish_reason": "stop",
+                    'logprobs': null,
+                    'finish_reason': 'stop',
                 };
             },
         },
