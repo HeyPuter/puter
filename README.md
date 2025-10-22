@@ -180,4 +180,5 @@ This repository, including all its contents, sub-projects, modules, and componen
 ## Links to Other READMEs
 ### Backend
 - [PuterAI Module](./src/backend/doc/modules/puterai/README.md)
-- [Metering and Billing Service](./src/backend/src/services/MeteringService/README.md)
+- [Metering Service](./src/backend/src/services/MeteringService/README.md)
+- [Extensions Development Guide](./extensions/README.md)

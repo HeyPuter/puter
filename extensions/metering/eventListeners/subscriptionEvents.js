@@ -13,12 +13,13 @@ extension.on('metering:registerAvailablePolicies', async (
         console.warn('WARNING!!! unlimitedUsage is enabled, this is not recommended for production use');
         event.availablePolicies.push({
             id: 'unlimited',
-            monthUsageAllowance: 500_000_000 * 100_000_000, // unless you're like, jeff's, mark's and elon's illegitamate son, you probably won't hit $5m a month
-            monthlyStorageAllowance: 100_000 * 1024 * 1024, // 100MiB
+            monthUsageAllowance: 5_000_000 * 1_000_000 * 100, // unless you're like, jeff's, mark's, and elon's illegitamate son, you probably won't hit $5m a month
+            monthlyStorageAllowance: 100_000 * 1024 * 1024, // 100MiB but ignored in local dev
         });
     }
 });
 
 extension.on('metering:getUserSubscription', async (/** @type {{actor: import('@heyputer/backend/src/services/auth/Actor').Actor, userSubscriptionId: string}} */event) => {
     event.userSubscriptionId = event?.actor?.type?.user?.subscription?.active ? event.actor.type.user.subscription?.tier : undefined;
+    // default location for user sub, but can techinically be anywhere else or fetched on request
 });
