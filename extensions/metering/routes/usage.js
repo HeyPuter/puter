@@ -43,8 +43,7 @@ extension.get('/metering/globalUsage', { subdomain: 'api' }, async (req, res) =>
     }
 
     // check if actor is allowed to view global usage
-    const config = extension.getConfig();
-    const allowedUsers = config.allowedGlobalUsageUsers || [];
+    const allowedUsers = extension.config.allowedGlobalUsageUsers || [];
     if ( !allowedUsers.includes(actor.type?.user.uuid) ) {
         res.status(403).json({ error: 'You are not authorized to view global usage' });
         return;

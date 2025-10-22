@@ -184,7 +184,7 @@ export class MeteringService {
                 }
                 return actorUsages;
             });
-        } catch (e) {
+        } catch( e ) {
             console.error('Metering: Failed to increment usage for actor', actor, 'usageType', usageType, 'usageAmount', usageAmount, e);
             this.#alarmService.create('metering-service-error', (e as Error).message, {
                 error: e,
@@ -363,10 +363,10 @@ export class MeteringService {
             keys.push(`${keyPrefix}${currentMonth}`); // for initial unsharded data
             const usages = await this.#kvStore.get({ key: keys }) as UsageByType[];
             const aggregatedUsage: UsageByType = { total: 0 };
-            usages.forEach(({ total, ...usage }) => {
+            usages.filter(Boolean).forEach(({ total, ...usage } = {} as UsageByType) => {
                 aggregatedUsage.total += total || 0;
 
-                Object.entries(usage as Record<string, UsageRecord>).forEach(([usageKind, record]) => {
+                Object.entries((usage || {}) as Record<string, UsageRecord>).forEach(([usageKind, record]) => {
                     if ( !aggregatedUsage[usageKind] ) {
                         aggregatedUsage[usageKind] = { cost: 0, units: 0, count: 0 } as UsageRecord;
                     }
