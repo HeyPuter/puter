@@ -7,12 +7,14 @@ import type { SUService } from '../SUService.js';
 import { DEFAULT_FREE_SUBSCRIPTION, DEFAULT_TEMP_SUBSCRIPTION, GLOBAL_APP_KEY, METRICS_PREFIX, PERIOD_ESCAPE, POLICY_PREFIX } from './consts.js';
 import { COST_MAPS } from './costMaps/index.js';
 import { SUB_POLICIES } from './subPolicies/index.js';
-import { MeteringServiceDeps, UsageAddons, UsageByType } from './types.js';
+import { AppTotals, MeteringServiceDeps, UsageAddons, UsageByType, UsageRecord } from './types.js';
 /**
  * Handles usage metering and supports stubbs for billing methods for current scoped actor
  */
 export class MeteringService {
 
+    static GLOBAL_SHARD_COUNT = 1000; // number of global usage shards to spread writes across
+    static APP_SHARD_COUNT = 100; // number of app usage shards to spread writes across
     #kvStore: DBKVStore;
     #superUserService: SUService;
     #alarmService: AlarmService;
@@ -42,7 +44,7 @@ export class MeteringService {
      * @returns
      */
     #generateGloabalUsageKey(userId: string, appId: string, currentMonth: string) {
-        const hashOfUserAndApp = murmurhash.v3(`${userId}:${appId}`) % 1000;
+        const hashOfUserAndApp = murmurhash.v3(`${userId}:${appId}`) % MeteringService.GLOBAL_SHARD_COUNT;
         const key = `${METRICS_PREFIX}:puter:${hashOfUserAndApp}:${currentMonth}`;
         return key;
     }
@@ -54,7 +56,7 @@ export class MeteringService {
      * @returns
      */
     #generateAppUsageKey(appId: string, currentMonth: string) {
-        const hashOfApp = murmurhash.v3(`${appId}`) % 100;
+        const hashOfApp = murmurhash.v3(`${appId}`) % MeteringService.APP_SHARD_COUNT;
         const key = `${METRICS_PREFIX}:app:${appId}:${hashOfApp}:${currentMonth}`;
         return key;
     }
@@ -182,7 +184,7 @@ export class MeteringService {
                 }
                 return actorUsages;
             });
-        } catch (e) {
+        } catch( e ) {
             console.error('Metering: Failed to increment usage for actor', actor, 'usageType', usageType, 'usageAmount', usageAmount, e);
             this.#alarmService.create('metering-service-error', (e as Error).message, {
                 error: e,
@@ -207,21 +209,21 @@ export class MeteringService {
         ];
 
         return await this.#superUserService.sudo(async () => {
-            const [usage, appTotals] = await this.#kvStore.get({ key: keys }) as [UsageByType | null, Record<string, UsageByType> | null];
+            const [usage, appTotals] = await this.#kvStore.get({ key: keys }) as [UsageByType | null, Record<string, AppTotals> | null];
             // only show details of app based on actor, aggregate all as others, except if app is global one or null, then show all
             const appId = actor.type?.app?.uid;
             if ( appTotals && appId ) {
-                const filteredAppTotals: Record<string, UsageByType> = {};
-                let othersTotal: UsageByType = {} as UsageByType;
+                const filteredAppTotals: Record<string, AppTotals> = {};
+                let othersTotal: AppTotals = {} as AppTotals;
                 Object.entries(appTotals).forEach(([appKey, appUsage]) => {
                     if ( appKey === appId ) {
                         filteredAppTotals[appKey] = appUsage;
                     } else {
                         Object.entries(appUsage).forEach(([usageKind, amount]) => {
-                            if ( !othersTotal[usageKind] ) {
-                                othersTotal[usageKind] = 0;
+                            if ( !othersTotal[usageKind as keyof AppTotals] ) {
+                                othersTotal[usageKind as keyof AppTotals] = 0;
                             }
-                            othersTotal[usageKind] += amount;
+                            othersTotal[usageKind as keyof AppTotals] += amount;
                         });
                     }
                 });
@@ -344,6 +346,37 @@ export class MeteringService {
         return this.#superUserService.sudo(async () => {
             const usage = await this.#kvStore.get({ key });
             return (usage ?? { total: 0 }) as UsageByType;
+        });
+    }
+
+    async getGlobalUsage(){
+
+        // TODO DS: add validation here?
+
+        const currentMonth = this.#getMonthYearString();
+        const keyPrefix = `${METRICS_PREFIX}:puter:`;
+        return this.#superUserService.sudo(async () => {
+            const keys = [];
+            for ( let shard = 0; shard < MeteringService.GLOBAL_SHARD_COUNT; shard++ ) {
+                keys.push(`${keyPrefix}${shard}:${currentMonth}`);
+            }
+            keys.push(`${keyPrefix}${currentMonth}`); // for initial unsharded data
+            const usages = await this.#kvStore.get({ key: keys }) as UsageByType[];
+            const aggregatedUsage: UsageByType = { total: 0 };
+            usages.filter(Boolean).forEach(({ total, ...usage } = {} as UsageByType) => {
+                aggregatedUsage.total += total || 0;
+
+                Object.entries((usage || {}) as Record<string, UsageRecord>).forEach(([usageKind, record]) => {
+                    if ( !aggregatedUsage[usageKind] ) {
+                        aggregatedUsage[usageKind] = { cost: 0, units: 0, count: 0 } as UsageRecord;
+                    }
+                    const aggregatedRecord = aggregatedUsage[usageKind] as UsageRecord;
+                    aggregatedRecord.cost += record.cost;
+                    aggregatedRecord.count += record.count;
+                    aggregatedRecord.units += record.units;
+                });
+            });
+            return aggregatedUsage;
         });
     }
 
