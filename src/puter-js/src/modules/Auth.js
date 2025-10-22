@@ -251,6 +251,44 @@ class Auth{
             throw error;
         }
     }
+
+    async getGlobalUsage() {
+        try {
+            const resp = await fetch(`${this.APIOrigin}/metering/globalUsage`, {
+                headers: {
+                    Authorization: `Bearer ${this.authToken}`,
+                },
+            });
+
+            const result = await resp.json();
+
+            // Log the response
+            if ( globalThis.puter?.apiCallLogger?.isEnabled() ) {
+                globalThis.puter.apiCallLogger.logRequest({
+                    service: 'auth',
+                    operation: 'global_usage',
+                    params: {},
+                    result: result,
+                });
+            }
+
+            return result;
+        } catch( error ) {
+            // Log the error
+            if ( globalThis.puter?.apiCallLogger?.isEnabled() ) {
+                globalThis.puter.apiCallLogger.logRequest({
+                    service: 'auth',
+                    operation: 'global_usage',
+                    params: {},
+                    error: {
+                        message: error.message || error.toString(),
+                        stack: error.stack,
+                    },
+                });
+            }
+            throw error;
+        }
+    }
 }
 
 export default Auth;
