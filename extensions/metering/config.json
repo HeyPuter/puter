@@ -1,5 +1,8 @@
 {
     "unlimitedUsage": false,
+    "unlimitedAllowList": [
+        "admin"
+    ],
     "allowedGlobalUsageUsers": [
         "06ab2f87-aef5-441b-9c60-debbb8d24dda",
         "d8fd169b-4e93-484a-bd84-115b5a2f0ed4"
