@@ -6,6 +6,7 @@ import APIError from '../../../api/APIError.js';
 // @ts-ignore
 import { Context } from '../../../util/context.js';
 import type { MeteringService } from '../../MeteringService/MeteringService.js';
+import { RecursiveRecord } from '../../MeteringService/types.js';
 
 const GLOBAL_APP_KEY = 'global';
 
@@ -69,7 +70,7 @@ export class DBKVStore {
                 deleteExpired(expiredKeys);
             }
 
-            return keys.map((key: string) => kvPairs[key]);
+            return keys.map((key: string) => kvPairs[key]) as unknown[];
         }
 
         const key_hash = murmurhash.v3(key);
@@ -258,7 +259,7 @@ export class DBKVStore {
         return await this.#expireat(key, timestamp);
     }
 
-    async incr<T extends Record<string, number>>({ key, pathAndAmountMap }: { key: string, pathAndAmountMap: T }): Promise<T extends { '': number } ? number : Record<string, number>> {
+    async incr<T extends Record<string, number>>({ key, pathAndAmountMap }: { key: string, pathAndAmountMap: T }): Promise<T extends { '': number } ? number : RecursiveRecord<number>> {
         if ( Object.values(pathAndAmountMap).find((v) => typeof v !== 'number') ) {
             throw new Error('All values in pathAndAmountMap must be numbers');
         }
@@ -267,7 +268,7 @@ export class DBKVStore {
         if ( typeof currVal !== 'object' && pathEntries.length <= 1 && !pathEntries[0]?.[0] ) {
             const amount = pathEntries[0]?.[1] ?? 1;
             this.set({ key, value: (Number(currVal) || 0) + amount });
-            return ((Number(currVal) || 0) + amount) as T extends { '': number } ? number : Record<string, number>;
+            return ((Number(currVal) || 0) + amount) as T extends { '': number } ? number : RecursiveRecord<number>;
         }
         // TODO DS: support arrays this also needs dynamodb implementation
         if ( Array.isArray(currVal) ) {
@@ -305,7 +306,7 @@ export class DBKVStore {
             obj[lastPart] += amount;
         }
         this.set({ key, value: currVal });
-        return currVal as T extends { '': number } ? number : Record<string, number>;
+        return currVal as T extends { '': number } ? number : RecursiveRecord<number>;
     }
 
     async decr(...params: Parameters<typeof DBKVStore.prototype.incr>): ReturnType<typeof DBKVStore.prototype.incr> {

@@ -11,11 +11,21 @@ export interface UsageAddons {
         [usageType: string]: number | string // TODO DS: string to support graduated discounts eventually
     }
 }
-export interface UsageByType {
-    total: number
-    [serviceName: string]: number
+
+export interface RecursiveRecord<T> { [k: string]: T | RecursiveRecord<T> }
+
+export interface UsageRecord {
+    cost: number,
+    count: number,
+    units: number
 }
 
+export type UsageByType = { [k:string]: number | UsageRecord } & { total: number };
+
+export interface AppTotals {
+    total: number,
+    count: number
+}
 export interface MeteringServiceDeps {
     kvStore: DBKVStore,
     superUserService: SUService,
