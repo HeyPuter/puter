@@ -1695,8 +1695,9 @@ async function UIDesktop(options) {
             }
         }
 
+        let stat;
         try {
-          const stat = await puter.fs.stat({path: item_path, consistency: 'eventual'});
+          stat = await puter.fs.stat({path: item_path, consistency: 'eventual'});
         } catch ( e ) {
             window.history.replaceState(null, document.title, '/');
             UIAlert({
