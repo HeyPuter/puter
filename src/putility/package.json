@@ -9,5 +9,5 @@
     "build": "webpack ./index.js --output-filename putility.js --output-library putility && { echo \"// Copyright 2024-present Puter Technologies Inc. All rights reserved.\"; echo \"// Generated on $(date '+%Y-%m-%d %H:%M')\n\"; cat ./dist/putility.js; echo \"\"; } > temp && mv temp ./dist/putility.js"
   },
   "author": "Puter Technologies Inc.",
-  "license": "AGPL-3.0-only"
+  "license": "MIT"
 }
