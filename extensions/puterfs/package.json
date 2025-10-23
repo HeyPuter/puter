@@ -1,0 +1,6 @@
+{
+    "main": "main.js",
+    "dependencies": {
+        "uuid": "^13.0.0"
+    }
+}
