@@ -48,13 +48,7 @@ module.exports = class TestSDK {
         } catch (e) {
             // ignore
         }
-        try {
-            await this.mkdir(this.default_cwd, { overwrite: true, create_missing_parents: true });
-        } catch (e) {
-            console.log('error creating working directory', e);
-            
-            // ignore
-        }
+        await this.mkdir(this.default_cwd, { overwrite: true, create_missing_parents: true });
         this.cd(this.default_cwd);
     }
 
