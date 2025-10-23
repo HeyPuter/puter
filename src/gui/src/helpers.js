@@ -788,20 +788,6 @@ window.create_folder = async(basedir, appendto_element)=>{
 
     let newfolder_op_id = window.operation_id++;
     window.operation_cancelled[newfolder_op_id] = false;
-    let newfolder_progress_window_init_ts = Date.now();
-    let progwin;
-
-    // only show progress window if it takes longer than 500ms to create folder
-    let progwin_timeout = setTimeout(async () => {
-        progwin = await UIWindowProgress({
-            operation_id: newfolder_op_id,
-            // TODO: Implement cancellation.
-            // on_cancel: () => {
-            //     window.operation_cancelled[newfolder_op_id] = true;
-            // },
-        });
-        progwin.set_status(i18n('taking_longer_than_usual'));
-    }, 500);
 
     // create folder
     try{
@@ -821,25 +807,9 @@ window.create_folder = async(basedir, appendto_element)=>{
                         
                     });
                 }
-                clearTimeout(progwin_timeout);
-
-                // done
-                let newfolder_duration = (Date.now() - newfolder_progress_window_init_ts);
-                if (progwin) {
-                    if (newfolder_duration >= window.copy_progress_hide_delay) {
-                        progwin.close();
-                    } else {
-                        setTimeout(() => {
-                            setTimeout(() => {
-                                progwin.close();
-                            }, Math.abs(window.copy_progress_hide_delay - newfolder_duration));
-                        });
-                    }
-                }
             }
         });
     }catch(err){
-        clearTimeout(progwin_timeout);
     }
 }
 
