@@ -4,6 +4,10 @@ import type { DBKVStore } from '@heyputer/backend/src/services/repositories/DBKV
 import type { SUService } from '@heyputer/backend/src/services/SUService.js';
 import type { RequestHandler } from 'express';
 import type helpers from '../src/backend/src/helpers.js';
+import type FSNodeContext from '../src/backend/src/filesystem/FSNodeContext.js';
+import type selectors from '../src/backend/src/filesystem/node/selectors.js';
+
+export type FSNodeContext = FSNodeContext;
 
 declare global {
     namespace Express {
@@ -37,6 +41,11 @@ interface CoreRuntimeModule {
     }
 }
 
+type FilesystemModule = {
+  FSNodeContext: FSNodeContext,
+  selectors: selectors,
+}
+
 type StripPrefix<TPrefix extends string, T extends string> = T extends `${TPrefix}.${infer R}` ? R : never;
 // TODO DS: define this globally in core to use it there too
 interface ServiceNameMap {
@@ -50,7 +59,9 @@ interface Extension extends RouterMethods {
         ? ServiceNameMap[R]
         : T extends 'core'
             ? CoreRuntimeModule
-            : unknown;
+            : T extends 'fs'
+                ? FilesystemModule
+                : unknown
 }
 
 declare global {

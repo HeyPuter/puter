@@ -18,10 +18,25 @@
  */
 
 const { AdvancedBase } = require("@heyputer/putility");
+const FSNodeContext = require("../../filesystem/FSNodeContext");
+const capabilities = require("../../filesystem/definitions/capabilities");
+const selectors = require("../../filesystem/node/selectors");
+const { RuntimeModule } = require("../../extension/RuntimeModule");
 
 class PuterFSModule extends AdvancedBase {
     async install (context) {
         const services = context.get('services');
+        
+        // Expose filesystem declarations to extensions
+        {
+            const runtimeModule = new RuntimeModule({ name: 'fs' });
+            runtimeModule.exports = {
+                capabilities,
+                selectors,
+                FSNodeContext,
+            };
+            context.get('runtime-modules').register(runtimeModule);
+        }
         
         const { ResourceService } = require("./ResourceService");
         services.registerService('resourceService', ResourceService);
