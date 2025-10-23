@@ -146,6 +146,7 @@ interface CreateAppOptions {
     icon?: string;
     maximizeOnStart?: boolean;
     filetypeAssociations?: string[];
+    dedupeName?: boolean;
 }
 
 interface GetAppOptions {
