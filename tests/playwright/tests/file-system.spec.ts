@@ -12,7 +12,7 @@ const BASE_PATH = '/admin/tests';
 const ERROR_CODES = [
     'forbidden',
     'dest_does_not_exist',
-    'not_found',
+    'subject_does_not_exist',
 ];
 
 const test = base.extend<{ page: Page }>({
@@ -23,10 +23,20 @@ const test = base.extend<{ page: Page }>({
 
         await page.evaluate(async ({ BASE_PATH }) => {
             const puter = (window as any).puter;
-            await puter.fs.delete(BASE_PATH, { recursive: true });
-            console.log(`deleted BASE_PATH: ${BASE_PATH}`);
-            await puter.fs.mkdir(BASE_PATH);
-            console.log(`created BASE_PATH: ${BASE_PATH}`);
+
+            try {
+                await puter.fs.delete(BASE_PATH, { recursive: true });
+            } catch( error ) {
+                // ignore error
+                console.error('delete error:', error);
+            }
+
+            try {
+                await puter.fs.mkdir(BASE_PATH);
+            } catch( error ) {
+                console.error('mkdir error:', error);
+                throw error;
+            }
         }, { BASE_PATH });
 
         await use(page);
@@ -73,7 +83,7 @@ async function bootstrap(page: Page) {
     }, { api_url: testConfig.api_url, auth_token: testConfig.auth_token });
 }
 
-test('change-propagation - mkdir', async ({ browser }) => {
+base('change-propagation - mkdir', async ({ browser }) => {
     const ctxA = await browser.newContext();
     const ctxB = await browser.newContext();
     const pageA = await ctxA.newPage();
@@ -111,11 +121,7 @@ test('change-propagation - mkdir', async ({ browser }) => {
     await Promise.all([ctxA.close(), ctxB.close()]);
 });
 
-test('recursive mkdir', async ({ browser }) => {
-    const ctx = await browser.newContext();
-    const page = await ctx.newPage();
-    await bootstrap(page);
-
+test('recursive mkdir', async ({ page }) => {
     // Test recursive mkdir with create_missing_parents
     const path = `${BASE_PATH}/a/b/c/d/e/f/g`;
     const result = await page.evaluate(async ({ path }) => {
@@ -133,12 +139,9 @@ test('recursive mkdir', async ({ browser }) => {
     }, { path });
 
     console.log('result?', result);
-
-    await ctx.close();
 });
 
-test('mkdir dedupe name 2', async ({ page }) => {
-
+test('mkdir dedupe name', async ({ page }) => {
     const basePath = `${BASE_PATH}/dedupe_test`;
 
     // Create initial directory
@@ -187,66 +190,7 @@ test('mkdir dedupe name 2', async ({ page }) => {
     }
 });
 
-test('mkdir dedupe name', async ({ browser }) => {
-    const ctx = await browser.newContext();
-    const page = await ctx.newPage();
-    await bootstrap(page);
-
-    const basePath = `${BASE_PATH}/dedupe_test`;
-
-    // Create initial directory
-    await page.evaluate(async ({ basePath }) => {
-        const puter = (window as any).puter;
-
-        try {
-            await puter.fs.mkdir(basePath);
-        } catch( error ) {
-            console.error('error: ', error);
-        }
-    }, { basePath });
-
-    // Test dedupe functionality
-    for ( let i = 1; i <= 3; i++ ) {
-        const result = await page.evaluate(async ({ basePath }) => {
-            const puter = (window as any).puter;
-            try {
-                const result = await puter.fs.mkdir(basePath, { dedupeName: true });
-                return result;
-            } catch( error ) {
-                console.error('mkdir error:', error);
-                return null;
-            }
-        }, { basePath });
-
-        if ( result ) {
-            expect(result.name).toBe(`dedupe_test (${i})`);
-        }
-
-        // Verify the directory exists
-        const stat = await page.evaluate(async ({ basePath, i }) => {
-            const puter = (window as any).puter;
-            try {
-                const stat = await puter.fs.stat(`${basePath} (${i})`);
-                return stat;
-            } catch( error ) {
-                console.error('stat error:', error);
-                return null;
-            }
-        }, { basePath, i });
-
-        if ( stat ) {
-            expect(stat.name).toBe(`dedupe_test (${i})`);
-        }
-    }
-
-    await ctx.close();
-});
-
-test('mkdir in root directory is prohibited', async ({ browser }) => {
-    const ctx = await browser.newContext();
-    const page = await ctx.newPage();
-    await bootstrap(page);
-
+test('mkdir in root directory is prohibited', async ({ page }) => {
     // Test full path format
     let error_code = await page.evaluate(async () => {
         const puter = (window as any).puter;
@@ -270,15 +214,11 @@ test('mkdir in root directory is prohibited', async ({ browser }) => {
         }
     });
     expect(ERROR_CODES.includes(error_code)).toBe(true);
-
-    await ctx.close();
 });
 
-test('full path api with create_missing_parents', async ({ browser }) => {
-    const ctx = await browser.newContext();
-    const page = await ctx.newPage();
-    await bootstrap(page);
-
+// NB: Don't test "parent + path" api for puter-js, it's only supported on http
+// api: https://github.com/HeyPuter/puter/blob/9bdb139f7a82ef610e6beb76b91014ac530828a4/src/puter-js/src/modules/FileSystem/operations/mkdir.js#L48-L49
+test('full path api with create_missing_parents', async ({ page }) => {
     const testPath = `${BASE_PATH}/full_path_api/create_missing_parents_works`;
     const targetPath = `${testPath}/a/b/c`;
 
@@ -289,6 +229,7 @@ test('full path api with create_missing_parents', async ({ browser }) => {
             await puter.fs.stat(`${testPath}/a`);
             return null;
         } catch( error: any ) {
+            console.error('stat error:', error);
             return error.code;
         }
     }, { testPath });
@@ -340,126 +281,4 @@ test('full path api with create_missing_parents', async ({ browser }) => {
         expect(stat).toBeTruthy();
         expect(stat.name).toBe(path.split('/').pop());
     }
-
-    await ctx.close();
-});
-
-test('parent + path api with create_missing_parents', async ({ browser }) => {
-    const ctx = await browser.newContext();
-    const page = await ctx.newPage();
-    await bootstrap(page);
-
-    const testPath = `${BASE_PATH}/parent_path_api`;
-    const parentPath = `${testPath}/a/b`;
-    const childPath = 'c';
-
-    // Verify parent directory does not exist initially
-    let error_code = await page.evaluate(async ({ testPath }) => {
-        const puter = (window as any).puter;
-        try {
-            await puter.fs.stat(`${testPath}/a`);
-            return null;
-        } catch( error: any ) {
-            return error.code;
-        }
-    }, { testPath });
-    expect(ERROR_CODES.includes(error_code)).toBe(true);
-
-    // Test mkdir without create_missing_parents should fail
-    error_code = await page.evaluate(async ({ parentPath, childPath }) => {
-        const puter = (window as any).puter;
-        try {
-            await puter.fs.mkdir(childPath, { parent: parentPath });
-            return null;
-        } catch( error: any ) {
-            return error.code;
-        }
-    }, { parentPath, childPath });
-    expect(ERROR_CODES.includes(error_code)).toBe(true);
-
-    // Test mkdir with create_missing_parents
-    const result = await page.evaluate(async ({ parentPath, childPath }) => {
-        const puter = (window as any).puter;
-        try {
-            const result = await puter.fs.mkdir(childPath, {
-                parent: parentPath,
-                createMissingParents: true,
-            });
-            return result;
-        } catch( error ) {
-            console.error('mkdir error:', error);
-            return null;
-        }
-    }, { parentPath, childPath });
-
-    expect(result).toBeTruthy();
-    expect(result.name).toBe('c');
-
-    // Verify all directories along the path exist
-    const paths = ['a', 'a/b', 'a/b/c'];
-    for ( const path of paths ) {
-        const stat = await page.evaluate(async ({ testPath, path }) => {
-            const puter = (window as any).puter;
-            try {
-                const stat = await puter.fs.stat(`${testPath}/${path}`);
-                return stat;
-            } catch( error ) {
-                console.error('stat error:', error);
-                return null;
-            }
-        }, { testPath, path });
-
-        expect(stat).toBeTruthy();
-        expect(stat.name).toBe(path.split('/').pop());
-    }
-
-    await ctx.close();
-});
-
-test('composite path with parent + path api', async ({ browser }) => {
-    const ctx = await browser.newContext();
-    const page = await ctx.newPage();
-    await bootstrap(page);
-
-    const testPath = `${BASE_PATH}/composite_path_test`;
-    const parentPath = `${testPath}/1/2`;
-    const childPath = '3/4';
-
-    // Test mkdir with composite path and create_missing_parents
-    const result = await page.evaluate(async ({ parentPath, childPath }) => {
-        const puter = (window as any).puter;
-        try {
-            const result = await puter.fs.mkdir(childPath, {
-                parent: parentPath,
-                createMissingParents: true,
-            });
-            return result;
-        } catch( error ) {
-            console.error('mkdir error:', error);
-            return null;
-        }
-    }, { parentPath, childPath });
-
-    expect(result).toBeTruthy();
-    expect(result.name).toBe('4');
-
-    // Verify all directories along the path exist
-    const paths = ['1', '1/2', '1/2/3', '1/2/3/4'];
-    for ( const path of paths ) {
-        const stat = await page.evaluate(async ({ testPath, path }) => {
-            const puter = (window as any).puter;
-            try {
-                const stat = await puter.fs.stat(`${testPath}/${path}`);
-                return stat;
-            } catch( error ) {
-                console.error('stat error:', error);
-                return null;
-            }
-        }, { testPath, path });
-
-        expect(stat).toBeTruthy();
-        expect(stat.name).toBe(path.split('/').pop());
-    }
-
-    await ctx.close();
 });
