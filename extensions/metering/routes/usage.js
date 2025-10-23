@@ -1,4 +1,3 @@
-/** @type {import('@heyputer/backend/src/services/MeteringService/MeteringServiceWrapper.mjs').MeteringServiceWrapper} */
 const meteringServiceWrapper = extension.import('service:meteringService');
 
 // TODO DS: move this to its own router and just use under this path
