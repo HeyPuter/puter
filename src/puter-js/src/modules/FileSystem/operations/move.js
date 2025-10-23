@@ -56,6 +56,8 @@ const move = function (...args) {
         // set up event handlers for load and error events
         utils.setupXhrEventHandlers(xhr, options.success, options.error, resolve, reject);
 
+        console.log(`options: ${JSON.stringify(options)}`);
+
         xhr.send(JSON.stringify({
             source: options.source,
             destination: options.destination,

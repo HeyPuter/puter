@@ -1,7 +1,7 @@
 #! /usr/bin/env python3
 
 # test the client-replica feature
-# - need browser environment (since socket.io doesn't work in node)
+# - need browser environment (following features require browser environment: fs naive-cache, client-replica, wspush)
 # - test multi-server setup
 # - test change-propagation-time
 # - test local read
@@ -231,7 +231,7 @@ def run():
     # )
 
     cxc_toolkit.exec.run_command(
-        "npx playwright test",
+        "npx playwright test --workers=1",
         # "npx playwright test --reporter=line",
         # "npx playwright test --reporter=github",
         work_dir=f"{PUTER_ROOT}/tests/playwright",
