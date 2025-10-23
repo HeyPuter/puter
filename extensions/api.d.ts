@@ -1,51 +1,61 @@
+import type { Actor } from '@heyputer/backend/src/services/auth/Actor.js';
+import type { MeteringService } from '@heyputer/backend/src/services/MeteringService/MeteringService.ts';
+import type { DBKVStore } from '@heyputer/backend/src/services/repositories/DBKVStore/DBKVStore.ts';
+import type { SUService } from '@heyputer/backend/src/services/SUService.js';
 import type { RequestHandler } from 'express';
 import type helpers from '../src/backend/src/helpers.js';
 
 declare global {
-  namespace Express {
-    interface Request {
-      actor: any; // TODO
+    namespace Express {
+        interface Request {
+            services: { get: <T extends (keyof ServiceNameMap ) | (string & {})>(string: T)=> T extends keyof ServiceNameMap ? ServiceNameMap[T] : unknown }
+            actor: Actor
+        }
     }
-  }
 }
 
-type EndpointOptions = {
-  allowedMethods?: string[]
-  subdomain?: string
-  noauth?: boolean
+interface EndpointOptions {
+    allowedMethods?: string[]
+    subdomain?: string
+    noauth?: boolean
 }
 
 type HttpMethod = 'get' | 'post' | 'put' | 'delete' | 'patch';
 
-type AddRouteFunction = (path: string, options: EndpointOptions, handler: RequestHandler) => void
+export type AddRouteFunction = (path: string, options: EndpointOptions, handler: RequestHandler) => void;
 
 type RouterMethods = {
-  [K in HttpMethod]: {
-    (path: string, options: EndpointOptions, handler: RequestHandler): void;
-    (path: string, handler: RequestHandler, options?: EndpointOptions): void;
-  };
+    [K in HttpMethod]: {
+        (path: string, options: EndpointOptions, handler: RequestHandler): void;
+        (path: string, handler: RequestHandler, options?: EndpointOptions): void;
+    };
+};
+
+interface CoreRuntimeModule {
+    util: {
+        helpers: typeof helpers,
+    }
 }
 
-type CoreRuntimeModule = {
-  util: {
-    helpers: typeof helpers,
-  }
-}
+type StripPrefix<TPrefix extends string, T extends string> = T extends `${TPrefix}.${infer R}` ? R : never;
+// TODO DS: define this globally in core to use it there too
+interface ServiceNameMap {
+    'meteringService': { meteringService: MeteringService } & MeteringService // TODO DS: squash into a single class without wrapper
+    'puter-kv': DBKVStore
+    'su': SUService
 
+}
 interface Extension extends RouterMethods {
-  // import(module: 'core'): {
-  //   UserActorType: typeof UserActorType;
-  // };
-  import(module: 'core'): CoreRuntimeModule;
-  import(module: string): any;
+    import<T extends  (`service:${keyof ServiceNameMap}` | 'core') | (string & {})>(module: T): T extends `service:${infer R extends keyof ServiceNameMap}`
+        ? ServiceNameMap[R]
+        : T extends 'core'
+            ? CoreRuntimeModule
+            : unknown;
 }
 
 declare global {
-  // Declare the extension variable
-  const extension: Extension;
-  const config: Record<string | number | symbol, unknown>;
-  const global_config: Record<string | number | symbol, unknown>;
+    // Declare the extension variable
+    const extension: Extension;
+    const config: Record<string | number | symbol, unknown>;
+    const global_config: Record<string | number | symbol, unknown>;
 }
-
-export { };
-

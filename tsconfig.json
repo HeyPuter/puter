@@ -17,6 +17,5 @@
         "**/tests/**",
         "node_modules",
         "dist",
-        "extensions"
     ]
 }
