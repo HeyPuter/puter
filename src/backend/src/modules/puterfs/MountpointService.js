@@ -123,13 +123,7 @@ class MountpointService extends BaseService {
         }
 
         const probe = {};
-
-        if ( ! selector.setPropertiesKnownBySelector ) {
-            throw new Error(`MountpointService.get_provider: selector "${selector.describe()}" does not have a setPropertiesKnownBySelector method`);
-        }
-
         selector.setPropertiesKnownBySelector(probe);
-
         if ( probe.path ) {
             let longest_mount_path = '';
             for ( const path of Object.keys(this.#mountpoints) ) {
