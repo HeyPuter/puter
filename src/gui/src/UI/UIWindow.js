@@ -121,6 +121,9 @@ async function UIWindow(options) {
 
     options.is_visible = options.is_visible ?? true;
 
+    // used for files opened via direct url
+    options.custom_path = options.custom_path ?? null;
+
     // if only one instance is allowed, bring focus to the window that is already open
     if(options.single_instance && options.app !== ''){
         let $already_open_window =  $(`.window[data-app="${html_encode(options.app)}"]`);
@@ -252,6 +255,7 @@ async function UIWindow(options) {
                 data-sort_order ="${options.sort_order ?? 'asc'}"
                 data-multiselectable = "${options.selectable_body}"
                 data-update_window_url = "${options.update_window_url && options.is_visible}"
+                data-custom_path = "${html_encode(options.custom_path)}"
                 data-user_set_url_params = "${html_encode(user_set_url_params)}"
                 data-initial_zindex = "${zindex}"
                 data-is_panel ="${options.is_panel ? 1 : 0}"
@@ -3745,7 +3749,18 @@ $.fn.focusWindow = function(event) {
         //change window URL
         const update_window_url = $(this).attr('data-update_window_url');
         const url_app_name = $(this).attr('data-app_pseudonym') || $(this).attr('data-app');
-        if(update_window_url === 'true' || update_window_url === null){
+        let custom_path = $(this).attr('data-custom_path');
+
+        if (custom_path && custom_path !== ''){
+            if(update_window_url === 'true' || update_window_url === null){
+                if (!custom_path.startsWith('/')) {
+                    custom_path = '/' + custom_path;
+                } 
+                window.history.replaceState({window_id: $(this).attr('data-id')}, '', custom_path);
+                document.title = $(this).attr('data-name');
+            }
+        }
+        else if(update_window_url === 'true' || update_window_url === null){
             window.history.replaceState({window_id: $(this).attr('data-id')}, '', '/app/'+url_app_name+$(this).attr('data-user_set_url_params'));
             document.title = $(this).attr('data-name');
         }
