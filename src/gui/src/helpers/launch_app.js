@@ -373,6 +373,10 @@ const launch_app = async (options)=>{
         if (options.update_window_url !== undefined && typeof options.update_window_url === 'boolean')
             update_window_url = options.update_window_url;
 
+        let custom_path;
+        if(options.custom_path !== undefined)
+            custom_path = options.custom_path;
+
         // open window
         el_win = UIWindow({
             element_uuid: uuid,
@@ -398,6 +402,7 @@ const launch_app = async (options)=>{
             has_head: has_head,
             show_in_taskbar: show_in_taskbar,
             update_window_url: update_window_url,
+            custom_path: custom_path,
         });
 
         // If the app is not in the background, show the window

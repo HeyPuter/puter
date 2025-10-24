@@ -1761,7 +1761,7 @@ async function UIDesktop(options) {
                     window_title: path.basename(item_path),
                     maximized: options.maximized,
                     file_signature: open_item_meta.signature,
-                    update_window_url: false
+                    custom_path: window.location.pathname,
                 });
                 return;
             }
