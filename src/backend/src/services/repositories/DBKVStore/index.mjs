@@ -11,6 +11,10 @@ export class DBKVServiceWrapper extends BaseService {
             meteringService: this.services.get('meteringService').meteringService,
             globalConfig: this.global_config,
         });
+        Object.getOwnPropertyNames(DBKVStore.prototype).forEach(fn => {
+            if ( fn === 'constructor' ) return;
+            this[fn] = (...args) => this.kvStore[fn](args);
+        });
     }
     static IMPLEMENTS = {
         ['puter-kvstore']: Object.getOwnPropertyNames(DBKVStore.prototype)
