@@ -647,7 +647,6 @@ class AIChatService extends BaseService {
                 return false;
             }
             mod_last_error = null;
-            console.log("FINISHED MODERATION: ", Date.now() - modStartTime + "ms wasted")
             return true;
         } catch (e) {
             console.error(e);

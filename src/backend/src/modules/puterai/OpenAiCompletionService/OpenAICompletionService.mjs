@@ -131,13 +131,17 @@ export class OpenAICompletionService {
     async checkModeration(text) {
         // create moderation
         const results = await this.#openAi.moderations.create({
+            model: "omni-moderation-latest",
             input: text,
         });
 
         let flagged = false;
 
         for ( const result of results?.results ?? [] ) {
-            if ( result.flagged ) {
+            
+            // OpenAI does a crazy amount of false positives. We filter by their 80% interval
+            const veryFlaggedEntries = Object.entries(result.category_scores).filter(e => e[1] > 0.8);
+            if (veryFlaggedEntries.length > 0 ) {
                 flagged = true;
                 break;
             }
