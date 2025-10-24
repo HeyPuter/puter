@@ -590,7 +590,10 @@ class AuthService extends BaseService {
         if ( origin === null ) {
             throw APIError.create('no_origin_for_app');
         }
-        return await this._app_uid_from_origin(origin);
+        const event = { origin };
+        const svc_event = this.services.get('event');
+        await svc_event.emit('app.from-origin', event);
+        return await this._app_uid_from_origin(event.origin);
     }
 
 
