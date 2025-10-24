@@ -590,16 +590,16 @@ class AuthService extends BaseService {
         if ( origin === null ) {
             throw APIError.create('no_origin_for_app');
         }
-        const event = { origin };
-        const svc_event = this.services.get('event');
-        await svc_event.emit('app.from-origin', event);
-        return await this._app_uid_from_origin(event.origin);
+        return await this._app_uid_from_origin(origin);
     }
 
 
     async _app_uid_from_origin (origin) {
+        const event = { origin };
+        const svc_event = this.services.get('event');
+        await svc_event.emit('app.from-origin', event);
         // UUIDV5
-        const uuid = this.modules.uuidv5(origin, APP_ORIGIN_UUID_NAMESPACE);
+        const uuid = this.modules.uuidv5(event.origin, APP_ORIGIN_UUID_NAMESPACE);
         return `app-${uuid}`;
     }
 
