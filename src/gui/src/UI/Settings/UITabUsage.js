@@ -35,9 +35,10 @@ export default {
                             <span id="storage-capacity" class="storage-amount"></span>
                         </div>
                     </div>
-                    <div id="storage-bar-wrapper">
-                        <span id="storage-used-percent"></span>
-                        <div id="storage-bar"></div>
+                    <div class="usage-progbar-wrapper">
+                        <div class="usage-progbar" id="storage-bar">
+                            <span class="usage-progbar-percent" id="storage-used-percent"></span>
+                        </div>
                     </div>
                     <div id="storage-puter-used-w" class="storage-puter-info">
                         <span id="storage-puter-used"></span>

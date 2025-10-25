@@ -24,6 +24,9 @@ async function UIWindowDesktopBGSettings(options){
 
     return new Promise(async (resolve) => {
         const original_background_css = $('body').attr('style');
+        const original_bg_url = window.desktop_bg_url;
+        const original_bg_color = window.desktop_bg_color;
+        const original_bg_fit = window.desktop_bg_fit;
         let bg_url = window.desktop_bg_url,
             bg_color = window.desktop_bg_color,
             bg_fit = window.desktop_bg_fit;
@@ -213,6 +216,9 @@ async function UIWindowDesktopBGSettings(options){
 
         $(el_window).find('.cancel').on('click', function(){
             $('body').attr('style', original_background_css);
+            window.desktop_bg_url = original_bg_url;
+            window.desktop_bg_color = original_bg_color;
+            window.desktop_bg_fit = original_bg_fit;
             $(el_window).close();
             resolve(true);
         })

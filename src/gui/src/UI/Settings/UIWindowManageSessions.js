@@ -202,7 +202,6 @@ const UIWindowManageSessions = async function UIWindowManageSessions (options) {
     const header = document.createElement('div');
     header.classList.add('session-manager-header');
     header.innerHTML = `
-        <h2 class="session-manager-title">${i18n('ui_manage_sessions')}</h2>
         <p class="session-manager-description">Manage your active sessions across all devices. You can revoke access to any session except your current one.</p>
     `;
     w_body.appendChild(header);

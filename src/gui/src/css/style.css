@@ -181,8 +181,8 @@ input[type=text], input[type=password], input[type=email], select {
 }
 
 input[type=text]:focus, input[type=password]:focus, input[type=email]:focus, select:focus {
-    border: 2px solid #01a0fd;
-    padding: 7px;
+    border: 1px solid #01a0fd;
+    /* padding: 7px; */
 }
 
 /**
@@ -4325,7 +4325,6 @@ fieldset[name=number-code] {
     display: flex;
     align-items: center;
     color: #373e44;
-    transition: all 0.2s ease;
     position: relative;
 }
 
@@ -4580,7 +4579,6 @@ fieldset[name=number-code] {
 .settings-content .version {
     font-size: 11px;
     color: #999;
-    text-align: center;
     margin: 0;
     opacity: 0.5;
     transition: opacity 0.2s ease;
@@ -4588,6 +4586,9 @@ fieldset[name=number-code] {
     padding: 12px 20px;
     background: rgba(0, 0, 0, 0.02);
     border-radius: 8px;
+    display: flex;
+    justify-content: center;
+    align-items: center;
 }
 
 .settings-content .version:hover {
@@ -4621,14 +4622,17 @@ fieldset[name=number-code] {
 }
 
 .profile-picture::before {
-    content: '📷';
+    content: '';
     position: absolute;
     inset: 0;
     display: flex;
     align-items: center;
     justify-content: center;
     background: rgba(0, 0, 0, 0.6);
-    font-size: 32px;
+    background-image: url('data:image/svg+xml,<svg width="24" height="24" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg"><path d="M12 6V18" stroke="%23ffffff" stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5"/><path d="M6 12H18" stroke="%23ffffff" stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5"/></svg>');
+    background-repeat: no-repeat;
+    background-position: center;
+    background-size: 32px 32px;
     opacity: 0;
     transition: opacity 0.2s ease;
 }
@@ -4700,39 +4704,6 @@ fieldset[name=number-code] {
     align-items: baseline;
 }
 
-#storage-bar-wrapper {
-    width: 100%;
-    height: 24px;
-    border: none;
-    border-radius: 8px;
-    background-color: #f0f0f0;
-    position: relative;
-    display: flex;
-    align-items: center;
-    overflow: hidden;
-}
-
-#storage-bar {
-    float: left;
-    height: 24px;
-    background: linear-gradient(90deg, #088ef0, #0680d6);
-    border-radius: 8px;
-    width: 0;
-    transition: width 0.3s ease;
-}
-
-#storage-used-percent {
-    position: absolute;
-    text-align: center;
-    display: inline-block;
-    width: 100%;
-    font-size: 12px;
-    line-height: 24px;
-    font-weight: 600;
-    color: #666;
-    z-index: 1;
-}
-
 .usage-progbar-wrapper {
     width: 100%;
     height: 24px;
@@ -4748,7 +4719,7 @@ fieldset[name=number-code] {
 .usage-progbar {
     float: left;
     height: 24px;
-    background: linear-gradient(90deg, #1ccd60, #18b754);
+    background: linear-gradient(90deg, #93c5fd, #60a5fa);
     border-radius: 8px;
     width: 0;
     transition: width 0.3s ease;
@@ -4763,7 +4734,7 @@ fieldset[name=number-code] {
     font-size: 12px;
     line-height: 24px;
     font-weight: 600;
-    color: #666;
+    color: #1f2937;
     z-index: 1;
 }
 .driver-usage-container{
@@ -4785,11 +4756,12 @@ fieldset[name=number-code] {
 }
 
 .driver-usage-details-content.active {
-    max-height: 500px;
+    max-height: 800px;
     margin-top: 10px;
     flex-grow: 1;
     overflow-y: auto;
     opacity: 1;
+    padding-bottom: 10px;
 }
 
 .driver-usage-details{
@@ -4824,9 +4796,7 @@ fieldset[name=number-code] {
 .driver-usage-details-content-table {
     width: 100%;
     border-collapse: collapse;
-    margin-bottom: 30px;
-    border-radius: 8px;
-    overflow: hidden;
+    margin-bottom: 0;
 }
 
 .driver-usage-details-content-table thead {
@@ -5343,6 +5313,11 @@ fieldset[name=number-code] {
 
 .search-container {
     margin-bottom: 16px;
+    position: sticky;
+    top: 0;
+    background-color: rgb(245 247 249);
+    padding-bottom: 8px;
+    z-index: 10;
 }
 
 .search-container input {
@@ -5622,6 +5597,7 @@ fieldset[name=number-code] {
         height: 100%;
         z-index: 1000;
         box-shadow: 2px 0 8px rgba(0, 0, 0, 0.15);
+        padding-top: 64px;
     }
 
     .settings-sidebar.active {
@@ -5640,6 +5616,7 @@ fieldset[name=number-code] {
         height: 100%;
         z-index: 1000;
         box-shadow: 2px 0 8px rgba(0, 0, 0, 0.15);
+        padding-top: 64px;
     }
 
     .settings-sidebar.active {
@@ -6910,4 +6887,362 @@ fieldset[name=number-code] {
     to {
         transform: rotate(360deg);
     }
+}
+
+/* ======================================
+   2FA Setup Window Styles
+/* ======================================
+   2FA Setup Window Styles
+   ====================================== */
+
+.setup-2fa-container {
+    padding: 24px;
+    max-width: 550px;
+}
+
+/* Step Indicator */
+.step-indicator {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    margin-bottom: 32px;
+    gap: 0;
+}
+
+.step-dot {
+    width: 36px;
+    height: 36px;
+    border-radius: 50%;
+    background-color: #e5e7eb;
+    border: 2px solid #e5e7eb;
+    transition: all 0.3s ease;
+    position: relative;
+    z-index: 2;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+}
+
+.step-dot.active {
+    background-color: #088ef0;
+    border-color: #088ef0;
+}
+
+.step-number {
+    font-size: 14px;
+    font-weight: 600;
+    color: #9ca3af;
+}
+
+.step-dot.active .step-number {
+    color: #ffffff;
+}
+
+.step-line {
+    flex: 1;
+    height: 2px;
+    background-color: #e5e7eb;
+    margin: 0 -1px;
+    z-index: 1;
+}
+
+/* Step Content */
+.step-content {
+    margin-bottom: 24px;
+}
+
+.step-title {
+    font-size: 20px;
+    font-weight: 600;
+    color: #1f2937;
+    margin-bottom: 12px;
+    text-align: center;
+}
+
+.step-description {
+    font-size: 14px;
+    color: #6b7280;
+    text-align: center;
+    margin-bottom: 24px;
+    line-height: 1.6;
+}
+
+/* Info Box (Step 1) */
+.info-box {
+    display: flex;
+    gap: 16px;
+    background-color: #eff6ff;
+    border: 1px solid #bfdbfe;
+    border-radius: 8px;
+    padding: 20px;
+    margin-bottom: 24px;
+}
+
+.info-box-icon {
+    flex-shrink: 0;
+}
+
+.info-box-title {
+    font-size: 14px;
+    font-weight: 600;
+    color: #1e40af;
+    margin: 0 0 8px 0;
+}
+
+.info-box-text {
+    font-size: 13px;
+    color: #1e40af;
+    line-height: 1.5;
+    margin: 0;
+}
+
+/* Steps Overview (Step 1) */
+.steps-overview {
+    background-color: #f9fafb;
+    border: 1px solid #e5e7eb;
+    border-radius: 8px;
+    padding: 20px;
+    margin-top: 24px;
+}
+
+.steps-overview-title {
+    font-size: 15px;
+    font-weight: 600;
+    color: #374151;
+    margin: 0 0 12px 0;
+}
+
+.steps-list {
+    margin: 0;
+    padding-left: 24px;
+    list-style: decimal;
+}
+
+.steps-list li {
+    font-size: 14px;
+    color: #6b7280;
+    line-height: 1.8;
+    margin-bottom: 8px;
+}
+
+.steps-list li:last-child {
+    margin-bottom: 0;
+}
+
+/* QR Container */
+.qr-container {
+    display: flex;
+    justify-content: center;
+    margin: 24px 0;
+}
+
+/* Manual Setup */
+.manual-setup {
+    background-color: #f9fafb;
+    border: 1px solid #e5e7eb;
+    border-radius: 8px;
+    padding: 16px;
+    margin-top: 24px;
+}
+
+.manual-setup-label {
+    font-size: 13px;
+    font-weight: 600;
+    color: #374151;
+    margin-bottom: 12px;
+    display: block;
+}
+
+.manual-setup-key-wrapper {
+    display: flex;
+    gap: 8px;
+    align-items: stretch;
+}
+
+.manual-setup-key {
+    flex: 1;
+    background-color: #fff;
+    border: 1px solid #d1d5db;
+    border-radius: 6px;
+    padding: 10px 12px;
+    font-family: 'Courier New', Courier, monospace;
+    font-size: 13px;
+    color: #1f2937;
+    word-break: break-all;
+    display: flex;
+    align-items: center;
+}
+
+.copy-key-btn {
+    padding: 8px 16px;
+    font-size: 13px;
+    flex-shrink: 0;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+}
+
+/* Verify Section (Step 2) */
+.verify-section {
+    margin-top: 32px;
+    padding-top: 24px;
+    border-top: 1px solid #e5e7eb;
+}
+
+.verify-title {
+    font-size: 16px;
+    font-weight: 600;
+    color: #374151;
+    margin: 0 0 8px 0;
+    text-align: center;
+}
+
+.verify-description {
+    font-size: 14px;
+    color: #6b7280;
+    text-align: center;
+    margin: 0 0 20px 0;
+    line-height: 1.5;
+}
+
+/* Code Entry Container */
+.code-entry-container {
+    margin: 24px 0;
+}
+
+/* Warning Box */
+.warning-box {
+    display: flex;
+    align-items: flex-start;
+    gap: 12px;
+    background-color: #fffbeb;
+    border: 1px solid #fbbf24;
+    border-radius: 8px;
+    padding: 16px;
+    margin-bottom: 24px;
+}
+
+.warning-box svg {
+    flex-shrink: 0;
+    margin-top: 2px;
+}
+
+.warning-box p {
+    font-size: 13px;
+    color: #92400e;
+    line-height: 1.5;
+    margin: 0;
+}
+
+/* Recovery Codes Container */
+.recovery-codes-container {
+    margin: 24px 0;
+}
+
+/* Confirmation Checkbox */
+.confirmation-checkbox {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    margin-top: 24px;
+    padding: 16px;
+    background-color: #f9fafb;
+    border-radius: 8px;
+    border: 1px solid #e5e7eb;
+}
+
+.confirmation-checkbox input[type="checkbox"] {
+    width: 18px;
+    height: 18px;
+    cursor: pointer;
+    margin: 0;
+}
+
+.confirmation-checkbox label {
+    font-size: 14px;
+    color: #374151;
+    cursor: pointer;
+    margin: 0;
+    user-select: none;
+}
+
+/* Step Navigation */
+.step-navigation {
+    display: flex;
+    justify-content: space-between;
+    gap: 12px;
+    padding-top: 24px;
+    margin-top: 24px;
+    border-top: 1px solid #e5e7eb;
+}
+
+.step-navigation .button {
+    margin: 0;
+    padding: 10px 20px;
+    font-size: 14px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    min-width: 100px;
+}
+
+.step-navigation .btn-continue,
+.step-navigation .btn-finish {
+    margin-left: auto;
+}
+
+/* Button States */
+.button-small {
+    padding: 6px 12px;
+    font-size: 12px;
+}
+
+.window-2fa-setup .button:disabled {
+    opacity: 0.5;
+    cursor: not-allowed;
+}
+
+/* Responsive adjustments */
+@media (max-width: 768px) {
+    .setup-2fa-container {
+        padding: 16px;
+    }
+
+    .step-title {
+        font-size: 18px;
+    }
+
+    .step-description {
+        font-size: 13px;
+    }
+
+    .step-indicator {
+        margin-bottom: 24px;
+    }
+
+    .step-dot {
+        width: 32px;
+        height: 32px;
+    }
+
+    .step-number {
+        font-size: 13px;
+    }
+
+    .manual-setup-key-wrapper {
+        flex-direction: column;
+    }
+
+    .copy-key-btn {
+        width: 100%;
+    }
+}
+
+/* Hide extra QR code canvas - QRCode lib creates both canvas and img */
+.qr-container .qr-code canvas {
+    display: none;
+}
+
+.qr-container .qr-code img {
+    display: block;
 }
