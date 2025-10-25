@@ -948,16 +948,12 @@ span.header-sort-icon img {
     background-color: transparent;
     border: none;
     border-radius: 8px;
-    box-shadow: 0 12px 24px rgba(15, 23, 42, 0.15);
+    box-shadow: 0px 0px 15px #00000066;
     transition: opacity .2s, box-shadow .25s ease, transform .25s ease;
     user-select: none !important;
     -moz-user-select: none !important;
     -webkit-user-select: none;
     contain: paint;
-}
-
-.window-active {
-    box-shadow: 0 16px 40px rgba(15, 23, 42, 0.20);
 }
 
 .window[data-is_maximized="1"] {
