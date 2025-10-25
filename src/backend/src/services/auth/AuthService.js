@@ -209,7 +209,7 @@ class AuthService extends BaseService {
             throw APIError.create('forbidden');
         }
 
-        this.log.info(`generating user-app token for app ${app_uid} and user ${actor_type.user.uuid}`, {
+        this.log.debug(`generating user-app token for app ${app_uid} and user ${actor_type.user.uuid}`, {
             app_uid,
             user_uid: actor_type.user.uuid,
         })
@@ -251,7 +251,7 @@ class AuthService extends BaseService {
      * session's metadata.
      */
     async create_session_ (user, meta = {}) {
-        this.log.info(`CREATING SESSION`);
+        this.log.debug(`CREATING SESSION`);
 
         if ( meta.req ) {
             const req = meta.req;
@@ -595,8 +595,11 @@ class AuthService extends BaseService {
 
 
     async _app_uid_from_origin (origin) {
+        const event = { origin };
+        const svc_event = this.services.get('event');
+        await svc_event.emit('app.from-origin', event);
         // UUIDV5
-        const uuid = this.modules.uuidv5(origin, APP_ORIGIN_UUID_NAMESPACE);
+        const uuid = this.modules.uuidv5(event.origin, APP_ORIGIN_UUID_NAMESPACE);
         return `app-${uuid}`;
     }
 

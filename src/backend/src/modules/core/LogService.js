@@ -21,10 +21,10 @@ const logSeverity = (ordinal, label, esc, winst) => ({ ordinal, label, esc, wins
 const LOG_LEVEL_ERRO = logSeverity(0, 'ERRO', '31;1', 'error');
 const LOG_LEVEL_WARN = logSeverity(1, 'WARN', '33;1', 'warn');
 const LOG_LEVEL_INFO = logSeverity(2, 'INFO', '36;1', 'info');
-const LOG_LEVEL_TICK = logSeverity(10, 'TICK', '34;1', 'info');
-const LOG_LEVEL_DEBU = logSeverity(4, 'DEBU', '37;1', 'debug');
 const LOG_LEVEL_NOTICEME = logSeverity(3, 'NOTICE_ME', '33;1', 'error');
-const LOG_LEVEL_SYSTEM = logSeverity(3, 'SYSTEM', '33;1', 'system');
+const LOG_LEVEL_SYSTEM = logSeverity(3, 'SYSTEM', '36;1', 'system');
+const LOG_LEVEL_DEBU = logSeverity(4, 'DEBU', '37', 'debug');
+const LOG_LEVEL_TICK = logSeverity(10, 'TICK', '34;1', 'info');
 
 const winston = require('winston');
 const { Context } = require('../../util/context');
@@ -41,7 +41,17 @@ const WINSTON_LEVELS = {
     http: 30,
     verbose: 40,
     debug: 50,
-    silly: 60
+    silly: 60,
+};
+
+let display_log_level = process.env.DEBUG ? 100 : 3;
+const display_log_level_label = {
+    0: 'ERRO',
+    1: 'WARN',
+    2: 'INFO',
+    3: 'SYSTEM',
+    4: 'DEBUG',
+    100: 'ALL',
 };
 
 
@@ -112,7 +122,7 @@ class LogContext {
                 typeof fields[k].toLogFields === 'function'
             ) fields[k] = fields[k].toLogFields();
         }
-        if ( Context.get('injected_logger') ) {
+        if ( Context.get('injected_logger', { allow_fallback: true }) ) {
             Context.get('injected_logger').log(
                 message + (fields ? ('; fields: ' + JSON.stringify(fields)) : ''),
             );
@@ -193,7 +203,7 @@ class DevLogger {
 
         if ( this.off ) return;
         
-        if ( ! process.env.DEBUG && log_lvl.ordinal >= 4 ) return;
+        if ( ! process.env.DEBUG && log_lvl.ordinal > display_log_level ) return;
 
         const ld = Context.get('logdent', { allow_fallback: true })
         const prefix = globalThis.dev_console_indent_on
@@ -430,7 +440,22 @@ class LogService extends BaseService {
                     globalThis.dev_console_indent_on =
                         ! globalThis.dev_console_indent_on;
                 }
-            }
+            },
+            {
+                id: 'get-level',
+                description: 'get the current log level for displayed logs',
+                handler: async (args, log) => {
+                    log.log(`${display_log_level} (${display_log_level_label[display_log_level] ?? '?'})`);
+                },
+            },
+            {
+                id: 'set-level',
+                description: 'set the new log level for displayed logs',
+                handler: async (args, log) => {
+                    display_log_level = Number(args[0]);
+                    log.log(`${display_log_level} (${display_log_level_label[display_log_level] ?? '?'})`);
+                },
+            },
         ]);
     }
     /**
@@ -524,13 +549,39 @@ class LogService extends BaseService {
         }
 
         this.log = this.create('log-service');
-        this.log.system('log service started', {
+        this.log.system('log service started');
+        this.log.debug('log service configuration', {
             output_lvl: this.output_lvl,
             log_directory: this.log_directory,
         });
 
         this.services.logger = this.create('services-container');
         globalThis.root_context.set('logger', this.create('root-context'));
+
+        {
+            const util = require('util');
+            const logger = this.create('console');
+
+            if ( ! globalThis.original_console_object ) {
+                globalThis.original_console_object = console;
+            }
+            
+            // Keep console prototype
+            const logconsole = Object.create(console);
+            
+            // Override simple log functions
+            const logfn = level => (...a) => {
+                logger[level](a.map(arg => {
+                    if ( typeof arg === 'string' ) return arg;
+                    return util.inspect(arg, undefined, undefined, true);
+                }).join(' '));
+            };
+            logconsole.log = logfn('info');
+            logconsole.warn = logfn('warn');
+            logconsole.error = logfn('error');
+            
+            globalThis.console = logconsole;
+        }
     }
 
     /**
@@ -556,6 +607,10 @@ class LogService extends BaseService {
         try {
             // skip messages that are above the output level
             if ( log_lvl.ordinal > this.output_lvl ) return;
+            
+            if ( this.config.trace_logs ) {
+                fields.stack = (new Error('logstack')).stack;
+            }
 
             for ( const logger of this.loggers ) {
                 logger.onLogMessage(

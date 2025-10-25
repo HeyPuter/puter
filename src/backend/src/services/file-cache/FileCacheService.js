@@ -53,7 +53,7 @@ class FileCacheService extends AdvancedBase {
         path_: require('path'),
     }
 
-    constructor ({ services, my_config }) {
+    constructor ({ services, my_config, config: global_config }) {
         super({ services });
 
         this.log = services.get('log-service').create(this.constructor.name);
@@ -74,6 +74,9 @@ class FileCacheService extends AdvancedBase {
             initial: 0.5,
             alpha: 0.2,
         });
+        
+        this.logging_enabled = (global_config.logging ?? [])
+            .includes('file-cache');
 
         this.init();
 
@@ -206,12 +209,12 @@ class FileCacheService extends AdvancedBase {
         }
 
         if ( tracker.phase === FileTracker.PHASE_PRECACHE ) {
-            if ( opt_log ) opt_log.info('obtained from precache');
+            if ( opt_log ) opt_log.debug('obtained from precache');
             return this.precache.get(await fsNode.get('uid'));
         }
 
         if ( tracker.phase === FileTracker.PHASE_DISK ) {
-            if ( opt_log ) opt_log.info('obtained from disk');
+            if ( opt_log ) opt_log.debug('obtained from disk');
 
             const { fs } = this.modules;
             const path = this._get_path(await fsNode.get('uid'));

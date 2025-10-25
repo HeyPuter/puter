@@ -37,6 +37,8 @@ const ENABLE_REFRESH_APP_CACHE = false;
 * recent apps, and tag-based app discovery.
 */
 class AppInformationService extends BaseService {
+    static LOG_DEBUG = true;
+
     _construct () {
         this.collections = {};
         this.collections.recent = [];

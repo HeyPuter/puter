@@ -1,14 +1,20 @@
 import BaseService from '../../BaseService.js';
 import { DB_READ } from '../../database/consts.js';
-import { DBKVStore } from './DBKVStore.mjs';
+import { DBKVStore } from './DBKVStore.js';
 
 export class DBKVServiceWrapper extends BaseService {
     kvStore = undefined;
     _init() {
         /** @type {DBKVStore} */
-        this.kvStore = new DBKVStore(this.services.get('database').get(DB_READ, 'kvstore'),
-                        this.services.get('meteringService').as('meteringService'),
-                        this.global_config);
+        this.kvStore = new DBKVStore({
+            sqlClient: this.services.get('database').get(DB_READ, 'kvstore'),
+            meteringService: this.services.get('meteringService').meteringService,
+            globalConfig: this.global_config,
+        });
+        Object.getOwnPropertyNames(DBKVStore.prototype).forEach(fn => {
+            if ( fn === 'constructor' ) return;
+            this[fn] = (...args) => this.kvStore[fn](args);
+        });
     }
     static IMPLEMENTS = {
         ['puter-kvstore']: Object.getOwnPropertyNames(DBKVStore.prototype)

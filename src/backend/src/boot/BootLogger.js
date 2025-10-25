@@ -17,16 +17,15 @@
  * along with this program.  If not, see <https://www.gnu.org/licenses/>.
  */
 class BootLogger {
-    constructor () {
-        console.log(
-            `\x1B[36;1mBoot logger started :)\x1B[0m`,
-        );
-    }
     info (...args) {
         console.log(
             '\x1B[36;1m[BOOT/INFO]\x1B[0m',
             ...args,
         );
+    }
+    debug (...args) {
+        if ( ! process.env.DEBUG ) return;
+        console.log('\x1B[37m[BOOT/DEBUG]', ...args, '\x1B[0m');
     }
     error (...args) {
         console.log(

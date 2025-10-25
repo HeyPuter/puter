@@ -57,9 +57,7 @@ def get_token():
 
 
 def init_server_config():
-    server_process = cxc_toolkit.exec.run_background(
-        "npm start"
-    )
+    server_process = cxc_toolkit.exec.run_background("npm start")
     # wait 10s for the server to start
     time.sleep(10)
     server_process.terminate()
@@ -67,30 +65,40 @@ def init_server_config():
 
 # create the admin user and print its password
 def get_admin_password():
-    output_bytes, exit_code = cxc_toolkit.exec.run_command(
-        "npm start",
-        stream_output=False,
-        kill_on_output="password for admin",
+    # output_bytes, exit_code = cxc_toolkit.exec.run_command(
+    #     "npm start",
+    #     stream_output=False,
+    #     kill_on_output="password for admin",
+    # )
+
+    backend_process = cxc_toolkit.exec.run_background(
+        "npm start", log_path="/tmp/backend.log"
     )
 
-    # wait for the server to terminate
+    # NB: run_command + kill_on_output may wait indefinitely, use run_background + hard limit instead
     time.sleep(10)
 
-    # print the line that contains "password"
-    lines = output_bytes.decode("utf-8", errors="ignore").splitlines()
-    admin_password = None
+    backend_process.terminate()
+
+    # read the log file
+    with open("/tmp/backend.log", "r") as f:
+        lines = f.readlines()
     for line in lines:
-        if "password" in line:
+        if "password for admin" in line:
             print(f"found password line: ---{line}---")
-            # Parse password from "password for admin is: bbb236b2"
-            if "password for admin is:" in line:
-                admin_password = line.split("password for admin is:")[1].strip()
-                print(f"Extracted admin password: {admin_password}")
-                break
+            admin_password = line.split("password for admin is:")[1].strip()
+            print(f"Extracted admin password: {admin_password}")
+            CONTEXT.ADMIN_PASSWORD = admin_password
+            return
 
-    print(f"password for admin: {admin_password}")
+    if not CONTEXT.ADMIN_PASSWORD:
+        print("Error: No admin password found")
 
-    CONTEXT.ADMIN_PASSWORD = admin_password
+        # print the log file
+        with open("/tmp/backend.log", "r") as f:
+            print(f.read())
+
+        exit(1)
 
 
 def update_server_config():
@@ -160,9 +168,7 @@ def run():
     # =========================================================================
     # config client
     # =========================================================================
-    server_process = cxc_toolkit.exec.run_background(
-        "npm start"
-    )
+    cxc_toolkit.exec.run_background("npm start")
     # wait 10s for the server to start
     time.sleep(10)
 
@@ -172,61 +178,9 @@ def run():
     # =========================================================================
     # run the test
     # =========================================================================
-    test_start_monotonic = time.time()
-    test_start_iso = datetime.datetime.now().isoformat(timespec="seconds")
-
-    output_bytes, exit_code = cxc_toolkit.exec.run_command(
+    cxc_toolkit.exec.run_command(
         "node ./tools/api-tester/apitest.js --unit --stop-on-failure"
     )
-    test_duration_seconds = time.time() - test_start_monotonic
-
-    # =========================================================================
-    # process the result
-    # =========================================================================
-    # Extract results between the CI splitters printed by apitest.js
-    extracted_result = None
-    try:
-        output_text = output_bytes.decode("utf-8", errors="ignore")
-        lines = output_text.splitlines()
-
-        begin_phrase = "nightly build results begin"
-        end_phrase = "nightly build results end"
-
-        begin_line_index = next(
-            (i for i, ln in enumerate(lines) if begin_phrase in ln), -1
-        )
-        end_line_index = (
-            next(
-                (
-                    i
-                    for i in range(begin_line_index + 1, len(lines))
-                    if end_phrase in lines[i]
-                ),
-                -1,
-            )
-            if begin_line_index != -1
-            else -1
-        )
-
-        if (
-            begin_line_index != -1
-            and end_line_index != -1
-            and end_line_index > begin_line_index
-        ):
-            extracted_lines = lines[begin_line_index + 1 : end_line_index]
-            extracted_result = "\n".join(extracted_lines).strip("\n")
-        else:
-            print(
-                "[warn] Failed to locate nightly build results markers in output",
-                file=sys.stderr,
-            )
-    except Exception as e:
-        print(f"[warn] Exception while extracting results: {e}", file=sys.stderr)
-
-
-    print(f"Server PID: {server_process.pid}")
-
-    server_process.terminate()
 
 
 if __name__ == "__main__":

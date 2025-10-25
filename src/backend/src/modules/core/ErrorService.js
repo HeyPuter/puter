@@ -92,9 +92,6 @@ class ErrorService extends BaseService {
         message = message ?? source?.message;
         logger = logger ?? this.backupLogger;
         logger.error(`Error @ ${location}: ${message}; ` + source?.stack);
-        if ( trace ) {
-            logger.error(source);
-        }
 
         if ( alarm ) {
             const alarm_id = `${location}:${message}`;

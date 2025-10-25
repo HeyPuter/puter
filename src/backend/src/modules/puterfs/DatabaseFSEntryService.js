@@ -457,7 +457,7 @@ class DatabaseFSEntryService extends BaseService {
 
         const queue = this.currentState.queue;
 
-        this.log.info(
+        this.log.debug(
             `Executing ${queue.length} operations...`
         );
 
@@ -496,7 +496,7 @@ class DatabaseFSEntryService extends BaseService {
         this.flipState_();
         this.status = this.constructor.STATUS_READY;
 
-        this.log.info(
+        this.log.debug(
             `Finished ${queue.length} operations.`
         )
 

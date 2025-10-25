@@ -87,8 +87,6 @@ class MkTree extends HLFilesystemOperation {
         const dirs = trunk === '.' ? []
             : trunk.split('/').filter(Boolean);
 
-        console.log('DIRS', dirs, parent_node.selector.describe())
-
         // dirs = [a, b, c]
 
         let parent_did_exist = parent_exists;
@@ -155,8 +153,6 @@ class MkTree extends HLFilesystemOperation {
         }
 
         const bottom_parent = await fs.node(current);
-
-        console.log('BOTTOM PARENT', bottom_parent.selector.describe());
 
         if ( branches.length === 0 ) {
             this.leaves.push(bottom_parent);
@@ -280,7 +276,6 @@ class HLMkdir extends HLFilesystemOperation {
         }
 
         let parent_node = values.parent || await fs.node(new RootNodeSelector());
-        console.log('USING PARENT', parent_node.selector.describe());
 
         let target_basename = _path.basename(values.path);
 
@@ -459,7 +454,7 @@ class HLMkdir extends HLFilesystemOperation {
         const node = await fs.node(current);
 
         if ( ! await node.exists() ) {
-            console.log('HERE FROM', node.selector.describe(), parent_node.selector.describe());
+            // console.log('HERE FROM', node.selector.describe(), parent_node.selector.describe());
             throw APIError.create('dest_does_not_exist');
         }
 
@@ -477,8 +472,6 @@ class HLMkdir extends HLFilesystemOperation {
      * @returns {Promise<FSNodeContext>} The created directory.
      */
     async _create_dir (dir) {
-        console.log('CREATING DIR', dir.selector.describe());
-
         if ( await dir.exists() ) {
             if ( ! dir.entry.is_dir ) {
                 throw APIError.create('dest_is_not_a_directory');

@@ -34,7 +34,7 @@ module.exports = async (options = {}) => {
     const entries = [];
 
     for ( const extensionsDir of extension_directories ) {
-        console.log(`Reading extensions from ${extensionsDir}`);
+        // console.log(`Reading extensions from ${extensionsDir}`);
         // Read and process extension entries from the extensions directory
         const readdir_entries = fs.readdirSync(extensionsDir, { withFileTypes: true })
         for ( const entry of readdir_entries ) {

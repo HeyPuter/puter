@@ -32,6 +32,8 @@ const MODE_WRITE = Symbol('write');
 * allowing concurrent read and exclusive write operations.
 */
 class FSLockService extends BaseService {
+    static LOG_DEBUG = true;
+
     async _construct () {
         this.locks = {};
     }
@@ -123,7 +125,7 @@ class FSLockService extends BaseService {
             this.locks[path] = rwlock;
         }
 
-        this.log.noticeme('WAITING FOR LOCK: ' + path + ' ' +
+        this.log.info('WAITING FOR LOCK: ' + path + ' ' +
             mode.toString());
 
         if ( mode === MODE_READ ) {

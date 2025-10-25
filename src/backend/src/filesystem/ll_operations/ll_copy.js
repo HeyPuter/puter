@@ -47,11 +47,6 @@ class LLCopy extends LLFilesystemOperation {
         await source.fetchEntry({ thumbnail: true });
         this.checkpoint('fetched source and parent entries');
 
-        console.log('PATH PARAMETERS', {
-            path: await parent.get('path'),
-            target_name,
-        })
-
         // Access Control
         {
             const svc_acl = context.get('services').get('acl');

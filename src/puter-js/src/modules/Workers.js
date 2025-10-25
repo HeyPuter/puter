@@ -97,7 +97,7 @@ export class WorkersHandler {
 
         workerName = workerName.toLocaleLowerCase(); // just incase
         // const driverCall = await puter.drivers.call("workers", "worker-service", "destroy", { authorization: puter.authToken, workerName });
-        const driverResult = await utils.make_driver_method(['authorization', 'workerName'], 'workers', "worker-service", 'destroy')(puter.authToken, workerName);;
+        const driverResult = await utils.make_driver_method(['authorization', 'workerName'], 'workers', "worker-service", 'destroy')(puter.authToken, workerName);
 
         if (!driverResult.result) {
             if (!driverResult.result) {
@@ -115,6 +115,56 @@ export class WorkersHandler {
             await puter.kv.set("user-workers", currentWorkers);
             return true;
         }
+    }
+    
+    async getLoggingHandle (workerName) {
+        const loggingEndpoint = await utils.make_driver_method([], 'workers', "worker-service", 'getLoggingUrl')(puter.authToken, workerName);
+        const socket = new WebSocket(`${loggingEndpoint}/${puter.authToken}/${workerName}`);
+        const logStreamObject = new EventTarget();
+        logStreamObject.onLog = (data) => { };
+
+        // Coercibility to ReadableStream
+        Object.defineProperty(logStreamObject, 'start', {
+            enumerable: false,
+            value: async (controller) => {
+                socket.addEventListener("message", (event) => {
+                    controller.enqueue(JSON.parse(event.data));
+                });
+                socket.addEventListener("close", (event) => {
+                    try {
+                        controller.close();
+                    } catch (e) { }
+                });
+            }
+        });
+        Object.defineProperty(logStreamObject, 'cancel', {
+            enumerable: false,
+            value: async () => {
+                socket.close();
+            }
+        });
+
+
+        socket.addEventListener("message", (event) => {
+            const logEvent = new MessageEvent("log", { data: JSON.parse(event.data) });
+
+            logStreamObject.dispatchEvent(logEvent)
+            logStreamObject.onLog(logEvent);
+        });
+        logStreamObject.close = socket.close;
+        return new Promise((res, rej) => {
+            let done = false;
+            socket.onopen = ()=>{
+                done = true;
+                res(logStreamObject);
+            }
+
+            socket.onerror = () => {
+                if (!done) {
+                    rej("Failed to open logging connection");
+                }
+            }
+        })
     }
 
 }

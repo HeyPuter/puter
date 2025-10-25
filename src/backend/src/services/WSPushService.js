@@ -20,6 +20,8 @@
 const BaseService = require("./BaseService");
 const { Context } = require("../util/context");
 class WSPushService extends BaseService {
+    static LOG_DEBUG = true;
+
     /**
     * Initializes the WSPushService by setting up event listeners for various file system operations.
     * 
@@ -252,7 +254,7 @@ class WSPushService extends BaseService {
         const { socket_id } = metadata;
 
         if (!socket_id) {
-            this.log.error('missing socket id', { metadata });
+            this.log.warn('missing socket id', { metadata });
         }
 
         this.log.info('socket id: ' + socket_id);

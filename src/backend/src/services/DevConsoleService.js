@@ -17,8 +17,10 @@
  * You should have received a copy of the GNU Affero General Public License
  * along with this program.  If not, see <https://www.gnu.org/licenses/>.
  */
+const { ansi_visible_length } = require('@heyputer/putility/src/libs/string');
 const { consoleLogManager } = require('../util/consolelog');
 const BaseService = require('./BaseService');
+const { NullDevConsoleService } = require('./NullDevConsoleService');
 
 
 /**
@@ -90,8 +92,9 @@ class DevConsoleService extends BaseService {
         this.widgets = this.widgets.filter(w => w !== id_or_outputter);
         this.mark_updated();
     }
-
-
+    
+    notice = NullDevConsoleService.notice;
+    
     /**
      * Updates the displayed output based on the current state of widgets.
      * This method collects output from all active widgets, handles any errors, 
@@ -142,7 +145,7 @@ class DevConsoleService extends BaseService {
         for ( let i = this.widgets.length-1 ; i >= 0 ; i-- ) {
             if ( size_ok() ) break;
             const w = this.widgets[i];
-            if ( w.critical ) continue; 
+            if ( w.critical ) continue;
             n_hidden++;
             const [start, length] = positions[i];
             this.static_lines.splice(start, length);

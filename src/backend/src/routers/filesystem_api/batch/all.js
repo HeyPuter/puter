@@ -146,7 +146,7 @@ module.exports = eggspress('/batch', {
             const op_spec = pending_operations[i];
             if ( ! operation_requires_file(op_spec) ) {
                 indexes_to_remove.push(i);
-                log.info(`executing ${op_spec.op}`);
+                log.debug(`executing ${op_spec.op}`);
                 response_promises[i] = batch_exe.exec_op(req, op_spec);
             } else {
             }
@@ -258,7 +258,7 @@ module.exports = eggspress('/batch', {
     });
 
     busboy.on('close', () => {
-        log.info('busboy close');
+        log.debug('busboy close');
         still_reading.resolve();
     });
 
@@ -274,11 +274,11 @@ module.exports = eggspress('/batch', {
         return;
     }
 
-    log.info('waiting for operations')
+    log.debug('waiting for operations')
     let responsePromises = response_promises;
     // let responsePromises = batch_exe.responsePromises;
     const results = await Promise.all(responsePromises);
-    log.info('sending response');
+    log.debug('sending response');
 
     frame.done();
 

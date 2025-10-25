@@ -123,6 +123,8 @@ class PerformanceMonitorContext {
 }
 
 class PerformanceMonitor extends BaseService {
+    static LOG_DEBUG = true;
+
     _construct () {
         this.performanceMetrics = {};
 

@@ -1,29 +1,30 @@
 /*
  * Copyright (C) 2024-present Puter Technologies Inc.
- * 
+ *
  * This file is part of Puter.
- * 
+ *
  * Puter is free software: you can redistribute it and/or modify
  * it under the terms of the GNU Affero General Public License as published
  * by the Free Software Foundation, either version 3 of the License, or
  * (at your option) any later version.
- * 
+ *
  * This program is distributed in the hope that it will be useful,
  * but WITHOUT ANY WARRANTY; without even the implied warranty of
  * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
  * GNU Affero General Public License for more details.
- * 
+ *
  * You should have received a copy of the GNU Affero General Public License
  * along with this program.  If not, see <https://www.gnu.org/licenses/>.
  */
 
 // METADATA // {"ai-commented":{"service":"claude"}}
-const { PassThrough } = require("stream");
-const BaseService = require("../../services/BaseService");
-const { TypedValue } = require("../../services/drivers/meta/Runtime");
-const { nou } = require("../../util/langutil");
-const { TeePromise } = require('@heyputer/putility').libs.promise;
-
+const { PassThrough } = require('stream');
+const BaseService = require('../../services/BaseService');
+const { TypedValue } = require('../../services/drivers/meta/Runtime');
+const { nou } = require('../../util/langutil');
+const { Together } = require('together-ai');
+const OpenAIUtil = require('./lib/OpenAIUtil');
+const { Context } = require('../../util/context');
 
 /**
 * TogetherAIService class provides integration with Together AI's language models.
@@ -33,12 +34,14 @@ const { TeePromise } = require('@heyputer/putility').libs.promise;
 * @extends BaseService
 */
 class TogetherAIService extends BaseService {
+    /**
+    * @type {import('../../services/MeteringService/MeteringService').MeteringService}
+    */
+    meteringService;
     static MODULES = {
-        ['together-ai']: require('together-ai'),
         kv: globalThis.kv,
         uuidv4: require('uuid').v4,
-    }
-
+    };
 
     /**
     * Initializes the TogetherAI service by setting up the API client and registering as a chat provider
@@ -46,11 +49,9 @@ class TogetherAIService extends BaseService {
     * @returns {Promise<void>}
     * @private
     */
-    async _init () {
-        const require = this.require;
-        const Together = require('together-ai');
+    async _init() {
         this.together = new Together({
-            apiKey: this.config.apiKey
+            apiKey: this.config.apiKey,
         });
         this.kvkey = this.modules.uuidv4();
 
@@ -59,26 +60,26 @@ class TogetherAIService extends BaseService {
             service_name: this.service_name,
             alias: true,
         });
+        this.meteringService = this.services.get('meteringService').meteringService;
     }
-
 
     /**
     * Returns the default model ID for the Together AI service
     * @returns {string} The ID of the default model (meta-llama/Meta-Llama-3.1-8B-Instruct-Turbo)
     */
-    get_default_model () {
+    get_default_model() {
         return 'meta-llama/Meta-Llama-3.1-8B-Instruct-Turbo';
     }
-    
+
     static IMPLEMENTS = {
         ['puter-chat-completion']: {
             /**
              * Returns a list of available models and their details.
              * See AIChatService for more information.
-             * 
+             *
              * @returns Promise<Array<Object>> Array of model details
              */
-            async models () {
+            async models() {
                 return await this.models_();
             },
 
@@ -88,7 +89,7 @@ class TogetherAIService extends BaseService {
             * @description Retrieves all available model IDs and their aliases,
             * flattening them into a single array of strings that can be used for model selection
             */
-            async list () {
+            async list() {
                 let models = this.modules.kv.get(`${this.kvkey}:models`);
                 if ( ! models ) models = await this.models_();
                 return models.map(model => model.id);
@@ -97,20 +98,25 @@ class TogetherAIService extends BaseService {
              * AI Chat completion method.
              * See AIChatService for more details.
              */
-            async complete ({ messages, stream, model }) {
+            async complete({ messages, stream, model }) {
                 if ( model === 'model-fallback-test-1' ) {
                     throw new Error('Model Fallback Test 1');
                 }
 
+                /** @type {import('together-ai/streaming.mjs').Stream<import("together-ai/resources/chat/completions.mjs").ChatCompletionChunk>} */
                 const completion = await this.together.chat.completions.create({
                     model: model ?? this.get_default_model(),
                     messages: messages,
                     stream,
                 });
 
-                if ( stream ) {
-                    let usage_promise = new TeePromise();
+                // Metering integration
+                const actor = Context.get('actor');
+                const modelId = model ?? this.get_default_model();
 
+                const modelDetails = (await this.models_()).find(m => m.id === modelId);
+
+                if ( stream ) {
                     const stream = new PassThrough();
                     const retval = new TypedValue({
                         $: 'stream',
@@ -121,10 +127,13 @@ class TogetherAIService extends BaseService {
                         for await ( const chunk of completion ) {
                             // DRY: same as openai
                             if ( chunk.usage ) {
-                                usage_promise.resolve({
-                                    input_tokens: chunk.usage.prompt_tokens,
-                                    output_tokens: chunk.usage.completion_tokens,
-                                });
+                                // Metering: record usage for streamed chunks
+                                const trackedUsage = OpenAIUtil.extractMeteredUsage(chunk.usage);
+                                const costOverrides = {
+                                    prompt_tokens: trackedUsage.prompt_tokens * (modelDetails?.cost?.input ?? 0),
+                                    completion_tokens: trackedUsage.completion_tokens * (modelDetails?.cost?.output ?? 0),
+                                };
+                                this.meteringService.utilRecordUsageObject(trackedUsage, actor, modelId, costOverrides);
                             }
 
                             if ( chunk.choices.length < 1 ) continue;
@@ -134,40 +143,40 @@ class TogetherAIService extends BaseService {
                             }
                             if ( nou(chunk.choices[0].delta.content) ) continue;
                             const str = JSON.stringify({
-                                text: chunk.choices[0].delta.content
+                                text: chunk.choices[0].delta.content,
                             });
                             stream.write(str + '\n');
                         }
                         stream.end();
                     })();
 
-                    return new TypedValue({ $: 'ai-chat-intermediate' }, {
+                    return {
                         stream: true,
                         response: retval,
-                        usage_promise: usage_promise,
-                    });
+                    };
                 }
-                
+
                 // return completion.choices[0];
                 const ret = completion.choices[0];
                 ret.usage = {
                     input_tokens: completion.usage.prompt_tokens,
                     output_tokens: completion.usage.completion_tokens,
                 };
+                // Metering: record usage for non-streamed completion
+                this.meteringService.utilRecordUsageObject(completion.usage, actor, modelId);
                 return ret;
-            }
-        }
-    }
-
+            },
+        },
+    };
 
     /**
     * Fetches and caches available AI models from Together API
     * @private
-    * @returns {Promise<Array>} Array of model objects containing id, name, context length, 
+    * @returns Array of model objects containing id, name, context length,
     *                          description and pricing information
     * @remarks Models are cached for 5 minutes in KV store
     */
-    async models_ () {
+    async models_() {
         let models = this.modules.kv.get(`${this.kvkey}:models`);
         if ( models ) return models;
         const api_models = await this.together.models.list();
@@ -197,8 +206,7 @@ class TogetherAIService extends BaseService {
                 output: 10,
             },
         });
-        this.modules.kv.set(
-            `${this.kvkey}:models`, models, { EX: 5*60 });
+        this.modules.kv.set(`${this.kvkey}:models`, models, { EX: 5 * 60 });
         return models;
     }
 }

@@ -345,7 +345,7 @@ class MemoryFSProvider {
 
         // create the node
         const fs = context.get('services').get('filesystem');
-        const node = await fs.node(entry.uuid);
+        const node = await fs.node(new NodeUIDSelector(entry.uuid));
         await node.fetchEntry();
 
         this._integrity_check();
@@ -548,7 +548,7 @@ class MemoryFSProvider {
         }
 
         const fs = context.get('services').get('filesystem');
-        const node = await fs.node(entry.uuid);
+        const node = await fs.node(new NodeUIDSelector(entry.uuid));
         await node.fetchEntry();
 
         this._integrity_check();
@@ -589,7 +589,7 @@ class MemoryFSProvider {
         }
 
         const fs = context.get('services').get('filesystem');
-        node = await fs.node(original_entry.uuid);
+        node = await fs.node(new NodeUIDSelector(original_entry.uuid));
         await node.fetchEntry();
 
         this._integrity_check();

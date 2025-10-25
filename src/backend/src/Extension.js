@@ -21,6 +21,7 @@ const { AdvancedBase } = require("@heyputer/putility");
 const EmitterFeature = require("@heyputer/putility/src/features/EmitterFeature");
 const { Context } = require("./util/context");
 const { ExtensionServiceState } = require("./ExtensionService");
+const { display_time } = require("@heyputer/putility/src/libs/time");
 
 /**
  * This class creates the `extension` global that is seen by Puter backend
@@ -36,12 +37,29 @@ class Extension extends AdvancedBase {
             ]
         }),
     ];
+    
+    randomBrightColor() {
+        // Bright colors in ANSI (foreground codes 90–97)
+        const brightColors = [
+            // 91, // Bright Red
+            92, // Bright Green
+            // 93, // Bright Yellow
+            94, // Bright Blue
+            95, // Bright Magenta
+            // 96, // Bright Cyan
+        ];
+
+        return brightColors[Math.floor(Math.random() * brightColors.length)];
+    }
 
     constructor (...a) {
         super(...a);
         this.service = null;
         this.log = null;
         this.ensure_service_();
+        
+        // this.terminal_color = this.randomBrightColor();
+        this.terminal_color = 94;
         
         this.log = (...a) => {
             this.log_context.info(a.join(' '));
@@ -259,6 +277,40 @@ class Extension extends AdvancedBase {
             this.only_one_init_fn = () => {};
         }
         this.only_one_init_fn = callback;
+    }
+
+    get console () {
+        const extensionConsole = Object.create(console);
+        const logfn = level => (...a) => {
+            let svc_log;
+
+            try {
+                svc_log = this.services.get('log-service');
+            } catch ( _e ) {
+                // NOOP
+            }
+
+            if ( ! svc_log ) {
+                const realConsole = globalThis.original_console_object ?? console;
+                realConsole[(level => {
+                    if ( ['error', 'warn', 'debug'].includes(level) ) return level;
+                    return 'log';
+                })(level)](`${display_time(new Date())} \x1B[${this.terminal_color};1m(extension/${this.name})\x1B[0m`, ...a);
+                return;
+            }
+
+            const extensionLogger = svc_log.create(`extension/${this.name}`);
+            const util = require('node:util');
+            const consoleStyle = a.map(arg => {
+                if ( typeof arg === 'string' ) return arg;
+                return util.inspect(arg, undefined, undefined, true);
+            }).join(' ');
+            extensionLogger[level](consoleStyle);
+        };
+        extensionConsole.log = logfn('info');
+        extensionConsole.error = logfn('error');
+        extensionConsole.warn = logfn('warn');
+        return extensionConsole;
     }
 
     /**

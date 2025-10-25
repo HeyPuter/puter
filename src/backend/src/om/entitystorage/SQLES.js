@@ -240,12 +240,7 @@ class SQLES extends BaseES {
         },
 
         async create_ (entity) {
-            console.log('DO WE HAVE MAPPER?', this.om);
-            // console.log('DO WE HAVE DATA?', data);
-
             const sql_data = await this.get_sql_data_(entity);
-
-            console.log('SQL Data', sql_data);
 
             const sql_cols = Object.keys(sql_data).join(', ');
             const sql_placeholders = Object.keys(sql_data).map(() => '?').join(', ');
@@ -254,8 +249,9 @@ class SQLES extends BaseES {
             const stmt =
                 `INSERT INTO ${this.om.sql.table_name} (${sql_cols}) VALUES (${sql_placeholders})`;
 
-            console.log('SQL STMT', stmt);
-            console.log('SQL VALS', execute_vals);
+            // Very useful when debugging! Keep these here but commented out.
+            // console.log('SQL STMT', stmt);
+            // console.log('SQL VALS', execute_vals);
 
             const res = await this.db.write(
                 stmt, execute_vals
@@ -272,8 +268,6 @@ class SQLES extends BaseES {
             const id_value = await entity.get(this.om.primary_identifier);
             delete sql_data[this.om.primary_identifier];
 
-            console.log('SQL DATA', sql_data);
-
             const sql_assignments = Object.keys(sql_data).map((col_name) => {
                 return `${col_name} = ?`;
             }).join(', ');
@@ -288,8 +282,9 @@ class SQLES extends BaseES {
 
             execute_vals.push(id_value);
 
-            console.log('SQL STMT', stmt);
-            console.log('SQL VALS', execute_vals);
+            // Very useful when debugging! Keep these here but commented out.
+            // console.log('SQL STMT', stmt);
+            // console.log('SQL VALS', execute_vals);
 
             await this.db.write(
                 stmt, execute_vals

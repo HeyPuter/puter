@@ -17,14 +17,14 @@
  * You should have received a copy of the GNU Affero General Public License
  * along with this program.  If not, see <https://www.gnu.org/licenses/>.
  */
-const { AdvancedBase } = require("@heyputer/putility");
-const Library = require("./definitions/Library");
-const { NotificationES } = require("./om/entitystorage/NotificationES");
-const { ProtectedAppES } = require("./om/entitystorage/ProtectedAppES");
+const { AdvancedBase } = require('@heyputer/putility');
+const Library = require('./definitions/Library');
+const { NotificationES } = require('./om/entitystorage/NotificationES');
+const { ProtectedAppES } = require('./om/entitystorage/ProtectedAppES');
 const { Context } = require('./util/context');
-const { LLOWrite } = require("./filesystem/ll_operations/ll_write");
-const { LLRead } = require("./filesystem/ll_operations/ll_read");
-const { RuntimeModule } = require("./extension/RuntimeModule.js");
+const { LLOWrite } = require('./filesystem/ll_operations/ll_write');
+const { LLRead } = require('./filesystem/ll_operations/ll_read');
+const { RuntimeModule } = require('./extension/RuntimeModule.js');
 
 /**
  * Core module for the Puter platform that includes essential services including
@@ -79,7 +79,7 @@ const install = async ({ context, services, app, useapi, modapi }) => {
         def('Library', Library);
 
         def('core.util.helpers', require('./helpers'));
-        def('core.util.permission', require('./services/auth/PermissionUtils.mjs').PermissionUtil);
+        def('core.util.permission', require('./services/auth/permissionUtils.mjs').PermissionUtil);
         def('puter.middlewares.auth', require('./middleware/auth2'));
         def('puter.middlewares.configurable_auth', require('./middleware/configurable_auth'));
         def('puter.middlewares.anticsrf', require('./middleware/anticsrf'));
@@ -133,10 +133,9 @@ const install = async ({ context, services, app, useapi, modapi }) => {
     const { HTTPThumbnailService } = require('./services/thumbnails/HTTPThumbnailService');
     const { PureJSThumbnailService } = require('./services/thumbnails/PureJSThumbnailService');
     const { NAPIThumbnailService } = require('./services/thumbnails/NAPIThumbnailService');
-    const { DevConsoleService } = require('./services/DevConsoleService');
     const { RateLimitService } = require('./services/sla/RateLimitService');
     const { AuthService } = require('./services/auth/AuthService');
-    const { PreAuthService } = require("./services/auth/PreAuthService");
+    const { PreAuthService } = require('./services/auth/PreAuthService');
     const { SLAService } = require('./services/sla/SLAService');
     const { PermissionService } = require('./services/auth/PermissionService');
     const { ACLService } = require('./services/auth/ACLService');
@@ -161,7 +160,6 @@ const install = async ({ context, services, app, useapi, modapi }) => {
     const { OwnerLimitedES } = require('./om/entitystorage/OwnerLimitedES');
     const { ESBuilder } = require('./om/entitystorage/ESBuilder');
     const { Eq, Or } = require('./om/query/query');
-    const { TrackSpendingService } = require('./services/TrackSpendingService');
     const { MakeProdDebuggingLessAwfulService } = require('./services/MakeProdDebuggingLessAwfulService');
     const { ConfigurableCountingService } = require('./services/ConfigurableCountingService');
     const { FSLockService } = require('./services/fs/FSLockService');
@@ -169,7 +167,7 @@ const install = async ({ context, services, app, useapi, modapi }) => {
     const FilesystemAPIService = require('./services/FilesystemAPIService');
     const ServeGUIService = require('./services/ServeGUIService');
     const PuterAPIService = require('./services/PuterAPIService');
-    const { RefreshAssociationsService } = require("./services/RefreshAssociationsService");
+    const { RefreshAssociationsService } = require('./services/RefreshAssociationsService');
     // Service names beginning with '__' aren't called by other services;
     // these provide data/functionality to other services or produce
     // side-effects from the events of other services.
@@ -217,7 +215,7 @@ const install = async ({ context, services, app, useapi, modapi }) => {
     });
 
     const { EntriService } = require('./services/EntriService.js');
-    services.registerService("entri-service", EntriService);
+    services.registerService('entri-service', EntriService);
 
     const { InformationService } = require('./services/information/InformationService');
     services.registerService('information', InformationService);
@@ -259,7 +257,6 @@ const install = async ({ context, services, app, useapi, modapi }) => {
     services.registerService('context-init', ContextInitService);
     services.registerService('identification', IdentificationService);
     services.registerService('auth-audit', AuthAuditService);
-    services.registerService('spending', TrackSpendingService);
     services.registerService('counting', ConfigurableCountingService);
     services.registerService('thumbnails', StrategizedService, {
         strategy_key: 'engine',
@@ -272,8 +269,16 @@ const install = async ({ context, services, app, useapi, modapi }) => {
     });
     services.registerService('__refresh-assocs', RefreshAssociationsService);
     services.registerService('__prod-debugging', MakeProdDebuggingLessAwfulService);
-    if ( config.env == 'dev' ) {
+    if ( config.env == 'dev' && ! config.no_devsocket ) {
+        const { DevSocketService } = require('./services/DevSocketService.js');
+        services.registerService('dev-socket', DevSocketService);
+    }
+    if ( (config.env == 'dev' && ! config.no_devconsole && process.env.DEVCONSOLE) || config.devconsole ) {
+        const { DevConsoleService } = require('./services/DevConsoleService');
         services.registerService('dev-console', DevConsoleService);
+    } else {
+        const { NullDevConsoleService } = require('./services/NullDevConsoleService');
+        services.registerService('dev-console', NullDevConsoleService);
     }
 
     const { EventService } = require('./services/EventService');
@@ -300,7 +305,7 @@ const install = async ({ context, services, app, useapi, modapi }) => {
     const { OTPService } = require('./services/auth/OTPService');
     services.registerService('otp', OTPService);
 
-    const { UserProtectedEndpointsService } = require("./services/web/UserProtectedEndpointsService");
+    const { UserProtectedEndpointsService } = require('./services/web/UserProtectedEndpointsService');
     services.registerService('__user-protected-endpoints', UserProtectedEndpointsService);
 
     const { AntiCSRFService } = require('./services/auth/AntiCSRFService');
@@ -321,10 +326,7 @@ const install = async ({ context, services, app, useapi, modapi }) => {
     const { DevTODService } = require('./services/DevTODService');
     services.registerService('__dev-tod', DevTODService);
 
-    const { CostService } = require("./services/drivers/CostService");
-    services.registerService('cost', CostService);
-
-    const { DriverService } = require("./services/drivers/DriverService");
+    const { DriverService } = require('./services/drivers/DriverService');
     services.registerService('driver', DriverService);
 
     const { ScriptService } = require('./services/ScriptService');
@@ -410,10 +412,10 @@ const install = async ({ context, services, app, useapi, modapi }) => {
     services.registerService('__chat-api', ChatAPIService);
 
     const { WorkerService } = require('./services/worker/WorkerService');
-    services.registerService("worker-service", WorkerService);
+    services.registerService('worker-service', WorkerService);
 
-    const { MeteringAndBillingServiceWrapper } = require('./services/abuse-prevention/MeteringService/index.mjs');
-    services.registerService('meteringService', MeteringAndBillingServiceWrapper);
+    const { MeteringServiceWrapper } = require('./services/MeteringService/MeteringServiceWrapper.mjs');
+    services.registerService('meteringService', MeteringServiceWrapper);
 
     const { PermissionShortcutService } = require('./services/auth/PermissionShortcutService');
     services.registerService('permission-shortcut', PermissionShortcutService);

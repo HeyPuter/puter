@@ -124,6 +124,7 @@ class HLWrite extends HLFilesystemOperation {
         const { _path } = this.modules;
 
         const fs = context.get('services').get('filesystem');
+        const svc_event = context.get('services').get('event');
 
         let parent = values.destination_or_parent;
         let destination = null;
@@ -238,7 +239,6 @@ class HLWrite extends HLFilesystemOperation {
         }
 
         if ( dest_exists ) {
-            console.log('DESTINATION EXISTS', dedupe_name)
             if ( ! overwrite && ! dedupe_name ) {
                 throw APIError.create('item_with_same_name_exists', null, {
                     entry_name: target_name
@@ -311,7 +311,7 @@ class HLWrite extends HLFilesystemOperation {
                 if ( values.thumbnail ) return 'already thumbnail';
 
                 const content_type = mime.contentType(target_name);
-                console.log('CONTENT TYPE', content_type);
+                this.log.debug('CONTENT TYPE', content_type);
                 if ( ! content_type ) return 'no content type';
                 if ( ! thumbnails.is_supported_mimetype(content_type) ) return 'unsupported content type';
                 if ( ! thumbnails.is_supported_size(values.file.size) ) return 'too large';
@@ -336,10 +336,16 @@ class HLWrite extends HLFilesystemOperation {
                     stream_to_the_void(thumb_file.stream);
                     return 'thumbnail error: ' + e.message;
                 }
-                thumbnail_promise.resolve(thumbnail);
+
+                const thumbnailData = { url: thumbnail }
+                if (thumbnailData.url) {
+                    await svc_event.emit('thumbnail.created', thumbnailData); // An extension can modify where this thumbnail is stored
+                }
+
+                thumbnail_promise.resolve(thumbnailData.url);
             })();
             if ( reason ) {
-                console.log('REASON', reason);
+                this.log.debug('REASON', reason);
                 thumbnail_promise.resolve(undefined);
 
                 // values.file.stream = logging_stream(values.file.stream);

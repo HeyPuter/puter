@@ -104,7 +104,7 @@ class RateLimitService extends BaseService {
                 [dbkey, ts_to_sql(window_start), 0]
             );
 
-            console.log(
+            this.log.debug(
                 'CREATE window_start and count',
                 { window_start, count: 0 }
             );

@@ -24,7 +24,7 @@ class LLRmNode extends LLFilesystemOperation {
 
         const { context } = this;
 
-        const svc = context.get('services');
+        const svc_event = context.get('services').get("event");
 
         // Access Control
         {
@@ -36,7 +36,7 @@ class LLRmNode extends LLFilesystemOperation {
                 throw await svc_acl.get_safe_acl_error(actor, target, 'write');
             }
         }
-
+        await svc_event.emit('fs.remove.node', this.values);
         await target.provider.unlink({ context, node: target });
     }
 }

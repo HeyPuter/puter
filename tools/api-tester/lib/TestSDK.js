@@ -48,8 +48,13 @@ module.exports = class TestSDK {
         } catch (e) {
             // ignore
         }
-        await this.mkdir(this.default_cwd, { overwrite: true, create_missing_parents: true });
-        this.cd(this.default_cwd);
+        try {
+            await this.mkdir(this.default_cwd, { overwrite: true, create_missing_parents: true });
+            await this.cd(this.default_cwd);
+        } catch (e) {
+            console.log('error during working directory initialization: ', e.message);
+            process.exit(1);
+        }
     }
 
     async get_sdk (name) {

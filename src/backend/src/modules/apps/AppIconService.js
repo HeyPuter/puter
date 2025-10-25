@@ -270,7 +270,6 @@ class AppIconService extends BaseService {
             icon_jobs.push((async () => {
                 await svc_su.sudo(async () => {
                     const filename = `${data.app_uid}-${size}.png`;
-                    console.log('FILENAME', filename);
                     const data_url = data.data_url;
                     const [metadata, base64] = data_url.split(',');
                     const input = Buffer.from(base64, 'base64');

@@ -38,8 +38,6 @@ module.exports = eggspress('/rename', {
         subject: new FSNodeParam('path'),
     },
 }, async (req, res, next) => {
-    console.log('ACTIVATED THIS ROUTE');
-
     if(!req.body.new_name) {
         throw APIError.create('field_missing', null, {
             key: 'new_name',

@@ -23,6 +23,8 @@ const { DB_READ } = require("../../services/database/consts");
 const N_MONTHS = 4;
 
 class OldAppNameService extends BaseService {
+    static LOG_DEBUG = true;
+
     _init () {
         this.db = this.services.get('database').get(DB_READ, 'old-app-name');
     }
@@ -30,7 +32,7 @@ class OldAppNameService extends BaseService {
     async ['__on_boot.consolidation'] () {
         const svc_event = this.services.get('event');
         svc_event.on('app.rename', async (_, { app_uid, old_name }) => {
-            this.log.noticeme('GOT EVENT', { app_uid, old_name });
+            this.log.info('GOT EVENT', { app_uid, old_name });
             await this.db.write(
                 'INSERT INTO `old_app_names` (`app_uid`, `name`) VALUES (?, ?)',
                 [app_uid, old_name]
@@ -57,7 +59,7 @@ class OldAppNameService extends BaseService {
 
         // const n_ms = 60 * 1000;
         const n_ms = N_MONTHS * 30 * 24 * 60 * 60 * 1000
-        this.log.noticeme('AGE INFO', {
+        this.log.info('AGE INFO', {
             input_time: row.timestamp,
             age,
             n_ms,

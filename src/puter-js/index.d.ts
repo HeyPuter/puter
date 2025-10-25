@@ -146,6 +146,7 @@ interface CreateAppOptions {
     icon?: string;
     maximizeOnStart?: boolean;
     filetypeAssociations?: string[];
+    dedupeName?: boolean;
 }
 
 interface GetAppOptions {
@@ -298,7 +299,9 @@ interface KV {
     get(key: string): Promise<any>;
     del(key: string): Promise<boolean>;
     incr(key: string, pathAndAmount: { [key: string]: number }): Promise<number>;
+    incr(key: string, amount?: number): Promise<number>;
     decr(key: string, pathAndAmount: { [key: string]: number }): Promise<number>;
+    decr(key: string, amount?: number): Promise<number>;
     list(pattern?: string, returnValues?: boolean): Promise<string[] | KVPair[]>;
     list(returnValues?: boolean): Promise<string[] | KVPair[]>;
     flush(): Promise<boolean>;

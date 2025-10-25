@@ -112,7 +112,9 @@ class AlarmService extends BaseService {
      * @param {object} fields - Additional information about the alarm.
      */
     create (id, message, fields) {
-        this.log.error(`upcoming alarm: ${id}: ${message}`);
+        if ( this.config.log_upcoming_alarms ) {
+            this.log.error(`upcoming alarm: ${id}: ${message}`);
+        }
         let existing = false;
         /**
         * Method to create an alarm with the given ID, message, and fields.

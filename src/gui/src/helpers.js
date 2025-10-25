@@ -563,6 +563,8 @@ window.sendWindowWillCloseMsg = function(iframe_element) {
 }
 
 window.logout = ()=>{
+    // clear cache
+    puter._cache.flushall();
     $(document).trigger('logout');
     // document.dispatchEvent(new Event("logout", { bubbles: true}));    
 }
@@ -786,20 +788,6 @@ window.create_folder = async(basedir, appendto_element)=>{
 
     let newfolder_op_id = window.operation_id++;
     window.operation_cancelled[newfolder_op_id] = false;
-    let newfolder_progress_window_init_ts = Date.now();
-    let progwin;
-
-    // only show progress window if it takes longer than 500ms to create folder
-    let progwin_timeout = setTimeout(async () => {
-        progwin = await UIWindowProgress({
-            operation_id: newfolder_op_id,
-            // TODO: Implement cancellation.
-            // on_cancel: () => {
-            //     window.operation_cancelled[newfolder_op_id] = true;
-            // },
-        });
-        progwin.set_status(i18n('taking_longer_than_usual'));
-    }, 500);
 
     // create folder
     try{
@@ -819,25 +807,9 @@ window.create_folder = async(basedir, appendto_element)=>{
                         
                     });
                 }
-                clearTimeout(progwin_timeout);
-
-                // done
-                let newfolder_duration = (Date.now() - newfolder_progress_window_init_ts);
-                if (progwin) {
-                    if (newfolder_duration >= window.copy_progress_hide_delay) {
-                        progwin.close();
-                    } else {
-                        setTimeout(() => {
-                            setTimeout(() => {
-                                progwin.close();
-                            }, Math.abs(window.copy_progress_hide_delay - newfolder_duration));
-                        });
-                    }
-                }
             }
         });
     }catch(err){
-        clearTimeout(progwin_timeout);
     }
 }
 
@@ -3060,6 +3032,108 @@ window.format_credits = (num) => {
   const mulUnits = ["", "K", "M", "B", "T", "Q"];
 
   return window.format_with_units(num, { mulUnits })
+};
+
+/**
+ * General-purpose number formatting function with support for decimal places,
+ * thousand separators, and various formatting options.
+ * 
+ * @param {number} num - The number to format
+ * @param {Object} options - Formatting options
+ * @param {number} options.decimals - Number of decimal places (default: 0)
+ * @param {string} options.decimalSeparator - Decimal separator character (default: '.')
+ * @param {string} options.thousandSeparator - Thousand separator character (default: ',')
+ * @param {string} options.prefix - String to prepend (e.g., '$' for currency)
+ * @param {string} options.suffix - String to append (e.g., '%' for percentage)
+ * @param {boolean} options.stripInsignificantZeros - Remove trailing zeros after decimal (default: false)
+ * @param {string} options.negativeFormat - Format for negative numbers: 'sign' (default), 'parentheses', or 'accounting'
+ * @param {boolean} options.forceSign - Always show sign for positive numbers (default: false)
+ * 
+ * @returns {string} Formatted number string
+ * 
+ * @example
+ * number_format(1234.5)                                    // "1,234"
+ * number_format(1234.5, { decimals: 2 })                   // "1,234.50"
+ * number_format(1234.5678, { decimals: 2 })                // "1,234.57"
+ * number_format(1234567.89, { decimals: 2, prefix: '$' })  // "$1,234,567.89"
+ * number_format(0.5, { decimals: 1, suffix: '%' })         // "0.5%"
+ * number_format(-1234.5, { decimals: 2 })                  // "-1,234.50"
+ * number_format(-1234.5, { decimals: 2, negativeFormat: 'parentheses' }) // "(1,234.50)"
+ * number_format(1234.5, { decimals: 2, thousandSeparator: ' ' }) // "1 234.50"
+ * number_format(1234.5, { decimals: 2, decimalSeparator: ',' }) // "1.234,50"
+ */
+window.number_format = (num, options = {}) => {
+  // Default options
+  const {
+    decimals = 0,
+    decimalSeparator = '.',
+    thousandSeparator = ',',
+    prefix = '',
+    suffix = '',
+    stripInsignificantZeros = false,
+    negativeFormat = 'sign', // 'sign', 'parentheses', 'accounting'
+    forceSign = false,
+  } = options;
+
+  // Handle non-numeric values
+  if (num === null || num === undefined || isNaN(num)) {
+    return prefix + '0' + suffix;
+  }
+
+  // Handle infinity
+  if (!isFinite(num)) {
+    return num > 0 ? prefix + '∞' + suffix : prefix + '-∞' + suffix;
+  }
+
+  const isNegative = num < 0;
+  const absNum = Math.abs(num);
+
+  // Round to specified decimal places
+  const multiplier = Math.pow(10, decimals);
+  const rounded = Math.round(absNum * multiplier) / multiplier;
+
+  // Split into integer and decimal parts
+  let [intPart, decPart] = rounded.toFixed(decimals).split('.');
+
+  // Add thousand separators to integer part
+  if (thousandSeparator) {
+    intPart = intPart.replace(/\B(?=(\d{3})+(?!\d))/g, thousandSeparator);
+  }
+
+  // Build the number string
+  let numStr = intPart;
+  if (decimals > 0) {
+    // Handle stripInsignificantZeros
+    if (stripInsignificantZeros && decPart) {
+      decPart = decPart.replace(/0+$/, '');
+    }
+    if (decPart && decPart.length > 0) {
+      numStr += decimalSeparator + decPart;
+    } else if (!stripInsignificantZeros) {
+      numStr += decimalSeparator + decPart;
+    }
+  }
+
+  // Handle negative formatting
+  let sign = '';
+  let wrapper = { start: '', end: '' };
+  
+  if (isNegative) {
+    if (negativeFormat === 'parentheses') {
+      wrapper = { start: '(', end: ')' };
+    } else if (negativeFormat === 'accounting') {
+      // Accounting format: negative in parentheses with red color context
+      wrapper = { start: '(', end: ')' };
+    } else {
+      // Default: sign format
+      sign = '-';
+    }
+  } else if (forceSign && num > 0) {
+    sign = '+';
+  }
+
+  // Assemble final string
+  return wrapper.start + sign + prefix + numStr + suffix + wrapper.end;
 };
 
 /**

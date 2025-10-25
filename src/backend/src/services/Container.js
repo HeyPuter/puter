@@ -175,22 +175,23 @@ class Container {
     async init () {
         for ( const k in this.instances_ ) {
             if ( ! this.instances_[k]._run_as_early_as_possible ) continue;
-            this.logger.info(`very early hooks for ${k}`);
             await this.instances_[k].run_as_early_as_possible();
         }
         for ( const k in this.instances_ ) {
-            this.logger.info(`constructing ${k}`);
             await this.instances_[k].construct();
         }
         const init_failures = [];
+        const promises = [];
+        const PARALLEL = config.experimental_parallel_init;
         for ( const k in this.instances_ ) {
-            this.logger.info(`initializing ${k}`);
             try {
-                await this.instances_[k].init();
+                if ( PARALLEL ) promises.push(this.instances_[k].init());
+                else await this.instances_[k].init();
             } catch (e) {
                 init_failures.push({ k, e });
             }
         }
+        if ( PARALLEL ) await Promise.all(promises);
 
         if ( init_failures.length ) {
             console.error('init failures', init_failures);
@@ -215,7 +216,7 @@ class Container {
     */
     async emit (id, ...args) {
         if ( this.logger ) {
-            this.logger.info(`services:event ${id}`, { args });
+            this.logger.debug(`services:event ${id}`, { args });
         }
 
         const promises = [];

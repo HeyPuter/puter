@@ -2423,7 +2423,7 @@ label {
 
 /* Left positioned taskbar */
 .taskbar.taskbar-position-left {
-    left: 0;
+    left: 0 !important;
     top: 0;
     width: 50px;
     transform: none;
@@ -2440,7 +2440,7 @@ label {
 
 /* Right positioned taskbar */
 .taskbar.taskbar-position-right {
-    right: 0;
+    right: 0 !important;
     top: 0;
     left: auto;
     bottom: auto;
@@ -4334,7 +4334,9 @@ fieldset[name=number-code] {
 }
 
 .settings-content.active {
-    display: block;
+    display: flex;
+    flex-direction: column;
+    height: 100%;
 }
 
 .settings-content .about-container {
@@ -4451,8 +4453,13 @@ fieldset[name=number-code] {
     box-sizing: border-box;
     color: #3c4963;
     height: 85px;
+    display: flex;
+    flex-direction: column;
 }
 
+.driver-usage-container .driver-usage{
+    flex-grow: 1;
+}
 .credits {
     padding: 0;
     border: 1px solid #bfbfbf;
@@ -4486,12 +4493,18 @@ fieldset[name=number-code] {
     margin-bottom: 10px;
 }
 
+.driver-usage-header{
+    display: flex;
+    flex-direction: row;
+    margin-bottom: 5px;
+}
+
 #storage-bar-wrapper {
     width: 100%;
     height: 20px;
-    border: 1px solid #8a9096;
+    border: 1px solid #dddddd;
     border-radius: 3px;
-    background-color: #fff;
+    background-color: #fbfbfb;
     position: relative;
     display: flex;
     align-items: center;
@@ -4526,9 +4539,9 @@ fieldset[name=number-code] {
 .usage-progbar-wrapper {
     width: 100%;
     height: 20px;
-    border: 1px solid #8a9096;
+    border: 1px solid #dddddd;
     border-radius: 3px;
-    background-color: #fff;
+    background-color: #fbfbfb;
     position: relative;
     display: flex;
     align-items: center;
@@ -4552,7 +4565,90 @@ fieldset[name=number-code] {
     font-size: 13px;
     line-height: 20px;
 }
+.driver-usage-container{
+    flex-grow: 1;
+    display: flex;
+    flex-direction: column;
+    margin-top: 20px;
+}
+.driver-usage-details-text{
+    cursor: pointer !important;
+    font-weight: 500;
+}
+.driver-usage-details-content {
+    display: none;
+    margin-top: 10px;
+    border-radius: 4px;
+}
 
+.driver-usage-details-content.active {
+    display: block !important;
+    flex-grow: 1;
+    overflow-y: scroll;
+}
+
+.driver-usage-details{
+    display: inline-block;
+    cursor: pointer;
+    display: flex;
+    align-items: center;
+    height: 25px;
+}
+
+.driver-usage-details .caret {
+    transition: transform 0.1s ease-in-out;
+    margin-right: 3px;
+    display: inline-block;
+    width: 20px;
+    height: 20px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    opacity: 0.6;
+    margin-left: -3px;
+}
+
+.driver-usage-details .caret svg{
+    width: 14px;
+    height: 14px;
+}
+
+.driver-usage-details.active .caret {
+    transform: rotate(90deg);
+    margin-top: -2px;
+}
+
+.driver-usage-details-content-table {
+    width: 100%;
+    border-collapse: collapse;
+    margin-bottom: 30px;
+}
+
+.driver-usage-details-content-table thead {
+    background-color: #f0f0f0;
+}
+
+.driver-usage-details-content-table thead th {
+    padding: 7px 5px;
+    border: 1px solid #e0e0e0;
+    text-align: left;
+    font-size: 13px;
+    font-weight: 500;
+}
+
+.driver-usage-details-content-table td {
+    padding: 7px 5px;
+    border: 1px solid #e0e0e0;
+    max-width: 0;
+    overflow: hidden;
+    white-space: nowrap;
+    text-overflow: ellipsis;
+    font-size: 13px;
+}
+
+.driver-usage-details-content-table td:first-child {
+    width: 50%;
+}
 .version {
     font-size: 9px;
     color: #343c4f;
@@ -5256,7 +5352,7 @@ fieldset[name=number-code] {
 }
 
 /************************************************************
- * AI Side Panel
+ * AI Button
  ************************************************************/
 
 .btn-send-ai{
@@ -5270,9 +5366,9 @@ fieldset[name=number-code] {
     width: 30px;
     height: 30px;
     background-color: #ffffff;
-    z-index: 5;
-    width: 20px;
-    height: 20px;
+    z-index: 2;
+    width: 15px;
+    height: 15px;
     padding: 5px;
     top: 5px;
     right: 5px;
@@ -5304,4 +5400,26 @@ fieldset[name=number-code] {
     width: 30px;
     height: 30px;
     z-index: 5;
+}
+
+.update-usage-details{
+    float: right;
+    background: none;
+    border: none;
+    cursor: pointer;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    height: 30px;
+    width: 30px;
+    border-radius: 5px;
+}
+
+.update-usage-details:hover{
+    background: #f0f0f0;
+}
+
+.update-usage-details svg{
+    width: 20px;
+    height: 20px;
 }

@@ -22,7 +22,7 @@ const APIError = require("../../api/APIError");
 const { DriverError } = require("./DriverError");
 const { TypedValue } = require("./meta/Runtime");
 const BaseService = require("../BaseService");
-const { PermissionUtil } = require("../auth/PermissionUtils.mjs");
+const { PermissionUtil } = require("../auth/permissionUtils.mjs");
 const { Invoker } = require("../../../../putility/src/libs/invoker");
 const { get_user } = require("../../helpers");
 const { whatis } = require('../../util/langutil');
@@ -467,7 +467,7 @@ class DriverService extends BaseService {
         
         effective_policy = effective_policy.policy;
         
-        this.log.info('Invoking Driver Call', {
+        this.log.debug('Invoking Driver Call', {
             service_name,
             iface,
             method,
