@@ -301,7 +301,6 @@ class AIChatService extends BaseService {
                 let { test_mode, intended_service, response_metadata } = client_driver_call;
 
                 const completionId = this.modules.cuid2();
-
                 this.log.noticeme('AIChatService.complete', { intended_service, test_mode });
                 const svc_event = this.services.get('event');
                 const event = {
