@@ -436,10 +436,6 @@ const ig = {
     "billing.expanded": "Gbasaa", // In English: "Expanded"
     "billing.accelerated": "Ọsọ ọsọ", // In English: "Accelerated"
     "billing.enjoy_msg": "Nwee obi ụtọ na Nchekwa igwe ojii gbakwunyere uru ndị ọzọ", // In English: "Enjoy %% of Cloud Storage plus other benefits."
-
-    // =============================================================
-    // Missing translations
-    // =============================================================
     "choose_publishing_option": "Họrọ otu ịchọrọ ibipụta weebụsaịtị gị:", // In English: "Choose how you want to publish your website:"
     "create_desktop_shortcut": "Mepụta Ụzọ mkpirisi (Desktọpụ)", // In English: "Create Shortcut (Desktop)"
     "create_desktop_shortcut_s": "Mepụta Ụzọ mkpirisi (Desktọpụ)", // In English: "Create Shortcuts (Desktop)"
@@ -456,7 +452,7 @@ const ig = {
     "toolbar.save_account": "Chekwa Akaụntụ", // In English: "Save Account"
     "toolbar.search": "Chọọ", // In English: "Search"
     "toolbar.qrcode": "Koodu QR", // In English: "QR Code"
-    "used_of": "{{eji}} ejiri {{dị}}", // In English: "{{used}} used of {{available}}"
+    "used_of": "{{used}} ejiri {{available}}", // In English: "{{used}} used of {{available}}"
     "worker": "Onye ọrụ", // In English: "Worker"
     "billing.offering.basic": "Isi", // In English: "Basic"
     "too_many_attempts": "Ọtụtụ mbọ. Biko nwaa ọzọ ma emechaa.", // In English: "Too many attempts. Please try again later."
