@@ -326,9 +326,9 @@ input[type=text]:focus, input[type=password]:focus, input[type=email]:focus, sel
 }
 
 .button-small {
-    height: 30px;
-    line-height: 29px;
-    padding: 0 30px;
+    padding: 6px 12px;
+    font-size: 12px;
+    line-height: normal;
 }
 
 .button-tiny {
@@ -5535,13 +5535,6 @@ fieldset[name=number-code] {
     letter-spacing: 0.5px;
 }
 
-.button-small {
-    height: 32px;
-    line-height: 30px;
-    padding: 0 12px;
-    font-size: 13px;
-}
-
 /* Extra small devices (phones, less than 576px) */
 @media (max-width: 575.98px) {
     .hidden-xs {
@@ -6510,6 +6503,7 @@ fieldset[name=number-code] {
     display: flex;
     align-items: center;
     justify-content: center;
+    line-height: normal;
 }
 
 .settings-form-container .button-primary {
@@ -6822,6 +6816,7 @@ fieldset[name=number-code] {
     display: flex;
     align-items: center;
     justify-content: center;
+    line-height: normal;
 }
 
 .desktop-bg-color-blocks {
@@ -6845,6 +6840,7 @@ fieldset[name=number-code] {
     display: flex;
     align-items: center;
     justify-content: center;
+    line-height: normal;
 }
 
 .desktop-bg-color-picker {
@@ -7110,6 +7106,63 @@ fieldset[name=number-code] {
     margin: 24px 0;
 }
 
+/* Hide submit button in step 3 - we use footer verify button instead */
+.step-content[data-step="3"] .code-confirm-btn {
+    display: none;
+}
+
+/* Style fieldset to use flexbox with centered items */
+.step-content[data-step="3"] fieldset[name=number-code] {
+    display: flex;
+    justify-content: center;
+    align-items: center;
+    gap: 8px;
+}
+
+/* Style digit inputs to match settings form fields */
+.step-content[data-step="3"] .digit-input {
+    height: 54px;
+    font-size: 24px;
+    border: 1.5px solid #d1d5db;
+    border-radius: 8px;
+    background-color: #fff;
+    transition: all 0.2s ease;
+    flex-shrink: 0;
+}
+
+.step-content[data-step="3"] .digit-input:focus {
+    outline: none;
+    border-color: #088ef0;
+    box-shadow: 0 0 0 3px rgba(8, 142, 240, 0.1);
+}
+
+.step-content[data-step="3"] .digit-input:hover {
+    border-color: #9ca3af;
+}
+
+.step-content[data-step="3"] .confirm-code-hyphen {
+    font-size: 32px;
+    color: #9ca3af;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    flex-shrink: 0;
+}
+
+.step-content[data-step="3"] .error {
+    color: #dc2626;
+    font-size: 13px;
+    text-align: center;
+    margin-top: 12px;
+    padding: 8px 12px;
+    background-color: #fef2f2;
+    border: 1px solid #fecaca;
+    border-radius: 6px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+}
+
 /* Warning Box */
 .warning-box {
     display: flex;
@@ -7183,20 +7236,17 @@ fieldset[name=number-code] {
     display: flex;
     align-items: center;
     justify-content: center;
+    line-height: normal;
     min-width: 100px;
 }
 
 .step-navigation .btn-continue,
+.step-navigation .btn-verify,
 .step-navigation .btn-finish {
     margin-left: auto;
 }
 
 /* Button States */
-.button-small {
-    padding: 6px 12px;
-    font-size: 12px;
-}
-
 .window-2fa-setup .button:disabled {
     opacity: 0.5;
     cursor: not-allowed;

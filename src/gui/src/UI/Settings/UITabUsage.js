@@ -54,8 +54,8 @@ export default {
                         </div>
                     </div>
                     <div class="usage-progbar-wrapper">
-                        <div class="usage-progbar">
-                            <span class="usage-progbar-percent"></span>
+                        <div class="usage-progbar" id="resources-bar">
+                            <span class="usage-progbar-percent" id="resources-used-percent"></span>
                         </div>
                     </div>
                     <div class="driver-usage-details driver-usage-details-section">
@@ -100,8 +100,8 @@ async function update_usage_details($el_window){
 
         $('#total-usage').html(window.number_format(totalUsage / 100_000_000, { decimals: 2, prefix: '$' }));
         $('#total-capacity').html(window.number_format(monthlyAllowance / 100_000_000, { decimals: 2, prefix: '$' }));
-        $('.usage-progbar-percent').html(`${totalUsagePercentage}%`);
-        $('.usage-progbar').css('width', `${totalUsagePercentage}%`);
+        $('#resources-used-percent').html(`${totalUsagePercentage}%`);
+        $('#resources-bar').css('width', `${totalUsagePercentage}%`);
 
         const tableRows = Object.keys(res.usage)
             .filter(key => typeof res.usage[key] === 'object')

@@ -384,6 +384,7 @@ const en = {
         copied: 'Copied!',
         back: 'Back',
         continue: 'Continue',
+        verify_code: 'Verify Code',
         finish: 'Finish',
 
         // === 2FA Login ===

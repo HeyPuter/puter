@@ -125,8 +125,10 @@ const UIWindow2FASetup = async function UIWindow2FASetup() {
                     <h2 class="step-title">${i18n('setup2fa_verify_title')}</h2>
                     <p class="step-description">${i18n('setup2fa_verify_description')}</p>
 
-                    <div class="code-entry-container">
-                        ${place_code_entry.html}
+                    <div class="form-field">
+                        <div class="code-entry-container">
+                            ${place_code_entry.html}
+                        </div>
                     </div>
                 </div>
 
@@ -158,6 +160,9 @@ const UIWindow2FASetup = async function UIWindow2FASetup() {
                     </button>
                     <button class="button button-primary btn-continue">
                         <span>${i18n('continue')}</span>
+                    </button>
+                    <button class="button button-primary btn-verify" style="display: none;">
+                        <span>${i18n('verify_code')}</span>
                     </button>
                     <button class="button button-primary btn-finish" style="display: none;" disabled>
                         <span>${i18n('finish')}</span>
@@ -203,6 +208,22 @@ const UIWindow2FASetup = async function UIWindow2FASetup() {
             qr_component.attach(place_qr);
             code_entry_component.attach(place_code_entry);
             recovery_codes_component.attach(place_recovery_codes);
+
+            // Sync verify button state with code entry submit button
+            const syncVerifyButton = () => {
+                const isDisabled = $(window_el).find('.code-confirm-btn').prop('disabled');
+                $(window_el).find('.btn-verify').prop('disabled', isDisabled);
+            };
+
+            // Watch for changes to the submit button state
+            const observer = new MutationObserver(syncVerifyButton);
+            const submitBtn = $(window_el).find('.code-confirm-btn').get(0);
+            if (submitBtn) {
+                observer.observe(submitBtn, { attributes: true, attributeFilter: ['disabled'] });
+            }
+
+            // Also sync on input changes
+            $(window_el).on('input', '.digit-input', syncVerifyButton);
 
             $(window_el).find('.btn-continue').on('click', async function() {
                 if (current_step === 1) {
@@ -266,6 +287,23 @@ const UIWindow2FASetup = async function UIWindow2FASetup() {
                 $(window_el).find('.btn-finish').prop('disabled', !this.checked);
             });
 
+            $(window_el).find('.btn-verify').on('click', function() {
+                const $verifyBtn = $(this);
+                // Trigger the code entry component's submit button
+                $(window_el).find('.code-confirm-btn').click();
+
+                // Update verify button to show loading state
+                $verifyBtn.addClass('loading').prop('disabled', true);
+
+                // Watch for code entry component to finish checking
+                const checkInterval = setInterval(() => {
+                    if (!code_entry_component.get('is_checking_code')) {
+                        $verifyBtn.removeClass('loading');
+                        clearInterval(checkInterval);
+                    }
+                }, 100);
+            });
+
             $(window_el).find('.btn-finish').on('click', async function() {
                 $(this).addClass('loading').prop('disabled', true);
 
@@ -294,18 +332,22 @@ const UIWindow2FASetup = async function UIWindow2FASetup() {
             if (step === 1) {
                 $container.find('.btn-back').hide();
                 $container.find('.btn-continue').show().find('span').text(i18n('continue'));
+                $container.find('.btn-verify').hide();
                 $container.find('.btn-finish').hide();
             } else if (step === 2) {
                 $container.find('.btn-back').show();
                 $container.find('.btn-continue').show().find('span').text(i18n('continue'));
+                $container.find('.btn-verify').hide();
                 $container.find('.btn-finish').hide();
             } else if (step === 3) {
                 $container.find('.btn-back').show();
                 $container.find('.btn-continue').hide();
+                $container.find('.btn-verify').show().prop('disabled', true);
                 $container.find('.btn-finish').hide();
             } else if (step === 4) {
                 $container.find('.btn-back').show();
                 $container.find('.btn-continue').hide();
+                $container.find('.btn-verify').hide();
                 $container.find('.btn-finish').show();
             }
 
