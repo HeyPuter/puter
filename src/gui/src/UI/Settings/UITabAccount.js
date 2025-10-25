@@ -21,114 +21,94 @@ import UIWindowChangePassword from '../UIWindowChangePassword.js';
 import UIWindowChangeEmail from './UIWindowChangeEmail.js';
 import UIWindowChangeUsername from '../UIWindowChangeUsername.js';
 import UIWindowConfirmUserDeletion from './UIWindowConfirmUserDeletion.js';
-import UIWindowManageSessions from '../UIWindowManageSessions.js';
+import UIWindowManageSessions from './UIWindowManageSessions.js';
 import UIWindow from '../UIWindow.js';
+import build_settings_card from './helpers/build_settings_card.js';
 
-// About
 export default {
     id: 'account',
     title_i18n_key: 'account',
     icon: 'user.svg',
     html: () => {
-        let h = '';
-        // profile picture
-        h += `<div style="overflow: visible; display: flex; margin-bottom: 20px; flex-direction: column; align-items: center;">`;
-            h += `<div class="profile-picture change-profile-picture" style="background-image: url('${html_encode(window.user?.profile?.picture ?? window.icons['profile.svg'])}');">`;
-            h += `</div>`;
-        h += `</div>`;
+        const passwordCard = !window.user.is_temp ? build_settings_card({
+            label: i18n('password'),
+            control: `<button class="button change-password" aria-label="${i18n('change_password')}">${i18n('change_password')}</button>`,
+        }) : '';
 
-        // change password button
-        if(!window.user.is_temp){
-            h += `<div class="settings-card">`;
-                h += `<strong>${i18n('password')}</strong>`;
-                h += `<div style="flex-grow:1;">`;
-                    h += `<button class="button change-password" style="float:right;">${i18n('change_password')}</button>`;
-                h += `</div>`;
-            h += `</div>`;
-        }
+        const emailCard = window.user.email ? build_settings_card({
+            label: i18n('email'),
+            description: `<span class="user-email">${html_encode(window.user.email)}</span>`,
+            control: `<button class="button change-email" aria-label="${i18n('change_email')}">${i18n('change_email')}</button>`,
+        }) : '';
 
-        // change username button
-        h += `<div class="settings-card">`;
-            h += `<div>`;
-                h += `<strong style="display:block;">${i18n('username')}</strong>`;
-                h += `<span class="username" style="display:block; margin-top:5px;">${html_encode(window.user.username)}</span>`;
-            h += `</div>`;
-            h += `<div style="flex-grow:1;">`;
-                h += `<button class="button change-username" style="float:right;">${i18n('change_username')}</button>`;
-            h += `</div>`
-        h += `</div>`;
-        // change email button
-        if(window.user.email){
-            h += `<div class="settings-card">`;
-                h += `<div>`;
-                    h += `<strong style="display:block;">${i18n('email')}</strong>`;
-                    h += `<span class="user-email" style="display:block; margin-top:5px;">${html_encode(window.user.email)}</span>`;
-                h += `</div>`;
-                h += `<div style="flex-grow:1;">`;
-                    h += `<button class="button change-email" style="float:right;">${i18n('change_email')}</button>`;
-                h += `</div>`;
-            h += `</div>`;
-        }
-        // 'Delete Account' button
-        h += `<div class="settings-card settings-card-danger">`;
-            h += `<strong style="display: inline-block;">${i18n("delete_account")}</strong>`;
-            h += `<div style="flex-grow:1;">`;
-                h += `<button class="button button-danger delete-account" style="float:right;">${i18n("delete_account")}</button>`;
-            h += `</div>`;
-        h += `</div>`;
-        return h;
+        return `
+            <h1 class="settings-section-header">${i18n('account')}</h1>
+            <div class="settings-profile-picture-container">
+                <div class="profile-picture change-profile-picture" role="button" tabindex="0" aria-label="${i18n('change')} ${i18n('profile_picture')}" style="background-image: url('${html_encode(window.user?.profile?.picture ?? window.icons['profile.svg'])}');"></div>
+            </div>
+            ${build_settings_card({
+                label: i18n('username'),
+                description: html_encode(window.user.username),
+                control: `<button class="button change-username" aria-label="${i18n('change_username')}">${i18n('change_username')}</button>`,
+            })}
+            ${emailCard}
+            ${passwordCard}
+            ${build_settings_card({
+                label: i18n('delete_account'),
+                variant: 'danger',
+                control: `<button class="button button-danger delete-account" aria-label="${i18n('delete_account')}">${i18n('delete_account')}</button>`,
+            })}
+        `;
     },
     init: ($el_window) => {
-        $el_window.find('.change-password').on('click', function (e) {
+        $el_window.find('.change-password').on('click', function(e) {
             UIWindowChangePassword({
-                window_options:{
+                window_options: {
                     parent_uuid: $el_window.attr('data-element_uuid'),
                     disable_parent_window: true,
                     parent_center: true,
-                }
+                },
             });
         });
-        $el_window.find('.change-username').on('click', function (e) {
+        $el_window.find('.change-username').on('click', function(e) {
             UIWindowChangeUsername({
-                window_options:{
+                window_options: {
                     parent_uuid: $el_window.attr('data-element_uuid'),
                     disable_parent_window: true,
                     parent_center: true,
-                }
+                },
             });
         });
-        $el_window.find('.change-email').on('click', function (e) {
+        $el_window.find('.change-email').on('click', function(e) {
             UIWindowChangeEmail({
-                window_options:{
+                window_options: {
                     parent_uuid: $el_window.attr('data-element_uuid'),
                     disable_parent_window: true,
                     parent_center: true,
-                }
+                },
             });
         });
-        $el_window.find('.manage-sessions').on('click', function (e) {
+        $el_window.find('.manage-sessions').on('click', function(e) {
             UIWindowManageSessions({
-                window_options:{
+                window_options: {
                     parent_uuid: $el_window.attr('data-element_uuid'),
                     disable_parent_window: true,
                     parent_center: true,
-                }
+                },
             });
         });
-        $el_window.find('.delete-account').on('click', function (e) {
+        $el_window.find('.delete-account').on('click', function(e) {
             UIWindowConfirmUserDeletion({
-                window_options:{
+                window_options: {
                     parent_uuid: $el_window.attr('data-element_uuid'),
                     disable_parent_window: true,
                     parent_center: true,
-                }
+                },
             });
         });
-        $el_window.find('.change-profile-picture').on('click', async function (e) {
-            // open dialog
+        $el_window.find('.change-profile-picture').on('click', async function(e) {
             UIWindow({
-                path: '/' + window.user.username + '/Desktop',
-                // this is the uuid of the window to which this dialog will return
+                path: `/${window.user.username}/Desktop`,
                 parent_uuid: $el_window.attr('data-element_uuid'),
                 allowed_file_types: ['.png', '.jpg', '.jpeg'],
                 show_maximize_button: false,
@@ -137,12 +117,18 @@ export default {
                 is_dir: true,
                 is_openFileDialog: true,
                 selectable_body: false,
-            });    
-        })
+            });
+        });
+        $el_window.find('.change-profile-picture').on('keydown', function(e) {
+            if(e.key === 'Enter' || e.key === ' '){
+                e.preventDefault();
+                $(this).trigger('click');
+            }
+        });
         $el_window.on('file_opened', async function(e){
             let selected_file = Array.isArray(e.detail) ? e.detail[0] : e.detail;
             // set profile picture
-            const profile_pic = await puter.fs.read(selected_file.path)
+            const profile_pic = await puter.fs.read(selected_file.path);
             // blob to base64
             const reader = new FileReader();
             reader.readAsDataURL(profile_pic);
@@ -158,13 +144,13 @@ export default {
                     ctx.drawImage(img, 0, 0, 150, 150);
                     const base64data = canvas.toDataURL('image/png');
                     // update profile picture
-                    $el_window.find('.profile-picture').css('background-image', 'url(' + html_encode(base64data) + ')');
-                    $('.profile-image').css('background-image', 'url(' + html_encode(base64data) + ')');
+                    $el_window.find('.profile-picture').css('background-image', `url(${html_encode(base64data)})`);
+                    $('.profile-image').css('background-image', `url(${html_encode(base64data)})`);
                     $('.profile-image').addClass('profile-image-has-picture');
                     // update profile picture
-                    update_profile(window.user.username, {picture: base64data})
-                }
-            }
-        })
+                    update_profile(window.user.username, { picture: base64data });
+                };
+            };
+        });
     },
 };
