@@ -265,10 +265,16 @@ input[type=text]:focus, input[type=password]:focus, input[type=email]:focus, sel
 }
 
 .button-primary {
-    border-color: #088ef0;
-    background: -webkit-gradient(linear, left top, left bottom, from(#34a5f8), to(#088ef0));
-    background: linear-gradient(#34a5f8, #088ef0);
+    border-color: #0667c1;
+    background: -webkit-gradient(linear, 135deg, color-stop(0%, #088ef0), color-stop(100%, #0667c1));
+    background: linear-gradient(135deg, #088ef0 0%, #0667c1 100%);
     color: white;
+    transition: all 0.12s ease-out;
+    box-shadow: 0 2px 4px rgba(8, 142, 240, 0.2);
+}
+
+.button-primary:hover:not(:disabled) {
+    box-shadow: 0 4px 12px rgba(8, 142, 240, 0.3);
 }
 
 .button-danger {
@@ -282,6 +288,7 @@ input[type=text]:focus, input[type=password]:focus, input[type=email]:focus, sel
     background-color: #2798eb;
     border-color: #2798eb;
     color: #bedef5;
+    box-shadow: 0 1px 2px rgba(8, 142, 240, 0.2);
 }
 
 .button-action {
@@ -1558,71 +1565,6 @@ span.header-sort-icon img {
     width: 110px;
 }
 
-.mywebsites-card {
-    -webkit-font-smoothing: antialiased;
-    -moz-osx-font-smoothing: grayscale;
-    position: relative;
-    border: 1px solid #CCC;
-    padding: 10px;
-    margin-bottom: 10px;
-    border-radius: 4px;
-    background-color: white;
-}
-
-.mywebsites-address-link {
-    color: #0d6efd;
-    text-decoration: none;
-}
-
-.mywebsites-address-link:hover {
-    text-decoration: underline;
-}
-
-.mywebsites-dir-path {
-    cursor: pointer;
-    font-size: 14px;
-    margin-bottom: 0;
-}
-
-.mywebsites-dir-path img {
-    width: 16px;
-    margin-bottom: -3px;
-    margin-right: 5px;
-}
-
-.mywebsites-dir-path:hover {
-    text-decoration: underline;
-}
-
-.mywebsites-dis-dir {
-    cursor: pointer;
-}
-
-.mywebsites-dis-dir:hover {
-    text-decoration: underline;
-}
-
-.mywebsites-no-dir-notice {
-    margin-bottom: 0;
-    color: #7e7e7e;
-    font-size: 14px;
-}
-
-.mywebsites-release-address {
-    color: red;
-    cursor: pointer;
-    font-size: 13px;
-}
-
-.mywebsites-site-setting {
-    position: absolute;
-    right: 5px;
-    top: 5px;
-    cursor: pointer;
-    width: 20px;
-    height: 20px;
-}
-
 /***********************
  * Context Menu
  ***********************/
@@ -1958,17 +1900,6 @@ label {
     font-size: 13px;
 }
 
-.form-success-msg {
-    display: none;
-    color: rgb(0, 129, 69);
-    border: 1px solid rgb(0, 201, 17);
-    border-radius: 4px;
-    padding: 9px;
-    margin-bottom: 15px;
-    text-align: center;
-    font-size: 13px;
-}
-
 .publish-btn {
     margin-top: 20px;
 }
@@ -2016,22 +1947,6 @@ label {
 
 .signup-form-title {
     margin-top: 10px;
-}
-
-.signup-c2a-clickable, .login-c2a-clickable {
-    border: none;
-    background: none;
-    display: block;
-    margin: 0 auto;
-    cursor: pointer;
-    font-weight: 400;
-    -webkit-font-smoothing: antialiased;
-    color: #4f5a68;
-    font-size: 20px;
-}
-
-.signup-c2a-clickable:hover, .login-c2a-clickable:hover {
-    text-decoration: underline;
 }
 
 .p102xyzname, #p102xyzname {
@@ -2289,14 +2204,73 @@ label {
     border: 1px solid #4092da;
 }
 
+.feedback-container {
+    padding: 20px;
+    margin-top: 0;
+}
+
 .feedback-sent-success {
     display: none;
-    padding: 10px;
+    padding: 20px;
     margin-bottom: 20px;
     border: 1px solid #59d959;
-    border-radius: 3px;
+    border-radius: 6px;
     background-color: #e4f9e4;
     position: relative;
+    text-align: center;
+}
+
+.feedback-success-icon {
+    width: 50px;
+    height: 50px;
+    display: block;
+    margin: 10px auto;
+}
+
+.feedback-success-message {
+    text-align: center;
+    margin-bottom: 10px;
+    color: #005300;
+    padding: 10px;
+    font-size: 14px;
+}
+
+.feedback-form {
+    display: block;
+}
+
+.feedback-c2a {
+    margin-top: 0;
+    margin-bottom: 12px;
+    font-size: 15px;
+    -webkit-font-smoothing: antialiased;
+    color: #3e5362;
+    line-height: 1.5;
+}
+
+.feedback-message {
+    width: 100%;
+    height: 200px;
+    padding: 12px;
+    box-sizing: border-box;
+    border: 1px solid #cbd5e0;
+    border-radius: 6px;
+    font-size: 14px;
+    font-family: inherit;
+    resize: vertical;
+    transition: border-color 0.12s ease-out, box-shadow 0.12s ease-out;
+}
+
+.feedback-message:focus {
+    outline: none;
+    border-color: #088ef0;
+    box-shadow: 0 0 0 3px rgba(8, 142, 240, 0.1);
+}
+
+.send-feedback-btn {
+    float: right;
+    margin-bottom: 15px;
+    margin-top: 10px;
 }
 
 .window-give-item-access-success {
@@ -2772,6 +2746,15 @@ label {
     border-right: 1px solid #e0e0e0;
 }
 
+.task-row {
+    transition: background-color 0.12s ease-out;
+    cursor: context-menu;
+}
+
+.task-row:hover {
+    background-color: rgba(64, 146, 218, 0.08);
+}
+
 .task-manager-container tbody > tr > td {
     border-bottom: 1px solid #e0e0e0;
     padding: 0 calc(2.5 * var(--scale));
@@ -2781,6 +2764,18 @@ label {
 
 .task-manager-container td > span {
     padding: 0 calc(2.5 * var(--scale));
+}
+
+.process-type {
+    font-size: 12px;
+    color: #6e6e6e;
+    font-weight: 500;
+}
+
+.process-status {
+    font-size: 12px;
+    color: #4a4a4a;
+    font-weight: 400;
 }
 
 .task {
@@ -3416,17 +3411,6 @@ fieldset[name=number-code] {
     margin-top: 8px;
 }
 
-.forgot-password-link {
-    cursor: pointer;
-    -webkit-font-smoothing: antialiased;
-    -moz-osx-font-smoothing: grayscale;
-    font-size: 13px;
-}
-
-.forgot-password-link:hover {
-    text-decoration: underline;
-}
-
 .pulse-dark {
     display: block;
     float: left;
@@ -3720,6 +3704,7 @@ fieldset[name=number-code] {
     flex-direction: column;
     justify-content: center;
     align-items: center;
+    padding: 40px 20px 30px;
 }
 
 .dl-conf-item-attr {
@@ -4024,15 +4009,6 @@ fieldset[name=number-code] {
     bottom: 10px;
     text-align: center;
     margin: 0 10px;
-}
-
-.signup-terms {
-    font-size: 11px;
-    color: #666;
-    margin-top: 10px;
-    bottom: 10px;
-    text-align: center;
-    margin: 10px 0 15px;
 }
 
 .puter-auth-dialog .close-btn {
@@ -4471,7 +4447,7 @@ fieldset[name=number-code] {
 
 .settings-content .social-links a {
     opacity: 0.6;
-    transition: all 0.2s ease;
+    transition: all 0.12s ease-out;
     display: flex;
     align-items: center;
     justify-content: center;
@@ -4538,12 +4514,6 @@ fieldset[name=number-code] {
     gap: 5px;
 }
 
-.form-field {
-    overflow: hidden;
-    margin-top: 10px;
-    margin-bottom: 30px;
-}
-
 .deletion-dialog-content {
     padding: 20px;
 }
@@ -4576,7 +4546,7 @@ fieldset[name=number-code] {
     color: #999;
     margin: 0;
     opacity: 0.5;
-    transition: opacity 0.2s ease;
+    transition: opacity 0.12s ease-out;
     line-height: 1.5;
     padding: 12px 20px;
     background: rgba(0, 0, 0, 0.02);
@@ -4629,7 +4599,7 @@ fieldset[name=number-code] {
     background-position: center;
     background-size: 32px 32px;
     opacity: 0;
-    transition: opacity 0.2s ease;
+    transition: opacity 0.12s ease-out;
 }
 
 .profile-picture:hover::before {
@@ -4944,7 +4914,7 @@ fieldset[name=number-code] {
     text-align: center;
     margin-bottom: 10px;
     opacity: 0.3;
-    transition: opacity 0.2s ease;
+    transition: opacity 0.12s ease-out;
     height: 12px;
 }
 
@@ -4983,7 +4953,7 @@ fieldset[name=number-code] {
     position: relative;
     background: #FFFFFF;
     box-shadow: 0 1px 3px rgba(0, 0, 0, 0.08);
-    transition: all 0.2s ease;
+    transition: all 0.12s ease-out;
     color: #373e44;
 }
 
@@ -5085,7 +5055,7 @@ fieldset[name=number-code] {
     border: none;
     background: #eeeeee;
     color: #666666;
-    transition: all 0.2s ease;
+    transition: all 0.12s ease-out;
 }
 
 .settings-card .button:hover {
@@ -5246,7 +5216,7 @@ fieldset[name=number-code] {
     padding: 0 16px;
     font-size: 14px;
     color: #373e44;
-    transition: all 0.2s ease;
+    transition: all 0.12s ease-out;
     box-shadow: 0 1px 3px rgba(0, 0, 0, 0.06);
 }
 
@@ -5269,7 +5239,7 @@ fieldset[name=number-code] {
     padding: 0 32px 0 12px;
     font-size: 13px;
     color: #373e44;
-    transition: all 0.2s ease;
+    transition: all 0.12s ease-out;
     appearance: none;
     -webkit-appearance: none;
     -moz-appearance: none;
@@ -5296,7 +5266,7 @@ fieldset[name=number-code] {
     padding: 0 12px;
     font-size: 13px;
     color: #373e44;
-    transition: all 0.2s ease;
+    transition: all 0.12s ease-out;
 }
 
 .settings-card input:focus,
@@ -5666,6 +5636,8 @@ fieldset[name=number-code] {
     padding-right: 15px;
     padding-bottom: 5px;
     display: none;
+    overflow-y: auto;
+    max-height: 300px;
 }
 
 .search-result {
@@ -5674,6 +5646,26 @@ fieldset[name=number-code] {
     font-size: 13px;
     display: flex;
     align-items: center;
+    transition: background-color 0.12s ease-out;
+}
+
+.search-result:hover {
+    background-color: rgba(64, 146, 218, 0.1);
+    border-radius: 5px;
+}
+
+.search-result-icon {
+    width: 20px;
+    height: 20px;
+    margin-right: 6px;
+    flex-shrink: 0;
+}
+
+.search-error {
+    padding: 20px 15px;
+    text-align: center;
+    color: #e74c3c;
+    font-size: 13px;
 }
 
 .search-result-active {
@@ -6083,7 +6075,7 @@ fieldset[name=number-code] {
     border-radius: 8px;
     background-color: #ffffff;
     cursor: pointer;
-    transition: all 0.2s ease;
+    transition: all 0.12s ease-out;
 }
 
 .theme-preset-btn:hover {
@@ -6123,7 +6115,7 @@ fieldset[name=number-code] {
     font-size: 14px;
     font-weight: 500;
     cursor: pointer;
-    transition: all 0.2s ease;
+    transition: all 0.12s ease-out;
 }
 
 .customize-toggle-btn:hover {
@@ -6187,7 +6179,7 @@ fieldset[name=number-code] {
     outline: none;
     -webkit-appearance: none;
     cursor: pointer;
-    transition: all 0.2s ease;
+    transition: all 0.12s ease-out;
     background: transparent;
 }
 
@@ -6201,7 +6193,7 @@ fieldset[name=number-code] {
     cursor: pointer;
     box-shadow: 0 2px 6px rgba(0, 0, 0, 0.2);
     border: 2px solid #088ef0;
-    transition: all 0.2s ease;
+    transition: all 0.12s ease-out;
     margin-top: -6px;
 }
 
@@ -6213,7 +6205,7 @@ fieldset[name=number-code] {
     cursor: pointer;
     box-shadow: 0 2px 6px rgba(0, 0, 0, 0.2);
     border: 2px solid #088ef0;
-    transition: all 0.2s ease;
+    transition: all 0.12s ease-out;
 }
 
 .hue-slider::-webkit-slider-runnable-track {
@@ -6296,7 +6288,7 @@ fieldset[name=number-code] {
     font-size: 14px;
     font-weight: 500;
     cursor: pointer;
-    transition: all 0.2s ease;
+    transition: all 0.12s ease-out;
 }
 
 .reset-colors-btn:hover {
@@ -6307,6 +6299,409 @@ fieldset[name=number-code] {
 .reset-colors-btn:active {
     background: #d8d8d8;
     transform: scale(0.98);
+}
+
+/************************************************************
+ * QR Code Window
+ ************************************************************/
+
+.qr-code-window-content {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+}
+
+.qr-window-title {
+    text-align: center;
+    font-size: 16px;
+    padding: 10px;
+    font-weight: 400;
+    margin: -10px 10px 20px 10px;
+    -webkit-font-smoothing: antialiased;
+    color: #5f626d;
+}
+
+.qr-code-window-close-btn {
+    position: absolute;
+    top: 10px;
+    right: 10px;
+    width: 30px;
+    height: 30px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    padding: 0;
+    cursor: pointer;
+    font-size: 24px;
+    color: #666;
+    transition: all 0.12s ease-out;
+    border-radius: 4px;
+}
+
+.qr-code-window-close-btn:hover {
+    background: rgba(0, 0, 0, 0.05);
+    color: #333;
+}
+
+/************************************************************
+ * My Websites Window
+ ************************************************************/
+
+.mywebsites-container {
+    display: flex;
+    flex-direction: column;
+    gap: 12px;
+}
+
+.mywebsites-card {
+    background: #FFFFFF;
+    border: 1px solid #e0e0e0;
+    border-radius: 8px;
+    padding: 16px;
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+    transition: all 0.12s ease-out;
+}
+
+.mywebsites-card:hover {
+    border-color: #088ef0;
+    box-shadow: 0 2px 8px rgba(8, 142, 240, 0.1);
+}
+
+.mywebsites-address-link {
+    font-size: 15px;
+    font-weight: 600;
+    color: #088ef0;
+    text-decoration: none;
+    transition: color 0.12s ease-out;
+}
+
+.mywebsites-address-link:hover {
+    color: #0667c1;
+    text-decoration: underline;
+}
+
+.mywebsites-site-setting {
+    position: absolute;
+    top: 16px;
+    right: 16px;
+    width: 20px;
+    height: 20px;
+    cursor: pointer;
+    opacity: 0.6;
+    transition: opacity 0.12s ease-out;
+}
+
+.mywebsites-site-setting:hover {
+    opacity: 1;
+}
+
+.mywebsites-dir-path {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    font-size: 13px;
+    color: #6b7280;
+    cursor: pointer;
+    padding: 8px;
+    border-radius: 4px;
+    margin: 0;
+    transition: background-color 0.12s ease-out;
+}
+
+.mywebsites-dir-path:hover {
+    background-color: #f9fafb;
+}
+
+.mywebsites-dir-path img {
+    width: 16px;
+    height: 16px;
+}
+
+.mywebsites-dis-dir {
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+    cursor: pointer;
+    color: #dc2626;
+    font-size: 13px;
+    transition: color 0.12s ease-out;
+}
+
+.mywebsites-dis-dir:hover {
+    color: #b91c1c;
+    text-decoration: underline;
+}
+
+.mywebsites-dis-dir img {
+    width: 16px;
+    height: 16px;
+    margin-bottom: -2px;
+}
+
+.mywebsites-no-dir-notice {
+    padding: 12px;
+    background: #fef3c7;
+    border: 1px solid #fde68a;
+    border-radius: 6px;
+    font-size: 13px;
+    color: #92400e;
+    margin: 8px 0 0 0;
+}
+
+.mywebsites-loading,
+.mywebsites-empty {
+    text-align: center;
+    margin-top: 40px;
+    margin-bottom: 50px;
+    -webkit-font-smoothing: antialiased;
+    -moz-osx-font-smoothing: grayscale;
+    color: #596c7c;
+    font-size: 14px;
+}
+
+/************************************************************
+ * Authentication Windows (Login/Signup/Progress)
+ ************************************************************/
+
+.auth-container {
+    display: flex;
+    flex-direction: column;
+    width: 100%;
+    max-width: 500px;
+    min-width: 400px;
+}
+
+.auth-logo-wrapper {
+    display: flex;
+    justify-content: center;
+    padding: 24px 20px 24px 20px;
+    margin-bottom: 0;
+}
+
+.auth-logo {
+    width: 40px;
+    height: 40px;
+    margin: 0 auto;
+    display: block;
+    padding: 15px;
+    background: #0016D8;
+    border-radius: 12px;
+    box-shadow: 0 4px 16px rgba(0, 22, 216, 0.2);
+}
+
+.auth-title {
+    padding: 0 20px 12px 20px;
+    text-align: center;
+    margin-bottom: 0;
+}
+
+.auth-title h1 {
+    font-size: 18px;
+    font-weight: 500;
+    margin: 0;
+}
+
+.auth-form-wrapper {
+    padding: 20px;
+    overflow-y: auto;
+    overflow-x: hidden;
+    border-bottom: 1px solid #ced7e1;
+}
+
+.auth-form {
+    width: 100%;
+}
+
+.auth-error-msg {
+    color: #991b1b;
+    display: none;
+    margin-bottom: 12px;
+    line-height: 1.4;
+    font-size: 13px;
+    padding: 10px 12px;
+    background: #fef2f2;
+    border: 1px solid #fecaca;
+    border-radius: 6px;
+    animation: slideDown 0.15s ease-out;
+}
+
+@keyframes slideDown {
+    from {
+        opacity: 0;
+        transform: translateY(-4px);
+    }
+    to {
+        opacity: 1;
+        transform: translateY(0);
+    }
+}
+
+.auth-form-group {
+    position: relative;
+    margin-bottom: 20px;
+}
+
+.auth-label {
+    display: block;
+    margin-bottom: 8px;
+    font-size: 13px;
+    font-weight: 500;
+    color: #374151;
+}
+
+.auth-input {
+    width: 100%;
+    height: 40px;
+    padding: 0 12px;
+    border: 1px solid #ccc;
+    border-radius: 8px;
+    font-size: 13px;
+    color: #373e44;
+    background: #FFFFFF;
+    box-shadow: 0 1px 2px rgba(0, 0, 0, 0.04);
+    transition: all 0.12s ease-out;
+}
+
+.auth-form-group:has(.auth-password-toggle) .auth-input {
+    padding-right: 48px;
+}
+
+.auth-input:focus {
+    outline: none;
+    border-color: #088ef0;
+    box-shadow: 0 0 0 3px rgba(8, 142, 240, 0.1), 0 1px 2px rgba(0, 0, 0, 0.04);
+}
+
+.auth-password-toggle {
+    position: absolute;
+    right: 12px;
+    bottom: 4px;
+    cursor: pointer;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    width: 32px;
+    height: 32px;
+    border-radius: 6px;
+    transition: all 0.12s ease-out;
+    opacity: 0.6;
+}
+
+.auth-password-toggle:hover {
+    background: rgba(8, 142, 240, 0.08);
+    opacity: 1;
+}
+
+.auth-password-toggle:active {
+    background: rgba(8, 142, 240, 0.15);
+    transform: scale(0.95);
+}
+
+.auth-password-toggle img {
+    width: 18px;
+    height: 18px;
+    transition: opacity 0.12s ease-out;
+}
+
+.auth-forgot-password {
+    text-align: center;
+    margin-bottom: 0;
+}
+
+.forgot-password-link {
+    color: #088ef0;
+    cursor: pointer;
+    font-size: 13px;
+    text-decoration: none;
+    transition: color 0.12s ease-out;
+}
+
+.forgot-password-link:hover {
+    color: #0667c1;
+    text-decoration: underline;
+}
+
+.c2a-wrapper {
+    padding: 20px;
+}
+
+.signup-c2a-clickable,
+.login-c2a-clickable {
+    width: 100%;
+    padding: 12px 16px;
+    background: transparent;
+    border: 1px solid #e0e0e0;
+    border-radius: 8px;
+    color: #088ef0;
+    font-size: 14px;
+    font-weight: 500;
+    cursor: pointer;
+    transition: all 0.12s ease-out;
+    box-shadow: 0 1px 2px rgba(0, 0, 0, 0.04);
+}
+
+.signup-c2a-clickable:hover,
+.login-c2a-clickable:hover {
+    background: #f8f9fa;
+    border-color: #088ef0;
+    box-shadow: 0 2px 8px rgba(8, 142, 240, 0.15);
+}
+
+.signup-c2a-clickable:active,
+.login-c2a-clickable:active {
+    box-shadow: 0 1px 2px rgba(0, 0, 0, 0.04);
+}
+
+.signup-terms {
+    font-size: 12px;
+    color: #6b7280;
+    text-align: center;
+    line-height: 1.5;
+    margin: 16px 0;
+}
+
+.signup-captcha-wrapper {
+    min-height: 20px;
+    display: flex;
+    justify-content: center;
+    margin: 16px 0;
+}
+
+.p102xyzname {
+    position: absolute;
+    left: -9999px;
+    width: 1px;
+    height: 1px;
+}
+
+/* Login Progress */
+.login-progress-profile-pic {
+    background-color: #cecece;
+    background-position: center;
+    background-size: cover;
+    width: 70px;
+    height: 70px;
+    border-radius: 50%;
+    margin-bottom: 16px;
+}
+
+.login-progress-title {
+    text-align: center;
+    font-size: 18px;
+    padding: 12px;
+    font-weight: 400;
+    margin: -12px 12px 8px 12px;
+}
+
+.login-progress-title strong {
+    font-weight: 600;
+}
+
+.login-progress-spinner {
+    margin-bottom: 30px;
 }
 
 /************************************************************
@@ -6379,7 +6774,7 @@ fieldset[name=number-code] {
     font-size: 13px;
     margin-bottom: 20px;
     font-weight: 500;
-    transition: opacity 0.2s ease, transform 0.2s ease;
+    transition: opacity 0.12s ease-out, transform 0.12s ease-out;
 }
 
 .form-error-msg {
@@ -6397,13 +6792,13 @@ fieldset[name=number-code] {
 .form-error-msg.visible,
 .form-success-msg.visible {
     display: block;
-    animation: fadeInForm 0.2s ease;
+    animation: fadeInForm 0.15s ease-out;
 }
 
 @keyframes fadeInForm {
     from {
         opacity: 0;
-        transform: translateY(-10px);
+        transform: translateY(-4px);
     }
     to {
         opacity: 1;
@@ -6470,7 +6865,7 @@ fieldset[name=number-code] {
     padding: 12px 14px;
     border: 1px solid #e0e0e0;
     border-radius: 6px;
-    transition: all 0.2s ease;
+    transition: all 0.12s ease-out;
     background-color: #ffffff;
 }
 
@@ -6500,7 +6895,7 @@ fieldset[name=number-code] {
     font-size: 14px;
     font-weight: 500;
     color: #333;
-    transition: color 0.2s ease;
+    transition: color 0.12s ease-out;
 }
 
 .radio-label-description {
@@ -6522,7 +6917,7 @@ fieldset[name=number-code] {
 .radio-label span {
     font-size: 14px;
     color: #333;
-    transition: color 0.2s ease;
+    transition: color 0.12s ease-out;
 }
 
 /* Field-level Errors */
@@ -6532,12 +6927,12 @@ fieldset[name=number-code] {
     color: #ef4444;
     margin-top: 4px;
     min-height: 0;
-    transition: opacity 0.2s ease, max-height 0.2s ease;
+    transition: opacity 0.12s ease-out, max-height 0.12s ease-out;
 }
 
 .field-error.visible {
     display: block;
-    animation: fadeInFieldError 0.2s ease;
+    animation: fadeInFieldError 0.15s ease-out;
 }
 
 @keyframes fadeInFieldError {
@@ -6577,7 +6972,7 @@ fieldset[name=number-code] {
     align-items: center;
     justify-content: center;
     color: #666;
-    transition: color 0.2s ease;
+    transition: color 0.12s ease-out;
     flex-shrink: 0;
     height: 24px;
     width: 24px;
@@ -6669,7 +7064,7 @@ fieldset[name=number-code] {
     gap: 6px;
     padding: 4px 0;
     color: #666;
-    transition: color 0.2s ease;
+    transition: color 0.12s ease-out;
 }
 
 .criterion.met {
@@ -7042,7 +7437,7 @@ fieldset[name=number-code] {
     border: 1.5px solid #d1d5db;
     border-radius: 8px;
     background-color: #fff;
-    transition: all 0.2s ease;
+    transition: all 0.12s ease-out;
     flex-shrink: 0;
 }
 

@@ -31,75 +31,58 @@ function UIWindowSignup(options){
 
     return new Promise(async (resolve) => {
         const internal_id = window.uuidv4();
-        
-        let h = '';
-        h += `<div style="margin: 0 auto; max-width: 500px; min-width: 400px;">`;
-            // logo
-            h += `<img src="${window.icons['logo-white.svg']}" style="width: 40px; height: 40px; margin: 0 auto; display: block; padding: 15px; background-color: blue; border-radius: 5px;">`;
-            // close button
-            if(!options.has_head && options.show_close_button !== false)
-                h += `<div class="generic-close-window-button"> &times; </div>`;
 
-            // Form
-            h += `<div style="padding: 20px; border-bottom: 1px solid #ced7e1;">`;
-                // title
-                h += `<h1 class="signup-form-title">${i18n('create_free_account')}</h1>`;
-                // signup form
-                h += `<form class="signup-form">`;
-                    // error msg
-                    h += `<div class="signup-error-msg"></div>`;
-                    // username
-                    h += `<div style="overflow: hidden;">`;
-                        h += `<label for="username-${internal_id}">${i18n('username')}</label>`;
-                        h += `<input id="username-${internal_id}" value="${html_encode(options.username ?? '')}" class="username" type="text" autocomplete="username" spellcheck="false" autocorrect="off" autocapitalize="off" data-gramm_editor="false"/>`;
-                    h += `</div>`;
-                    // email
-                    h += `<div style="overflow: hidden; margin-top: 20px;">`;
-                        h += `<label for="email-${internal_id}">${i18n('email')}</label>`;
-                        h += `<input id="email-${internal_id}" value="${html_encode(options.email ?? '')}" class="email" type="email" autocomplete="email" spellcheck="false" autocorrect="off" autocapitalize="off" data-gramm_editor="false"/>`;
-                    h += `</div>`;
-                    // password
-                    h += `<div style="overflow: hidden; margin-top: 20px; margin-bottom: 20px; position: relative;">`;
-                        h += `<label for="password-${internal_id}">${i18n('password')}</label>`;
-                        h += `<input id="password-${internal_id}" class="password" type="${options.show_password ? "text" : "password"}" name="password" autocomplete="new-password" />`;
-                    // show/hide icon
-                        h += `<span style="position: absolute; right: 5%; top: 50%; cursor: pointer;" id="toggle-show-password-${internal_id}">
-                                    <img class="toggle-show-password-icon" src="${options.show_password ? window.icons["eye-closed.svg"] : window.icons["eye-open.svg"]}" width="20" height="20">
-                              </span>`;
-                    h += `</div>`;
-                    // confirm password
-                    h += `<div style="overflow: hidden; margin-top: 20px; margin-bottom: 20px; position: relative">`;
-                        h += `<label for="confirm-password-${internal_id}">${i18n('signup_confirm_password')}</label>`;
-                        h += `<input id="confirm-password-${internal_id}" class="confirm-password" type="${options.show_password ? "text" : "password"}" name="confirm-password" autocomplete="new-password" />`;
-                    // show/hide icon
-                        h += `<span style="position: absolute; right: 5%; top: 50%; cursor: pointer;" id="toggle-show-password-${internal_id}">
-                                     <img class="toggle-show-password-icon" src="${options.show_password ? window.icons["eye-closed.svg"] : window.icons["eye-open.svg"]}" width="20" height="20">
-                              </span>`;
-                    h += `</div>`;  
-                    // bot trap - if this value is submitted server will ignore the request
-                    h += `<input type="text" name="p102xyzname" class="p102xyzname" value="">`;
-
-                    // Turnstile widget (only when enabled)
-                    if(window.gui_params?.turnstileSiteKey){
-                        h += `<div style="min-height: 20px; display: flex; justify-content: center;">`;
-                            // appearance: always/execute/interaction-only
-                            // docs: https://developers.cloudflare.com/turnstile/get-started/client-side-rendering/widget-configurations/?utm_source=chatgpt.com#appearance-modes
-                            h += `<div class="cf-turnstile" data-sitekey="${window.gui_params.turnstileSiteKey}" data-appearance="interaction-only"></div>`;
-                        h += `</div>`;
-                    }
-
-                    // terms and privacy
-                    h += `<p class="signup-terms">${i18n('tos_fineprint', [], false)}</p>`;
-                    // Create Account
-                    h += `<button class="signup-btn button button-primary button-block button-normal">${i18n('create_free_account')}</button>`
-                h += `</form>`;
-            h += `</div>`;
-            // login link
-            // create account link
-            h += `<div class="c2a-wrapper" style="padding:20px;">`;
-                h += `<button class="login-c2a-clickable">${i18n('log_in')}</button>`;
-            h += `</div>`;
-        h += `</div>`;
+        const h = `
+            <div class="auth-container">
+                <div class="auth-logo-wrapper">
+                    <img class="auth-logo" src="${window.icons['logo-white.svg']}">
+                </div>
+                ${!options.has_head && options.show_close_button !== false ? `
+                    <div class="generic-close-window-button">&times;</div>
+                ` : ''}
+                <div class="auth-form-wrapper">
+                    <div class="auth-title">
+                        <h1>${i18n('create_free_account')}</h1>
+                    </div>
+                    <form class="auth-form signup-form">
+                        <div class="auth-error-msg signup-error-msg"></div>
+                        <div class="auth-form-group">
+                            <label class="auth-label" for="username-${internal_id}">${i18n('username')}</label>
+                            <input id="username-${internal_id}" value="${html_encode(options.username ?? '')}" class="auth-input username" type="text" autocomplete="username" spellcheck="false" autocorrect="off" autocapitalize="off" data-gramm_editor="false"/>
+                        </div>
+                        <div class="auth-form-group">
+                            <label class="auth-label" for="email-${internal_id}">${i18n('email')}</label>
+                            <input id="email-${internal_id}" value="${html_encode(options.email ?? '')}" class="auth-input email" type="email" autocomplete="email" spellcheck="false" autocorrect="off" autocapitalize="off" data-gramm_editor="false"/>
+                        </div>
+                        <div class="auth-form-group">
+                            <label class="auth-label" for="password-${internal_id}">${i18n('password')}</label>
+                            <input id="password-${internal_id}" class="auth-input password" type="${options.show_password ? 'text' : 'password'}" name="password" autocomplete="new-password" />
+                            <span class="auth-password-toggle" id="toggle-show-password-${internal_id}">
+                                <img class="toggle-show-password-icon" src="${options.show_password ? window.icons['eye-closed.svg'] : window.icons['eye-open.svg']}">
+                            </span>
+                        </div>
+                        <div class="auth-form-group">
+                            <label class="auth-label" for="confirm-password-${internal_id}">${i18n('signup_confirm_password')}</label>
+                            <input id="confirm-password-${internal_id}" class="auth-input confirm-password" type="${options.show_password ? 'text' : 'password'}" name="confirm-password" autocomplete="new-password" />
+                            <span class="auth-password-toggle" id="toggle-show-password-${internal_id}">
+                                <img class="toggle-show-password-icon" src="${options.show_password ? window.icons['eye-closed.svg'] : window.icons['eye-open.svg']}">
+                            </span>
+                        </div>
+                        <input type="text" name="p102xyzname" class="p102xyzname" value="">
+                        ${window.gui_params?.turnstileSiteKey ? `
+                            <div class="signup-captcha-wrapper">
+                                <div class="cf-turnstile" data-sitekey="${window.gui_params.turnstileSiteKey}" data-appearance="interaction-only"></div>
+                            </div>
+                        ` : ''}
+                        <button class="signup-btn button button-primary button-block button-normal">${i18n('create_free_account')}</button>
+                        <p class="signup-terms">${i18n('tos_fineprint', [], false)}</p>
+                    </form>
+                </div>
+                <div class="c2a-wrapper">
+                    <button class="login-c2a-clickable">${i18n('log_in')}</button>
+                </div>
+            </div>
+        `;
 
         const el_window = await UIWindow({
             title: null,
