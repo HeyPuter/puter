@@ -59,12 +59,15 @@ const UIWindowThemeDialog = async function UIWindowThemeDialog (options) {
                     <span>Rose</span>
                 </button>
             </div>
-            <button class="customize-toggle-btn">
-                <span>Customize colors</span>
-                <svg class="chevron-icon" xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 16 16" fill="currentColor">
-                    <path fill-rule="evenodd" d="M1.646 4.646a.5.5 0 0 1 .708 0L8 10.293l5.646-5.647a.5.5 0 0 1 .708.708l-6 6a.5.5 0 0 1-.708 0l-6-6a.5.5 0 0 1 0-.708z"/>
-                </svg>
-            </button>
+            <div class="theme-actions-group">
+                <button class="customize-toggle-btn">
+                    <span>Customize colors</span>
+                    <svg class="chevron-icon" xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 16 16" fill="currentColor">
+                        <path fill-rule="evenodd" d="M1.646 4.646a.5.5 0 0 1 .708 0L8 10.293l5.646-5.647a.5.5 0 0 1 .708.708l-6 6a.5.5 0 0 1-.708 0l-6-6a.5.5 0 0 1 0-.708z"/>
+                    </svg>
+                </button>
+                <button class="button button-secondary reset-colors-btn">${i18n('reset_colors')}</button>
+            </div>
             <div class="theme-sliders collapsed">
                 <div class="slider-container">
                     <label class="slider-label">
@@ -95,7 +98,6 @@ const UIWindowThemeDialog = async function UIWindowThemeDialog (options) {
                     <input type="range" class="theme-slider alpha-slider" id="alpha-slider" name="alpha" min="0" max="1" step="0.01" value="${svc_theme.get('alpha')}">
                 </div>
             </div>
-            <button class="button button-secondary reset-colors-btn">${i18n('reset_colors')}</button>
         </div>
     `;
 

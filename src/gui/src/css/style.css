@@ -6067,6 +6067,12 @@ fieldset[name=number-code] {
     gap: 12px;
 }
 
+.theme-actions-group {
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+}
+
 .theme-preset-btn {
     display: flex;
     flex-direction: column;
