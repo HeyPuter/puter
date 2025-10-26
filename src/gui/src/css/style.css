@@ -5234,7 +5234,6 @@ fieldset[name=number-code] {
     position: sticky;
     top: 0;
     background-color: rgb(245 247 249);
-    padding-bottom: 8px;
     z-index: 10;
 }
 
