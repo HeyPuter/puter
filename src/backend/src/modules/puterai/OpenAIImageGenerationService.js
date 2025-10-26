@@ -170,7 +170,7 @@ class OpenAIImageGenerationService extends BaseService {
         }
 
         // Somewhat sane defaults
-        model = model ?? 'gpt-image-1';
+        model = model ?? 'gpt-image-1-mini';
         quality = quality ?? 'low';
 
         if ( ! this.models_[model] ) {

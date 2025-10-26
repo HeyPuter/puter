@@ -108,7 +108,7 @@ interface ToolCall {
 }
 
 interface Txt2ImgOptions {
-    model?: 'gpt-image-1' | 'gemini-2.5-flash-image-preview' | 'dall-e-3';
+    model?: 'gpt-image-1' | 'gpt-image-1-mini' | 'gemini-2.5-flash-image-preview' | 'dall-e-3';
     quality?: 'high' | 'medium' | 'low' | 'hd' | 'standard';
     input_image?: string;
     input_image_mime_type?: string;
