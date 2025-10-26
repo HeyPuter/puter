@@ -42,6 +42,17 @@ class OpenAIImageGenerationService extends BaseService {
 
     _construct() {
         this.models_ = {
+            'gpt-image-1-mini': {
+                'low:1024x1024': 0.005,
+                'low:1024x1536': 0.006,
+                'low:1536x1024': 0.006,
+                'medium:1024x1024': 0.011,
+                'medium:1024x1536': 0.015,
+                'medium:1536x1024': 0.015,
+                'high:1024x1024': 0.036,
+                'high:1024x1536': 0.052,
+                'high:1536x1024': 0.052,
+            },
             'gpt-image-1': {
                 'low:1024x1024': 0.011,
                 'low:1024x1536': 0.016,
@@ -247,6 +258,9 @@ class OpenAIImageGenerationService extends BaseService {
      * @private
      */
     _getValidQualities(model) {
+        if ( model === 'gpt-image-1-mini' ) {
+            return ['low', 'medium', 'high'];
+        }
         if ( model === 'gpt-image-1' ) {
             return ['low', 'medium', 'high'];
         }
@@ -269,8 +283,8 @@ class OpenAIImageGenerationService extends BaseService {
      * @private
      */
     _buildPriceKey(model, quality, size) {
-        if ( model === 'gpt-image-1' ) {
-            // gpt-image-1 uses format: "quality:size" - default to low if not specified
+        if ( model === 'gpt-image-1' || model === 'gpt-image-1-mini' ) {
+            // gpt-image-1 and gpt-image-1-mini use format: "quality:size" - default to low if not specified
             const qualityLevel = quality || 'low';
             return `${qualityLevel}:${size}`;
         } else {
@@ -293,7 +307,7 @@ class OpenAIImageGenerationService extends BaseService {
             size: baseParams.size,
         };
 
-        if ( model === 'gpt-image-1' ) {
+        if ( model === 'gpt-image-1' || model === 'gpt-image-1-mini' ) {
             // gpt-image-1 requires the model parameter and uses different quality mapping
             apiParams.model = model;
             // Default to low quality if not specified, consistent with _buildPriceKey
@@ -318,7 +332,7 @@ class OpenAIImageGenerationService extends BaseService {
     _getValidRatios(model) {
         const commonRatios = [this.constructor.RATIO_SQUARE];
 
-        if ( model === 'gpt-image-1' ) {
+        if ( model === 'gpt-image-1' || model === 'gpt-image-1-mini' ) {
             return [
                 ...commonRatios,
                 this.constructor.RATIO_GPT_PORTRAIT,
