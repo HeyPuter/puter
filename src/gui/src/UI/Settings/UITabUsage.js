@@ -60,7 +60,7 @@ export default {
                     </div>
                     <div class="driver-usage-details driver-usage-details-section">
                         <div class="caret"><svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" fill="currentColor" class="bi bi-caret-right-fill" viewBox="0 0 16 16"><path d="m12.14 8.753-5.482 4.796c-.646.566-1.658.106-1.658-.753V3.204a1 1 0 0 1 1.659-.753l5.48 4.796a1 1 0 0 1 0 1.506z"/></svg></div>
-                        <span class="driver-usage-details-text disable-user-select">View usage details</span>
+                        <span class="driver-usage-details-text disable-user-select">${i18n('view_usage_details')}</span>
                     </div>
                     <div class="driver-usage-details-content hide-scrollbar">
                     </div>
@@ -81,9 +81,9 @@ $(document).on('click', '.driver-usage-details', function() {
 
     // change the text of the driver-usage-details-text depending on the class
     if ( $('.driver-usage-details').hasClass('active') ){
-        $('.driver-usage-details-text').text('Hide usage details');
+        $('.driver-usage-details-text').text(i18n('hide_usage_details'));
     } else {
-        $('.driver-usage-details-text').text('View usage details');
+        $('.driver-usage-details-text').text(i18n('view_usage_details'));
     }
 });
 
@@ -117,9 +117,9 @@ async function update_usage_details($el_window){
             <table class="driver-usage-details-content-table">
                 <thead>
                     <tr>
-                        <th>Resource</th>
-                        <th>Units</th>
-                        <th>Cost</th>
+                        <th>${i18n('resource')}</th>
+                        <th>${i18n('resource_units')}</th>
+                        <th>${i18n('resource_cost')}</th>
                     </tr>
                 </thead>
                 <tbody>

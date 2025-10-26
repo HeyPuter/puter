@@ -60,7 +60,7 @@ const UIWindowManageSessions = async function UIWindowManageSessions (options) {
 
         // Helper function to format relative time
         const getRelativeTime = (timestamp) => {
-            if (!timestamp) return 'Unknown';
+            if (!timestamp) return i18n('unknown');
             const now = Date.now();
             const time = new Date(timestamp).getTime();
             const diff = now - time;
@@ -70,24 +70,24 @@ const UIWindowManageSessions = async function UIWindowManageSessions (options) {
             const hours = Math.floor(minutes / 60);
             const days = Math.floor(hours / 24);
 
-            if (days > 0) return `${days} day${days > 1 ? 's' : ''} ago`;
-            if (hours > 0) return `${hours} hour${hours > 1 ? 's' : ''} ago`;
-            if (minutes > 0) return `${minutes} minute${minutes > 1 ? 's' : ''} ago`;
-            return 'Just now';
+            if (days > 0) return `${days} ${i18n(days > 1 ? 'days' : 'day')} ${i18n('ago')}`;
+            if (hours > 0) return `${hours} ${i18n(hours > 1 ? 'hours' : 'hour')} ${i18n('ago')}`;
+            if (minutes > 0) return `${minutes} ${i18n(minutes > 1 ? 'minutes' : 'minute')} ${i18n('ago')}`;
+            return i18n('just_now');
         };
 
         // Helper function to detect device type from user agent
         const getDeviceInfo = (userAgent) => {
-            if (!userAgent) return { type: 'desktop', name: 'Desktop' };
+            if (!userAgent) return { type: 'desktop', name: i18n('device_desktop') };
 
             const ua = userAgent.toLowerCase();
             if (ua.includes('mobile') || ua.includes('android') || ua.includes('iphone')) {
-                return { type: 'mobile', name: 'Mobile' };
+                return { type: 'mobile', name: i18n('device_mobile') };
             }
             if (ua.includes('tablet') || ua.includes('ipad')) {
-                return { type: 'tablet', name: 'Tablet' };
+                return { type: 'tablet', name: i18n('device_tablet') };
             }
-            return { type: 'desktop', name: 'Desktop' };
+            return { type: 'desktop', name: i18n('device_desktop') };
         };
 
         const deviceInfo = getDeviceInfo(session.meta?.['user-agent']);
@@ -100,7 +100,7 @@ const UIWindowManageSessions = async function UIWindowManageSessions (options) {
         el_main.innerHTML = `
             <div class="session-widget-title">
                 ${deviceInfo.name}
-                ${session.current ? '<span class="current-badge">Current</span>' : ''}
+                ${session.current ? `<span class="current-badge">${i18n('current')}</span>` : ''}
             </div>
             <div class="session-widget-details">
                 <span class="session-widget-time">${getRelativeTime(session.meta?.timestamp || session.created_at)}</span>
@@ -202,7 +202,7 @@ const UIWindowManageSessions = async function UIWindowManageSessions (options) {
     const header = document.createElement('div');
     header.classList.add('session-manager-header');
     header.innerHTML = `
-        <p class="session-manager-description">Manage your active sessions across all devices. You can revoke access to any session except your current one.</p>
+        <p class="session-manager-description">${i18n('session_manager_description')}</p>
     `;
     w_body.appendChild(header);
 

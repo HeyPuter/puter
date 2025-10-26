@@ -59,7 +59,7 @@ export default {
         return `
             <h1 class="settings-section-header">${i18n('account')}</h1>
             <div class="settings-profile-picture-container">
-                <div class="profile-picture change-profile-picture" role="button" tabindex="0" aria-label="${i18n('change')} ${i18n('profile_picture')}" style="background-image: url('${html_encode(window.user?.profile?.picture ?? window.icons['profile.svg'])}');"></div>
+                <div class="profile-picture change-profile-picture" role="button" tabindex="0" aria-label="${i18n('change')} ${i18n('picture')}" style="background-image: url('${html_encode(window.user?.profile?.picture ?? window.icons['profile.svg'])}');"></div>
             </div>
             ${passwordCard}
             ${build_settings_card({
@@ -170,7 +170,7 @@ export default {
                     <div class="security-modal-inputs">
                         <div class="password-input-wrapper">
                             <input type="password" class="password-entry form-input" />
-                            <button type="button" class="password-toggle-btn" aria-label="Toggle password visibility">
+                            <button type="button" class="password-toggle-btn" aria-label="${i18n('toggle_password_visibility')}">
                                 <svg class="eye-icon" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
                                     <path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"></path>
                                     <circle cx="12" cy="12" r="3"></circle>

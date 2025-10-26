@@ -40,9 +40,9 @@ export default {
                 label: i18n('clock_visibility'),
                 control: `
                     <select class="change-clock-visible">
-                        <option value="auto">Auto</option>
-                        <option value="hide">Hide</option>
-                        <option value="show">Show</option>
+                        <option value="auto">${i18n('option_auto')}</option>
+                        <option value="hide">${i18n('option_hide')}</option>
+                        <option value="show">${i18n('option_show')}</option>
                     </select>
                 `,
             })}

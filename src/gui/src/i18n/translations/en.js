@@ -532,6 +532,39 @@ const en = {
         'open_containing_folder': 'Open Containing Folder',
 
         'set_as_background': 'Set as Desktop Background',
+
+        // Settings - Usage Tab
+        'view_usage_details': 'View usage details',
+        'hide_usage_details': 'Hide usage details',
+        'resource': 'Resource',
+        'resource_units': 'Units',
+        'resource_cost': 'Cost',
+
+        // Settings - Account Tab
+        'profile_picture': 'Profile Picture',
+        'toggle_password_visibility': 'Toggle password visibility',
+
+        // Settings - Personalization Tab
+        'option_auto': 'Auto',
+        'option_hide': 'Hide',
+        'option_show': 'Show',
+
+        // Settings - Sessions Manager
+        'unknown': 'Unknown',
+        // TODO: Better time localization might be needed in the future
+        'day': 'day',
+        'days': 'days',
+        'hour': 'hour',
+        'hours': 'hours',
+        'minute': 'minute',
+        'minutes': 'minutes',
+        'ago': 'ago',
+        'just_now': 'Just now',
+        'device_desktop': 'Desktop',
+        'device_mobile': 'Mobile',
+        'device_tablet': 'Tablet',
+        'current': 'Current',
+        'session_manager_description': 'Manage your active sessions across all devices. You can revoke access to any session except your current one.',
     }
 };
 
