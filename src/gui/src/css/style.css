@@ -4538,11 +4538,6 @@ fieldset[name=number-code] {
     gap: 5px;
 }
 
-.change-email-form {
-    padding: 20px;
-    border-bottom: 1px solid #ced7e1;
-}
-
 .form-field {
     overflow: hidden;
     margin-top: 10px;
@@ -4939,85 +4934,8 @@ fieldset[name=number-code] {
     display: block;
 }
 
-.storage-breakdown-item {
-    display: flex;
-    justify-content: space-between;
-    align-items: center;
-    padding: 8px 12px;
-    background-color: #ffffff;
-    border-radius: 6px;
-    border: 1px solid #e0e0e0;
-}
-
-.breakdown-label {
-    display: flex;
-    align-items: center;
-    gap: 8px;
-    font-size: 13px;
-    font-weight: 500;
-    color: #333;
-    flex: 1;
-    min-width: 0;
-}
-
-.breakdown-icon {
-    font-size: 16px;
-    flex-shrink: 0;
-}
-
-.breakdown-value {
-    font-size: 14px;
-    font-weight: 600;
-    color: #088ef0;
-    flex-shrink: 0;
-    white-space: nowrap;
-}
-
-.storage-bar-header {
-    margin-bottom: 6px;
-}
-
-.storage-percent {
-    font-size: 12px;
-    font-weight: 600;
-    color: #666;
-}
-
-.storage-bar-container {
-    position: relative;
-    height: 24px;
-    background-color: #e0e0e0;
-    border-radius: 12px;
-    overflow: hidden;
-    display: flex;
-}
-
-.storage-bar-puter,
-.storage-bar-apps {
-    height: 100%;
-    transition: width 0.3s ease;
-}
-
-.storage-bar-puter {
-    background: linear-gradient(90deg, #088ef0 0%, #0ea5e9 100%);
-    z-index: 2;
-}
-
-.storage-bar-apps {
-    background: linear-gradient(90deg, #8b5cf6 0%, #a78bfa 100%);
-    z-index: 1;
-}
-
 .driver-usage-container {
     margin-top: 30px;
-}
-
-.storage-puter-used-wrapper {
-    display: none;
-}
-
-.storage-puter-used-wrapper.visible {
-    display: inline;
 }
 
 .version {
@@ -5441,13 +5359,6 @@ fieldset[name=number-code] {
 
 .session-manager-header {
     margin-bottom: 8px;
-}
-
-.session-manager-title {
-    font-size: 18px;
-    font-weight: 600;
-    color: #373e44;
-    margin: 0 0 8px 0;
 }
 
 .session-manager-description {
