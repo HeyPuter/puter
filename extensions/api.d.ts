@@ -51,7 +51,7 @@ type StripPrefix<TPrefix extends string, T extends string> = T extends `${TPrefi
 // TODO DS: define this globally in core to use it there too
 interface ServiceNameMap {
     'meteringService': Pick<MeteringServiceWrapper, 'meteringService'> & MeteringService // TODO DS: squash into a single class without wrapper
-    'puter-kv': DBKVStore
+    'puter-kvstore': DBKVStore
     'su': SUService
 }
 interface Extension extends RouterMethods {
