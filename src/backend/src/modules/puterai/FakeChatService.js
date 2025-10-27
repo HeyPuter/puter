@@ -123,10 +123,11 @@ class FakeChatService extends BaseService {
                         stream: true,
                         init_chat_stream: async ({ chatStream }) => {
                             await new Promise(rslv => setTimeout(rslv, 500));
-                            chatStream.stream.write(JSON.stringify({
-                                type: 'text',
-                                text: resp.message.content[0].text,
-                            }) + '\n');
+                            const message = chatStream.message();
+                            const textBlock = message.contentBlock({ type: 'text' });
+                            textBlock.addText(resp.message.content[0].text);
+                            textBlock.end();
+                            message.end();
                             chatStream.end();
                         },
                     };

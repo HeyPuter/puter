@@ -557,6 +557,7 @@ class AIChatService extends BaseService {
 
                         const chatStream = new Streaming.AIChatStream({
                             stream,
+                            model: model_used,
                         });
 
                         (async () => {

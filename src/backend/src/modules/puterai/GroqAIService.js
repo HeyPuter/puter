@@ -123,6 +123,7 @@ class GroqAIService extends BaseService {
 
                 return OpenAIUtil.handle_completion_output({
                     deviations: {
+                        model,
                         index_usage_from_stream_chunk: chunk =>
                             chunk.x_groq?.usage,
                     },

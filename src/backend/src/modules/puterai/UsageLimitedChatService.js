@@ -20,7 +20,6 @@
 // METADATA // {"ai-commented":{"service":"claude"}}
 const { default: dedent } = require('dedent');
 const BaseService = require('../../services/BaseService');
-const { PassThrough } = require('stream');
 const Streaming = require('./lib/Streaming');
 
 /**
@@ -77,46 +76,16 @@ class UsageLimitedChatService extends BaseService {
 
                 // If streaming is requested, return a streaming response
                 if ( stream ) {
-                    const streamObj = new PassThrough();
-
-                    const chatStream = new Streaming.AIChatStream({
-                        stream: streamObj,
-                    });
-
-                    // Schedule the streaming response
-                    setTimeout(() => {
-                        chatStream.write({
-                            type: 'content_block_start',
-                            index: 0,
-                        });
-
-                        chatStream.write({
-                            type: 'content_block_delta',
-                            index: 0,
-                            delta: {
-                                type: 'text',
-                                text: limitMessage,
-                            },
-                        });
-
-                        chatStream.write({
-                            type: 'content_block_stop',
-                            index: 0,
-                        });
-
-                        chatStream.write({
-                            type: 'message_stop',
-                            stop_reason: 'end_turn',
-                        });
-
-                        chatStream.end();
-                    }, 10);
-
                     return {
                         stream: true,
-                        init_chat_stream: async ({ chatStream: cs }) => {
-                            // Copy contents from our stream to the provided one
-                            chatStream.stream.pipe(cs.stream);
+                        init_chat_stream: async ({ chatStream }) => {
+                            await new Promise(rslv => setTimeout(rslv, 10));
+                            const message = chatStream.message();
+                            const textBlock = message.contentBlock({ type: 'text' });
+                            textBlock.addText(limitMessage);
+                            textBlock.end();
+                            message.end();
+                            chatStream.end();
                         },
                     };
                 }

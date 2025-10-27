@@ -90,6 +90,7 @@ const create_chat_stream_handler = ({
     deviations,
     completion,
     usage_calculator,
+    model,
 }) => async ({ chatStream }) => {
     deviations = Object.assign({
         // affected by: Groq
@@ -186,6 +187,7 @@ const handle_completion_output = async ({
                 deviations,
                 completion,
                 usage_calculator,
+                model: deviations?.model,
             });
 
         return {

@@ -78,6 +78,7 @@ class GeminiService extends BaseService {
                         init_chat_stream:
                             GeminiSquareHole.create_chat_stream_handler({
                                 stream,
+                                model,
                                 usageCallback: (usageMetadata) => {
                                     // TODO DS: dedup this logic
                                     const trackedUsage = {

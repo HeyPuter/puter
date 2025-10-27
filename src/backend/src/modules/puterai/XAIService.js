@@ -120,6 +120,9 @@ class XAIService extends BaseService {
                 const actor = Context.get('actor');
 
                 return OpenAIUtil.handle_completion_output({
+                    deviations: {
+                        model: model ?? this.get_default_model(),
+                    },
                     usage_calculator: ({ usage }) => {
                         const modelDetails = this.models().find(m => m.id === model || m.aliases?.includes(model));
                         const trackedUsage = {

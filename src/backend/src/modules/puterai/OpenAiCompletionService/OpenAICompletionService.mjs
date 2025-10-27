@@ -267,6 +267,9 @@ export class OpenAICompletionService {
         // TODO DS: simplify this logic for all the ai services, each service should handle its cost calculation in the service
         // for now I'm overloading this usage calculator to handle the future promise resolution...
         return OpenAIUtil.handle_completion_output({
+            deviations: {
+                model,
+            },
             usage_calculator: ({ usage }) => {
                 const modelDetails = this.models().find(m => m.id === model || m.aliases?.includes(model));
                 const trackedUsage = {

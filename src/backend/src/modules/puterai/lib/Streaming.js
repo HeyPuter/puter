@@ -26,12 +26,16 @@ class AIChatConstructStream {
     end () {
         if ( this._end ) this._end();
     }
+    get model () {
+        return this.chatStream.model;
+    }
 }
 
 class AIChatTextStream extends AIChatConstructStream {
     addText (text) {
         const json = JSON.stringify({
             type: 'text', text,
+            ...(this.model ? { model: this.model } : {}),
         });
         this.chatStream.stream.write(json + '\n');
     }
@@ -54,6 +58,7 @@ class AIChatToolUseStream extends AIChatConstructStream {
             ...this.contentBlock,
             input: JSON.parse(this.buffer),
             ...( ! this.contentBlock.text ? { text: "" } : {}),
+            ...(this.model ? { model: this.model } : {}),
         }, {
             type: 'tool_use',
         }));
@@ -74,8 +79,9 @@ class AIChatMessageStream extends AIChatConstructStream {
 }
 
 class AIChatStream {
-    constructor ({ stream }) {
+    constructor ({ stream, model }) {
         this.stream = stream;
+        this.model = model;
     }
 
     end () {

@@ -366,6 +366,7 @@ class MistralAIService extends BaseService {
 
                 return await OpenAIUtil.handle_completion_output({
                     deviations: {
+                        model: model ?? this.get_default_model(),
                         index_usage_from_stream_chunk: chunk => {
                             if ( ! chunk.usage ) return;
 

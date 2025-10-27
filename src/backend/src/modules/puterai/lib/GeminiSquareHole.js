@@ -96,11 +96,13 @@ module.exports = class GeminiSquareHole {
      * @param {Object} params - Configuration object
      * @param {Object} params.stream - Gemini GenerateContentStreamResult stream
      * @param {Function} params.usageCallback - Callback function to handle usage metadata
+     * @param {string} params.model - Model identifier to include in response metadata
      * @returns {Function} Async function that processes the chat stream and manages content blocks
      */
     static create_chat_stream_handler = ({
         stream, // GenerateContentStreamResult:stream
         usageCallback,
+        model,
     }) => async ({ chatStream }) => {
         const message = chatStream.message();
 

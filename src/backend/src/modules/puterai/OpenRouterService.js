@@ -142,6 +142,9 @@ class OpenRouterService extends BaseService {
                 const modelDetails =  (await this.models_()).find(m => m.id === 'openrouter:' + model);
                 const rawPriceModelDetails =  (await this.models_(true)).find(m => m.id === 'openrouter:' + model);
                 return OpenAIUtil.handle_completion_output({
+                    deviations: {
+                        model: model ?? this.get_default_model(),
+                    },
                     usage_calculator: ({ usage }) => {
                         // custom open router logic because they're pricing are weird
                         const trackedUsage = {

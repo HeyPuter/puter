@@ -165,6 +165,9 @@ class DeepSeekService extends BaseService {
                 const modelDetails = (await this.models_()).find(m => m.id === (model ?? this.get_default_model()));
 
                 return OpenAIUtil.handle_completion_output({
+                    deviations: {
+                        model: model ?? this.get_default_model(),
+                    },
                     usage_calculator: ({ usage }) => {
                         const trackedUsage = OpenAIUtil.extractMeteredUsage(usage);
                         this.meteringService.utilRecordUsageObject(trackedUsage, actor, `deepseek:${modelDetails.id}`);
