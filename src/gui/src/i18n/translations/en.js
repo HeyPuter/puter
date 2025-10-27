@@ -509,6 +509,9 @@ const en = {
         'open_containing_folder': 'Open Containing Folder',
 
         'set_as_background': 'Set as Desktop Background',
+
+        'error_user_or_path_not_found': 'User or path not found.',
+        'error_invalid_username': 'Invalid username.',
     }
 };
 
