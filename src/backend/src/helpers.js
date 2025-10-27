@@ -1151,17 +1151,12 @@ async function deleteUser(user_id){
         // delete all files from S3
         if(files !== null && files.length > 0){
             for(let i=0; i<files.length; i++){
-                // init S3 SDK
-                const svc_fs = Context.get('services').get('filesystem');
-                const svc_mountpoint =
-                    Context.get('services').get('mountpoint');
-                // NB: We use a hard-coded string to avoid circular dependency.
-                // 
-                // TODO (xiaochen): what if the provider is not PuterFSProvider?
-                const storage = svc_mountpoint.get_storage('PuterFSProvider');
-                const op_delete = storage.create_delete();
-                await op_delete.run({
-                    node: await svc_fs.node(new NodeUIDSelector(files[i].uuid))
+                const node = await svc_fs.node(new NodeUIDSelector(files[i].uuid));
+                
+                await node.provider.unlink({
+                    context: Context.get(),
+                    override_immutable: true,
+                    node,
                 });
             }
         }

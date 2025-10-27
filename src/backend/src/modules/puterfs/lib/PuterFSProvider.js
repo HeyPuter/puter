@@ -409,13 +409,13 @@ class PuterFSProvider extends putility.AdvancedBase {
         return node;
     }
 
-    async unlink({ context, node }) {
+    async unlink({ context, node, options = {} }) {
         if ( await node.get('type') === TYPE_DIRECTORY ) {
             console.log(`\x1B[31;1m===N=====${await node.get('path')}=========\x1B[0m`);
             throw new APIError(409, 'Cannot unlink a directory.');
         }
 
-        await this.#rmnode({ context, node });
+        await this.#rmnode({ context, node, options });
     }
 
     async rmdir({ context, node, options = {} }) {
@@ -442,12 +442,12 @@ class PuterFSProvider extends putility.AdvancedBase {
         await this.#rmnode({ context, node, options });
     }
 
-    async #rmnode({ node, options: _options }) {
+    async #rmnode({ node, options }) {
         // Services
         const svc_size = this.#services.get('sizeService');
         const svc_fsEntry = this.#services.get('fsEntryService');
 
-        if ( await node.get('immutable') ) {
+        if ( ! options.override_immutable && await node.get('immutable') ) {
             throw new APIError(403, 'File is immutable.');
         }
 
