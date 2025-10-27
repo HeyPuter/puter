@@ -1689,7 +1689,7 @@ async function UIDesktop(options) {
         {
             if (!username.match(/^[a-z0-9_]+$/i)) {
                 UIAlert({
-                    message: 'Invalid username.'
+                    message: i18n('error_invalid_username')
                 });
                 return;
             }
@@ -1701,7 +1701,7 @@ async function UIDesktop(options) {
         } catch ( e ) {
             window.history.replaceState(null, document.title, '/');
             UIAlert({
-                message: 'User or path not found.',
+                message: i18n('error_user_or_path_not_found'),
                 type: 'error'
             });
             return;
