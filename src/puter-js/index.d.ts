@@ -51,6 +51,9 @@ interface AI {
     txt2img(prompt: string, testMode?: boolean): Promise<HTMLImageElement>;
     txt2img(prompt: string, options?: Txt2ImgOptions): Promise<HTMLImageElement>;
 
+    txt2vid(prompt: string, testMode?: boolean): Promise<HTMLVideoElement>;
+    txt2vid(prompt: string, options?: Txt2VidOptions): Promise<HTMLVideoElement>;
+
     txt2speech(text: string): Promise<HTMLAudioElement>;
     txt2speech(text: string, options?: Txt2SpeechOptions): Promise<HTMLAudioElement>;
     txt2speech(text: string, language?: string): Promise<HTMLAudioElement>;
@@ -112,6 +115,15 @@ interface Txt2ImgOptions {
     quality?: 'high' | 'medium' | 'low' | 'hd' | 'standard';
     input_image?: string;
     input_image_mime_type?: string;
+}
+
+interface Txt2VidOptions {
+    prompt?: string;
+    model?: 'sora-2' | 'sora-2-pro';
+    duration?: 4 | 8 | 12;
+    seconds?: 4 | 8 | 12;
+    size?: '720x1280' | '1280x720' | '1024x1792' | '1792x1024';
+    resolution?: '720x1280' | '1280x720' | '1024x1792' | '1792x1024';
 }
 
 interface Txt2SpeechOptions {
@@ -512,4 +524,3 @@ export {
     WorkerExecOptions,
     WorkerInfo, Workers, WriteOptions
 };
-
