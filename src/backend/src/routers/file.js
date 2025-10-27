@@ -21,9 +21,10 @@ const express = require('express');
 const router = new express.Router();
 const { subdomain, validate_signature_auth, get_url_from_req, get_descendants, id2path, get_user, sign_file } = require('../helpers');
 const { DB_WRITE } = require('../services/database/consts');
-const { Context } = require('../util/context');
 const { UserActorType } = require('../services/auth/Actor');
 const { Actor } = require('../services/auth/Actor');
+const { LLRead } = require('../filesystem/ll_operations/ll_read');
+const { NodeRawEntrySelector } = require('../filesystem/node/selectors');
 
 // -----------------------------------------------------------------------//
 // GET /file
@@ -196,11 +197,22 @@ router.get('/file', async (req, res, next) => {
         res.writeHead(206, headers);
 
         try {
-            const storage = Context.get('storage');
-            let stream = await storage.create_read_stream(fsentry[0].uuid, {
-                bucket: fsentry[0].bucket,
-                bucket_region: fsentry[0].bucket_region,
+            const svc_filesystem = req.services.get('filesystem');
+            const fsNode = await svc_filesystem.node(
+                new NodeRawEntrySelector(fsentry[0]),
+            );
+            const ll_read = new LLRead();
+            const stream = await ll_read.run({
+                no_acl: true,
+                actor: req.actor ?? ownerActor,
+                fsNode,
+                ...(req.headers['range'] ? { range: req.headers['range'] } : { }),
             });
+            // const storage = Context.get('storage');
+            // let stream = await storage.create_read_stream(fsentry[0].uuid, {
+            //     bucket: fsentry[0].bucket,
+            //     bucket_region: fsentry[0].bucket_region,
+            // });
             meteringService.incrementUsage(ownerActor, 'filesystem:egress:bytes', chunkSize);
             return stream.pipe(res);
         } catch (e){
