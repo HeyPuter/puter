@@ -79,9 +79,9 @@ export class MeteringService {
             return this.#superUserService.sudo(async () => {
                 const totalCost = (costOverride ?? (COST_MAPS[usageType as keyof typeof COST_MAPS] || 0) * usageAmount) || 0; // TODO DS: apply our policy discounts here eventually
 
-                if ( totalCost === 0 && costOverride === undefined ) {
+                if ( COST_MAPS[usageType as keyof typeof COST_MAPS] !== 0 && totalCost === 0 && costOverride === undefined ) {
                     // could be something is off, there are some models that cost nothing from openrouter, but then our overrides should not be undefined, so will flag
-                    this.#alarmService.create('metering-service-warning', 'potential abuse vector', {
+                    this.#alarmService.create('metering-service-0-cost-warning', 'potential abuse vector', {
                         actor,
                         usageType,
                         usageAmount,
@@ -380,12 +380,11 @@ export class MeteringService {
         });
     }
 
-    // eslint-disable-next-line
-    async #updateAddonCredit(actor: Actor, tokenAmount: number) {
-        if ( !actor.type?.user?.uuid ) {
-            throw new Error('Actor must be a user to update extra credits');
+    async updateAddonCredit(userId:string, tokenAmount: number) {
+        if ( !userId ) {
+            throw new Error('User needed to update extra credits');
         }
-        const key = `${POLICY_PREFIX}:actor:${actor.type.user?.uuid}:addons`;
+        const key = `${POLICY_PREFIX}:actor:${userId}:addons`;
         return this.#superUserService.sudo(async () => {
             await this.#kvStore.incr({
                 key,
@@ -395,13 +394,4 @@ export class MeteringService {
             });
         });
     }
-
-    handlePolicyPurchase(_actor: Actor, _policyType: keyof typeof SUB_POLICIES) {
-
-        // TODO DS: this should leverage extensions to call billing implementations
-    }
-    handleTokenPurchase(_actor: Actor, _tokenAmount: number) {
-        // TODO DS: this should leverage extensions to call billing implementations
-    }
-
 }
