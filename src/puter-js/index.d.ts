@@ -215,7 +215,7 @@ interface FileSystem {
     rename(path: string, newName: string): Promise<FSItem>;
     space(): Promise<SpaceInfo>;
     stat(path: string): Promise<FSItem>;
-    upload(items: FileList | File[] | Blob[], dirPath?: string, options?: object): Promise<FSItem[]>;
+    upload(items: FileList | File[] | Blob[], dirPath?: string, options?: UploadOptions): Promise<FSItem[]>;
     write(path: string, data?: string | File | Blob, options?: WriteOptions): Promise<FSItem>;
 }
 
@@ -254,6 +254,11 @@ interface WriteOptions {
     overwrite?: boolean;
     dedupeName?: boolean;
     createMissingParents?: boolean;
+}
+
+interface UploadOptions {
+    overwrite?: boolean;
+    dedupeName?: boolean;
 }
 
 interface SpaceInfo {
