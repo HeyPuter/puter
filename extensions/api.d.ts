@@ -39,7 +39,7 @@ interface CoreRuntimeModule {
 
 interface ServiceNameMap {
     'meteringService': Pick<MeteringServiceWrapper, 'meteringService'> & MeteringService // TODO DS: squash into a single class without wrapper
-    'puter-kv': DBKVStore
+    'puter-kvstore': DBKVStore
     'su': SUService
 }
 interface Extension extends RouterMethods {
