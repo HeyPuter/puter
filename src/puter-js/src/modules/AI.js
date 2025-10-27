@@ -676,7 +676,7 @@ class AI{
         }).call(this, options);
     }
 
-    txt2video = async (...args) => {
+    txt2vid = async (...args) => {
         let options = {};
         let testMode = false;
 
