@@ -116,10 +116,22 @@ async function update_usage_details($el_window){
             if(typeof res.usage[key] !== 'object')
                 continue;
 
+            // get the units
+            let units = res.usage[key].units;
+
+            // Bytes should be formatted as human readable
+            if(key.startsWith('filesystem:') && key.endsWith(':bytes')){
+                units = window.byte_format(units);
+            }
+            // Everything else should be formatted as a number
+            else{
+                units = window.number_format(units, {decimals: 0, thousandSeparator: ','});
+            }
+
             h += `
             <tr>
                 <td>${key}</td>
-                <td>${window.number_format(res.usage[key].units, {decimals: 0, thousandSeparator: ','})}</td>
+                <td>${units}</td>
                 <td>${window.number_format(res.usage[key].cost / 100_000_000, { decimals: 2, prefix: '$' })}</td>
             </tr>`;
         }

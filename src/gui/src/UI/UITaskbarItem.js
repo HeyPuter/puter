@@ -112,18 +112,6 @@ function UITaskbarItem(options){
         if($(el_taskbar_item).hasClass('has-open-contextmenu'))
             return;
 
-        el_taskbar_item.querySelector("img").animate(
-            [
-              { transform: 'translateY(0) scale(1)' },
-              { transform: 'translateY(-5px) scale(1.2)' },
-              { transform: 'translateY(0) scale(1)' }
-            ],
-            {
-              duration: 300,
-              easing: 'ease-out',
-            }
-          );   
-
         if(options.onClick === undefined || options.onClick(el_taskbar_item) === false){
             // re-show each window in this app group
             $(`.window[data-app="${options.app}"]`).showWindow();
