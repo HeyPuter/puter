@@ -4290,17 +4290,17 @@ fieldset[name=number-code] {
     margin-bottom: 15px;
     background-repeat: no-repeat;
     background-position: 10px center;
-    background-size: 25px;
-    padding-left: 45px;
+    background-size: 20px;
+    padding-left: 40px;
     font-size: 15px;
 }
 
 .settings-sidebar-item:hover {
-    background-color: #e8e8e8;
+    background-color: #e8e8e88c;
 }
 
 .settings-sidebar-item.active {
-    background-color: #e0e0e0;
+    background-color: #e0e0e0a6;
 }
 
 .settings-content-container {
@@ -4336,7 +4336,6 @@ fieldset[name=number-code] {
 .settings-content.active {
     display: flex;
     flex-direction: column;
-    height: 100%;
 }
 
 .settings-content .about-container {
