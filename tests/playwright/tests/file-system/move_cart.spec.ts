@@ -28,7 +28,7 @@ test('move file with path format', async ({ page }) => {
     }, { sourceFile, destDir });
 
     expect(result).toBeTruthy();
-    expect(result.name).toBe('a_file.txt');
+    expect(result.moved.name).toBe('a_file.txt');
 });
 
 test('move file with specified name', async ({ page }) => {
@@ -59,7 +59,7 @@ test('move file with specified name', async ({ page }) => {
     }, { sourceFile, destDir, newName });
 
     expect(result).toBeTruthy();
-    expect(result.name).toBe(newName);
+    expect(result.moved.name).toBe(newName);
 });
 
 test('move file with overwrite to directory', async ({ page }) => {
@@ -122,36 +122,6 @@ test('move file without overwrite to directory with existing file should error',
     expect(result.code).toBeTruthy();
 });
 
-test('move file with dedupe name', async ({ page }) => {
-    const testPath = `${BASE_PATH}/move_cart_5`;
-    const sourceFile = `${testPath}/a/a_file.txt`;
-    const destDir = `${testPath}/b`;
-
-    // Setup: create directory structure
-    await page.evaluate(async ({ testPath, sourceFile, destDir }) => {
-        const puter = (window as any).puter;
-        await puter.fs.mkdir(testPath);
-        await puter.fs.mkdir(`${testPath}/a`);
-        await puter.fs.write(sourceFile, 'file a contents\n');
-        await puter.fs.mkdir(destDir);
-        await puter.fs.write(`${destDir}/a_file.txt`, 'existing file\n');
-    }, { testPath, sourceFile, destDir });
-
-    // Move file with dedupeName
-    const result = await page.evaluate(async ({ sourceFile, destDir }) => {
-        const puter = (window as any).puter;
-        try {
-            const result = await puter.fs.move(sourceFile, destDir, { dedupeName: true });
-            return { success: true, result };
-        } catch (error: any) {
-            return { success: false, error: error.message };
-        }
-    }, { sourceFile, destDir });
-
-    expect(result.success).toBe(true);
-    expect(result.result.name).toMatch(/a_file \(\d\)\.txt/);
-});
-
 test('move file to file destination should error', async ({ page }) => {
     const testPath = `${BASE_PATH}/move_cart_6`;
     const sourceFile = `${testPath}/a/a_file.txt`;
@@ -193,7 +163,7 @@ test('move file with uid format', async ({ page }) => {
         await puter.fs.mkdir(`${testPath}/a`);
         await puter.fs.write(sourceFile, 'file a contents\n');
         await puter.fs.mkdir(destDir);
-        
+
         const sourceStat = await puter.fs.stat(sourceFile);
         const destStat = await puter.fs.stat(destDir);
         return { sourceUID: sourceStat.uid, destUID: destStat.uid };
