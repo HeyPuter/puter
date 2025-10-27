@@ -47,6 +47,8 @@ package-lock.json
 
 # AI STUFF
 AGENTS.md
+CLAUDE.md
+.playwright-mcp
 .roo
 
 

@@ -1,3 +1,5 @@
+import { showTabLoading, hideTabLoading } from './loading.js';
+
 let sortBy = 'created_at';
 let sortDirection = 'desc';
 window.workers = [];
@@ -21,35 +23,36 @@ window.create_worker = async (name, filePath = null) => {
     return worker;
 }
 
-window.refresh_worker_list = async (show_loading = false) => {
-    if (show_loading)
-        puter.ui.showSpinner();
+window.refresh_worker_list = async ({ manageSkeleton = true } = {}) => {
+    if (manageSkeleton) {
+        showTabLoading('workers');
+    }
 
-    // puter.workers.list() returns an array of worker objects
     try {
         window.workers = await puter.workers.list();
+
+        if (window.activeTab === 'workers' && window.workers.length > 0) {
+            $('.worker-card').remove();
+            $('#no-workers-notice').hide();
+            $('#worker-list').show();
+            window.workers.forEach((worker) => {
+                $('#worker-list-table > tbody').append(generate_worker_card(worker));
+            });
+        } else {
+            $('.worker-card').remove();
+            $('#no-workers-notice').show();
+            $('#worker-list').hide();
+        }
+
+        count_workers();
     } catch (err) {
         console.error('Error refreshing worker list:', err);
+    } finally {
+        if (manageSkeleton) {
+            hideTabLoading('workers');
+        }
     }
-
-    // Get workers
-    if (window.activeTab === 'workers' && window.workers.length > 0) {
-        $('.worker-card').remove();
-        $('#no-workers-notice').hide();
-        $('#worker-list').show();
-        window.workers.forEach((worker) => {
-            // append row to worker-list-table
-            $('#worker-list-table > tbody').append(generate_worker_card(worker));
-        });
-    } else {
-        $('#no-workers-notice').show();
-        $('#worker-list').hide();
-    }
-
-    count_workers();
-
-    puter.ui.hideSpinner();
-}
+};
 
 
 async function init_workers() {
@@ -159,12 +162,9 @@ $(document).on('change', '.select-all-workers', function (e) {
     }
 })
 
-$('.refresh-worker-list').on('click', function (e) {
-    puter.ui.showSpinner();
-    refresh_worker_list();
-
-    puter.ui.hideSpinner();
-})
+$('.refresh-worker-list').on('click', async function (e) {
+    await refresh_worker_list();
+});
 
 $('th.sort').on('click', function (e) {
     // determine what column to sort by
@@ -249,15 +249,24 @@ function count_workers() {
 }
 
 function generate_worker_card(worker) {
+    const workerPath = worker.file_path ? html_encode(worker.file_path) : '';
     return `
         <tr class="worker-card" data-name="${html_encode(worker.name)}">
-            <td style="width:50px; vertical-align: middle; line-height: 1;">
-                <input type="checkbox" class="worker-checkbox" data-worker-name="${worker.name}">
+            <td class="cell-select">
+                <div class="checkbox-wrap">
+                    <input type="checkbox" class="worker-checkbox" data-worker-name="${html_encode(worker.name)}">
+                </div>
             </td>
-            <td style="font-family: monospace; font-size: 14px; vertical-align: middle;">${worker.name}</td>
-            <td style="font-family: monospace; font-size: 14px; vertical-align: middle;"><span class="worker-file-path" data-worker-file-path="${html_encode(worker.file_path)}">${worker.file_path ? worker.file_path : ''}</span></td>
-            <td style="font-size: 14px; vertical-align: middle;">${worker.created_at}</td>
-            <td style="vertical-align: middle;"><img class="options-icon options-icon-worker" data-worker-name="${worker.name}" src="./img/options.svg"></td>
+            <td class="cell-code worker-name">${html_encode(worker.name)}</td>
+            <td class="cell-code">
+                <span class="worker-file-path" data-worker-file-path="${workerPath}">${workerPath}</span>
+            </td>
+            <td class="cell-meta">
+                <span class="created-at">${html_encode(worker.created_at)}</span>
+            </td>
+            <td class="cell-actions">
+                <img class="options-icon options-icon-worker" data-worker-name="${html_encode(worker.name)}" src="./img/options.svg" alt="Worker options">
+            </td>
         </tr>
     `;
 }

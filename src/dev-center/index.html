@@ -22,6 +22,10 @@
     <link rel="preload" as="image" href="./img/plus.svg">
     <link rel="preload" as="image" href="./img/workers-placeholder.svg">
     <link rel="preload" as="image" href="./img/websites-placeholder.svg">
+    <!-- TODO: Q: Is this needed? We already load Inter in GUI?, does it get passed to this window? -->
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
     <!-- For tooltip -->
     <script src="https://unpkg.com/@popperjs/core@2"></script>
     <script src="https://unpkg.com/tippy.js@6"></script>
@@ -32,65 +36,78 @@
     <link href="https://cdn.jsdelivr.net/npm/@yaireo/tagify/dist/tagify.css" rel="stylesheet" type="text/css" />
     <style>
         .social-link{
-            opacity: 0.7;
-            color: rgb(70, 78, 86);
+            display: inline-flex;
+            align-items: center;
+            gap: 10px;
+            padding: 10px 14px;
+            border-radius: var(--radius-sm);
+            color: var(--color-text-muted);
+            background: rgba(248, 250, 255, 0.8);
+            border: 1px solid rgba(208, 213, 221, 0.4);
+            transition: color var(--transition-fast), background-color var(--transition-fast), border-color var(--transition-fast), box-shadow var(--transition-fast);
         }
         .social-link:hover{
-            opacity: 1;
+            color: var(--color-primary);
+            background: rgba(53, 93, 240, 0.12);
+            border-color: rgba(53, 93, 240, 0.35);
+            box-shadow: 0 12px 28px -18px rgba(53, 93, 240, 0.35);
         }
         .social-link svg{
             width: 18px;
             height: 18px;
-            margin-right: 10px;
+            margin-right: 0;
         }
         .sidebar-nav-social{
-            margin-top: -10px;
+            margin-top: 28px;
+            display: flex;
+            gap: 6px;
+            padding: 0 4px 12px;
+            flex-wrap: nowrap;
+            align-items: center;
         }
         .sidebar-nav-social li{
-            display: inline;
+            display: inline-flex;
             padding:0;
-            margin-left: 20px;
-            margin-right: -10px;
+            margin:0;
         }
         .sidebar-nav-social li a{
             overflow: hidden;
-            display: inline-block;
+            display: inline-flex;
+            justify-content: center;
+            align-items: center;
+            width: 28px;
+            height: 28px;
+        }
+        .sidebar-nav-social li a svg{
+            width: 13px;
+            height: 13px;
         }
         tags{
             min-width: 500px;
-        }
-        .analytics-card{
-            margin-top: 20px;
-            padding: 20px;
-            border-radius: 10px;
-            background-color: #f2f4f5eb;
-            width: 200px;
-            text-align: center;
-            float:left;
-            margin-right: 23px;
-        }
-        .analytics-card h3{
-            color: #838383;
-            font-weight: 500;
         }
     </style>
 </head>
 
 <body class="sidebar-open">
-    <section class="sidebar open">
-        <div class="sidebar-toggle"></div>
+    <section class="sidebar open" aria-label="Primary Navigation">
+        <div class="sidebar-header">
+            <button type="button" class="sidebar-toggle" aria-label="Collapse sidebar">
+                <span class="sidebar-toggle-icon"></span>
+            </button>
+        </div>
         <div class="sidebar-content">
             <!-- Main Sections -->
             <ul class="sidebar-nav disable-user-select">
-                <li class="tab-btn active" data-tab="apps">Apps<span class="app-count"></span></li>
-                <li class="tab-btn" data-tab="websites">Websites<span class="website-count"></span></li>
-                <li class="tab-btn" data-tab="workers">Workers<span class="worker-count"></span></li>
+                <li class="tab-btn active" data-tab="apps"><span class="tab-label">Apps</span><span class="app-count"></span></li>
+                <li class="tab-btn" data-tab="websites"><span class="tab-label">Websites</span><span class="website-count"></span></li>
+                <li class="tab-btn" data-tab="workers"><span class="tab-label">Workers</span><span class="worker-count"></span></li>
                 <hr class="tab-btn-separator">
-                <li class="tab-btn" data-tab="payout-method" style="display:none;">Payout Method</li>
+                <li class="tab-btn" data-tab="payout-method" style="display:none;"><span class="tab-label">Payout Method</span></li>
             </ul>
 
             <!-- Footer -->
-            <div style="overflow: hidden; position: absolute; bottom: 0; width: 100%;">
+            <div class="sidebar-footer">
+                <button type="button" class="button button-primary sidebar-earn-money" hidden>Earn Money</button>
                 <ul class="sidebar-nav">
                     <li class="no-hover" style="margin-left:0;"><a href="https://developer.puter.com/" class="link-to-docs" target="_blank">Developer Documentation<img src="img/external-link.svg"></a></li>
                 </ul>
@@ -104,13 +121,18 @@
             </div>
         </div>
     </section>
+    <div class="sidebar-overlay" hidden></div>
 
     <div class="main">
+    <button class="sidebar-mobile-toggle button button-ghost" type="button" aria-label="Open navigation">
+        <span class="sidebar-toggle-icon"></span>
+        <span class="sidebar-mobile-toggle-label">Menu</span>
+    </button>
     <!---------------------------------------->
     <!-- Earn money                         -->
     <!---------------------------------------->
     <dialog id="earn-money">
-        <h3 style="font-size: 30px; margin-top:10px; font-weight: 500;">Developers earn money on Puter!</h3>
+        <h3>Developers earn money on Puter!</h3>
         <p>Follow the steps below to start earning money on Puter:</p>
         <ol>
             <li>Publish as many apps as you want on Puter.</li>
@@ -168,12 +190,20 @@
     <!---------------------------------------->
     <!-- Payout Method                      -->
     <!---------------------------------------->
-    <section id="tab-payout-method" style="display:none;">
+    <section id="tab-payout-method" data-tab="payout-method" style="display:none;">
         <h1>Payout Method</h1>
-        <div style="overflow: hidden;">
-            <img src="./img/paypal.svg" style="float:left; width: 40px; height: 50px;"><span id="payout-method-email"></span>
+        <div class="list-skeleton" data-skeleton="payout-method">
+            <div class="skeleton-row --compact">
+                <div class="skeleton-block skeleton-block--logo"></div>
+                <div class="skeleton-block skeleton-block--text"></div>
+            </div>
         </div>
-        <p style="font-size:14px; margin-top:20px;"><strong>Please note:</strong> every month, you will receive your earnings from the previous month. The payment is usually processed within the first seven business days of the new month. Please do not hesitate to contact us at <a href="mailto:hey@puter.com">hey@puter.com</a> should you have any questions.</p>
+        <div class="payout-body">
+            <div style="overflow: hidden;">
+                <img src="./img/paypal.svg" style="float:left; width: 40px; height: 50px;"><span id="payout-method-email"></span>
+            </div>
+            <p style="font-size:14px; margin-top:20px;"><strong>Please note:</strong> every month, you will receive your earnings from the previous month. The payment is usually processed within the first seven business days of the new month. Please do not hesitate to contact us at <a href="mailto:hey@puter.com">hey@puter.com</a> should you have any questions.</p>
+        </div>
     </section>
 
     <!---------------------------------------->
@@ -213,7 +243,7 @@
     <!---------------------------------------->
     <dialog class="insta-deploy-modal">
         <p>Deploy <strong class="insta-deploy-item-name"></strong> to:</p>
-        <div style="overflow: hidden;">
+        <div class="insta-deploy-options">
             <div class="insta-deploy-to-new-app">New App</div>
             <div class="insta-deploy-to-existing-app">An Existing App</div>
         </div>
@@ -231,20 +261,32 @@
     <!---------------------------------------->
     <!-- App List                           -->
     <!---------------------------------------->
-    <section id="app-list">
+    <section id="app-list" data-tab="apps">
         <div class="app-list-nav">
             <h1 class="my-apps-title">My Apps<span class="app-count"></span></h1>
             <button class="create-an-app-btn button button-primary"><img src="./img/plus.svg" style="width: 25px; height: 25px;">New App</button>
         </div>
 
-        <div class="search-container">
-            <input style="background-image:url(./img/magnifier-outline.svg);" class="search search-apps" placeholder="Search apps">
-            <img class="search-clear search-clear-apps" src="./img/close.svg">
+        <div class="list-toolbar">
+            <div class="search-container">
+                <input style="background-image:url(./img/magnifier-outline.svg);" class="search search-apps" placeholder="Search apps">
+                <img class="search-clear search-clear-apps" src="./img/close.svg">
+            </div>
+            <div class="list-actions">
+                <button class="button button-danger disabled delete-apps-btn">Delete</button>
+                <button class="button button-ghost refresh-app-list" title="Refresh">
+                    <svg class="refresh-icon" xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink" x="0px" y="0px" width="32px" height="32px" viewBox="0 0 32 32" stroke-width="2">
+                        <g stroke-width="2" transform="translate(0.5, 0.5)">
+                            <path data-cap="butt" d="M29.382,9.217A15,15,0,0,0,1,16" fill="none" stroke="currentColor" stroke-miterlimit="10" stroke-width="2" stroke-linecap="butt" stroke-linejoin="miter"></path>
+                            <polyline points="28.383 1.22 29.383 9.22 21.383 8.22" fill="none" stroke="currentColor" stroke-linecap="square" stroke-miterlimit="10" stroke-width="2" stroke-linejoin="miter"></polyline>
+                            <path data-cap="butt" data-color="color-2" d="M2.618,22.783A15,15,0,0,0,31,16" fill="none" stroke="currentColor" stroke-miterlimit="10" stroke-width="2" stroke-linecap="butt" stroke-linejoin="miter"></path>
+                            <polyline data-color="color-2" points="3.617 30.78 2.617 22.78 10.617 23.78" fill="none" stroke="currentColor" stroke-linecap="square" stroke-miterlimit="10" stroke-width="2" stroke-linejoin="miter"></polyline>
+                        </g>
+                    </svg>
+                </button>
+            </div>
         </div>
-
-        <button class="button button-danger disabled delete-apps-btn" style="float:right;">Delete</button>
-        <button class="refresh-app-list" title="Refresh"><svg class="refresh-icon" xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink" x="0px" y="0px" width="32px" height="32px" viewBox="0 0 32 32" stroke-width="2"><g stroke-width="2" transform="translate(0.5, 0.5)"><path data-cap="butt" d="M29.382,9.217A15,15,0,0,0,1,16" fill="none" stroke="#444444" stroke-miterlimit="10" stroke-width="2" stroke-linecap="butt" stroke-linejoin="miter"></path><polyline points="28.383 1.22 29.383 9.22 21.383 8.22" fill="none" stroke="#444444" stroke-linecap="square" stroke-miterlimit="10" stroke-width="2" stroke-linejoin="miter"></polyline><path data-cap="butt" data-color="color-2" d="M2.618,22.783A15,15,0,0,0,31,16" fill="none" stroke="#444444" stroke-miterlimit="10" stroke-width="2" stroke-linecap="butt" stroke-linejoin="miter"></path><polyline data-color="color-2" points="3.617 30.78 2.617 22.78 10.617 23.78" fill="none" stroke="#444444" stroke-linecap="square" stroke-miterlimit="10" stroke-width="2" stroke-linejoin="miter"></polyline></g></svg></button>
-        <div style="overflow-x: auto; clear: both;">
+        <div class="table-wrap">
             <table class="table" id="app-list-table">
                 <thead class="disable-user-select">
                     <tr>
@@ -261,26 +303,76 @@
 
                 </tbody>
             </table>
+            <div class="list-skeleton" data-skeleton="apps">
+                <div class="skeleton-row">
+                    <div class="skeleton-block skeleton-block--checkbox"></div>
+                    <div class="skeleton-block skeleton-block--title"></div>
+                    <div class="skeleton-block skeleton-block--metric"></div>
+                    <div class="skeleton-block skeleton-block--metric"></div>
+                    <div class="skeleton-block skeleton-block--date"></div>
+                    <div class="skeleton-block skeleton-block--pill"></div>
+                    <div class="skeleton-block skeleton-block--pill"></div>
+                </div>
+                <div class="skeleton-row">
+                    <div class="skeleton-block skeleton-block--checkbox"></div>
+                    <div class="skeleton-block skeleton-block--title"></div>
+                    <div class="skeleton-block skeleton-block--metric"></div>
+                    <div class="skeleton-block skeleton-block--metric"></div>
+                    <div class="skeleton-block skeleton-block--date"></div>
+                    <div class="skeleton-block skeleton-block--pill"></div>
+                    <div class="skeleton-block skeleton-block--pill"></div>
+                </div>
+                <div class="skeleton-row">
+                    <div class="skeleton-block skeleton-block--checkbox"></div>
+                    <div class="skeleton-block skeleton-block--title"></div>
+                    <div class="skeleton-block skeleton-block--metric"></div>
+                    <div class="skeleton-block skeleton-block--metric"></div>
+                    <div class="skeleton-block skeleton-block--date"></div>
+                    <div class="skeleton-block skeleton-block--pill"></div>
+                    <div class="skeleton-block skeleton-block--pill"></div>
+                </div>
+                <div class="skeleton-row">
+                    <div class="skeleton-block skeleton-block--checkbox"></div>
+                    <div class="skeleton-block skeleton-block--title"></div>
+                    <div class="skeleton-block skeleton-block--metric"></div>
+                    <div class="skeleton-block skeleton-block--metric"></div>
+                    <div class="skeleton-block skeleton-block--date"></div>
+                    <div class="skeleton-block skeleton-block--pill"></div>
+                    <div class="skeleton-block skeleton-block--pill"></div>
+                </div>
+            </div>
         </div>
     </section>
 
     <!---------------------------------------->
     <!-- Worker List                        -->
     <!---------------------------------------->
-    <section id="worker-list">
+    <section id="worker-list" data-tab="workers">
         <div class="worker-list-nav">
             <h1 class="my-workers-title">My Workers<span class="worker-count"></span></h1>
             <button class="create-a-worker-btn button button-primary"><img src="./img/plus.svg" style="width: 25px; height: 25px;"> New Worker</button>
         </div>
 
-        <div class="search-container">
-            <input style="background-image:url(./img/magnifier-outline.svg);" class="search search-workers" placeholder="Search workers">
-            <img class="search-clear search-clear-workers" src="./img/close.svg">
+        <div class="list-toolbar">
+            <div class="search-container">
+                <input style="background-image:url(./img/magnifier-outline.svg);" class="search search-workers" placeholder="Search workers">
+                <img class="search-clear search-clear-workers" src="./img/close.svg">
+            </div>
+            <div class="list-actions">
+                <button class="button button-danger disabled delete-workers-btn">Delete</button>
+                <button class="button button-ghost refresh-worker-list" title="Refresh">
+                    <svg class="refresh-icon" xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink" x="0px" y="0px" width="32px" height="32px" viewBox="0 0 32 32" stroke-width="2">
+                        <g stroke-width="2" transform="translate(0.5, 0.5)">
+                            <path data-cap="butt" d="M29.382,9.217A15,15,0,0,0,1,16" fill="none" stroke="currentColor" stroke-miterlimit="10" stroke-width="2" stroke-linecap="butt" stroke-linejoin="miter"></path>
+                            <polyline points="28.383 1.22 29.383 9.22 21.383 8.22" fill="none" stroke="currentColor" stroke-linecap="square" stroke-miterlimit="10" stroke-width="2" stroke-linejoin="miter"></polyline>
+                            <path data-cap="butt" data-color="color-2" d="M2.618,22.783A15,15,0,0,0,31,16" fill="none" stroke="currentColor" stroke-miterlimit="10" stroke-width="2" stroke-linecap="butt" stroke-linejoin="miter"></path>
+                            <polyline data-color="color-2" points="3.617 30.78 2.617 22.78 10.617 23.78" fill="none" stroke="currentColor" stroke-linecap="square" stroke-miterlimit="10" stroke-width="2" stroke-linejoin="miter"></polyline>
+                        </g>
+                    </svg>
+                </button>
+            </div>
         </div>
-
-        <button class="button button-danger disabled delete-workers-btn" style="float:right;">Delete</button>
-        <button class="refresh-worker-list" title="Refresh"><svg class="refresh-icon" xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink" x="0px" y="0px" width="32px" height="32px" viewBox="0 0 32 32" stroke-width="2"><g stroke-width="2" transform="translate(0.5, 0.5)"><path data-cap="butt" d="M29.382,9.217A15,15,0,0,0,1,16" fill="none" stroke="#444444" stroke-miterlimit="10" stroke-width="2" stroke-linecap="butt" stroke-linejoin="miter"></path><polyline points="28.383 1.22 29.383 9.22 21.383 8.22" fill="none" stroke="#444444" stroke-linecap="square" stroke-miterlimit="10" stroke-width="2" stroke-linejoin="miter"></polyline><path data-cap="butt" data-color="color-2" d="M2.618,22.783A15,15,0,0,0,31,16" fill="none" stroke="#444444" stroke-miterlimit="10" stroke-width="2" stroke-linecap="butt" stroke-linejoin="miter"></path><polyline data-color="color-2" points="3.617 30.78 2.617 22.78 10.617 23.78" fill="none" stroke="#444444" stroke-linecap="square" stroke-miterlimit="10" stroke-width="2" stroke-linejoin="miter"></polyline></g></svg></button>
-        <div style="overflow-x: auto; clear: both;">
+        <div class="table-wrap">
             <table class="table" id="worker-list-table">
                 <thead class="disable-user-select">
                     <tr>
@@ -295,25 +387,67 @@
 
                 </tbody>
             </table>
+            <div class="list-skeleton" data-skeleton="workers">
+                <div class="skeleton-row skeleton-row--5col">
+                    <div class="skeleton-block skeleton-block--checkbox"></div>
+                    <div class="skeleton-block skeleton-block--title"></div>
+                    <div class="skeleton-block skeleton-block--path"></div>
+                    <div class="skeleton-block skeleton-block--date"></div>
+                    <div class="skeleton-block skeleton-block--icon"></div>
+                </div>
+                <div class="skeleton-row skeleton-row--5col">
+                    <div class="skeleton-block skeleton-block--checkbox"></div>
+                    <div class="skeleton-block skeleton-block--title"></div>
+                    <div class="skeleton-block skeleton-block--path"></div>
+                    <div class="skeleton-block skeleton-block--date"></div>
+                    <div class="skeleton-block skeleton-block--icon"></div>
+                </div>
+                <div class="skeleton-row skeleton-row--5col">
+                    <div class="skeleton-block skeleton-block--checkbox"></div>
+                    <div class="skeleton-block skeleton-block--title"></div>
+                    <div class="skeleton-block skeleton-block--path"></div>
+                    <div class="skeleton-block skeleton-block--date"></div>
+                    <div class="skeleton-block skeleton-block--icon"></div>
+                </div>
+                <div class="skeleton-row skeleton-row--5col">
+                    <div class="skeleton-block skeleton-block--checkbox"></div>
+                    <div class="skeleton-block skeleton-block--title"></div>
+                    <div class="skeleton-block skeleton-block--path"></div>
+                    <div class="skeleton-block skeleton-block--date"></div>
+                    <div class="skeleton-block skeleton-block--icon"></div>
+                </div>
+            </div>
         </div>
     </section>
     <!---------------------------------------->
     <!-- Websites List                      -->
     <!---------------------------------------->
-    <section id="website-list">
+    <section id="website-list" data-tab="websites">
         <div class="website-list-nav">
             <h1 class="my-websites-title">My Websites<span class="website-count"></span></h1>
             <button class="create-a-website-btn button button-primary"><img src="./img/plus.svg" style="width: 25px; height: 25px;">New Website</button>
         </div>
 
-        <div class="search-container">
-            <input style="background-image:url(./img/magnifier-outline.svg);" class="search search-websites" placeholder="Search websites">
-            <img class="search-clear search-clear-websites" src="./img/close.svg">
+        <div class="list-toolbar">
+            <div class="search-container">
+                <input style="background-image:url(./img/magnifier-outline.svg);" class="search search-websites" placeholder="Search websites">
+                <img class="search-clear search-clear-websites" src="./img/close.svg">
+            </div>
+            <div class="list-actions">
+                <button class="button button-danger disabled delete-websites-btn">Delete</button>
+                <button class="button button-ghost refresh-website-list" title="Refresh">
+                    <svg class="refresh-icon" xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink" x="0px" y="0px" width="32px" height="32px" viewBox="0 0 32 32" stroke-width="2">
+                        <g stroke-width="2" transform="translate(0.5, 0.5)">
+                            <path data-cap="butt" d="M29.382,9.217A15,15,0,0,0,1,16" fill="none" stroke="currentColor" stroke-miterlimit="10" stroke-width="2" stroke-linecap="butt" stroke-linejoin="miter"></path>
+                            <polyline points="28.383 1.22 29.383 9.22 21.383 8.22" fill="none" stroke="currentColor" stroke-linecap="square" stroke-miterlimit="10" stroke-width="2" stroke-linejoin="miter"></polyline>
+                            <path data-cap="butt" data-color="color-2" d="M2.618,22.783A15,15,0,0,0,31,16" fill="none" stroke="currentColor" stroke-miterlimit="10" stroke-width="2" stroke-linecap="butt" stroke-linejoin="miter"></path>
+                            <polyline data-color="color-2" points="3.617 30.78 2.617 22.78 10.617 23.78" fill="none" stroke="currentColor" stroke-linecap="square" stroke-miterlimit="10" stroke-width="2" stroke-linejoin="miter"></polyline>
+                        </g>
+                    </svg>
+                </button>
+            </div>
         </div>
-
-        <button class="button button-danger disabled delete-websites-btn" style="float:right;">Delete</button>
-        <button class="refresh-website-list" style="width:40px; padding: 10px; float: right; margin-right: 10px;" title="Refresh"><svg class="refresh-icon" xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink" x="0px" y="0px" width="32px" height="32px" viewBox="0 0 32 32" stroke-width="2"><g stroke-width="2" transform="translate(0.5, 0.5)"><path data-cap="butt" d="M29.382,9.217A15,15,0,0,0,1,16" fill="none" stroke="#444444" stroke-miterlimit="10" stroke-width="2" stroke-linecap="butt" stroke-linejoin="miter"></path><polyline points="28.383 1.22 29.383 9.22 21.383 8.22" fill="none" stroke="#444444" stroke-linecap="square" stroke-miterlimit="10" stroke-width="2" stroke-linejoin="miter"></polyline><path data-cap="butt" data-color="color-2" d="M2.618,22.783A15,15,0,0,0,31,16" fill="none" stroke="#444444" stroke-miterlimit="10" stroke-width="2" stroke-linecap="butt" stroke-linejoin="miter"></path><polyline data-color="color-2" points="3.617 30.78 2.617 22.78 10.617 23.78" fill="none" stroke="#444444" stroke-linecap="square" stroke-miterlimit="10" stroke-width="2" stroke-linejoin="miter"></polyline></g></svg></button>
-        <div style="overflow-x: auto; clear: both;">
+        <div class="table-wrap">
             <table class="table" id="website-list-table">
                 <thead class="disable-user-select">
                     <tr>
@@ -328,6 +462,36 @@
 
                 </tbody>
             </table>
+            <div class="list-skeleton" data-skeleton="websites">
+                <div class="skeleton-row skeleton-row--5col">
+                    <div class="skeleton-block skeleton-block--checkbox"></div>
+                    <div class="skeleton-block skeleton-block--title"></div>
+                    <div class="skeleton-block skeleton-block--path"></div>
+                    <div class="skeleton-block skeleton-block--date"></div>
+                    <div class="skeleton-block skeleton-block--icon"></div>
+                </div>
+                <div class="skeleton-row skeleton-row--5col">
+                    <div class="skeleton-block skeleton-block--checkbox"></div>
+                    <div class="skeleton-block skeleton-block--title"></div>
+                    <div class="skeleton-block skeleton-block--path"></div>
+                    <div class="skeleton-block skeleton-block--date"></div>
+                    <div class="skeleton-block skeleton-block--icon"></div>
+                </div>
+                <div class="skeleton-row skeleton-row--5col">
+                    <div class="skeleton-block skeleton-block--checkbox"></div>
+                    <div class="skeleton-block skeleton-block--title"></div>
+                    <div class="skeleton-block skeleton-block--path"></div>
+                    <div class="skeleton-block skeleton-block--date"></div>
+                    <div class="skeleton-block skeleton-block--icon"></div>
+                </div>
+                <div class="skeleton-row skeleton-row--5col">
+                    <div class="skeleton-block skeleton-block--checkbox"></div>
+                    <div class="skeleton-block skeleton-block--title"></div>
+                    <div class="skeleton-block skeleton-block--path"></div>
+                    <div class="skeleton-block skeleton-block--date"></div>
+                    <div class="skeleton-block skeleton-block--icon"></div>
+                </div>
+            </div>
         </div>
     </section>
     

@@ -1,3 +1,5 @@
+import { showTabLoading, hideTabLoading } from './loading.js';
+
 let sortBy = 'created_at';
 let sortDirection = 'desc';
 window.websites = [];
@@ -18,31 +20,37 @@ window.create_website = async (name, directoryPath = null) => {
     return website;
 }
 
-window.refresh_websites_list = async (show_loading = false) => {
-    if (show_loading)
-        puter.ui.showSpinner();
-
-    // puter.hosting.list() returns an array of website objects
-    window.websites = await puter.hosting.list();
-
-    // Get websites
-    if (window.activeTab === 'websites' && window.websites.length > 0) {
-        $('.website-card').remove();
-        $('#no-websites-notice').hide();
-        $('#website-list').show();
-        for (let i = 0; i < window.websites.length; i++) {
-            const website = window.websites[i];
-            // append row to website-list-table
-            $('#website-list-table > tbody').append(generate_website_card(website));
-        }
-    } else {
-        $('#no-websites-notice').show();
-        $('#website-list').hide();
+window.refresh_websites_list = async ({ manageSkeleton = true } = {}) => {
+    if (manageSkeleton) {
+        showTabLoading('websites');
     }
 
-    count_websites();
-    puter.ui.hideSpinner();
-}
+    try {
+        window.websites = await puter.hosting.list();
+
+        if (window.activeTab === 'websites' && window.websites.length > 0) {
+            $('.website-card').remove();
+            $('#no-websites-notice').hide();
+            $('#website-list').show();
+            for (let i = 0; i < window.websites.length; i++) {
+                const website = window.websites[i];
+                $('#website-list-table > tbody').append(generate_website_card(website));
+            }
+        } else {
+            $('.website-card').remove();
+            $('#no-websites-notice').show();
+            $('#website-list').hide();
+        }
+
+        count_websites();
+    } catch (error) {
+        console.error('Error refreshing website list:', error);
+    } finally {
+        if (manageSkeleton) {
+            hideTabLoading('websites');
+        }
+    }
+};
 
 async function init_websites() {
     puter.hosting.list().then((websites) => {
@@ -135,12 +143,9 @@ $(document).on('change', '.select-all-websites', function (e) {
     }
 })
 
-$('.refresh-website-list').on('click', function (e) {
-    puter.ui.showSpinner();
-    refresh_websites_list();
-
-    puter.ui.hideSpinner();
-})
+$('.refresh-website-list').on('click', async function (e) {
+    await refresh_websites_list();
+});
 
 $('th.sort').on('click', function (e) {
     // determine what column to sort by
@@ -232,15 +237,27 @@ function count_websites() {
 }
 
 function generate_website_card(website) {
+    const rootDirPath = website.root_dir ? html_encode(website.root_dir.path) : '';
+    const rootDirName = website.root_dir ? html_encode(website.root_dir.name) : '';
     return `
         <tr class="website-card" data-name="${html_encode(website.subdomain)}">
-            <td style="width:30px; vertical-align: middle; line-height: 1;">
-                <input type="checkbox" class="website-checkbox" data-website-name="${website.subdomain}">
+            <td class="cell-select">
+                <div class="checkbox-wrap">
+                    <input type="checkbox" class="website-checkbox" data-website-name="${html_encode(website.subdomain)}">
+                </div>
             </td>
-            <td style="font-family: monospace; font-size: 14px; vertical-align: middle;"><a href="https://${website.subdomain}.puter.site" target="_blank">${website.subdomain}.puter.site</a></td>
-            <td style="font-size: 14px; vertical-align: middle;"> <span class="root-dir-name" data-root-dir-path="${website.root_dir ? html_encode(website.root_dir.path) : ''}">${website.root_dir ? website.root_dir.name : ''}</span></td>
-            <td style="font-size: 14px; vertical-align: middle;">${website.created_at}</td>
-            <td style="vertical-align: middle;"><img class="options-icon options-icon-website" data-website-name="${website.subdomain}" src="./img/options.svg"></td>
+            <td class="cell-code">
+                <a class="website-link" href="https://${html_encode(website.subdomain)}.puter.site" target="_blank" rel="noopener noreferrer">${html_encode(website.subdomain)}.puter.site</a>
+            </td>
+            <td class="cell-code">
+                <span class="root-dir-name" data-root-dir-path="${rootDirPath}">${rootDirName}</span>
+            </td>
+            <td class="cell-meta">
+                <span class="created-at">${html_encode(website.created_at)}</span>
+            </td>
+            <td class="cell-actions">
+                <img class="options-icon options-icon-website" data-website-name="${html_encode(website.subdomain)}" src="./img/options.svg" alt="Website options">
+            </td>
         </tr>
     `;
 }
