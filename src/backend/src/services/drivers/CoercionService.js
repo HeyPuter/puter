@@ -91,6 +91,37 @@ class CoercionService extends BaseService {
             }
         });
 
+        this.coercions_.push({
+            produces: {
+                $: 'stream',
+                content_type: 'video'
+            },
+            consumes: {
+                $: 'string:url:web',
+                content_type: 'video'
+            },
+            coerce: async typed_value => {
+                const response = await(async () => {
+                    try {
+                        return await CoercionService.MODULES.axios.get(typed_value.value, {
+                            responseType: 'stream',
+                        });
+                    } catch (e) {
+                        APIError.create('field_invalid', null, {
+                            key: 'url',
+                            expected: 'web URL',
+                            got: 'error during request: ' + e.message,
+                        });
+                    }
+                })();
+
+                return new TypedValue({
+                    $: 'stream',
+                    content_type: response.headers['content-type'] ?? 'video/mp4',
+                }, response.data);
+            }
+        });
+
         // Add coercion for data URLs to streams
         this.coercions_.push({
             produces: {

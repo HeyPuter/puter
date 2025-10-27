@@ -291,6 +291,7 @@ class DriverService extends BaseService {
             ['puter-tts']: 'aws-polly',
             ['puter-chat-completion']: 'openai-completion',
             ['puter-image-generation']: 'openai-image-generation',
+            ['puter-video-generation']: 'openai-video-generation',
             'puter-exec': 'judge0',
             'convert-files': 'convert-api',
             'puter-send-mail': 'user-send-mail',
