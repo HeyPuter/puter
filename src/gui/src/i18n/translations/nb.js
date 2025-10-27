@@ -431,75 +431,71 @@ const nb = {
         'source_code': "Kildekode",
         'not_found': "Fant ikke siden",
         'not_found_description': "Beklager, vi finner ikke siden du leter etter.",
-
-        // =============================================================
-        // Missing translations
-        // =============================================================
-        "choose_publishing_option": undefined, // In English: "Choose how you want to publish your website:"
-        "minimize": undefined, // In English: "Minimize"
-        "reload_app": undefined, // In English: "Reload App"
-        "open_trash": undefined, // In English: "Open Trash"
-        "pick_name_for_worker": undefined, // In English: "Pick a name for your worker:"
-        "plural_suffix": undefined, // In English: "s"
-        "publish_as_serverless_worker": undefined, // In English: "Publish as Worker"
-        "worker": undefined, // In English: "Worker"
-        "too_many_attempts": undefined, // In English: "Too many attempts. Please try again later."
-        "server_timeout": undefined, // In English: "The server took too long to respond. Please try again."
-        "signup_error": undefined, // In English: "An error occurred during signup. Please try again."
-        "welcome_title": undefined, // In English: "Welcome to your Personal Internet Computer"
-        "welcome_description": undefined, // In English: "Store files, play games, find awesome apps, and much more! All in one place, accessible from anywhere at any time."
-        "welcome_get_started": undefined, // In English: "Get Started"
-        "welcome_terms": undefined, // In English: "Terms"
-        "welcome_privacy": undefined, // In English: "Privacy"
-        "welcome_developers": undefined, // In English: "Developers"
-        "welcome_open_source": undefined, // In English: "Open Source"
-        "welcome_instant_login_title": undefined, // In English: "Instant Login!"
-        "alert_error_title": undefined, // In English: "Error!"
-        "alert_warning_title": undefined, // In English: "Warning!"
-        "alert_info_title": undefined, // In English: "Info"
-        "alert_success_title": undefined, // In English: "Success!"
-        "alert_confirm_title": undefined, // In English: "Are you sure?"
-        "alert_yes": undefined, // In English: "Yes"
-        "alert_no": undefined, // In English: "No"
-        "alert_retry": undefined, // In English: "Retry"
-        "alert_cancel": undefined, // In English: "Cancel"
-        "signup_confirm_password": undefined, // In English: "Confirm Password"
-        "login_email_username_required": undefined, // In English: "Email or username is required"
-        "login_password_required": undefined, // In English: "Password is required"
-        "window_title_open": undefined, // In English: "Open"
-        "window_title_change_password": undefined, // In English: "Change Password"
-        "window_title_select_font": undefined, // In English: "Select font…"
-        "window_title_session_list": undefined, // In English: "Session List!"
-        "window_title_set_new_password": undefined, // In English: "Set New Password"
-        "window_title_instant_login": undefined, // In English: "Instant Login!"
-        "window_title_publish_website": undefined, // In English: "Publish Website"
-        "window_title_publish_worker": undefined, // In English: "Publish Worker"
-        "window_title_authenticating": undefined, // In English: "Authenticating..."
-        "window_title_refer_friend": undefined, // In English: "Refer a friend!"
-        "desktop_show_desktop": undefined, // In English: "Show Desktop"
-        "desktop_show_open_windows": undefined, // In English: "Show Open Windows"
-        "desktop_exit_full_screen": undefined, // In English: "Exit Full Screen"
-        "desktop_enter_full_screen": undefined, // In English: "Enter Full Screen"
-        "desktop_position": undefined, // In English: "Position"
-        "desktop_position_left": undefined, // In English: "Left"
-        "desktop_position_bottom": undefined, // In English: "Bottom"
-        "desktop_position_right": undefined, // In English: "Right"
-        "item_shared_with_you": undefined, // In English: "A user has shared this item with you."
-        "item_shared_by_you": undefined, // In English: "You have shared this item with at least one other user."
-        "item_shortcut": undefined, // In English: "Shortcut"
-        "item_associated_websites": undefined, // In English: "Associated website"
-        "item_associated_websites_plural": undefined, // In English: "Associated websites"
-        "no_suitable_apps_found": undefined, // In English: "No suitable apps found"
-        "window_click_to_go_back": undefined, // In English: "Click to go back."
-        "window_click_to_go_forward": undefined, // In English: "Click to go forward."
-        "window_click_to_go_up": undefined, // In English: "Click to go one directory up."
-        "window_title_public": undefined, // In English: "Public"
-        "window_title_videos": undefined, // In English: "Videos"
-        "window_title_pictures": undefined, // In English: "Pictures"
-        "window_title_puter": undefined, // In English: "Puter"
-        "window_folder_empty": undefined, // In English: "This folder is empty"
-        "manage_your_subdomains": undefined, // In English: "Manage Your Subdomains"
-        "open_containing_folder": undefined, // In English: "Open Containing Folder"
+        "choose_publishing_option": "Velg hvordan du vil publisere nettstedet ditt:",
+        "minimize": "Minimer",
+        "reload_app": "Last appen på nytt",
+        "open_trash": "Åpne papirkurv",
+        "pick_name_for_worker": "Velg et navn for arbeideren din:",
+        "plural_suffix": "er",
+        "publish_as_serverless_worker": "Publiser som Worker",
+        "worker": "Worker",
+        "too_many_attempts": "For mange forsøk. Prøv igjen senere.",
+        "server_timeout": "Tjeneren brukte for lang tid på å svare. Prøv igjen.",
+        "signup_error": "En feil oppstod under registreringen. Prøv igjen.",
+        "welcome_title": "Velkommen til din personlige internettmaskin",
+        "welcome_description": "Lagre filer, spill spill, finn fantastiske apper og mye mer! Alt på ett sted, tilgjengelig hvor som helst og når som helst.",
+        "welcome_get_started": "Kom i gang",
+        "welcome_terms": "Vilkår",
+        "welcome_privacy": "Personvern",
+        "welcome_developers": "Utviklere",
+        "welcome_open_source": "Åpen kildekode",
+        "welcome_instant_login_title": "Øyeblikkelig innlogging!",
+        "alert_error_title": "Feil!",
+        "alert_warning_title": "Advarsel!",
+        "alert_info_title": "Info",
+        "alert_success_title": "Vellykket!",
+        "alert_confirm_title": "Er du sikker?",
+        "alert_yes": "Ja",
+        "alert_no": "Nei",
+        "alert_retry": "Prøv igjen",
+        "alert_cancel": "Avbryt",
+        "signup_confirm_password": "Bekreft passord",
+        "login_email_username_required": "E-post eller brukernavn er påkrevd",
+        "login_password_required": "Passord er påkrevd",
+        "window_title_open": "Åpne",
+        "window_title_change_password": "Endre passord",
+        "window_title_select_font": "Velg skrift…",
+        "window_title_session_list": "Øktliste!",
+        "window_title_set_new_password": "Angi nytt passord",
+        "window_title_instant_login": "Øyeblikkelig innlogging!",
+        "window_title_publish_website": "Publiser nettsted",
+        "window_title_publish_worker": "Publiser Worker",
+        "window_title_authenticating": "Autentiserer...",
+        "window_title_refer_friend": "Henvis en venn!",
+        "desktop_show_desktop": "Vis skrivebord",
+        "desktop_show_open_windows": "Vis åpne vinduer",
+        "desktop_exit_full_screen": "Avslutt fullskjerm",
+        "desktop_enter_full_screen": "Gå til fullskjerm",
+        "desktop_position": "Posisjon",
+        "desktop_position_left": "Venstre",
+        "desktop_position_bottom": "Nederst",
+        "desktop_position_right": "Høyre",
+        "item_shared_with_you": "En bruker har delt dette elementet med deg.",
+        "item_shared_by_you": "Du har delt dette elementet med minst én annen bruker.",
+        "item_shortcut": "Snarvei",
+        "item_associated_websites": "Tilknyttet nettsted",
+        "item_associated_websites_plural": "Tilknyttede nettsteder",
+        "no_suitable_apps_found": "Ingen passende apper funnet",
+        "window_click_to_go_back": "Klikk for å gå tilbake.",
+        "window_click_to_go_forward": "Klikk for å gå fremover.",
+        "window_click_to_go_up": "Klikk for å gå ett katalognivå opp.",
+        "window_title_public": "Offentlig",
+        "window_title_videos": "Videoer",
+        "window_title_pictures": "Bilder",
+        "window_title_puter": "Puter",
+        "window_folder_empty": "Denne mappen er tom",
+        "manage_your_subdomains": "Administrer underdomenene dine",
+        "open_containing_folder": "Åpne inneholdende mappe",
     }
 };
 

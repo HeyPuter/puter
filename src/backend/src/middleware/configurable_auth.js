@@ -120,6 +120,10 @@ const configurable_auth = options => async (req, res, next) => {
             req.token = new_info.token;
             req.user = new_info.user;
             req.actor = new_info.actor;
+            
+            if ( req.user?.suspended ) {
+                throw APIError.create('forbidden');
+            }
 
             res.cookie(config.cookie_name, new_info.token, {
                 sameSite: 'none',
@@ -136,7 +140,12 @@ const configurable_auth = options => async (req, res, next) => {
 
     // === Populate Context ===
     context.set('actor', actor);
-    if ( actor.type.user ) context.set('user', actor.type.user);
+    if ( actor.type.user ) {
+        if ( actor.type.user?.suspended ) {
+            throw APIError.create('forbidden');
+        }
+        context.set('user', actor.type.user);
+    }
 
     // === Populate Request ===
     req.actor = actor;

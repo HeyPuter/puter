@@ -29,4 +29,15 @@ export const OPENAI_IMAGE_COST_MAP = {
     'openai:gpt-image-1:high:1024x1024': toMicroCents(0.167),
     'openai:gpt-image-1:high:1024x1536': toMicroCents(0.25),
     'openai:gpt-image-1:high:1536x1024': toMicroCents(0.25),
+
+    // gpt-image-1-mini
+    'openai:gpt-image-1-mini:low:1024x1024': toMicroCents(0.005),
+    'openai:gpt-image-1-mini:low:1024x1536': toMicroCents(0.006),
+    'openai:gpt-image-1-mini:low:1536x1024': toMicroCents(0.006),
+    'openai:gpt-image-1-mini:medium:1024x1024': toMicroCents(0.011),
+    'openai:gpt-image-1-mini:medium:1024x1536': toMicroCents(0.015),
+    'openai:gpt-image-1-mini:medium:1536x1024': toMicroCents(0.015),
+    'openai:gpt-image-1-mini:high:1024x1024': toMicroCents(0.036),
+    'openai:gpt-image-1-mini:high:1024x1536': toMicroCents(0.052),
+    'openai:gpt-image-1-mini:high:1536x1024': toMicroCents(0.052),
 };

@@ -1,10 +1,10 @@
 import type { Actor } from '@heyputer/backend/src/services/auth/Actor.js';
 import type { MeteringService } from '@heyputer/backend/src/services/MeteringService/MeteringService.ts';
+import type { MeteringServiceWrapper } from '@heyputer/backend/src/services/MeteringService/MeteringServiceWrapper.mjs';
 import type { DBKVStore } from '@heyputer/backend/src/services/repositories/DBKVStore/DBKVStore.ts';
 import type { SUService } from '@heyputer/backend/src/services/SUService.js';
 import type { RequestHandler } from 'express';
 import type helpers from '../src/backend/src/helpers.js';
-
 declare global {
     namespace Express {
         interface Request {
@@ -37,20 +37,16 @@ interface CoreRuntimeModule {
     }
 }
 
-type StripPrefix<TPrefix extends string, T extends string> = T extends `${TPrefix}.${infer R}` ? R : never;
-// TODO DS: define this globally in core to use it there too
 interface ServiceNameMap {
-    'meteringService': { meteringService: MeteringService } & MeteringService // TODO DS: squash into a single class without wrapper
+    'meteringService': Pick<MeteringServiceWrapper, 'meteringService'> & MeteringService // TODO DS: squash into a single class without wrapper
     'puter-kv': DBKVStore
     'su': SUService
-
 }
 interface Extension extends RouterMethods {
-    import<T extends  (`service:${keyof ServiceNameMap}` | 'core') | (string & {})>(module: T): T extends `service:${infer R extends keyof ServiceNameMap}`
+    import(module:'core'): CoreRuntimeModule,
+    import<T extends `service:${keyof ServiceNameMap}`| (string & {})>(module: T): T extends `service:${infer R extends keyof ServiceNameMap}`
         ? ServiceNameMap[R]
-        : T extends 'core'
-            ? CoreRuntimeModule
-            : unknown;
+        : unknown;
 }
 
 declare global {

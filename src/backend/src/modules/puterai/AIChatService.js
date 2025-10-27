@@ -301,7 +301,6 @@ class AIChatService extends BaseService {
                 let { test_mode, intended_service, response_metadata } = client_driver_call;
 
                 const completionId = this.modules.cuid2();
-
                 this.log.noticeme('AIChatService.complete', { intended_service, test_mode });
                 const svc_event = this.services.get('event');
                 const event = {
@@ -624,57 +623,41 @@ class AIChatService extends BaseService {
     */
     async moderate({ messages }) {
         if ( process.env.TEST_MODERATION_FAILURE ) return false;
-        for ( const msg of messages ) {
-            const texts = [];
-
-            // Function calls have no content
-            if ( msg.content === null ) continue;
-
-            if ( typeof msg.content === 'string' ) texts.push(msg.content);
-            else if ( typeof msg.content === 'object' ) {
-                if ( Array.isArray(msg.content) ) {
-                    texts.push(...msg.content.filter(o => ( !o.type && o['text'] ) || o.type === 'text').map(o => o.text));
-                }
-                else texts.push(msg.content.text);
+        const fulltext = Messages.extract_text(messages);
+        let mod_last_error = null;
+        let mod_result = null;
+        try {
+            const svc_openai = this.services.get('openai-completion');
+            mod_result = await svc_openai.check_moderation(fulltext);
+            if ( mod_result.flagged ) return false;
+            return true;
+        } catch (e) {
+            console.error(e);
+            mod_last_error = e;
+        }
+        try {
+            const svc_claude = this.services.get('claude');
+            const chat = svc_claude.as('puter-chat-completion');
+            const mod = new AsModeration({
+                chat,
+                model: 'claude-3-haiku-20240307',
+            });
+            if ( ! await mod.moderate(fulltext) ) {
+                return false;
             }
+            mod_last_error = null;
+            return true;
+        } catch (e) {
+            console.error(e);
+            mod_last_error = e;
+        }
 
-            const fulltext = texts.join('\n');
-
-            let mod_last_error = null;
-            let mod_result = null;
-            try {
-                const svc_openai = this.services.get('openai-completion');
-                mod_result = await svc_openai.check_moderation(fulltext);
-                if ( mod_result.flagged ) return false;
-                continue;
-            } catch (e) {
-                console.error(e);
-                mod_last_error = e;
-            }
-            try {
-                const svc_claude = this.services.get('claude');
-                const chat = svc_claude.as('puter-chat-completion');
-                const mod = new AsModeration({
-                    chat,
-                    model: 'claude-3-haiku-20240307',
-                });
-                if ( ! await mod.moderate(fulltext) ) {
-                    return false;
-                }
-                mod_last_error = null;
-                continue;
-            } catch (e) {
-                console.error(e);
-                mod_last_error = e;
-            }
-
-            if ( mod_last_error ) {
-                this.log.error('moderation error', {
-                    fulltext,
-                    mod_last_error,
-                });
-                throw new Error('no working moderation service');
-            }
+        if ( mod_last_error ) {
+            this.log.error('moderation error', {
+                fulltext,
+                mod_last_error,
+            });
+            throw new Error('no working moderation service');
         }
         return true;
     }
