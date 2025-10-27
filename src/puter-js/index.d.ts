@@ -259,6 +259,7 @@ interface WriteOptions {
 interface UploadOptions {
     overwrite?: boolean;
     dedupeName?: boolean;
+    name?: string;
 }
 
 interface SpaceInfo {
