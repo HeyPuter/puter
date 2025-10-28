@@ -134,7 +134,7 @@ def run():
     # run the test
     # =========================================================================
     cxc_toolkit.exec.run_command(
-        "npx playwright test --workers=1",
+        "npx playwright test",
         work_dir=f"{PUTER_ROOT}/tests/playwright",
     )
 
