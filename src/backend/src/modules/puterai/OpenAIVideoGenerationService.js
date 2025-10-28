@@ -24,7 +24,7 @@ const { TypedValue } = require('../../services/drivers/meta/Runtime');
 const { Context } = require('../../util/context');
 const { Readable } = require('stream');
 
-const DEFAULT_TEST_VIDEO_URL = 'https://puter-sample-data.puter.site/video_example.mp4';
+const DEFAULT_TEST_VIDEO_URL = 'https://assets.puter.site/txt2vid.mp4';
 const DEFAULT_TIMEOUT_MS = 5 * 60 * 1000; // 5 minutes
 const POLL_INTERVAL_MS = 5_000;
 const DEFAULT_DURATION_SECONDS = 4;
