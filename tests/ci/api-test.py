@@ -71,7 +71,7 @@ def run():
     # run the test
     # =========================================================================
     cxc_toolkit.exec.run_command(
-        "node ./tools/api-tester/apitest.js --unit --stop-on-failure"
+        "node ./tests/api-tester/apitest.js --unit --stop-on-failure"
     )
 
 
