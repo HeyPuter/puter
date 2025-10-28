@@ -22,7 +22,6 @@
     <link rel="preload" as="image" href="./img/plus.svg">
     <link rel="preload" as="image" href="./img/workers-placeholder.svg">
     <link rel="preload" as="image" href="./img/websites-placeholder.svg">
-    <!-- TODO: Q: Is this needed? We already load Inter in GUI?, does it get passed to this window? -->
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
@@ -34,58 +33,6 @@
     <script src="https://cdn.jsdelivr.net/npm/@yaireo/tagify"></script>
     <script src="https://cdn.jsdelivr.net/npm/@yaireo/tagify/dist/tagify.polyfills.min.js"></script>
     <link href="https://cdn.jsdelivr.net/npm/@yaireo/tagify/dist/tagify.css" rel="stylesheet" type="text/css" />
-    <style>
-        .social-link{
-            display: inline-flex;
-            align-items: center;
-            gap: 10px;
-            padding: 10px 14px;
-            border-radius: var(--radius-sm);
-            color: var(--color-text-muted);
-            background: rgba(248, 250, 255, 0.8);
-            border: 1px solid rgba(208, 213, 221, 0.4);
-            transition: color var(--transition-fast), background-color var(--transition-fast), border-color var(--transition-fast), box-shadow var(--transition-fast);
-        }
-        .social-link:hover{
-            color: var(--color-primary);
-            background: rgba(53, 93, 240, 0.12);
-            border-color: rgba(53, 93, 240, 0.35);
-            box-shadow: 0 12px 28px -18px rgba(53, 93, 240, 0.35);
-        }
-        .social-link svg{
-            width: 18px;
-            height: 18px;
-            margin-right: 0;
-        }
-        .sidebar-nav-social{
-            margin-top: 28px;
-            display: flex;
-            gap: 6px;
-            padding: 0 4px 12px;
-            flex-wrap: nowrap;
-            align-items: center;
-        }
-        .sidebar-nav-social li{
-            display: inline-flex;
-            padding:0;
-            margin:0;
-        }
-        .sidebar-nav-social li a{
-            overflow: hidden;
-            display: inline-flex;
-            justify-content: center;
-            align-items: center;
-            width: 12px;
-            height: 12px;
-        }
-        .sidebar-nav-social li a svg{
-            width: 16px;
-            height: 16px;
-        }
-        tags{
-            min-width: 500px;
-        }
-    </style>
 </head>
 
 <body class="sidebar-open">
@@ -340,7 +287,7 @@
     <section id="app-list" data-tab="apps">
         <div class="app-list-nav">
             <h1 class="my-apps-title">My Apps<span class="app-count"></span></h1>
-            <button class="create-an-app-btn button button-primary"><img src="./img/plus.svg" style="width: 25px; height: 25px;">New App</button>
+            <button class="create-an-app-btn button button-primary"><img src="./img/plus.svg">Create an App</button>
         </div>
 
         <div class="list-toolbar">
@@ -426,7 +373,7 @@
     <section id="worker-list" data-tab="workers">
         <div class="worker-list-nav">
             <h1 class="my-workers-title">My Workers<span class="worker-count"></span></h1>
-            <button class="create-a-worker-btn button button-primary"><img src="./img/plus.svg" style="width: 25px; height: 25px;"> New Worker</button>
+            <button class="create-a-worker-btn button button-primary"><img src="./img/plus.svg">Create a Worker</button>
         </div>
 
         <div class="list-toolbar">
@@ -501,7 +448,7 @@
     <section id="website-list" data-tab="websites">
         <div class="website-list-nav">
             <h1 class="my-websites-title">My Websites<span class="website-count"></span></h1>
-            <button class="create-a-website-btn button button-primary"><img src="./img/plus.svg" style="width: 25px; height: 25px;">New Website</button>
+            <button class="create-a-website-btn button button-primary"><img src="./img/plus.svg">Create a Website</button>
         </div>
 
         <div class="list-toolbar">

@@ -308,8 +308,8 @@ a:hover {
 .create-an-app-btn img,
 .create-a-website-btn img,
 .create-a-worker-btn img {
-    width: 18px;
-    height: 18px;
+    width: 24px;
+    height: 24px;
     margin: 0;
     display: block;
     flex-shrink: 0;
@@ -423,21 +423,20 @@ a:hover {
 }
 
 .sidebar-nav > li:not(.no-hover):hover {
-    background-color: #ffffff;
-    color: var(--color-primary);
-    box-shadow: 0 2px 8px rgba(15, 23, 42, 0.1);
+    background-color: var(--color-primary-soft);
+    box-shadow: 0 2px 8px rgba(53, 93, 240, 0.15);
 }
 
 .sidebar-nav > li.active {
-    background-color: var(--color-primary-soft);
-    color: var(--color-primary);
-    box-shadow: 0 2px 8px rgba(53, 93, 240, 0.2);
+    background-color: var(--color-primary);
+    color: #ffffff;
+    box-shadow: 0 2px 8px rgba(53, 93, 240, 0.3);
     font-weight: 600;
 }
 
 .sidebar-nav > li.active:hover {
-    background-color: var(--color-primary-soft);
-    box-shadow: 0 2px 12px rgba(53, 93, 240, 0.25);
+    background-color: var(--color-primary);
+    box-shadow: 0 2px 12px rgba(53, 93, 240, 0.4);
 }
 
 .tab-btn {
@@ -457,8 +456,8 @@ a:hover {
     transition: background-color 200ms ease;
 }
 
-.sidebar-nav > li.active .tab-btn::before {
-    background-color: var(--color-primary);
+.sidebar-nav > li.tab-btn.active::before {
+    background-color: #ffffff;
 }
 
 .tab-btn[data-tab="apps"]::before {
@@ -496,8 +495,12 @@ a:hover {
     color: var(--color-primary);
     font-size: 12px;
     font-weight: 600;
-    padding: 3px 9px;
+    min-width: 24px;
+    height: 24px;
     border-radius: 999px;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
     transition: background-color 200ms ease, color 200ms ease;
 }
 
@@ -505,13 +508,6 @@ a:hover {
 .sidebar-nav > li .worker-count:empty,
 .sidebar-nav > li .website-count:empty {
     display: none;
-}
-
-.sidebar-nav > li:hover .app-count,
-.sidebar-nav > li:hover .worker-count,
-.sidebar-nav > li:hover .website-count {
-    background: rgba(53, 93, 240, 0.15);
-    color: var(--color-primary);
 }
 
 .sidebar-nav > li.active .app-count,
@@ -561,18 +557,57 @@ a:hover {
 }
 
 .sidebar-nav.sidebar-nav-social {
+    display: flex;
     flex-direction: row;
-    flex-wrap: wrap;
+    gap: 6px;
+    padding: 0 4px 12px;
+    flex-wrap: nowrap;
     align-items: center;
-    justify-content: center;
-    gap: 10px;
 }
 
 .sidebar-nav.sidebar-nav-social > li {
-    width: auto;
-    flex: 0 0 auto;
+    display: inline-flex;
     padding: 0;
     margin: 0;
+}
+
+.sidebar-nav-social li a {
+    overflow: hidden;
+    display: inline-flex;
+    justify-content: center;
+    align-items: center;
+    width: 12px;
+    height: 12px;
+}
+
+.sidebar-nav-social li a svg {
+    width: 16px;
+    height: 16px;
+}
+
+.social-link {
+    display: inline-flex;
+    align-items: center;
+    gap: 10px;
+    padding: 10px 14px;
+    border-radius: var(--radius-sm);
+    color: var(--color-text-muted);
+    background: rgba(248, 250, 255, 0.8);
+    border: 1px solid rgba(208, 213, 221, 0.4);
+    transition: color var(--transition-fast), background-color var(--transition-fast), border-color var(--transition-fast), box-shadow var(--transition-fast);
+}
+
+.social-link:hover {
+    color: var(--color-primary);
+    background: rgba(53, 93, 240, 0.12);
+    border-color: rgba(53, 93, 240, 0.35);
+    box-shadow: 0 12px 28px -18px rgba(53, 93, 240, 0.35);
+}
+
+.social-link svg {
+    width: 18px;
+    height: 18px;
+    margin-right: 0;
 }
 
 .link-to-docs {
@@ -830,6 +865,9 @@ section {
 .create-a-worker-btn {
     margin-left: auto;
     margin-bottom: 0;
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
 }
 
 /* ====================================
@@ -1983,9 +2021,9 @@ dialog::backdrop {
     text-align: center;
 }
 
-#no-apps-notice img,
-#no-workers-notice img,
-#no-websites-notice img {
+#no-apps-notice > img,
+#no-workers-notice > img,
+#no-websites-notice > img {
     margin-bottom: 24px;
 }
 
@@ -2684,4 +2722,11 @@ dialog::backdrop {
     .insta-deploy-to-existing-app {
         width: 100%;
     }
+}
+
+/* ====================================
+   Tagify Library
+   ==================================== */
+tags {
+    min-width: 500px;
 }
