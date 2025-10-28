@@ -309,8 +309,8 @@ export class DBKVStore {
         return currVal as T extends { '': number } ? number : RecursiveRecord<number>;
     }
 
-    async decr(...params: Parameters<typeof DBKVStore.prototype.incr>): ReturnType<typeof DBKVStore.prototype.incr> {
-        return await this.incr(...params);
+    async decr({ key, pathAndAmountMap }: Parameters<typeof DBKVStore.prototype.incr>[0]): ReturnType<typeof DBKVStore.prototype.incr> {
+        return await this.incr({ key, pathAndAmountMap: Object.fromEntries(Object.entries(pathAndAmountMap).map(([k, v]) => [k, -v])) });
     }
 
     async #expireat(key: string, timestamp: number){
