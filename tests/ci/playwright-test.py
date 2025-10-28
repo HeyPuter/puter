@@ -20,8 +20,8 @@ import yaml
 
 import cxc_toolkit
 
+from common import PUTER_ROOT
 
-PUTER_ROOT = os.getcwd()
 ENABLE_FS_TREE_MANAGER = False
 
 

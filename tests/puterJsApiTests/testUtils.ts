@@ -14,12 +14,8 @@ try {
     const configPath = path.join(__dirname, '../client-config.yaml');
     config = yaml.parse(fs.readFileSync(configPath, 'utf8'));
 } catch (error) {
-    console.error('Failed to load client-config.yaml, falling back to defaults:', error);
-    config = {
-        api_url: 'https://api.puter.com',
-        frontend_url: 'https://puter.com',
-        auth_token: null
-    };
+    console.error('Failed to load client-config.yaml:', error);
+    process.exit(1);
 }
 
 // @ts-ignore
