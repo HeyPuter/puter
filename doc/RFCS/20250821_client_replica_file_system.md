@@ -55,9 +55,9 @@ To tackle this issue, we propose maintaining a **full replica** of the filesyste
 
 ![](assets/20251008_134412_puter-client_replica_overview.drawio.svg)
 
+Network protocol used:
 
-
-![](assets/20251008_134726_puter-client_replica_network.drawio.svg)
+![](assets/20251027_174627_puter-client_replica_network.drawio.svg)
 
 ## Implementation
 
@@ -352,8 +352,6 @@ The first stage is to have a single instance of the FS-Tree Manager. We will use
 - Only build FS tree when a request comes in.
 - Evict FS tree from memory when it's not used for 10 minutes. Use `last_access_time` for the eviction logic.
 - Set a hard limit of 4GB for the FS-Tree Manager, reject to create new FS tree when the memory usage reaches the limit.
-
-
 
 ![](assets/20251008_134849_puter-client_replica_deployment1.drawio.svg)
 
