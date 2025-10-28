@@ -75,12 +75,12 @@
             display: inline-flex;
             justify-content: center;
             align-items: center;
-            width: 28px;
-            height: 28px;
+            width: 12px;
+            height: 12px;
         }
         .sidebar-nav-social li a svg{
-            width: 13px;
-            height: 13px;
+            width: 16px;
+            height: 16px;
         }
         tags{
             min-width: 500px;
@@ -90,11 +90,7 @@
 
 <body class="sidebar-open">
     <section class="sidebar open" aria-label="Primary Navigation">
-        <div class="sidebar-header">
-            <button type="button" class="sidebar-toggle" aria-label="Collapse sidebar">
-                <span class="sidebar-toggle-icon"></span>
-            </button>
-        </div>
+        <button type="button" class="sidebar-toggle" aria-label="Collapse sidebar"></button>
         <div class="sidebar-content">
             <!-- Main Sections -->
             <ul class="sidebar-nav disable-user-select">
@@ -107,7 +103,10 @@
 
             <!-- Footer -->
             <div class="sidebar-footer">
-                <button type="button" class="button button-primary sidebar-earn-money" hidden>Earn Money</button>
+                <button type="button" class="button button-primary sidebar-earn-money" hidden>
+                    <img src="img/money-bag-white.svg" alt="" width="16" height="16">
+                    Earn Money
+                </button>
                 <ul class="sidebar-nav">
                     <li class="no-hover" style="margin-left:0;"><a href="https://developer.puter.com/" class="link-to-docs" target="_blank">Developer Documentation<img src="img/external-link.svg"></a></li>
                 </ul>
@@ -132,17 +131,51 @@
     <!-- Earn money                         -->
     <!---------------------------------------->
     <dialog id="earn-money">
-        <h3>Developers earn money on Puter!</h3>
-        <p>Follow the steps below to start earning money on Puter:</p>
-        <ol>
-            <li>Publish as many apps as you want on Puter.</li>
-            <li>We automatically review every app continuously. Qualified apps are automatically added to our Incentive Program to earn money.</li>
-            <li>You will earn money every time your approved apps are opened by users.</li>
-        </ol>
-        <span class="close-message" id="earn-money-c2a-close" data-target="#earn-money">✕</span>
-        <hr>
-        <span style="font-size:15px;">Questions? Contact us: <a href="mailto:hi@puter.com" style="outline: none;">hi@puter.com</a></span>
-        <a style="font-size: 14px; float: right; outline: none;" href="https://puter.com/incentive-program-terms" target="_blank">Incentive Program Terms</a>
+        <button class="earn-money-close" id="earn-money-c2a-close" aria-label="Close dialog">
+            <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" fill="currentColor" viewBox="0 0 16 16">
+                <path d="M2.146 2.854a.5.5 0 1 1 .708-.708L8 7.293l5.146-5.147a.5.5 0 0 1 .708.708L8.707 8l5.147 5.146a.5.5 0 0 1-.708.708L8 8.707l-5.146 5.147a.5.5 0 0 1-.708-.708L7.293 8z"/>
+            </svg>
+        </button>
+
+        <div class="earn-money-header">
+            <div class="earn-money-icon">
+                <img src="img/money-bag.svg" alt="Money bag icon" width="48" height="48">
+            </div>
+            <h3>Start Earning Money on Puter</h3>
+            <p class="earn-money-subtitle">Join our developer incentive program and get paid when users use your apps</p>
+        </div>
+
+        <div class="earn-money-content">
+            <div class="earn-money-steps">
+                <div class="earn-money-step">
+                    <div class="step-number">1</div>
+                    <div class="step-content">
+                        <h4>Publish Your Apps</h4>
+                        <p>Create and publish as many apps as you want on Puter. No limits, no fees.</p>
+                    </div>
+                </div>
+                <div class="earn-money-step">
+                    <div class="step-number">2</div>
+                    <div class="step-content">
+                        <h4>Automatic Review</h4>
+                        <p>We continuously review apps. Qualified apps are automatically added to our Incentive Program.</p>
+                    </div>
+                </div>
+                <div class="earn-money-step">
+                    <div class="step-number">3</div>
+                    <div class="step-content">
+                        <h4>Earn Revenue</h4>
+                        <p>Get paid every time users open your approved apps. It's that simple.</p>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <div class="earn-money-footer">
+            <span>Questions? Contact us at <a href="mailto:hi@puter.com">hi@puter.com</a></span>
+            <span class="earn-money-footer-separator">•</span>
+            <a href="https://puter.com/incentive-program-terms" target="_blank">Incentive Program Terms</a>
+        </div>
     </dialog>
 
     <!---------------------------------------->

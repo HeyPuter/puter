@@ -195,6 +195,13 @@ if (earnMoneyDialog) {
             earnMoneyDialog.close();
         }
     });
+
+    const earnMoneyCloseBtn = document.getElementById('earn-money-c2a-close');
+    if (earnMoneyCloseBtn) {
+        earnMoneyCloseBtn.addEventListener('click', () => {
+            earnMoneyDialog.close();
+        });
+    }
 }
 
 if (earnMoneyCTAButton && earnMoneyDialog) {

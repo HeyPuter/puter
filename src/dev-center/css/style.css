@@ -352,30 +352,23 @@ a:hover {
     justify-content: space-between;
 }
 
-.sidebar-header {
-    position: relative;
-}
-
 .sidebar-toggle {
+    position: absolute;
+    top: 18px;
+    right: 18px;
+    z-index: 10;
     display: flex;
     align-items: center;
     justify-content: center;
     width: 34px;
     height: 34px;
     border-radius: 50%;
-    position: absolute;
-    right: 18px;
-    top: 18px;
     border: 1px solid var(--color-border);
-    background-size: 14px;
-    background-repeat: no-repeat;
-    background-position: center;
-    background-color: #ffffff;
+    background: #ffffff url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' fill='none' stroke='%23101828' stroke-linecap='round' stroke-linejoin='round' viewBox='0 0 24 24'%3E%3Cpath d='M14 7l-5 5 5 5' stroke-width='2'/%3E%3C/svg%3E") no-repeat center / 14px;
     cursor: pointer;
-    background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' fill='none' stroke='%23101828' stroke-linecap='round' stroke-linejoin='round' viewBox='0 0 24 24'%3E%3Cpath d='M14 7l-5 5 5 5' stroke-width='2'/%3E%3C/svg%3E");
     opacity: 0.7;
     box-shadow: var(--shadow-border);
-    z-index: 10;
+    transition: opacity var(--transition-fast), box-shadow var(--transition-fast), background-color var(--transition-fast);
 }
 
 .sidebar.open .sidebar-toggle {
@@ -384,8 +377,8 @@ a:hover {
 
 .sidebar-toggle:hover {
     opacity: 1;
-    box-shadow: 0 18px 36px -24px rgba(15, 23, 42, 0.35);
     background-color: #f8f9ff;
+    box-shadow: 0 18px 36px -24px rgba(15, 23, 42, 0.35);
 }
 
 .sidebar-nav {
@@ -500,6 +493,13 @@ a:hover {
     font-size: 14px;
     font-weight: 600;
     box-shadow: 0 16px 32px -20px rgba(53, 93, 240, 0.6);
+    display: flex;
+    align-items: center;
+    gap: 8px;
+}
+
+.sidebar-earn-money img {
+    flex-shrink: 0;
 }
 
 .sidebar-earn-money:hover:not(.disabled):not(.is-disabled):not(:disabled) {
@@ -568,36 +568,6 @@ a:hover {
 .sidebar-mobile-toggle-label {
     font-size: 13px;
     font-weight: 600;
-}
-
-.sidebar-toggle-icon {
-    position: relative;
-    display: inline-block;
-    width: 18px;
-    height: 2px;
-    background: var(--color-text);
-    border-radius: 999px;
-    transition: transform var(--transition-fast), background var(--transition-fast);
-}
-
-.sidebar-toggle-icon::before,
-.sidebar-toggle-icon::after {
-    content: '';
-    position: absolute;
-    left: 0;
-    width: 18px;
-    height: 2px;
-    background: var(--color-text);
-    border-radius: 999px;
-    transition: transform var(--transition-fast), opacity var(--transition-fast), top var(--transition-fast);
-}
-
-.sidebar-toggle-icon::before {
-    top: -6px;
-}
-
-.sidebar-toggle-icon::after {
-    top: 6px;
 }
 
 /* ====================================
@@ -1514,19 +1484,199 @@ dialog::backdrop {
     max-width: min(90vw, 640px);
     width: 100%;
     position: relative;
-    color: var(--color-text-muted);
-    font-size: 13px;
+    color: var(--color-text);
+    font-size: 14px;
+    padding: 0;
+    border: none;
+    border-radius: var(--radius-lg);
+    box-shadow: 0 20px 60px rgba(0, 0, 0, 0.15);
 }
 
 #earn-money[open] {
     display: flex;
     flex-direction: column;
+    animation: earnMoneyFadeIn 0.2s ease-out;
 }
 
-#earn-money h3 {
+@keyframes earnMoneyFadeIn {
+    from {
+        opacity: 0;
+        transform: scale(0.95) translateY(-10px);
+    }
+    to {
+        opacity: 1;
+        transform: scale(1) translateY(0);
+    }
+}
+
+.earn-money-close {
+    position: absolute;
+    top: 16px;
+    right: 16px;
+    width: 36px;
+    height: 36px;
+    border-radius: 50%;
+    border: none;
+    background: rgba(15, 23, 42, 0.05);
+    color: var(--color-text-muted);
+    cursor: pointer;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    transition: background-color 0.15s ease, color 0.15s ease, transform 0.15s ease;
+    z-index: 10;
+}
+
+.earn-money-close:hover {
+    background: rgba(15, 23, 42, 0.1);
+    color: var(--color-text);
+    transform: scale(1.05);
+}
+
+.earn-money-close:active {
+    transform: scale(0.95);
+}
+
+.earn-money-header {
+    text-align: center;
+    padding: 40px 40px 32px;
+    background: linear-gradient(135deg, rgba(53, 93, 240, 0.03) 0%, rgba(53, 93, 240, 0.08) 100%);
+    border-bottom: 1px solid var(--color-border);
+}
+
+.earn-money-icon {
+    margin-bottom: 16px;
+    display: inline-flex;
+    padding: 12px;
+    background: white;
+    border-radius: 50%;
+    box-shadow: 0 4px 12px rgba(53, 93, 240, 0.15);
+}
+
+.earn-money-header h3 {
     font-size: 28px;
-    margin-top: 0;
+    margin: 0 0 8px 0;
     font-weight: 600;
+    color: var(--color-text);
+}
+
+.earn-money-subtitle {
+    font-size: 15px;
+    color: var(--color-text-muted);
+    margin: 0;
+    line-height: 1.5;
+}
+
+.earn-money-content {
+    padding: 32px 40px;
+}
+
+.earn-money-steps {
+    display: flex;
+    flex-direction: column;
+    gap: 24px;
+}
+
+.earn-money-step {
+    display: flex;
+    gap: 16px;
+    align-items: flex-start;
+}
+
+.step-number {
+    flex-shrink: 0;
+    width: 32px;
+    height: 32px;
+    border-radius: 50%;
+    background: linear-gradient(135deg, #355DF0 0%, #4e73ff 100%);
+    color: white;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-weight: 600;
+    font-size: 15px;
+    box-shadow: 0 2px 8px rgba(53, 93, 240, 0.25);
+}
+
+.step-content {
+    flex: 1;
+}
+
+.step-content h4 {
+    margin: 0 0 6px 0;
+    font-size: 16px;
+    font-weight: 600;
+    color: var(--color-text);
+}
+
+.step-content p {
+    margin: 0;
+    font-size: 14px;
+    color: var(--color-text-muted);
+    line-height: 1.5;
+}
+
+.earn-money-footer {
+    padding: 20px 40px;
+    text-align: center;
+    border-top: 1px solid var(--color-border);
+    background: rgba(248, 250, 255, 0.5);
+    border-radius: 0 0 var(--radius-lg) var(--radius-lg);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    flex-wrap: wrap;
+    gap: 8px;
+}
+
+.earn-money-footer span {
+    font-size: 13px;
+    color: var(--color-text-muted);
+}
+
+.earn-money-footer-separator {
+    color: var(--color-border);
+    font-weight: 400;
+}
+
+.earn-money-footer a {
+    color: var(--color-primary);
+    text-decoration: none;
+    font-weight: 500;
+    font-size: 13px;
+}
+
+.earn-money-footer a:hover {
+    text-decoration: underline;
+}
+
+@media (max-width: 600px) {
+    .earn-money-header {
+        padding: 32px 24px 24px;
+    }
+
+    .earn-money-header h3 {
+        font-size: 24px;
+    }
+
+    .earn-money-subtitle {
+        font-size: 14px;
+    }
+
+    .earn-money-content {
+        padding: 24px;
+    }
+
+    .earn-money-footer {
+        padding: 16px 24px;
+    }
+
+    .earn-money-close {
+        top: 12px;
+        right: 12px;
+        width: 32px;
+        height: 32px;
+    }
 }
 
 .insta-deploy-modal {
