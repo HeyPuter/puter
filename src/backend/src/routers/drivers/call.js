@@ -97,7 +97,6 @@ module.exports = eggspress('/drivers/call', {
 const _respond = (res, result) => {
     if ( result.result instanceof TypedValue ) {
         const tv = result.result;
-        debugger;
         if ( TypeSpec.adapt({ $: 'stream' }).equals(tv.type) ) {
             res.set('Content-Type', tv.type.raw.content_type);
             if ( tv.type.raw.chunked ) {
@@ -108,10 +107,10 @@ const _respond = (res, result) => {
         }
 
         // This is the
-        if ( typeof result.value === 'object' ) {
-            result.value.type_fallback = true;
+        if ( typeof tv.value === 'object' ) {
+            tv.value.type_fallback = true;
         }
-        res.json(result.value);
+        res.json(tv.value);
         return;
     }
     res.json(result);
