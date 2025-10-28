@@ -53,13 +53,10 @@ interface ServiceNameMap {
 }
 interface Extension extends RouterMethods {
     import(module:'core'): CoreRuntimeModule,
+    import(module:'fs'): FilesystemModule,
     import<T extends `service:${keyof ServiceNameMap}`| (string & {})>(module: T): T extends `service:${infer R extends keyof ServiceNameMap}`
         ? ServiceNameMap[R]
-        : T extends 'core'
-            ? CoreRuntimeModule
-            : T extends 'fs'
-                ? FilesystemModule
-                : unknown
+        : unknown;
 }
 
 declare global {
