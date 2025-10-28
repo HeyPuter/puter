@@ -30,8 +30,9 @@ jobs:
           npm run test
 
   api-test:
+    name: backend (node env, api-test)
     runs-on: ubuntu-latest
-    timeout-minutes: 10
+    timeout-minutes: 5
 
     strategy:
       matrix:
@@ -51,8 +52,9 @@ jobs:
           ./tests/ci/api-test.py
 
   playwright-test:
+    name: puterjs (browser env, playwright)
     runs-on: ubuntu-latest
-    timeout-minutes: 10
+    timeout-minutes: 5
 
     strategy:
       matrix:
@@ -106,9 +108,9 @@ jobs:
           retention-days: 3
 
   vitest:
-    name: PuterJS API tests in Node.js environment (Vitest)
+    name: puterjs (node env, vitest)
     runs-on: ubuntu-latest
-    timeout-minutes: 10
+    timeout-minutes: 5
 
     strategy:
       matrix:
