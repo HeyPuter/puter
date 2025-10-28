@@ -20,7 +20,7 @@ export default defineConfig({
     /* Retry on CI only */
     retries: process.env.CI ? 2 : 0,
 
-    // Disable parallelism since fs doesn't support concurrent operations.
+    // Disable parallelism since puter fs doesn't provide concurrent safety.
     workers: 1,
 
     /* Reporter to use. See https://playwright.dev/docs/test-reporters */
