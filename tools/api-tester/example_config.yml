@@ -1,8 +1,0 @@
-url: http://api.puter.localhost:4100/
-username: admin
-token: ---
-mountpoints:
-  - path: /
-    provider: puterfs
-  - path: /admin/tmp
-    provider: memoryfs

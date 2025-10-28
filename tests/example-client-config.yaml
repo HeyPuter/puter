@@ -1,0 +1,9 @@
+api_url: http://api.puter.localhost:4100
+frontend_url: http://puter.localhost:4100
+username: admin
+auth_token: <your-token>
+mountpoints:
+  - path: /
+    provider: puterfs
+  - path: /admin/tmp
+    provider: memoryfs

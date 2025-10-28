@@ -2,9 +2,9 @@ name: test
 
 on:
   push:
-    branches: [ "main" ]
+    branches: ["main"]
   pull_request:
-    branches: [ "main" ]
+    branches: ["main"]
 
 jobs:
   test:
@@ -15,21 +15,44 @@ jobs:
         node-version: [20.x, 22.x]
 
     steps:
-    - uses: actions/checkout@v4
+      - uses: actions/checkout@v4
 
-    - name: Use Node.js ${{ matrix.node-version }}
-      uses: actions/setup-node@v4
-      with:
-        node-version: ${{ matrix.node-version }}
+      - name: Use Node.js ${{ matrix.node-version }}
+        uses: actions/setup-node@v4
+        with:
+          node-version: ${{ matrix.node-version }}
 
-    - name: Build
-      run: |
-        rm package-lock.json
-        npm install -g npm@latest
-        npm install
-        npm run test
+      - name: Build
+        run: |
+          rm package-lock.json
+          npm install -g npm@latest
+          npm install
+          npm run test
 
   api-test:
+    name: backend (node env, api-test)
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+
+    strategy:
+      matrix:
+        node-version: [22.x]
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Use Node.js ${{ matrix.node-version }}
+        uses: actions/setup-node@v4
+        with:
+          node-version: ${{ matrix.node-version }}
+
+      - name: API Test
+        run: |
+          pip install -r ./tests/ci/requirements.txt
+          ./tests/ci/api-test.py
+
+  playwright-test:
+    name: puterjs (browser env, playwright)
     runs-on: ubuntu-latest
     timeout-minutes: 10
 
@@ -44,8 +67,76 @@ jobs:
         uses: actions/setup-node@v4
         with:
           node-version: ${{ matrix.node-version }}
-          
-      - name: API Test
+
+      - name: Install Dependencies
+        run: npm install
+        working-directory: ./tests/playwright
+
+      - name: Install Playwright Browsers
+        run: npx playwright install --with-deps
+        working-directory: ./tests/playwright
+
+      - name: Playwright Test
         run: |
-          pip install -r ./tools/api-tester/ci/requirements.txt
-          ./tools/api-tester/ci/run.py
+          pip install -r ./tests/ci/requirements.txt
+          ./tests/ci/playwright-test.py
+
+      - uses: actions/upload-artifact@v4
+        if: ${{ !cancelled() }}
+        with:
+          name: server-logs
+          path: |
+            /tmp/backend.log
+            /tmp/fs-tree-manager.log
+          retention-days: 3
+
+      - uses: actions/upload-artifact@v4
+        if: ${{ !cancelled() }}
+        with:
+          name: config-files
+          path: |
+            ./volatile/config/config.json
+            ./src/fs_tree_manager/config.yaml
+            ./tests/client-config.yaml
+          retention-days: 3
+
+      - uses: actions/upload-artifact@v4
+        if: ${{ !cancelled() }}
+        id: playwright-report
+        with:
+          name: playwright-report
+          path: tests/playwright/playwright-report/
+          retention-days: 3
+
+      - name: Get Playwright artifact URL
+        run: |
+          ARTIFACT_URL=$(gh api repos/${{ github.repository }}/actions/runs/${{ github.run_id }}/artifacts \
+            --jq '.artifacts[] | select(.name=="playwright-report") | .archive_download_url')
+          echo "url=$ARTIFACT_URL" >> $GITHUB_OUTPUT
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Output artifact URL
+        run: echo 'Artifact URL is ${{ steps.playwright-report.outputs.artifact-url }}'
+
+  vitest:
+    name: puterjs (node env, vitest)
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+
+    strategy:
+      matrix:
+        node-version: [22.x]
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Use Node.js ${{ matrix.node-version }}
+        uses: actions/setup-node@v4
+        with:
+          node-version: ${{ matrix.node-version }}
+
+      - name: Vitest Test
+        run: |
+          pip install -r ./tests/ci/requirements.txt
+          ./tests/ci/vitest.py
