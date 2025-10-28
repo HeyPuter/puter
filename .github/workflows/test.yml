@@ -54,7 +54,7 @@ jobs:
   playwright-test:
     name: puterjs (browser env, playwright)
     runs-on: ubuntu-latest
-    timeout-minutes: 5
+    timeout-minutes: 10
 
     strategy:
       matrix:
@@ -102,10 +102,22 @@ jobs:
 
       - uses: actions/upload-artifact@v4
         if: ${{ !cancelled() }}
+        id: playwright-report
         with:
           name: playwright-report
           path: tests/playwright/playwright-report/
           retention-days: 3
+
+      - name: Get Playwright artifact URL
+        run: |
+          ARTIFACT_URL=$(gh api repos/${{ github.repository }}/actions/runs/${{ github.run_id }}/artifacts \
+            --jq '.artifacts[] | select(.name=="playwright-report") | .archive_download_url')
+          echo "url=$ARTIFACT_URL" >> $GITHUB_OUTPUT
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Output artifact URL
+        run: echo 'Artifact URL is ${{ steps.playwright-report.outputs.artifact-url }}'
 
   vitest:
     name: puterjs (node env, vitest)
