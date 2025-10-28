@@ -36,11 +36,37 @@ const earnMoneyCTAButton = document.querySelector('.sidebar-earn-money');
 const sidebarEl = document.querySelector('.sidebar');
 const sidebarOverlay = document.querySelector('.sidebar-overlay');
 const sidebarMobileToggle = document.querySelector('.sidebar-mobile-toggle');
+const sidebarMobileDrawer = document.querySelector('.sidebar-mobile-drawer');
+const sidebarMobileClose = document.querySelector('.sidebar-mobile-close');
 const sidebarToggleButtons = document.querySelectorAll('.sidebar-toggle');
 const mobileSidebarQuery = window.matchMedia('(max-width: 840px)');
 let hasMarkedEarnMoneyDismissed = false;
 
 const isKVTruthy = (value) => value === true || value === 'true' || value?.result === true;
+
+const openMobileDrawer = () => {
+    if (!sidebarMobileDrawer) return;
+    try {
+        sidebarMobileDrawer.showModal();
+        if (sidebarMobileToggle) {
+            sidebarMobileToggle.setAttribute('aria-expanded', 'true');
+        }
+    } catch (err) {
+        console.warn('Unable to open mobile drawer', err);
+    }
+};
+
+const closeMobileDrawer = () => {
+    if (!sidebarMobileDrawer) return;
+    try {
+        sidebarMobileDrawer.close();
+        if (sidebarMobileToggle) {
+            sidebarMobileToggle.setAttribute('aria-expanded', 'false');
+        }
+    } catch (err) {
+        console.warn('Unable to close mobile drawer', err);
+    }
+};
 
 const updateSidebarAria = (open) => {
     const label = open ? 'Collapse navigation' : 'Open navigation';
@@ -52,9 +78,7 @@ const updateSidebarAria = (open) => {
 
     if (!sidebarEl) return;
 
-    if (mobileSidebarQuery.matches) {
-        sidebarEl.setAttribute('aria-hidden', open ? 'false' : 'true');
-    } else {
+    if (!mobileSidebarQuery.matches) {
         sidebarEl.removeAttribute('aria-hidden');
     }
 };
@@ -66,12 +90,7 @@ const setSidebarState = (open) => {
         sidebarEl.classList.add('open');
         document.body.classList.add('sidebar-open');
 
-        if (mobileSidebarQuery.matches) {
-            if (sidebarOverlay) {
-                sidebarOverlay.hidden = false;
-                requestAnimationFrame(() => sidebarOverlay.classList.add('visible'));
-            }
-        } else if (sidebarOverlay) {
+        if (!mobileSidebarQuery.matches && sidebarOverlay) {
             sidebarOverlay.classList.remove('visible');
             sidebarOverlay.hidden = true;
         }
@@ -95,11 +114,12 @@ const toggleSidebar = (forceOpen = null) => {
 };
 
 const refreshSidebarForViewport = () => {
-    if (!sidebarEl) return;
     if (mobileSidebarQuery.matches) {
-        setSidebarState(false);
+        closeMobileDrawer();
     } else {
-        setSidebarState(true);
+        if (sidebarEl) {
+            setSidebarState(true);
+        }
     }
 };
 
@@ -108,18 +128,36 @@ sidebarToggleButtons.forEach((btn) => {
 });
 
 if (sidebarMobileToggle) {
-    sidebarMobileToggle.addEventListener('click', () => toggleSidebar(true));
+    sidebarMobileToggle.addEventListener('click', () => {
+        if (mobileSidebarQuery.matches) {
+            openMobileDrawer();
+        } else {
+            toggleSidebar(true);
+        }
+    });
+}
+
+if (sidebarMobileClose) {
+    sidebarMobileClose.addEventListener('click', () => closeMobileDrawer());
+}
+
+if (sidebarMobileDrawer) {
+    sidebarMobileDrawer.addEventListener('close', () => {
+        if (sidebarMobileToggle) {
+            sidebarMobileToggle.setAttribute('aria-expanded', 'false');
+        }
+    });
+
+    sidebarMobileDrawer.addEventListener('click', (event) => {
+        if (event.target === sidebarMobileDrawer) {
+            closeMobileDrawer();
+        }
+    });
 }
 
 if (sidebarOverlay) {
     sidebarOverlay.addEventListener('click', () => toggleSidebar(false));
 }
-
-document.addEventListener('keydown', (event) => {
-    if (event.key === 'Escape' && mobileSidebarQuery.matches && sidebarEl?.classList.contains('open')) {
-        toggleSidebar(false);
-    }
-});
 
 const registerMediaQuery = () => {
     if (typeof mobileSidebarQuery.addEventListener === 'function') {
