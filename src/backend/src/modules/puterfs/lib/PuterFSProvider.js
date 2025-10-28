@@ -64,6 +64,7 @@ class PuterFSProvider extends putility.AdvancedBase {
     get_capabilities() {
         return new Set([
             fsCapabilities.THUMBNAIL,
+            fsCapabilities.UPDATE_THUMBNAIL,
             fsCapabilities.UUID,
             fsCapabilities.OPERATION_TRACE,
             fsCapabilities.READDIR_UUID_MODE,
@@ -563,6 +564,40 @@ class PuterFSProvider extends putility.AdvancedBase {
         } finally {
             await lock_handle.unlock();
         }
+    }
+    
+    async update_thumbnail({ context, node, thumbnail }) {
+        const {
+            actor: inputActor,
+        } = context.values;
+        const actor = inputActor ?? Context.get('actor');
+        
+        context = context ?? Context.get();
+        const services = context.get('services');
+
+        const svc_fsEntry = services.get('fsEntryService');
+        const svc_event = services.get('event');
+
+        const svc_acl = services.get('acl');
+        if ( ! await svc_acl.check(actor, node, 'write') ) {
+            throw await svc_acl.get_safe_acl_error(actor, node, 'write');
+        }
+
+        const uid = await node.get('uid');
+
+        const entryOp = await svc_fsEntry.update(uid, {
+            thumbnail
+        });
+
+        (async () => {
+            await entryOp.awaitDone();
+            svc_event.emit('fs.write.file', {
+                node,
+                context,
+            });
+        })();
+
+        return node;
     }
 
     /**

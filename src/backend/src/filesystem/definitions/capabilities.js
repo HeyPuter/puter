@@ -23,6 +23,7 @@ const capabilityNames = [
     'uuid',
     'operation-trace',
     'readdir-uuid-mode',
+    'update-thumbnail',
 
     // Standard Capabilities
     'read',
