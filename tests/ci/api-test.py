@@ -43,25 +43,6 @@ def update_server_config():
         json.dump(config, f, indent=2)
 
 
-def init_api_test(token: str):
-    """
-    TODO: replace with common.init_client_config
-    """
-    # Load the example config
-    example_config_path = f"{os.getcwd()}/tools/api-tester/example_config.yml"
-    config_path = f"{os.getcwd()}/tools/api-tester/config.yml"
-
-    with open(example_config_path, "r") as f:
-        config = yaml.safe_load(f)
-
-    config["token"] = token
-    config["url"] = "http://api.puter.localhost:4100"
-
-    # Write the updated config
-    with open(config_path, "w") as f:
-        yaml.dump(config, f, default_flow_style=False, indent=2)
-
-
 def run():
     # =========================================================================
     # free the port 4100
@@ -84,7 +65,7 @@ def run():
     time.sleep(10)
 
     token = common.get_token(admin_password)
-    init_api_test(token)
+    common.init_client_config(token)
 
     # =========================================================================
     # run the test
