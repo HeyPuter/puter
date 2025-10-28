@@ -1,3 +1,0 @@
-cxc-toolkit>=0.9.2
-requests==2.32.4
-PyYAML==6.0.2
