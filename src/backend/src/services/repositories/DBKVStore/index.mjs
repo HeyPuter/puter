@@ -13,7 +13,7 @@ export class DBKVServiceWrapper extends BaseService {
         });
         Object.getOwnPropertyNames(DBKVStore.prototype).forEach(fn => {
             if ( fn === 'constructor' ) return;
-            this[fn] = (...args) => this.kvStore[fn](args);
+            this[fn] = (...args) => this.kvStore[fn](...args);
         });
     }
     static IMPLEMENTS = {
