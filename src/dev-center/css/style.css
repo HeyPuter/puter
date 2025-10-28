@@ -1466,17 +1466,6 @@ select {
     font-family: var(--font-sans);
 }
 
-input[type="text"]:hover:not(:disabled),
-input[type="number"]:hover:not(:disabled),
-input[type="email"]:hover:not(:disabled),
-input[type="password"]:hover:not(:disabled),
-textarea:hover:not(:disabled),
-select:hover:not(:disabled) {
-    border-color: rgba(53, 93, 240, 0.35);
-    box-shadow: 0 2px 4px rgba(15, 23, 42, 0.06), inset 0 1px 2px rgba(15, 23, 42, 0.02);
-    background-color: #fafbff;
-}
-
 input[type="text"]:focus,
 input[type="number"]:focus,
 input[type="email"]:focus,
@@ -1544,11 +1533,6 @@ input[readonly] {
     background-color: rgba(248, 250, 255, 0.6);
     border-color: rgba(226, 232, 240, 0.7);
     cursor: default;
-}
-
-input[readonly]:hover {
-    border-color: rgba(226, 232, 240, 0.8);
-    box-shadow: 0 1px 2px rgba(15, 23, 42, 0.04);
 }
 
 input[readonly]:focus {
@@ -1685,10 +1669,6 @@ input[readonly]:focus {
     cursor: pointer;
     line-height: 1.5;
     letter-spacing: 0;
-}
-
-.section-tab label:has(input[type="checkbox"]):hover {
-    color: var(--color-primary);
 }
 
 /* ====================================
@@ -2416,9 +2396,6 @@ dialog::backdrop {
     letter-spacing: 0;
 }
 
-.settings-card-content .field-group input[type="checkbox"] + label:hover {
-    color: var(--color-primary);
-}
 
 .settings-card-content input[type="checkbox"] {
     width: 18px;
