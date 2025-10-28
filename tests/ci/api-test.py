@@ -11,79 +11,7 @@ import yaml
 
 import cxc_toolkit
 
-
-class Context:
-    def __init__(self):
-        self.ADMIN_PASSWORD = None
-        self.TOKEN = None
-
-
-CONTEXT = Context()
-
-
-def get_token():
-    # Send HTTP request to server and print response
-    print("Sending HTTP request to server...")
-    # Assuming the server runs on localhost:4100 (default Puter port)
-    server_url = "http://api.puter.localhost:4100/login"
-
-    # Prepare login data
-    login_data = {"username": "admin", "password": CONTEXT.ADMIN_PASSWORD}
-
-    # Send POST request using requests library
-    response = requests.post(
-        server_url,
-        headers={
-            "Content-Type": "application/json",
-            "Accept": "application/json",
-            "Origin": "http://api.puter.localhost:4100",
-        },
-        json=login_data,
-        timeout=30,
-    )
-
-    print(f"Server response status: {response.status_code}")
-    print(f"Server response body: {response.text}")
-
-    response_json = response.json()
-    print(f"Parsed JSON response: {json.dumps(response_json, indent=2)}")
-    print(f"Token: {response_json['token']}")
-    CONTEXT.TOKEN = response_json["token"]
-
-
-def init_server_config():
-    server_process = cxc_toolkit.exec.run_background("npm start")
-    # wait 10s for the server to start
-    time.sleep(10)
-    server_process.terminate()
-
-
-def get_admin_password():
-    backend_process = cxc_toolkit.exec.run_background(
-        "npm start", log_path="/tmp/backend.log"
-    )
-
-    # NB: run_command + kill_on_output may wait indefinitely, use run_background + hard limit instead
-    time.sleep(10)
-
-    backend_process.terminate()
-
-    # read the log file
-    with open("/tmp/backend.log", "r") as f:
-        lines = f.readlines()
-    for line in lines:
-        if "password for admin" in line:
-            print(f"found password line: ---{line}---")
-            admin_password = line.split("password for admin is:")[1].strip()
-            print(f"Extracted admin password: {admin_password}")
-            CONTEXT.ADMIN_PASSWORD = admin_password
-            return
-
-    if not CONTEXT.ADMIN_PASSWORD:
-        print("Error: No admin password found")
-        with open("/tmp/backend.log", "r") as f:
-            print(f.read())
-        exit(1)
+import common
 
 
 def update_server_config():
@@ -115,7 +43,10 @@ def update_server_config():
         json.dump(config, f, indent=2)
 
 
-def init_api_test():
+def init_api_test(token: str):
+    """
+    TODO: replace with common.init_client_config
+    """
     # Load the example config
     example_config_path = f"{os.getcwd()}/tools/api-tester/example_config.yml"
     config_path = f"{os.getcwd()}/tools/api-tester/config.yml"
@@ -123,12 +54,7 @@ def init_api_test():
     with open(example_config_path, "r") as f:
         config = yaml.safe_load(f)
 
-    # Update the token
-    if not CONTEXT.TOKEN:
-        print("Warning: No token available in CONTEXT")
-        exit(1)
-
-    config["token"] = CONTEXT.TOKEN
+    config["token"] = token
     config["url"] = "http://api.puter.localhost:4100"
 
     # Write the updated config
@@ -146,8 +72,8 @@ def run():
     # config server
     # =========================================================================
     cxc_toolkit.exec.run_command("npm install")
-    init_server_config()
-    get_admin_password()
+    common.init_backend_config()
+    admin_password = common.get_admin_password()
     update_server_config()
 
     # =========================================================================
@@ -157,8 +83,8 @@ def run():
     # wait 10s for the server to start
     time.sleep(10)
 
-    get_token()
-    init_api_test()
+    token = common.get_token(admin_password)
+    init_api_test(token)
 
     # =========================================================================
     # run the test
