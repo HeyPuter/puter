@@ -110,7 +110,13 @@ export default defineConfig([
             'src/backend/**/*.{js,mjs,cjs,ts}',
             'extensions/**/*.{js,mjs,cjs,ts}',
         ],
-        languageOptions: { globals: globals.browser },
+        languageOptions: {
+            globals: {
+                ...globals.browser,
+                ...globals.jquery,
+                i18n: 'readonly',
+            },
+        },
         rules: {
 
             'no-unused-vars': ['error', {
@@ -157,7 +163,13 @@ export default defineConfig([
     {
         files: ['**/*.{js,mjs,cjs,ts}'],
         ignores: ['src/backend/**/*.{js,mjs,cjs,ts}'],
-        languageOptions: { globals: globals.browser },
+        languageOptions: {
+            globals: {
+                ...globals.browser,
+                ...globals.jquery,
+                i18n: 'readonly',
+            },
+        },
         rules: {
             'no-unused-vars': ['error', {
                 'vars': 'all',
