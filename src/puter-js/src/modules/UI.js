@@ -1,7 +1,7 @@
+import putility from '@heyputer/putility';
+import EventListener from '../lib/EventListener.js';
 import FSItem from './FSItem.js';
 import PuterDialog from './PuterDialog.js';
-import EventListener  from '../lib/EventListener.js';
-import putility from '@heyputer/putility';
 
 const FILE_SAVE_CANCELLED = Symbol('FILE_SAVE_CANCELLED');
 const FILE_OPEN_CANCELLED = Symbol('FILE_OPEN_CANCELLED');
@@ -21,8 +21,8 @@ class AppConnection extends EventListener {
     // Whether the target app uses the Puter SDK, and so accepts messages
     // (Closing and close events will still function.)
     #usesSDK;
-    
-    static from (values, context) {
+
+    static from(values, context) {
         const connection = new AppConnection(context, {
             target: values.appInstanceID,
             usesSDK: values.usesSDK,
@@ -58,13 +58,13 @@ class AppConnection extends EventListener {
         // TODO: Set this.#puterOrigin to the puter origin
 
         (globalThis.document) && window.addEventListener('message', event => {
-            if (event.data.msg === 'messageToApp') {
-                if (event.data.appInstanceID !== this.targetAppInstanceID) {
+            if ( event.data.msg === 'messageToApp' ) {
+                if ( event.data.appInstanceID !== this.targetAppInstanceID ) {
                     // Message is from a different AppConnection; ignore it.
                     return;
                 }
                 // TODO: does this check really make sense?
-                if (event.data.targetAppInstanceID !== this.appInstanceID) {
+                if ( event.data.targetAppInstanceID !== this.appInstanceID ) {
                     console.error(`AppConnection received message intended for wrong app! appInstanceID=${this.appInstanceID}, target=${event.data.targetAppInstanceID}`);
                     return;
                 }
@@ -72,8 +72,8 @@ class AppConnection extends EventListener {
                 return;
             }
 
-            if (event.data.msg === 'appClosed') {
-                if (event.data.appInstanceID !== this.targetAppInstanceID) {
+            if ( event.data.msg === 'appClosed' ) {
+                if ( event.data.appInstanceID !== this.targetAppInstanceID ) {
                     // Message is from a different AppConnection; ignore it.
                     return;
                 }
@@ -88,16 +88,18 @@ class AppConnection extends EventListener {
     }
 
     // Does the target app use the Puter SDK? If not, certain features will be unavailable.
-    get usesSDK() { return this.#usesSDK; }
+    get usesSDK() {
+        return this.#usesSDK;
+    }
 
     // Send a message to the target app. Requires the target to use the Puter SDK.
     postMessage(message) {
-        if (!this.#isOpen) {
+        if ( !this.#isOpen ) {
             console.warn('Trying to post message on a closed AppConnection');
             return;
         }
 
-        if (!this.#usesSDK) {
+        if ( !this.#usesSDK ) {
             console.warn('Trying to post message to a non-SDK app');
             return;
         }
@@ -116,7 +118,7 @@ class AppConnection extends EventListener {
 
     // Attempt to close the target application
     close() {
-        if (!this.#isOpen) {
+        if ( !this.#isOpen ) {
             console.warn('Trying to close an app on a closed AppConnection');
             return;
         }
@@ -134,7 +136,7 @@ class UI extends EventListener {
     // we start from 1 because 0 is falsy and we want to avoid that for the message id
     #messageID = 1;
 
-    // Holds the callback functions for the various events 
+    // Holds the callback functions for the various events
     // that are triggered when a watched item has changed.
     itemWatchCallbackFunctions = [];
 
@@ -147,15 +149,15 @@ class UI extends EventListener {
     // If we have a parent app, holds an AppConnection to it
     #parentAppConnection = null;
 
-    // Holds the callback functions for the various events 
+    // Holds the callback functions for the various events
     // that can be triggered by the host environment's messages.
     #callbackFunctions = [];
 
-    // onWindowClose() is executed right before the window is closed. Users can override this function 
+    // onWindowClose() is executed right before the window is closed. Users can override this function
     // to perform a variety of tasks right before window is closed. Users can override this function.
     #onWindowClose;
 
-    // When an item is opened by this app in any way onItemsOpened() is executed. Users can override this function. 
+    // When an item is opened by this app in any way onItemsOpened() is executed. Users can override this function.
     #onItemsOpened;
 
     #onLaunchedWithItems;
@@ -170,7 +172,7 @@ class UI extends EventListener {
     #overlayTimer = null;
 
     // Replaces boilerplate for most methods: posts a message to the GUI with a unique ID, and sets a callback for it.
-    #postMessageWithCallback = function(name, resolve, args = {}) {
+    #postMessageWithCallback(name, resolve, args = {}) {
         const msg_id = this.#messageID++;
         this.messageTarget?.postMessage({
             msg: name,
@@ -183,9 +185,9 @@ class UI extends EventListener {
         this.#callbackFunctions[msg_id] = resolve;
     }
 
-    #postMessageWithObject = function(name, value) {
+    #postMessageWithObject(name, value) {
         const dehydrator = this.util.rpc.getDehydrator({
-            target: this.messageTarget
+            target: this.messageTarget,
         });
         this.messageTarget?.postMessage({
             msg: name,
@@ -193,9 +195,9 @@ class UI extends EventListener {
             appInstanceID: this.appInstanceID,
             value: dehydrator.dehydrate(value),
         }, '*');
-    }
-    
-    #ipc_stub = async function ({
+    };
+
+    async #ipc_stub({
         callback,
         method,
         parameters,
@@ -207,10 +209,10 @@ class UI extends EventListener {
                 done_setting_resolve();
             });
         });
-        if ( ! resolve ) debugger;
         const callback_id = this.util.rpc.registerCallback(resolve);
         this.messageTarget?.postMessage({
-            $: 'puter-ipc', v: 2,
+            $: 'puter-ipc',
+            v: 2,
             appInstanceID: this.appInstanceID,
             env: this.env,
             msg: method,
@@ -220,9 +222,9 @@ class UI extends EventListener {
         const ret = await p;
         if ( callback ) callback(ret);
         return ret;
-    }
+    };
 
-    constructor (context, { appInstanceID, parentInstanceID }) {
+    constructor(context, { appInstanceID, parentInstanceID }) {
         const eventNames = [
             'localeChanged',
             'themeChanged',
@@ -237,10 +239,10 @@ class UI extends EventListener {
         this.env = context.env;
         this.util = context.util;
 
-        if(this.env === 'app'){
+        if ( this.env === 'app' ){
             this.messageTarget = window.parent;
         }
-        else if(this.env === 'gui'){
+        else if ( this.env === 'gui' ){
             return;
         }
 
@@ -250,24 +252,24 @@ class UI extends EventListener {
             messageTarget: this.messageTarget,
         });
 
-        if (this.parentInstanceID) {
+        if ( this.parentInstanceID ) {
             this.#parentAppConnection = new AppConnection(this.context, {
                 target: this.parentInstanceID,
-                usesSDK: true
+                usesSDK: true,
             });
         }
 
         // Tell the host environment that this app is using the Puter SDK and is ready to receive messages,
         // this will allow the OS to send custom messages to the app
         this.messageTarget?.postMessage({
-            msg: "READY",
+            msg: 'READY',
             appInstanceID: this.appInstanceID,
         }, '*');
 
         // When this app's window is focused send a message to the host environment
         (globalThis.document) && window.addEventListener('focus', (e) => {
             this.messageTarget?.postMessage({
-                msg: "windowFocused",
+                msg: 'windowFocused',
                 appInstanceID: this.appInstanceID,
             }, '*');
         });
@@ -275,44 +277,46 @@ class UI extends EventListener {
         // Bind the message event listener to the window
         let lastDraggedOverElement = null;
         (globalThis.document) && window.addEventListener('message', async (e) => {
-            if (!e.data) return;
+            if ( !e.data ) return;
             // `error`
-            if(e.data.error){
+            if ( e.data.error ){
                 throw e.data.error;
             }
             // `focus` event
-            else if(e.data.msg && e.data.msg === 'focus'){
+            else if ( e.data.msg && e.data.msg === 'focus' ){
                 window.focus();
             }
             // `click` event
-            else if(e.data.msg && e.data.msg === 'click'){
+            else if ( e.data.msg && e.data.msg === 'click' ){
                 // Get the element that was clicked on and click it
                 const clicked_el = document.elementFromPoint(e.data.x, e.data.y);
-                if(clicked_el !== null)
+                if ( clicked_el !== null )
+                {
                     clicked_el.click();
+                }
             }
             // `dragover` event based on the `drag` event from the host environment
-            else if(e.data.msg && e.data.msg === 'drag'){
+            else if ( e.data.msg && e.data.msg === 'drag' ){
                 // Get the element being dragged over
                 const draggedOverElement = document.elementFromPoint(e.data.x, e.data.y);
-                if(draggedOverElement !== lastDraggedOverElement){
+                if ( draggedOverElement !== lastDraggedOverElement ){
                     // If the last element exists and is different from the current, dispatch a dragleave on it
-                    if(lastDraggedOverElement){
+                    if ( lastDraggedOverElement ){
                         const dragLeaveEvent = new Event('dragleave', {
                             bubbles: true,
                             cancelable: true,
                             clientX: e.data.x,
-                            clientY: e.data.y
+                            clientY: e.data.y,
                         });
                         lastDraggedOverElement.dispatchEvent(dragLeaveEvent);
                     }
                     // If the current element exists and is different from the last, dispatch dragenter on it
-                    if(draggedOverElement){
+                    if ( draggedOverElement ){
                         const dragEnterEvent = new Event('dragenter', {
                             bubbles: true,
                             cancelable: true,
                             clientX: e.data.x,
-                            clientY: e.data.y
+                            clientY: e.data.y,
                         });
                         draggedOverElement.dispatchEvent(dragEnterEvent);
                     }
@@ -322,28 +326,28 @@ class UI extends EventListener {
                 }
             }
             // `drop` event
-            else if(e.data.msg && e.data.msg === 'drop'){
-                if(lastDraggedOverElement){
+            else if ( e.data.msg && e.data.msg === 'drop' ){
+                if ( lastDraggedOverElement ){
                     const dropEvent = new CustomEvent('drop', {
                         bubbles: true,
                         cancelable: true,
                         detail: {
                             clientX: e.data.x,
                             clientY: e.data.y,
-                            items: e.data.items
-                        }
+                            items: e.data.items,
+                        },
                     });
                     lastDraggedOverElement.dispatchEvent(dropEvent);
-                    
+
                     // Reset the lastDraggedOverElement
                     lastDraggedOverElement = null;
                 }
             }
             // windowWillClose
-            else if(e.data.msg === 'windowWillClose'){
+            else if ( e.data.msg === 'windowWillClose' ){
                 // If the user has not overridden onWindowClose() then send a message back to the host environment
                 // to let it know that it is ok to close the window.
-                if(this.#onWindowClose === undefined){
+                if ( this.#onWindowClose === undefined ){
                     this.messageTarget?.postMessage({
                         msg: true,
                         appInstanceID: this.appInstanceID,
@@ -351,9 +355,9 @@ class UI extends EventListener {
                     }, '*');
                 }
                 // If the user has overridden onWindowClose() then send a message back to the host environment
-                // to let it know that it is NOT ok to close the window. Then execute onWindowClose() and the user will 
+                // to let it know that it is NOT ok to close the window. Then execute onWindowClose() and the user will
                 // have to manually close the window.
-                else{
+                else {
                     this.messageTarget?.postMessage({
                         msg: false,
                         appInstanceID: this.appInstanceID,
@@ -363,18 +367,18 @@ class UI extends EventListener {
                 }
             }
             // itemsOpened
-            else if(e.data.msg === 'itemsOpened'){
+            else if ( e.data.msg === 'itemsOpened' ){
                 // If the user has not overridden onItemsOpened() then only send a message back to the host environment
-                if(this.#onItemsOpened === undefined){
+                if ( this.#onItemsOpened === undefined ){
                     this.messageTarget?.postMessage({
                         msg: true,
                         appInstanceID: this.appInstanceID,
                         original_msg_id: e.data.msg_id,
-                    }, '*');        
+                    }, '*');
                 }
                 // If the user has overridden onItemsOpened() then send a message back to the host environment
                 // and execute onItemsOpened()
-                else{
+                else {
                     this.messageTarget?.postMessage({
                         msg: false,
                         appInstanceID: this.appInstanceID,
@@ -382,59 +386,63 @@ class UI extends EventListener {
                     }, '*');
 
                     let items = [];
-                    if(e.data.items.length > 0){
-                        for (let index = 0; index < e.data.items.length; index++)
-                            items.push(new FSItem(e.data.items[index]))
+                    if ( e.data.items.length > 0 ){
+                        for ( let index = 0; index < e.data.items.length; index++ )
+                        {
+                            items.push(new FSItem(e.data.items[index]));
+                        }
                     }
                     this.#onItemsOpened(items);
                 }
             }
             // getAppDataSucceeded
-            else if(e.data.msg === 'getAppDataSucceeded'){
+            else if ( e.data.msg === 'getAppDataSucceeded' ){
                 let appDataItem = new FSItem(e.data.item);
-                if(e.data.original_msg_id && this.#callbackFunctions[e.data.original_msg_id]){
+                if ( e.data.original_msg_id && this.#callbackFunctions[e.data.original_msg_id] ){
                     this.#callbackFunctions[e.data.original_msg_id](appDataItem);
                 }
             }
             // instancesOpenSucceeded
-            else if(e.data.msg === 'instancesOpenSucceeded'){
-                if(e.data.original_msg_id && this.#callbackFunctions[e.data.original_msg_id]){
+            else if ( e.data.msg === 'instancesOpenSucceeded' ){
+                if ( e.data.original_msg_id && this.#callbackFunctions[e.data.original_msg_id] ){
                     this.#callbackFunctions[e.data.original_msg_id](e.data.instancesOpen);
                 }
             }
             // readAppDataFileSucceeded
-            else if(e.data.msg === 'readAppDataFileSucceeded'){
+            else if ( e.data.msg === 'readAppDataFileSucceeded' ){
                 let appDataItem = new FSItem(e.data.item);
-                if(e.data.original_msg_id && this.#callbackFunctions[e.data.original_msg_id]){
+                if ( e.data.original_msg_id && this.#callbackFunctions[e.data.original_msg_id] ){
                     this.#callbackFunctions[e.data.original_msg_id](appDataItem);
                 }
             }
             // readAppDataFileFailed
-            else if(e.data.msg === 'readAppDataFileFailed'){
-                if(e.data.original_msg_id && this.#callbackFunctions[e.data.original_msg_id]){
+            else if ( e.data.msg === 'readAppDataFileFailed' ){
+                if ( e.data.original_msg_id && this.#callbackFunctions[e.data.original_msg_id] ){
                     this.#callbackFunctions[e.data.original_msg_id](null);
                 }
             }
             // Determine if this is a response to a previous message and if so, is there
             // a callback function for this message? if answer is yes to both then execute the callback
-            else if(e.data.original_msg_id !== undefined && this.#callbackFunctions[e.data.original_msg_id]){
-                if(e.data.msg === 'fileOpenPicked'){
+            else if ( e.data.original_msg_id !== undefined && this.#callbackFunctions[e.data.original_msg_id] ){
+                if ( e.data.msg === 'fileOpenPicked' ){
                     // 1 item returned
-                    if(e.data.items.length === 1){
-                        this.#callbackFunctions[e.data.original_msg_id](new FSItem(e.data.items[0]));                             
+                    if ( e.data.items.length === 1 ){
+                        this.#callbackFunctions[e.data.original_msg_id](new FSItem(e.data.items[0]));
                     }
                     // multiple items returned
-                    else if(e.data.items.length > 1){
+                    else if ( e.data.items.length > 1 ){
                         // multiple items returned
                         let items = [];
-                        for (let index = 0; index < e.data.items.length; index++)
-                            items.push(new FSItem(e.data.items[index]))
+                        for ( let index = 0; index < e.data.items.length; index++ )
+                        {
+                            items.push(new FSItem(e.data.items[index]));
+                        }
                         this.#callbackFunctions[e.data.original_msg_id](items);
                     }
                 }
-                else if(e.data.msg === 'directoryPicked'){
+                else if ( e.data.msg === 'directoryPicked' ){
                     // 1 item returned
-                    if(e.data.items.length === 1){
+                    if ( e.data.items.length === 1 ){
                         this.#callbackFunctions[e.data.original_msg_id](new FSItem({
                             uid: e.data.items[0].uid,
                             name: e.data.items[0].fsentry_name,
@@ -450,47 +458,49 @@ class UI extends EventListener {
                         }));
                     }
                     // multiple items returned
-                    else if(e.data.items.length > 1){
+                    else if ( e.data.items.length > 1 ){
                         // multiple items returned
                         let items = [];
-                        for (let index = 0; index < e.data.items.length; index++)
-                            items.push(new FSItem(e.data.items[index]))
+                        for ( let index = 0; index < e.data.items.length; index++ )
+                        {
+                            items.push(new FSItem(e.data.items[index]));
+                        }
                         this.#callbackFunctions[e.data.original_msg_id](items);
                     }
                 }
-                else if(e.data.msg === 'colorPicked'){
+                else if ( e.data.msg === 'colorPicked' ){
                     // execute callback
                     this.#callbackFunctions[e.data.original_msg_id](e.data.color);
                 }
-                else if(e.data.msg === 'fontPicked'){
+                else if ( e.data.msg === 'fontPicked' ){
                     // execute callback
-                    this.#callbackFunctions[e.data.original_msg_id](e.data.font); 
+                    this.#callbackFunctions[e.data.original_msg_id](e.data.font);
                 }
-                else if(e.data.msg === 'alertResponded'){
+                else if ( e.data.msg === 'alertResponded' ){
                     // execute callback
-                    this.#callbackFunctions[e.data.original_msg_id](e.data.response); 
+                    this.#callbackFunctions[e.data.original_msg_id](e.data.response);
                 }
-                else if(e.data.msg === 'promptResponded'){
+                else if ( e.data.msg === 'promptResponded' ){
                     // execute callback
-                    this.#callbackFunctions[e.data.original_msg_id](e.data.response); 
+                    this.#callbackFunctions[e.data.original_msg_id](e.data.response);
                 }
-                else if(e.data.msg === 'languageReceived'){
+                else if ( e.data.msg === 'languageReceived' ){
                     // execute callback
-                    this.#callbackFunctions[e.data.original_msg_id](e.data.language); 
+                    this.#callbackFunctions[e.data.original_msg_id](e.data.language);
                 }
-                else if(e.data.msg === "fileSaved"){
+                else if ( e.data.msg === 'fileSaved' ){
                     // execute callback
-                    this.#callbackFunctions[e.data.original_msg_id](new FSItem(e.data.saved_file)); 
+                    this.#callbackFunctions[e.data.original_msg_id](new FSItem(e.data.saved_file));
                 }
-                else if(e.data.msg === "fileSaveCancelled"){
+                else if ( e.data.msg === 'fileSaveCancelled' ){
                     // execute callback
                     this.#callbackFunctions[e.data.original_msg_id](FILE_SAVE_CANCELLED);
                 }
-                else if(e.data.msg === "fileOpenCancelled"){
+                else if ( e.data.msg === 'fileOpenCancelled' ){
                     // execute callback
                     this.#callbackFunctions[e.data.original_msg_id](FILE_OPEN_CANCELLED);
                 }
-                else{
+                else {
                     // execute callback
                     this.#callbackFunctions[e.data.original_msg_id](e.data);
                 }
@@ -499,15 +509,17 @@ class UI extends EventListener {
                 delete this.#callbackFunctions[e.data.original_msg_id];
             }
             // Item Watch response
-            else if(e.data.msg === "itemChanged" && e.data.data && e.data.data.uid){
+            else if ( e.data.msg === 'itemChanged' && e.data.data && e.data.data.uid ){
                 //excute callback
-                if(this.itemWatchCallbackFunctions[e.data.data.uid] && typeof this.itemWatchCallbackFunctions[e.data.data.uid] === 'function')
+                if ( this.itemWatchCallbackFunctions[e.data.data.uid] && typeof this.itemWatchCallbackFunctions[e.data.data.uid] === 'function' )
+                {
                     this.itemWatchCallbackFunctions[e.data.data.uid](e.data.data);
+                }
             }
             // Broadcasts
-            else if (e.data.msg === 'broadcast') {
+            else if ( e.data.msg === 'broadcast' ) {
                 const { name, data } = e.data;
-                if (!this.#eventNames.includes(name)) {
+                if ( !this.#eventNames.includes(name) ) {
                     return;
                 }
                 this.emit(name, data);
@@ -541,16 +553,16 @@ class UI extends EventListener {
         // We need to send the mouse position to the host environment
         // This is important since a lot of UI elements depend on the mouse position (e.g. ContextMenus, Tooltips, etc.)
         // and the host environment needs to know the mouse position to show these elements correctly.
-        // The host environment can't just get the mouse position since when the mouse is over an iframe it 
+        // The host environment can't just get the mouse position since when the mouse is over an iframe it
         // will not be able to get the mouse position. So we need to send the mouse position to the host environment.
-        globalThis.document?.addEventListener('mousemove', async (event)=>{
+        globalThis.document?.addEventListener('mousemove', async (event) => {
             // Get the mouse position from the event object
             this.mouseX = event.clientX;
             this.mouseY = event.clientY;
 
             // send the mouse position to the host environment
             this.messageTarget?.postMessage({
-                msg: "mouseMoved",
+                msg: 'mouseMoved',
                 appInstanceID: this.appInstanceID,
                 x: this.mouseX,
                 y: this.mouseY,
@@ -558,26 +570,26 @@ class UI extends EventListener {
         });
 
         // click
-        globalThis.document?.addEventListener('click', async (event)=>{
+        globalThis.document?.addEventListener('click', async (event) => {
             // Get the mouse position from the event object
             this.mouseX = event.clientX;
             this.mouseY = event.clientY;
 
             // send the mouse position to the host environment
             this.messageTarget?.postMessage({
-                msg: "mouseClicked",
+                msg: 'mouseClicked',
                 appInstanceID: this.appInstanceID,
                 x: this.mouseX,
                 y: this.mouseY,
             }, '*');
-        })
+        });
     }
 
-    onWindowClose = function(callback) {
+    onWindowClose(callback) {
         this.#onWindowClose = callback;
-    }
+    };
 
-    onItemsOpened = function(callback) {
+    onItemsOpened(callback) {
         // DEPRECATED - this is also called when items are dropped on the app, which in new versions should be handled
         // with the 'drop' event.
         // Check if a file was opened with this app, i.e. check URL parameters of window/iframe
@@ -585,13 +597,15 @@ class UI extends EventListener {
         // before we can call it. This is why we need to check the URL parameters here.
         // This should also be done only the very first time the callback is set (hence the if(!this.#onItemsOpened) check) since
         // the URL parameters will be checked every time the callback is set which can cause problems if the callback is set multiple times.
-        if(!this.#onItemsOpened){
+        if ( !this.#onItemsOpened ){
             let URLParams = new URLSearchParams(globalThis.location.search);
-            if(URLParams.has('puter.item.name') && URLParams.has('puter.item.uid') && URLParams.has('puter.item.read_url')){
+            if ( URLParams.has('puter.item.name') && URLParams.has('puter.item.uid') && URLParams.has('puter.item.read_url') ){
                 let fpath = URLParams.get('puter.item.path');
 
-                if(!fpath.startsWith('~/') && !fpath.startsWith('/'))
-                    fpath = '~/' + fpath;
+                if ( !fpath.startsWith('~/') && !fpath.startsWith('/') )
+                {
+                    fpath = `~/${fpath}`;
+                }
 
                 callback([new FSItem({
                     name: URLParams.get('puter.item.name'),
@@ -609,30 +623,32 @@ class UI extends EventListener {
         }
 
         this.#onItemsOpened = callback;
-    }
+    };
 
     // Check if the app was launched with items
     // This is useful for apps that are launched with items (e.g. when a file is opened with the app)
-    wasLaunchedWithItems = function() {
+    wasLaunchedWithItems() {
         const URLParams = new URLSearchParams(globalThis.location.search);
-        return URLParams.has('puter.item.name') && 
-               URLParams.has('puter.item.uid') && 
-               URLParams.has('puter.item.read_url');
-    }
+        return URLParams.has('puter.item.name') &&
+            URLParams.has('puter.item.uid') &&
+            URLParams.has('puter.item.read_url');
+    };
 
-    onLaunchedWithItems = function(callback) {
+    onLaunchedWithItems(callback) {
         // Check if a file was opened with this app, i.e. check URL parameters of window/iframe
         // Even though the file has been opened when the app is launched, we need to wait for the onLaunchedWithItems callback to be set
         // before we can call it. This is why we need to check the URL parameters here.
         // This should also be done only the very first time the callback is set (hence the if(!this.#onLaunchedWithItems) check) since
         // the URL parameters will be checked every time the callback is set which can cause problems if the callback is set multiple times.
-        if(!this.#onLaunchedWithItems){
+        if ( !this.#onLaunchedWithItems ){
             let URLParams = new URLSearchParams(globalThis.location.search);
-            if(URLParams.has('puter.item.name') && URLParams.has('puter.item.uid') && URLParams.has('puter.item.read_url')){
+            if ( URLParams.has('puter.item.name') && URLParams.has('puter.item.uid') && URLParams.has('puter.item.read_url') ){
                 let fpath = URLParams.get('puter.item.path');
 
-                if(!fpath.startsWith('~/') && !fpath.startsWith('/'))
-                    fpath = '~/' + fpath;
+                if ( !fpath.startsWith('~/') && !fpath.startsWith('/') )
+                {
+                    fpath = `~/${fpath}`;
+                }
 
                 callback([new FSItem({
                     name: URLParams.get('puter.item.name'),
@@ -650,93 +666,99 @@ class UI extends EventListener {
         }
 
         this.#onLaunchedWithItems = callback;
-    }
+    };
 
-    requestEmailConfirmation = function() {
+    requestEmailConfirmation() {
         return new Promise((resolve, reject) => {
             this.#postMessageWithCallback('requestEmailConfirmation', resolve, {  });
         });
-    }
+    };
 
-    alert = function(message, buttons, options, callback) {
+    alert(message, buttons, options, callback) {
         return new Promise((resolve) => {
             this.#postMessageWithCallback('ALERT', resolve, { message, buttons, options });
-        })
+        });
+    };
+
+    openDevPaymentsAccount() {
+        return new Promise((resolve) => {
+            this.#postMessageWithCallback('openDevPaymentsAccount', resolve, {  });
+        });
     }
 
-    instancesOpen = function(callback) {
+    instancesOpen(callback) {
         return new Promise((resolve) => {
             this.#postMessageWithCallback('getInstancesOpen', resolve, {  });
-        })
-    }
+        });
+    };
 
-    socialShare = function(url, message, options, callback) {
+    socialShare(url, message, options, callback) {
         return new Promise((resolve) => {
             this.#postMessageWithCallback('socialShare', resolve, { url, message, options });
-        })
-    }
+        });
+    };
 
-    prompt = function(message, placeholder, options, callback) {
+    prompt(message, placeholder, options, callback) {
         return new Promise((resolve) => {
             this.#postMessageWithCallback('PROMPT', resolve, { message, placeholder, options });
-        })
-    }
+        });
+    };
 
-    showDirectoryPicker = function(options, callback){
+    showDirectoryPicker(options, callback){
         return new Promise((resolve, reject) => {
-            if (!globalThis.open) {
-                return reject("This API is not compatible in Web Workers.");
+            if ( !globalThis.open ) {
+                return reject('This API is not compatible in Web Workers.');
             }
             const msg_id = this.#messageID++;
-            if(this.env === 'app'){
+            if ( this.env === 'app' ){
                 this.messageTarget?.postMessage({
-                    msg: "showDirectoryPicker",
+                    msg: 'showDirectoryPicker',
                     appInstanceID: this.appInstanceID,
                     uuid: msg_id,
                     options: options,
                     env: this.env,
                 }, '*');
-            }else{
+            } else {
                 let w = 700;
                 let h = 400;
                 let title = 'Puter: Open Directory';
-                var left = (screen.width/2)-(w/2);
-                var top = (screen.height/2)-(h/2);
-                window.open(`${puter.defaultGUIOrigin}/action/show-directory-picker?embedded_in_popup=true&msg_id=${msg_id}&appInstanceID=${this.appInstanceID}&env=${this.env}&options=${JSON.stringify(options)}`, 
-                title, 
-                'toolbar=no, location=no, directories=no, status=no, menubar=no, scrollbars=no, resizable=no, copyhistory=no, width='+w+', height='+h+', top='+top+', left='+left);
+                var left = (screen.width / 2) - (w / 2);
+                var top = (screen.height / 2) - (h / 2);
+                window.open(`${puter.defaultGUIOrigin}/action/show-directory-picker?embedded_in_popup=true&msg_id=${msg_id}&appInstanceID=${this.appInstanceID}&env=${this.env}&options=${JSON.stringify(options)}`,
+                                title,
+                                `toolbar=no, location=no, directories=no, status=no, menubar=no, scrollbars=no, resizable=no, copyhistory=no, width=${w}, height=${h}, top=${top}, left=${left}`);
             }
 
             //register callback
             this.#callbackFunctions[msg_id] = resolve;
-        })
-    }
+        });
+    };
 
-    showOpenFilePicker = function(options, callback){
+    showOpenFilePicker(options, callback){
         const undefinedOnCancel = new putility.libs.promise.TeePromise();
         const resolveOnlyPromise = new Promise((resolve, reject) => {
-            if (!globalThis.open) {
-                return reject("This API is not compatible in Web Workers.");
+            if ( !globalThis.open ) {
+                return reject('This API is not compatible in Web Workers.');
             }
             const msg_id = this.#messageID++;
 
-            if(this.env === 'app'){
+            if ( this.env === 'app' ){
                 this.messageTarget?.postMessage({
-                    msg: "showOpenFilePicker",
+                    msg: 'showOpenFilePicker',
                     appInstanceID: this.appInstanceID,
                     uuid: msg_id,
                     options: options ?? {},
                     env: this.env,
                 }, '*');
-            }else{                
+            } else {
                 let w = 700;
                 let h = 400;
                 let title = 'Puter: Open File';
-                var left = (screen.width/2)-(w/2);
-                var top = (screen.height/2)-(h/2);
-                window.open(`${puter.defaultGUIOrigin}/action/show-open-file-picker?embedded_in_popup=true&msg_id=${msg_id}&appInstanceID=${this.appInstanceID}&env=${this.env}&options=${JSON.stringify(options ?? {})}`, 
-                title, 
-                'toolbar=no, location=no, directories=no, status=no, menubar=no, scrollbars=no, resizable=no, copyhistory=no, width='+w+', height='+h+', top='+top+', left='+left);
+                var left = (screen.width / 2) - (w / 2);
+                var top = (screen.height / 2) - (h / 2);
+                window.open(`${puter.defaultGUIOrigin}/action/show-open-file-picker?embedded_in_popup=true&msg_id=${msg_id}&appInstanceID=${this.appInstanceID}&env=${this.env}&options=${JSON.stringify(options ?? {})}`,
+                                title,
+                                `toolbar=no, location=no, directories=no, status=no, menubar=no, scrollbars=no, resizable=no, copyhistory=no, width=${w}, height=${h}, top=${top}, left=${left}`);
             }
             //register callback
             this.#callbackFunctions[msg_id] = (maybe_result) => {
@@ -748,45 +770,45 @@ class UI extends EventListener {
                 undefinedOnCancel.resolve(maybe_result);
                 resolve(maybe_result);
             };
-        })
+        });
         resolveOnlyPromise.undefinedOnCancel = undefinedOnCancel;
         return resolveOnlyPromise;
-    }
+    };
 
-    showFontPicker = function(options){
+    showFontPicker(options){
         return new Promise((resolve) => {
             this.#postMessageWithCallback('showFontPicker', resolve, { options: options ?? {} });
-        })
-    }
+        });
+    };
 
-    showColorPicker = function(options){
+    showColorPicker(options){
         return new Promise((resolve) => {
             this.#postMessageWithCallback('showColorPicker', resolve, { options: options ?? {} });
-        })
-    }
+        });
+    };
 
-    requestUpgrade = function() {
+    requestUpgrade() {
         return new Promise((resolve) => {
             this.#postMessageWithCallback('requestUpgrade', resolve, {  });
-        })
-    }
+        });
+    };
 
-    showSaveFilePicker = function(content, suggestedName, type){
+    showSaveFilePicker(content, suggestedName, type){
         const undefinedOnCancel = new putility.libs.promise.TeePromise();
         const resolveOnlyPromise = new Promise((resolve, reject) => {
-            if (!globalThis.open) {
-                return reject("This API is not compatible in Web Workers.");
+            if ( !globalThis.open ) {
+                return reject('This API is not compatible in Web Workers.');
             }
             const msg_id = this.#messageID++;
             if ( ! type && Object.prototype.toString.call(content) === '[object URL]' ) {
                 type = 'url';
             }
             const url = type === 'url' ? content.toString() : undefined;
-            const source_path = ['move','copy'].includes(type) ? content : undefined;
-            
-            if(this.env === 'app'){
+            const source_path = ['move', 'copy'].includes(type) ? content : undefined;
+
+            if ( this.env === 'app' ){
                 this.messageTarget?.postMessage({
-                    msg: "showSaveFilePicker",
+                    msg: 'showSaveFilePicker',
                     appInstanceID: this.appInstanceID,
                     content: url ? undefined : content,
                     save_type: type,
@@ -794,19 +816,19 @@ class UI extends EventListener {
                     source_path,
                     suggestedName: suggestedName ?? '',
                     env: this.env,
-                    uuid: msg_id
+                    uuid: msg_id,
                 }, '*');
-            }else{
+            } else {
                 window.addEventListener('message', async (e) => {
-                    if(e.data?.msg === "sendMeFileData"){
+                    if ( e.data?.msg === 'sendMeFileData' ){
                         // Send the blob URL to the host environment
                         e.source.postMessage({
-                            msg: "showSaveFilePickerPopup",
+                            msg: 'showSaveFilePickerPopup',
                             content: url ? undefined : content,
                             url: url ? url.toString() : undefined,
                             suggestedName: suggestedName ?? '',
                             env: this.env,
-                            uuid: msg_id
+                            uuid: msg_id,
                         }, '*');
 
                         // remove the event listener
@@ -814,7 +836,7 @@ class UI extends EventListener {
                     }
                 });
                 // Create a Blob from your binary data
-                let blob = new Blob([content], {type: 'application/octet-stream'});
+                let blob = new Blob([content], { type: 'application/octet-stream' });
 
                 // Create an object URL for the Blob
                 let objectUrl = URL.createObjectURL(blob);
@@ -822,11 +844,11 @@ class UI extends EventListener {
                 let w = 700;
                 let h = 400;
                 let title = 'Puter: Save File';
-                var left = (screen.width/2)-(w/2);
-                var top = (screen.height/2)-(h/2);
-                window.open(`${puter.defaultGUIOrigin}/action/show-save-file-picker?embedded_in_popup=true&msg_id=${msg_id}&appInstanceID=${this.appInstanceID}&env=${this.env}&blobUrl=${encodeURIComponent(objectUrl)}`, 
-                title, 
-                'toolbar=no, location=no, directories=no, status=no, menubar=no, scrollbars=no, resizable=no, copyhistory=no, width='+w+', height='+h+', top='+top+', left='+left);
+                var left = (screen.width / 2) - (w / 2);
+                var top = (screen.height / 2) - (h / 2);
+                window.open(`${puter.defaultGUIOrigin}/action/show-save-file-picker?embedded_in_popup=true&msg_id=${msg_id}&appInstanceID=${this.appInstanceID}&env=${this.env}&blobUrl=${encodeURIComponent(objectUrl)}`,
+                                title,
+                                `toolbar=no, location=no, directories=no, status=no, menubar=no, scrollbars=no, resizable=no, copyhistory=no, width=${w}, height=${h}, top=${top}, left=${left}`);
             }
             //register callback
             this.#callbackFunctions[msg_id] = (maybe_result) => {
@@ -839,159 +861,159 @@ class UI extends EventListener {
                 resolve(maybe_result);
             };
         });
-        
-        resolveOnlyPromise.undefinedOnCancel = undefinedOnCancel;
-        
-        return resolveOnlyPromise;
-    }
 
-    setWindowTitle = function(title, window_id, callback) {
-        if(typeof window_id === 'function'){
+        resolveOnlyPromise.undefinedOnCancel = undefinedOnCancel;
+
+        return resolveOnlyPromise;
+    };
+
+    setWindowTitle(title, window_id, callback) {
+        if ( typeof window_id === 'function' ){
             callback = window_id;
             window_id = undefined;
-        }else if(typeof window_id === "object" && window_id !== null){
+        } else if ( typeof window_id === 'object' && window_id !== null ){
             window_id = window_id.id;
         }
 
         return new Promise((resolve) => {
-            this.#postMessageWithCallback('setWindowTitle', resolve, { new_title: title, window_id: window_id});
-        })
-    }
+            this.#postMessageWithCallback('setWindowTitle', resolve, { new_title: title, window_id: window_id });
+        });
+    };
 
-    setWindowWidth = function(width, window_id, callback) {
-        if(typeof window_id === 'function'){
+    setWindowWidth(width, window_id, callback) {
+        if ( typeof window_id === 'function' ){
             callback = window_id;
             window_id = undefined;
-        }else if(typeof window_id === "object" && window_id !== null){
+        } else if ( typeof window_id === 'object' && window_id !== null ){
             window_id = window_id.id;
         }
-        
+
         return new Promise((resolve) => {
             this.#postMessageWithCallback('setWindowWidth', resolve, { width: width, window_id: window_id });
-        })
-    }
+        });
+    };
 
-    setWindowHeight = function(height, window_id, callback) {
-        if(typeof window_id === 'function'){
+    setWindowHeight(height, window_id, callback) {
+        if ( typeof window_id === 'function' ){
             callback = window_id;
             window_id = undefined;
-        }else if(typeof window_id === "object" && window_id !== null){
+        } else if ( typeof window_id === 'object' && window_id !== null ){
             window_id = window_id.id;
         }
-        
+
         return new Promise((resolve) => {
             this.#postMessageWithCallback('setWindowHeight', resolve, { height: height, window_id: window_id });
-        })
-    }
+        });
+    };
 
-    setWindowSize = function(width, height, window_id, callback) {
-        if(typeof window_id === 'function'){
+    setWindowSize(width, height, window_id, callback) {
+        if ( typeof window_id === 'function' ){
             callback = window_id;
             window_id = undefined;
-        }else if(typeof window_id === "object" && window_id !== null){
+        } else if ( typeof window_id === 'object' && window_id !== null ){
             window_id = window_id.id;
         }
-        
+
         return new Promise((resolve) => {
             this.#postMessageWithCallback('setWindowSize', resolve, { width: width, height: height, window_id: window_id });
-        })
-    }
+        });
+    };
 
-    setWindowPosition = function(x, y, window_id, callback) {
-        if(typeof window_id === 'function'){
+    setWindowPosition(x, y, window_id, callback) {
+        if ( typeof window_id === 'function' ){
             callback = window_id;
             window_id = undefined;
-        }else if(typeof window_id === "object" && window_id !== null){
+        } else if ( typeof window_id === 'object' && window_id !== null ){
             window_id = window_id.id;
         }
-        
+
         return new Promise((resolve) => {
             this.#postMessageWithCallback('setWindowPosition', resolve, { x, y, window_id });
-        })
-    }
+        });
+    };
 
-    setWindowY = function(y, window_id, callback) {
-        if(typeof window_id === 'function'){
+    setWindowY(y, window_id, callback) {
+        if ( typeof window_id === 'function' ){
             callback = window_id;
             window_id = undefined;
-        }else if(typeof window_id === "object" && window_id !== null){
+        } else if ( typeof window_id === 'object' && window_id !== null ){
             window_id = window_id.id;
         }
 
         return new Promise((resolve) => {
             this.#postMessageWithCallback('setWindowY', resolve, { y, window_id });
-        })
-    }
+        });
+    };
 
-    setWindowX = function(x, window_id, callback) {
-        if(typeof window_id === 'function'){
+    setWindowX(x, window_id, callback) {
+        if ( typeof window_id === 'function' ){
             callback = window_id;
             window_id = undefined;
-        }else if(typeof window_id === "object" && window_id !== null){
+        } else if ( typeof window_id === 'object' && window_id !== null ){
             window_id = window_id.id;
         }
 
         return new Promise((resolve) => {
             this.#postMessageWithCallback('setWindowX', resolve, { x, window_id });
-        })
-    }
+        });
+    };
 
-    showWindow = function() {
+    showWindow() {
         this.#postMessageWithObject('showWindow');
-    }
+    };
 
-    hideWindow = function() {
+    hideWindow() {
         this.#postMessageWithObject('hideWindow');
-    }
+    };
 
-    toggleWindow = function() {
+    toggleWindow() {
         this.#postMessageWithObject('toggleWindow');
-    }
+    };
 
-    setMenubar = function(spec) {
+    setMenubar(spec) {
         this.#postMessageWithObject('setMenubar', spec);
-    }
+    };
 
-    requestPermission = function(options) {
+    requestPermission(options) {
         return new Promise((resolve) => {
-            if (this.env === 'app') {
+            if ( this.env === 'app' ) {
                 return new Promise((resolve) => {
                     this.#postMessageWithCallback('requestPermission', resolve, { options });
-                })
+                });
             } else {
                 // TODO: Implement for web
                 resolve(false);
             }
-        })
-    }
+        });
+    };
 
-    disableMenuItem = function(item_id) {
-        this.#postMessageWithObject('disableMenuItem', {id: item_id});
-    }
+    disableMenuItem(item_id) {
+        this.#postMessageWithObject('disableMenuItem', { id: item_id });
+    };
 
-    enableMenuItem = function(item_id) {
-        this.#postMessageWithObject('enableMenuItem', {id: item_id});
-    }
+    enableMenuItem(item_id) {
+        this.#postMessageWithObject('enableMenuItem', { id: item_id });
+    };
 
-    setMenuItemIcon = function(item_id, icon) {
-        this.#postMessageWithObject('setMenuItemIcon', {id: item_id, icon: icon});
-    }
+    setMenuItemIcon(item_id, icon) {
+        this.#postMessageWithObject('setMenuItemIcon', { id: item_id, icon: icon });
+    };
 
-    setMenuItemIconActive = function(item_id, icon) {
-        this.#postMessageWithObject('setMenuItemIconActive', {id: item_id, icon: icon});
-    }
+    setMenuItemIconActive(item_id, icon) {
+        this.#postMessageWithObject('setMenuItemIconActive', { id: item_id, icon: icon });
+    };
 
-    setMenuItemChecked = function(item_id, checked) {
-        this.#postMessageWithObject('setMenuItemChecked', {id: item_id, checked: checked});
-    }
+    setMenuItemChecked(item_id, checked) {
+        this.#postMessageWithObject('setMenuItemChecked', { id: item_id, checked: checked });
+    };
 
-    contextMenu = function(spec) {
+    contextMenu(spec) {
         this.#postMessageWithObject('contextMenu', spec);
-    }
+    };
 
     /**
      * Asynchronously extracts entries from DataTransferItems, like files and directories.
-     * 
+     *
      * @private
      * @function
      * @async
@@ -1000,107 +1022,109 @@ class UI extends EventListener {
      * @param {boolean} [options.raw=false] - Determines if the file path should be processed.
      * @returns {Promise<Array<File|Entry>>} - A promise that resolves to an array of File or Entry objects.
      * @throws {Error} - Throws an error if there's an EncodingError and provides information about how to solve it.
-     * 
+     *
      * @example
      * const items = event.dataTransfer.items;
      * const entries = await getEntriesFromDataTransferItems(items, { raw: false });
      */
     getEntriesFromDataTransferItems = async function(dataTransferItems, options = { raw: false }) {
         const checkErr = (err) => {
-            if (this.getEntriesFromDataTransferItems.didShowInfo) return
-            if (err.name !== 'EncodingError') return
-            this.getEntriesFromDataTransferItems.didShowInfo = true
+            if ( this.getEntriesFromDataTransferItems.didShowInfo ) return;
+            if ( err.name !== 'EncodingError' ) return;
+            this.getEntriesFromDataTransferItems.didShowInfo = true;
             const infoMsg = `${err.name} occurred within datatransfer-files-promise module\n`
                 + `Error message: "${err.message}"\n`
-                + 'Try serving html over http if currently you are running it from the filesystem.'
-            console.warn(infoMsg)
-        }
+                + 'Try serving html over http if currently you are running it from the filesystem.';
+            console.warn(infoMsg);
+        };
 
         const readFile = (entry, path = '') => {
             return new Promise((resolve, reject) => {
                 entry.file(file => {
-                    if (!options.raw) file.filepath = path + file.name // save full path
-                    resolve(file)
+                    if ( !options.raw ) file.filepath = path + file.name; // save full path
+                    resolve(file);
                 }, (err) => {
-                    checkErr(err)
-                    reject(err)
-                })
-            })
-        }
+                    checkErr(err);
+                    reject(err);
+                });
+            });
+        };
 
         const dirReadEntries = (dirReader, path) => {
             return new Promise((resolve, reject) => {
                 dirReader.readEntries(async entries => {
-                    let files = []
-                    for (let entry of entries) {
-                        const itemFiles = await getFilesFromEntry(entry, path)
-                        files = files.concat(itemFiles)
+                    let files = [];
+                    for ( let entry of entries ) {
+                        const itemFiles = await getFilesFromEntry(entry, path);
+                        files = files.concat(itemFiles);
                     }
-                    resolve(files)
+                    resolve(files);
                 }, (err) => {
-                    checkErr(err)
-                    reject(err)
-                })
-            })
-        }
+                    checkErr(err);
+                    reject(err);
+                });
+            });
+        };
 
         const readDir = async (entry, path) => {
-            const dirReader = entry.createReader()
-            const newPath = path + entry.name + '/'
-            let files = []
-            let newFiles
+            const dirReader = entry.createReader();
+            const newPath = `${path + entry.name}/`;
+            let files = [];
+            let newFiles;
             do {
-                newFiles = await dirReadEntries(dirReader, newPath)
-                files = files.concat(newFiles)
-            } while (newFiles.length > 0)
-            return files
-        }
+                newFiles = await dirReadEntries(dirReader, newPath);
+                files = files.concat(newFiles);
+            } while ( newFiles.length > 0 );
+            return files;
+        };
 
         const getFilesFromEntry = async (entry, path = '') => {
-            if(entry === null)
+            if ( entry === null )
+            {
                 return;
-            else if (entry.isFile) {
-                const file = await readFile(entry, path)
-                return [file]
             }
-            else if (entry.isDirectory) {
-                const files = await readDir(entry, path)
-                files.push(entry)
-                return files
+            else if ( entry.isFile ) {
+                const file = await readFile(entry, path);
+                return [file];
             }
-        }
+            else if ( entry.isDirectory ) {
+                const files = await readDir(entry, path);
+                files.push(entry);
+                return files;
+            }
+        };
 
-        let files = []
-        let entries = []
+        let files = [];
+        let entries = [];
 
         // Pull out all entries before reading them
-        for (let i = 0, ii = dataTransferItems.length; i < ii; i++) {
-            entries.push(dataTransferItems[i].webkitGetAsEntry())
+        for ( let i = 0, ii = dataTransferItems.length; i < ii; i++ ) {
+            entries.push(dataTransferItems[i].webkitGetAsEntry());
         }
 
         // Recursively read through all entries
-        for (let entry of entries) {
-            const newFiles = await getFilesFromEntry(entry)
-            files = files.concat(newFiles)
+        for ( let entry of entries ) {
+            const newFiles = await getFilesFromEntry(entry);
+            files = files.concat(newFiles);
         }
 
-        return files
-    }
+        return files;
+    };
 
-    authenticateWithPuter = function() {
-        if(this.env !== 'web'){
+    authenticateWithPuter() {
+        if ( this.env !== 'web' ){
             return;
         }
 
         // if authToken is already present, resolve immediately
-        if(this.authToken){
+        if ( this.authToken ){
             return new Promise((resolve) => {
                 resolve();
-            })
+            });
         }
 
         // If a prompt is already open, return a promise that resolves based on the existing prompt's result.
-        if (puter.puterAuthState.isPromptOpen) {
+        if ( puter.puterAuthState.isPromptOpen ) {
             return new Promise((resolve, reject) => {
                 puter.puterAuthState.resolver = { resolve, reject };
             });
@@ -1111,7 +1135,7 @@ class UI extends EventListener {
         puter.puterAuthState.authGranted = null;
 
         return new Promise((resolve, reject) => {
-            if (!puter.authToken) {
+            if ( !puter.authToken ) {
                 const puterDialog = new PuterDialog(resolve, reject);
                 document.body.appendChild(puterDialog);
                 puterDialog.open();
@@ -1120,7 +1144,7 @@ class UI extends EventListener {
                 resolve();
             }
         });
-    }
+    };
 
     // Returns a Promise<AppConnection>
     /**
@@ -1128,16 +1152,16 @@ class UI extends EventListener {
      * @param {*} nameOrOptions - name of the app as a string, or an options object
      * @param {*} args - named parameters that will be passed to the app as arguments
      * @param {*} callback - in case you don't want to use `await` or `.then()`
-     * @returns 
+     * @returns
      */
     launchApp = async function launchApp(nameOrOptions, args, callback) {
         let pseudonym = undefined;
         let file_paths = undefined;
         let items = undefined;
         let app_name = nameOrOptions; // becomes string after branch below
-        
+
         // Handle case where app_name is an options object
-        if (typeof app_name === 'object' && app_name !== null) {
+        if ( typeof app_name === 'object' && app_name !== null ) {
             const options = app_name;
             app_name = options.name || options.app_name;
             file_paths = options.file_paths;
@@ -1146,22 +1170,22 @@ class UI extends EventListener {
             pseudonym = options.pseudonym;
             items = options.items;
         }
-        
+
         if ( items ) {
             if ( ! Array.isArray(items) ) items = [];
-            for ( let i=0 ; i < items.length ; i++ ) {
+            for ( let i = 0 ; i < items.length ; i++ ) {
                 if ( items[i] instanceof FSItem ) {
                     items[i] = items[i]._internalProperties.file_signature;
                 }
             }
         }
-        
+
         if ( app_name && app_name.includes('#(as)') ) {
             [app_name, pseudonym] = app_name.split('#(as)');
         }
-        
+
         if ( ! app_name ) app_name = puter.appName;
-        
+
         const app_info = await this.#ipc_stub({
             method: 'launchApp',
             callback,
@@ -1173,39 +1197,39 @@ class UI extends EventListener {
                 args,
             },
         });
-        
-        return AppConnection.from(app_info, this.context);
-    }
 
-    connectToInstance = async function connectToInstance (app_name) {
+        return AppConnection.from(app_info, this.context);
+    };
+
+    connectToInstance = async function connectToInstance(app_name) {
         const app_info = await this.#ipc_stub({
             method: 'connectToInstance',
             parameters: {
                 app_name,
-            }
+            },
         });
 
         return AppConnection.from(app_info, this.context);
-    }
+    };
 
     parentApp() {
         return this.#parentAppConnection;
     }
 
-    createWindow = function (options, callback) {
+    createWindow(options, callback) {
         return new Promise((resolve) => {
-            this.#postMessageWithCallback('createWindow', (res)=>{
+            this.#postMessageWithCallback('createWindow', (res) => {
                 resolve(res.window);
             }, { options: options ?? {} });
-        })
-    }
+        });
+    };
 
     // Menubar
-    menubar = function(){
+    menubar(){
         // Remove previous style tag
         document.querySelectorAll('style.puter-stylesheet').forEach(function(el) {
             el.remove();
-        })
+        });
 
         // Add new style tag
         const style = document.createElement('style');
@@ -1341,32 +1365,34 @@ class UI extends EventListener {
 
         document.addEventListener('click', function(e){
             // Don't hide if clicking on disabled item
-            if(e.target.classList.contains('dropdown-item-disabled'))
+            if ( e.target.classList.contains('dropdown-item-disabled') )
+            {
                 return false;
+            }
             // Hide open menus
-            if(!(e.target).classList.contains('menubar-item')){
+            if ( !(e.target).classList.contains('menubar-item') ){
                 document.querySelectorAll('.menubar-item.menubar-item-open').forEach(function(el) {
                     el.classList.remove('menubar-item-open');
-                })
+                });
 
-                document.querySelectorAll('.dropdown').forEach(el => el.style.display = "none");
+                document.querySelectorAll('.dropdown').forEach(el => el.style.display = 'none');
             }
         });
 
         // When focus is gone from this window, hide open menus
         window.addEventListener('blur', function(e){
             document.querySelectorAll('.dropdown').forEach(function(el) {
-                el.style.display = "none";
-            })
+                el.style.display = 'none';
+            });
             document.querySelectorAll('.menubar-item.menubar-item-open').forEach(el => el.classList.remove('menubar-item-open'));
         });
 
         // Returns the siblings of the element
-        const siblings = function (e) {
-            const siblings = []; 
+        const siblings = function(e) {
+            const siblings = [];
 
             // if no parent, return empty list
-            if(!e.parentNode) {
+            if ( !e.parentNode ) {
                 return siblings;
             }
 
@@ -1374,8 +1400,8 @@ class UI extends EventListener {
             let sibling  = e.parentNode.firstChild;
 
             // get all other siblings
-            while (sibling) {
-                if (sibling.nodeType === 1 && sibling !== e) {
+            while ( sibling ) {
+                if ( sibling.nodeType === 1 && sibling !== e ) {
                     siblings.push(sibling);
                 }
                 sibling = sibling.nextSibling;
@@ -1389,24 +1415,26 @@ class UI extends EventListener {
             document.querySelectorAll('.dropdown').forEach(function(el) {
                 el.style.display = 'none';
             });
-             
+
             // Remove open class from all menus, except this menu that was just clicked
             document.querySelectorAll('.menubar-item.menubar-item-open').forEach(function(el) {
-                if(el != e.target)
+                if ( el != e.target )
+                {
                     el.classList.remove('menubar-item-open');
+                }
             });
-            
+
             // If menu is already open, close it
-            if(this.classList.contains('menubar-item-open')){
+            if ( this.classList.contains('menubar-item-open') ){
                 document.querySelectorAll('.menubar-item.menubar-item-open').forEach(function(el) {
                     el.classList.remove('menubar-item-open');
                 });
             }
 
             // If menu is not open, open it
-            else if(!e.target.classList.contains('dropdown-item')){
-                this.classList.add('menubar-item-open')
-        
+            else if ( !e.target.classList.contains('dropdown-item') ){
+                this.classList.add('menubar-item-open');
+
                 // show all sibling
                 siblings(this).forEach(function(el) {
                     el.style.display = 'block';
@@ -1418,16 +1446,16 @@ class UI extends EventListener {
         // If a menu is open, and you hover over another menu, open that menu
         document.querySelectorAll('.--puter-menubar .menubar-item').forEach(el => el.addEventListener('mouseover', function(e){
             const open_menus = document.querySelectorAll('.menubar-item.menubar-item-open');
-            if(open_menus.length > 0 && open_menus[0] !== e.target){
+            if ( open_menus.length > 0 && open_menus[0] !== e.target ){
                 e.target.dispatchEvent(new Event('mousedown'));
             }
-        }))
-    }
+        }));
+    };
 
     on(eventName, callback) {
         super.on(eventName, callback);
         // If we already received a broadcast for this event, run the callback immediately
-        if (this.#eventNames.includes(eventName) && this.#lastBroadcastValue.has(eventName)) {
+        if ( this.#eventNames.includes(eventName) && this.#lastBroadcastValue.has(eventName) ) {
             callback(this.#lastBroadcastValue.get(eventName));
         }
     }
@@ -1436,10 +1464,10 @@ class UI extends EventListener {
     #hideTimeout = null;
 
     showSpinner(html) {
-        if (this.#overlayActive) return;
-    
+        if ( this.#overlayActive ) return;
+
         // Create and add stylesheet for spinner if it doesn't exist
-        if (!document.getElementById('puter-spinner-styles')) {
+        if ( !document.getElementById('puter-spinner-styles') ) {
             const styleSheet = document.createElement('style');
             styleSheet.id = 'puter-spinner-styles';
             styleSheet.textContent = `
@@ -1480,10 +1508,10 @@ class UI extends EventListener {
             `;
             document.head.appendChild(styleSheet);
         }
-    
+
         const overlay = document.createElement('div');
         overlay.classList.add('puter-loading-overlay');
-    
+
         const styles = {
             position: 'fixed',
             top: '0',
@@ -1495,49 +1523,49 @@ class UI extends EventListener {
             display: 'flex',
             justifyContent: 'center',
             alignItems: 'center',
-            pointerEvents: 'all'
+            pointerEvents: 'all',
         };
-    
+
         Object.assign(overlay.style, styles);
-        
+
         // Create container for spinner and text
         const container = document.createElement('div');
         container.classList.add('puter-loading-container');
-        
+
         // Add spinner and text
         container.innerHTML = `
             <div class="puter-loading-spinner"></div>
             <div class="puter-loading-text">${html ?? 'Working...'}</div>
         `;
-        
+
         overlay.appendChild(container);
         document.body.appendChild(overlay);
-    
+
         this.#overlayActive = true;
         this.#showTime = Date.now(); // Add show time tracking
         this.#overlayTimer = setTimeout(() => {
             this.#overlayTimer = null;
         }, 1000);
     }
-    
+
     hideSpinner() {
-        if (!this.#overlayActive) return;
-    
-        if (this.#overlayTimer) {
+        if ( !this.#overlayActive ) return;
+
+        if ( this.#overlayTimer ) {
             clearTimeout(this.#overlayTimer);
             this.#overlayTimer = null;
         }
-    
+
         // Calculate how long the spinner has been shown
         const elapsedTime = Date.now() - this.#showTime;
         const remainingTime = Math.max(0, 1200 - elapsedTime);
-    
+
         // If less than 1 second has passed, delay the hide
-        if (remainingTime > 0) {
-            if (this.#hideTimeout) {
+        if ( remainingTime > 0 ) {
+            if ( this.#hideTimeout ) {
                 clearTimeout(this.#hideTimeout);
             }
-            
+
             this.#hideTimeout = setTimeout(() => {
                 this.#removeSpinner();
             }, remainingTime);
@@ -1545,14 +1573,14 @@ class UI extends EventListener {
             this.#removeSpinner();
         }
     }
-    
+
     // Add private method to handle spinner removal
     #removeSpinner() {
         const overlay = document.querySelector('.puter-loading-overlay');
-        if (overlay) {
+        if ( overlay ) {
             overlay.parentNode?.removeChild(overlay);
         }
-    
+
         this.#overlayActive = false;
         this.#showTime = null;
         this.#hideTimeout = null;
@@ -1564,16 +1592,16 @@ class UI extends EventListener {
 
     /**
      * Gets the current language/locale code (e.g., 'en', 'fr', 'es').
-     * 
+     *
      * @returns {Promise<string>} A promise that resolves with the current language code.
-     * 
+     *
      * @example
      * const currentLang = await puter.ui.getLanguage();
      * console.log(`Current language: ${currentLang}`); // e.g., "Current language: fr"
      */
     getLanguage() {
         // resolve with the current language code if in GUI environment
-        if(this.env === 'gui'){
+        if ( this.env === 'gui' ){
             // resolve with the current language code
             return new Promise((resolve) => {
                 resolve(window.locale);
@@ -1586,4 +1614,4 @@ class UI extends EventListener {
     }
 }
 
-export default UI
+export default UI;
