@@ -48,16 +48,29 @@ class MountpointService extends BaseService {
     }
 
     async ['__on_boot.consolidation']() {
+        // Emit event for registering filesystem types
+        const svc_event = this.services.get('event');
+        const event = {};
+        event.createFilesystemType = (name, filesystemType) => {
+            this.#mounters[name] = filesystemType;
+        };
+        await svc_event.emit('create.filesystem-types', event);
+        
+        // Determine mountpoints configuration
         const mountpoints = this.config.mountpoints ?? {
             '/': {
                 mounter: 'puterfs',
             },
         };
 
+        // Mount filesystems
         for ( const path of Object.keys(mountpoints) ) {
             const { mounter: mounter_name, options } =
                 mountpoints[path];
             const mounter = this.#mounters[mounter_name];
+            if ( ! mounter ) {
+                throw new Error(`unrecognized filesystem type: ${mounter_name}`);
+            }
             const provider = await mounter.mount({
                 path,
                 options,

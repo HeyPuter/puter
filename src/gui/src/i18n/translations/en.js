@@ -565,6 +565,8 @@ const en = {
         'device_tablet': 'Tablet',
         'current': 'Current',
         'session_manager_description': 'Manage your active sessions across all devices. You can revoke access to any session except your current one.',
+        'error_user_or_path_not_found': 'User or path not found.',
+        'error_invalid_username': 'Invalid username.',
     }
 };
 

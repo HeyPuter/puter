@@ -675,6 +675,78 @@ class AI{
             }
         }).call(this, options);
     }
+
+    txt2vid = async (...args) => {
+        let options = {};
+        let testMode = false;
+
+        if(!args){
+            throw({message: 'Arguments are required', code: 'arguments_required'});
+        }
+
+        if (typeof args[0] === 'string') {
+            options = { prompt: args[0] };
+        }
+
+        if (typeof args[1] === 'boolean' && args[1] === true) {
+            testMode = true;
+        }
+
+        if (typeof args[0] === 'string' && typeof args[1] === "object") {
+            options = args[1];
+            options.prompt = args[0];
+        }
+
+        if (typeof args[0] === 'object') {
+            options = args[0];
+        }
+
+        if (!options.prompt) {
+            throw({message: 'Prompt parameter is required', code: 'prompt_required'});
+        }
+
+        if (!options.model) {
+            options.model = 'sora-2';
+        }
+
+        if (options.duration !== undefined && options.seconds === undefined) {
+            options.seconds = options.duration;
+        }
+
+        return await utils.make_driver_method(['prompt'], 'puter-video-generation', 'openai-video-generation', 'generate', {
+            responseType: 'blob',
+            test_mode: testMode ?? false,
+            transform: async result => {
+                let sourceUrl = null;
+                let mimeType = null;
+                if (result instanceof Blob) {
+                    sourceUrl = await utils.blob_to_url(result);
+                    mimeType = result.type || 'video/mp4';
+                } else if (typeof result === 'string') {
+                    sourceUrl = result;
+                } else if (result && typeof result === 'object') {
+                    sourceUrl = result.asset_url || result.url || result.href || null;
+                    mimeType = result.mime_type || result.content_type || null;
+                }
+
+                if (!sourceUrl) {
+                    return result;
+                }
+
+                const video = document.createElement('video');
+                video.src = sourceUrl;
+                video.controls = true;
+                video.preload = 'metadata';
+                if (mimeType) {
+                    video.setAttribute('data-mime-type', mimeType);
+                }
+                video.setAttribute('data-source', sourceUrl);
+                video.toString = () => video.src;
+                video.valueOf = () => video.src;
+                return video;
+            }
+        }).call(this, options);
+    }
 }
 
 export default AI;

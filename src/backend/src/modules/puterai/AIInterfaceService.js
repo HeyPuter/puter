@@ -125,6 +125,44 @@ class AIInterfaceService extends BaseService {
             }
         });
 
+        col_interfaces.set('puter-video-generation', {
+            description: 'AI Video Generation.',
+            methods: {
+                generate: {
+                    description: 'Generate a video from a prompt.',
+                    parameters: {
+                        prompt: { type: 'string' },
+                        model: { type: 'string', optional: true },
+                        seconds: { type: 'number', optional: true },
+                        duration: { type: 'number', optional: true },
+                        size: { type: 'string', optional: true },
+                        resolution: { type: 'string', optional: true },
+                        input_reference: { type: 'file', optional: true },
+                    },
+                    result_choices: [
+                        {
+                            names: ['url'],
+                            type: {
+                                $: 'string:url:web',
+                                content_type: 'video',
+                            }
+                        },
+                        {
+                            names: ['video'],
+                            type: {
+                                $: 'stream',
+                                content_type: 'video',
+                            }
+                        },
+                    ],
+                    result: {
+                        description: 'Video asset descriptor or URL for the generated video.',
+                        type: 'json'
+                    }
+                }
+            }
+        });
+
         col_interfaces.set('puter-tts', {
             description: 'Text-to-speech.',
             methods: {

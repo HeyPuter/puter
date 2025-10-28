@@ -1391,104 +1391,6 @@ async function UIDesktop(options) {
         })
     }
 
-    //--------------------------------------------------------------------------------------
-    // Trying to view a user's public folder?
-    // i.e. https://puter.com/@<username>
-    //--------------------------------------------------------------------------------------
-    const url_paths = window.location.pathname.split('/').filter(element => element);
-    if (url_paths[0]?.startsWith('@')) {
-        const username = url_paths[0].substring(1);
-        let item_path = '/' + username + '/Public';
-        if ( url_paths.length > 1 ) {
-            item_path += '/' + url_paths.slice(1).join('/');
-        }
-
-        // GUARD: avoid invalid user directories
-        {
-            if (!username.match(/^[a-z0-9_]+$/i)) {
-                UIAlert({
-                    message: 'Invalid username.'
-                });
-                return;
-            }
-        }
-
-        const stat = await puter.fs.stat({path: item_path, consistency: 'eventual'});
-        
-        // TODO: DRY everything here with open_item. Unfortunately we can't
-        //       use open_item here because it's coupled with UI logic;
-        //       it requires a UIItem element and cannot operate on a
-        //       file path on its own.
-        if ( ! stat.is_dir ) {
-            if ( stat.associated_app ) {
-                launch_app({ name: stat.associated_app.name });
-                return;
-            }
-            
-            const ext_pref =
-                window.user_preferences[`default_apps${path.extname(item_path).toLowerCase()}`];
-            
-            if ( ext_pref ) {
-                launch_app({
-                    name: ext_pref,
-                    file_path: item_path,
-                });
-                return;
-            }
-            
-
-            const open_item_meta = await $.ajax({
-                url: window.api_origin + "/open_item",
-                type: 'POST',
-                contentType: "application/json",
-                data: JSON.stringify({
-                    path: item_path,
-                }),
-                headers: {
-                    "Authorization": "Bearer "+window.auth_token
-                },
-                statusCode: {
-                    401: function () {
-                        window.logout();
-                    },
-                },
-            });
-            const suggested_apps = open_item_meta?.suggested_apps ?? await window.suggest_apps_for_fsentry({
-                path: item_path
-            });
-
-            // Note: I'm not adding unzipping logic here. We'll wait until
-            //       we've refactored open_item so that Puter can have a
-            //       properly-reusable open function.
-            if ( suggested_apps.length !== 0 ) {
-                launch_app({
-                    name: suggested_apps[0].name, 
-                    token: open_item_meta.token,
-                    file_path: item_path,
-                    app_obj: suggested_apps[0],
-                    window_title: path.basename(item_path),
-                    maximized: options.maximized,
-                    file_signature: open_item_meta.signature,
-                });
-                return;
-            }
-
-            await UIAlert({
-                message: 'Cannot find an app to open this file; ' +
-                    'opening directory instead.'
-            });
-            item_path = item_path.split('/').slice(0, -1).join('/')
-        }
-
-        UIWindow({
-            path: item_path,
-            title: path.basename(item_path),
-            icon: await item_icon({ is_dir: true, path: item_path }),
-            is_dir: true,
-            app: 'explorer',
-        });
-    }
-
     window.hide_toolbar = (animate = true) => {
         // Always show toolbar on mobile and tablet devices
         if (isMobile.phone || isMobile.tablet) {
@@ -1770,6 +1672,115 @@ async function UIDesktop(options) {
             }
         }
     });
+
+    //--------------------------------------------------------------------------------------
+    // Trying to view a user's public folder?
+    // i.e. https://puter.com/@<username>
+    //--------------------------------------------------------------------------------------
+    const url_paths = window.location.pathname.split('/').filter(element => element);
+    if (url_paths[0]?.startsWith('@')) {
+        const username = url_paths[0].substring(1);
+        let item_path = '/' + username + '/Public';
+        if ( url_paths.length > 1 ) {
+            item_path += '/' + url_paths.slice(1).join('/');
+        }
+
+        // GUARD: avoid invalid user directories
+        {
+            if (!username.match(/^[a-z0-9_]+$/i)) {
+                UIAlert({
+                    message: i18n('error_invalid_username')
+                });
+                return;
+            }
+        }
+
+        let stat;
+        try {
+          stat = await puter.fs.stat({path: item_path, consistency: 'eventual'});
+        } catch ( e ) {
+            window.history.replaceState(null, document.title, '/');
+            UIAlert({
+                message: i18n('error_user_or_path_not_found'),
+                type: 'error'
+            });
+            return;
+        }
+
+        // TODO: DRY everything here with open_item. Unfortunately we can't
+        //       use open_item here because it's coupled with UI logic;
+        //       it requires a UIItem element and cannot operate on a
+        //       file path on its own.
+        if ( ! stat.is_dir ) {
+            if ( stat.associated_app ) {
+                launch_app({ name: stat.associated_app.name });
+                return;
+            }
+            
+            const ext_pref =
+                window.user_preferences[`default_apps${path.extname(item_path).toLowerCase()}`];
+            
+            if ( ext_pref ) {
+                launch_app({
+                    name: ext_pref,
+                    file_path: item_path,
+                });
+                return;
+            }
+            
+
+            const open_item_meta = await $.ajax({
+                url: window.api_origin + "/open_item",
+                type: 'POST',
+                contentType: "application/json",
+                data: JSON.stringify({
+                    path: item_path,
+                }),
+                headers: {
+                    "Authorization": "Bearer "+window.auth_token
+                },
+                statusCode: {
+                    401: function () {
+                        window.logout();
+                    },
+                },
+            });
+            const suggested_apps = open_item_meta?.suggested_apps ?? await window.suggest_apps_for_fsentry({
+                path: item_path
+            });
+
+            // Note: I'm not adding unzipping logic here. We'll wait until
+            //       we've refactored open_item so that Puter can have a
+            //       properly-reusable open function.
+            if ( suggested_apps.length !== 0 ) {
+                launch_app({
+                    name: suggested_apps[0].name, 
+                    token: open_item_meta.token,
+                    file_path: item_path,
+                    app_obj: suggested_apps[0],
+                    window_title: path.basename(item_path),
+                    maximized: options.maximized,
+                    file_signature: open_item_meta.signature,
+                    custom_path: window.location.pathname,
+                });
+                return;
+            }
+
+            await UIAlert({
+                message: 'Cannot find an app to open this file; ' +
+                    'opening directory instead.'
+            });
+            item_path = item_path.split('/').slice(0, -1).join('/')
+        }
+
+        UIWindow({
+            path: item_path,
+            title: path.basename(item_path),
+            icon: await item_icon({ is_dir: true, path: item_path }),
+            is_dir: true,
+            app: 'explorer',
+        });
+    }
 }
 
 $(document).on('contextmenu taphold', '.taskbar', function (event) {

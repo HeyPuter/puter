@@ -10,6 +10,7 @@ import { MISTRAL_COST_MAP } from './mistralCostMap';
 import { OPENAI_COST_MAP } from './openAiCostMap';
 import { OPENAI_IMAGE_COST_MAP } from './openaiImageCostMap';
 import { OPENROUTER_COST_MAP } from './openrouterCostMap';
+import { OPENAI_VIDEO_COST_MAP } from './openaiVideoCostMap';
 import { TOGETHER_COST_MAP } from './togetherCostMap';
 import { XAI_COST_MAP } from './xaiCostMap';
 
@@ -24,6 +25,7 @@ export const COST_MAPS = {
     ...MISTRAL_COST_MAP,
     ...OPENAI_COST_MAP,
     ...OPENAI_IMAGE_COST_MAP,
+    ...OPENAI_VIDEO_COST_MAP,
     ...OPENROUTER_COST_MAP,
     ...TOGETHER_COST_MAP,
     ...XAI_COST_MAP,
