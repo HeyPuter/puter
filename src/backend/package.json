@@ -61,6 +61,7 @@
     "multer": "^2.0.2",
     "multi-progress": "^4.0.0",
     "murmurhash": "^2.0.1",
+    "music-metadata": "^7.14.0",
     "nodemailer": "^6.9.3",
     "on-finished": "^2.4.1",
     "openai": "^6.7.0",

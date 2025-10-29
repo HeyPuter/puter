@@ -67,6 +67,9 @@ class PuterAIModule extends AdvancedBase {
 
             const { OpenAITTSService } = require('./OpenAITTSService');
             services.registerService('openai-tts', OpenAITTSService);
+
+            const { OpenAISpeechToTextService } = require('./OpenAISpeechToTextService');
+            services.registerService('openai-speech2txt', OpenAISpeechToTextService);
         }
 
         if ( config?.services?.claude ) {
