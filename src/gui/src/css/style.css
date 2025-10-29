@@ -5556,12 +5556,20 @@ fieldset[name=number-code] {
 .window-sm .settings-section-header,
 .window-md .settings-section-header {
     font-size: 16px;
-    justify-content: space-between;
+    justify-content: center;
+    text-align: center;
 }
 
-.window-xs .settings-section-header::before,
-.window-sm .settings-section-header::before,
-.window-md .settings-section-header::before {
+.window-xs .settings-section-header:has(button),
+.window-sm .settings-section-header:has(button),
+.window-md .settings-section-header:has(button) {
+    justify-content: space-between;
+    text-align: left;
+}
+
+.window-xs .settings-section-header:has(button)::before,
+.window-sm .settings-section-header:has(button)::before,
+.window-md .settings-section-header:has(button)::before {
     content: '';
     width: 44px;
 }
@@ -5581,7 +5589,7 @@ fieldset[name=number-code] {
     z-index: 1001;
     left: 8px;
     border: 0;
-    padding: 8px;
+    padding: 4px;
     top: 8px;
     background: rgba(255, 255, 255, 0.9);
     border-radius: 4px;
@@ -5599,19 +5607,22 @@ fieldset[name=number-code] {
 
 .sidebar-toggle .sidebar-toggle-button {
     width: 20px;
-    height: 16px;
+    height: 14px;
     position: relative;
     transition: transform 0.3s ease-in-out;
+    display: flex;
+    flex-direction: column;
+    justify-content: space-between;
 }
 
 .sidebar-toggle.active .sidebar-toggle-button {
     transform: rotate(90deg);
+    margin-top: 10px;
 }
 
 .sidebar-toggle span {
     border-bottom: 2px solid #858585;
     display: block;
-    margin-bottom: 4px;
     width: 100%;
     transition: all 0.3s ease-in-out;
 }
@@ -5621,7 +5632,7 @@ fieldset[name=number-code] {
 }
 
 .sidebar-toggle.active span:nth-child(1) {
-    transform: rotate(45deg) translateY(8px);
+    transform: rotate(45deg) translate(0, 8px);
 }
 
 .sidebar-toggle.active span:nth-child(2) {
@@ -5629,7 +5640,7 @@ fieldset[name=number-code] {
 }
 
 .sidebar-toggle.active span:nth-child(3) {
-    transform: rotate(-45deg) translateY(-8px);
+    transform: rotate(-45deg) translate(0, -8px);
 }
 
 .settings-backdrop {
