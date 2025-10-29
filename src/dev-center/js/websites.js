@@ -1,3 +1,5 @@
+import { showTabLoading, hideTabLoading } from './loading.js';
+
 let sortBy = 'created_at';
 let sortDirection = 'desc';
 window.websites = [];
@@ -12,37 +14,43 @@ window.create_website = async (name, directoryPath = null) => {
     try {
         website = await puter.hosting.create(name, websiteDir);
     } catch (error) {
-        puter.ui.alert(`Error creating website: ${error.error.message}`);
+        puter.ui.alert(`Cannot create website: ${error.error.message}`);
     }
 
     return website;
 }
 
-window.refresh_websites_list = async (show_loading = false) => {
-    if (show_loading)
-        puter.ui.showSpinner();
-
-    // puter.hosting.list() returns an array of website objects
-    window.websites = await puter.hosting.list();
-
-    // Get websites
-    if (window.activeTab === 'websites' && window.websites.length > 0) {
-        $('.website-card').remove();
-        $('#no-websites-notice').hide();
-        $('#website-list').show();
-        for (let i = 0; i < window.websites.length; i++) {
-            const website = window.websites[i];
-            // append row to website-list-table
-            $('#website-list-table > tbody').append(generate_website_card(website));
-        }
-    } else {
-        $('#no-websites-notice').show();
-        $('#website-list').hide();
+window.refresh_websites_list = async ({ manageSkeleton = true } = {}) => {
+    if (manageSkeleton) {
+        showTabLoading('websites');
     }
 
-    count_websites();
-    puter.ui.hideSpinner();
-}
+    try {
+        window.websites = await puter.hosting.list();
+
+        if (window.activeTab === 'websites' && window.websites.length > 0) {
+            $('.website-card').remove();
+            $('#no-websites-notice').hide();
+            $('#website-list').show();
+            for (let i = 0; i < window.websites.length; i++) {
+                const website = window.websites[i];
+                $('#website-list-table > tbody').append(generate_website_card(website));
+            }
+        } else {
+            $('.website-card').remove();
+            $('#no-websites-notice').css('display', 'flex');
+            $('#website-list').hide();
+        }
+
+        count_websites();
+    } catch (error) {
+        console.error('Error refreshing website list:', error);
+    } finally {
+        if (manageSkeleton) {
+            hideTabLoading('websites');
+        }
+    }
+};
 
 async function init_websites() {
     puter.hosting.list().then((websites) => {
@@ -64,7 +72,7 @@ $(document).on('click', '.create-a-website-btn', async function (e) {
 
     // Step 2: Ask for website name
     if (selectedDirectory && selectedDirectory.path) {
-        let name = await puter.ui.prompt('Please enter a name for your website:', 'my-awesome-website');
+        let name = await puter.ui.prompt('Name your website:', 'my-awesome-website');
 
         // Step 3: Create website with selected directory
         if (name) {
@@ -135,12 +143,9 @@ $(document).on('change', '.select-all-websites', function (e) {
     }
 })
 
-$('.refresh-website-list').on('click', function (e) {
-    puter.ui.showSpinner();
-    refresh_websites_list();
-
-    puter.ui.hideSpinner();
-})
+$('.refresh-website-list').on('click', async function (e) {
+    await refresh_websites_list();
+});
 
 $('th.sort').on('click', function (e) {
     // determine what column to sort by
@@ -232,15 +237,27 @@ function count_websites() {
 }
 
 function generate_website_card(website) {
+    const rootDirPath = website.root_dir ? html_encode(website.root_dir.path) : '';
+    const rootDirName = website.root_dir ? html_encode(website.root_dir.name) : '';
     return `
         <tr class="website-card" data-name="${html_encode(website.subdomain)}">
-            <td style="width:30px; vertical-align: middle; line-height: 1;">
-                <input type="checkbox" class="website-checkbox" data-website-name="${website.subdomain}">
+            <td class="cell-select">
+                <div class="checkbox-wrap">
+                    <input type="checkbox" class="website-checkbox" data-website-name="${html_encode(website.subdomain)}">
+                </div>
             </td>
-            <td style="font-family: monospace; font-size: 14px; vertical-align: middle;"><a href="https://${website.subdomain}.puter.site" target="_blank">${website.subdomain}.puter.site</a></td>
-            <td style="font-size: 14px; vertical-align: middle;"> <span class="root-dir-name" data-root-dir-path="${website.root_dir ? html_encode(website.root_dir.path) : ''}">${website.root_dir ? website.root_dir.name : ''}</span></td>
-            <td style="font-size: 14px; vertical-align: middle;">${website.created_at}</td>
-            <td style="vertical-align: middle;"><img class="options-icon options-icon-website" data-website-name="${website.subdomain}" src="./img/options.svg"></td>
+            <td class="cell-code">
+                <a class="website-link" href="https://${html_encode(website.subdomain)}.puter.site" target="_blank" rel="noopener noreferrer">${html_encode(website.subdomain)}.puter.site</a>
+            </td>
+            <td class="cell-code">
+                <span class="root-dir-name" data-root-dir-path="${rootDirPath}">${rootDirName}</span>
+            </td>
+            <td class="cell-meta">
+                <span class="created-at">${html_encode(website.created_at)}</span>
+            </td>
+            <td class="cell-actions">
+                <img class="options-icon options-icon-website" data-website-name="${html_encode(website.subdomain)}" src="./img/options.svg" alt="Website options">
+            </td>
         </tr>
     `;
 }
@@ -298,7 +315,7 @@ function remove_website_card(website_name, callback = null) {
 
         if ($(`.website-card`).length === 0) {
             $('section:not(.sidebar)').hide();
-            $('#no-websites-notice').show();
+            $('#no-websites-notice').css('display', 'flex');
         } else {
             $('section:not(.sidebar)').hide();
             $('#website-list').show();
@@ -324,7 +341,7 @@ function remove_website_card(website_name, callback = null) {
 
 $(document).on('click', '.delete-websites-btn', async function (e) {
     // show confirmation alert
-    let resp = await puter.ui.alert(`Are you sure you want to delete the selected websites?`, [
+    let resp = await puter.ui.alert(`Delete selected websites? This cannot be undone.`, [
         {
             label: 'Delete',
             type: 'danger',
@@ -403,10 +420,10 @@ $(document).on('click', '.options-icon-website', function (e) {
 
 async function attempt_website_deletion(website_name) {
     // confirm delete
-    const alert_resp = await puter.ui.alert(`Are you sure you want to premanently delete <strong>${html_encode(website_name)}.puter.site</strong>?`,
+    const alert_resp = await puter.ui.alert(`Delete <strong>${html_encode(website_name)}.puter.site</strong>? This cannot be undone.`,
         [
             {
-                label: 'Yes, delete permanently',
+                label: 'Delete Website',
                 value: 'delete',
                 type: 'danger',
             },
@@ -436,10 +453,10 @@ async function change_website_directory(website_name) {
 
         // Step 2: Confirm the change since it will replace the current website
         const confirmResp = await puter.ui.alert(
-            `Are you sure you want to change the directory for <strong>${html_encode(website_name)}.puter.site</strong>?<br><br>This will update the website to serve files from the new directory.`,
+            `Change directory for <strong>${html_encode(website_name)}.puter.site</strong>? The website will serve files from the new location.`,
             [
                 {
-                    label: 'Yes, change directory',
+                    label: 'Change Directory',
                     value: 'change',
                     type: 'primary',
                 },
@@ -470,7 +487,7 @@ async function change_website_directory(website_name) {
             await refresh_websites_list();
 
             // Step 7: Show success message
-            puter.ui.alert(`Website directory changed successfully! <strong>${html_encode(website_name)}.puter.site</strong> now serves files from the new directory.`, [], {
+            puter.ui.alert(`Directory changed. <strong>${html_encode(website_name)}.puter.site</strong> now serves files from the new location.`, [], {
                 type: 'success',
             });
 

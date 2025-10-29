@@ -47,7 +47,7 @@ class AppInformationService extends BaseService {
 
         // MySQL date format mapping for different groupings
         this.mysqlDateFormats = {
-            'hour': '%Y-%m-%d %H:00:00',
+            'hour': '%Y-%m-%dT%H:00:00',
             'day': '%Y-%m-%d',
             'week': '%Y-%U',
             'month': '%Y-%m',
@@ -380,14 +380,14 @@ class AppInformationService extends BaseService {
 
                 const [openResult, userResult] = await Promise.all([
                     db.read(`
-                        SELECT ` + 
+                        SELECT ` +
                             db.case({
                                 mysql: `DATE_FORMAT(FROM_UNIXTIME(ts/1000), '${timeFormat}') as period, `,
-                                sqlite: `STRFTIME('%Y-%m-%d %H', datetime(ts/1000, 'unixepoch'), '${timeFormat}') as period, `,
+                                sqlite: `STRFTIME('${timeFormat}', datetime(ts, 'unixepoch')) as period, `,
                             }) +
                             `
                             COUNT(_id) as count
-                        FROM app_opens 
+                        FROM app_opens
                         WHERE app_uid = ?
                         ${timeRange ? 'AND ts >= ? AND ts < ?' : ''}
                         GROUP BY period
@@ -397,11 +397,11 @@ class AppInformationService extends BaseService {
                         SELECT ` +
                             db.case({
                                 mysql: `DATE_FORMAT(FROM_UNIXTIME(ts/1000), '${timeFormat}') as period, `,
-                                sqlite: `STRFTIME('%Y-%m-%d %H', datetime(ts/1000, 'unixepoch'), '${timeFormat}') as period, `,
+                                sqlite: `STRFTIME('${timeFormat}', datetime(ts, 'unixepoch')) as period, `,
                             }) +
                             `
                             COUNT(DISTINCT user_id) as count
-                        FROM app_opens 
+                        FROM app_opens
                         WHERE app_uid = ?
                         ${timeRange ? 'AND ts >= ? AND ts < ?' : ''}
                         GROUP BY period

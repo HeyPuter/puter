@@ -60,6 +60,8 @@ __pycache__/
 # ======================================================================
 # AI STUFF
 AGENTS.md
+CLAUDE.md
+.playwright-mcp
 .roo
 
 # source maps

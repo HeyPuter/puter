@@ -1,3 +1,5 @@
+import { showTabLoading, hideTabLoading } from './loading.js';
+
 let sortBy = 'created_at';
 let sortDirection = 'desc';
 window.workers = [];
@@ -15,41 +17,42 @@ window.create_worker = async (name, filePath = null) => {
     try {
         worker = await puter.workers.create(name, workerFile);
     } catch (err) {
-        puter.ui.alert(`Error creating worker: ${err.error?.message}`);
+        puter.ui.alert(`Cannot create worker: ${err.error?.message}`);
     }
 
     return worker;
 }
 
-window.refresh_worker_list = async (show_loading = false) => {
-    if (show_loading)
-        puter.ui.showSpinner();
+window.refresh_worker_list = async ({ manageSkeleton = true } = {}) => {
+    if (manageSkeleton) {
+        showTabLoading('workers');
+    }
 
-    // puter.workers.list() returns an array of worker objects
     try {
         window.workers = await puter.workers.list();
+
+        if (window.activeTab === 'workers' && window.workers.length > 0) {
+            $('.worker-card').remove();
+            $('#no-workers-notice').hide();
+            $('#worker-list').show();
+            window.workers.forEach((worker) => {
+                $('#worker-list-table > tbody').append(generate_worker_card(worker));
+            });
+        } else {
+            $('.worker-card').remove();
+            $('#no-workers-notice').css('display', 'flex');
+            $('#worker-list').hide();
+        }
+
+        count_workers();
     } catch (err) {
         console.error('Error refreshing worker list:', err);
+    } finally {
+        if (manageSkeleton) {
+            hideTabLoading('workers');
+        }
     }
-
-    // Get workers
-    if (window.activeTab === 'workers' && window.workers.length > 0) {
-        $('.worker-card').remove();
-        $('#no-workers-notice').hide();
-        $('#worker-list').show();
-        window.workers.forEach((worker) => {
-            // append row to worker-list-table
-            $('#worker-list-table > tbody').append(generate_worker_card(worker));
-        });
-    } else {
-        $('#no-workers-notice').show();
-        $('#worker-list').hide();
-    }
-
-    count_workers();
-
-    puter.ui.hideSpinner();
-}
+};
 
 
 async function init_workers() {
@@ -62,7 +65,7 @@ $(document).on('click', '.create-a-worker-btn', async function (e) {
     if(!window.user?.email || !window.user?.email_confirmed){
         const email_confirm_resp = await puter.ui.requestEmailConfirmation();
         if(!email_confirm_resp)
-            UIAlert('Email confirmation required to create a worker.');
+            UIAlert('Confirm your email to create workers');
             return;
     }
 
@@ -83,7 +86,7 @@ $(document).on('click', '.create-a-worker-btn', async function (e) {
 
     // Step 2: Ask for worker name
     if (selectedFile && selectedFile.path) {
-        let name = await puter.ui.prompt('Please enter a name for your worker:', 'my-awesome-worker');
+        let name = await puter.ui.prompt('Name your worker:', 'my-awesome-worker');
 
         // Step 3: Create worker with selected file
         if (name) {
@@ -159,12 +162,9 @@ $(document).on('change', '.select-all-workers', function (e) {
     }
 })
 
-$('.refresh-worker-list').on('click', function (e) {
-    puter.ui.showSpinner();
-    refresh_worker_list();
-
-    puter.ui.hideSpinner();
-})
+$('.refresh-worker-list').on('click', async function (e) {
+    await refresh_worker_list();
+});
 
 $('th.sort').on('click', function (e) {
     // determine what column to sort by
@@ -249,15 +249,24 @@ function count_workers() {
 }
 
 function generate_worker_card(worker) {
+    const workerPath = worker.file_path ? html_encode(worker.file_path) : '';
     return `
         <tr class="worker-card" data-name="${html_encode(worker.name)}">
-            <td style="width:50px; vertical-align: middle; line-height: 1;">
-                <input type="checkbox" class="worker-checkbox" data-worker-name="${worker.name}">
+            <td class="cell-select">
+                <div class="checkbox-wrap">
+                    <input type="checkbox" class="worker-checkbox" data-worker-name="${html_encode(worker.name)}">
+                </div>
             </td>
-            <td style="font-family: monospace; font-size: 14px; vertical-align: middle;">${worker.name}</td>
-            <td style="font-family: monospace; font-size: 14px; vertical-align: middle;"><span class="worker-file-path" data-worker-file-path="${html_encode(worker.file_path)}">${worker.file_path ? worker.file_path : ''}</span></td>
-            <td style="font-size: 14px; vertical-align: middle;">${worker.created_at}</td>
-            <td style="vertical-align: middle;"><img class="options-icon options-icon-worker" data-worker-name="${worker.name}" src="./img/options.svg"></td>
+            <td class="cell-code worker-name">${html_encode(worker.name)}</td>
+            <td class="cell-code">
+                <span class="worker-file-path" data-worker-file-path="${workerPath}">${workerPath}</span>
+            </td>
+            <td class="cell-meta">
+                <span class="created-at">${html_encode(worker.created_at)}</span>
+            </td>
+            <td class="cell-actions">
+                <img class="options-icon options-icon-worker" data-worker-name="${html_encode(worker.name)}" src="./img/options.svg" alt="Worker options">
+            </td>
         </tr>
     `;
 }
@@ -313,7 +322,7 @@ function remove_worker_card(worker_name, callback = null) {
 
         if ($(`.worker-card`).length === 0) {
             $('section:not(.sidebar)').hide();
-            $('#no-workers-notice').show();
+            $('#no-workers-notice').css('display', 'flex');
         } else {
             $('section:not(.sidebar)').hide();
             $('#worker-list').show();
@@ -339,7 +348,7 @@ function remove_worker_card(worker_name, callback = null) {
 
 $(document).on('click', '.delete-workers-btn', async function (e) {
     // show confirmation alert
-    let resp = await puter.ui.alert(`Are you sure you want to delete the selected workers?`, [
+    let resp = await puter.ui.alert(`Delete selected workers? This cannot be undone.`, [
         {
             label: 'Delete',
             type: 'danger',
@@ -411,10 +420,10 @@ $(document).on('click', '.options-icon-worker', function (e) {
 
 async function attempt_worker_deletion(worker_name) {
     // confirm delete
-    const alert_resp = await puter.ui.alert(`Are you sure you want to premanently delete <strong>${html_encode(worker_name)}</strong>?`,
+    const alert_resp = await puter.ui.alert(`Delete <strong>${html_encode(worker_name)}</strong>? This cannot be undone.`,
         [
             {
-                label: 'Yes, delete permanently',
+                label: 'Delete Worker',
                 value: 'delete',
                 type: 'danger',
             },
@@ -432,7 +441,7 @@ async function attempt_worker_deletion(worker_name) {
         puter.workers.delete(worker_name).then().catch(async (err) => {
             puter.ui.alert(err?.message, [
                 {
-                    label: 'Ok',
+                    label: 'OK',
                 },
             ]);
         })

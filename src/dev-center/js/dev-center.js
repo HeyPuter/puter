@@ -20,6 +20,7 @@
 import init_apps from './apps.js';
 import init_workers from './workers.js';
 import init_websites from './websites.js';
+import { showTabLoading, hideTabLoading } from './loading.js';
 
 window.url_params = new URLSearchParams(window.location.search);
 window.domain = 'puter.com'
@@ -28,6 +29,227 @@ window.dev_center_uid = puter.appID;
 window.developer;
 window.activeTab = 'apps';
 window.user = null;
+
+const EARN_MONEY_KV_KEY = 'earn-money-c2a-closed';
+const earnMoneyDialog = document.getElementById('earn-money');
+const earnMoneyCTAButton = document.querySelector('.sidebar-earn-money');
+const sidebarEl = document.querySelector('.sidebar');
+const sidebarOverlay = document.querySelector('.sidebar-overlay');
+const sidebarMobileToggle = document.querySelector('.sidebar-mobile-toggle');
+const sidebarMobileDrawer = document.querySelector('.sidebar-mobile-drawer');
+const sidebarMobileClose = document.querySelector('.sidebar-mobile-close');
+const sidebarToggleButtons = document.querySelectorAll('.sidebar-toggle');
+const mobileSidebarQuery = window.matchMedia('(max-width: 840px)');
+let hasMarkedEarnMoneyDismissed = false;
+
+const isKVTruthy = (value) => value === true || value === 'true' || value?.result === true;
+
+const openMobileDrawer = () => {
+    if (!sidebarMobileDrawer) return;
+    try {
+        sidebarMobileDrawer.showModal();
+        if (sidebarMobileToggle) {
+            sidebarMobileToggle.setAttribute('aria-expanded', 'true');
+        }
+    } catch (err) {
+        console.warn('Unable to open mobile drawer', err);
+    }
+};
+
+const closeMobileDrawer = () => {
+    if (!sidebarMobileDrawer) return;
+    try {
+        sidebarMobileDrawer.close();
+        if (sidebarMobileToggle) {
+            sidebarMobileToggle.setAttribute('aria-expanded', 'false');
+        }
+    } catch (err) {
+        console.warn('Unable to close mobile drawer', err);
+    }
+};
+
+const updateSidebarAria = (open) => {
+    const label = open ? 'Collapse navigation' : 'Open navigation';
+    const toggleButtons = document.querySelectorAll('.sidebar-toggle, .sidebar-mobile-toggle');
+    toggleButtons.forEach((btn) => {
+        if (btn) btn.setAttribute('aria-label', label);
+        if (btn) btn.setAttribute('aria-expanded', open ? 'true' : 'false');
+    });
+
+    if (!sidebarEl) return;
+
+    if (!mobileSidebarQuery.matches) {
+        sidebarEl.removeAttribute('aria-hidden');
+    }
+};
+
+const setSidebarState = (open) => {
+    if (!sidebarEl) return;
+
+    if (open) {
+        sidebarEl.classList.add('open');
+        document.body.classList.add('sidebar-open');
+
+        if (!mobileSidebarQuery.matches && sidebarOverlay) {
+            sidebarOverlay.classList.remove('visible');
+            sidebarOverlay.hidden = true;
+        }
+    } else {
+        sidebarEl.classList.remove('open');
+        document.body.classList.remove('sidebar-open');
+
+        if (sidebarOverlay) {
+            sidebarOverlay.classList.remove('visible');
+            sidebarOverlay.hidden = true;
+        }
+    }
+
+    updateSidebarAria(open);
+};
+
+const toggleSidebar = (forceOpen = null) => {
+    if (!sidebarEl) return;
+    const shouldOpen = forceOpen !== null ? forceOpen : !sidebarEl.classList.contains('open');
+    setSidebarState(shouldOpen);
+};
+
+const refreshSidebarForViewport = () => {
+    if (mobileSidebarQuery.matches) {
+        closeMobileDrawer();
+    } else {
+        if (sidebarEl) {
+            setSidebarState(true);
+        }
+    }
+};
+
+sidebarToggleButtons.forEach((btn) => {
+    btn?.addEventListener('click', () => toggleSidebar());
+});
+
+if (sidebarMobileToggle) {
+    sidebarMobileToggle.addEventListener('click', () => {
+        if (mobileSidebarQuery.matches) {
+            openMobileDrawer();
+        } else {
+            toggleSidebar(true);
+        }
+    });
+}
+
+if (sidebarMobileClose) {
+    sidebarMobileClose.addEventListener('click', () => closeMobileDrawer());
+}
+
+if (sidebarMobileDrawer) {
+    sidebarMobileDrawer.addEventListener('close', () => {
+        if (sidebarMobileToggle) {
+            sidebarMobileToggle.setAttribute('aria-expanded', 'false');
+        }
+    });
+
+    sidebarMobileDrawer.addEventListener('click', (event) => {
+        if (event.target === sidebarMobileDrawer) {
+            closeMobileDrawer();
+        }
+    });
+}
+
+if (sidebarOverlay) {
+    sidebarOverlay.addEventListener('click', () => toggleSidebar(false));
+}
+
+const registerMediaQuery = () => {
+    if (typeof mobileSidebarQuery.addEventListener === 'function') {
+        mobileSidebarQuery.addEventListener('change', refreshSidebarForViewport);
+    } else if (typeof mobileSidebarQuery.addListener === 'function') {
+        mobileSidebarQuery.addListener(refreshSidebarForViewport);
+    }
+};
+
+registerMediaQuery();
+refreshSidebarForViewport();
+
+window.showEarnMoneyCTA = () => {
+    if (earnMoneyCTAButton) earnMoneyCTAButton.removeAttribute('hidden');
+};
+
+const persistEarnMoneyDismissal = async () => {
+    window.showEarnMoneyCTA();
+    if (hasMarkedEarnMoneyDismissed) return;
+    hasMarkedEarnMoneyDismissed = true;
+    try {
+        await puter?.kv?.set?.(EARN_MONEY_KV_KEY, 'true');
+    } catch (err) {
+        console.warn('Unable to persist earn-money dismissal', err);
+    }
+};
+
+const ensureEarnMoneyCTAState = async () => {
+    if (!earnMoneyCTAButton || typeof puter?.kv?.get !== 'function') {
+        return;
+    }
+    try {
+        const kvValue = await puter.kv.get(EARN_MONEY_KV_KEY);
+        if (isKVTruthy(kvValue)) {
+            hasMarkedEarnMoneyDismissed = true;
+            window.showEarnMoneyCTA();
+        }
+    } catch (err) {
+        console.warn('Unable to read earn-money dismissal state', err);
+    }
+};
+
+const openEarnMoneyDialog = () => {
+    if (!earnMoneyDialog) return;
+    earnMoneyDialog.removeAttribute('style');
+    try {
+        earnMoneyDialog.showModal();
+    } catch (err) {
+        console.warn('Unable to open earn-money dialog', err);
+    }
+};
+window.openEarnMoneyDialog = openEarnMoneyDialog;
+
+if (earnMoneyDialog) {
+    earnMoneyDialog.addEventListener('close', () => {
+        persistEarnMoneyDismissal();
+    });
+
+    earnMoneyDialog.addEventListener('cancel', (event) => {
+        event.preventDefault();
+        earnMoneyDialog.close();
+    });
+
+    earnMoneyDialog.addEventListener('click', (event) => {
+        const dialogRect = earnMoneyDialog.getBoundingClientRect();
+        const clickedInside =
+            event.clientX >= dialogRect.left &&
+            event.clientX <= dialogRect.right &&
+            event.clientY >= dialogRect.top &&
+            event.clientY <= dialogRect.bottom;
+
+        if (!clickedInside) {
+            earnMoneyDialog.close();
+        }
+    });
+
+    const earnMoneyCloseBtn = document.getElementById('earn-money-c2a-close');
+    if (earnMoneyCloseBtn) {
+        earnMoneyCloseBtn.addEventListener('click', () => {
+            earnMoneyDialog.close();
+        });
+    }
+}
+
+if (earnMoneyCTAButton && earnMoneyDialog) {
+    earnMoneyCTAButton.addEventListener('click', () => {
+        earnMoneyCTAButton.setAttribute('hidden', '');
+        openEarnMoneyDialog();
+    });
+}
+
+ensureEarnMoneyCTAState();
 
 // auth_username
 (async () => {
@@ -79,20 +301,15 @@ $(document).ready(async function () {
     // initialize assets directory
     await initializeAssetsDirectory();
 
-    puter.ui.showSpinner();
-
     init_apps();
     init_websites();
     init_workers();
-
-    puter.ui.hideSpinner();
 });
 
 // ---------------------------------------------------------------
 // Tab Buttons
 // ---------------------------------------------------------------
 $(document).on('click', '.tab-btn', async function (e) {
-    puter.ui.showSpinner();
     $('section:not(.sidebar)').hide();
     $('.tab-btn').removeClass('active');
     $(this).addClass('active');
@@ -130,17 +347,30 @@ $(document).on('click', '.tab-btn', async function (e) {
     // ---------------------------------------------------------------
     else if ($(this).attr('data-tab') === 'payout-method') {
         activeTab = 'payout-method';
-        puter.ui.showSpinner();
+        showTabLoading('payout-method');
         setTimeout(function () {
-            puter.apps.getDeveloperProfile(function (dev_profile) {
-                // show payout method tab if dev has joined incentive program
-                if (dev_profile.joined_incentive_program) {
-                    $('#payout-method-email').html(dev_profile.paypal);
-                }
-                puter.ui.hideSpinner();
-                if (activeTab === 'payout-method')
+            const finishLoading = () => {
+                if (activeTab === 'payout-method') {
                     $('#tab-payout-method').show();
-            })
+                }
+                hideTabLoading('payout-method');
+            };
+            try {
+                puter.apps.getDeveloperProfile(function (dev_profile) {
+                    try {
+                        if (dev_profile?.joined_incentive_program) {
+                            $('#payout-method-email').html(dev_profile.paypal);
+                        }
+                    } catch (callbackError) {
+                        console.error('Error updating payout method UI:', callbackError);
+                    } finally {
+                        finishLoading();
+                    }
+                });
+            } catch (error) {
+                console.error('Error loading payout method profile:', error);
+                finishLoading();
+            }
         }, 1000);
     }
 })
@@ -152,16 +382,16 @@ $('.jip-submit-btn').on('click', async function (e) {
     let error;
 
     if (first_name === '' || last_name === '' || paypal === '')
-        error = `All fields are required.`;
+        error = `Complete all fields`;
     else if (first_name.length > 100)
-        error = `<strong>First Name</strong> cannot be longer than ${100}.`;
+        error = `<strong>First Name</strong> cannot exceed ${100} characters.`;
     else if (last_name.length > 100)
-        error = `<strong>Last Name</strong> cannot be longer than ${100}.`;
+        error = `<strong>Last Name</strong> cannot exceed ${100} characters.`;
     else if (paypal.length > 100)
-        error = `<strong>Paypal</strong> cannot be longer than ${100}.`;
+        error = `<strong>PayPal</strong> cannot exceed ${100} characters.`;
     // check if email is valid
     else if (!validateEmail(paypal))
-        error = `Paypal email must be a valid email address.`;
+        error = `Enter a valid PayPal email address`;
 
     // error?
     if (error) {
@@ -210,16 +440,9 @@ $('.jip-submit-btn').on('click', async function (e) {
     })
 })
 
-$('#earn-money-c2a-close').click(async function (e) {
-    $('#earn-money').get(0).close();
-    puter.kv.set('earn-money-c2a-closed', 'true')
-})
-
-$('#earn-money::backdrop').click(async function (e) {
-    alert();
-    $('#earn-money').get(0).close();
-    puter.kv.set('earn-money-c2a-closed', 'true')
-})
+$('#earn-money-c2a-close').on('click', function () {
+    earnMoneyDialog?.close();
+});
 
 // https://stackoverflow.com/a/43467144/1764493
 window.is_valid_url = (string) => {
@@ -437,11 +660,6 @@ window.getMimeType = (extension) => {
     // Return the MIME type if found, otherwise return 'application/octet-stream'
     return mimeTypes[cleanExtension] || 'application/octet-stream';
 }
-
-$(document).on('click', '.sidebar-toggle', function (e) {
-    $('.sidebar').toggleClass('open');
-    $('body').toggleClass('sidebar-open');
-})
 
 // ---------------------------------------------------------------
 // Search Reset Functions

@@ -1,3 +1,5 @@
+import { showTabLoading, hideTabLoading } from './loading.js';
+
 let source_path
 let apps = [];
 let sortBy = 'created_at';
@@ -6,6 +8,7 @@ let currently_editing_app;
 let dropped_items;
 let search_query;
 let originalValues = {};
+let active_filters = {};
 
 const APP_CATEGORIES = [
     { id: 'games', label: 'Games' },
@@ -26,71 +29,67 @@ const APP_CATEGORIES = [
 ];
 
 async function init_apps() {
+    showTabLoading('apps');
+
     setTimeout(async function () {
-        puter.ui.onLaunchedWithItems(async function (items) {
-            source_path = items[0].path;
-            // if source_path is provided, this means that the user is creating a new app/updating an existing app
-            // by deploying an existing Puter folder. So we create the app and deploy it.
-            if (source_path) {
-                // todo if there are no apps, go straight to creating a new app
-                $('.insta-deploy-modal').get(0).showModal();
-                // set item name
-                $('.insta-deploy-item-name').html(html_encode(items[0].name));
-            }
-        })
-
-        // Get dev profile. This is only for puter.com for now as we don't have dev profiles in self-hosted Puter
-        if(domain === 'puter.com'){
-            puter.apps.getDeveloperProfile(async function (dev_profile) {
-                window.developer = dev_profile;
-                if (dev_profile.approved_for_incentive_program && !dev_profile.joined_incentive_program) {
-                    $('#join-incentive-program').show();
-                }
-
-                // show earn money c2a only if dev is not approved for incentive program or has already joined
-                if (!dev_profile.approved_for_incentive_program || dev_profile.joined_incentive_program) {
-                    puter.kv.get('earn-money-c2a-closed').then((value) => {
-                        if (value?.result || value === true || value === "true")
-                            return;
-
-                        $('#earn-money').get(0).showModal();
-                    });
-                }
-
-                // show payout method tab if dev has joined incentive program
-                if (dev_profile.joined_incentive_program) {
-                    $('.tab-btn[data-tab="payout-method"]').show();
-                    $('#payout-method-email').html(dev_profile.paypal);
-                    $('.tab-btn-separator').show();
+        try {
+            puter.ui.onLaunchedWithItems(async function (items) {
+                source_path = items[0].path;
+                // if source_path is provided, this means that the user is creating a new app/updating an existing app
+                // by deploying an existing Puter folder. So we create the app and deploy it.
+                if (source_path) {
+                    // todo if there are no apps, go straight to creating a new app
+                    $('.insta-deploy-modal').get(0).showModal();
+                    // set item name
+                    $('.insta-deploy-item-name').html(html_encode(items[0].name));
                 }
             })
-        }
-        // Get apps
-        puter.apps.list({ icon_size: 64 }).then((resp) => {
-            apps = resp;
 
-            // hide loading
-            puter.ui.hideSpinner();
+            // Get dev profile. This is only for puter.com for now as we don't have dev profiles in self-hosted Puter
+            if(domain === 'puter.com'){
+                puter.apps.getDeveloperProfile(async function (dev_profile) {
+                    window.developer = dev_profile;
+                    if (dev_profile.approved_for_incentive_program && !dev_profile.joined_incentive_program) {
+                        $('#join-incentive-program').show();
+                    }
 
-            // set apps
-            if (apps.length > 0) {
-                if (window.activeTab === 'apps') {
-                    $('#no-apps-notice').hide();
-                    $('#app-list').show();
-                }
-                $('.app-card').remove();
-                apps.forEach(app => {
-                    $('#app-list-table > tbody').append(generate_app_card(app));
-                });
-                count_apps();
-                sort_apps();
-                activate_tippy();
-            } else {
-                $('#no-apps-notice').show();
+                    // show earn money c2a only if dev is not approved for incentive program or has already joined
+                    if (!dev_profile.approved_for_incentive_program || dev_profile.joined_incentive_program) {
+                        const maybeShowEarnMoney = async () => {
+                            try {
+                                const value = await puter.kv.get('earn-money-c2a-closed');
+                                if (value === true || value === 'true' || value?.result === true) {
+                                    window.showEarnMoneyCTA?.();
+                                    return;
+                                }
+                            } catch (err) {
+                                console.warn('Unable to fetch earn-money state', err);
+                            }
+
+                            if (typeof window.openEarnMoneyDialog === 'function') {
+                                window.openEarnMoneyDialog();
+                            }
+                        };
+
+                        maybeShowEarnMoney();
+                    }
+
+                    // show payout method tab if dev has joined incentive program
+                    if (dev_profile.joined_incentive_program) {
+                        $('.tab-btn[data-tab="payout-method"]').show();
+                        $('#payout-method-email').html(dev_profile.paypal);
+                        $('.tab-btn-separator').show();
+                    }
+                })
             }
-        })
-    }, 1000);
 
+            await refresh_app_list({ manageSkeleton: false });
+        } catch (error) {
+            console.error('Error initializing apps:', error);
+        } finally {
+            hideTabLoading('apps');
+        }
+    }, 1000);
 }
 
 
@@ -101,45 +100,68 @@ async function init_apps() {
  * 
  */
 
-window.refresh_app_list = (show_loading = false) => {
-    if (show_loading)
-        puter.ui.showSpinner();
-    // get apps
-    setTimeout(function () {
-        // uncheck the select all checkbox
-        $('.select-all-apps').prop('checked', false);
+window.refresh_app_list = async ({ manageSkeleton = true } = {}) => {
+    if (manageSkeleton) {
+        showTabLoading('apps');
+    }
 
-        puter.apps.list({ icon_size: 64 }).then((apps_res) => {
-            puter.ui.hideSpinner();
-            apps = apps_res;
-            if (apps.length > 0) {
-                if (window.activeTab === 'apps') {
-                    $('#no-apps-notice').hide();
-                    $('#app-list').show();
+    try {
+        $('.select-all-apps').prop('checked', false);
+        const apps_res = await puter.apps.list({ icon_size: 64 });
+
+        // Apply frontend filtering
+        let filtered_apps = apps_res;
+        if (Object.keys(active_filters).length > 0) {
+            filtered_apps = apps_res.filter(app => {
+                // AND logic: app must match ALL selected filters
+                for (const filter_key in active_filters) {
+                    if (!app[filter_key]) {
+                        return false;
+                    }
                 }
-                $('.app-card').remove();
-                apps.forEach(app => {
-                    $('#app-list-table > tbody').append(generate_app_card(app));
-                });
-                count_apps();
-                sort_apps();
-            } else {
-                $('#no-apps-notice').show();
-                $('#app-list').hide()
+                return true;
+            });
+        }
+
+        apps = filtered_apps;
+
+        count_apps();
+
+        // Always show app list if we have ANY apps loaded from backend (before filtering)
+        if (apps_res.length > 0) {
+            if (window.activeTab === 'apps') {
+                $('#no-apps-notice').hide();
+                $('#app-list').show();
             }
+        } else {
+            // Truly no apps created
+            $('#no-apps-notice').css('display', 'flex');
+            $('#app-list').hide();
+        }
+
+        if (apps.length > 0) {
+            sort_apps();
             activate_tippy();
-            puter.ui.hideSpinner();
-        })
-    }, show_loading ? 1000 : 0);
-}
+        } else if (apps_res.length > 0) {
+            // We have apps but filters eliminated them all
+            $('.app-card').remove();
+        }
+    } catch (error) {
+        console.error('Error refreshing app list:', error);
+    } finally {
+        if (manageSkeleton) {
+            hideTabLoading('apps');
+        }
+    }
+};
 
 $(document).on('click', '.create-an-app-btn', async function (e) {
-    let title = await puter.ui.prompt('Please enter a title for your app:', 'My Awesome App');
+    let title = await puter.ui.prompt('Name your app:', 'My Awesome App');
 
     if (title.length > 60) {
-        puter.ui.alert(`Title cannot be longer than 60.`, [
+        puter.ui.alert(`Display name cannot exceed 60 characters.`, [
             {
-                label: 'Ok',
+                label: 'OK',
             },
         ]);
         // todo go back to create an app prompt and prefill the title input with the title the user entered
@@ -313,20 +335,47 @@ function generate_edit_app_section(app) {
 
     let h = ``;
     h += `
-        <div class="edit-app-navbar">
-            <div style="flex-grow:1;">
-                <img class="app-icon" data-uid="${html_encode(app.uid)}" src="${html_encode(!app.icon ? './img/app.svg' : app.icon)}">
-                <h3 class="app-title" data-uid="${html_encode(app.uid)}">${html_encode(app.title)}${app.metadata?.locked ? lock_svg_tippy : ''}</h3>
-                <div style="margin-top: 4px; margin-bottom: 4px;">
-                    <span class="open-app-btn" data-app-uid="${html_encode(app.uid)}" data-app-name="${html_encode(app.name)}">Open</span>
-                    <span style="margin: 5px; opacity: 0.3;">&bull;</span>
-                    <span class="add-app-to-desktop" data-app-uid="${html_encode(app.uid)}" data-app-title="${html_encode(app.title)}">Add Shortcut to Desktop</span>
-                    <span style="margin: 5px; opacity: 0.3;">&bull;</span>
-                    <span title="Delete app" class="delete-app-settings" data-app-name="${html_encode(app.name)}" data-app-title="${html_encode(app.title)}" data-app-uid="${html_encode(app.uid)}">Delete</span>
+        <div class="edit-app-header-card">
+            <div class="edit-app-navbar">
+                <div class="edit-app-header">
+                    <img class="app-icon" data-uid="${html_encode(app.uid)}" src="${html_encode(!app.icon ? './img/app.svg' : app.icon)}">
+                    <div class="edit-app-headline">
+                        <h3 class="app-title" data-uid="${html_encode(app.uid)}">${html_encode(app.title)}${app.metadata?.locked ? lock_svg_tippy : ''}</h3>
+                        <a class="app-url" target="_blank" data-uid="${html_encode(app.uid)}" href="${html_encode(applink(app))}">${html_encode(applink(app))}</a>
+                        <div class="edit-app-actions">
+                            <button class="open-app-btn app-action-btn" data-app-uid="${html_encode(app.uid)}" data-app-name="${html_encode(app.name)}">
+                                <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                                    <path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6"></path>
+                                    <polyline points="15 3 21 3 21 9"></polyline>
+                                    <line x1="10" y1="14" x2="21" y2="3"></line>
+                                </svg>
+                                Open
+                            </button>
+                            <button class="add-app-to-desktop app-action-btn" data-app-uid="${html_encode(app.uid)}" data-app-title="${html_encode(app.title)}">
+                                <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                                    <line x1="12" y1="5" x2="12" y2="19"></line>
+                                    <line x1="5" y1="12" x2="19" y2="12"></line>
+                                </svg>
+                                Add to Desktop
+                            </button>
+                            <button title="Delete app" class="delete-app-settings app-action-btn app-action-btn-danger" data-app-name="${html_encode(app.name)}" data-app-title="${html_encode(app.title)}" data-app-uid="${html_encode(app.uid)}">
+                                <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                                    <polyline points="3 6 5 6 21 6"></polyline>
+                                    <path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"></path>
+                                </svg>
+                                Delete
+                            </button>
+                        </div>
+                    </div>
                 </div>
-                <a class="app-url" target="_blank" data-uid="${html_encode(app.uid)}" href="${html_encode(applink(app))}">${html_encode(applink(app))}</a>
+                <button class="back-to-main-btn button button-default">
+                    <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                        <line x1="19" y1="12" x2="5" y2="12"></line>
+                        <polyline points="12 19 5 12 12 5"></polyline>
+                    </svg>
+                    <span>Back</span>
+                </button>
             </div>
-            <button class="back-to-main-btn button button-default">Back</button>
         </div>
 
         <ul class="section-tab-buttons disable-user-select">
@@ -338,150 +387,280 @@ function generate_edit_app_section(app) {
         <div class="section-tab active" data-tab="deploy">
             <div class="success deploy-success-msg">
                 New version deployed successfully 🎉<span class="close-success-msg">&times;</span>
-                <p style="margin-bottom:0;"><span class="open-app button button-action" data-uid="${html_encode(app.uid)}" data-app-name="${html_encode(app.name)}">Give it a try!</span></p>
+                <p class="margin-bottom-none"><span class="open-app button button-action" data-uid="${html_encode(app.uid)}" data-app-name="${html_encode(app.name)}">Give it a try!</span></p>
             </div>
             <div class="drop-area disable-user-select">${drop_area_placeholder}</div>
             <button class="deploy-btn disable-user-select button button-primary disabled">Deploy Now</button>
         </div>
 
         <div class="section-tab" data-tab="info">
-            <form style="clear:both; padding-bottom: 50px;">
+            <form class="form-edit-app">
                 <div class="error" id="edit-app-error"></div>
                 <div class="success" id="edit-app-success">App has been successfully updated.<span class="close-success-msg">&times;</span>
-                <p style="margin-bottom:0;"><span class="open-app button button-action" data-uid="${html_encode(app.uid)}" data-app-name="${html_encode(app.name)}">Give it a try!</span></p>
+                <p class="margin-bottom-none"><span class="open-app button button-action" data-uid="${html_encode(app.uid)}" data-app-name="${html_encode(app.name)}">Give it a try!</span></p>
                 </div>
                 <input type="hidden" id="edit-app-uid" value="${html_encode(app.uid)}">
 
-                <h3 style="font-size: 23px; border-bottom: 1px solid #EEE; margin-top: 40px;">Basic</h3>
-                <label for="edit-app-title">Title</label>
-                <input type="text" id="edit-app-title" placeholder="My Awesome App!" value="${html_encode(app.title)}">
+                <div class="settings-card">
+                    <h3 class="settings-card-title">Basic Information</h3>
+                    <div class="settings-card-content">
+                        <div class="field-group">
+                            <label for="edit-app-title">Display Name</label>
+                            <p class="field-description">Shown to users throughout the interface and app center.</p>
+                            <input type="text" id="edit-app-title" placeholder="My Awesome App" value="${html_encode(app.title)}">
+                        </div>
 
-                <label for="edit-app-name">Name</label>
-                <input type="text" id="edit-app-name" placeholder="my-awesome-app" style="font-family: monospace;" value="${html_encode(app.name)}">
+                        <div class="field-group">
+                            <label for="edit-app-description">Description</label>
+                            <textarea id="edit-app-description">${html_encode(app.description)}</textarea>
+                        </div>
 
-                <label for="edit-app-index-url">Index URL</label>
-                <input type="text" id="edit-app-index-url" placeholder="https://example-app.com/index.html" value="${html_encode(app.index_url)}">
-                
-                <label for="edit-app-app-id">App ID</label>
-                <div style="overflow:hidden;">
-                    <input type="text" style="width: 362px; float:left;" class="app-uid" value="${html_encode(app.uid)}" readonly><span class="copy-app-uid" style="cursor: pointer; height: 35px; display: inline-block; width: 50px; text-align: center; line-height: 35px; margin-left:5px;">${copy_svg}</span>
+                        <div class="field-group">
+                            <label for="edit-app-category">Category</label>
+                            <select id="edit-app-category" class="category-select">
+                                <option value="">Select a category</option>
+                                ${APP_CATEGORIES.map(category =>
+                                    `<option value="${html_encode(category.id)}" ${app.metadata?.category === category.id ? 'selected' : ''}>${html_encode(category.label)}</option>`
+                                ).join('')}
+                            </select>
+                        </div>
+
+                        <div class="field-group">
+                            <label for="edit-app-icon">Icon</label>
+                            <div class="image-upload-container">
+                                <div id="edit-app-icon" class="image-preview ${app.icon ? 'has-image' : ''}" ${app.icon ? 'data-url="' + html_encode(app.icon) + '" data-base64="' + html_encode(app.icon) + '"' : ''} style="${app.icon ? 'background-image: url(' + html_encode(app.icon) + ');' : ''}">
+                                    <div class="image-upload-overlay">
+                                        <span class="image-upload-text">Change App Icon</span>
+                                    </div>
+                                </div>
+                                <button type="button" id="edit-app-icon-delete" class="image-remove-btn ${app.icon ? '' : 'hidden'}">Remove icon</button>
+                            </div>
+                        </div>
+
+                        <div class="field-group">
+                            <label for="edit-app-social-image">Social Image</label>
+                            <p class="field-description">Shown when shared on social media. Recommended: 1200×630 pixels.</p>
+                            <div class="image-upload-container image-upload-wide">
+                                <div id="edit-app-social-image" class="image-preview image-preview-wide ${app.metadata?.social_image ? 'has-image' : ''}" ${app.metadata?.social_image ? `data-url="${html_encode(app.metadata.social_image)}" data-base64="${html_encode(app.metadata.social_image)}"` : ''} style="${app.metadata?.social_image ? 'background-image: url(' + html_encode(app.metadata.social_image) + ');' : ''}">
+                                    <div class="image-upload-overlay">
+                                        <span class="image-upload-text">Change Social Image</span>
+                                    </div>
+                                </div>
+                                <button type="button" id="edit-app-social-image-delete" class="image-remove-btn ${app.metadata?.social_image ? '' : 'hidden'}">Remove social image</button>
+                            </div>
+                        </div>
+
+                        <div class="field-section-divider"></div>
+
+                        <div class="field-group">
+                            <label for="edit-app-name">App Identifier</label>
+                            <p class="field-description">Used in <code>puter.com/app/<strong>${html_encode(app.name)}</strong></code> and hosting subdomains. Changing this breaks existing links.</p>
+                            <input type="text" id="edit-app-name" class="input-monospace" placeholder="my-awesome-app" value="${html_encode(app.name)}">
+                        </div>
+
+                        <div class="field-group">
+                            <label for="edit-app-app-id">App ID</label>
+                            <div class="app-uid-container">
+                                <input type="text" class="app-uid app-uid-input" value="${html_encode(app.uid)}" readonly><span class="copy-app-uid">${copy_svg}</span>
+                            </div>
+                        </div>
+
+                        <div class="field-group">
+                            <label for="edit-app-index-url">Index URL</label>
+                            <input type="text" id="edit-app-index-url" placeholder="https://example-app.com/index.html" value="${html_encode(app.index_url)}">
+                        </div>
+
+                        <div class="field-group">
+                            <label for="edit-app-filetype-associations">File Associations</label>
+                            <p class="field-description">File types that open with your app. For example, <code>.txt</code> files open your app when clicked.</p>
+                            <p class="field-hint">Paste multiple extensions separated by comma, space, or tab.</p>
+                            <textarea id="edit-app-filetype-associations"  placeholder="Paste multiple extensions like: .txt, .doc, .pdf, application/json">${JSON.stringify(app.filetype_associations.map(item => ({ "value": item })), null, app.filetype_associations.length).replace(/</g, '\\u003c')}</textarea>
+                        </div>
+                    </div>
                 </div>
 
-                <label for="edit-app-icon">Icon</label>
-                <div id="edit-app-icon" style="background-image:url(${!app.icon ? './img/app.svg' : html_encode(app.icon)});" ${app.icon ? 'data-url="' + html_encode(app.icon) + '"' : ''}  ${app.icon ? 'data-base64="' + html_encode(app.icon) + '"' : ''} >
-                    <div id="change-app-icon">Change App Icon</div>
+                <div class="settings-card">
+                    <h3 class="settings-card-title">Window</h3>
+                    <div class="settings-card-content">
+                        <div class="field-group">
+                            <div class="toggle-field">
+                                <label class="toggle-switch" for="edit-app-background">
+                                    <input type="checkbox" id="edit-app-background" name="edit-app-background" value="true" ${app.background ? 'checked' : ''}>
+                                    <span class="toggle-slider"></span>
+                                </label>
+                                <label class="toggle-label" for="edit-app-background">Run as background process</label>
+                            </div>
+                            <p class="field-description">Runs without a visible window.</p>
+                        </div>
+
+                        <div class="field-section-divider"></div>
+
+                        <div class="field-group">
+                            <div class="toggle-field">
+                                <label class="toggle-switch" for="edit-app-maximize-on-start">
+                                    <input type="checkbox" id="edit-app-maximize-on-start" name="edit-app-maximize-on-start" value="true" ${maximize_on_start ? 'checked' : ''} ${app.background ? 'disabled' : ''}>
+                                    <span class="toggle-slider"></span>
+                                </label>
+                                <label class="toggle-label" for="edit-app-maximize-on-start">Maximize window on start</label>
+                            </div>
+                        </div>
+
+                        <div class="field-group">
+                            <label>Initial window size</label>
+                            <div class="input-grid input-grid-2col">
+                                <div class="input-grid-item">
+                                    <label for="edit-app-window-width" class="input-grid-label">Width</label>
+                                    <input type="number" id="edit-app-window-width" placeholder="680" value="${html_encode(app.metadata?.window_size?.width ?? 680)}" ${maximize_on_start || app.background ? 'disabled' : ''}>
+                                </div>
+                                <div class="input-grid-item">
+                                    <label for="edit-app-window-height" class="input-grid-label">Height</label>
+                                    <input type="number" id="edit-app-window-height" placeholder="380" value="${html_encode(app.metadata?.window_size?.height ?? 380)}" ${maximize_on_start || app.background ? 'disabled' : ''}>
+                                </div>
+                            </div>
+                        </div>
+
+                        <div class="field-group">
+                            <label>Initial window position</label>
+                            <p class="field-description">Leave empty to center on screen.</p>
+                            <div class="input-grid input-grid-2col">
+                                <div class="input-grid-item">
+                                    <label for="edit-app-window-top" class="input-grid-label">Top</label>
+                                    <input type="number" id="edit-app-window-top" placeholder="100" value="${app.metadata?.window_position?.top ? html_encode(app.metadata.window_position.top) : ''}" ${maximize_on_start || app.background ? 'disabled' : ''}>
+                                </div>
+                                <div class="input-grid-item">
+                                    <label for="edit-app-window-left" class="input-grid-label">Left</label>
+                                    <input type="number" id="edit-app-window-left" placeholder="100" value="${app.metadata?.window_position?.left ? html_encode(app.metadata.window_position.left) : ''}" ${maximize_on_start || app.background ? 'disabled' : ''}>
+                                </div>
+                            </div>
+                        </div>
+
+                        <div class="field-section-divider"></div>
+
+                        <div class="field-group">
+                            <div class="toggle-field">
+                                <label class="toggle-switch" for="edit-app-fullpage-on-landing">
+                                    <input type="checkbox" id="edit-app-fullpage-on-landing" name="edit-app-fullpage-on-landing" value="true" ${app.metadata?.fullpage_on_landing ? 'checked' : ''} ${app.background ? 'disabled' : ''}>
+                                    <span class="toggle-slider"></span>
+                                </label>
+                                <label class="toggle-label" for="edit-app-fullpage-on-landing">Load in full-page mode when launched directly</label>
+                            </div>
+                        </div>
+
+                        <div class="field-group">
+                            <div class="toggle-field">
+                                <label class="toggle-switch" for="edit-app-window-resizable">
+                                    <input type="checkbox" id="edit-app-window-resizable" name="edit-app-window-resizable" value="true" ${app.metadata?.window_resizable ? 'checked' : ''} ${app.background ? 'disabled' : ''}>
+                                    <span class="toggle-slider"></span>
+                                </label>
+                                <label class="toggle-label" for="edit-app-window-resizable">Allow users to resize window</label>
+                            </div>
+                        </div>
+
+                        <div class="field-group">
+                            <div class="toggle-field">
+                                <label class="toggle-switch" for="edit-app-hide-titlebar">
+                                    <input type="checkbox" id="edit-app-hide-titlebar" name="edit-app-hide-titlebar" value="true" ${app.metadata?.hide_titlebar ? 'checked' : ''} ${app.background ? 'disabled' : ''}>
+                                    <span class="toggle-slider"></span>
+                                </label>
+                                <label class="toggle-label" for="edit-app-hide-titlebar">Hide window titlebar</label>
+                            </div>
+                        </div>
+
+                        <div class="field-group">
+                            <div class="toggle-field">
+                                <label class="toggle-switch" for="edit-app-set-title-to-file">
+                                    <input type="checkbox" id="edit-app-set-title-to-file" name="edit-app-set-title-to-file" value="true" ${app.metadata?.set_title_to_opened_file ? 'checked' : ''} ${app.background ? 'disabled' : ''}>
+                                    <span class="toggle-slider"></span>
+                                </label>
+                                <label class="toggle-label" for="edit-app-set-title-to-file">Show file name in window title</label>
+                            </div>
+                            <p class="field-description">Window title updates to match the opened file name.</p>
+                        </div>
+                    </div>
                 </div>
-                <span id="edit-app-icon-delete" style="${app.icon ? 'display:block;' : ''}">Remove icon</span>
 
-                ${generateSocialImageSection(app)}
-                <label for="edit-app-description">Description</label>
-                <textarea id="edit-app-description">${html_encode(app.description)}</textarea>
-                
-                <label for="edit-app-category">Category</label>
-                <select id="edit-app-category" class="category-select">
-                    <option value="">Select a category</option>
-                    ${APP_CATEGORIES.map(category => 
-                        `<option value="${html_encode(category.id)}" ${app.metadata?.category === category.id ? 'selected' : ''}>${html_encode(category.label)}</option>`
-                    ).join('')}
-                </select>
-
-                <label for="edit-app-filetype-associations">File Associations</label>
-               <p style="margin-top: 10px; font-size:13px;">A list of file type specifiers. For example if you include <code>.txt</code> your apps could be opened when a user clicks on a TXT file.</p>
-               <p style="margin-top: 5px; font-size:13px;">You can paste multiple extensions at once (comma, space, or tab separated) or press comma to add each extension.</p>
-               <textarea id="edit-app-filetype-associations"  placeholder="Paste multiple extensions like: .txt, .doc, .pdf, application/json">${JSON.stringify(app.filetype_associations.map(item => ({ "value": item })), null, app.filetype_associations.length).replace(/</g, '\\u003c')}</textarea>
-
-                <h3 style="font-size: 23px; border-bottom: 1px solid #EEE; margin-top: 50px; margin-bottom: 0px;">Window</h3>
-                <div>
-                    <input type="checkbox" id="edit-app-background" name="edit-app-background" value="true" style="margin-top:30px;" ${app.background ? 'checked' : ''}>
-                    <label for="edit-app-background" style="display: inline;">Run as a background process.</label>
+                <div class="settings-card">
+                    <h3 class="settings-card-title">Advanced</h3>
+                    <div class="settings-card-content">
+                        <div class="field-group">
+                            <div class="toggle-field">
+                                <label class="toggle-switch" for="edit-app-locked">
+                                    <input type="checkbox" id="edit-app-locked" name="edit-app-locked" value="true" ${app.metadata?.locked ? 'checked' : ''}>
+                                    <span class="toggle-slider"></span>
+                                </label>
+                                <label class="toggle-label" for="edit-app-locked">
+                                    <span class="label-icon">${lock_svg}</span>
+                                    Delete Protection
+                                </label>
+                            </div>
+                            <p class="field-description">Prevents the app from being deleted.</p>
+                        </div>
+                    </div>
                 </div>
 
-                <div>
-                    <input type="checkbox" id="edit-app-fullpage-on-landing" name="edit-app-fullpage-on-landing" value="true" style="margin-top:30px;" ${app.metadata?.fullpage_on_landing ? 'checked' : ''} ${app.background ? 'disabled' : ''}>
-                    <label for="edit-app-fullpage-on-landing" style="display: inline;">Load in full-page mode when a user lands directly on this app.</label>
-                </div>
-
-                <div>
-                    <input type="checkbox" id="edit-app-maximize-on-start" name="edit-app-maximize-on-start" value="true" style="margin-top:30px;" ${maximize_on_start ? 'checked' : ''} ${app.background ? 'disabled' : ''}>
-                    <label for="edit-app-maximize-on-start" style="display: inline;">Maximize window on start</label>
-                </div>
-                
-                <div>
-                    <label for="edit-app-window-width">Initial window width</label>
-                    <input type="number" id="edit-app-window-width" placeholder="680" value="${html_encode(app.metadata?.window_size?.width ?? 680)}" style="width:200px;" ${maximize_on_start || app.background ? 'disabled' : ''}>
-                    <label for="edit-app-window-height">Initial window height</label>
-                    <input type="number" id="edit-app-window-height" placeholder="380" value="${html_encode(app.metadata?.window_size?.height ?? 380)}" style="width:200px;" ${maximize_on_start || app.background ? 'disabled' : ''}>
-                </div>
-
-                <div style="margin-top:30px;">
-                    <label for="edit-app-window-top">Initial window top</label>
-                    <input type="number" id="edit-app-window-top" placeholder="100" value="${app.metadata?.window_position?.top ? html_encode(app.metadata.window_position.top) : ''}" style="width:200px;" ${maximize_on_start || app.background ? 'disabled' : ''}>
-                    <label for="edit-app-window-left">Initial window left</label>
-                    <input type="number" id="edit-app-window-left" placeholder="100" value="${app.metadata?.window_position?.left ? html_encode(app.metadata.window_position.left) : ''}" style="width:200px;" ${maximize_on_start || app.background ? 'disabled' : ''}>
-                </div>
-
-                <div style="margin-top:30px;">
-                    <input type="checkbox" id="edit-app-window-resizable" name="edit-app-window-resizable" value="true" ${app.metadata?.window_resizable ? 'checked' : ''} ${app.background ? 'disabled' : ''}>
-                    <label for="edit-app-window-resizable" style="display: inline;">Resizable window</label>
-                </div>
-
-                <div style="margin-top:30px;">
-                    <input type="checkbox" id="edit-app-hide-titlebar" name="edit-app-hide-titlebar" value="true" ${app.metadata?.hide_titlebar ? 'checked' : ''} ${app.background ? 'disabled' : ''}>
-                    <label for="edit-app-hide-titlebar" style="display: inline;">Hide window titlebar</label>
-                </div>
-
-                <div style="margin-top:30px;">
-                    <input type="checkbox" id="edit-app-set-title-to-file" name="edit-app-set-title-to-file" value="true" ${app.metadata?.set_title_to_opened_file ? 'checked' : ''} ${app.background ? 'disabled' : ''}>
-                    <label for="edit-app-set-title-to-file" style="display: inline;">Automatically set window title to opened file's name</label>
-                    <p>This will set your app's window title to the opened file's name when a user opens a file in your app.</p>
-                </div>
-
-                <h3 style="font-size: 23px; border-bottom: 1px solid #EEE; margin-top: 50px; margin-bottom: 0px;">Misc</h3>
-                <div style="margin-top:30px;">
-                    <input type="checkbox" id="edit-app-locked" name="edit-app-locked" value="true" ${app.metadata?.locked ? 'checked' : ''}>
-                    <label for="edit-app-locked" style="display: inline;">Delete Protection${lock_svg}</label>
-                    <p>When enabled, the app cannot be deleted. This is useful for preventing accidental deletion of important apps.</p>
-                </div>
-
-                <div style="z-index: 999; box-shadow: 10px 10px 15px #8c8c8c; overflow: hidden; position: fixed; bottom: 0; background: white; padding: 10px; width: 100%; left: 0;">
-                    <button type="button" class="edit-app-save-btn button button-primary" style="margin-right: 40px;">Save</button>
+                <div class="sticky-save-bar">
+                    <button type="button" class="edit-app-save-btn button button-primary save-btn-spacing">Save</button>
                     <button type="button" class="edit-app-reset-btn button button-secondary">Reset</button>
                 </div>
             </form>
         </div>
         <div class="section-tab" data-tab="analytics">
-            <label for="analytics-period">Period</label>
-            <select id="analytics-period" class="category-select">
-                <option value="today">Today</option>
-                <option value="yesterday">Yesterday</option>
-                <optgroup label="──────"></optgroup>
-                <option value="this_week">This week</option>
-                <option value="last_week">Last week</option>
-                <option value="7d">Last 7 days</option>
-                <option value="30d">Last 30 days</option>
-                <optgroup label="──────"></optgroup>
-                <option value="this_month">This month</option>
-                <option value="last_month">Last month</option>
-                <optgroup label="──────"></optgroup>
-                <option value="this_year">This year</option>
-                <option value="last_year">Last year</option>
-                <optgroup label="──────"></optgroup>
-                <option value="12m">Last 12 months</option>
-                <option value="all">All time</option>
-            </select>
-            <div style="overflow:hidden;">
-                <div class="analytics-card" id="analytics-users">
-                    <h3 style="margin-top:0;">Users</h3>
-                    <div class="count" style="font-size: 35px;"></div>
-                </div>
-                <div class="analytics-card" id="analytics-opens">
-                    <h3 style="margin-top:0;">Opens</h3>
-                    <div class="count" style="font-size: 35px;"></div>
+            <div class="analytics-header">
+                <div class="analytics-period-selector">
+                    <label for="analytics-period" class="analytics-period-label">Time Period</label>
+                    <select id="analytics-period" class="analytics-period-select">
+                        <option value="today">Today</option>
+                        <option value="yesterday">Yesterday</option>
+                        <optgroup label="──────"></optgroup>
+                        <option value="this_week">This week</option>
+                        <option value="last_week">Last week</option>
+                        <option value="7d">Last 7 days</option>
+                        <option value="30d">Last 30 days</option>
+                        <optgroup label="──────"></optgroup>
+                        <option value="this_month">This month</option>
+                        <option value="last_month">Last month</option>
+                        <optgroup label="──────"></optgroup>
+                        <option value="this_year">This year</option>
+                        <option value="last_year">Last year</option>
+                        <optgroup label="──────"></optgroup>
+                        <option value="12m">Last 12 months</option>
+                        <option value="all">All time</option>
+                    </select>
                 </div>
             </div>
-            <hr style="margin-top: 50px;">
-            <p>Timezone: UTC</p>
-            <p>More analytics features coming soon...</p>
+            <div class="analytics-cards">
+                <div class="analytics-card" id="analytics-users">
+                    <div class="analytics-card-header">
+                        <svg class="analytics-card-icon" xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                            <path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"></path>
+                            <circle cx="9" cy="7" r="4"></circle>
+                            <path d="M23 21v-2a4 4 0 0 0-3-3.87"></path>
+                            <path d="M16 3.13a4 4 0 0 1 0 7.75"></path>
+                        </svg>
+                        <h3>Users</h3>
+                    </div>
+                    <div class="count"></div>
+                </div>
+                <div class="analytics-card" id="analytics-opens">
+                    <div class="analytics-card-header">
+                        <svg class="analytics-card-icon" xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                            <polyline points="22 12 18 12 15 21 9 3 6 12 2 12"></polyline>
+                        </svg>
+                        <h3>Opens</h3>
+                    </div>
+                    <div class="count"></div>
+                </div>
+            </div>
+            <div class="analytics-footer">
+                <p class="analytics-timezone">
+                    <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                        <circle cx="12" cy="12" r="10"></circle>
+                        <polyline points="12 6 12 12 16 14"></polyline>
+                    </svg>
+                    Timezone: UTC
+                </p>
+                <p class="analytics-note">More analytics features coming soon...</p>
+            </div>
         </div>
     `
     return h;
@@ -601,22 +780,28 @@ function resetToOriginalValues() {
         $('#edit-app-icon').css('background-image', `url(${originalValues.icon})`);
         $('#edit-app-icon').attr('data-url', originalValues.icon);
         $('#edit-app-icon').attr('data-base64', originalValues.icon);
-        $('#edit-app-icon-delete').show();
+        $('#edit-app-icon').addClass('has-image');
+        $('#edit-app-icon-delete').removeClass('hidden');
     } else {
         $('#edit-app-icon').css('background-image', '');
         $('#edit-app-icon').removeAttr('data-url');
         $('#edit-app-icon').removeAttr('data-base64');
-        $('#edit-app-icon-delete').hide();
+        $('#edit-app-icon').removeClass('has-image');
+        $('#edit-app-icon-delete').addClass('hidden');
     }
 
     if (originalValues.socialImage) {
         $('#edit-app-social-image').css('background-image', `url(${originalValues.socialImage})`);
         $('#edit-app-social-image').attr('data-url', originalValues.socialImage);
         $('#edit-app-social-image').attr('data-base64', originalValues.socialImage);
+        $('#edit-app-social-image').addClass('has-image');
+        $('#edit-app-social-image-delete').removeClass('hidden');
     } else {
         $('#edit-app-social-image').css('background-image', '');
         $('#edit-app-social-image').removeAttr('data-url');
         $('#edit-app-social-image').removeAttr('data-base64');
+        $('#edit-app-social-image').removeClass('has-image');
+        $('#edit-app-social-image-delete').addClass('hidden');
     }
 }
 
@@ -748,16 +933,16 @@ async function edit_app_section(cur_app_name, tab = 'deploy') {
                         dropped_items = items[0].path;
                         $('.drop-area').removeClass('drop-area-hover');
                         $('.drop-area').addClass('drop-area-ready-to-deploy');
-                        drop_area_content = `<p style="margin-bottom:0; font-weight: 500;">index.html</p><p>Ready to deploy 🚀</p><p class="reset-deploy"><span>Cancel</span></p>`;
+                        drop_area_content = `<p class="deploy-content-title">index.html</p><p>Ready to deploy</p><p class="reset-deploy"><span>Cancel</span></p>`;
                         $('.drop-area').html(drop_area_content);
 
                         // enable deploy button
                         $('.deploy-btn').removeClass('disabled');
 
                     } else {
-                        puter.ui.alert(`You need to have an index.html file in your deployment.`, [
+                        puter.ui.alert(`Your deployment must include an index.html file.`, [
                             {
-                                label: 'Ok',
+                                label: 'OK',
                             },
                         ]);
                         $('.drop-area').removeClass('drop-area-ready-to-deploy');
@@ -782,15 +967,15 @@ async function edit_app_section(cur_app_name, tab = 'deploy') {
                         dropped_items = items;
                         $('.drop-area').removeClass('drop-area-hover');
                         $('.drop-area').addClass('drop-area-ready-to-deploy');
-                        drop_area_content = `<p style="margin-bottom:0; font-weight: 500;">${items.length} items</p><p>Ready to deploy 🚀</p><p class="reset-deploy"><span>Cancel</span></p>`;
+                        drop_area_content = `<p class="deploy-content-title">${items.length} items</p><p>Ready to deploy</p><p class="reset-deploy"><span>Cancel</span></p>`;
                         $('.drop-area').html(drop_area_content);
 
                         // enable deploy button
                         $('.deploy-btn').removeClass('disabled');
                     } else {
-                        puter.ui.alert(`You need to have an index.html file in your deployment.`, [
+                        puter.ui.alert(`Your deployment must include an index.html file.`, [
                             {
-                                label: 'Ok',
+                                label: 'OK',
                             },
                         ]);
                         $('.drop-area').removeClass('drop-area-ready-to-deploy');
@@ -823,7 +1008,7 @@ async function edit_app_section(cur_app_name, tab = 'deploy') {
 
                             $('.drop-area').removeClass('drop-area-hover');
                             $('.drop-area').addClass('drop-area-ready-to-deploy');
-                            drop_area_content = `<p style="margin-bottom:0; font-weight: 500;">${rootItems}</p><p>Ready to deploy 🚀</p><p class="reset-deploy"><span>Cancel</span></p>`;
+                            drop_area_content = `<p class="deploy-content-title">${rootItems}</p><p>Ready to deploy</p><p class="reset-deploy"><span>Cancel</span></p>`;
                             $('.drop-area').html(drop_area_content);
 
                             // enable deploy button
@@ -835,7 +1020,7 @@ async function edit_app_section(cur_app_name, tab = 'deploy') {
                     // no index.html in directory
                     puter.ui.alert(index_missing_error, [
                         {
-                            label: 'Ok',
+                            label: 'OK',
                         },
                     ]);
                     $('.drop-area').removeClass('drop-area-ready-to-deploy');
@@ -870,7 +1055,7 @@ async function edit_app_section(cur_app_name, tab = 'deploy') {
             if (!hasRootIndexHtml(tree)) {
                 puter.ui.alert(index_missing_error, [
                     {
-                        label: 'Ok',
+                        label: 'OK',
                     },
                 ]);
                 $('.drop-area').removeClass('drop-area-ready-to-deploy');
@@ -897,7 +1082,7 @@ async function edit_app_section(cur_app_name, tab = 'deploy') {
             rootItems = html_encode(rootItems);
             $('.drop-area').removeClass('drop-area-hover');
             $('.drop-area').addClass('drop-area-ready-to-deploy');
-            drop_area_content = `<p style="margin-bottom:0; font-weight: 500;">${rootItems}</p><p>Ready to deploy 🚀</p><p class="reset-deploy"><span>Cancel</span></p>`;
+            drop_area_content = `<p class="deploy-content-title">${rootItems}</p><p>Ready to deploy</p><p class="reset-deploy"><span>Cancel</span></p>`;
             $('.drop-area').html(drop_area_content);
 
             // enable deploy button
@@ -1027,21 +1212,21 @@ $(document).on('click', '.edit-app-save-btn', async function (e) {
 
     //validation
     if (title === '')
-        error = `<strong>Title</strong> is required.`;
+        error = `<strong>Display Name</strong> is required.`;
     else if (title.length > 60)
-        error = `<strong>Title</strong> cannot be longer than ${60}.`;
+        error = `<strong>Display Name</strong> cannot exceed ${60} characters.`;
     else if (name === '')
-        error = `<strong>Name</strong> is required.`;
+        error = `<strong>App Identifier</strong> is required.`;
     else if (name.length > 60)
-        error = `<strong>Name</strong> cannot be longer than ${60}.`;
+        error = `<strong>App Identifier</strong> cannot exceed ${60} characters.`;
     else if (index_url === '')
         error = `<strong>Index URL</strong> is required.`;
     else if (!name.match(/^[a-zA-Z0-9-_-]+$/))
-        error = `<strong>Name</strong> can only contain letters, numbers, dash (-) and underscore (_).`;
+        error = `<strong>App Identifier</strong> can only contain letters, numbers, hyphens, and underscores.`;
     else if (!is_valid_url(index_url))
-        error = `<strong>Index URL</strong> must be a valid url.`;
+        error = `<strong>Index URL</strong> must be a valid URL.`;
     else if (!index_url.toLowerCase().startsWith('https://') && !index_url.toLowerCase().startsWith('http://'))
-        error = `<strong>Index URL</strong> must start with 'https://' or 'http://'.`;
+        error = `<strong>Index URL</strong> must start with https:// or http://`;
     // height must be a number
     else if (isNaN(height))
         error = `<strong>Window Height</strong> must be a number.`;
@@ -1214,9 +1399,9 @@ $(document).on('click', '.delete-app-settings', async function (e) {
     const app_data = await puter.apps.get(app_name, {icon_size: 16});
 
     if(app_data.metadata?.locked){
-        puter.ui.alert(`<strong>${app_data.title}</strong> is locked and cannot be deleted.`, [
+        puter.ui.alert(`<strong>${app_data.title}</strong> has delete protection enabled.`, [
             {
-                label: 'Ok',
+                label: 'OK',
             },
         ], {
             type: 'warning',
@@ -1225,10 +1410,10 @@ $(document).on('click', '.delete-app-settings', async function (e) {
     }
 
     // confirm delete
-    const alert_resp = await puter.ui.alert(`Are you sure you want to premanently delete <strong>${html_encode(app_title)}</strong>?`,
+    const alert_resp = await puter.ui.alert(`Delete <strong>${html_encode(app_title)}</strong>? This cannot be undone.`,
         [
             {
-                label: 'Yes, delete permanently',
+                label: 'Delete',
                 value: 'delete',
                 type: 'danger',
             },
@@ -1266,7 +1451,7 @@ $(document).on('click', '.delete-app-settings', async function (e) {
                     puter.ui.hideSpinner();
                     puter.ui.alert(err?.message, [
                         {
-                            label: 'Ok',
+                            label: 'OK',
                         },
                     ]);
                 },
@@ -1324,7 +1509,8 @@ $(document).on('click', '#edit-app-icon-delete', async function (e) {
     $('#edit-app-icon').css('background-image', ``);
     $('#edit-app-icon').removeAttr('data-url');
     $('#edit-app-icon').removeAttr('data-base64');
-    $('#edit-app-icon-delete').hide();
+    $('#edit-app-icon').removeClass('has-image');
+    $('#edit-app-icon-delete').addClass('hidden');
 
     toggleSaveButton();
     toggleResetButton();
@@ -1353,7 +1539,8 @@ $(document).on('click', '#edit-app-icon', async function (e) {
 
         $('#edit-app-icon').css('background-image', `url(${image})`);
         $('#edit-app-icon').attr('data-base64', image);
-        $('#edit-app-icon-delete').show();
+        $('#edit-app-icon').addClass('has-image');
+        $('#edit-app-icon-delete').removeClass('hidden');
 
         toggleSaveButton();
         toggleResetButton();
@@ -1386,117 +1573,65 @@ $(document).on('click', '#edit-app-icon', async function (e) {
  * $('#app-list-table > tbody').append(appCardHTML);
  */
 function generate_app_card(app) {
-    let h = ``;
-    h += `<tr class="app-card" data-uid="${html_encode(app.uid)}" data-title="${html_encode(app.title)}" data-name="${html_encode(app.name)}" style="height: 86px;">`;
-        // check box
-        h += `<td style="height: 60px; width: 20px; display: flex ; align-items: center;">`;
-            h += `<div style="width: 20px; height: 20px; margin-top: 20px; margin-right: 10px; flex-shrink:0;">`;
-                h += `<input type="checkbox" class="app-checkbox" data-app-uid="${html_encode(app.uid)}" data-app-name="${html_encode(app.name)}">`;
-            h += `</div>`;
-        h += `</td>`;
-    
-        // App info (title, category, toolbar)
-        h += `<td style="height: 72px; width: 450px;">`;
+    const iconUrl = app.icon === null ? './img/app.svg' : app.icon;
+    const createdAt = moment(app.created_at);
+    let categoryMarkup = '';
 
-    // Wrapper for icon + content side by side
-    h += `<div style="display: flex; flex-direction: row; align-items: center; height: 86px; overflow: hidden;">`;
-
-    // Icon
-    h += `<div class="go-to-edit-app" data-app-name="${html_encode(app.name)}" data-app-title="${html_encode(app.title)}" data-app-locked="${html_encode(app.metadata?.locked)}" data-app-uid="${html_encode(app.uid)}" style="
-      background-position: center;
-      background-repeat: no-repeat;
-      background-size: 92%;
-      background-image: url(${app.icon === null ? './img/app.svg' : app.icon});
-      width: 60px;
-      height: 60px;
-      margin-right: 10px;
-      color: #414b56;
-      cursor: pointer;
-      background-color: white;
-      border-radius: 3px;
-      flex-shrink: 0;
-    "></div>`;
-
-    // App info content
-    h += `<div style="display: flex; flex-direction: column; justify-content: space-between; height: 100%; overflow: visible;">`;
-
-    // Info block with fixed layout
-    h += `<div style="display: flex; flex-direction: column; justify-content: center; padding-left: 10px; flex-grow: 1; overflow: hidden; gap: 1px; height: 100%;">`;
-
-    // Title
-    h += `<h3 class="go-to-edit-app app-card-title" style="
-    margin: 0;
-    font-size: 16px;
-    line-height: 20px;
-    height: 20px;
-    white-space: nowrap;
-    overflow: hidden;
-    text-overflow: ellipsis;
-  " data-app-name="${html_encode(app.name)}" data-app-title="${html_encode(app.title)}" data-app-uid="${html_encode(app.uid)}">
-    ${html_encode(app.title)}${app.metadata?.locked ? lock_svg_tippy : ''}
-  </h3>`;
-
-  // Category (optional)
-  if (app.metadata?.category) {
-    const category = APP_CATEGORIES.find(c => c.id === app.metadata.category);
-    if (category) {
-      h += `<span class="app-category" >${html_encode(category.label)}</span>`;
+    if (app.metadata?.category) {
+        const category = APP_CATEGORIES.find(c => c.id === app.metadata.category);
+        if (category) {
+            categoryMarkup = `<span class="app-category">${html_encode(category.label)}</span>`;
+        }
     }
-  }
 
-  // Link
-  h += `<a class="app-card-link" href="${html_encode(applink(app))}" target="_blank" style="
-    font-size: 13px;
-    margin: 2px 0 0 0;
-    color: #2563eb;
-    white-space: nowrap;
-    overflow: hidden;
-    text-overflow: ellipsis;
-    text-decoration: none;
-  ">${html_encode(applink(app))}</a>`;
-
-h += `</div>`;
-
-
-
-    h += `</div>`; // end info column
-    h += `</div>`; // end row
-h += `</td>`;
-
-
-    // users count
-    h += `<td style="margin-top:10px; font-size:15px; vertical-align:middle;">`;
-        h += `<span class="stats-cell" data-app-name="${html_encode(app.name)}" data-app-uid="${html_encode(app.uid)}" title="Users" style="margin-right:20px;"><img src="./img/users.svg">${number_format((app.stats.referral_count ?? 0) + app.stats.user_count)}</span>`;
-    h += `</td>`;
-
-    // opens
-    h += `<td style="margin-top:10px; font-size:15px; vertical-align:middle;">`;
-        h += `<span class="stats-cell" data-app-name="${html_encode(app.name)}" data-app-uid="${html_encode(app.uid)}" title="Opens"><img src="./img/views.svg">${number_format(app.stats.open_count)}</span>`;
-    h += `</td>`;
-
-    // Created
-    h += `<td style="margin-top:10px; font-size:15px; vertical-align:middle;">`;
-    h += `<span title="Created" style="width: 130px; display: inline-block; font-size: 14px;">${moment(app.created_at).format('MMM Do, YYYY')}</span>`;
-    h += `</td>`;
-
-    h += `<td style="vertical-align:middle; min-width:200px;">`;
-        h += `<div style="overflow: hidden; height: 100%; display: flex; justify-content: center; align-items: center;">`;
-            // "Approved for listing"
-            h += `<span class="tippy approval-badge approval-badge-lsiting ${app.approved_for_listing ? 'active' : ''}" title="${app.approved_for_listing ? '✅ Approved for listing in the App Center' : '❌ Not approved for listing in the App Center'}"></span>`;
-
-            // "Approved for opening items"
-            h += `<span class="tippy approval-badge approval-badge-opening ${app.approved_for_opening_items ? 'active' : ''}" title="${app.approved_for_opening_items ? '✅ Approved for opening items' : '❌ Not approved for opening items'}"></span>`;
-
-            // "Approved for incentive program"
-            h += `<span class="tippy approval-badge approval-badge-incentive ${app.approved_for_incentive_program ? 'active' : ''}" title="${app.approved_for_incentive_program ? '✅ Approved for the incentive program' : '❌ Not approved for the incentive program'}"></span>`;
-        h += `</div>`;
-    h += `</td>`;
-
-    // options
-    h += `<td style="vertical-align: middle;"><img class="options-icon options-icon-app" data-app-name="${html_encode(app.name)}" data-app-uid="${html_encode(app.uid)}" data-app-title="${html_encode(app.title)}" src="./img/options.svg"></td>`;
-
-    h += `</tr>`;
-    return h;
+    return `
+        <tr class="app-card" data-uid="${html_encode(app.uid)}" data-title="${html_encode(app.title)}" data-name="${html_encode(app.name)}">
+            <td class="cell-select">
+                <div class="checkbox-wrap">
+                    <input type="checkbox" class="app-checkbox" data-app-uid="${html_encode(app.uid)}" data-app-name="${html_encode(app.name)}">
+                </div>
+            </td>
+            <td class="cell-app">
+                <div class="app-card-layout">
+                    <button type="button" class="app-card-thumb go-to-edit-app" data-app-name="${html_encode(app.name)}" data-app-title="${html_encode(app.title)}" data-app-locked="${html_encode(app.metadata?.locked)}" data-app-uid="${html_encode(app.uid)}" aria-label="Edit ${html_encode(app.title)}">
+                        <img src="${html_encode(iconUrl)}" alt="" loading="lazy">
+                    </button>
+                    <div class="app-card-content">
+                        <h3 class="go-to-edit-app app-card-title" data-app-name="${html_encode(app.name)}" data-app-title="${html_encode(app.title)}" data-app-uid="${html_encode(app.uid)}">
+                            ${html_encode(app.title)}${app.metadata?.locked ? lock_svg_tippy : ''}
+                        </h3>
+                        ${categoryMarkup}
+                        <a class="app-card-link" href="${html_encode(applink(app))}" target="_blank" rel="noopener noreferrer">${html_encode(applink(app))}</a>
+                    </div>
+                </div>
+            </td>
+            <td class="cell-stat">
+                <span class="stats-cell" data-app-name="${html_encode(app.name)}" data-app-uid="${html_encode(app.uid)}" title="Users">
+                    <img src="./img/users.svg" alt="" loading="lazy">
+                    ${number_format((app.stats.referral_count ?? 0) + app.stats.user_count)}
+                </span>
+            </td>
+            <td class="cell-stat">
+                <span class="stats-cell" data-app-name="${html_encode(app.name)}" data-app-uid="${html_encode(app.uid)}" title="Opens">
+                    <img src="./img/views.svg" alt="" loading="lazy">
+                    ${number_format(app.stats.open_count)}
+                </span>
+            </td>
+            <td class="cell-status">
+                <div class="approval-badges">
+                    <span class="tippy approval-badge approval-badge-listing ${app.approved_for_listing ? 'active' : ''}" title="${app.approved_for_listing ? '✅ Approved for listing in the App Center' : '❌ Not approved for listing in the App Center'}"></span>
+                    <span class="tippy approval-badge approval-badge-opening ${app.approved_for_opening_items ? 'active' : ''}" title="${app.approved_for_opening_items ? '✅ Approved for opening items' : '❌ Not approved for opening items'}"></span>
+                    <span class="tippy approval-badge approval-badge-incentive ${app.approved_for_incentive_program ? 'active' : ''}" title="${app.approved_for_incentive_program ? '✅ Approved for the incentive program' : '❌ Not approved for the incentive program'}"></span>
+                </div>
+            </td>
+            <td class="cell-meta">
+                <span class="created-at" title="${createdAt.format('LLLL')}">${createdAt.format('MMM Do, YYYY')}</span>
+            </td>
+            <td class="cell-actions">
+                <img class="options-icon options-icon-app" data-app-name="${html_encode(app.name)}" data-app-uid="${html_encode(app.uid)}" data-app-title="${html_encode(app.title)}" src="./img/options.svg" alt="App options">
+            </td>
+        </tr>
+    `;
 }
 
 $('th.sort').on('click', function (e) {
@@ -1981,12 +2116,12 @@ $(document).on('click', '.open-app', function (e) {
 
 $(document).on('click', '.insta-deploy-to-new-app', async function (e) {
     $('.insta-deploy-modal').get(0).close();
-    let title = await puter.ui.prompt('Please enter a title for your app:', 'My Awesome App');
+    let title = await puter.ui.prompt('Name your app:', 'My Awesome App');
 
     if (title.length > 60) {
-        puter.ui.alert(`Title cannot be longer than 60.`, [
+        puter.ui.alert(`Display name cannot exceed 60 characters.`, [
             {
-                label: 'Ok',
+                label: 'OK',
             },
         ]);
         // todo go back to create an app prompt and prefill the title input with the title the user entered
@@ -2060,7 +2195,7 @@ $(document).on('click', '.insta-deploy-existing-app-deploy-btn', function (e) {
 
     $('.drop-area').removeClass('drop-area-hover');
     $('.drop-area').addClass('drop-area-ready-to-deploy');
-    let drop_area_content = `<p style="margin-bottom:0; font-weight: 500;">Ready to deploy 🚀</p><p class="reset-deploy"><span>Cancel</span></p>`;
+    let drop_area_content = `<p class="deploy-content-title">Ready to deploy</p><p class="reset-deploy"><span>Cancel</span></p>`;
     $('.drop-area').html(drop_area_content);
 
     // deploy
@@ -2087,40 +2222,9 @@ $('.insta-deploy-existing-app-select').on('close', function (e) {
     $('.insta-deploy-existing-app-list').html('');
 })
 
-$('.refresh-app-list').on('click', function (e) {
-    puter.ui.showSpinner();
-
-    puter.apps.list({ icon_size: 64 }).then((resp) => {
-        setTimeout(() => {
-            apps = resp;
-
-            $('.app-card').remove();
-            apps.forEach(app => {
-                $('#app-list-table > tbody').append(generate_app_card(app));
-            });
-
-            count_apps();
-
-            // preserve search query
-            if (search_query) {
-                // show apps that match search_query and hide apps that don't
-                apps.forEach((app) => {
-                    if (app.title.toLowerCase().includes(search_query.toLowerCase())) {
-                        $(`.app-card[data-name="${app.name}"]`).show();
-                    } else {
-                        $(`.app-card[data-name="${app.name}"]`).hide();
-                    }
-                })
-            }
-
-            // preserve sort
-            sort_apps();
-            activate_tippy();
-
-            puter.ui.hideSpinner();
-        }, 1000);
-    })
-})
+$('.refresh-app-list').on('click', async function (e) {
+    await refresh_app_list();
+});
 
 $(document).on('click', '.search-apps', function (e) {
     e.stopPropagation();
@@ -2174,6 +2278,56 @@ $(document).on('click', '.search-clear-apps', function (e) {
     $('.search-apps').removeClass('has-value');
 })
 
+$(document).on('click', '.filters-toggle-btn', function (e) {
+    e.stopPropagation();
+    $('.app-filters-dropdown').toggle();
+})
+
+$(document).on('click', function (e) {
+    if (!$(e.target).closest('.app-filters-wrapper').length) {
+        $('.app-filters-dropdown').hide();
+    }
+})
+
+$(document).on('change', '.app-filters-dropdown input[type="checkbox"]', function (e) {
+    const filter_name = $(this).data('filter');
+
+    if ($(this).is(':checked')) {
+        active_filters[filter_name] = true;
+    } else {
+        delete active_filters[filter_name];
+    }
+
+    const filter_count = Object.keys(active_filters).length;
+
+    // Update badge count
+    if (filter_count > 0) {
+        $('.filter-count-badge').text(filter_count).show();
+        $('.clear-filters-link').show();
+    } else {
+        $('.filter-count-badge').hide();
+        $('.clear-filters-link').hide();
+    }
+
+    // Refresh app list with filters
+    refresh_app_list();
+})
+
+$(document).on('click', '.clear-filters-link', function (e) {
+    // Uncheck all filter checkboxes
+    $('.app-filters-dropdown input[type="checkbox"]').prop('checked', false);
+
+    // Clear active filters
+    active_filters = {};
+
+    // Hide badge and clear button
+    $('.filter-count-badge').hide();
+    $('.clear-filters-link').hide();
+
+    // Refresh app list without filters
+    refresh_app_list();
+})
+
 $(document).on('click', '.app-checkbox', function (e) {
     // was shift key pressed?
     if (e.originalEvent && e.originalEvent.shiftKey) {
@@ -2213,11 +2367,12 @@ $(document).on('click', '.app-checkbox', function (e) {
     else
         $(this).closest('tr').removeClass('active');
 
-    // enable delete button if at least one checkbox is checked
-    if ($('.app-checkbox:checked').length > 0)
-        $('.delete-apps-btn').removeClass('disabled');
-    else
-        $('.delete-apps-btn').addClass('disabled');
+    // show delete button if at least one checkbox is checked
+    if ($('.app-checkbox:checked').length > 0) {
+        $('.delete-apps-btn').show();
+    } else {
+        $('.delete-apps-btn').hide();
+    }
 
     // store the index of the last clicked checkbox
     window.last_clicked_app_checkbox_index = $('.app-checkbox').index(this);
@@ -2254,7 +2409,7 @@ function remove_app_card(app_uid, callback = null) {
 
 $(document).on('click', '.delete-apps-btn', async function (e) {
     // show confirmation alert
-    let resp = await puter.ui.alert(`Are you sure you want to delete the selected apps?`, [
+    let resp = await puter.ui.alert(`Delete selected apps? This cannot be undone.`, [
         {
             label: 'Delete',
             type: 'danger',
@@ -2287,7 +2442,7 @@ $(document).on('click', '.delete-apps-btn', async function (e) {
                 if(apps.length === 1){
                     puter.ui.alert(`<strong>${app_data.title}</strong> is locked and cannot be deleted.`, [
                         {
-                            label: 'Ok',
+                            label: 'OK',
                         },
                     ], {
                         type: 'warning',
@@ -2348,8 +2503,8 @@ $(document).on('click', '.delete-apps-btn', async function (e) {
         setTimeout(() => {
             puter.ui.hideSpinner();
             if($('.app-checkbox:checked').length === 0){
-                // disable delete button
-                $('.delete-apps-btn').addClass('disabled');
+                // hide delete button
+                $('.delete-apps-btn').hide();
                 // reset the 'select all' checkbox
                 $('.select-all-apps').prop('indeterminate', false);
                 $('.select-all-apps').prop('checked', false);
@@ -2362,11 +2517,11 @@ $(document).on('change', '.select-all-apps', function (e) {
     if ($(this).is(':checked')) {
         $('.app-checkbox').prop('checked', true);
         $('.app-card').addClass('active');
-        $('.delete-apps-btn').removeClass('disabled');
+        $('.delete-apps-btn').show();
     } else {
         $('.app-checkbox').prop('checked', false);
         $('.app-card').removeClass('active');
-        $('.delete-apps-btn').addClass('disabled');
+        $('.delete-apps-btn').hide();
     }
 })
 
@@ -2436,18 +2591,6 @@ window.initializeAssetsDirectory = async () => {
     }
 }
 
-window.generateSocialImageSection = (app) => {
-    return `
-        <label for="edit-app-social-image">Social Graph Image (1200×630 strongly recommended)</label>
-        <div id="edit-app-social-image" class="social-image-preview" ${app.metadata?.social_image ? `style="background-image:url(${html_encode(app.metadata.social_image)})" data-url="${html_encode(app.metadata.social_image)}" data-base64="${html_encode(app.metadata.social_image)}"` : ''}>
-            <div id="change-social-image">Change Social Image</div>
-        </div>
-        <span id="edit-app-social-image-delete" style="${app.metadata?.social_image ? 'display:block;' : ''}">Remove social image</span>
-        <p class="social-image-help">This image will be displayed when your app is shared on social media.</p>
-    `;
-}
-
-
 $(document).on('click', '#edit-app-social-image', async function(e) {
     const res = await puter.ui.showOpenFilePicker({
         accept: "image/*",
@@ -2469,7 +2612,8 @@ $(document).on('click', '#edit-app-social-image', async function(e) {
 
         $('#edit-app-social-image').css('background-image', `url(${image})`);
         $('#edit-app-social-image').attr('data-base64', image);
-        $('#edit-app-social-image-delete').show();
+        $('#edit-app-social-image').addClass('has-image');
+        $('#edit-app-social-image-delete').removeClass('hidden');
 
         toggleSaveButton();
         toggleResetButton();
@@ -2480,7 +2624,8 @@ $(document).on('click', '#edit-app-social-image-delete', async function(e) {
     $('#edit-app-social-image').css('background-image', '');
     $('#edit-app-social-image').removeAttr('data-url');
     $('#edit-app-social-image').removeAttr('data-base64');
-    $('#edit-app-social-image-delete').hide();
+    $('#edit-app-social-image').removeClass('has-image');
+    $('#edit-app-social-image-delete').addClass('hidden');
 });
 
 window.handleSocialImageUpload = async (app_name, socialImageData) => {
@@ -2559,7 +2704,7 @@ async function render_analytics(period){
     $('.analytics-container').remove();
 
     // Create new canvas
-    const container = $('<div class="analytics-container" style="width:100%; height:400px; margin-top:30px;"></div>');
+    const container = $('<div class="analytics-container"></div>');
     const canvas = $('<canvas id="analytics-chart"></canvas>');
     container.append(canvas);
     $('#analytics-opens').parent().after(container);
@@ -2574,7 +2719,7 @@ async function render_analytics(period){
         } else {
             date = new Date(item.period);
         }
-        
+
         if (stats_grouping === 'hour') {
             return date.toLocaleString('en-US', { hour: 'numeric', hour12: true }).toLowerCase();
         } else if (stats_grouping === 'day') {
@@ -2588,6 +2733,16 @@ async function render_analytics(period){
 
     // Create chart
     const ctx = document.getElementById('analytics-chart').getContext('2d');
+
+    // Create gradients
+    const openGradient = ctx.createLinearGradient(0, 0, 0, 400);
+    openGradient.addColorStop(0, 'rgba(52, 107, 235, 0.15)');
+    openGradient.addColorStop(1, 'rgba(52, 107, 235, 0)');
+
+    const userGradient = ctx.createLinearGradient(0, 0, 0, 400);
+    userGradient.addColorStop(0, 'rgba(39, 204, 50, 0.15)');
+    userGradient.addColorStop(1, 'rgba(39, 204, 50, 0)');
+
     new Chart(ctx, {
         type: 'line',
         data: {
@@ -2597,46 +2752,115 @@ async function render_analytics(period){
                     label: 'Opens',
                     data: openData,
                     borderColor: '#346beb',
-                    tension: 0,
-                    fill: false
+                    backgroundColor: openGradient,
+                    borderWidth: 2.5,
+                    tension: 0.4,
+                    fill: true,
+                    pointRadius: 4,
+                    pointHoverRadius: 6,
+                    pointBackgroundColor: '#346beb',
+                    pointBorderColor: '#fff',
+                    pointBorderWidth: 2,
+                    pointHoverBackgroundColor: '#346beb',
+                    pointHoverBorderColor: '#fff',
+                    pointHoverBorderWidth: 2
                 },
                 {
                     label: 'Users',
                     data: userData,
                     borderColor: '#27cc32',
-                    tension: 0,
-                    fill: false
+                    backgroundColor: userGradient,
+                    borderWidth: 2.5,
+                    tension: 0.4,
+                    fill: true,
+                    pointRadius: 4,
+                    pointHoverRadius: 6,
+                    pointBackgroundColor: '#27cc32',
+                    pointBorderColor: '#fff',
+                    pointBorderWidth: 2,
+                    pointHoverBackgroundColor: '#27cc32',
+                    pointHoverBorderColor: '#fff',
+                    pointHoverBorderWidth: 2
                 }
             ]
         },
         options: {
             responsive: true,
             maintainAspectRatio: false,
+            layout: {
+                padding: 12
+            },
+            interaction: {
+                mode: 'index',
+                intersect: false,
+            },
+            plugins: {
+                legend: {
+                    display: true,
+                    position: 'bottom',
+                    labels: {
+                        usePointStyle: true,
+                        padding: 16,
+                        font: {
+                            size: 13,
+                            weight: '500'
+                        }
+                    }
+                },
+                tooltip: {
+                    enabled: true,
+                    backgroundColor: 'rgba(15, 23, 42, 0.95)',
+                    titleFont: {
+                        size: 13,
+                        weight: '600'
+                    },
+                    bodyFont: {
+                        size: 13
+                    },
+                    padding: 12,
+                    cornerRadius: 8,
+                    displayColors: true,
+                    boxPadding: 6
+                }
+            },
             scales: {
                 x: {
                     display: true,
-                    title: {
-                        display: true,
-                        text: 'Period'
+                    grid: {
+                        display: false,
+                        drawBorder: false
                     },
                     ticks: {
                         maxRotation: 45,
-                        minRotation: 45
+                        minRotation: 45,
+                        font: {
+                            size: 12
+                        },
+                        color: 'rgba(107, 114, 128, 0.8)'
                     }
                 },
                 y: {
                     display: true,
                     beginAtZero: true,
-                    title: {
-                        display: true,
-                        text: 'Count'
+                    grid: {
+                        color: 'rgba(107, 114, 128, 0.1)',
+                        drawBorder: false
                     },
                     ticks: {
-                        precision: 0,  // Show whole numbers only
-                        stepSize: 1    // Increment by 1
+                        precision: 0,
+                        stepSize: 1,
+                        font: {
+                            size: 12
+                        },
+                        color: 'rgba(107, 114, 128, 0.8)',
+                        padding: 8
                     }
                 }
             },
+            animation: {
+                duration: 750,
+                easing: 'easeInOutQuart'
+            }
         }
     });
 
@@ -2678,9 +2902,9 @@ function app_context_menu(app_name, app_title, app_uid) {
                             overwrite: false,
                             appUID: app_uid,
                         }).then(async (uploaded) => {
-                            puter.ui.alert(`<strong>${app_title}</strong> shortcut has been added to your desktop.`, [
+                            puter.ui.alert(`<strong>${app_title}</strong> added to desktop.`, [
                                 {
-                                    label: 'Ok',
+                                    label: 'OK',
                                     type: 'primary',
                                 },
                             ], {
@@ -2718,9 +2942,9 @@ async function attempt_delete_app(app_name, app_title, app_uid) {
     const app_data = await puter.apps.get(app_name, { icon_size: 16 });
 
     if(app_data.metadata?.locked){
-        puter.ui.alert(`<strong>${app_data.title}</strong> is locked and cannot be deleted.`, [
+        puter.ui.alert(`<strong>${app_data.title}</strong> has delete protection enabled.`, [
             {
-                label: 'Ok',
+                label: 'OK',
             },
         ], {
             type: 'warning',
@@ -2729,10 +2953,10 @@ async function attempt_delete_app(app_name, app_title, app_uid) {
     }
 
     // confirm delete
-    const alert_resp = await puter.ui.alert(`Are you sure you want to premanently delete <strong>${html_encode(app_title)}</strong>?`,
+    const alert_resp = await puter.ui.alert(`Delete <strong>${html_encode(app_title)}</strong>? This cannot be undone.`,
         [
             {
-                label: 'Yes, delete permanently',
+                label: 'Delete',
                 value: 'delete',
                 type: 'danger',
             },
@@ -2764,7 +2988,7 @@ async function attempt_delete_app(app_name, app_title, app_uid) {
                     puter.ui.hideSpinner();
                     puter.ui.alert(err?.message, [
                         {
-                            label: 'Ok',
+                            label: 'OK',
                         },
                     ]);
             })
