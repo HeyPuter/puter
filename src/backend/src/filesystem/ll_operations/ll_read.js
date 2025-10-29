@@ -86,7 +86,7 @@ class LLRead extends LLFilesystemOperation {
                         [Date.now() / 1000, fsNode.mysql_id]);
 
         const ownerId = await fsNode.get('user_id');
-        const ownerActor =  new Actor({
+        const chargedActor =  actor? actor: new Actor({
             type: new UserActorType({
                 user: await get_user({ id: ownerId }),
             }),
@@ -102,10 +102,10 @@ class LLRead extends LLFilesystemOperation {
             // Meter cached egress
             // return cached stream
             if ( has_range && (length || offset) ) {
-                meteringService.incrementUsage(ownerActor, 'filesystem:cached-egress:bytes', length);
+                meteringService.incrementUsage(chargedActor, 'filesystem:cached-egress:bytes', length);
                 return buffer_to_stream(maybe_buffer.slice(offset, offset + length));
             }
-            meteringService.incrementUsage(ownerActor, 'filesystem:cached-egress:bytes', await fsNode.get('size'));
+            meteringService.incrementUsage(chargedActor, 'filesystem:cached-egress:bytes', await fsNode.get('size'));
             return buffer_to_stream(maybe_buffer);
         }
 
@@ -145,7 +145,7 @@ class LLRead extends LLFilesystemOperation {
             }
             return await fsNode.get('size');
         })();
-        meteringService.incrementUsage(ownerActor, 'filesystem:egress:bytes', size);
+        meteringService.incrementUsage(chargedActor, 'filesystem:egress:bytes', size);
 
         // cache if whole file read
         if ( !has_range ) {
