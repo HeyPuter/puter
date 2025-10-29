@@ -38,7 +38,7 @@ window.refresh_websites_list = async ({ manageSkeleton = true } = {}) => {
             }
         } else {
             $('.website-card').remove();
-            $('#no-websites-notice').show();
+            $('#no-websites-notice').css('display', 'flex');
             $('#website-list').hide();
         }
 
@@ -315,7 +315,7 @@ function remove_website_card(website_name, callback = null) {
 
         if ($(`.website-card`).length === 0) {
             $('section:not(.sidebar)').hide();
-            $('#no-websites-notice').show();
+            $('#no-websites-notice').css('display', 'flex');
         } else {
             $('section:not(.sidebar)').hide();
             $('#website-list').show();

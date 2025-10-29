@@ -40,7 +40,7 @@ window.refresh_worker_list = async ({ manageSkeleton = true } = {}) => {
             });
         } else {
             $('.worker-card').remove();
-            $('#no-workers-notice').show();
+            $('#no-workers-notice').css('display', 'flex');
             $('#worker-list').hide();
         }
 
@@ -322,7 +322,7 @@ function remove_worker_card(worker_name, callback = null) {
 
         if ($(`.worker-card`).length === 0) {
             $('section:not(.sidebar)').hide();
-            $('#no-workers-notice').show();
+            $('#no-workers-notice').css('display', 'flex');
         } else {
             $('section:not(.sidebar)').hide();
             $('#worker-list').show();

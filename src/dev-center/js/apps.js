@@ -135,7 +135,7 @@ window.refresh_app_list = async ({ manageSkeleton = true } = {}) => {
             }
         } else {
             // Truly no apps created
-            $('#no-apps-notice').show();
+            $('#no-apps-notice').css('display', 'flex');
             $('#app-list').hide();
         }
 
