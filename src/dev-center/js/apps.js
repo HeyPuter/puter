@@ -156,12 +156,12 @@ window.refresh_app_list = async ({ manageSkeleton = true } = {}) => {
 };
 
 $(document).on('click', '.create-an-app-btn', async function (e) {
-    let title = await puter.ui.prompt('Please enter a title for your app:', 'My Awesome App');
+    let title = await puter.ui.prompt('Name your app:', 'My Awesome App');
 
     if (title.length > 60) {
-        puter.ui.alert(`Title cannot be longer than 60.`, [
+        puter.ui.alert(`Display name cannot exceed 60 characters.`, [
             {
-                label: 'Ok',
+                label: 'OK',
             },
         ]);
         // todo go back to create an app prompt and prefill the title input with the title the user entered
@@ -402,11 +402,12 @@ function generate_edit_app_section(app) {
                 <input type="hidden" id="edit-app-uid" value="${html_encode(app.uid)}">
 
                 <div class="settings-card">
-                    <h3 class="settings-card-title">Basic</h3>
+                    <h3 class="settings-card-title">Basic Information</h3>
                     <div class="settings-card-content">
                         <div class="field-group">
-                            <label for="edit-app-title">Title</label>
-                            <input type="text" id="edit-app-title" placeholder="My Awesome App!" value="${html_encode(app.title)}">
+                            <label for="edit-app-title">Display Name</label>
+                            <p class="field-description">Shown to users throughout the interface and app center.</p>
+                            <input type="text" id="edit-app-title" placeholder="My Awesome App" value="${html_encode(app.title)}">
                         </div>
 
                         <div class="field-group">
@@ -437,8 +438,8 @@ function generate_edit_app_section(app) {
                         </div>
 
                         <div class="field-group">
-                            <label for="edit-app-social-image">Social Graph Image</label>
-                            <p class="field-description">This image will be displayed when your app is shared on social media. 1200×630 strongly recommended.</p>
+                            <label for="edit-app-social-image">Social Image</label>
+                            <p class="field-description">Shown when shared on social media. Recommended: 1200×630 pixels.</p>
                             <div class="image-upload-container image-upload-wide">
                                 <div id="edit-app-social-image" class="image-preview image-preview-wide ${app.metadata?.social_image ? 'has-image' : ''}" ${app.metadata?.social_image ? `data-url="${html_encode(app.metadata.social_image)}" data-base64="${html_encode(app.metadata.social_image)}"` : ''} style="${app.metadata?.social_image ? 'background-image: url(' + html_encode(app.metadata.social_image) + ');' : ''}">
                                     <div class="image-upload-overlay">
@@ -452,7 +453,8 @@ function generate_edit_app_section(app) {
                         <div class="field-section-divider"></div>
 
                         <div class="field-group">
-                            <label for="edit-app-name">Name</label>
+                            <label for="edit-app-name">App Identifier</label>
+                            <p class="field-description">Used in <code>puter.com/app/<strong>${html_encode(app.name)}</strong></code> and hosting subdomains. Changing this breaks existing links.</p>
                             <input type="text" id="edit-app-name" class="input-monospace" placeholder="my-awesome-app" value="${html_encode(app.name)}">
                         </div>
 
@@ -470,8 +472,8 @@ function generate_edit_app_section(app) {
 
                         <div class="field-group">
                             <label for="edit-app-filetype-associations">File Associations</label>
-                            <p class="field-description">A list of file type specifiers. For example if you include <code>.txt</code> your apps could be opened when a user clicks on a TXT file.</p>
-                            <p class="field-hint">You can paste multiple extensions at once (comma, space, or tab separated) or press comma to add each extension.</p>
+                            <p class="field-description">File types that open with your app. For example, <code>.txt</code> files open your app when clicked.</p>
+                            <p class="field-hint">Paste multiple extensions separated by comma, space, or tab.</p>
                             <textarea id="edit-app-filetype-associations"  placeholder="Paste multiple extensions like: .txt, .doc, .pdf, application/json">${JSON.stringify(app.filetype_associations.map(item => ({ "value": item })), null, app.filetype_associations.length).replace(/</g, '\\u003c')}</textarea>
                         </div>
                     </div>
@@ -486,9 +488,12 @@ function generate_edit_app_section(app) {
                                     <input type="checkbox" id="edit-app-background" name="edit-app-background" value="true" ${app.background ? 'checked' : ''}>
                                     <span class="toggle-slider"></span>
                                 </label>
-                                <label class="toggle-label" for="edit-app-background">Run as a background process</label>
+                                <label class="toggle-label" for="edit-app-background">Run as background process</label>
                             </div>
+                            <p class="field-description">Runs without a visible window.</p>
                         </div>
+
+                        <div class="field-section-divider"></div>
 
                         <div class="field-group">
                             <div class="toggle-field">
@@ -516,7 +521,7 @@ function generate_edit_app_section(app) {
 
                         <div class="field-group">
                             <label>Initial window position</label>
-                            <p class="field-description">Leave empty to center the window on screen</p>
+                            <p class="field-description">Leave empty to center on screen.</p>
                             <div class="input-grid input-grid-2col">
                                 <div class="input-grid-item">
                                     <label for="edit-app-window-top" class="input-grid-label">Top</label>
@@ -528,6 +533,8 @@ function generate_edit_app_section(app) {
                                 </div>
                             </div>
                         </div>
+
+                        <div class="field-section-divider"></div>
 
                         <div class="field-group">
                             <div class="toggle-field">
@@ -565,15 +572,15 @@ function generate_edit_app_section(app) {
                                     <input type="checkbox" id="edit-app-set-title-to-file" name="edit-app-set-title-to-file" value="true" ${app.metadata?.set_title_to_opened_file ? 'checked' : ''} ${app.background ? 'disabled' : ''}>
                                     <span class="toggle-slider"></span>
                                 </label>
-                                <label class="toggle-label" for="edit-app-set-title-to-file">Set window title to opened file's name</label>
+                                <label class="toggle-label" for="edit-app-set-title-to-file">Show file name in window title</label>
                             </div>
-                            <p class="field-description">The window title will automatically update to show the name of the file being edited.</p>
+                            <p class="field-description">Window title updates to match the opened file name.</p>
                         </div>
                     </div>
                 </div>
 
                 <div class="settings-card">
-                    <h3 class="settings-card-title">Misc</h3>
+                    <h3 class="settings-card-title">Advanced</h3>
                     <div class="settings-card-content">
                         <div class="field-group">
                             <div class="toggle-field">
@@ -582,11 +589,11 @@ function generate_edit_app_section(app) {
                                     <span class="toggle-slider"></span>
                                 </label>
                                 <label class="toggle-label" for="edit-app-locked">
-                                    Delete Protection
                                     <span class="label-icon">${lock_svg}</span>
+                                    Delete Protection
                                 </label>
                             </div>
-                            <p class="field-description">When enabled, the app cannot be deleted. This is useful for preventing accidental deletion of important apps.</p>
+                            <p class="field-description">Prevents the app from being deleted.</p>
                         </div>
                     </div>
                 </div>
@@ -926,16 +933,16 @@ async function edit_app_section(cur_app_name, tab = 'deploy') {
                         dropped_items = items[0].path;
                         $('.drop-area').removeClass('drop-area-hover');
                         $('.drop-area').addClass('drop-area-ready-to-deploy');
-                        drop_area_content = `<p class="deploy-content-title">index.html</p><p>Ready to deploy 🚀</p><p class="reset-deploy"><span>Cancel</span></p>`;
+                        drop_area_content = `<p class="deploy-content-title">index.html</p><p>Ready to deploy</p><p class="reset-deploy"><span>Cancel</span></p>`;
                         $('.drop-area').html(drop_area_content);
 
                         // enable deploy button
                         $('.deploy-btn').removeClass('disabled');
 
                     } else {
-                        puter.ui.alert(`You need to have an index.html file in your deployment.`, [
+                        puter.ui.alert(`Your deployment must include an index.html file.`, [
                             {
-                                label: 'Ok',
+                                label: 'OK',
                             },
                         ]);
                         $('.drop-area').removeClass('drop-area-ready-to-deploy');
@@ -960,15 +967,15 @@ async function edit_app_section(cur_app_name, tab = 'deploy') {
                         dropped_items = items;
                         $('.drop-area').removeClass('drop-area-hover');
                         $('.drop-area').addClass('drop-area-ready-to-deploy');
-                        drop_area_content = `<p class="deploy-content-title">${items.length} items</p><p>Ready to deploy 🚀</p><p class="reset-deploy"><span>Cancel</span></p>`;
+                        drop_area_content = `<p class="deploy-content-title">${items.length} items</p><p>Ready to deploy</p><p class="reset-deploy"><span>Cancel</span></p>`;
                         $('.drop-area').html(drop_area_content);
 
                         // enable deploy button
                         $('.deploy-btn').removeClass('disabled');
                     } else {
-                        puter.ui.alert(`You need to have an index.html file in your deployment.`, [
+                        puter.ui.alert(`Your deployment must include an index.html file.`, [
                             {
-                                label: 'Ok',
+                                label: 'OK',
                             },
                         ]);
                         $('.drop-area').removeClass('drop-area-ready-to-deploy');
@@ -1001,7 +1008,7 @@ async function edit_app_section(cur_app_name, tab = 'deploy') {
 
                             $('.drop-area').removeClass('drop-area-hover');
                             $('.drop-area').addClass('drop-area-ready-to-deploy');
-                            drop_area_content = `<p class="deploy-content-title">${rootItems}</p><p>Ready to deploy 🚀</p><p class="reset-deploy"><span>Cancel</span></p>`;
+                            drop_area_content = `<p class="deploy-content-title">${rootItems}</p><p>Ready to deploy</p><p class="reset-deploy"><span>Cancel</span></p>`;
                             $('.drop-area').html(drop_area_content);
 
                             // enable deploy button
@@ -1013,7 +1020,7 @@ async function edit_app_section(cur_app_name, tab = 'deploy') {
                     // no index.html in directory
                     puter.ui.alert(index_missing_error, [
                         {
-                            label: 'Ok',
+                            label: 'OK',
                         },
                     ]);
                     $('.drop-area').removeClass('drop-area-ready-to-deploy');
@@ -1048,7 +1055,7 @@ async function edit_app_section(cur_app_name, tab = 'deploy') {
             if (!hasRootIndexHtml(tree)) {
                 puter.ui.alert(index_missing_error, [
                     {
-                        label: 'Ok',
+                        label: 'OK',
                     },
                 ]);
                 $('.drop-area').removeClass('drop-area-ready-to-deploy');
@@ -1075,7 +1082,7 @@ async function edit_app_section(cur_app_name, tab = 'deploy') {
             rootItems = html_encode(rootItems);
             $('.drop-area').removeClass('drop-area-hover');
             $('.drop-area').addClass('drop-area-ready-to-deploy');
-            drop_area_content = `<p class="deploy-content-title">${rootItems}</p><p>Ready to deploy 🚀</p><p class="reset-deploy"><span>Cancel</span></p>`;
+            drop_area_content = `<p class="deploy-content-title">${rootItems}</p><p>Ready to deploy</p><p class="reset-deploy"><span>Cancel</span></p>`;
             $('.drop-area').html(drop_area_content);
 
             // enable deploy button
@@ -1205,21 +1212,21 @@ $(document).on('click', '.edit-app-save-btn', async function (e) {
 
     //validation
     if (title === '')
-        error = `<strong>Title</strong> is required.`;
+        error = `<strong>Display Name</strong> is required.`;
     else if (title.length > 60)
-        error = `<strong>Title</strong> cannot be longer than ${60}.`;
+        error = `<strong>Display Name</strong> cannot exceed ${60} characters.`;
     else if (name === '')
-        error = `<strong>Name</strong> is required.`;
+        error = `<strong>App Identifier</strong> is required.`;
     else if (name.length > 60)
-        error = `<strong>Name</strong> cannot be longer than ${60}.`;
+        error = `<strong>App Identifier</strong> cannot exceed ${60} characters.`;
     else if (index_url === '')
         error = `<strong>Index URL</strong> is required.`;
     else if (!name.match(/^[a-zA-Z0-9-_-]+$/))
-        error = `<strong>Name</strong> can only contain letters, numbers, dash (-) and underscore (_).`;
+        error = `<strong>App Identifier</strong> can only contain letters, numbers, hyphens, and underscores.`;
     else if (!is_valid_url(index_url))
-        error = `<strong>Index URL</strong> must be a valid url.`;
+        error = `<strong>Index URL</strong> must be a valid URL.`;
     else if (!index_url.toLowerCase().startsWith('https://') && !index_url.toLowerCase().startsWith('http://'))
-        error = `<strong>Index URL</strong> must start with 'https://' or 'http://'.`;
+        error = `<strong>Index URL</strong> must start with https:// or http://`;
     // height must be a number
     else if (isNaN(height))
         error = `<strong>Window Height</strong> must be a number.`;
@@ -1392,9 +1399,9 @@ $(document).on('click', '.delete-app-settings', async function (e) {
     const app_data = await puter.apps.get(app_name, {icon_size: 16});
 
     if(app_data.metadata?.locked){
-        puter.ui.alert(`<strong>${app_data.title}</strong> is locked and cannot be deleted.`, [
+        puter.ui.alert(`<strong>${app_data.title}</strong> has delete protection enabled.`, [
             {
-                label: 'Ok',
+                label: 'OK',
             },
         ], {
             type: 'warning',
@@ -1403,10 +1410,10 @@ $(document).on('click', '.delete-app-settings', async function (e) {
     }
 
     // confirm delete
-    const alert_resp = await puter.ui.alert(`Are you sure you want to premanently delete <strong>${html_encode(app_title)}</strong>?`,
+    const alert_resp = await puter.ui.alert(`Delete <strong>${html_encode(app_title)}</strong>? This cannot be undone.`,
         [
             {
-                label: 'Yes, delete permanently',
+                label: 'Delete',
                 value: 'delete',
                 type: 'danger',
             },
@@ -1444,7 +1451,7 @@ $(document).on('click', '.delete-app-settings', async function (e) {
                     puter.ui.hideSpinner();
                     puter.ui.alert(err?.message, [
                         {
-                            label: 'Ok',
+                            label: 'OK',
                         },
                     ]);
                 },
@@ -2109,12 +2116,12 @@ $(document).on('click', '.open-app', function (e) {
 
 $(document).on('click', '.insta-deploy-to-new-app', async function (e) {
     $('.insta-deploy-modal').get(0).close();
-    let title = await puter.ui.prompt('Please enter a title for your app:', 'My Awesome App');
+    let title = await puter.ui.prompt('Name your app:', 'My Awesome App');
 
     if (title.length > 60) {
-        puter.ui.alert(`Title cannot be longer than 60.`, [
+        puter.ui.alert(`Display name cannot exceed 60 characters.`, [
             {
-                label: 'Ok',
+                label: 'OK',
             },
         ]);
         // todo go back to create an app prompt and prefill the title input with the title the user entered
@@ -2188,7 +2195,7 @@ $(document).on('click', '.insta-deploy-existing-app-deploy-btn', function (e) {
 
     $('.drop-area').removeClass('drop-area-hover');
     $('.drop-area').addClass('drop-area-ready-to-deploy');
-    let drop_area_content = `<p class="deploy-content-title">Ready to deploy 🚀</p><p class="reset-deploy"><span>Cancel</span></p>`;
+    let drop_area_content = `<p class="deploy-content-title">Ready to deploy</p><p class="reset-deploy"><span>Cancel</span></p>`;
     $('.drop-area').html(drop_area_content);
 
     // deploy
@@ -2402,7 +2409,7 @@ function remove_app_card(app_uid, callback = null) {
 
 $(document).on('click', '.delete-apps-btn', async function (e) {
     // show confirmation alert
-    let resp = await puter.ui.alert(`Are you sure you want to delete the selected apps?`, [
+    let resp = await puter.ui.alert(`Delete selected apps? This cannot be undone.`, [
         {
             label: 'Delete',
             type: 'danger',
@@ -2435,7 +2442,7 @@ $(document).on('click', '.delete-apps-btn', async function (e) {
                 if(apps.length === 1){
                     puter.ui.alert(`<strong>${app_data.title}</strong> is locked and cannot be deleted.`, [
                         {
-                            label: 'Ok',
+                            label: 'OK',
                         },
                     ], {
                         type: 'warning',
@@ -2583,24 +2590,6 @@ window.initializeAssetsDirectory = async () => {
         console.error('Error initializing assets directory:', err);
     }
 }
-
-window.generateSocialImageSection = (app) => {
-    return `
-        <div class="field-group">
-            <label for="edit-app-social-image">Social Graph Image</label>
-            <p class="field-description">This image will be displayed when your app is shared on social media. 1200×630 strongly recommended.</p>
-            <div class="image-upload-container image-upload-wide">
-                <div id="edit-app-social-image" class="image-preview image-preview-wide ${app.metadata?.social_image ? 'has-image' : ''}" ${app.metadata?.social_image ? `data-url="${html_encode(app.metadata.social_image)}" data-base64="${html_encode(app.metadata.social_image)}"` : ''} style="${app.metadata?.social_image ? 'background-image: url(' + html_encode(app.metadata.social_image) + ');' : ''}">
-                    <div class="image-upload-overlay">
-                        <span class="image-upload-text">Change Social Image</span>
-                    </div>
-                </div>
-                <button type="button" id="edit-app-social-image-delete" class="image-remove-btn ${app.metadata?.social_image ? '' : 'hidden'}">Remove social image</button>
-            </div>
-        </div>
-    `;
-}
-
 
 $(document).on('click', '#edit-app-social-image', async function(e) {
     const res = await puter.ui.showOpenFilePicker({
@@ -2798,6 +2787,9 @@ async function render_analytics(period){
         options: {
             responsive: true,
             maintainAspectRatio: false,
+            layout: {
+                padding: 12
+            },
             interaction: {
                 mode: 'index',
                 intersect: false,
@@ -2910,9 +2902,9 @@ function app_context_menu(app_name, app_title, app_uid) {
                             overwrite: false,
                             appUID: app_uid,
                         }).then(async (uploaded) => {
-                            puter.ui.alert(`<strong>${app_title}</strong> shortcut has been added to your desktop.`, [
+                            puter.ui.alert(`<strong>${app_title}</strong> added to desktop.`, [
                                 {
-                                    label: 'Ok',
+                                    label: 'OK',
                                     type: 'primary',
                                 },
                             ], {
@@ -2950,9 +2942,9 @@ async function attempt_delete_app(app_name, app_title, app_uid) {
     const app_data = await puter.apps.get(app_name, { icon_size: 16 });
 
     if(app_data.metadata?.locked){
-        puter.ui.alert(`<strong>${app_data.title}</strong> is locked and cannot be deleted.`, [
+        puter.ui.alert(`<strong>${app_data.title}</strong> has delete protection enabled.`, [
             {
-                label: 'Ok',
+                label: 'OK',
             },
         ], {
             type: 'warning',
@@ -2961,10 +2953,10 @@ async function attempt_delete_app(app_name, app_title, app_uid) {
     }
 
     // confirm delete
-    const alert_resp = await puter.ui.alert(`Are you sure you want to premanently delete <strong>${html_encode(app_title)}</strong>?`,
+    const alert_resp = await puter.ui.alert(`Delete <strong>${html_encode(app_title)}</strong>? This cannot be undone.`,
         [
             {
-                label: 'Yes, delete permanently',
+                label: 'Delete',
                 value: 'delete',
                 type: 'danger',
             },
@@ -2996,7 +2988,7 @@ async function attempt_delete_app(app_name, app_title, app_uid) {
                     puter.ui.hideSpinner();
                     puter.ui.alert(err?.message, [
                         {
-                            label: 'Ok',
+                            label: 'OK',
                         },
                     ]);
             })

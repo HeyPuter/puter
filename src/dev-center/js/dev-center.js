@@ -382,16 +382,16 @@ $('.jip-submit-btn').on('click', async function (e) {
     let error;
 
     if (first_name === '' || last_name === '' || paypal === '')
-        error = `All fields are required.`;
+        error = `Complete all fields`;
     else if (first_name.length > 100)
-        error = `<strong>First Name</strong> cannot be longer than ${100}.`;
+        error = `<strong>First Name</strong> cannot exceed ${100} characters.`;
     else if (last_name.length > 100)
-        error = `<strong>Last Name</strong> cannot be longer than ${100}.`;
+        error = `<strong>Last Name</strong> cannot exceed ${100} characters.`;
     else if (paypal.length > 100)
-        error = `<strong>Paypal</strong> cannot be longer than ${100}.`;
+        error = `<strong>PayPal</strong> cannot exceed ${100} characters.`;
     // check if email is valid
     else if (!validateEmail(paypal))
-        error = `Paypal email must be a valid email address.`;
+        error = `Enter a valid PayPal email address`;
 
     // error?
     if (error) {

@@ -17,7 +17,7 @@ window.create_worker = async (name, filePath = null) => {
     try {
         worker = await puter.workers.create(name, workerFile);
     } catch (err) {
-        puter.ui.alert(`Error creating worker: ${err.error?.message}`);
+        puter.ui.alert(`Cannot create worker: ${err.error?.message}`);
     }
 
     return worker;
@@ -65,7 +65,7 @@ $(document).on('click', '.create-a-worker-btn', async function (e) {
     if(!window.user?.email || !window.user?.email_confirmed){
         const email_confirm_resp = await puter.ui.requestEmailConfirmation();
         if(!email_confirm_resp)
-            UIAlert('Email confirmation required to create a worker.');
+            UIAlert('Confirm your email to create workers');
             return;
     }
 
@@ -86,7 +86,7 @@ $(document).on('click', '.create-a-worker-btn', async function (e) {
 
     // Step 2: Ask for worker name
     if (selectedFile && selectedFile.path) {
-        let name = await puter.ui.prompt('Please enter a name for your worker:', 'my-awesome-worker');
+        let name = await puter.ui.prompt('Name your worker:', 'my-awesome-worker');
 
         // Step 3: Create worker with selected file
         if (name) {
@@ -348,7 +348,7 @@ function remove_worker_card(worker_name, callback = null) {
 
 $(document).on('click', '.delete-workers-btn', async function (e) {
     // show confirmation alert
-    let resp = await puter.ui.alert(`Are you sure you want to delete the selected workers?`, [
+    let resp = await puter.ui.alert(`Delete selected workers? This cannot be undone.`, [
         {
             label: 'Delete',
             type: 'danger',
@@ -420,10 +420,10 @@ $(document).on('click', '.options-icon-worker', function (e) {
 
 async function attempt_worker_deletion(worker_name) {
     // confirm delete
-    const alert_resp = await puter.ui.alert(`Are you sure you want to premanently delete <strong>${html_encode(worker_name)}</strong>?`,
+    const alert_resp = await puter.ui.alert(`Delete <strong>${html_encode(worker_name)}</strong>? This cannot be undone.`,
         [
             {
-                label: 'Yes, delete permanently',
+                label: 'Delete Worker',
                 value: 'delete',
                 type: 'danger',
             },
@@ -441,7 +441,7 @@ async function attempt_worker_deletion(worker_name) {
         puter.workers.delete(worker_name).then().catch(async (err) => {
             puter.ui.alert(err?.message, [
                 {
-                    label: 'Ok',
+                    label: 'OK',
                 },
             ]);
         })

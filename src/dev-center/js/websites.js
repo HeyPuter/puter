@@ -14,7 +14,7 @@ window.create_website = async (name, directoryPath = null) => {
     try {
         website = await puter.hosting.create(name, websiteDir);
     } catch (error) {
-        puter.ui.alert(`Error creating website: ${error.error.message}`);
+        puter.ui.alert(`Cannot create website: ${error.error.message}`);
     }
 
     return website;
@@ -72,7 +72,7 @@ $(document).on('click', '.create-a-website-btn', async function (e) {
 
     // Step 2: Ask for website name
     if (selectedDirectory && selectedDirectory.path) {
-        let name = await puter.ui.prompt('Please enter a name for your website:', 'my-awesome-website');
+        let name = await puter.ui.prompt('Name your website:', 'my-awesome-website');
 
         // Step 3: Create website with selected directory
         if (name) {
@@ -341,7 +341,7 @@ function remove_website_card(website_name, callback = null) {
 
 $(document).on('click', '.delete-websites-btn', async function (e) {
     // show confirmation alert
-    let resp = await puter.ui.alert(`Are you sure you want to delete the selected websites?`, [
+    let resp = await puter.ui.alert(`Delete selected websites? This cannot be undone.`, [
         {
             label: 'Delete',
             type: 'danger',
@@ -420,10 +420,10 @@ $(document).on('click', '.options-icon-website', function (e) {
 
 async function attempt_website_deletion(website_name) {
     // confirm delete
-    const alert_resp = await puter.ui.alert(`Are you sure you want to premanently delete <strong>${html_encode(website_name)}.puter.site</strong>?`,
+    const alert_resp = await puter.ui.alert(`Delete <strong>${html_encode(website_name)}.puter.site</strong>? This cannot be undone.`,
         [
             {
-                label: 'Yes, delete permanently',
+                label: 'Delete Website',
                 value: 'delete',
                 type: 'danger',
             },
@@ -453,10 +453,10 @@ async function change_website_directory(website_name) {
 
         // Step 2: Confirm the change since it will replace the current website
         const confirmResp = await puter.ui.alert(
-            `Are you sure you want to change the directory for <strong>${html_encode(website_name)}.puter.site</strong>?<br><br>This will update the website to serve files from the new directory.`,
+            `Change directory for <strong>${html_encode(website_name)}.puter.site</strong>? The website will serve files from the new location.`,
             [
                 {
-                    label: 'Yes, change directory',
+                    label: 'Change Directory',
                     value: 'change',
                     type: 'primary',
                 },
@@ -487,7 +487,7 @@ async function change_website_directory(website_name) {
             await refresh_websites_list();
 
             // Step 7: Show success message
-            puter.ui.alert(`Website directory changed successfully! <strong>${html_encode(website_name)}.puter.site</strong> now serves files from the new directory.`, [], {
+            puter.ui.alert(`Directory changed. <strong>${html_encode(website_name)}.puter.site</strong> now serves files from the new location.`, [], {
                 type: 'success',
             });
 
