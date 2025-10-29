@@ -274,6 +274,78 @@ class AI{
         }).call(this, options);
     }
 
+    speech2txt = async (...args) => {
+        const MAX_INPUT_SIZE = 25 * 1024 * 1024;
+        if ( !args || !args.length ) {
+            throw ({ message: 'Arguments are required', code: 'arguments_required' });
+        }
+
+        const normalizeSource = async (value) => {
+            if ( value instanceof Blob ) {
+                return await utils.blobToDataUri(value);
+            }
+            return value;
+        };
+
+        let options = {};
+        let testMode = false;
+
+        const primary = args[0];
+        if ( primary && typeof primary === 'object' && !Array.isArray(primary) && !(primary instanceof Blob) ) {
+            options = { ...primary };
+        } else {
+            options.file = await normalizeSource(primary);
+        }
+
+        if ( args[1] && typeof args[1] === 'object' && !Array.isArray(args[1]) && !(args[1] instanceof Blob) ) {
+            options = { ...options, ...args[1] };
+        } else if ( typeof args[1] === 'boolean' ) {
+            testMode = args[1];
+        }
+
+        if ( typeof args[2] === 'boolean' ) {
+            testMode = args[2];
+        }
+
+        if ( options.audio ) {
+            options.file = await normalizeSource(options.audio);
+            delete options.audio;
+        }
+
+        if ( options.file instanceof Blob ) {
+            options.file = await normalizeSource(options.file);
+        }
+
+        if ( !options.file ) {
+            throw { message: 'Audio input is required', code: 'audio_required' };
+        }
+
+        if ( typeof options.file === 'string' && options.file.startsWith('data:') ) {
+            const base64 = options.file.split(',')[1] || '';
+            const padding = base64.endsWith('==') ? 2 : (base64.endsWith('=') ? 1 : 0);
+            const byteLength = Math.floor((base64.length * 3) / 4) - padding;
+            if ( byteLength > MAX_INPUT_SIZE ) {
+                throw { message: 'Input size cannot be larger than 25 MB', code: 'input_too_large' };
+            }
+        }
+
+        const driverMethod = options.translate ? 'translate' : 'transcribe';
+        const driverArgs = { ...options };
+        delete driverArgs.translate;
+
+        const responseFormat = driverArgs.response_format;
+
+        return await utils.make_driver_method([], 'puter-speech2txt', 'openai-speech2txt', driverMethod, {
+            test_mode: testMode,
+            transform: async (result) => {
+                if ( responseFormat === 'text' && result && typeof result === 'object' && typeof result.text === 'string' ) {
+                    return result.text;
+                }
+                return result;
+            },
+        }).call(this, driverArgs);
+    }
+
     // Add new methods for TTS engine management
     txt2speech = Object.assign(this.txt2speech, {
         /**

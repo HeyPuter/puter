@@ -205,6 +205,50 @@ class AIInterfaceService extends BaseService {
                 },
             }
         })
+
+        col_interfaces.set('puter-speech2txt', {
+            description: 'Speech to text transcription and translation.',
+            methods: {
+                list_models: {
+                    description: 'List available speech-to-text models.',
+                    result: { type: 'json' },
+                },
+                transcribe: {
+                    description: 'Transcribe audio into text.',
+                    parameters: {
+                        file: { type: 'file' },
+                        model: { type: 'string', optional: true },
+                        response_format: { type: 'string', optional: true },
+                        language: { type: 'string', optional: true },
+                        prompt: { type: 'string', optional: true },
+                        temperature: { type: 'number', optional: true },
+                        logprobs: { type: 'flag', optional: true },
+                        timestamp_granularities: { type: 'json', optional: true },
+                        stream: { type: 'flag', optional: true },
+                        chunking_strategy: { type: 'string', optional: true },
+                        known_speaker_names: { type: 'json', optional: true },
+                        known_speaker_references: { type: 'json', optional: true },
+                        extra_body: { type: 'json', optional: true },
+                    },
+                    result: { type: 'json' },
+                },
+                translate: {
+                    description: 'Translate audio into English text.',
+                    parameters: {
+                        file: { type: 'file' },
+                        model: { type: 'string', optional: true },
+                        response_format: { type: 'string', optional: true },
+                        prompt: { type: 'string', optional: true },
+                        temperature: { type: 'number', optional: true },
+                        logprobs: { type: 'flag', optional: true },
+                        timestamp_granularities: { type: 'json', optional: true },
+                        stream: { type: 'flag', optional: true },
+                        extra_body: { type: 'json', optional: true },
+                    },
+                    result: { type: 'json' },
+                },
+            },
+        });
     }
 }
 

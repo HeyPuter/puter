@@ -59,6 +59,12 @@ interface AI {
     txt2speech(text: string, language?: string): Promise<HTMLAudioElement>;
     txt2speech(text: string, language?: string, voice?: string): Promise<HTMLAudioElement>;
     txt2speech(text: string, language?: string, voice?: string, engine?: string): Promise<HTMLAudioElement>;
+
+    speech2txt(source: string | File | Blob): Promise<string | Speech2TxtResult>;
+    speech2txt(source: string | File | Blob, options?: Speech2TxtOptions): Promise<string | Speech2TxtResult>;
+    speech2txt(options: Speech2TxtOptions): Promise<string | Speech2TxtResult>;
+    speech2txt(source: string | File | Blob, testMode?: boolean): Promise<string | Speech2TxtResult>;
+    speech2txt(source: Speech2TxtOptions, testMode?: boolean): Promise<string | Speech2TxtResult>;
 }
 
 type StreamingChatOptions = Omit<ChatOptions, "stream"> & { stream: true };
@@ -134,6 +140,31 @@ interface Txt2SpeechOptions {
     model?: 'gpt-4o-mini-tts' | 'tts-1' | 'tts-1-hd' | string;
     response_format?: 'mp3' | 'opus' | 'aac' | 'flac' | 'wav' | 'pcm' | string;
     instructions?: string;
+}
+
+interface Speech2TxtOptions {
+    file?: string | File | Blob;
+    audio?: string | File | Blob;
+    model?: 'gpt-4o-mini-transcribe' | 'gpt-4o-transcribe' | 'gpt-4o-transcribe-diarize' | 'whisper-1' | string;
+    response_format?: 'json' | 'text' | 'diarized_json' | 'srt' | 'verbose_json' | 'vtt' | string;
+    language?: string;
+    prompt?: string;
+    temperature?: number;
+    logprobs?: boolean;
+    timestamp_granularities?: string[];
+    translate?: boolean;
+    stream?: boolean;
+    chunking_strategy?: string;
+    known_speaker_names?: string[];
+    known_speaker_references?: string[];
+    extra_body?: Record<string, unknown>;
+}
+
+interface Speech2TxtResult {
+    text?: string;
+    language?: string;
+    segments?: Array<Record<string, unknown>>;
+    [key: string]: any;
 }
 
 interface ChatResponseChunk {

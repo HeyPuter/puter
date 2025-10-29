@@ -79,4 +79,10 @@ export const OPENAI_COST_MAP = {
     'openai:gpt-4o-mini-tts:character': 1500,
     'openai:tts-1:character': 1500,
     'openai:tts-1-hd:character': 3000,
+
+    // Speech-to-text models (per second, microcents)
+    'openai:gpt-4o-transcribe:second': 10000,
+    'openai:gpt-4o-mini-transcribe:second': 5000,
+    'openai:gpt-4o-transcribe-diarize:second': 10000,
+    'openai:whisper-1:second': 10000,
 };
