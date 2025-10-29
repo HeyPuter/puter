@@ -1,5 +1,15 @@
 import * as utils from '../lib/utils.js';
 
+const normalizeTTSProvider = (value) => {
+    if (typeof value !== 'string') {
+        return 'aws-polly';
+    }
+    const lower = value.toLowerCase();
+    if (lower === 'openai') return 'openai';
+    if (lower === 'aws' || lower === 'polly' || lower === 'aws-polly') return 'aws-polly';
+    return value;
+};
+
 class AI{
     /**
      * Creates a new instance with the given authentication token, API origin, and app ID,
@@ -183,23 +193,43 @@ class AI{
             throw { message: 'Text parameter is required', code: 'text_required' };
         }
 
-        // Validate engine if provided
-        if (options.engine) {
-            const validEngines = ['standard', 'neural', 'long-form', 'generative'];
-            if (!validEngines.includes(options.engine)) {
-                throw { message: 'Invalid engine. Must be one of: ' + validEngines.join(', '), code: 'invalid_engine' };
-            }
+        const validEngines = ['standard', 'neural', 'long-form', 'generative'];
+        let provider = normalizeTTSProvider(options.provider);
+
+        if (options.engine && normalizeTTSProvider(options.engine) === 'openai' && !options.provider) {
+            provider = 'openai';
         }
 
-        // Set default values if not provided
-        if (!options.voice) {
-            options.voice = 'Joanna';
-        }
-        if (!options.engine) {
-            options.engine = 'standard';
-        }
-        if (!options.language) {
-            options.language = 'en-US';
+        if (provider === 'openai') {
+            if (!options.model && typeof options.engine === 'string') {
+                options.model = options.engine;
+            }
+            if (!options.voice) {
+                options.voice = 'alloy';
+            }
+            if (!options.model) {
+                options.model = 'gpt-4o-mini-tts';
+            }
+            if (!options.response_format) {
+                options.response_format = 'mp3';
+            }
+            delete options.engine;
+        } else {
+            provider = 'aws-polly';
+
+            if (options.engine && !validEngines.includes(options.engine)) {
+                throw { message: 'Invalid engine. Must be one of: ' + validEngines.join(', '), code: 'invalid_engine' };
+            }
+
+            if (!options.voice) {
+                options.voice = 'Joanna';
+            }
+            if (!options.engine) {
+                options.engine = 'standard';
+            }
+            if (!options.language) {
+                options.language = 'en-US';
+            }
         }
 
         // check input size
@@ -214,12 +244,28 @@ class AI{
                 break;
             }
         }
-    
-        return await utils.make_driver_method(['source'], 'puter-tts', 'aws-polly', 'synthesize', {
+
+        const driverName = provider === 'openai' ? 'openai-tts' : 'aws-polly';
+
+        return await utils.make_driver_method(['source'], 'puter-tts', driverName, 'synthesize', {
             responseType: 'blob',
             test_mode: testMode ?? false,
             transform: async (result) => {
-                const url = await utils.blob_to_url(result);
+                let url;
+                if (typeof result === 'string') {
+                    url = result;
+                } else if (result instanceof Blob) {
+                    url = await utils.blob_to_url(result);
+                } else if (result instanceof ArrayBuffer) {
+                    const blob = new Blob([result]);
+                    url = await utils.blob_to_url(blob);
+                } else if (result && typeof result === 'object' && typeof result.arrayBuffer === 'function') {
+                    const arrayBuffer = await result.arrayBuffer();
+                    const blob = new Blob([arrayBuffer], { type: result.type || undefined });
+                    url = await utils.blob_to_url(blob);
+                } else {
+                    throw { message: 'Unexpected audio response format', code: 'invalid_audio_response' };
+                }
                 const audio = new Audio(url);
                 audio.toString = () => url;
                 audio.valueOf = () => url;
@@ -234,10 +280,27 @@ class AI{
          * List available TTS engines with pricing information
          * @returns {Promise<Array>} Array of available engines
          */
-        listEngines: async () => {
-            return await utils.make_driver_method(['source'], 'puter-tts', 'aws-polly', 'list_engines', {
+        listEngines: async (options = {}) => {
+            let provider = 'aws-polly';
+            let params = {};
+
+            if (typeof options === 'string') {
+                provider = normalizeTTSProvider(options);
+            } else if (options && typeof options === 'object') {
+                provider = normalizeTTSProvider(options.provider) || provider;
+                params = { ...options };
+                delete params.provider;
+            }
+
+            if (provider === 'openai') {
+                params.provider = 'openai';
+            }
+
+            const driverName = provider === 'openai' ? 'openai-tts' : 'aws-polly';
+
+            return await utils.make_driver_method(['source'], 'puter-tts', driverName, 'list_engines', {
                 responseType: 'text',
-            }).call(this, {});
+            }).call(this, params);
         },
 
         /**
@@ -245,13 +308,26 @@ class AI{
          * @param {string} [engine] - Optional engine filter
          * @returns {Promise<Array>} Array of available voices
          */
-        listVoices: async (engine) => {
-            const params = {};
-            if (engine) {
-                params.engine = engine;
+        listVoices: async (options) => {
+            let provider = 'aws-polly';
+            let params = {};
+
+            if (typeof options === 'string') {
+                params.engine = options;
+            } else if (options && typeof options === 'object') {
+                provider = normalizeTTSProvider(options.provider) || provider;
+                params = { ...options };
+                delete params.provider;
             }
 
-            return utils.make_driver_method(['source'], 'puter-tts', 'aws-polly', 'list_voices', {
+            if (provider === 'openai') {
+                params.provider = 'openai';
+                delete params.engine;
+            }
+
+            const driverName = provider === 'openai' ? 'openai-tts' : 'aws-polly';
+
+            return utils.make_driver_method(['source'], 'puter-tts', driverName, 'list_voices', {
                 responseType: 'text',
             }).call(this, params);
         }

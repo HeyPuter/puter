@@ -64,6 +64,9 @@ class PuterAIModule extends AdvancedBase {
 
             const { OpenAIVideoGenerationService } = require('./OpenAIVideoGenerationService');
             services.registerService('openai-video-generation', OpenAIVideoGenerationService);
+
+            const { OpenAITTSService } = require('./OpenAITTSService');
+            services.registerService('openai-tts', OpenAITTSService);
         }
 
         if ( config?.services?.claude ) {

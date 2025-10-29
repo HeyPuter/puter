@@ -74,4 +74,9 @@ export const OPENAI_COST_MAP = {
     // GPT-4.5 preview
     'openai:gpt-4.5-preview:prompt_tokens': 7500,
     'openai:gpt-4.5-preview:completion_tokens': 15000,
+
+    // Text-to-speech models (per character, microcents)
+    'openai:gpt-4o-mini-tts:character': 1500,
+    'openai:tts-1:character': 1500,
+    'openai:tts-1-hd:character': 3000,
 };
