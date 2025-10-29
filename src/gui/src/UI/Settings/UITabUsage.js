@@ -119,7 +119,7 @@ async function update_usage_details($el_window){
 
                 return `
                     <tr>
-                        <td>${key}</td>
+                        <td title="${key}">${key}</td>
                         <td>${units}</td>
                         <td>${window.number_format(res.usage[key].cost / 100_000_000, { decimals: 2, prefix: '$' })}</td>
                     </tr>

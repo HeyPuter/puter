@@ -31,6 +31,8 @@ async function UIWindowSettings(options){
         const tabs = svc_settings.get_tabs();
         const tab_placeholders = [];
 
+        const savedSize = await puter.kv.get('settings_window_size').catch(() => null);
+
         const sidebarTitle = options.window_options?.is_fullpage
             ? `<div class="settings-sidebar-title">${i18n('settings')}</div>`
             : '';
@@ -93,14 +95,16 @@ async function UIWindowSettings(options){
             has_head: true,
             selectable_body: false,
             allow_context_menu: false,
-            is_resizable: false,
+            is_resizable: true,
             is_droppable: false,
             init_center: true,
             allow_native_ctxmenu: true,
             allow_user_select: true,
             backdrop: false,
-            width: 800,
-            height: 'auto',
+            width: savedSize?.width || 800,
+            height: savedSize?.height || 'auto',
+            minWidth: 480,
+            minHeight: 500,
             dominant: true,
             show_in_taskbar: false,
             draggable_body: false,
@@ -206,6 +210,34 @@ async function UIWindowSettings(options){
                 }
             }
         });
+
+        $(el_window).on('resizestop', function() {
+            const width = $(el_window).width();
+            const height = $(el_window).height();
+            puter.kv.set('settings_window_size', { width, height });
+        });
+
+        const updateWindowSizeClasses = () => {
+            const $settings = $el_window.find('.settings');
+            const width = $el_window.width();
+
+            $settings.removeClass('window-xs window-sm window-md');
+
+            if (width < 576) {
+                $settings.addClass('window-xs');
+            } else if (width < 768) {
+                $settings.addClass('window-sm');
+            } else if (width < 992) {
+                $settings.addClass('window-md');
+            }
+        };
+
+        const resizeObserver = new ResizeObserver(() => {
+            updateWindowSizeClasses();
+        });
+        resizeObserver.observe(el_window);
+
+        updateWindowSizeClasses();
 
         resolve(el_window);
     });

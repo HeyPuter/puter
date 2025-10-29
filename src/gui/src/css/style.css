@@ -5515,6 +5515,67 @@ fieldset[name=number-code] {
     }
 }
 
+/* Window size classes for resizable settings window */
+.window-xs .settings-sidebar,
+.window-sm .settings-sidebar,
+.window-md .settings-sidebar {
+    transform: translateX(-100%);
+    position: fixed;
+    height: 100%;
+    z-index: 1000;
+    box-shadow: 2px 0 8px rgba(0, 0, 0, 0.15);
+    padding-top: 64px;
+}
+
+.window-xs .settings-sidebar.active,
+.window-sm .settings-sidebar.active,
+.window-md .settings-sidebar.active {
+    transform: translateX(0);
+}
+
+.window-xs .settings-content-container,
+.window-sm .settings-content-container,
+.window-md .settings-content-container {
+    margin-left: 0;
+    padding: 16px 20px;
+}
+
+.window-xs .sidebar-toggle,
+.window-sm .sidebar-toggle,
+.window-md .sidebar-toggle {
+    display: flex !important;
+}
+
+.window-xs .settings-backdrop,
+.window-sm .settings-backdrop,
+.window-md .settings-backdrop {
+    display: block !important;
+}
+
+.window-xs .settings-section-header,
+.window-sm .settings-section-header,
+.window-md .settings-section-header {
+    font-size: 16px;
+    justify-content: space-between;
+}
+
+.window-xs .settings-section-header::before,
+.window-sm .settings-section-header::before,
+.window-md .settings-section-header::before {
+    content: '';
+    width: 44px;
+}
+
+.window-xs .settings-card,
+.window-sm .settings-card {
+    padding: 12px 16px;
+}
+
+.window-xs .settings-card strong,
+.window-sm .settings-card strong {
+    font-size: 14px;
+}
+
 .sidebar-toggle {
     position: absolute;
     z-index: 1001;
