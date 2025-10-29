@@ -436,7 +436,18 @@ function generate_edit_app_section(app) {
                             </div>
                         </div>
 
-                        ${generateSocialImageSection(app)}
+                        <div class="field-group">
+                            <label for="edit-app-social-image">Social Graph Image</label>
+                            <p class="field-description">This image will be displayed when your app is shared on social media. 1200×630 strongly recommended.</p>
+                            <div class="image-upload-container image-upload-wide">
+                                <div id="edit-app-social-image" class="image-preview image-preview-wide ${app.metadata?.social_image ? 'has-image' : ''}" ${app.metadata?.social_image ? `data-url="${html_encode(app.metadata.social_image)}" data-base64="${html_encode(app.metadata.social_image)}"` : ''} style="${app.metadata?.social_image ? 'background-image: url(' + html_encode(app.metadata.social_image) + ');' : ''}">
+                                    <div class="image-upload-overlay">
+                                        <span class="image-upload-text">Change Social Image</span>
+                                    </div>
+                                </div>
+                                <button type="button" id="edit-app-social-image-delete" class="image-remove-btn ${app.metadata?.social_image ? '' : 'hidden'}">Remove social image</button>
+                            </div>
+                        </div>
 
                         <div class="field-section-divider"></div>
 

@@ -2175,7 +2175,8 @@ dialog::backdrop {
 #no-websites-notice p {
     margin-bottom: 24px;
     font-size: 16px;
-    color: #606062;
+    color: var(--color-text-muted);
+    font-weight: 400;
 }
 
 #no-apps-notice button,
