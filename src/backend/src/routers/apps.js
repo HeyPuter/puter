@@ -77,6 +77,8 @@ router.get('/apps',
                 maximize_on_start: apps_res[i].maximize_on_start,
                 filetype_associations: filetype_associations,
                 ...stats,
+                approved_for_listing: apps_res[i].approved_for_listing,
+                approved_for_opening_items: apps_res[i].approved_for_opening_items,
                 approved_for_incentive_program: apps_res[i].approved_for_incentive_program,
                 created_at: apps_res[i].timestamp,
             })

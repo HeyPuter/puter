@@ -296,7 +296,33 @@
                 <img class="search-clear search-clear-apps" src="./img/close.svg">
             </div>
             <div class="list-actions">
-                <button class="button button-danger disabled delete-apps-btn">Delete</button>
+                <div class="app-filters-wrapper">
+                    <button class="button button-ghost filters-toggle-btn">
+                        <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                            <polygon points="22 3 2 3 10 12.46 10 19 14 21 14 12.46 22 3"></polygon>
+                        </svg>
+                        <span>Filters</span>
+                        <span class="filter-count-badge" style="display: none;">0</span>
+                    </button>
+                    <div class="app-filters-dropdown" style="display: none;">
+                        <div class="filter-dropdown-header">
+                            <span>Filter by Approval Status</span>
+                            <button class="clear-filters-link" style="display: none;">Clear</button>
+                        </div>
+                        <label class="filter-checkbox-label">
+                            <input type="checkbox" class="filter-approved-for-listing" data-filter="approved_for_listing">
+                            <span>Listed in App Center</span>
+                        </label>
+                        <label class="filter-checkbox-label">
+                            <input type="checkbox" class="filter-approved-for-opening" data-filter="approved_for_opening_items">
+                            <span>Can Open Items</span>
+                        </label>
+                        <label class="filter-checkbox-label">
+                            <input type="checkbox" class="filter-approved-for-incentive" data-filter="approved_for_incentive_program">
+                            <span>Incentive Program</span>
+                        </label>
+                    </div>
+                </div>
                 <button class="button button-ghost refresh-app-list" title="Refresh">
                     <svg class="refresh-icon" xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink" x="0px" y="0px" width="32px" height="32px" viewBox="0 0 32 32" stroke-width="2">
                         <g stroke-width="2" transform="translate(0.5, 0.5)">
@@ -307,19 +333,20 @@
                         </g>
                     </svg>
                 </button>
+                <button class="button button-danger delete-apps-btn" style="display: none;">Delete</button>
             </div>
         </div>
         <div class="table-wrap">
             <table class="table" id="app-list-table">
                 <thead class="disable-user-select">
                     <tr>
-                        <th><input type="checkbox" class="select-all-apps" style="width: 15px; height: 20px; margin-left:3px;"></th>
-                        <th class="sort th-name" data-column="name" style="padding-left: 10px !important;">App<span class="sort-arrow sort-arrow-desc">▼</span><span class="sort-arrow sort-arrow-asc">▲</span></th>
+                        <th class="th-checkbox"><input type="checkbox" class="select-all-apps"></th>
+                        <th class="sort th-name" data-column="name">App<span class="sort-arrow sort-arrow-desc">▼</span><span class="sort-arrow sort-arrow-asc">▲</span></th>
                         <th class="sort th-users" data-column="user_count">Users<span class="sort-arrow sort-arrow-desc">▼</span><span class="sort-arrow sort-arrow-asc">▲</span></th>
                         <th class="sort th-opens" data-column="open_count">Opens<span class="sort-arrow sort-arrow-desc">▼</span><span class="sort-arrow sort-arrow-asc">▲</span></th>
+                        <th class="th-status">Status</th>
                         <th class="sort th-created sorted" data-column="created_at">Created<span class="sort-arrow sort-arrow-desc" style="display:inline;">▼</span><span class="sort-arrow sort-arrow-asc">▲</span></th>
-                        <th></th>
-                        <th></th>
+                        <th class="th-actions">Actions</th>
                     </tr>
                 </thead>
                 <tbody>

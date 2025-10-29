@@ -8,6 +8,7 @@ let currently_editing_app;
 let dropped_items;
 let search_query;
 let originalValues = {};
+let active_filters = {};
 
 const APP_CATEGORIES = [
     { id: 'games', label: 'Games' },
@@ -107,21 +108,43 @@ window.refresh_app_list = async ({ manageSkeleton = true } = {}) => {
     try {
         $('.select-all-apps').prop('checked', false);
         const apps_res = await puter.apps.list({ icon_size: 64 });
-        apps = apps_res;
+
+        // Apply frontend filtering
+        let filtered_apps = apps_res;
+        if (Object.keys(active_filters).length > 0) {
+            filtered_apps = apps_res.filter(app => {
+                // AND logic: app must match ALL selected filters
+                for (const filter_key in active_filters) {
+                    if (!app[filter_key]) {
+                        return false;
+                    }
+                }
+                return true;
+            });
+        }
+
+        apps = filtered_apps;
 
         count_apps();
 
-        if (apps.length > 0) {
+        // Always show app list if we have ANY apps loaded from backend (before filtering)
+        if (apps_res.length > 0) {
             if (window.activeTab === 'apps') {
                 $('#no-apps-notice').hide();
                 $('#app-list').show();
             }
-            sort_apps();
-            activate_tippy();
         } else {
-            $('.app-card').remove();
+            // Truly no apps created
             $('#no-apps-notice').show();
             $('#app-list').hide();
+        }
+
+        if (apps.length > 0) {
+            sort_apps();
+            activate_tippy();
+        } else if (apps_res.length > 0) {
+            // We have apps but filters eliminated them all
+            $('.app-card').remove();
         }
     } catch (error) {
         console.error('Error refreshing app list:', error);
@@ -318,17 +341,40 @@ function generate_edit_app_section(app) {
                     <img class="app-icon" data-uid="${html_encode(app.uid)}" src="${html_encode(!app.icon ? './img/app.svg' : app.icon)}">
                     <div class="edit-app-headline">
                         <h3 class="app-title" data-uid="${html_encode(app.uid)}">${html_encode(app.title)}${app.metadata?.locked ? lock_svg_tippy : ''}</h3>
-                        <div class="edit-app-actions">
-                            <span class="open-app-btn" data-app-uid="${html_encode(app.uid)}" data-app-name="${html_encode(app.name)}">Open</span>
-                            <span class="edit-app-action-separator">&bull;</span>
-                            <span class="add-app-to-desktop" data-app-uid="${html_encode(app.uid)}" data-app-title="${html_encode(app.title)}">Add Shortcut to Desktop</span>
-                            <span class="edit-app-action-separator">&bull;</span>
-                            <span title="Delete app" class="delete-app-settings" data-app-name="${html_encode(app.name)}" data-app-title="${html_encode(app.title)}" data-app-uid="${html_encode(app.uid)}">Delete</span>
-                        </div>
                         <a class="app-url" target="_blank" data-uid="${html_encode(app.uid)}" href="${html_encode(applink(app))}">${html_encode(applink(app))}</a>
+                        <div class="edit-app-actions">
+                            <button class="open-app-btn app-action-btn" data-app-uid="${html_encode(app.uid)}" data-app-name="${html_encode(app.name)}">
+                                <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                                    <path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6"></path>
+                                    <polyline points="15 3 21 3 21 9"></polyline>
+                                    <line x1="10" y1="14" x2="21" y2="3"></line>
+                                </svg>
+                                Open
+                            </button>
+                            <button class="add-app-to-desktop app-action-btn" data-app-uid="${html_encode(app.uid)}" data-app-title="${html_encode(app.title)}">
+                                <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                                    <line x1="12" y1="5" x2="12" y2="19"></line>
+                                    <line x1="5" y1="12" x2="19" y2="12"></line>
+                                </svg>
+                                Add to Desktop
+                            </button>
+                            <button title="Delete app" class="delete-app-settings app-action-btn app-action-btn-danger" data-app-name="${html_encode(app.name)}" data-app-title="${html_encode(app.title)}" data-app-uid="${html_encode(app.uid)}">
+                                <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                                    <polyline points="3 6 5 6 21 6"></polyline>
+                                    <path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"></path>
+                                </svg>
+                                Delete
+                            </button>
+                        </div>
                     </div>
                 </div>
-                <button class="back-to-main-btn button button-default">Back</button>
+                <button class="back-to-main-btn button button-default">
+                    <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                        <line x1="19" y1="12" x2="5" y2="12"></line>
+                        <polyline points="12 19 5 12 12 5"></polyline>
+                    </svg>
+                    <span>Back</span>
+                </button>
             </div>
         </div>
 
@@ -341,54 +387,75 @@ function generate_edit_app_section(app) {
         <div class="section-tab active" data-tab="deploy">
             <div class="success deploy-success-msg">
                 New version deployed successfully 🎉<span class="close-success-msg">&times;</span>
-                <p style="margin-bottom:0;"><span class="open-app button button-action" data-uid="${html_encode(app.uid)}" data-app-name="${html_encode(app.name)}">Give it a try!</span></p>
+                <p class="margin-bottom-none"><span class="open-app button button-action" data-uid="${html_encode(app.uid)}" data-app-name="${html_encode(app.name)}">Give it a try!</span></p>
             </div>
             <div class="drop-area disable-user-select">${drop_area_placeholder}</div>
             <button class="deploy-btn disable-user-select button button-primary disabled">Deploy Now</button>
         </div>
 
         <div class="section-tab" data-tab="info">
-            <form style="clear:both; padding-bottom: 50px;">
+            <form class="form-edit-app">
                 <div class="error" id="edit-app-error"></div>
                 <div class="success" id="edit-app-success">App has been successfully updated.<span class="close-success-msg">&times;</span>
-                <p style="margin-bottom:0;"><span class="open-app button button-action" data-uid="${html_encode(app.uid)}" data-app-name="${html_encode(app.name)}">Give it a try!</span></p>
+                <p class="margin-bottom-none"><span class="open-app button button-action" data-uid="${html_encode(app.uid)}" data-app-name="${html_encode(app.name)}">Give it a try!</span></p>
                 </div>
                 <input type="hidden" id="edit-app-uid" value="${html_encode(app.uid)}">
 
                 <div class="settings-card">
                     <h3 class="settings-card-title">Basic</h3>
                     <div class="settings-card-content">
-                        <label for="edit-app-title">Title</label>
-                        <input type="text" id="edit-app-title" placeholder="My Awesome App!" value="${html_encode(app.title)}">
-
-                        <label for="edit-app-name">Name</label>
-                        <input type="text" id="edit-app-name" placeholder="my-awesome-app" style="font-family: monospace;" value="${html_encode(app.name)}">
-
-                        <label for="edit-app-index-url">Index URL</label>
-                        <input type="text" id="edit-app-index-url" placeholder="https://example-app.com/index.html" value="${html_encode(app.index_url)}">
-
-                        <label for="edit-app-app-id">App ID</label>
-                        <div style="display: flex; align-items: center; gap: 0;">
-                            <input type="text" style="flex: 1;" class="app-uid" value="${html_encode(app.uid)}" readonly><span class="copy-app-uid">${copy_svg}</span>
+                        <div class="field-group">
+                            <label for="edit-app-title">Title</label>
+                            <input type="text" id="edit-app-title" placeholder="My Awesome App!" value="${html_encode(app.title)}">
                         </div>
 
-                        <label for="edit-app-icon">Icon</label>
-                        <div id="edit-app-icon" style="background-image:url(${!app.icon ? './img/app.svg' : html_encode(app.icon)});" ${app.icon ? 'data-url="' + html_encode(app.icon) + '"' : ''}  ${app.icon ? 'data-base64="' + html_encode(app.icon) + '"' : ''} >
-                            <div id="change-app-icon">Change App Icon</div>
+                        <div class="field-group">
+                            <label for="edit-app-description">Description</label>
+                            <textarea id="edit-app-description">${html_encode(app.description)}</textarea>
                         </div>
-                        <span id="edit-app-icon-delete" style="${app.icon ? 'display:block;' : ''}">Remove icon</span>
+
+                        <div class="field-group">
+                            <label for="edit-app-category">Category</label>
+                            <select id="edit-app-category" class="category-select">
+                                <option value="">Select a category</option>
+                                ${APP_CATEGORIES.map(category =>
+                                    `<option value="${html_encode(category.id)}" ${app.metadata?.category === category.id ? 'selected' : ''}>${html_encode(category.label)}</option>`
+                                ).join('')}
+                            </select>
+                        </div>
+
+                        <div class="field-group">
+                            <label for="edit-app-icon">Icon</label>
+                            <div class="image-upload-container">
+                                <div id="edit-app-icon" class="image-preview ${app.icon ? 'has-image' : ''}" ${app.icon ? 'data-url="' + html_encode(app.icon) + '" data-base64="' + html_encode(app.icon) + '"' : ''} style="${app.icon ? 'background-image: url(' + html_encode(app.icon) + ');' : ''}">
+                                    <div class="image-upload-overlay">
+                                        <span class="image-upload-text">Change App Icon</span>
+                                    </div>
+                                </div>
+                                <button type="button" id="edit-app-icon-delete" class="image-remove-btn ${app.icon ? '' : 'hidden'}">Remove icon</button>
+                            </div>
+                        </div>
 
                         ${generateSocialImageSection(app)}
-                        <label for="edit-app-description">Description</label>
-                        <textarea id="edit-app-description">${html_encode(app.description)}</textarea>
 
-                        <label for="edit-app-category">Category</label>
-                        <select id="edit-app-category" class="category-select">
-                            <option value="">Select a category</option>
-                            ${APP_CATEGORIES.map(category =>
-                                `<option value="${html_encode(category.id)}" ${app.metadata?.category === category.id ? 'selected' : ''}>${html_encode(category.label)}</option>`
-                            ).join('')}
-                        </select>
+                        <div class="field-section-divider"></div>
+
+                        <div class="field-group">
+                            <label for="edit-app-name">Name</label>
+                            <input type="text" id="edit-app-name" class="input-monospace" placeholder="my-awesome-app" value="${html_encode(app.name)}">
+                        </div>
+
+                        <div class="field-group">
+                            <label for="edit-app-app-id">App ID</label>
+                            <div class="app-uid-container">
+                                <input type="text" class="app-uid app-uid-input" value="${html_encode(app.uid)}" readonly><span class="copy-app-uid">${copy_svg}</span>
+                            </div>
+                        </div>
+
+                        <div class="field-group">
+                            <label for="edit-app-index-url">Index URL</label>
+                            <input type="text" id="edit-app-index-url" placeholder="https://example-app.com/index.html" value="${html_encode(app.index_url)}">
+                        </div>
 
                         <div class="field-group">
                             <label for="edit-app-filetype-associations">File Associations</label>
@@ -403,48 +470,93 @@ function generate_edit_app_section(app) {
                     <h3 class="settings-card-title">Window</h3>
                     <div class="settings-card-content">
                         <div class="field-group">
-                            <input type="checkbox" id="edit-app-background" name="edit-app-background" value="true" ${app.background ? 'checked' : ''}>
-                            <label for="edit-app-background">Run as a background process.</label>
+                            <div class="toggle-field">
+                                <label class="toggle-switch" for="edit-app-background">
+                                    <input type="checkbox" id="edit-app-background" name="edit-app-background" value="true" ${app.background ? 'checked' : ''}>
+                                    <span class="toggle-slider"></span>
+                                </label>
+                                <label class="toggle-label" for="edit-app-background">Run as a background process</label>
+                            </div>
                         </div>
 
                         <div class="field-group">
-                            <input type="checkbox" id="edit-app-fullpage-on-landing" name="edit-app-fullpage-on-landing" value="true" ${app.metadata?.fullpage_on_landing ? 'checked' : ''} ${app.background ? 'disabled' : ''}>
-                            <label for="edit-app-fullpage-on-landing">Load in full-page mode when a user lands directly on this app.</label>
+                            <div class="toggle-field">
+                                <label class="toggle-switch" for="edit-app-maximize-on-start">
+                                    <input type="checkbox" id="edit-app-maximize-on-start" name="edit-app-maximize-on-start" value="true" ${maximize_on_start ? 'checked' : ''} ${app.background ? 'disabled' : ''}>
+                                    <span class="toggle-slider"></span>
+                                </label>
+                                <label class="toggle-label" for="edit-app-maximize-on-start">Maximize window on start</label>
+                            </div>
                         </div>
 
                         <div class="field-group">
-                            <input type="checkbox" id="edit-app-maximize-on-start" name="edit-app-maximize-on-start" value="true" ${maximize_on_start ? 'checked' : ''} ${app.background ? 'disabled' : ''}>
-                            <label for="edit-app-maximize-on-start">Maximize window on start</label>
+                            <label>Initial window size</label>
+                            <div class="input-grid input-grid-2col">
+                                <div class="input-grid-item">
+                                    <label for="edit-app-window-width" class="input-grid-label">Width</label>
+                                    <input type="number" id="edit-app-window-width" placeholder="680" value="${html_encode(app.metadata?.window_size?.width ?? 680)}" ${maximize_on_start || app.background ? 'disabled' : ''}>
+                                </div>
+                                <div class="input-grid-item">
+                                    <label for="edit-app-window-height" class="input-grid-label">Height</label>
+                                    <input type="number" id="edit-app-window-height" placeholder="380" value="${html_encode(app.metadata?.window_size?.height ?? 380)}" ${maximize_on_start || app.background ? 'disabled' : ''}>
+                                </div>
+                            </div>
                         </div>
 
                         <div class="field-group">
-                            <label for="edit-app-window-width">Initial window width</label>
-                            <input type="number" id="edit-app-window-width" placeholder="680" value="${html_encode(app.metadata?.window_size?.width ?? 680)}" style="width:200px;" ${maximize_on_start || app.background ? 'disabled' : ''}>
-                            <label for="edit-app-window-height">Initial window height</label>
-                            <input type="number" id="edit-app-window-height" placeholder="380" value="${html_encode(app.metadata?.window_size?.height ?? 380)}" style="width:200px;" ${maximize_on_start || app.background ? 'disabled' : ''}>
+                            <label>Initial window position</label>
+                            <p class="field-description">Leave empty to center the window on screen</p>
+                            <div class="input-grid input-grid-2col">
+                                <div class="input-grid-item">
+                                    <label for="edit-app-window-top" class="input-grid-label">Top</label>
+                                    <input type="number" id="edit-app-window-top" placeholder="100" value="${app.metadata?.window_position?.top ? html_encode(app.metadata.window_position.top) : ''}" ${maximize_on_start || app.background ? 'disabled' : ''}>
+                                </div>
+                                <div class="input-grid-item">
+                                    <label for="edit-app-window-left" class="input-grid-label">Left</label>
+                                    <input type="number" id="edit-app-window-left" placeholder="100" value="${app.metadata?.window_position?.left ? html_encode(app.metadata.window_position.left) : ''}" ${maximize_on_start || app.background ? 'disabled' : ''}>
+                                </div>
+                            </div>
                         </div>
 
                         <div class="field-group">
-                            <label for="edit-app-window-top">Initial window top</label>
-                            <input type="number" id="edit-app-window-top" placeholder="100" value="${app.metadata?.window_position?.top ? html_encode(app.metadata.window_position.top) : ''}" style="width:200px;" ${maximize_on_start || app.background ? 'disabled' : ''}>
-                            <label for="edit-app-window-left">Initial window left</label>
-                            <input type="number" id="edit-app-window-left" placeholder="100" value="${app.metadata?.window_position?.left ? html_encode(app.metadata.window_position.left) : ''}" style="width:200px;" ${maximize_on_start || app.background ? 'disabled' : ''}>
+                            <div class="toggle-field">
+                                <label class="toggle-switch" for="edit-app-fullpage-on-landing">
+                                    <input type="checkbox" id="edit-app-fullpage-on-landing" name="edit-app-fullpage-on-landing" value="true" ${app.metadata?.fullpage_on_landing ? 'checked' : ''} ${app.background ? 'disabled' : ''}>
+                                    <span class="toggle-slider"></span>
+                                </label>
+                                <label class="toggle-label" for="edit-app-fullpage-on-landing">Load in full-page mode when launched directly</label>
+                            </div>
                         </div>
 
                         <div class="field-group">
-                            <input type="checkbox" id="edit-app-window-resizable" name="edit-app-window-resizable" value="true" ${app.metadata?.window_resizable ? 'checked' : ''} ${app.background ? 'disabled' : ''}>
-                            <label for="edit-app-window-resizable">Resizable window</label>
+                            <div class="toggle-field">
+                                <label class="toggle-switch" for="edit-app-window-resizable">
+                                    <input type="checkbox" id="edit-app-window-resizable" name="edit-app-window-resizable" value="true" ${app.metadata?.window_resizable ? 'checked' : ''} ${app.background ? 'disabled' : ''}>
+                                    <span class="toggle-slider"></span>
+                                </label>
+                                <label class="toggle-label" for="edit-app-window-resizable">Allow users to resize window</label>
+                            </div>
                         </div>
 
                         <div class="field-group">
-                            <input type="checkbox" id="edit-app-hide-titlebar" name="edit-app-hide-titlebar" value="true" ${app.metadata?.hide_titlebar ? 'checked' : ''} ${app.background ? 'disabled' : ''}>
-                            <label for="edit-app-hide-titlebar">Hide window titlebar</label>
+                            <div class="toggle-field">
+                                <label class="toggle-switch" for="edit-app-hide-titlebar">
+                                    <input type="checkbox" id="edit-app-hide-titlebar" name="edit-app-hide-titlebar" value="true" ${app.metadata?.hide_titlebar ? 'checked' : ''} ${app.background ? 'disabled' : ''}>
+                                    <span class="toggle-slider"></span>
+                                </label>
+                                <label class="toggle-label" for="edit-app-hide-titlebar">Hide window titlebar</label>
+                            </div>
                         </div>
 
                         <div class="field-group">
-                            <input type="checkbox" id="edit-app-set-title-to-file" name="edit-app-set-title-to-file" value="true" ${app.metadata?.set_title_to_opened_file ? 'checked' : ''} ${app.background ? 'disabled' : ''}>
-                            <label for="edit-app-set-title-to-file">Automatically set window title to opened file's name</label>
-                            <p>This will set your app's window title to the opened file's name when a user opens a file in your app.</p>
+                            <div class="toggle-field">
+                                <label class="toggle-switch" for="edit-app-set-title-to-file">
+                                    <input type="checkbox" id="edit-app-set-title-to-file" name="edit-app-set-title-to-file" value="true" ${app.metadata?.set_title_to_opened_file ? 'checked' : ''} ${app.background ? 'disabled' : ''}>
+                                    <span class="toggle-slider"></span>
+                                </label>
+                                <label class="toggle-label" for="edit-app-set-title-to-file">Set window title to opened file's name</label>
+                            </div>
+                            <p class="field-description">The window title will automatically update to show the name of the file being edited.</p>
                         </div>
                     </div>
                 </div>
@@ -453,52 +565,84 @@ function generate_edit_app_section(app) {
                     <h3 class="settings-card-title">Misc</h3>
                     <div class="settings-card-content">
                         <div class="field-group">
-                            <input type="checkbox" id="edit-app-locked" name="edit-app-locked" value="true" ${app.metadata?.locked ? 'checked' : ''}>
-                            <label for="edit-app-locked">Delete Protection${lock_svg}</label>
-                            <p>When enabled, the app cannot be deleted. This is useful for preventing accidental deletion of important apps.</p>
+                            <div class="toggle-field">
+                                <label class="toggle-switch" for="edit-app-locked">
+                                    <input type="checkbox" id="edit-app-locked" name="edit-app-locked" value="true" ${app.metadata?.locked ? 'checked' : ''}>
+                                    <span class="toggle-slider"></span>
+                                </label>
+                                <label class="toggle-label" for="edit-app-locked">
+                                    Delete Protection
+                                    <span class="label-icon">${lock_svg}</span>
+                                </label>
+                            </div>
+                            <p class="field-description">When enabled, the app cannot be deleted. This is useful for preventing accidental deletion of important apps.</p>
                         </div>
                     </div>
                 </div>
 
-                <div style="z-index: 999; box-shadow: 10px 10px 15px #8c8c8c; overflow: hidden; position: fixed; bottom: 0; background: white; padding: 10px; width: 100%; left: 0;">
-                    <button type="button" class="edit-app-save-btn button button-primary" style="margin-right: 40px;">Save</button>
+                <div class="sticky-save-bar">
+                    <button type="button" class="edit-app-save-btn button button-primary save-btn-spacing">Save</button>
                     <button type="button" class="edit-app-reset-btn button button-secondary">Reset</button>
                 </div>
             </form>
         </div>
         <div class="section-tab" data-tab="analytics">
-            <label for="analytics-period">Period</label>
-            <select id="analytics-period" class="category-select">
-                <option value="today">Today</option>
-                <option value="yesterday">Yesterday</option>
-                <optgroup label="──────"></optgroup>
-                <option value="this_week">This week</option>
-                <option value="last_week">Last week</option>
-                <option value="7d">Last 7 days</option>
-                <option value="30d">Last 30 days</option>
-                <optgroup label="──────"></optgroup>
-                <option value="this_month">This month</option>
-                <option value="last_month">Last month</option>
-                <optgroup label="──────"></optgroup>
-                <option value="this_year">This year</option>
-                <option value="last_year">Last year</option>
-                <optgroup label="──────"></optgroup>
-                <option value="12m">Last 12 months</option>
-                <option value="all">All time</option>
-            </select>
+            <div class="analytics-header">
+                <div class="analytics-period-selector">
+                    <label for="analytics-period" class="analytics-period-label">Time Period</label>
+                    <select id="analytics-period" class="analytics-period-select">
+                        <option value="today">Today</option>
+                        <option value="yesterday">Yesterday</option>
+                        <optgroup label="──────"></optgroup>
+                        <option value="this_week">This week</option>
+                        <option value="last_week">Last week</option>
+                        <option value="7d">Last 7 days</option>
+                        <option value="30d">Last 30 days</option>
+                        <optgroup label="──────"></optgroup>
+                        <option value="this_month">This month</option>
+                        <option value="last_month">Last month</option>
+                        <optgroup label="──────"></optgroup>
+                        <option value="this_year">This year</option>
+                        <option value="last_year">Last year</option>
+                        <optgroup label="──────"></optgroup>
+                        <option value="12m">Last 12 months</option>
+                        <option value="all">All time</option>
+                    </select>
+                </div>
+            </div>
             <div class="analytics-cards">
                 <div class="analytics-card" id="analytics-users">
-                    <h3>Users</h3>
+                    <div class="analytics-card-header">
+                        <svg class="analytics-card-icon" xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                            <path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"></path>
+                            <circle cx="9" cy="7" r="4"></circle>
+                            <path d="M23 21v-2a4 4 0 0 0-3-3.87"></path>
+                            <path d="M16 3.13a4 4 0 0 1 0 7.75"></path>
+                        </svg>
+                        <h3>Users</h3>
+                    </div>
                     <div class="count"></div>
                 </div>
                 <div class="analytics-card" id="analytics-opens">
-                    <h3>Opens</h3>
+                    <div class="analytics-card-header">
+                        <svg class="analytics-card-icon" xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                            <polyline points="22 12 18 12 15 21 9 3 6 12 2 12"></polyline>
+                        </svg>
+                        <h3>Opens</h3>
+                    </div>
                     <div class="count"></div>
                 </div>
             </div>
-            <hr style="margin-top: 50px;">
-            <p>Timezone: UTC</p>
-            <p>More analytics features coming soon...</p>
+            <div class="analytics-footer">
+                <p class="analytics-timezone">
+                    <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                        <circle cx="12" cy="12" r="10"></circle>
+                        <polyline points="12 6 12 12 16 14"></polyline>
+                    </svg>
+                    Timezone: UTC
+                </p>
+                <p class="analytics-note">More analytics features coming soon...</p>
+            </div>
         </div>
     `
     return h;
@@ -618,22 +762,28 @@ function resetToOriginalValues() {
         $('#edit-app-icon').css('background-image', `url(${originalValues.icon})`);
         $('#edit-app-icon').attr('data-url', originalValues.icon);
         $('#edit-app-icon').attr('data-base64', originalValues.icon);
-        $('#edit-app-icon-delete').show();
+        $('#edit-app-icon').addClass('has-image');
+        $('#edit-app-icon-delete').removeClass('hidden');
     } else {
         $('#edit-app-icon').css('background-image', '');
         $('#edit-app-icon').removeAttr('data-url');
         $('#edit-app-icon').removeAttr('data-base64');
-        $('#edit-app-icon-delete').hide();
+        $('#edit-app-icon').removeClass('has-image');
+        $('#edit-app-icon-delete').addClass('hidden');
     }
 
     if (originalValues.socialImage) {
         $('#edit-app-social-image').css('background-image', `url(${originalValues.socialImage})`);
         $('#edit-app-social-image').attr('data-url', originalValues.socialImage);
         $('#edit-app-social-image').attr('data-base64', originalValues.socialImage);
+        $('#edit-app-social-image').addClass('has-image');
+        $('#edit-app-social-image-delete').removeClass('hidden');
     } else {
         $('#edit-app-social-image').css('background-image', '');
         $('#edit-app-social-image').removeAttr('data-url');
         $('#edit-app-social-image').removeAttr('data-base64');
+        $('#edit-app-social-image').removeClass('has-image');
+        $('#edit-app-social-image-delete').addClass('hidden');
     }
 }
 
@@ -765,7 +915,7 @@ async function edit_app_section(cur_app_name, tab = 'deploy') {
                         dropped_items = items[0].path;
                         $('.drop-area').removeClass('drop-area-hover');
                         $('.drop-area').addClass('drop-area-ready-to-deploy');
-                        drop_area_content = `<p style="margin-bottom:0; font-weight: 500;">index.html</p><p>Ready to deploy 🚀</p><p class="reset-deploy"><span>Cancel</span></p>`;
+                        drop_area_content = `<p class="deploy-content-title">index.html</p><p>Ready to deploy 🚀</p><p class="reset-deploy"><span>Cancel</span></p>`;
                         $('.drop-area').html(drop_area_content);
 
                         // enable deploy button
@@ -799,7 +949,7 @@ async function edit_app_section(cur_app_name, tab = 'deploy') {
                         dropped_items = items;
                         $('.drop-area').removeClass('drop-area-hover');
                         $('.drop-area').addClass('drop-area-ready-to-deploy');
-                        drop_area_content = `<p style="margin-bottom:0; font-weight: 500;">${items.length} items</p><p>Ready to deploy 🚀</p><p class="reset-deploy"><span>Cancel</span></p>`;
+                        drop_area_content = `<p class="deploy-content-title">${items.length} items</p><p>Ready to deploy 🚀</p><p class="reset-deploy"><span>Cancel</span></p>`;
                         $('.drop-area').html(drop_area_content);
 
                         // enable deploy button
@@ -840,7 +990,7 @@ async function edit_app_section(cur_app_name, tab = 'deploy') {
 
                             $('.drop-area').removeClass('drop-area-hover');
                             $('.drop-area').addClass('drop-area-ready-to-deploy');
-                            drop_area_content = `<p style="margin-bottom:0; font-weight: 500;">${rootItems}</p><p>Ready to deploy 🚀</p><p class="reset-deploy"><span>Cancel</span></p>`;
+                            drop_area_content = `<p class="deploy-content-title">${rootItems}</p><p>Ready to deploy 🚀</p><p class="reset-deploy"><span>Cancel</span></p>`;
                             $('.drop-area').html(drop_area_content);
 
                             // enable deploy button
@@ -914,7 +1064,7 @@ async function edit_app_section(cur_app_name, tab = 'deploy') {
             rootItems = html_encode(rootItems);
             $('.drop-area').removeClass('drop-area-hover');
             $('.drop-area').addClass('drop-area-ready-to-deploy');
-            drop_area_content = `<p style="margin-bottom:0; font-weight: 500;">${rootItems}</p><p>Ready to deploy 🚀</p><p class="reset-deploy"><span>Cancel</span></p>`;
+            drop_area_content = `<p class="deploy-content-title">${rootItems}</p><p>Ready to deploy 🚀</p><p class="reset-deploy"><span>Cancel</span></p>`;
             $('.drop-area').html(drop_area_content);
 
             // enable deploy button
@@ -1341,7 +1491,8 @@ $(document).on('click', '#edit-app-icon-delete', async function (e) {
     $('#edit-app-icon').css('background-image', ``);
     $('#edit-app-icon').removeAttr('data-url');
     $('#edit-app-icon').removeAttr('data-base64');
-    $('#edit-app-icon-delete').hide();
+    $('#edit-app-icon').removeClass('has-image');
+    $('#edit-app-icon-delete').addClass('hidden');
 
     toggleSaveButton();
     toggleResetButton();
@@ -1370,7 +1521,8 @@ $(document).on('click', '#edit-app-icon', async function (e) {
 
         $('#edit-app-icon').css('background-image', `url(${image})`);
         $('#edit-app-icon').attr('data-base64', image);
-        $('#edit-app-icon-delete').show();
+        $('#edit-app-icon').addClass('has-image');
+        $('#edit-app-icon-delete').removeClass('hidden');
 
         toggleSaveButton();
         toggleResetButton();
@@ -1447,15 +1599,15 @@ function generate_app_card(app) {
                     ${number_format(app.stats.open_count)}
                 </span>
             </td>
-            <td class="cell-meta">
-                <span class="created-at" title="${createdAt.format('LLLL')}">${createdAt.format('MMM Do, YYYY')}</span>
-            </td>
             <td class="cell-status">
                 <div class="approval-badges">
                     <span class="tippy approval-badge approval-badge-listing ${app.approved_for_listing ? 'active' : ''}" title="${app.approved_for_listing ? '✅ Approved for listing in the App Center' : '❌ Not approved for listing in the App Center'}"></span>
                     <span class="tippy approval-badge approval-badge-opening ${app.approved_for_opening_items ? 'active' : ''}" title="${app.approved_for_opening_items ? '✅ Approved for opening items' : '❌ Not approved for opening items'}"></span>
                     <span class="tippy approval-badge approval-badge-incentive ${app.approved_for_incentive_program ? 'active' : ''}" title="${app.approved_for_incentive_program ? '✅ Approved for the incentive program' : '❌ Not approved for the incentive program'}"></span>
                 </div>
+            </td>
+            <td class="cell-meta">
+                <span class="created-at" title="${createdAt.format('LLLL')}">${createdAt.format('MMM Do, YYYY')}</span>
             </td>
             <td class="cell-actions">
                 <img class="options-icon options-icon-app" data-app-name="${html_encode(app.name)}" data-app-uid="${html_encode(app.uid)}" data-app-title="${html_encode(app.title)}" src="./img/options.svg" alt="App options">
@@ -2025,7 +2177,7 @@ $(document).on('click', '.insta-deploy-existing-app-deploy-btn', function (e) {
 
     $('.drop-area').removeClass('drop-area-hover');
     $('.drop-area').addClass('drop-area-ready-to-deploy');
-    let drop_area_content = `<p style="margin-bottom:0; font-weight: 500;">Ready to deploy 🚀</p><p class="reset-deploy"><span>Cancel</span></p>`;
+    let drop_area_content = `<p class="deploy-content-title">Ready to deploy 🚀</p><p class="reset-deploy"><span>Cancel</span></p>`;
     $('.drop-area').html(drop_area_content);
 
     // deploy
@@ -2108,6 +2260,56 @@ $(document).on('click', '.search-clear-apps', function (e) {
     $('.search-apps').removeClass('has-value');
 })
 
+$(document).on('click', '.filters-toggle-btn', function (e) {
+    e.stopPropagation();
+    $('.app-filters-dropdown').toggle();
+})
+
+$(document).on('click', function (e) {
+    if (!$(e.target).closest('.app-filters-wrapper').length) {
+        $('.app-filters-dropdown').hide();
+    }
+})
+
+$(document).on('change', '.app-filters-dropdown input[type="checkbox"]', function (e) {
+    const filter_name = $(this).data('filter');
+
+    if ($(this).is(':checked')) {
+        active_filters[filter_name] = true;
+    } else {
+        delete active_filters[filter_name];
+    }
+
+    const filter_count = Object.keys(active_filters).length;
+
+    // Update badge count
+    if (filter_count > 0) {
+        $('.filter-count-badge').text(filter_count).show();
+        $('.clear-filters-link').show();
+    } else {
+        $('.filter-count-badge').hide();
+        $('.clear-filters-link').hide();
+    }
+
+    // Refresh app list with filters
+    refresh_app_list();
+})
+
+$(document).on('click', '.clear-filters-link', function (e) {
+    // Uncheck all filter checkboxes
+    $('.app-filters-dropdown input[type="checkbox"]').prop('checked', false);
+
+    // Clear active filters
+    active_filters = {};
+
+    // Hide badge and clear button
+    $('.filter-count-badge').hide();
+    $('.clear-filters-link').hide();
+
+    // Refresh app list without filters
+    refresh_app_list();
+})
+
 $(document).on('click', '.app-checkbox', function (e) {
     // was shift key pressed?
     if (e.originalEvent && e.originalEvent.shiftKey) {
@@ -2147,11 +2349,12 @@ $(document).on('click', '.app-checkbox', function (e) {
     else
         $(this).closest('tr').removeClass('active');
 
-    // enable delete button if at least one checkbox is checked
-    if ($('.app-checkbox:checked').length > 0)
-        $('.delete-apps-btn').removeClass('disabled');
-    else
-        $('.delete-apps-btn').addClass('disabled');
+    // show delete button if at least one checkbox is checked
+    if ($('.app-checkbox:checked').length > 0) {
+        $('.delete-apps-btn').show();
+    } else {
+        $('.delete-apps-btn').hide();
+    }
 
     // store the index of the last clicked checkbox
     window.last_clicked_app_checkbox_index = $('.app-checkbox').index(this);
@@ -2282,8 +2485,8 @@ $(document).on('click', '.delete-apps-btn', async function (e) {
         setTimeout(() => {
             puter.ui.hideSpinner();
             if($('.app-checkbox:checked').length === 0){
-                // disable delete button
-                $('.delete-apps-btn').addClass('disabled');
+                // hide delete button
+                $('.delete-apps-btn').hide();
                 // reset the 'select all' checkbox
                 $('.select-all-apps').prop('indeterminate', false);
                 $('.select-all-apps').prop('checked', false);
@@ -2296,11 +2499,11 @@ $(document).on('change', '.select-all-apps', function (e) {
     if ($(this).is(':checked')) {
         $('.app-checkbox').prop('checked', true);
         $('.app-card').addClass('active');
-        $('.delete-apps-btn').removeClass('disabled');
+        $('.delete-apps-btn').show();
     } else {
         $('.app-checkbox').prop('checked', false);
         $('.app-card').removeClass('active');
-        $('.delete-apps-btn').addClass('disabled');
+        $('.delete-apps-btn').hide();
     }
 })
 
@@ -2372,12 +2575,18 @@ window.initializeAssetsDirectory = async () => {
 
 window.generateSocialImageSection = (app) => {
     return `
-        <label for="edit-app-social-image">Social Graph Image (1200×630 strongly recommended)</label>
-        <div id="edit-app-social-image" class="social-image-preview" ${app.metadata?.social_image ? `style="background-image:url(${html_encode(app.metadata.social_image)})" data-url="${html_encode(app.metadata.social_image)}" data-base64="${html_encode(app.metadata.social_image)}"` : ''}>
-            <div id="change-social-image">Change Social Image</div>
+        <div class="field-group">
+            <label for="edit-app-social-image">Social Graph Image</label>
+            <p class="field-description">This image will be displayed when your app is shared on social media. 1200×630 strongly recommended.</p>
+            <div class="image-upload-container image-upload-wide">
+                <div id="edit-app-social-image" class="image-preview image-preview-wide ${app.metadata?.social_image ? 'has-image' : ''}" ${app.metadata?.social_image ? `data-url="${html_encode(app.metadata.social_image)}" data-base64="${html_encode(app.metadata.social_image)}"` : ''} style="${app.metadata?.social_image ? 'background-image: url(' + html_encode(app.metadata.social_image) + ');' : ''}">
+                    <div class="image-upload-overlay">
+                        <span class="image-upload-text">Change Social Image</span>
+                    </div>
+                </div>
+                <button type="button" id="edit-app-social-image-delete" class="image-remove-btn ${app.metadata?.social_image ? '' : 'hidden'}">Remove social image</button>
+            </div>
         </div>
-        <span id="edit-app-social-image-delete" style="${app.metadata?.social_image ? 'display:block;' : ''}">Remove social image</span>
-        <p class="social-image-help">This image will be displayed when your app is shared on social media.</p>
     `;
 }
 
@@ -2403,7 +2612,8 @@ $(document).on('click', '#edit-app-social-image', async function(e) {
 
         $('#edit-app-social-image').css('background-image', `url(${image})`);
         $('#edit-app-social-image').attr('data-base64', image);
-        $('#edit-app-social-image-delete').show();
+        $('#edit-app-social-image').addClass('has-image');
+        $('#edit-app-social-image-delete').removeClass('hidden');
 
         toggleSaveButton();
         toggleResetButton();
@@ -2414,7 +2624,8 @@ $(document).on('click', '#edit-app-social-image-delete', async function(e) {
     $('#edit-app-social-image').css('background-image', '');
     $('#edit-app-social-image').removeAttr('data-url');
     $('#edit-app-social-image').removeAttr('data-base64');
-    $('#edit-app-social-image-delete').hide();
+    $('#edit-app-social-image').removeClass('has-image');
+    $('#edit-app-social-image-delete').addClass('hidden');
 });
 
 window.handleSocialImageUpload = async (app_name, socialImageData) => {
@@ -2493,7 +2704,7 @@ async function render_analytics(period){
     $('.analytics-container').remove();
 
     // Create new canvas
-    const container = $('<div class="analytics-container" style="width:100%; height:400px; margin-top:30px;"></div>');
+    const container = $('<div class="analytics-container"></div>');
     const canvas = $('<canvas id="analytics-chart"></canvas>');
     container.append(canvas);
     $('#analytics-opens').parent().after(container);
@@ -2508,7 +2719,7 @@ async function render_analytics(period){
         } else {
             date = new Date(item.period);
         }
-        
+
         if (stats_grouping === 'hour') {
             return date.toLocaleString('en-US', { hour: 'numeric', hour12: true }).toLowerCase();
         } else if (stats_grouping === 'day') {
@@ -2522,6 +2733,16 @@ async function render_analytics(period){
 
     // Create chart
     const ctx = document.getElementById('analytics-chart').getContext('2d');
+
+    // Create gradients
+    const openGradient = ctx.createLinearGradient(0, 0, 0, 400);
+    openGradient.addColorStop(0, 'rgba(52, 107, 235, 0.15)');
+    openGradient.addColorStop(1, 'rgba(52, 107, 235, 0)');
+
+    const userGradient = ctx.createLinearGradient(0, 0, 0, 400);
+    userGradient.addColorStop(0, 'rgba(39, 204, 50, 0.15)');
+    userGradient.addColorStop(1, 'rgba(39, 204, 50, 0)');
+
     new Chart(ctx, {
         type: 'line',
         data: {
@@ -2531,46 +2752,112 @@ async function render_analytics(period){
                     label: 'Opens',
                     data: openData,
                     borderColor: '#346beb',
-                    tension: 0,
-                    fill: false
+                    backgroundColor: openGradient,
+                    borderWidth: 2.5,
+                    tension: 0.4,
+                    fill: true,
+                    pointRadius: 4,
+                    pointHoverRadius: 6,
+                    pointBackgroundColor: '#346beb',
+                    pointBorderColor: '#fff',
+                    pointBorderWidth: 2,
+                    pointHoverBackgroundColor: '#346beb',
+                    pointHoverBorderColor: '#fff',
+                    pointHoverBorderWidth: 2
                 },
                 {
                     label: 'Users',
                     data: userData,
                     borderColor: '#27cc32',
-                    tension: 0,
-                    fill: false
+                    backgroundColor: userGradient,
+                    borderWidth: 2.5,
+                    tension: 0.4,
+                    fill: true,
+                    pointRadius: 4,
+                    pointHoverRadius: 6,
+                    pointBackgroundColor: '#27cc32',
+                    pointBorderColor: '#fff',
+                    pointBorderWidth: 2,
+                    pointHoverBackgroundColor: '#27cc32',
+                    pointHoverBorderColor: '#fff',
+                    pointHoverBorderWidth: 2
                 }
             ]
         },
         options: {
             responsive: true,
             maintainAspectRatio: false,
+            interaction: {
+                mode: 'index',
+                intersect: false,
+            },
+            plugins: {
+                legend: {
+                    display: true,
+                    position: 'bottom',
+                    labels: {
+                        usePointStyle: true,
+                        padding: 16,
+                        font: {
+                            size: 13,
+                            weight: '500'
+                        }
+                    }
+                },
+                tooltip: {
+                    enabled: true,
+                    backgroundColor: 'rgba(15, 23, 42, 0.95)',
+                    titleFont: {
+                        size: 13,
+                        weight: '600'
+                    },
+                    bodyFont: {
+                        size: 13
+                    },
+                    padding: 12,
+                    cornerRadius: 8,
+                    displayColors: true,
+                    boxPadding: 6
+                }
+            },
             scales: {
                 x: {
                     display: true,
-                    title: {
-                        display: true,
-                        text: 'Period'
+                    grid: {
+                        display: false,
+                        drawBorder: false
                     },
                     ticks: {
                         maxRotation: 45,
-                        minRotation: 45
+                        minRotation: 45,
+                        font: {
+                            size: 12
+                        },
+                        color: 'rgba(107, 114, 128, 0.8)'
                     }
                 },
                 y: {
                     display: true,
                     beginAtZero: true,
-                    title: {
-                        display: true,
-                        text: 'Count'
+                    grid: {
+                        color: 'rgba(107, 114, 128, 0.1)',
+                        drawBorder: false
                     },
                     ticks: {
-                        precision: 0,  // Show whole numbers only
-                        stepSize: 1    // Increment by 1
+                        precision: 0,
+                        stepSize: 1,
+                        font: {
+                            size: 12
+                        },
+                        color: 'rgba(107, 114, 128, 0.8)',
+                        padding: 8
                     }
                 }
             },
+            animation: {
+                duration: 750,
+                easing: 'easeInOutQuart'
+            }
         }
     });
 
