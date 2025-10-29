@@ -3610,11 +3610,9 @@ $.fn.makeWindowVisible = function(options){
 
             // if sidepanel, shift desktop toolbar to the left 
             if($(this).attr('data-is_panel') === '1'){
-                $('.toolbar').css('left', `calc(50% - 200px)`);
-
+                $('.toolbar').css('left', `calc(50% - ${window.PANEL_WIDTH/2}px)`);
+                $('.taskbar.taskbar-position-bottom').css('transform', `translateX(-${window.PANEL_WIDTH}px)`);
                 $('.window[data-is_panel="0"]').css('transform', `translateX(-${window.PANEL_WIDTH/2}px)`);
-                // update taskbar position
-                update_taskbar_position(window.taskbar_position);
             }
         }
     })
@@ -3630,10 +3628,9 @@ $.fn.makeWindowInvisible = async function(options) {
             // if sidepanel, shift desktop toolbar to the right
             if($(this).attr('data-is_panel') === '1'){
                 $('.toolbar').css('left', `calc(50%)`);
-
+                $('.taskbar.taskbar-position-bottom').css('transform', `translateX(-${window.PANEL_WIDTH/2}px)`);
                 $('.window[data-is_panel="0"]').css('transform', `translateX(0px)`);
                 // update taskbar position
-                update_taskbar_position(window.taskbar_position);
             }
         }
     })
@@ -3654,7 +3651,7 @@ $.fn.showWindow = async function(options) {
             $(el_window).css('z-index', ++window.last_window_zindex);
 
             $(el_window).attr({
-                'data-is_minimized': true, 
+                'data-is_minimized': false, 
             })
 
             setTimeout(() => {

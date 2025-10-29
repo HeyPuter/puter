@@ -508,10 +508,12 @@ window.update_taskbar_position = async function(new_position) {
     // adjust position if sidepanel is open
     if(window.taskbar_position === 'bottom'){
         if($('.window[data-is_panel="1"][data-is_visible="1"]').length > 0){
-            $('.taskbar').css('left', `calc(50% - 200px)`);
+            $('.taskbar.taskbar-position-bottom').css('transform', `translateX(-${window.PANEL_WIDTH}px)`);
         } else if($('.window[data-is_panel="1"][data-is_visible="0"]').length > 0){
-            $('.taskbar').css('left', `calc(50%)`);
+            $('.taskbar.taskbar-position-bottom').css('transform', `translateX(-${window.PANEL_WIDTH/2}px)`);
         }
+    }else{
+        $('.taskbar').css('transform', `translateX(0px)`);
     }
 
     // Reinitialize all taskbar item tooltips with new position
