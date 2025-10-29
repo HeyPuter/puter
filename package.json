@@ -13,6 +13,7 @@
   "devDependencies": {
     "@eslint/js": "^9.35.0",
     "@stylistic/eslint-plugin": "^5.3.1",
+    "@types/uuid": "^10.0.0",
     "@typescript-eslint/eslint-plugin": "^8.46.1",
     "@typescript-eslint/parser": "^8.46.1",
     "chalk": "^4.1.0",
@@ -27,6 +28,7 @@
     "license-check-and-add": "^4.0.5",
     "mocha": "^10.6.0",
     "nodemon": "^3.1.0",
+    "ts-proto": "^2.8.0",
     "typescript": "^5.4.5",
     "uglify-js": "^3.17.4",
     "vite-plugin-static-copy": "^3.1.3",
@@ -44,7 +46,8 @@
     "check-translations": "node tools/check-translations.js",
     "prepare": "husky",
     "build:ts": "tsc",
-    "postinstall": "npm run build:ts"
+    "postinstall": "npm run build:ts",
+    "gen": "./scripts/gen.sh"
   },
   "workspaces": [
     "src/*",

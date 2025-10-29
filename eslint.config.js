@@ -51,12 +51,35 @@ export default defineConfig([
     // TypeScript support block
     {
         files: ['**/*.ts'],
+        ignores: ['tests/**/*.ts'],
         languageOptions: {
             parser: tseslintParser,
             parserOptions: {
                 ecmaVersion: 'latest',
                 sourceType: 'module',
                 project: './tsconfig.json',
+            },
+        },
+        plugins: {
+            '@typescript-eslint': tseslintPlugin,
+        },
+        rules: {
+            // Recommended rules for TypeScript
+            '@typescript-eslint/no-explicit-any': 'warn',
+            '@typescript-eslint/no-unused-vars': ['error', { argsIgnorePattern: '^_' }],
+            '@typescript-eslint/ban-ts-comment': 'warn',
+            '@typescript-eslint/consistent-type-definitions': ['error', 'interface'],
+        },
+    },
+    // TypeScript support for tests
+    {
+        files: ['tests/**/*.ts'],
+        languageOptions: {
+            parser: tseslintParser,
+            parserOptions: {
+                ecmaVersion: 'latest',
+                sourceType: 'module',
+                project: './tests/tsconfig.json',
             },
         },
         plugins: {

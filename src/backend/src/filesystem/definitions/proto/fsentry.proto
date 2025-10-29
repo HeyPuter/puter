@@ -1,0 +1,26 @@
+syntax = "proto3";
+
+// The FSEntry from client's (puter-js, http API) perspective, it's used for
+// - end to end test
+// - backend logic
+// - communication between servers
+message FSEntry {
+  string uuid = 1;
+  // Same as uuid, used for backward compatibility.
+  string uid = 2;
+
+  string name = 3;
+  string path = 4;
+
+  string parent_uuid = 5;
+  // Same as parent_uuid, used for backward compatibility.
+  string parent_uid = 6;
+  // Same as parent_uuid, used for backward compatibility.
+  string parent_id = 7;
+
+  bool is_dir = 8;
+  int64 created = 9;
+  int64 modified = 10;
+  int64 accessed = 11;
+  int64 size = 12;
+}

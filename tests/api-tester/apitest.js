@@ -16,7 +16,7 @@ try {
         options: {
             config: {
                 type: 'string',
-                default: './tools/api-tester/config.yml',
+                default: './tests/client-config.yaml',
             },
             report: {
                 type: 'string',

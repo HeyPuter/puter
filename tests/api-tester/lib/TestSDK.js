@@ -20,10 +20,10 @@ module.exports = class TestSDK {
         this.httpsAgent = new https.Agent({
             rejectUnauthorized: false
         })
-        const url_origin = new url.URL(conf.url).origin;
+        const url_origin = new url.URL(conf.api_url).origin;
         this.headers_ = {
             'Origin': url_origin,
-            'Authorization': `Bearer ${conf.token}`
+            'Authorization': `Bearer ${conf.auth_token}`
         };
 
         this.installAPIMethodShorthands_();
@@ -332,7 +332,7 @@ module.exports = class TestSDK {
     }
 
     getURL (...path) {
-        const apiURL = new url.URL(this.conf.url);
+        const apiURL = new url.URL(this.conf.api_url);
         apiURL.pathname = path_.posix.join(
             apiURL.pathname,
             ...path
