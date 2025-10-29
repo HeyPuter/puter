@@ -170,11 +170,14 @@ class AIInterfaceService extends BaseService {
                     description: 'List available voices.',
                     parameters: {
                         engine: { type: 'string', optional: true },
+                        provider: { type: 'string', optional: true },
                     },
                 },
                 list_engines: {
                     description: 'List available TTS engines with pricing information.',
-                    parameters: {},
+                    parameters: {
+                        provider: { type: 'string', optional: true },
+                    },
                     result: { type: 'json' },
                 },
                 synthesize: {
@@ -185,6 +188,10 @@ class AIInterfaceService extends BaseService {
                         language: { type: 'string' },
                         ssml: { type: 'flag' },
                         engine: { type: 'string', optional: true },
+                        model: { type: 'string', optional: true },
+                        response_format: { type: 'string', optional: true },
+                        instructions: { type: 'string', optional: true },
+                        provider: { type: 'string', optional: true },
                     },
                     result_choices: [
                         {

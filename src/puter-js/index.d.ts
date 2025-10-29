@@ -129,7 +129,11 @@ interface Txt2VidOptions {
 interface Txt2SpeechOptions {
     language?: string;
     voice?: string;
-    engine?: 'standard' | 'neural' | 'generative';
+    engine?: 'standard' | 'neural' | 'long-form' | 'generative' | string;
+    provider?: 'aws-polly' | 'openai' | string;
+    model?: 'gpt-4o-mini-tts' | 'tts-1' | 'tts-1-hd' | string;
+    response_format?: 'mp3' | 'opus' | 'aac' | 'flac' | 'wav' | 'pcm' | string;
+    instructions?: string;
 }
 
 interface ChatResponseChunk {
