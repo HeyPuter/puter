@@ -944,6 +944,29 @@ class PuterFSProvider extends putility.AdvancedBase {
 
         return state_upload;
     }
+    
+    async read({
+        context,
+        node,
+        version_id,
+        range,
+    }) {
+        // TODO: one PuterFS aggregates its own storage, don't get it
+        //       via mountpoint service.
+        const svc_mountpoint = context.get('services').get('mountpoint');
+        const storage = svc_mountpoint.get_storage(this.constructor.name);
+        const location = await node.get('s3:location') ?? {};
+        const stream = (await storage.create_read_stream(await node.get('uid'), {
+            // TODO: fs:decouple-s3
+            bucket: location.bucket,
+            bucket_region: location.bucket_region,
+            version_id,
+            key: location.key,
+            memory_file: node.entry,
+            ...(range ? { range } : {}),
+        }));
+        return stream;
+    }
 }
 
 module.exports = {
