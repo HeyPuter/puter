@@ -1179,19 +1179,17 @@ const ipc_listener = async (event, handled) => {
         if(event.data.options === undefined || typeof event.data.options !== 'object')
             event.data.options = {};
 
-        // clear window_options for security reasons
-        event.data.options.window_options = {}
-
-        // Set app as parent window of font picker window
-        event.data.options.window_options.parent_uuid = event.data.appInstanceID;
-
-        // disable parent window
-        event.data.options.window_options.disable_parent_window = true;
+        // options.permission must be provided and be a string
+        if(!event.data.options.permission || typeof event.data.options.permission !== 'string')
+            return;
 
         let granted = await UIWindowRequestPermission(
             {
                 permission: event.data.options.permission,
-                window_options: event.data.options.window_options,
+                window_options: {
+                    parent_uuid: event.data.appInstanceID,
+                    disable_parent_window: true,
+                },
                 app_uid: app_uuid, 
                 app_name: app_name, 
             }
