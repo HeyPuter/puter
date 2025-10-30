@@ -991,24 +991,27 @@ window.initgui = async function(options){
                 data: JSON.stringify(requestData),
                 success: async function (data){
                     setTimeout(() => {
-                        $('.captcha-modal').fadeOut(200, function(){
-                        $(this).remove();
+                        const fn = function(){
+                            $(this).remove();
 
-                        // if this is a popup, hide the spinner, make sure it was visible for at least 2 seconds
-                        if(window.embedded_in_popup){
-                            let spinner_duration = (Date.now() - spinner_init_ts);
-                            setTimeout(() => {
+                            // if this is a popup, hide the spinner, make sure it was visible for at least 2 seconds
+                            if(window.embedded_in_popup){
+                                let spinner_duration = (Date.now() - spinner_init_ts);
+                                setTimeout(() => {
+                                    window.update_auth_data(data.token, data.user);
+                                    document.dispatchEvent(new Event("login", { bubbles: true}));        
+                                    puter.ui.hideSpinner();
+                                }, spinner_duration > 2000 ? 10 : 2000 - spinner_duration);
+
+                                return;
+                            }else{
                                 window.update_auth_data(data.token, data.user);
-                                document.dispatchEvent(new Event("login", { bubbles: true}));        
-                                puter.ui.hideSpinner();
-                            }, spinner_duration > 2000 ? 10 : 2000 - spinner_duration);
-
-                            return;
-                        }else{
-                            window.update_auth_data(data.token, data.user);
-                            document.dispatchEvent(new Event("login", { bubbles: true}));
-                        }
-                        });
+                                document.dispatchEvent(new Event("login", { bubbles: true}));
+                            }
+                        };
+                        
+                        if ( ! $('.captcha-modal')?.length ) fn();
+                        else $('.captcha-modal').fadeOut(200, fn);
                     }, (Date.now() - window.turnstile_success_ts) > 2000 ? 10 : 2000 - (Date.now() - window.turnstile_success_ts));
                 },
                 error: async (err) => {
