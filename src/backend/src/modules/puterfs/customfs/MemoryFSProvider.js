@@ -596,6 +596,20 @@ class MemoryFSProvider {
 
         return node;
     }
+
+    async read({
+        context,
+        node,
+    }) {
+        // TODO: once MemoryFS aggregates its own storage, don't get it
+        //       via mountpoint service.
+        const svc_mountpoint = context.get('services').get('mountpoint');
+        const storage = svc_mountpoint.get_storage(this.constructor.name);
+        const stream = (await storage.create_read_stream(await node.get('uid'), {
+            memory_file: node.entry,
+        }));
+        return stream;
+    }
 }
 
 module.exports = {
