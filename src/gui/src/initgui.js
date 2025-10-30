@@ -990,28 +990,41 @@ window.initgui = async function(options){
                 contentType: "application/json",
                 data: JSON.stringify(requestData),
                 success: async function (data){
-                    setTimeout(() => {
-                        const fn = function(){
-                            $(this).remove();
-
-                            // if this is a popup, hide the spinner, make sure it was visible for at least 2 seconds
-                            if(window.embedded_in_popup){
-                                let spinner_duration = (Date.now() - spinner_init_ts);
+                    setTimeout(async () => {
+                        const $captchaModal = $('.captcha-modal');
+                        if ( $captchaModal.length > 0 ) {
+                            await new Promise(resolve => {
+                                // The callback operand for fadeOut could be called
+                                // more than once if there are multiple `.captcha-modal`
+                                // elements, but only the first call to `resolve()` will
+                                // have any effect.
+                                $captchaModal.fadeOut(200, function () {
+                                    $(this).remove();
+                                    resolve();
+                                });
+                                
+                                // Just in case anything fails, also resolve after 500ms
                                 setTimeout(() => {
-                                    window.update_auth_data(data.token, data.user);
-                                    document.dispatchEvent(new Event("login", { bubbles: true}));        
-                                    puter.ui.hideSpinner();
-                                }, spinner_duration > 2000 ? 10 : 2000 - spinner_duration);
+                                    resolve();
+                                }, 500);
+                            });
+                        }
 
-                                return;
-                            }else{
+
+                        // if this is a popup, hide the spinner, make sure it was visible for at least 2 seconds
+                        if(window.embedded_in_popup){
+                            let spinner_duration = (Date.now() - spinner_init_ts);
+                            setTimeout(() => {
                                 window.update_auth_data(data.token, data.user);
-                                document.dispatchEvent(new Event("login", { bubbles: true}));
-                            }
-                        };
-                        
-                        if ( ! $('.captcha-modal')?.length ) fn();
-                        else $('.captcha-modal').fadeOut(200, fn);
+                                document.dispatchEvent(new Event("login", { bubbles: true}));        
+                                puter.ui.hideSpinner();
+                            }, spinner_duration > 2000 ? 10 : 2000 - spinner_duration);
+
+                            return;
+                        }else{
+                            window.update_auth_data(data.token, data.user);
+                            document.dispatchEvent(new Event("login", { bubbles: true}));
+                        }
                     }, (Date.now() - window.turnstile_success_ts) > 2000 ? 10 : 2000 - (Date.now() - window.turnstile_success_ts));
                 },
                 error: async (err) => {
