@@ -990,42 +990,46 @@ window.initgui = async function(options){
                 contentType: "application/json",
                 data: JSON.stringify(requestData),
                 success: async function (data){
-                    setTimeout(async () => {
-                        const $captchaModal = $('.captcha-modal');
-                        if ( $captchaModal.length > 0 ) {
-                            await new Promise(resolve => {
-                                // The callback operand for fadeOut could be called
-                                // more than once if there are multiple `.captcha-modal`
-                                // elements, but only the first call to `resolve()` will
-                                // have any effect.
-                                $captchaModal.fadeOut(200, function () {
-                                    $(this).remove();
-                                    resolve();
-                                });
-                                
-                                // Just in case anything fails, also resolve after 500ms
-                                setTimeout(() => {
-                                    resolve();
-                                }, 500);
-                            });
-                        }
+                    // We want to show the spinner for at least 2 seconds so it
+                    // doesn't look like a flicker.
+                    let timeRemaining = 2000;
 
+                    // Subtract time taken for turnstile to succeed
+                    timeRemaining -= Date.now() - window.turnstile_success_ts;
 
-                        // if this is a popup, hide the spinner, make sure it was visible for at least 2 seconds
-                        if(window.embedded_in_popup){
-                            let spinner_duration = (Date.now() - spinner_init_ts);
-                            setTimeout(() => {
-                                window.update_auth_data(data.token, data.user);
-                                document.dispatchEvent(new Event("login", { bubbles: true}));        
-                                puter.ui.hideSpinner();
-                            }, spinner_duration > 2000 ? 10 : 2000 - spinner_duration);
+                    if (timeRemaining > 0) {
+                        // Sleep until 2 seconds have passed
+                        await new Promise(rslv => setTimeout(rslv, timeRemaining));
+                    }
 
-                            return;
-                        }else{
-                            window.update_auth_data(data.token, data.user);
-                            document.dispatchEvent(new Event("login", { bubbles: true}));
-                        }
-                    }, (Date.now() - window.turnstile_success_ts) > 2000 ? 10 : 2000 - (Date.now() - window.turnstile_success_ts));
+                    /*eslint-disable*/
+                    const $captchaModal = $('.captcha-modal');
+                    if ( $captchaModal.length > 0 ) await new Promise(resolve => {
+                        // The callback operand for fadeOut could be called
+                        // more than once if there are multiple `.captcha-modal`
+                        // elements, but only the first call to `resolve()` will
+                        // have any effect.
+                        $captchaModal.fadeOut(200, function () {
+                            $(this).remove();
+                            resolve();
+                        });
+                        
+                        // Just in case anything fails, also resolve after 500ms
+                        setTimeout(() => resolve(), 500);
+                    });
+
+                    // if this is a popup, hide the spinner, make sure it was visible for at least 2 seconds
+                    if(window.embedded_in_popup) await new Promise(resolve => {
+                        let spinner_duration = (Date.now() - spinner_init_ts);
+                        setTimeout(() => {
+                            puter.ui.hideSpinner();
+                            resolve();
+                        }, spinner_duration > 2000 ? 10 : 2000 - spinner_duration);
+                    });
+                    /*eslint-enable*/
+
+                    window.update_auth_data(data.token, data.user);
+                    document.dispatchEvent(new Event("login", { bubbles: true }));
                 },
                 error: async (err) => {
                     UIAlert({
