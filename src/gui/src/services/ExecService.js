@@ -116,6 +116,7 @@ export class ExecService extends Service {
         // Check if file_paths are provided and caller has godmode permissions
         if (file_paths && Array.isArray(file_paths) && file_paths.length > 0 && process) {
             try {
+                console.log('file_paths', file_paths);
                 // Get caller app info to check godmode status
                 const caller_app_name = process.name;
                 const caller_app_info = await window.get_apps(caller_app_name);
@@ -129,8 +130,13 @@ export class ExecService extends Service {
                     
                     // For the first file, create a file signature and set it up like opening a file
                     if (file_paths.length > 0) {
-                        const first_file_path = file_paths[0];
-                        
+                        let first_file_path = file_paths[0];
+
+                        // resolve tilde to home path (i.e. ~/Desktop/file.txt -> /[username]/Desktop/file.txt)
+                        if(first_file_path.startsWith('~/'))
+                            first_file_path = window.home_path + first_file_path.slice(1);
+
+
                         try {
                             // Get file stats to verify it exists
                             const file_stat = await puter.fs.stat({path: first_file_path, consistency: 'eventual'});
