@@ -19,6 +19,8 @@
 const { AsyncLocalStorage } = require('async_hooks');
 const context_config = {};
 
+let services = null; // debug
+
 class Context {
     static USE_NAME_FALLBACK = {};
     static next_name_ = 0;
@@ -41,6 +43,7 @@ class Context {
         return k;
     }
     static create (values, opt_name) {
+        if ( values.services ) services = values.services; // debug
         return new Context(values, undefined, opt_name);
     }
     static get (k, { allow_fallback } = {}) {
@@ -58,6 +61,7 @@ class Context {
         return x;
     }
     static set (k, v) {
+        if ( k === 'services' && ! services ) services = v; // debug
         const x = this.contextAsyncLocalStorage.getStore()?.get('context');
         if ( x ) return x.set(k, v);
     }
@@ -90,7 +94,14 @@ class Context {
     }
 
     get (k) {
-        return this.values_[k];
+        const v = this.values_[k];
+        if ( v === undefined && k === 'services' ) {
+            try {
+                console.error(new Error('context is missing services!'));
+            } catch (e) {}
+            return services;
+        }
+        return v;
     }
     set (k, v) {
         if ( this.#dead ) return;
