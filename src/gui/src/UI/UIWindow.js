@@ -3628,7 +3628,7 @@ $.fn.makeWindowInvisible = async function(options) {
             // if sidepanel, shift desktop toolbar to the right
             if($(this).attr('data-is_panel') === '1'){
                 $('.toolbar').css('left', `calc(50%)`);
-                $('.taskbar.taskbar-position-bottom').css('transform', `translateX(-${window.PANEL_WIDTH/2}px)`);
+                $('.taskbar.taskbar-position-bottom').css('transform', `translateX(-50%)`);
                 $('.window[data-is_panel="0"]').css('transform', `translateX(0px)`);
                 // update taskbar position
             }
