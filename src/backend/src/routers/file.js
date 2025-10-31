@@ -134,16 +134,22 @@ router.get('/file', async (req, res, next) => {
             res.setHeader('Content-Type', contentType);
         }
 
-        const storage = req.ctx.get('storage');
+        const svc_filesystem = req.services.get('filesystem');
 
         // stream data from S3
         try {
-            let stream = await storage.create_read_stream(fsentry[0].uuid, {
-                bucket: fsentry[0].bucket,
-                bucket_region: fsentry[0].bucket_region,
+            /* eslint-disable */
+            const fsNode = await svc_filesystem.node(
+                new NodeRawEntrySelector(fsentry[0]),
+            );
+            /* eslint-enable */
+            const ll_read = new LLRead();
+            const stream = await ll_read.run({
+                no_acl: true,
+                actor: req.actor ?? ownerActor,
+                fsNode,
             });
 
-            meteringService.incrementUsage(ownerActor, 'filesystem:egress:bytes', fileSize);
             return stream.pipe(res);
         } catch (e){
             errors.report('read from storage', {
@@ -198,9 +204,11 @@ router.get('/file', async (req, res, next) => {
 
         try {
             const svc_filesystem = req.services.get('filesystem');
+            /* eslint-disable */
             const fsNode = await svc_filesystem.node(
                 new NodeRawEntrySelector(fsentry[0]),
             );
+            /* eslint-enable */
             const ll_read = new LLRead();
             const stream = await ll_read.run({
                 no_acl: true,
@@ -213,7 +221,6 @@ router.get('/file', async (req, res, next) => {
             //     bucket: fsentry[0].bucket,
             //     bucket_region: fsentry[0].bucket_region,
             // });
-            meteringService.incrementUsage(ownerActor, 'filesystem:egress:bytes', chunkSize);
             return stream.pipe(res);
         } catch (e){
             errors.report('read from storage', {
