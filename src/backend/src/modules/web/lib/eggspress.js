@@ -43,28 +43,25 @@ const config = require('../../../config.js');
  * @param {*} handler the handler for the router
  * @returns {express.Router} the router
  */
-module.exports = function eggspress (route, settings, handler) {
+module.exports = function eggspress(route, settings, handler) {
   const router = express.Router();
   const mw = [];
   const afterMW = [];
-  
+
   const _defaultJsonOptions = {};
   if ( settings.jsonCanBeLarge ) {
     _defaultJsonOptions.limit = '10mb';
   }
 
+  const shouldJson = settings.json === undefined && settings.noReallyItsJson === undefined ? true :
+    !!(settings.json || settings.noReallyItsJson); // default true if unset, but allow explicit false
+
   // These flags enable specific middleware.
   if ( settings.abuse ) mw.push(require('../../../middleware/abuse')(settings.abuse));
   if ( settings.verified ) mw.push(require('../../../middleware/verified'));
-  if ( settings.json ) mw.push(express.json(_defaultJsonOptions));
-
-  // A hack so plain text is parsed as JSON in methods which need to be lower latency/avoid the cors roundtrip
-  if ( settings.noReallyItsJson ) mw.push(express.json({ ..._defaultJsonOptions, type: '*/*' }));
-
-  mw.push(express.json({
-    ..._defaultJsonOptions,
-    type: (req) => req.headers['content-type'] === "text/plain;actually=json",
-  }));
+  if ( shouldJson ){
+    mw.push(express.json({ ..._defaultJsonOptions, type: settings.json ? undefined : settings.noReallyItsJson ? '*/*' : (req) => req.headers['content-type'] === 'text/plain;actually=json' }));
+  };
 
   if ( settings.auth ) mw.push(require('../../../middleware/auth'));
   if ( settings.auth2 ) mw.push(require('../../../middleware/auth2'));
@@ -97,8 +94,8 @@ module.exports = function eggspress (route, settings, handler) {
         } catch (e) {
           return res.status(400).send({
             error: {
-              message: `Invalid JSON in multipart field ${key}`
-            }
+              message: `Invalid JSON in multipart field ${key}`,
+            },
           });
         }
         next();
@@ -179,9 +176,11 @@ module.exports = function eggspress (route, settings, handler) {
     });
   }
 
-  if ( settings.mw ) mw.push(...settings.mw);
+  if ( settings.mw ){
+     mw.push(...settings.mw);
+}
 
-  const errorHandledHandler = async function (req, res, next) {
+  const errorHandledHandler = async function(req, res, next) {
     if ( settings.subdomain ) {
       if ( subdomain(req) !== settings.subdomain ) {
         return next();
@@ -201,7 +200,7 @@ module.exports = function eggspress (route, settings, handler) {
       } else await handler(req, res, next);
     } catch (e) {
         if ( config.env === 'dev' ) {
-          if (! (e instanceof APIError)) {
+          if ( ! (e instanceof APIError) ) {
             // Any non-APIError indicates an unhandled error (i.e. a bug) from the backend.
             // We add a dedicated branch to facilitate debugging.
               console.error(e);
@@ -210,57 +209,57 @@ module.exports = function eggspress (route, settings, handler) {
         api_error_handler(e, req, res, next);
     }
   };
-  if (settings.allowedMethods.includes('GET')) {
+  if ( settings.allowedMethods.includes('GET') ) {
     router.get(route, ...mw, errorHandledHandler, ...afterMW);
   }
 
-  if (settings.allowedMethods.includes('HEAD')) {
+  if ( settings.allowedMethods.includes('HEAD') ) {
     router.head(route, ...mw, errorHandledHandler, ...afterMW);
   }
 
-  if (settings.allowedMethods.includes('POST')) {
+  if ( settings.allowedMethods.includes('POST') ) {
     router.post(route, ...mw, errorHandledHandler, ...afterMW);
   }
 
-  if (settings.allowedMethods.includes('PUT')) {
+  if ( settings.allowedMethods.includes('PUT') ) {
     router.put(route, ...mw, errorHandledHandler, ...afterMW);
   }
 
-  if (settings.allowedMethods.includes('DELETE')) {
+  if ( settings.allowedMethods.includes('DELETE') ) {
     router.delete(route, ...mw, errorHandledHandler, ...afterMW);
   }
 
-  if (settings.allowedMethods.includes('PROPFIND')) {
+  if ( settings.allowedMethods.includes('PROPFIND') ) {
     router.propfind(route, ...mw, errorHandledHandler, ...afterMW);
   }
 
-  if (settings.allowedMethods.includes('PROPPATCH')) {
+  if ( settings.allowedMethods.includes('PROPPATCH') ) {
     router.proppatch(route, ...mw, errorHandledHandler, ...afterMW);
   }
 
-  if (settings.allowedMethods.includes('MKCOL')) {
+  if ( settings.allowedMethods.includes('MKCOL') ) {
     router.mkcol(route, ...mw, errorHandledHandler, ...afterMW);
   }
 
-  if (settings.allowedMethods.includes('COPY')) {
+  if ( settings.allowedMethods.includes('COPY') ) {
     router.copy(route, ...mw, errorHandledHandler, ...afterMW);
   }
 
-  if (settings.allowedMethods.includes('MOVE')) {
+  if ( settings.allowedMethods.includes('MOVE') ) {
     router.move(route, ...mw, errorHandledHandler, ...afterMW);
   }
 
-  if (settings.allowedMethods.includes('LOCK')) {
+  if ( settings.allowedMethods.includes('LOCK') ) {
     router.lock(route, ...mw, errorHandledHandler, ...afterMW);
   }
 
-  if (settings.allowedMethods.includes('UNLOCK')) {
+  if ( settings.allowedMethods.includes('UNLOCK') ) {
     router.unlock(route, ...mw, errorHandledHandler, ...afterMW);
   }
-  
-  if (settings.allowedMethods.includes('OPTIONS')) {
+
+  if ( settings.allowedMethods.includes('OPTIONS') ) {
     router.options(route, ...mw, errorHandledHandler, ...afterMW);
   }
 
   return router;
-}
+};

@@ -272,10 +272,10 @@ module.exports = eggspress(['/signup'], {
                 username, email, clean_email, password, uuid, referrer, 
                 email_confirm_code, email_confirm_token, free_storage, 
                 referred_by, audit_metadata, signup_ip, signup_ip_forwarded, 
-                signup_user_agent, signup_origin, signup_server
+                signup_user_agent, signup_origin, signup_server, metadata
             ) 
             VALUES 
-            (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+            (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
             [
                 // username
                 req.body.username,
@@ -309,6 +309,8 @@ module.exports = eggspress(['/signup'], {
                 req.headers['origin'] ?? null,
                 // signup_server
                 config.server_id ?? null,
+                // metadata
+                {}
             ]
         );
 
