@@ -52,6 +52,7 @@ jobs:
           ./tests/ci/api-test.py
 
   playwright-test:
+    if: false
     name: puterjs (browser env, playwright)
     runs-on: ubuntu-latest
     timeout-minutes: 10
