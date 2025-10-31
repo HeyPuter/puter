@@ -26,6 +26,11 @@ interface EndpointOptions {
     allowedMethods?: string[]
     subdomain?: string
     noauth?: boolean
+    mw?: RequestHandler[]
+    otherOpts?: Record<string, unknown> & {
+        json?: boolean
+        noReallyItsJson?: boolean
+    }
 }
 
 type HttpMethod = 'get' | 'post' | 'put' | 'delete' | 'patch';
@@ -56,12 +61,11 @@ interface ServiceNameMap {
     'meteringService': Pick<MeteringServiceWrapper, 'meteringService'> & MeteringService // TODO DS: squash into a single class without wrapper
     'puter-kvstore': DBKVStore
     'su': SUService
-    'db': BaseDatabaseAccessService
+    'database': BaseDatabaseAccessService
     'user': UserService
 }
 interface Extension extends RouterMethods {
     exports: Record<string, unknown>,
-    db: BaseDatabaseAccessService
     import(module:'core'): CoreRuntimeModule,
     import(module:'fs'): FilesystemModule,
     import(module:'extensionController'): typeof ExtensionControllerExports
