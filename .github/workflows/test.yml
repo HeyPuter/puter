@@ -51,6 +51,13 @@ jobs:
           pip install -r ./tests/ci/requirements.txt
           ./tests/ci/api-test.py
 
+      - uses: actions/upload-artifact@v4
+        if: ${{ !cancelled() }}
+        with:
+          name: (api-test) server-logs
+          path: /tmp/backend.log
+          retention-days: 3
+
   playwright-test:
     if: false
     name: puterjs (browser env, playwright)
@@ -85,7 +92,7 @@ jobs:
       - uses: actions/upload-artifact@v4
         if: ${{ !cancelled() }}
         with:
-          name: server-logs
+          name: (playwright) server-logs
           path: |
             /tmp/backend.log
             /tmp/fs-tree-manager.log
@@ -94,7 +101,7 @@ jobs:
       - uses: actions/upload-artifact@v4
         if: ${{ !cancelled() }}
         with:
-          name: config-files
+          name: (playwright) config-files
           path: |
             ./volatile/config/config.json
             ./src/fs_tree_manager/config.yaml
@@ -105,7 +112,7 @@ jobs:
         if: ${{ !cancelled() }}
         id: playwright-report
         with:
-          name: playwright-report
+          name: (playwright) playwright-report
           path: tests/playwright/playwright-report/
           retention-days: 3
 
