@@ -22,6 +22,7 @@ const FSNodeContext = require("../../filesystem/FSNodeContext");
 const capabilities = require("../../filesystem/definitions/capabilities");
 const selectors = require("../../filesystem/node/selectors");
 const { RuntimeModule } = require("../../extension/RuntimeModule");
+const { TmpProxyFSProvider } = require("./TmpProxyFSProvider");
 
 class PuterFSModule extends AdvancedBase {
     async install (context) {
@@ -34,6 +35,7 @@ class PuterFSModule extends AdvancedBase {
                 capabilities,
                 selectors,
                 FSNodeContext,
+                TmpProxyFSProvider,
             };
             context.get('runtime-modules').register(runtimeModule);
         }
@@ -50,8 +52,8 @@ class PuterFSModule extends AdvancedBase {
         const { MountpointService } = require('./MountpointService');
         services.registerService('mountpoint', MountpointService);
 
-        const { PuterFSService } = require('./PuterFSService');
-        services.registerService('puterfs', PuterFSService);
+        // const { PuterFSService } = require('./PuterFSService');
+        // services.registerService('puterfs', PuterFSService);
         
         const DatabaseFSEntryFetcher = require("./DatabaseFSEntryFetcher");
         services.registerService('fsEntryFetcher', DatabaseFSEntryFetcher);
