@@ -17,5 +17,6 @@
         "**/tests/**",
         "node_modules",
         "dist",
+        "volatile"
     ]
 }
