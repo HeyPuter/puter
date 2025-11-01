@@ -37,56 +37,40 @@ async function UIWindowLogin(options){
     
     return new Promise(async (resolve) => {
         const internal_id = window.uuidv4();
-        
-        let h = ``;
-        h += `<div style="max-width:100%; width:100%; height:100%; min-height:0; box-sizing:border-box; display:flex; flex-direction:column; justify-content:flex-start; align-items:stretch; padding:0; overflow:auto; color:var(--color-text);">`;
-            // logo
-            h += `<div class="logo-wrapper" style="display:flex; justify-content:center; padding:20px 20px 0 20px; margin-bottom: 0;">`;
-                h += `<img src="${window.icons['logo-white.svg']}" style="width: 40px; height: 40px; margin: 0 auto; display: block; padding: 15px; background-color: blue; border-radius: 5px;">`;
-            h += `</div>`;
-            // title
-            h += `<div style="padding:10px 20px; text-align:center; margin-bottom:0;">`;
-                h += `<h1 style="font-size:18px; margin-bottom:0;">${i18n('log_in')}</h1>`;
-            h += `</div>`;
-            // form
-            h += `<div style="padding:20px; overflow-y:auto; overflow-x:hidden;">`;
-                h += `<form class="login-form" style="width:100%;">`;
-                    // server messages
-                    h += `<div class="login-error-msg" style="color:#e74c3c; display:none; margin-bottom:10px; line-height:15px; font-size:13px;"></div>`;
-                    // email or username
-                    h += `<div style="position: relative; margin-bottom: 20px;">`;
-                    h += `<label style="display:block; margin-bottom:5px;">${i18n('email_or_username')}</label>`;
-                    if(options.email_or_username){
-                        h += `<input type="text" class="email_or_username" value="${options.email_or_username}" autocomplete="username"/>`;
-                    }else{
-                        h += `<input type="text" class="email_or_username" autocomplete="username"/>`;
-                    }
-                    h += `</div>`;
-                    // password
-                    h += `<div style="position: relative; margin-bottom: 20px;">`;
-                    h += `<label style="display:block; margin-bottom:5px;">${i18n('password')}</label>`;
-                    h += `<input id="password-${internal_id}" class="password" type="${options.show_password ? "text" : "password"}" name="password" autocomplete="current-password"/>`;
-                    // show/hide icon
-                    h += `<span style="position: absolute; right: 5%; top: 50%; cursor: pointer;" id="toggle-show-password-${internal_id}">
-                                <img class="toggle-show-password-icon" src="${options.show_password ? window.icons["eye-closed.svg"] : window.icons["eye-open.svg"]}" width="20" height="20">
-                            </span>`;
-                    h += `</div>`;
-                    // login
-                    h += `<button type="submit" class="login-btn button button-primary button-block button-normal">${i18n('log_in')}</button>`;
-                    // password recovery
-                    h += `<p style="text-align:center; margin-bottom: 0;"><span class="forgot-password-link">${i18n('forgot_pass_c2a')}</span></p>`;
-                h += `</form>`;
-            h += `</div>`;
-            // create account link
-            
-            // If show_signup_button is undefined, the default behavior is to show it.
-            // If show_signup_button is set to false, the button will not be shown.
-            if(options.show_signup_button === undefined || options.show_signup_button){
-                h += `<div class="c2a-wrapper" style="padding:20px;">`;
-                    h += `<button class="signup-c2a-clickable">${i18n('create_free_account')}</button>`;
-                h += `</div>`;
-            }
-        h += `</div>`;
+
+        const h = `
+            <div class="auth-container">
+                <div class="auth-logo-wrapper">
+                    <img class="auth-logo" src="${window.icons['logo-white.svg']}">
+                </div>
+                <div class="auth-title">
+                    <h1>${i18n('log_in')}</h1>
+                </div>
+                <div class="auth-form-wrapper">
+                    <form class="auth-form login-form">
+                        <div class="auth-error-msg login-error-msg"></div>
+                        <div class="auth-form-group">
+                            <label class="auth-label">${i18n('email_or_username')}</label>
+                            <input type="text" class="auth-input email_or_username" ${options.email_or_username ? `value="${options.email_or_username}"` : ''} autocomplete="username"/>
+                        </div>
+                        <div class="auth-form-group">
+                            <label class="auth-label">${i18n('password')}</label>
+                            <input id="password-${internal_id}" class="auth-input password" type="${options.show_password ? 'text' : 'password'}" name="password" autocomplete="current-password"/>
+                            <span class="auth-password-toggle" id="toggle-show-password-${internal_id}">
+                                <img class="toggle-show-password-icon" src="${options.show_password ? window.icons['eye-closed.svg'] : window.icons['eye-open.svg']}">
+                            </span>
+                        </div>
+                        <button type="submit" class="login-btn button button-primary button-block button-normal">${i18n('log_in')}</button>
+                        <p class="auth-forgot-password"><span class="forgot-password-link">${i18n('forgot_pass_c2a')}</span></p>
+                    </form>
+                </div>
+                ${(options.show_signup_button === undefined || options.show_signup_button) ? `
+                    <div class="c2a-wrapper">
+                        <button class="signup-c2a-clickable">${i18n('create_free_account')}</button>
+                    </div>
+                ` : ''}
+            </div>
+        `;
         
         const el_window = await UIWindow({
             title: null,
@@ -107,7 +91,7 @@ async function UIWindowLogin(options){
             allow_native_ctxmenu: true,
             allow_user_select: true,
             ...options.window_options,
-            width: 350,
+            width: 400,
             dominant: true,
             on_close: ()=>{
                 resolve(false)

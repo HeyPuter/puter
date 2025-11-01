@@ -24,31 +24,25 @@ async function UIWindowChangePassword(options){
     options = options ?? {};
 
     const internal_id = window.uuidv4();
-    let h = '';
-    h += `<div class="change-password" style="padding: 20px; border-bottom: 1px solid #ced7e1;">`;
-        // error msg
-        h += `<div class="form-error-msg"></div>`;
-        // success msg
-        h += `<div class="form-success-msg"></div>`;
-        // current password
-        h += `<div style="overflow: hidden; margin-bottom: 20px;">`;
-            h += `<label for="current-password-${internal_id}">${i18n('current_password')}</label>`;
-            h += `<input id="current-password-${internal_id}" class="current-password" type="password" name="current-password" autocomplete="current-password" />`;
-        h += `</div>`;
-        // new password
-        h += `<div style="overflow: hidden; margin-top: 20px; margin-bottom: 20px;">`;
-            h += `<label for="new-password-${internal_id}">${i18n('new_password')}</label>`;
-            h += `<input id="new-password-${internal_id}" type="password" class="new-password" name="new-password" autocomplete="off" />`;
-        h += `</div>`;
-        // confirm new password
-        h += `<div style="overflow: hidden; margin-top: 20px; margin-bottom: 20px;">`;
-            h += `<label for="confirm-new-password-${internal_id}">${i18n('confirm_new_password')}</label>`;
-            h += `<input id="confirm-new-password-${internal_id}" type="password" name="confirm-new-password" class="confirm-new-password" autocomplete="off" />`;
-        h += `</div>`;
-
-        // Change Password
-        h += `<button class="change-password-btn button button-primary button-block button-normal">${i18n('change_password')}</button>`;
-    h += `</div>`;
+    const h = `
+        <div class="change-password settings-form-container">
+            <div class="form-error-msg" role="alert" aria-live="polite"></div>
+            <div class="form-success-msg" role="alert" aria-live="polite"></div>
+            <div class="form-field">
+                <label class="form-label" for="current-password-${internal_id}">${i18n('current_password')}</label>
+                <input id="current-password-${internal_id}" class="current-password form-input" type="password" name="current-password" autocomplete="current-password" aria-required="true" />
+            </div>
+            <div class="form-field">
+                <label class="form-label" for="new-password-${internal_id}">${i18n('new_password')}</label>
+                <input id="new-password-${internal_id}" type="password" class="new-password form-input" name="new-password" autocomplete="new-password" aria-required="true" />
+            </div>
+            <div class="form-field">
+                <label class="form-label" for="confirm-new-password-${internal_id}">${i18n('confirm_new_password')}</label>
+                <input id="confirm-new-password-${internal_id}" type="password" name="confirm-new-password" class="confirm-new-password form-input" autocomplete="new-password" aria-required="true" />
+            </div>
+            <button class="change-password-btn button button-primary button-block button-normal" aria-label="${i18n('change_password')}">${i18n('change_password')}</button>
+        </div>
+    `;
 
     const el_window = await UIWindow({
         title: i18n('window_title_change_password'),
@@ -67,14 +61,14 @@ async function UIWindowChangePassword(options){
         init_center: true,
         allow_native_ctxmenu: false,
         allow_user_select: false,
-        width: 350,
+        width: 380,
         height: 'auto',
         dominant: true,
         show_in_taskbar: false,
         onAppend: function(this_window){
             $(this_window).find(`.current-password`).get(0).focus({preventScroll:true});
         },
-        window_class: 'window-publishWebsite',
+        window_class: 'window-change-password',
         body_css: {
             width: 'initial',
             height: '100%',
@@ -89,30 +83,25 @@ async function UIWindowChangePassword(options){
         const new_password = $(el_window).find('.new-password').val();
         const confirm_new_password = $(el_window).find('.confirm-new-password').val();
 
-        // hide success message
-        $(el_window).find('.form-success-msg').hide();
+        // hide messages
+        $(el_window).find('.form-error-msg, .form-success-msg').removeClass('visible');
 
         // check if all fields are filled
         if(!current_password || !new_password || !confirm_new_password){
-            $(el_window).find('.form-error-msg').html('All fields are required.');
-            $(el_window).find('.form-error-msg').fadeIn();
+            $(el_window).find('.form-error-msg').html(i18n('all_fields_required')).addClass('visible');
             return;
         }
         // check if new password and confirm new password are the same
         else if(new_password !== confirm_new_password){
-            $(el_window).find('.form-error-msg').html(i18n('passwords_do_not_match'));
-            $(el_window).find('.form-error-msg').fadeIn();
+            $(el_window).find('.form-error-msg').html(i18n('passwords_do_not_match')).addClass('visible');
             return;
         }
         // check password strength
         const pass_strength = check_password_strength(new_password);
         if(!pass_strength.overallPass){
-            $(el_window).find('.form-error-msg').html(i18n('password_strength_error'));
-            $(el_window).find('.form-error-msg').fadeIn();
+            $(el_window).find('.form-error-msg').html(i18n('password_strength_error')).addClass('visible');
             return;
         }
-
-        $(el_window).find('.form-error-msg').hide();
 
         $.ajax({
             url: window.api_origin + "/user-protected/change-password",
@@ -127,13 +116,11 @@ async function UIWindowChangePassword(options){
                 new_pass: new_password,
             }),				
             success: function (data){
-                $(el_window).find('.form-success-msg').html(i18n('password_changed'));
-                $(el_window).find('.form-success-msg').fadeIn();
+                $(el_window).find('.form-success-msg').html(i18n('password_changed')).addClass('visible');
                 $(el_window).find('input').val('');
             },
             error: function (err){
-                $(el_window).find('.form-error-msg').html(html_encode(err.responseText));
-                $(el_window).find('.form-error-msg').fadeIn();
+                $(el_window).find('.form-error-msg').html(html_encode(err.responseText)).addClass('visible');
             }
         });	
     })

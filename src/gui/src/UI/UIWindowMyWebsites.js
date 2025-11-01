@@ -22,9 +22,7 @@ import UIContextMenu from './UIContextMenu.js'
 import UIAlert from './UIAlert.js'
 
 async function UIWindowMyWebsites(options){
-    let h = '';
-    h += `<div>`;
-    h += `</div>`;
+    const h = `<div></div>`;
 
     const el_window = await UIWindow({
         title: `My Websites`,
@@ -46,9 +44,9 @@ async function UIWindowMyWebsites(options){
         width: 400,
         dominant: false,
         body_css: {
-            padding: '10px',
+            padding: '20px',
             width: 'initial',
-            'background-color': 'rgba(231, 238, 245)',
+            'background-color': '#F5F5F7',
             'backdrop-filter': 'blur(3px)',
             'padding-bottom': 0,
             'height': '351px',
@@ -59,12 +57,7 @@ async function UIWindowMyWebsites(options){
     // /sites
     let init_ts = Date.now();
     let loading = setTimeout(function(){
-        $(el_window).find('.window-body').html(`<p style="text-align: center;
-        margin-top: 40px;
-        margin-bottom: 50px;
-        -webkit-font-smoothing: antialiased;
-        -moz-osx-font-smoothing: grayscale;
-        color: #596c7c;">${i18n('loading')}...</p>`);
+        $(el_window).find('.window-body').html(`<p class="mywebsites-loading">${i18n('loading')}...</p>`);
     }, 1000);
 
     puter.hosting.list().then(function (sites){
@@ -73,35 +66,33 @@ async function UIWindowMyWebsites(options){
             clearTimeout(loading);
             // user has sites
             if(sites.length > 0){
-                let h ='';
-                for(let i=0; i< sites.length; i++){
-                    h += `<div class="mywebsites-card" data-uuid="${sites[i].uid}">`;
-                        h += `<a class="mywebsites-address-link" href="https://${sites[i].subdomain}.puter.site" target="_blank">${sites[i].subdomain}.puter.site</a>`;
-                        h += `<img class="mywebsites-site-setting" data-site-uuid="${sites[i].uid}" src="${html_encode(window.icons['cog.svg'])}">`;
-                        // there is a directory associated with this site
-                        if(sites[i].root_dir){
-                            h += `<p class="mywebsites-dir-path" data-path="${html_encode(sites[i].root_dir.path)}" data-name="${html_encode(sites[i].root_dir.name)}" data-uuid="${sites[i].root_dir.id}">`;
-                                h+= `<img src="${html_encode(window.icons['folder.svg'])}">`;
-                                h+= `${html_encode(sites[i].root_dir.path)}`;
-                            h += `</p>`;
-                            h += `<p style="margin-bottom:0; margin-top: 20px; font-size: 13px;">`;
-                                h += `<span class="mywebsites-dis-dir" data-dir-uuid="${html_encode(sites[i].root_dir.id)}" data-site-subdomain="${html_encode(sites[i].subdomain)}" data-site-uuid="${html_encode(sites[i].uid)}">`;
-                                h += `<img style="width: 16px; margin-bottom: -2px; margin-right: 4px;" src="${html_encode(window.icons['plug.svg'])}">${i18n('disassociate_dir')}</span>`;
-                            h += `</p>`;
-                        }
-                        h += `<p class="mywebsites-no-dir-notice" data-site-uuid="${html_encode(sites[i].uid)}" style="${sites[i].root_dir ? `display:none;` : `display:block;`}">${i18n('no_dir_associated_with_site')}</p>`;
-                    h += `</div>`;
-                }
+                const h = `
+                    <div class="mywebsites-container">
+                        ${sites.map(site => `
+                            <div class="mywebsites-card" data-uuid="${site.uid}" style="position: relative;">
+                                <a class="mywebsites-address-link" href="https://${site.subdomain}.puter.site" target="_blank">${site.subdomain}.puter.site</a>
+                                <img class="mywebsites-site-setting" data-site-uuid="${site.uid}" src="${html_encode(window.icons['cog.svg'])}">
+                                ${site.root_dir ? `
+                                    <p class="mywebsites-dir-path" data-path="${html_encode(site.root_dir.path)}" data-name="${html_encode(site.root_dir.name)}" data-uuid="${site.root_dir.id}">
+                                        <img src="${html_encode(window.icons['folder.svg'])}">
+                                        ${html_encode(site.root_dir.path)}
+                                    </p>
+                                    <div style="margin-top: 8px;">
+                                        <span class="mywebsites-dis-dir" data-dir-uuid="${html_encode(site.root_dir.id)}" data-site-subdomain="${html_encode(site.subdomain)}" data-site-uuid="${html_encode(site.uid)}">
+                                            <img src="${html_encode(window.icons['plug.svg'])}">${i18n('disassociate_dir')}
+                                        </span>
+                                    </div>
+                                ` : ''}
+                                <p class="mywebsites-no-dir-notice" data-site-uuid="${html_encode(site.uid)}" style="${site.root_dir ? 'display:none;' : 'display:block;'}">${i18n('no_dir_associated_with_site')}</p>
+                            </div>
+                        `).join('')}
+                    </div>
+                `;
                 $(el_window).find('.window-body').html(h);
             }
             // has no sites
             else{
-                $(el_window).find('.window-body').html(`<p style="text-align: center;
-                margin-top: 40px;
-                margin-bottom: 50px;
-                -webkit-font-smoothing: antialiased;
-                -moz-osx-font-smoothing: grayscale;
-                color: #596c7c;">${i18n('no_websites_published')}</p>`);
+                $(el_window).find('.window-body').html(`<p class="mywebsites-empty">${i18n('no_websites_published')}</p>`);
             }
         }, Date.now() - init_ts < 1000 ? 0 : 2000);
     })
