@@ -153,7 +153,7 @@ $(document).on('click', '.create-an-app-btn', async function(e) {
     }
 });
 
-if ( await puter.auth.getUser().hasDevAccountAccess ) $('.setup-account-btn').hide();
+if ( (await puter.auth.getUser()).hasDevAccountAccess ) $('.setup-account-btn').hide();
 $('.setup-account-btn').on('click', async () => {
     await puter.ui.openDevPaymentsAccount();
 });
