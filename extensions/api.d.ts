@@ -66,6 +66,7 @@ interface ServiceNameMap {
 }
 interface Extension extends RouterMethods {
     exports: Record<string, unknown>,
+    on<T extends unknown[]>(event: string, listener: (...args: T)=> void): void, // TODO DS: type events better
     import(module:'core'): CoreRuntimeModule,
     import(module:'fs'): FilesystemModule,
     import(module:'extensionController'): typeof ExtensionControllerExports
