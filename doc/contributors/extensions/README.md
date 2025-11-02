@@ -67,7 +67,7 @@ in order to access `db` from callbacks.
 ```javascript
 const ext = extension;
 
-extension.get('/user-count', { noauth: true, mw: [] }, (req, res) => {
+extension.get('/user-count', { noauth: true }, (req, res) => {
     const [count] = await ext.db.read(
         'SELECT COUNT(*) as c FROM `user`'
     );

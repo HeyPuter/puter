@@ -166,9 +166,6 @@ class SqliteDatabaseAccessService extends BaseDatabaseAccessService {
             [35, [
                 '0039_add-expireAt-to-kv-store.sql',
             ]],
-            [36, [
-                '0040_add_user_metadata.sql',
-            ]],
         ];
 
         // Database upgrade logic
@@ -223,7 +220,7 @@ class SqliteDatabaseAccessService extends BaseDatabaseAccessService {
                         const stmt = stmts[i] + ';';
                         try {
                             this.db.exec(stmt);
-                        } catch ( e ) {
+                        } catch( e ) {
                             throw new CompositeError(`failed to apply: ${basename} at line ${i}`, e);
                         }
                     }
@@ -234,7 +231,7 @@ class SqliteDatabaseAccessService extends BaseDatabaseAccessService {
                         await this.run_js_migration_({
                             filename, contents,
                         });
-                    } catch ( e ) {
+                    } catch( e ) {
                         throw new CompositeError(`failed to apply: ${basename}`, e);
                     }
                     break;
@@ -398,7 +395,7 @@ class SqliteDatabaseAccessService extends BaseDatabaseAccessService {
                         const fs = require('fs');
                         const contents = fs.readFileSync(filename, 'utf8');
                         this.db.exec(contents);
-                    } catch ( err ) {
+                    } catch( err ) {
                         log.error(err.message);
                     }
                 },
@@ -411,7 +408,7 @@ class SqliteDatabaseAccessService extends BaseDatabaseAccessService {
                         const [query] = args;
                         const rows = this._read(query, []);
                         log.log(rows);
-                    } catch ( err ) {
+                    } catch( err ) {
                         log.error(err.message);
                     }
                 },
