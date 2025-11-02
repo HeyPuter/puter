@@ -1,1 +1,1 @@
-ALTER TABLE `user` ADD COLUMN `metadata` TEXT DEFAULT '{}';
+ALTER TABLE `user` ADD COLUMN `metadata` JSON DEFAULT '{}';

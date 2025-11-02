@@ -167,7 +167,7 @@ class SqliteDatabaseAccessService extends BaseDatabaseAccessService {
                 '0039_add-expireAt-to-kv-store.sql',
             ]],
             [36, [
-                '0040_create_app_store_tables.sql',
+                '0040_add_user_metadata.sql',
             ]],
         ];
 
