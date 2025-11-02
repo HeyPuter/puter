@@ -80,7 +80,7 @@ async function UIWindowSettings(options){
             has_head: true,
             selectable_body: false,
             allow_context_menu: false,
-            is_resizable: false,
+            is_resizable: true,
             is_droppable: false,
             init_center: true,
             allow_native_ctxmenu: true,
