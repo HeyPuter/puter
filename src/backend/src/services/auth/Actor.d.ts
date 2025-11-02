@@ -1,15 +1,17 @@
+import { IUser } from '../User';
+
 export class SystemActorType {
     get uid(): string;
-    get_related_type(type_class: any): SystemActorType;
+    get_related_type(type_class: unknown): SystemActorType;
 }
 
 export class Actor {
     type: {
         app: { uid: string }
-        user: { uuid: string, username: string, email: string, subscription?: (typeof SUB_POLICIES)[keyof typeof SUB_POLICIES]['id'] }
-    }
+        user: IUser
+    };
     get uid(): string;
     clone(): Actor;
     static get_system_actor(): Actor;
-    static adapt(actor?: any): Actor;
+    static adapt(actor?: Actor): Actor;
 }
