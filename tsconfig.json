@@ -16,7 +16,6 @@
         "**/test/**",
         "**/tests/**",
         "node_modules",
-        "dist",
-        "volatile"
+        "dist"
     ]
 }
