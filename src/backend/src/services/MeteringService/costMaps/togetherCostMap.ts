@@ -12,4 +12,7 @@ export const TOGETHER_COST_MAP = {
 
     // Image generation placeholder (actual pricing is fetched dynamically via Together API)
     'together-image:default': 0,
+
+    // Video generation placeholder (per-second pricing). Update with real pricing when available.
+    'together-video:default': 0,
 };

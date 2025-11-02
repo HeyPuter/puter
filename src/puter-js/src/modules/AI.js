@@ -30,6 +30,16 @@ const TOGETHER_IMAGE_MODEL_KEYWORDS = [
     'kolors',
 ];
 
+const TOGETHER_VIDEO_MODEL_PREFIXES = [
+    'minimax/',
+    'google/',
+    'bytedance/',
+    'pixverse/',
+    'kwaivgi/',
+    'vidu/',
+    'wan-ai/',
+];
+
 class AI{
     /**
      * Creates a new instance with the given authentication token, API origin, and app ID,
@@ -917,7 +927,33 @@ class AI{
             options.seconds = options.duration;
         }
 
-        return await utils.make_driver_method(['prompt'], 'puter-video-generation', 'openai-video-generation', 'generate', {
+        let videoService = 'openai-video-generation';
+        const driverHint = typeof options.driver === 'string' ? options.driver : undefined;
+        const driverHintLower = driverHint ? driverHint.toLowerCase() : undefined;
+        const providerRaw = typeof options.provider === 'string'
+            ? options.provider
+            : (typeof options.service === 'string' ? options.service : undefined);
+        const providerHint = typeof providerRaw === 'string' ? providerRaw.toLowerCase() : undefined;
+        const modelLower = typeof options.model === 'string' ? options.model.toLowerCase() : '';
+
+        const looksLikeTogetherVideoModel = typeof options.model === 'string' &&
+            TOGETHER_VIDEO_MODEL_PREFIXES.some(prefix => modelLower.startsWith(prefix));
+
+        if (driverHintLower === 'together' || driverHintLower === 'together-ai') {
+            videoService = 'together-video-generation';
+        } else if (driverHintLower === 'together-video-generation') {
+            videoService = 'together-video-generation';
+        } else if (driverHintLower === 'openai') {
+            videoService = 'openai-video-generation';
+        } else if (driverHint) {
+            videoService = driverHint;
+        } else if (providerHint === 'together' || providerHint === 'together-ai') {
+            videoService = 'together-video-generation';
+        } else if (looksLikeTogetherVideoModel) {
+            videoService = 'together-video-generation';
+        }
+
+        return await utils.make_driver_method(['prompt'], 'puter-video-generation', videoService, 'generate', {
             responseType: 'blob',
             test_mode: testMode ?? false,
             transform: async result => {

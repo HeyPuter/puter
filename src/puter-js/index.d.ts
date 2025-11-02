@@ -125,11 +125,27 @@ interface Txt2ImgOptions {
 
 interface Txt2VidOptions {
     prompt?: string;
-    model?: 'sora-2' | 'sora-2-pro';
-    duration?: 4 | 8 | 12;
-    seconds?: 4 | 8 | 12;
-    size?: '720x1280' | '1280x720' | '1024x1792' | '1792x1024';
-    resolution?: '720x1280' | '1280x720' | '1024x1792' | '1792x1024';
+    model?: string;
+    duration?: number;
+    seconds?: number;
+    size?: string;
+    resolution?: string;
+    width?: number;
+    height?: number;
+    fps?: number;
+    steps?: number;
+    guidance_scale?: number;
+    seed?: number;
+    output_format?: string;
+    output_quality?: number;
+    negative_prompt?: string;
+    reference_images?: string[];
+    frame_images?: Array<Record<string, unknown>>;
+    metadata?: Record<string, unknown>;
+    provider?: string;
+    service?: string;
+    driver?: string;
+    test_mode?: boolean;
 }
 
 interface Txt2SpeechOptions {
