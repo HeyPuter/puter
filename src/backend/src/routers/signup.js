@@ -269,10 +269,7 @@ module.exports = eggspress(['/signup'], {
         insert_res = await db.write(
             `INSERT INTO user
             (
-                username, email, clean_email, password, uuid, referrer, 
-                email_confirm_code, email_confirm_token, free_storage, 
-                referred_by, audit_metadata, signup_ip, signup_ip_forwarded, 
-                signup_user_agent, signup_origin, signup_server, metadata
+                username, email, clean_email, password, uuid, referrer, email_confirm_code, email_confirm_token, free_storage, referred_by, audit_metadata, signup_ip, signup_ip_forwarded, signup_user_agent, signup_origin, signup_server, metadata
             ) 
             VALUES 
             (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
