@@ -1,6 +1,6 @@
 {
     "compilerOptions": {
-        "target": "ES2024",
+        "target": "ES2022",
         "module": "node16",
         "moduleResolution": "node16",
         "rootDir": ".",
@@ -8,7 +8,7 @@
         "esModuleInterop": true,
         "forceConsistentCasingInFileNames": true,
         "skipLibCheck": true,
-        "sourceMap": true,
+        "sourceMap": true
     },
     "exclude": [
         "**/*.test.ts",
@@ -17,6 +17,5 @@
         "**/tests/**",
         "node_modules",
         "dist",
-        "volatile"
     ]
 }

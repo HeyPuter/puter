@@ -1,8 +1,0 @@
-url: http://puter.localhost:4100/
-username: admin
-token: eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJ0IjoicyIsInYiOiIwLjAuMCIsInUiOiI3Vjlkazlxd1N0R1NjLzdFakYraXN3PT0iLCJ1dSI6ImtNa0NYbTBIU01DS2w5K2lNSE10dXc9PSIsImlhdCI6MTc1Nzc5MTcyOX0.s82vH4IKVQUIFTKW7iHzSOlTlDkqmvEzHj4fPpYDi1w
-mountpoints:
-  - path: /
-    provider: puterfs
-  - path: /admin/tmp
-    provider: memoryfs
