@@ -313,8 +313,7 @@ module.exports = eggspress(['/signup'], {
                 signup_ip_forwarded,
                 signup_user_agent,
                 signup_origin,
-                signup_server,
-                metadata
+                signup_server
             ) 
             VALUES 
             (?,
@@ -331,8 +330,7 @@ module.exports = eggspress(['/signup'], {
             ?, 
             ?, 
             ?, 
-            ?, 
-            ?, 
+            ?,  
             ?)`,
         [
             // username
@@ -367,8 +365,6 @@ module.exports = eggspress(['/signup'], {
             req.headers['origin'] ?? null,
             // signup_server
             config.server_id ?? null,
-            // metadata
-            JSON.stringify({}),
         ]);
 
         // record activity
