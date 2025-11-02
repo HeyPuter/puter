@@ -80,6 +80,9 @@ class PuterAIModule extends AdvancedBase {
         if ( config?.services?.['together-ai'] ) {
             const { TogetherAIService } = require('./TogetherAIService');
             services.registerService('together-ai', TogetherAIService);
+
+            const { TogetherImageGenerationService } = require('./TogetherImageGenerationService');
+            services.registerService('together-image-generation', TogetherImageGenerationService);
         }
 
         if ( config?.services?.['mistral'] ) {
