@@ -626,7 +626,7 @@ class WebServerService extends BaseService {
 
             const allowed_headers = [
                 "Origin", "X-Requested-With", "Content-Type", "Accept", "Authorization", "sentry-trace", "baggage",
-                "Depth", "Destination", "Overwrite", "If", "Lock-Token", "DAV"
+                "Depth", "Destination", "Overwrite", "If", "Lock-Token", "DAV", "stripe-signature",
             ];
 
             // Request headers to allow
