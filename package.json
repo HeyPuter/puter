@@ -65,6 +65,7 @@
     "@aws-sdk/client-secrets-manager": "^3.879.0",
     "@aws-sdk/client-sns": "^3.907.0",
     "@google/genai": "^1.19.0",
+    "@anthropic-ai/sdk": "^0.68.0",
     "@heyputer/putility": "^1.0.2",
     "@paralleldrive/cuid2": "^2.2.2",
     "@stylistic/eslint-plugin-js": "^4.4.1",
