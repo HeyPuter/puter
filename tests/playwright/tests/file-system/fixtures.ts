@@ -2,6 +2,7 @@ import { test as base, expect, Page } from '@playwright/test';
 import { validate as isValidUUID } from 'uuid';
 import { FSEntry } from '../../../../src/backend/src/filesystem/definitions/ts/fsentry';
 import { testConfig } from '../../config/test-config';
+import { loggedIn } from '../auth/fixtures';
 
 // The maximum time needed for file-system change to be propagated from
 // one session to others.
@@ -16,6 +17,50 @@ export const ERROR_CODES = [
     'source_does_not_exist',
 ];
 
+/**
+ * A Playwright test fixture that ensures a clean test directory on the server.
+ *
+ * This fixture extends the {@link loggedIn} test, guaranteeing the user is already authenticated.
+ * Before each test, it creates (or resets) the `/admin/tests` directory on the backend,
+ * ensuring it exists and is completely empty.
+ *
+ * Use this when your test logic depends on a known-clean workspace for file-system operations.
+ *
+ * Example:
+ * ```ts
+ * testDirCleaned('demo test', async ({ page }) => {
+ *   await page.evaluate(async () => {
+ *     const puter = (window as any).puter;
+ *     const result = await puter.fs.stat('/admin/tests');
+ *     console.log('result:', result);
+ *   });
+ * });
+ * ```
+ */
+export const testDirCleaned = loggedIn.extend<{ page: Page }>({
+    page: async ({ page }, use) => {
+        await page.evaluate(async ({ BASE_PATH }) => {
+            const puter = (window as any).puter;
+
+            try {
+                await puter.fs.delete(BASE_PATH, { recursive: true });
+            } catch (error) {
+                // ignore error
+                console.error('delete error:', error);
+            }
+
+            try {
+                await puter.fs.mkdir(BASE_PATH);
+            } catch (error) {
+                console.error('mkdir error:', error);
+                throw error;
+            }
+        }, { BASE_PATH });
+
+        await use(page);
+    },
+});
+
 export const test = base.extend<{ page: Page }>({
     page: async ({ browser }, use) => {
         const ctx = await browser.newContext();
@@ -27,14 +72,14 @@ export const test = base.extend<{ page: Page }>({
 
             try {
                 await puter.fs.delete(BASE_PATH, { recursive: true });
-            } catch( error ) {
+            } catch (error) {
                 // ignore error
                 console.error('delete error:', error);
             }
 
             try {
                 await puter.fs.mkdir(BASE_PATH);
-            } catch( error ) {
+            } catch (error) {
                 console.error('mkdir error:', error);
                 throw error;
             }
@@ -47,22 +92,22 @@ export const test = base.extend<{ page: Page }>({
 // Check the integrity of the FSEntry object.
 function checkIntegrity(entry: FSEntry): string | null {
     // check essential fields
-    if ( !entry.uid || !isValidUUID(entry.uid) ) {
+    if (!entry.uid || !isValidUUID(entry.uid)) {
         return `Invalid UID: ${entry.uid}`;
     }
-    if ( !entry.name || entry.name.trim() === '' ) {
+    if (!entry.name || entry.name.trim() === '') {
         return `Invalid name: ${entry.name}`;
     }
-    if ( !entry.path || entry.path.trim() === '' ) {
+    if (!entry.path || entry.path.trim() === '') {
         return `Invalid path: ${entry.path}`;
     }
-    if ( !entry.parent_id || !isValidUUID(entry.parent_id) ) {
+    if (!entry.parent_id || !isValidUUID(entry.parent_id)) {
         return `Invalid parent_id: ${entry.parent_id}`;
     }
-    if ( entry.size < 0 ) {
+    if (entry.size < 0) {
         return `Invalid size: ${entry.size}`;
     }
-    if ( typeof entry.is_dir !== 'boolean' ) {
+    if (typeof entry.is_dir !== 'boolean') {
         return `Invalid is_dir type: ${typeof entry.is_dir}`;
     }
     return null;

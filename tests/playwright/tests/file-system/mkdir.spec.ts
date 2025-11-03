@@ -1,10 +1,10 @@
 import { expect } from '@playwright/test';
-import { BASE_PATH, ERROR_CODES, test } from './fixtures';
+import { BASE_PATH, ERROR_CODES, testDirCleaned } from './fixtures';
 
 // NB: Don't test "parent + path" api for puter-js, it's only supported on http
 // api: https://github.com/HeyPuter/puter/blob/9bdb139f7a82ef610e6beb76b91014ac530828a4/src/puter-js/src/modules/FileSystem/operations/mkdir.js#L48-L49
 
-test('recursive mkdir', async ({ page }) => {
+testDirCleaned('recursive mkdir', async ({ page }) => {
     // Test recursive mkdir with create_missing_parents
     const path = `${BASE_PATH}/a/b/c/d/e/f/g`;
     const result = await page.evaluate(async ({ path }) => {
@@ -24,7 +24,7 @@ test('recursive mkdir', async ({ page }) => {
     console.log('result?', result);
 });
 
-test('mkdir dedupe name', async ({ page }) => {
+testDirCleaned('mkdir dedupe name', async ({ page }) => {
     const basePath = `${BASE_PATH}/dedupe_test`;
 
     // Create initial directory
@@ -73,7 +73,7 @@ test('mkdir dedupe name', async ({ page }) => {
     }
 });
 
-test('mkdir in root directory is prohibited', async ({ page }) => {
+testDirCleaned('mkdir in root directory is prohibited', async ({ page }) => {
     // Test full path format
     let error_code = await page.evaluate(async () => {
         const puter = (window as any).puter;
@@ -99,7 +99,7 @@ test('mkdir in root directory is prohibited', async ({ page }) => {
     expect(ERROR_CODES.includes(error_code)).toBe(true);
 });
 
-test('full path api with create_missing_parents', async ({ page }) => {
+testDirCleaned('full path api with create_missing_parents', async ({ page }) => {
     const testPath = `${BASE_PATH}/full_path_api/create_missing_parents_works`;
     const targetPath = `${testPath}/a/b/c`;
 

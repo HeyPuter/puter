@@ -1,7 +1,7 @@
 import { expect } from '@playwright/test';
-import { BASE_PATH, test } from './fixtures';
+import { BASE_PATH, testDirCleaned } from './fixtures';
 
-test('stat with path (no flags)', async ({ page }) => {
+testDirCleaned('stat with path (no flags)', async ({ page }) => {
     const TEST_FILENAME = 'test_stat.txt';
     const testPath = `${BASE_PATH}/${TEST_FILENAME}`;
 
@@ -34,7 +34,7 @@ test('stat with path (no flags)', async ({ page }) => {
     expect(result.uid).toBeDefined();
 });
 
-test('stat with uid', async ({ page }) => {
+testDirCleaned('stat with uid', async ({ page }) => {
     const TEST_FILENAME = 'test_stat.txt';
     const testPath = `${BASE_PATH}/${TEST_FILENAME}`;
 
@@ -80,7 +80,7 @@ test('stat with uid', async ({ page }) => {
     expect(result.uid).toBe(uid);
 });
 
-test('stat with no path or uid provided fails', async ({ page }) => {
+testDirCleaned('stat with no path or uid provided fails', async ({ page }) => {
     const result = await page.evaluate(async () => {
         const puter = (window as any).puter;
         try {
@@ -94,7 +94,7 @@ test('stat with no path or uid provided fails', async ({ page }) => {
     expect(result.success).toBe(false);
 });
 
-test('stat with versions', async ({ page }) => {
+testDirCleaned('stat with versions', async ({ page }) => {
     const TEST_FILENAME = 'test_stat.txt';
     const testPath = `${BASE_PATH}/${TEST_FILENAME}`;
 
@@ -131,7 +131,7 @@ test('stat with versions', async ({ page }) => {
     expect(Array.isArray(result.versions)).toBe(true);
 });
 
-test('stat with shares', async ({ page }) => {
+testDirCleaned('stat with shares', async ({ page }) => {
     const TEST_FILENAME = 'test_stat.txt';
     const testPath = `${BASE_PATH}/${TEST_FILENAME}`;
 
@@ -169,7 +169,7 @@ test('stat with shares', async ({ page }) => {
     expect(Array.isArray(result.shares.apps)).toBe(true);
 });
 
-test('stat with subdomains', async ({ page }) => {
+testDirCleaned('stat with subdomains', async ({ page }) => {
     const dirName = 'test_stat_subdomains';
     const testPath = `${BASE_PATH}/${dirName}`;
 
@@ -205,7 +205,7 @@ test('stat with subdomains', async ({ page }) => {
     console.log('RESULT', result);
 });
 
-test('stat with size', async ({ page }) => {
+testDirCleaned('stat with size', async ({ page }) => {
     const TEST_FILENAME = 'test_stat.txt';
     const testPath = `${BASE_PATH}/${TEST_FILENAME}`;
 

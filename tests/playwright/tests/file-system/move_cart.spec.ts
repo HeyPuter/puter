@@ -1,7 +1,7 @@
 import { expect } from '@playwright/test';
-import { BASE_PATH, test } from './fixtures';
+import { BASE_PATH, testDirCleaned } from './fixtures';
 
-test('move file with path format', async ({ page }) => {
+testDirCleaned('move file with path format', async ({ page }) => {
     const testPath = `${BASE_PATH}/move_cart_1`;
     const sourceFile = `${testPath}/a/a_file.txt`;
     const destDir = `${testPath}/b`;
@@ -31,7 +31,7 @@ test('move file with path format', async ({ page }) => {
     expect(result.moved.name).toBe('a_file.txt');
 });
 
-test('move file with specified name', async ({ page }) => {
+testDirCleaned('move file with specified name', async ({ page }) => {
     const testPath = `${BASE_PATH}/move_cart_2`;
     const sourceFile = `${testPath}/a/a_file.txt`;
     const destDir = `${testPath}/b`;
@@ -62,7 +62,7 @@ test('move file with specified name', async ({ page }) => {
     expect(result.moved.name).toBe(newName);
 });
 
-test('move file with overwrite to directory', async ({ page }) => {
+testDirCleaned('move file with overwrite to directory', async ({ page }) => {
     const testPath = `${BASE_PATH}/move_cart_3`;
     const sourceFile = `${testPath}/a/a_file.txt`;
     const destDir = `${testPath}/b`;
@@ -92,7 +92,7 @@ test('move file with overwrite to directory', async ({ page }) => {
     expect(result).toBeTruthy();
 });
 
-test('move file without overwrite to directory with existing file should error', async ({ page }) => {
+testDirCleaned('move file without overwrite to directory with existing file should error', async ({ page }) => {
     const testPath = `${BASE_PATH}/move_cart_4`;
     const sourceFile = `${testPath}/a/a_file.txt`;
     const destDir = `${testPath}/b`;
@@ -122,7 +122,7 @@ test('move file without overwrite to directory with existing file should error',
     expect(result.code).toBeTruthy();
 });
 
-test('move file to file destination should error', async ({ page }) => {
+testDirCleaned('move file to file destination should error', async ({ page }) => {
     const testPath = `${BASE_PATH}/move_cart_6`;
     const sourceFile = `${testPath}/a/a_file.txt`;
     const destFile = `${testPath}/b`;
@@ -151,7 +151,7 @@ test('move file to file destination should error', async ({ page }) => {
     expect(result.code).toBe('dest_is_not_a_directory');
 });
 
-test('move file with uid format', async ({ page }) => {
+testDirCleaned('move file with uid format', async ({ page }) => {
     const testPath = `${BASE_PATH}/move_cart_7`;
     const sourceFile = `${testPath}/a/a_file.txt`;
     const destDir = `${testPath}/b`;

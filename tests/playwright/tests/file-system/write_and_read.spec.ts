@@ -1,7 +1,7 @@
 import { expect } from '@playwright/test';
-import { BASE_PATH, test } from './fixtures';
+import { BASE_PATH, testDirCleaned } from './fixtures';
 
-test('read matches what was written', async ({ page }) => {
+testDirCleaned('read matches what was written', async ({ page }) => {
     const fileName = 'test_rw.txt';
     const testPath = `${BASE_PATH}/${fileName}`;
 
@@ -21,7 +21,7 @@ test('read matches what was written', async ({ page }) => {
     expect(result).toBe('example\n');
 });
 
-test('write without overwrite creates deduped name', async ({ page }) => {
+testDirCleaned('write without overwrite creates deduped name', async ({ page }) => {
     const fileName = 'test_rw.txt';
     const testPath = `${BASE_PATH}/${fileName}`;
 
@@ -47,7 +47,7 @@ test('write without overwrite creates deduped name', async ({ page }) => {
     expect(result).toBeTruthy();
 });
 
-test('write with overwrite updates file', async ({ page }) => {
+testDirCleaned('write with overwrite updates file', async ({ page }) => {
     const fileName = 'test_rw.txt';
     const testPath = `${BASE_PATH}/${fileName}`;
 
@@ -73,7 +73,7 @@ test('write with overwrite updates file', async ({ page }) => {
     expect(result).toBe('yes-change\n');
 });
 
-test('read with version id', async ({ page }) => {
+testDirCleaned('read with version id', async ({ page }) => {
     const fileName = 'test_rw.txt';
     const testPath = `${BASE_PATH}/${fileName}`;
 
@@ -98,7 +98,7 @@ test('read with version id', async ({ page }) => {
     expect(result.success).toBe(true);
 });
 
-test('read with no path or uid provided fails', async ({ page }) => {
+testDirCleaned('read with no path or uid provided fails', async ({ page }) => {
     const result = await page.evaluate(async () => {
         const puter = (window as any).puter;
         try {
@@ -113,7 +113,7 @@ test('read with no path or uid provided fails', async ({ page }) => {
     expect(result.code).toBeTruthy();
 });
 
-test('read non-existing file fails', async ({ page }) => {
+testDirCleaned('read non-existing file fails', async ({ page }) => {
     const result = await page.evaluate(async ({ basePath }) => {
         const puter = (window as any).puter;
         try {

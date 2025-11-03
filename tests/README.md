@@ -47,3 +47,31 @@ npx playwright test
 ```bash
 npm run test:puterjs-api
 ```
+
+## Coverage
+
+```bash
+npm install --save-dev c8
+npx c8 -r lcov -r text -o coverage/backend npm start
+```
+
+## CI Debugging (for CI Maintainers)
+
+All of the following commands assume a Linux environment.
+
+### API-Test
+
+Install dependencies:
+
+```bash
+```
+
+Run the CI:
+
+```bash
+./tests/ci/api-test.py
+```
+
+### Playwright
+
+### Vitest

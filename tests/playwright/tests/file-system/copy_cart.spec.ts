@@ -1,7 +1,7 @@
 import { expect } from '@playwright/test';
-import { BASE_PATH, test } from './fixtures';
+import { BASE_PATH, testDirCleaned } from './fixtures';
 
-test('copy file with path format', async ({ page }) => {
+testDirCleaned('copy file with path format', async ({ page }) => {
     const testPath = `${BASE_PATH}/copy_cart_1`;
     const sourceFile = `${testPath}/a/a_file.txt`;
     const destDir = `${testPath}/b`;
@@ -33,7 +33,7 @@ test('copy file with path format', async ({ page }) => {
     expect(result[0].copied.name).toBe('a_file.txt');
 });
 
-test('copy file with specified name', async ({ page }) => {
+testDirCleaned('copy file with specified name', async ({ page }) => {
     const testPath = `${BASE_PATH}/copy_cart_2`;
     const sourceFile = `${testPath}/a/a_file.txt`;
     const destDir = `${testPath}/b`;
@@ -64,7 +64,7 @@ test('copy file with specified name', async ({ page }) => {
     expect(result[0].copied.name).toBe(newName);
 });
 
-test('copy file with overwrite', async ({ page }) => {
+testDirCleaned('copy file with overwrite', async ({ page }) => {
     const testPath = `${BASE_PATH}/copy_cart_3`;
     const sourceFile = `${testPath}/a/a_file.txt`;
     const destDir = `${testPath}/b`;
@@ -95,7 +95,7 @@ test('copy file with overwrite', async ({ page }) => {
     expect(result[0]).toBeTruthy();
 });
 
-test('copy file without overwrite to directory with existing file should error', async ({ page }) => {
+testDirCleaned('copy file without overwrite to directory with existing file should error', async ({ page }) => {
     const testPath = `${BASE_PATH}/copy_cart_4`;
     const sourceFile = `${testPath}/a/a_file.txt`;
     const destDir = `${testPath}/b`;
@@ -125,7 +125,7 @@ test('copy file without overwrite to directory with existing file should error',
     expect(result.code).toBeTruthy();
 });
 
-test('copy file to file destination should error', async ({ page }) => {
+testDirCleaned('copy file to file destination should error', async ({ page }) => {
     const testPath = `${BASE_PATH}/copy_cart_6`;
     const sourceFile = `${testPath}/a/a_file.txt`;
     const destFile = `${testPath}/b`;
@@ -154,7 +154,7 @@ test('copy file to file destination should error', async ({ page }) => {
     expect(result.code).toBe('dest_is_not_a_directory');
 });
 
-test('copy empty directory', async ({ page }) => {
+testDirCleaned('copy empty directory', async ({ page }) => {
     const testPath = `${BASE_PATH}/copy_cart_7`;
     const sourceDir = `${testPath}/a/a_directory`;
     const destDir = `${testPath}/b`;
@@ -184,7 +184,7 @@ test('copy empty directory', async ({ page }) => {
     expect(result[0].copied.name).toBe('a_directory');
 });
 
-test('copy full directory', async ({ page }) => {
+testDirCleaned('copy full directory', async ({ page }) => {
     const testPath = `${BASE_PATH}/copy_cart_8`;
     const sourceDir = `${testPath}/a/a_directory`;
     const destDir = `${testPath}/b`;
