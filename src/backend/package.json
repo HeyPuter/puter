@@ -8,7 +8,6 @@
     "build:worker": "cd src/services/worker && npm run build"
   },
   "dependencies": {
-    "@anthropic-ai/sdk": "^0.56.0",
     "@aws-sdk/client-polly": "^3.622.0",
     "@aws-sdk/client-textract": "^3.621.0",
     "@google/generative-ai": "^0.21.0",

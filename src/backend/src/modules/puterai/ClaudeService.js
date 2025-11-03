@@ -120,9 +120,28 @@ class ClaudeService extends BaseService {
             */
             async complete({ messages, stream, model, tools, max_tokens, temperature }) {
                 tools = FunctionCalling.make_claude_tools(tools);
-
+                // console.log("here are the messages: ", messages)
+                
                 let system_prompts;
+                // unsure why system_prompts is an array but it always seems to only have exactly one element,
+                // and the real array of system_prompts seems to be the [0].content -- NS
                 [system_prompts, messages] = Messages.extract_and_remove_system_messages(messages);
+
+                // Apply the cache control tag to all content blocks
+                if (system_prompts[0].cache_control && system_prompts[0]?.content) {
+                    system_prompts[0].content = system_prompts[0].content.map(prompt => {
+                        prompt.cache_control = system_prompts[0].cache_control;
+                        return prompt;
+                    });
+                }
+
+                messages = messages.map(message => {
+                    if (message.cache_control) {
+                        message.content[0].cache_control = message.cache_control;
+                    }
+                    delete message.cache_control;
+                    return message
+                })
 
                 const sdk_params = {
                     model: model ?? this.get_default_model(),
@@ -132,16 +151,18 @@ class ClaudeService extends BaseService {
                             || model === 'claude-3-5-sonnet-20240620'
                         ) ? 8192 : 4096), //required
                     temperature: temperature || 0, // required
-                    ...(system_prompts ? {
-                        system: system_prompts.length > 1
-                            ? JSON.stringify(system_prompts)
-                            : JSON.stringify(system_prompts[0]),
+                    ...( (system_prompts && system_prompts[0]?.content) ? {
+                        system: system_prompts[0]?.content
                     } : {}),
+                    tool_choice: {
+                        type: "auto",
+                        disable_parallel_tool_use: true
+                    },
                     messages,
                     ...(tools ? { tools } : {}),
                 };
 
-                console.log('\x1B[26;1m ===== SDK PARAMETERS', require('util').inspect(sdk_params, undefined, Infinity));
+                // console.log('\x1B[26;1m ===== SDK PARAMETERS', require('util').inspect(sdk_params, undefined, Infinity));
 
                 let beta_mode = false;
 
@@ -303,6 +324,25 @@ class ClaudeService extends BaseService {
                         chatStream.end();
 
                         this.billForUsage(actor, model || this.get_default_model(), usageSum);
+
+                        // Log token usage statistics
+                        const totalTokens = usageSum.input_tokens + usageSum.output_tokens;
+                        const cachedTokens = usageSum.ephemeral_5m_input_tokens + usageSum.ephemeral_1h_input_tokens;
+                        const cacheHits = usageSum.cache_read_input_tokens;
+                        const uncachedTokens = usageSum.input_tokens - cacheHits - cachedTokens;
+
+//                         console.log(`
+// ╔══════════════════════════════════════════════════════════════╗
+// ║           🎯 Token Usage Statistics 🎯                       ║
+// ╠══════════════════════════════════════════════════════════════╣
+// ║  📊 Total Tokens Used:     ${String(totalTokens).padStart(10)} 📊  ║
+// ║  💾 Cached Tokens:         ${String(cachedTokens).padStart(10)} 💾  ║
+// ║  ✅ Cache Hits:             ${String(cacheHits).padStart(10)} ✅  ║
+// ║  🔄 Uncached Tokens:        ${String(uncachedTokens).padStart(10)} 🔄  ║
+// ║  📥 Input Tokens:           ${String(usageSum.input_tokens).padStart(10)} 📥  ║
+// ║  📤 Output Tokens:          ${String(usageSum.output_tokens).padStart(10)} 📤  ║
+// ╚══════════════════════════════════════════════════════════════╝
+//                         `);
                     };
 
                     return {
@@ -315,7 +355,27 @@ class ClaudeService extends BaseService {
                 const msg = await anthropic.messages.create(sdk_params);
                 await cleanup_files();
 
-                this.billForUsage(actor, model || this.get_default_model(), this.usageFormatterUtil(msg.usage));
+                const usage = this.usageFormatterUtil(msg.usage);
+                this.billForUsage(actor, model || this.get_default_model(), usage);
+
+                // Log token usage statistics
+                const totalTokens = usage.input_tokens + usage.output_tokens;
+                const cachedTokens = usage.ephemeral_5m_input_tokens + usage.ephemeral_1h_input_tokens;
+                const cacheHits = usage.cache_read_input_tokens;
+                const uncachedTokens = usage.input_tokens - cacheHits - cachedTokens;
+
+//                 console.log(`
+// ╔══════════════════════════════════════════════════════════════╗
+// ║           🎯 Token Usage Statistics 🎯                      ║
+// ╠══════════════════════════════════════════════════════════════╣
+// ║  📊 Total Tokens Used:     ${String(totalTokens).padStart(10)} 📊  ║
+// ║  💾 Cached Tokens:         ${String(cachedTokens).padStart(10)} 💾  ║
+// ║  ✅ Cache Hits:             ${String(cacheHits).padStart(10)} ✅  ║
+// ║  🔄 Uncached Tokens:        ${String(uncachedTokens).padStart(10)} 🔄  ║
+// ║  📥 Input Tokens:           ${String(usage.input_tokens).padStart(10)} 📥  ║
+// ║  📤 Output Tokens:          ${String(usage.output_tokens).padStart(10)} 📤  ║
+// ╚══════════════════════════════════════════════════════════════╝
+//                 `);
 
                 // TODO DS: cleanup old usage tracking
                 return {
@@ -358,6 +418,19 @@ class ClaudeService extends BaseService {
     */
     models_() {
         return [
+            {
+                id: 'claude-haiku-4-5-20251001',
+                aliases: ['claude-haiku-4.5', 'claude-haiku-4-5'],
+                name: 'Claude Haiku 4.5',
+                context: 200000,
+                cost: {
+                    currency: 'usd-cents',
+                    tokens: 1_000_000,
+                    input: 100,
+                    output: 500,
+                },
+                max_tokens: 64000,
+            },
             {
                 id: 'claude-sonnet-4-5-20250929',
                 aliases: ['claude-sonnet-4.5', 'claude-sonnet-4-5'],
