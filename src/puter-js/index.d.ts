@@ -236,12 +236,41 @@ interface Auth {
     signOut(): void;
     isSignedIn(): boolean;
     getUser(): Promise<User>;
+    getMonthlyUsage(): Promise<MonthlyUsage>;
+    getDetailedAppUsage(appId: string): Promise<DetailedAppUsage>;
 }
 
 interface User {
     uuid: string;
     username: string;
     email_confirmed: boolean;
+}
+
+interface AllowanceInfo {
+    monthUsageAllowance: number;
+    remaining: number;
+}
+
+interface AppUsage {
+    count: number;
+    total: number;
+}
+
+interface APIUsage {
+    cost: number;
+    count: number;
+    units: number;
+}
+
+interface MonthlyUsage {
+    allowanceInfo: AllowanceInfo;
+    appTotals: Record<string, AppUsage>;
+    usage: Record<string, APIUsage>;
+}
+
+interface DetailedAppUsage {
+    total: number;
+    [key: string]: APIUsage;
 }
 
 // Drivers Module
