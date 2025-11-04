@@ -8,6 +8,7 @@ on:
 
 jobs:
   test:
+    name: unit tests
     runs-on: ubuntu-latest
 
     strategy:
