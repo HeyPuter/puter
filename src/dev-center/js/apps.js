@@ -40,7 +40,7 @@ async function init_apps() {
         });
 
         // Get dev profile. This is only for puter.com for now as we don't have dev profiles in self-hosted Puter
-        if ( domain === 'puter.com' ){
+        if ( domain === 'puter.com' ) {
             puter.apps.getDeveloperProfile(async function(dev_profile) {
                 window.developer = dev_profile;
                 if ( dev_profile.approved_for_incentive_program && !dev_profile.joined_incentive_program ) {
@@ -153,7 +153,7 @@ $(document).on('click', '.create-an-app-btn', async function(e) {
     }
 });
 
-if ( (await puter.auth.getUser()).hasDevAccountAccess ) $('.setup-account-btn').hide();
+if ( !(await puter.auth.getUser()).hasDevAccountAccess ) $('.setup-account-btn').hide();
 $('.setup-account-btn').on('click', async () => {
     await puter.ui.openDevPaymentsAccount();
 });
@@ -494,7 +494,7 @@ function generate_edit_app_section(app) {
 }
 
 /* This function keeps track of the original values of the app before it is edited*/
-function trackOriginalValues(){
+function trackOriginalValues() {
     originalValues = {
         title: $('#edit-app-title').val(),
         name: $('#edit-app-name').val(),
@@ -525,12 +525,12 @@ function trackOriginalValues(){
 /* This function compares for all fields and checks if anything has changed from before editting*/
 function hasChanges() {
     // is icon changed
-    if ( $('#edit-app-icon').attr('data-base64') !== originalValues.icon ){
+    if ( $('#edit-app-icon').attr('data-base64') !== originalValues.icon ) {
         return true;
     }
 
     // if social image is changed
-    if ( $('#edit-app-social-image').attr('data-base64') !== originalValues.socialImage ){
+    if ( $('#edit-app-social-image').attr('data-base64') !== originalValues.socialImage ) {
         return true;
     }
 
@@ -936,7 +936,7 @@ async function edit_app_section(cur_app_name, tab = 'deploy') {
 
     try {
         activate_tippy();
-    } catch(e) {
+    } catch (e) {
         console.log('no tippy:', e);
     }
 
@@ -1118,7 +1118,7 @@ $(document).on('click', '.edit-app-save-btn', async function(e) {
         let icon_url = $('#edit-app-icon').attr('data-url');
         let icon_base64 = $('#edit-app-icon').attr('data-base64');
 
-        if ( icon_base64 ){
+        if ( icon_base64 ) {
             icon = icon_base64;
         } else if ( icon_url ) {
             icon = await getBase64ImageFromUrl(icon_url);
@@ -1138,7 +1138,7 @@ $(document).on('click', '.edit-app-save-btn', async function(e) {
     }
 
     // parse filetype_associations
-    if ( filetype_associations !== '' ){
+    if ( filetype_associations !== '' ) {
         filetype_associations = JSON.parse(filetype_associations);
         filetype_associations = filetype_associations.map((type) => {
             const fileType = type.value;
@@ -1269,7 +1269,7 @@ $(document).on('click', '.delete-app-settings', async function(e) {
     // check if app is locked
     const app_data = await puter.apps.get(app_name, { icon_size: 16 });
 
-    if ( app_data.metadata?.locked ){
+    if ( app_data.metadata?.locked ) {
         puter.ui.alert(`<strong>${app_data.title}</strong> is locked and cannot be deleted.`, [
             {
                 label: 'Ok',
@@ -1583,13 +1583,13 @@ function sort_apps() {
     let sorted_apps;
 
     // sort
-    if ( sortDirection === 'asc' ){
+    if ( sortDirection === 'asc' ) {
         sorted_apps = apps.sort((a, b) => {
-            if ( sortBy === 'name' ){
+            if ( sortBy === 'name' ) {
                 return a[sortBy].localeCompare(b[sortBy]);
-            } else if ( sortBy === 'created_at' ){
+            } else if ( sortBy === 'created_at' ) {
                 return new Date(a[sortBy]) - new Date(b[sortBy]);
-            } else if ( sortBy === 'user_count' || sortBy === 'open_count' ){
+            } else if ( sortBy === 'user_count' || sortBy === 'open_count' ) {
                 return a.stats[sortBy] - b.stats[sortBy];
             } else {
                 a[sortBy] > b[sortBy] ? 1 : -1;
@@ -1597,11 +1597,11 @@ function sort_apps() {
         });
     } else {
         sorted_apps = apps.sort((a, b) => {
-            if ( sortBy === 'name' ){
+            if ( sortBy === 'name' ) {
                 return b[sortBy].localeCompare(a[sortBy]);
-            } else if ( sortBy === 'created_at' ){
+            } else if ( sortBy === 'created_at' ) {
                 return new Date(b[sortBy]) - new Date(a[sortBy]);
-            } else if ( sortBy === 'user_count' || sortBy === 'open_count' ){
+            } else if ( sortBy === 'user_count' || sortBy === 'open_count' ) {
                 return b.stats[sortBy] - a.stats[sortBy];
             } else {
                 b[sortBy] > a[sortBy] ? 1 : -1;
@@ -1680,7 +1680,7 @@ async function showGitWarningDialog() {
         if ( skipWarning === true ) {
             return true;
         }
-    } catch( error ) {
+    } catch ( error ) {
         console.error('Error accessing KV store:', error);
         // If KV store access fails, fall back to showing the dialog
     }
@@ -1717,7 +1717,7 @@ async function showGitWarningDialog() {
                     console.log("Saving 'skip-git-warning' preference as true");
                     await puter.kv.set('skip-git-warning', true);
                 }
-            } catch( error ) {
+            } catch ( error ) {
                 console.error('Error saving user preference to KV store:', error);
             } finally {
                 document.body.removeChild(modal);
@@ -1743,7 +1743,7 @@ window.deploy = async function(app, items) {
                 return;
             }
         }
-    } catch( err ) {
+    } catch ( err ) {
         console.error('Error checking for .git directory:', err);
     }
     let appdata_dir, current_app_dir;
@@ -1768,7 +1768,7 @@ window.deploy = async function(app, items) {
             path: `/${auth_username}/AppData/${dev_center_uid}/${app.uid ?? app.uuid}`,
             returnSubdomains: true,
         });
-    } catch( err ) {
+    } catch ( err ) {
         console.log(err);
     }
 
@@ -1786,7 +1786,7 @@ window.deploy = async function(app, items) {
     // --------------------------------------------------------------------
     try {
         await puter.fs.delete(current_app_dir.path);
-    } catch( err ) {
+    } catch ( err ) {
         console.log(err);
     }
 
@@ -1800,7 +1800,7 @@ window.deploy = async function(app, items) {
                         `/${auth_username}/AppData/${dev_center_uid}/${app.uid ?? app.uuid}`,
                         // options
                         { overwrite: true, recursive: true, rename: false });
-    } catch( err ) {
+    } catch ( err ) {
         console.log(err);
     }
 
@@ -2299,11 +2299,11 @@ function remove_app_card(app_uid, callback = null) {
         }
 
         // update select-all-apps checkbox's state
-        if ( $('.app-checkbox:checked').length === 0 ){
+        if ( $('.app-checkbox:checked').length === 0 ) {
             $('.select-all-apps').prop('indeterminate', false);
             $('.select-all-apps').prop('checked', false);
         }
-        else if ( $('.app-checkbox:checked').length === $('.app-card').length ){
+        else if ( $('.app-checkbox:checked').length === $('.app-card').length ) {
             $('.select-all-apps').prop('indeterminate', false);
             $('.select-all-apps').prop('checked', true);
         }
@@ -2347,8 +2347,8 @@ $(document).on('click', '.delete-apps-btn', async function(e) {
             // get app
             const app_data = await puter.apps.get(app_name, { icon_size: 64 });
 
-            if ( app_data.metadata?.locked ){
-                if ( apps.length === 1 ){
+            if ( app_data.metadata?.locked ) {
+                if ( apps.length === 1 ) {
                     puter.ui.alert(`<strong>${app_data.title}</strong> is locked and cannot be deleted.`, [
                         {
                             label: 'Ok',
@@ -2400,14 +2400,14 @@ $(document).on('click', '.delete-apps-btn', async function(e) {
                     returnSubdomains: true,
                 });
                 // delete subdomain associated with the app directory
-                if ( stat?.subdomains[0]?.subdomain ){
+                if ( stat?.subdomains[0]?.subdomain ) {
                     await puter.hosting.delete(stat.subdomains[0].subdomain);
                 }
                 // delete app directory
                 await puter.fs.delete(`/${auth_username}/AppData/${dev_center_uid}/${app_uid}`,
                                 { recursive: true });
                 count_apps();
-            } catch( err ) {
+            } catch ( err ) {
                 console.log(err);
             }
         }
@@ -2415,7 +2415,7 @@ $(document).on('click', '.delete-apps-btn', async function(e) {
         // close 'deleting' modal
         setTimeout(() => {
             puter.ui.hideSpinner();
-            if ( $('.app-checkbox:checked').length === 0 ){
+            if ( $('.app-checkbox:checked').length === 0 ) {
                 // disable delete button
                 $('.delete-apps-btn').addClass('disabled');
                 // reset the 'select all' checkbox
@@ -2450,14 +2450,14 @@ $(document).on('change', '#edit-app-maximize-on-start', function(e) {
 });
 
 $(document).on('change', '#edit-app-background', function(e) {
-    if ( $('#edit-app-background').is(':checked') ){
+    if ( $('#edit-app-background').is(':checked') ) {
         disable_window_settings();
     } else {
         enable_window_settings();
     }
 });
 
-function disable_window_settings(){
+function disable_window_settings() {
     $('#edit-app-maximize-on-start').prop('disabled', true);
     $('#edit-app-fullpage-on-landing').prop('disabled', true);
     $('#edit-app-window-width, #edit-app-window-height').prop('disabled', true);
@@ -2466,7 +2466,7 @@ function disable_window_settings(){
     $('#edit-app-hide-titlebar').prop('disabled', true);
 }
 
-function enable_window_settings(){
+function enable_window_settings() {
     $('#edit-app-maximize-on-start').prop('disabled', false);
     $('#edit-app-fullpage-on-landing').prop('disabled', false);
     $('#edit-app-window-width, #edit-app-window-height').prop('disabled', false);
@@ -2495,7 +2495,7 @@ window.initializeAssetsDirectory = async () => {
             // Store the URL
             await puter.kv.set('assets_url', `https://${hostname}.puter.site`);
         }
-    } catch( err ) {
+    } catch ( err ) {
         console.error('Error initializing assets directory:', err);
     }
 };
@@ -2566,7 +2566,7 @@ window.handleSocialImageUpload = async (app_name, socialImageData) => {
                         { overwrite: true });
 
         return `${assets_url}/${app_name}.png`;
-    } catch( err ) {
+    } catch ( err ) {
         console.error('Error uploading social image:', err);
         throw err;
     }
@@ -2587,7 +2587,7 @@ $(document).on('change', '#analytics-period', async function(e) {
     render_analytics(period);
 });
 
-async function render_analytics(period){
+async function render_analytics(period) {
     puter.ui.showSpinner();
 
     // set a sensible stats_grouping based on the selected period
@@ -2775,7 +2775,7 @@ async function attempt_delete_app(app_name, app_title, app_uid) {
     // get app
     const app_data = await puter.apps.get(app_name, { icon_size: 16 });
 
-    if ( app_data.metadata?.locked ){
+    if ( app_data.metadata?.locked ) {
         puter.ui.alert(`<strong>${app_data.title}</strong> is locked and cannot be deleted.`, [
             {
                 label: 'Ok',

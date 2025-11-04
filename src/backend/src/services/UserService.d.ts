@@ -8,5 +8,5 @@ export interface IInsertResult {
 export class UserService extends BaseService  {
     get_system_dir(): unknown;
     generate_default_fsentries(args: { user: IUser }): Promise<void>;
-    updateUserMetadata(user: IUser, updatedMetadata: Record<string, unknown>): Promise<void>;
+    updateUserMetadata(userId:string, updatedMetadata: Record<string, unknown>): Promise<void>;
 }

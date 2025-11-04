@@ -141,16 +141,17 @@ class UserService extends BaseService {
         invalidate_cached_user(user);
     }
 
-    async updateUserMetadata(user, updatedMetadata) {
+    async updateUserMetadata(userId, updatedMetadata) {
 
-        let metadata = user.metadata;
-        if ( !Object.keys(metadata).length ) {
-            metadata = updatedMetadata;
-        } else {
-            metadata = { ...metadata, ...updatedMetadata };
-        }
+        // Fetch current metadata
+        const [user] = await this.db.read('SELECT metadata FROM `user` WHERE uuid=?', [userId]);
+        let metadata = user?.metadata ? JSON.parse(user.metadata) : {};
 
-        await this.db.write('UPDATE user SET metadata=? WHERE id=?', [metadata]);
+        // Update fields
+        Object.assign(metadata, updatedMetadata);
+
+        // Save back to DB
+        await this.db.write('UPDATE `user` SET metadata=? WHERE uuid=?', [JSON.stringify(metadata), userId]);
     }
 }
 

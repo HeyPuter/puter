@@ -19,10 +19,12 @@
 
 export const DEEPSEEK_COST_MAP = {
     // DeepSeek Chat
-    'deepseek:deepseek-chat:prompt_tokens': 56,
-    'deepseek:deepseek-chat:completion_tokens': 168,
+    'deepseek:deepseek-chat:prompt_tokens': 28,
+    'deepseek:deepseek-chat:completion_tokens': 42,
+    'deepseek:deepseek-chat:cached_tokens': 2.8,
 
     // DeepSeek Reasoner
-    'deepseek:deepseek-reasoner:prompt_tokens': 56,
-    'deepseek:deepseek-reasoner:completion_tokens': 168,
+    'deepseek:deepseek-reasoner:prompt_tokens': 28,
+    'deepseek:deepseek-reasoner:completion_tokens': 42,
+    'deepseek:deepseek-reasoner:cached_tokens': 2.8,
 };

@@ -16,12 +16,11 @@
  * You should have received a copy of the GNU Affero General Public License
  * along with this program.  If not, see <https://www.gnu.org/licenses/>.
  */
-const eggspress = require("../../api/eggspress");
-const { is_valid_uuid4, get_app } = require("../../helpers");
+const eggspress = require('../../api/eggspress');
+const { is_valid_uuid4, get_app } = require('../../helpers');
 const express = require('express');
-const { fuzz_number } = require("../../util/fuzz");
-const kvjs = require("@heyputer/kv.js");
-const { DB_READ } = require("../../services/database/consts");
+const { fuzz_number } = require('../../util/fuzz');
+const { DB_READ } = require('../../services/database/consts');
 
 const PREFIX_APP_UID = 'app-';
 
@@ -32,7 +31,7 @@ module.exports = eggspress('/query/app', {
     fs: true,
     mw: [ express.json({ extended: true }) ],
     allowedMethods: ['POST'],
-}, async (req, res, next) => {
+}, async (req, res, _next) => {
     const results = [];
 
     const db = req.services.get('database').get(DB_READ, 'apps');
@@ -41,13 +40,7 @@ module.exports = eggspress('/query/app', {
 
     const app_list = [...req.body];
 
-    const collection_fetchers = {
-        recent: async () => {
-            return kvjs.get('apps:recent');
-        }
-    };
-
-    for ( let i=0 ; i < app_list.length ; i++ ) {
+    for ( let i = 0 ; i < app_list.length ; i++ ) {
         const P = 'collection:';
         if ( app_list[i].startsWith(P) ) {
             let [col_name, amount] = app_list[i].slice(P.length).split(':');
@@ -58,7 +51,7 @@ module.exports = eggspress('/query/app', {
         }
     }
 
-    for ( let i=0 ; i < app_list.length ; i++ ) {
+    for ( let i = 0 ; i < app_list.length ; i++ ) {
         const P = 'tag:';
         if ( app_list[i].startsWith(P) ) {
             let [tag_name, amount] = app_list[i].slice(P.length).split(':');
@@ -72,9 +65,9 @@ module.exports = eggspress('/query/app', {
     for ( const app_selector_raw of app_list ) {
         const app_selector =
             app_selector_raw.startsWith(PREFIX_APP_UID) &&
-                is_valid_uuid4(app_selector_raw.slice(PREFIX_APP_UID.length))
-            ? { uid: app_selector_raw }
-            : { name: app_selector_raw }
+            is_valid_uuid4(app_selector_raw.slice(PREFIX_APP_UID.length))
+                ? { uid: app_selector_raw }
+                : { name: app_selector_raw }
             ;
 
         const app = await get_app(app_selector);
@@ -82,12 +75,14 @@ module.exports = eggspress('/query/app', {
 
         // uuid, name, title, description, icon, created, filetype_associations, number of users
 
+        // emit event for extra data gathering
+        const extraDataEventObject = Object.fromEntries(app_list.map((appId) => [appId, {}]));
+        await req.services.get('event').emit('apps.queried.extra', extraDataEventObject);
+
         // TODO: cache
         const associations = []; {
-            const res_associations = await db.read(
-                `SELECT * FROM app_filetype_association WHERE app_id = ?`,
-                [app.id]
-            );
+            const res_associations = await db.read('SELECT * FROM app_filetype_association WHERE app_id = ?',
+                            [app.id]);
             for ( const row of res_associations ) {
                 associations.push(row.type);
             }
@@ -110,6 +105,7 @@ module.exports = eggspress('/query/app', {
             created: app.timestamp,
             associations,
             ...stats,
+            ...extraDataEventObject[app.uid],
         });
     }
 

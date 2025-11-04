@@ -33,7 +33,7 @@ const rules = {
     '@stylistic/quotes': ['error', 'single', { 'avoidEscape': true }],
     '@stylistic/function-call-argument-newline': ['error', 'consistent'],
     '@stylistic/arrow-spacing': ['error', { before: true, after: true }],
-    '@stylistic/space-before-function-paren': ['error', { 'anonymous': 'never', 'named': 'never', 'asyncArrow': 'always', 'catch': 'always' }],
+    '@stylistic/space-before-function-paren': 'error',
     '@stylistic/key-spacing': ['error', { 'beforeColon': false, 'afterColon': true }],
     '@stylistic/keyword-spacing': ['error', { 'before': true, 'after': true }],
     '@stylistic/no-multiple-empty-lines': ['error', { max: 1, maxEOF: 0 }],
@@ -46,19 +46,45 @@ const rules = {
     'custom/control-structure-spacing': 'error',
     '@stylistic/no-trailing-spaces': 'error',
     '@stylistic/space-before-blocks': ['error', 'always'],
+    'prefer-template': 'error',
+    '@stylistic/no-mixed-spaces-and-tabs': ['error', 'smart-tabs'],
+    '@stylistic/space-unary-ops': ['error', { words: true, nonwords: false }],
+    '@stylistic/no-multi-spaces': ['error', { exceptions: { 'VariableDeclarator': true } }],
 };
 
 export default defineConfig([
     // TypeScript support block
     {
         files: ['**/*.ts'],
-        ignores: ['tests/**/*.ts'],
+        ignores: ['tests/**/*.ts', 'extensions'],
         languageOptions: {
             parser: tseslintParser,
             parserOptions: {
                 ecmaVersion: 'latest',
                 sourceType: 'module',
                 project: './tsconfig.json',
+            },
+        },
+        plugins: {
+            '@typescript-eslint': tseslintPlugin,
+        },
+        rules: {
+            // Recommended rules for TypeScript
+            '@typescript-eslint/no-explicit-any': 'warn',
+            '@typescript-eslint/no-unused-vars': ['error', { argsIgnorePattern: '^_' }],
+            '@typescript-eslint/ban-ts-comment': 'warn',
+            '@typescript-eslint/consistent-type-definitions': ['error', 'interface'],
+        },
+    },
+    // TypeScript support for extensions
+    {
+        files: ['extensions/**/*.ts'],
+        languageOptions: {
+            parser: tseslintParser,
+            parserOptions: {
+                ecmaVersion: 'latest',
+                sourceType: 'module',
+                project: 'extensions/tsconfig.json',
             },
         },
         plugins: {
