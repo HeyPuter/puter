@@ -1,12 +1,62 @@
 // TogetherAI Cost Map
-// Note: TogetherAI uses dynamic pricing fetched from their API. This map only includes static/hardcoded test models.
-// For production, model costs should be fetched dynamically via the Together API.
-//
-// Most TogetherAI models are not listed here due to dynamic pricing.
-// Only hardcoded test models are included.
 
 export const TOGETHER_COST_MAP = {
     // Test model (hardcoded)
     'together:model-fallback-test-1:input': 10,
     'together:model-fallback-test-1:output': 10,
+
+    // Image generation placeholder (actual pricing is fetched dynamically via Together API)
+    'together-image:default': 0,
+    'together-image:ByteDance-Seed/Seedream-3.0': 0.018 * 100_000_000,
+    'together-image:ByteDance-Seed/Seedream-4.0': 0.03 * 100_000_000,
+    'together-image:HiDream-ai/HiDream-I1-Dev': 0.0045 * 100_000_000,
+    'together-image:HiDream-ai/HiDream-I1-Fast': 0.0032 * 100_000_000,
+    'together-image:HiDream-ai/HiDream-I1-Full': 0.009 * 100_000_000,
+    'together-image:Lykon/DreamShaper': 0.0006 * 100_000_000,
+    'together-image:Qwen/Qwen-Image': 0.0058 * 100_000_000,
+    'together-image:RunDiffusion/Juggernaut-pro-flux': 0.0049 * 100_000_000,
+    'together-image:Rundiffusion/Juggernaut-Lightning-Flux': 0.0017 * 100_000_000,
+    'together-image:black-forest-labs/FLUX.1-Canny-pro': 0.05 * 100_000_000,
+    'together-image:black-forest-labs/FLUX.1-dev': 0.025 * 100_000_000,
+    'together-image:black-forest-labs/FLUX.1-dev-lora': 0.025 * 100_000_000,
+    'together-image:black-forest-labs/FLUX.1-kontext-dev': 0.025 * 100_000_000,
+    'together-image:black-forest-labs/FLUX.1-kontext-max': 0.08 * 100_000_000,
+    'together-image:black-forest-labs/FLUX.1-kontext-pro': 0.04 * 100_000_000,
+    'together-image:black-forest-labs/FLUX.1-krea-dev': 0.025 * 100_000_000,
+    'together-image:black-forest-labs/FLUX.1-pro': 0.05 * 100_000_000,
+    'together-image:black-forest-labs/FLUX.1-schnell': 0.0027 * 100_000_000,
+    'together-image:black-forest-labs/FLUX.1-schnell-Free': 0,
+    'together-image:black-forest-labs/FLUX.1.1-pro': 0.05 * 100_000_000,
+    'together-image:google/flash-image-2.5': 0.039 * 100_000_000,
+    'together-image:google/imagen-4.0-fast': 0.02 * 100_000_000,
+    'together-image:google/imagen-4.0-preview': 0.04 * 100_000_000,
+    'together-image:google/imagen-4.0-ultra': 0.06 * 100_000_000,
+    'together-image:ideogram/ideogram-3.0': 0.06 * 100_000_000,
+    'together-image:stabilityai/stable-diffusion-3-medium': 0.0019 * 100_000_000,
+    'together-image:stabilityai/stable-diffusion-xl-base-1.0': 0.0045 * 100_000_000,
+
+    // Video generation placeholder (per-video pricing). Update with real pricing when available.
+    'together-video:default': 0,
+    'together-video:ByteDance/Seedance-1.0-lite': 0.14 * 100_000_000,
+    'together-video:ByteDance/Seedance-1.0-pro': 0.57 * 100_000_000,
+    'together-video:Wan-AI/Wan2.2-I2V-A14B': 0.31 * 100_000_000,
+    'together-video:Wan-AI/Wan2.2-T2V-A14B': 0.66 * 100_000_000,
+    'together-video:google/veo-2.0': 2.50 * 100_000_000,
+    'together-video:google/veo-3.0': 1.60 * 100_000_000,
+    'together-video:google/veo-3.0-audio': 3.20 * 100_000_000,
+    'together-video:google/veo-3.0-fast': 0.80 * 100_000_000,
+    'together-video:google/veo-3.0-fast-audio': 1.20 * 100_000_000,
+    'together-video:kwaivgI/kling-1.6-pro': 0.32 * 100_000_000,
+    'together-video:kwaivgI/kling-1.6-standard': 0.19 * 100_000_000,
+    'together-video:kwaivgI/kling-2.0-master': 0.92 * 100_000_000,
+    'together-video:kwaivgI/kling-2.1-master': 0.92 * 100_000_000,
+    'together-video:kwaivgI/kling-2.1-pro': 0.32 * 100_000_000,
+    'together-video:kwaivgI/kling-2.1-standard': 0.18 * 100_000_000,
+    'together-video:minimax/hailuo-02': 0.56 * 100_000_000,
+    'together-video:minimax/video-01-director': 0.28 * 100_000_000,
+    'together-video:openai/sora-2': 0.80 * 100_000_000,
+    'together-video:openai/sora-2-pro': 4.00 * 100_000_000,
+    'together-video:pixverse/pixverse-v5': 0.30 * 100_000_000,
+    'together-video:vidu/vidu-2.0': 0.28 * 100_000_000,
+    'together-video:vidu/vidu-q1': 0.22 * 100_000_000,
 };

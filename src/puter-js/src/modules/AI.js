@@ -10,6 +10,36 @@ const normalizeTTSProvider = (value) => {
     return value;
 };
 
+const TOGETHER_IMAGE_MODEL_PREFIXES = [
+    'black-forest-labs/',
+    'stabilityai/',
+    'togethercomputer/',
+    'playgroundai/',
+    'runwayml/',
+    'lightricks/',
+    'sg161222/',
+    'wavymulder/',
+    'prompthero/',
+];
+
+const TOGETHER_IMAGE_MODEL_KEYWORDS = [
+    'flux',
+    'kling',
+    'sd3',
+    'stable-diffusion',
+    'kolors',
+];
+
+const TOGETHER_VIDEO_MODEL_PREFIXES = [
+    'minimax/',
+    'google/',
+    'bytedance/',
+    'pixverse/',
+    'kwaivgi/',
+    'vidu/',
+    'wan-ai/',
+];
+
 class AI{
     /**
      * Creates a new instance with the given authentication token, API origin, and app ID,
@@ -808,15 +838,51 @@ class AI{
         if (options.model === "nano-banana") 
             options.model = "gemini-2.5-flash-image-preview";
 
-        if (options.model === "gemini-2.5-flash-image-preview")
+        const driverHint = typeof options.driver === 'string' ? options.driver : undefined;
+        const providerRaw = typeof options.provider === 'string'
+            ? options.provider
+            : (typeof options.service === 'string' ? options.service : undefined);
+        const providerHint = typeof providerRaw === 'string' ? providerRaw.toLowerCase() : undefined;
+        const modelLower = typeof options.model === 'string' ? options.model.toLowerCase() : '';
+
+        const looksLikeTogetherModel =
+            typeof options.model === 'string' &&
+            (TOGETHER_IMAGE_MODEL_PREFIXES.some(prefix => modelLower.startsWith(prefix)) ||
+                TOGETHER_IMAGE_MODEL_KEYWORDS.some(keyword => modelLower.includes(keyword)));
+
+        if (driverHint) {
+            AIService = driverHint;
+        } else if (providerHint === 'gemini') {
             AIService = "gemini-image-generation";
+        } else if (providerHint === 'together' || providerHint === 'together-ai') {
+            AIService = "together-image-generation";
+        } else if (options.model === "gemini-2.5-flash-image-preview") {
+            AIService = "gemini-image-generation";
+        } else if (looksLikeTogetherModel) {
+            AIService = "together-image-generation";
+        }
         // Call the original chat.complete method
         return await utils.make_driver_method(['prompt'], 'puter-image-generation', AIService, 'generate', {
             responseType: 'blob',
             test_mode: testMode ?? false,
-            transform: async blob => {
+            transform: async result => {
+                let url;
+                if ( typeof result === 'string' ) {
+                    url = result;
+                } else if ( result instanceof Blob ) {
+                    url = await utils.blob_to_url(result);
+                } else if ( result instanceof ArrayBuffer ) {
+                    const blob = new Blob([result]);
+                    url = await utils.blob_to_url(blob);
+                } else if ( result && typeof result === 'object' && typeof result.arrayBuffer === 'function' ) {
+                    const arrayBuffer = await result.arrayBuffer();
+                    const blob = new Blob([arrayBuffer], { type: result.type || undefined });
+                    url = await utils.blob_to_url(blob);
+                } else {
+                    throw { message: 'Unexpected image response format', code: 'invalid_image_response' };
+                }
                 let img = new Image();
-                img.src = await utils.blob_to_url(blob);
+                img.src = url;
                 img.toString = () => img.src;
                 img.valueOf = () => img.src;
                 return img;
@@ -861,7 +927,33 @@ class AI{
             options.seconds = options.duration;
         }
 
-        return await utils.make_driver_method(['prompt'], 'puter-video-generation', 'openai-video-generation', 'generate', {
+        let videoService = 'openai-video-generation';
+        const driverHint = typeof options.driver === 'string' ? options.driver : undefined;
+        const driverHintLower = driverHint ? driverHint.toLowerCase() : undefined;
+        const providerRaw = typeof options.provider === 'string'
+            ? options.provider
+            : (typeof options.service === 'string' ? options.service : undefined);
+        const providerHint = typeof providerRaw === 'string' ? providerRaw.toLowerCase() : undefined;
+        const modelLower = typeof options.model === 'string' ? options.model.toLowerCase() : '';
+
+        const looksLikeTogetherVideoModel = typeof options.model === 'string' &&
+            TOGETHER_VIDEO_MODEL_PREFIXES.some(prefix => modelLower.startsWith(prefix));
+
+        if (driverHintLower === 'together' || driverHintLower === 'together-ai') {
+            videoService = 'together-video-generation';
+        } else if (driverHintLower === 'together-video-generation') {
+            videoService = 'together-video-generation';
+        } else if (driverHintLower === 'openai') {
+            videoService = 'openai-video-generation';
+        } else if (driverHint) {
+            videoService = driverHint;
+        } else if (providerHint === 'together' || providerHint === 'together-ai') {
+            videoService = 'together-video-generation';
+        } else if (looksLikeTogetherVideoModel) {
+            videoService = 'together-video-generation';
+        }
+
+        return await utils.make_driver_method(['prompt'], 'puter-video-generation', videoService, 'generate', {
             responseType: 'blob',
             test_mode: testMode ?? false,
             transform: async result => {

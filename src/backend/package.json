@@ -81,7 +81,7 @@
     "svg-captcha": "^1.4.0",
     "svgo": "^3.0.2",
     "tiktoken": "^1.0.16",
-    "together-ai": "^0.6.0-alpha.4",
+    "together-ai": "^0.29.0",
     "tweetnacl": "^1.0.3",
     "ua-parser-js": "^1.0.38",
     "uglify-js": "^3.17.4",
