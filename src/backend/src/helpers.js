@@ -1138,6 +1138,7 @@ async function gen_public_token(file_uuid, ttl = 24 * 60 * 60){
 async function deleteUser(user_id){
     /** @type BaseDatabaseAccessService */
     const db = services.get('database').get(DB_READ, 'filesystem');
+    const svc_fs = services.get('filesystem');
 
     // get a list of up to 5000 files owned by this user
     for ( let offset=0; true; offset += 5000 ) {
