@@ -64,6 +64,7 @@ All of the following commands assume a Linux environment.
 Install dependencies:
 
 ```bash
+TODO
 ```
 
 Run the CI:
@@ -73,5 +74,17 @@ Run the CI:
 ```
 
 ### Playwright
+
+Install dependencies:
+
+```bash
+TODO
+```
+
+Run the CI:
+
+```bash
+./tests/ci/playwright-test.py
+```
 
 ### Vitest
