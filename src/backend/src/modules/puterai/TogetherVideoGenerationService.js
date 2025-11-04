@@ -110,7 +110,7 @@ class TogetherVideoGenerationService extends BaseService {
             throw new Error('actor not found in context');
         }
 
-        const estimatedUsageUnits = normalizedSeconds;
+        const estimatedUsageUnits = 1; // Together video billing is per generated video
         const usageKey = this.#determineUsageKey(model);
 
         const usageAllowed = await this.meteringService.hasEnoughCreditsFor(actor, usageKey, estimatedUsageUnits);
@@ -178,13 +178,7 @@ class TogetherVideoGenerationService extends BaseService {
             throw new Error('Video generation was cancelled');
         }
 
-        const actualSeconds = this.#coercePositiveInteger(
-            finalJob?.outputs?.seconds ??
-            finalJob?.inputs?.seconds ??
-            normalizedSeconds
-        ) ?? normalizedSeconds;
-
-        this.meteringService.incrementUsage(actor, usageKey, actualSeconds);
+        this.meteringService.incrementUsage(actor, usageKey, 1);
 
         const videoUrl = finalJob?.outputs?.video_url;
         if ( typeof videoUrl === 'string' && videoUrl.trim() ) {
