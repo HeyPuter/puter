@@ -51,7 +51,7 @@ export class OpenAICompletionService {
     /** @type {import('../../../services/MeteringService/MeteringService.js').MeteringService} */
     #meteringService;
 
-    constructor({ serviceName, config, globalConfig, aiChatService, meteringService, models = OPEN_AI_MODELS, defaultModel = 'gpt-4.1-nano' }) {
+    constructor({ serviceName, config, globalConfig, aiChatService, meteringService, models = OPEN_AI_MODELS, defaultModel = 'gpt-5-nano' }) {
         this.#models = models;
         this.#defaultModel = defaultModel;
         this.#meteringService = meteringService;
