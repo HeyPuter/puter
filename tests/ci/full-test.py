@@ -50,7 +50,7 @@ def run():
     # run the test
     # =========================================================================
     cxc_toolkit.exec.run_command(
-        "npx playwright test 'stat with uid'",
+        "npx playwright test -g 'stat with uid'",
         work_dir=f"{PUTER_ROOT}/tests/playwright",
     )
 
