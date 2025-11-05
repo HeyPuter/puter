@@ -25,6 +25,7 @@ const { Context } = require('./util/context');
 const { LLOWrite } = require('./filesystem/ll_operations/ll_write');
 const { LLRead } = require('./filesystem/ll_operations/ll_read');
 const { RuntimeModule } = require('./extension/RuntimeModule.js');
+const { TYPE_DIRECTORY, TYPE_FILE } = require('./filesystem/FSNodeContext.js');
 
 /**
  * Core module for the Puter platform that includes essential services including
@@ -36,10 +37,10 @@ const { RuntimeModule } = require('./extension/RuntimeModule.js');
  * and Core2Module will take on its name.
  */
 class CoreModule extends AdvancedBase {
-    dirname() {
+    dirname () {
         return __dirname;
     }
-    async install(context) {
+    async install (context) {
         const services = context.get('services');
         const app = context.get('app');
         const useapi = context.get('useapi');
@@ -57,7 +58,7 @@ class CoreModule extends AdvancedBase {
     * @param {Object} context.services - Service registry for registering legacy services
     * @returns {Promise<void>} Resolves when legacy services are installed
     */
-    async install_legacy(context) {
+    async install_legacy (context) {
         const services = context.get('services');
         await install_legacy({ services });
     }
@@ -98,6 +99,8 @@ const install = async ({ context, services, app, useapi, modapi }) => {
         def('core.fs', {
             LLOWrite,
             LLRead,
+            TYPE_DIRECTORY,
+            TYPE_FILE,
         });
         def('core.fs.selectors', require('./filesystem/node/selectors'));
         def('core.util.stream', require('./util/streamutil'));
