@@ -415,27 +415,8 @@ class PuterFSProvider extends putility.AdvancedBase {
     }
 
     async rmdir({ context, node, options = {} }) {
-        if ( await node.get('type') !== TYPE_DIRECTORY ) {
-            console.log(`\x1B[31;1m===D1====${await node.get('path')}=========\x1B[0m`);
-            throw new APIError(409, 'Cannot rmdir a file.');
-        }
-
-        if ( await node.get('immutable') ) {
-            console.log(`\x1B[31;1m===D2====${await node.get('path')}=========\x1B[0m`);
-            throw APIError.create('immutable');
-        }
-
-        // Services
-        const svc_fsEntry = this.#services.get('fsEntryService');
-
-        const children = await svc_fsEntry.fast_get_direct_descendants(await node.get('uid'));
-
-        if ( children.length > 0 && ! options.ignore_not_empty ) {
-            console.log(`\x1B[31;1m===D3====${await node.get('path')}=========\x1B[0m`);
-            throw APIError.create('not_empty');
-        }
-
-        await this.#rmnode({ context, node, options });
+        console.error('This .rmdir should not be called!');
+        process.exit(1);
     }
 
     async #rmnode({ node, options }) {
