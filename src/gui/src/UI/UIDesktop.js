@@ -1782,9 +1782,14 @@ async function UIDesktop(options) {
         });
     }
 
+    //--------------------------------------------------------------------------------------
+    // Direct download link
+    // i.e. https://puter.com/?download=<file_url>
+    //--------------------------------------------------------------------------------------
     if (window.url_paths.length === 0 && window.url_query_params.has('download')) {
         const url = window.url_query_params.get('download');
         
+        // create progressbar dialog
         let progwin = await UIWindowProgress({
             title: i18n('downloading'),
             icon: window.icons[`app-icon-uploader.svg`],
@@ -1795,10 +1800,12 @@ async function UIDesktop(options) {
 
         (async () => {
             try {
+                // download the file
                 const response = await puter.net.fetch(url);
-                const total = Number(response.headers.get('content-length'));
 
+                const total = Number(response.headers.get('content-length'));
                 const reader = response.body.getReader();
+                
                 const chunks = [];
                 let received = 0;
 
@@ -1806,31 +1813,43 @@ async function UIDesktop(options) {
                     const { done, value } = await reader.read();
                     if (done) break;
                     if (value) {
+                        // store the chunk
                         chunks.push(value);
                         received += value.length;
+                        // calculate progress
                         const progress = Number.isFinite(total) && total > 0
                             ? received / total
                             : 0;
+                        // update progressbar
                         progwin?.set_progress(Math.floor(progress * 100));
                     }
                 }
+
+                // combine chunks into a blob
                 let blob = new Blob(chunks, {
                     type: response.headers.get('content-type') ?? 'application/octet-stream',
                 });
+                
+                // reset progressbar
                 progwin?.set_progress(0);
                 progwin?.set_status(i18n('uploading'));
+
+                // upload to user's desktop
                 await puter.fs.write(`~/Desktop/${url.split('/').pop()}`, blob, {
                     dedupeName: true,
                     progress: (_, percent) => {
+                        // update progressbar
                         progwin?.set_progress(percent);
                     },
                 });
             } catch (e) {
+                // show error
                 await UIAlert({
                     message: i18n('error_download_failed') + ': ' + e.message,
                     type: 'error',
                 });
             }
+            // close progress window
             progwin?.close();
         })();
     }
