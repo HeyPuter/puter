@@ -35,7 +35,9 @@ def run():
     # start backend server
     # =========================================================================
     backend_process = cxc_toolkit.exec.run_background(
-        "npm start", work_dir=PUTER_ROOT, log_path="/tmp/backend.log"
+        "npx c8 --all --include=src/backend --include=extensions --reporter='html' node ./tools/run-selfhosted.js",
+        work_dir=PUTER_ROOT,
+        log_path="/tmp/backend.log",
     )
     # wait 10s for the server to start
     time.sleep(10)
