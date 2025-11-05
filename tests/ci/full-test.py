@@ -34,6 +34,8 @@ def run():
     # =========================================================================
     # start backend server
     # =========================================================================
+    cxc_toolkit.exec.run_command("npm install --save-dev c8")
+
     backend_process = cxc_toolkit.exec.run_background(
         "npx c8 --all --include=src/backend --include=extensions --reporter='text' --reporter='html' node ./tools/run-selfhosted.js",
         work_dir=PUTER_ROOT,
