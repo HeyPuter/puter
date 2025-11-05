@@ -35,7 +35,7 @@ def run():
     # start backend server
     # =========================================================================
     backend_process = cxc_toolkit.exec.run_background(
-        "npx c8 --all --include=src/backend --include=extensions --reporter='html' node ./tools/run-selfhosted.js",
+        "npx c8 --all --include=src/backend --include=extensions --reporter='text' --reporter='html' node ./tools/run-selfhosted.js",
         work_dir=PUTER_ROOT,
         log_path="/tmp/backend.log",
     )
@@ -56,7 +56,10 @@ def run():
         work_dir=f"{PUTER_ROOT}/tests/playwright",
     )
 
+    # import psutil
+    # p = psutil.Process(backend_process.pid)
     os.kill(backend_process.pid, signal.SIGINT)
+    backend_process.process.wait()
 
 
 if __name__ == "__main__":
