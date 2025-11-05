@@ -38,8 +38,8 @@ const surrounding_box = (col, lines) => {
     const max_length = Math.max(...lengths);
     const c = str => `\x1b[${col}m${str}\x1b[0m`;
     const bar = c(Array(max_length + 4).fill('━').join(''));
-    for ( let i = 0 ; i < lines.length ; i++ ) {
-        while ( lines[i].length < max_length ) {
+    for (let i = 0; i < lines.length; i++) {
+        while (lines[i].length < max_length) {
             lines[i] += ' ';
         }
         lines[i] = `${c('┃ ')} ${lines[i]} ${c(' ┃')}`;
@@ -60,13 +60,13 @@ const surrounding_box = (col, lines) => {
 
     // ACTUAL VERSION CHECK
     const [major, minor] = process.versions.node.split('.').map(Number);
-    if ( major < lowest_allowed ) {
+    if (major < lowest_allowed) {
         const lines = [];
         lines.push(`Please use a version of Node.js ${lowest_allowed} or newer.`);
         lines.push(`Issues with node ${process.versions.node}:`);
         // We also show the user the reasons in case they want to know
-        for ( const { under, reasons } of ver_info ) {
-            if ( major < under ) {
+        for (const { under, reasons } of ver_info) {
+            if (major < under) {
                 lines.push(`  - ${reasons.join(', ')}`);
             }
         }
@@ -77,7 +77,7 @@ const surrounding_box = (col, lines) => {
 }
 
 // Annoying polyfill for inconsistency in different node versions
-if ( ! import.meta.filename ) {
+if (! import.meta.filename) {
     Object.defineProperty(import.meta, 'filename', {
         get: () => import.meta.url.slice('file://'.length),
     })
@@ -104,7 +104,7 @@ const main = async () => {
     const k = new Kernel({
         entry_path: import.meta.filename
     });
-    for ( const mod of EssentialModules ) {
+    for (const mod of EssentialModules) {
         k.add_module(new mod());
     }
     k.add_module(new DatabaseModule());
@@ -117,10 +117,10 @@ const main = async () => {
     k.add_module(new PuterAIModule());
     k.add_module(new InternetModule());
     k.add_module(new DNSModule());
-    if ( process.env.PERFMON ) {
+    if (process.env.PERFMON) {
         k.add_module(new PerfMonModule());
     }
-    if ( process.env.UNSAFE_PUTER_DEV ) {
+    if (process.env.UNSAFE_PUTER_DEV) {
         k.add_module(new DevelopmentModule());
     }
     k.boot();
@@ -161,8 +161,8 @@ const early_init_errors = [
 
 // null coalescing operator
 const nco = (...args) => {
-    for ( const arg of args ) {
-        if ( arg !== undefined && arg !== null ) {
+    for (const arg of args) {
+        if (arg !== undefined && arg !== null) {
             return arg;
         }
     }
@@ -172,18 +172,18 @@ const nco = (...args) => {
 const _print_error_help = (error_help) => {
     const lines = [];
     lines.push(nco(error_help.title, error_help.text));
-    for ( const note of (nco(error_help.notes, [])) ) {
+    for (const note of (nco(error_help.notes, []))) {
         lines.push(`📝 ${note}`)
     }
-    if ( error_help.suggestions ) {
+    if (error_help.suggestions) {
         lines.push('Suggestions:');
-        for ( const suggestion of error_help.suggestions ) {
+        for (const suggestion of error_help.suggestions) {
             lines.push(`- ${suggestion}`);
         }
     }
-    if ( error_help.technical_notes ) {
+    if (error_help.technical_notes) {
         lines.push('Technical Notes:');
-        for ( const note of error_help.technical_notes ) {
+        for (const note of error_help.technical_notes) {
             lines.push(`- ${note}`);
         }
     }
@@ -195,9 +195,9 @@ const _print_error_help = (error_help) => {
     try {
         await main();
     } catch (e) {
-        for ( const error_help of early_init_errors ) {
+        for (const error_help of early_init_errors) {
             const message = e && e.message;
-            if ( e.message && e.message.includes(error_help.text) ) {
+            if (e.message && e.message.includes(error_help.text)) {
                 _print_error_help(error_help);
                 break;
             }
@@ -205,3 +205,17 @@ const _print_error_help = (error_help) => {
         throw e;
     }
 })();
+
+// // quit after 10 seconds
+// setTimeout(() => {
+//     process.exit(0);
+// }, 10000);
+
+// Graceful shutdown for c8 to flush coverage
+function shutdown() {
+    console.log('Shutting down...');
+    process.exit(0); // triggers c8 to write coverage
+}
+
+process.on('SIGINT', shutdown);   // Ctrl-C
+process.on('SIGTERM', shutdown);  // kill <pid>

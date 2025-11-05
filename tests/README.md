@@ -91,3 +91,11 @@ Run the CI:
 ```
 
 ### Vitest
+
+TODO
+
+### Full End-to-End Test with Coverage
+
+```bash
+./tests/ci/full-test.py
+```
