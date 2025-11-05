@@ -30,6 +30,7 @@ import UIWindowFeedback from "./UIWindowFeedback.js"
 import UIWindowLogin from "./UIWindowLogin.js"
 import UIWindowQR from "./UIWindowQR.js"
 import UIWindowRefer from "./UIWindowRefer.js"
+import UIWindowProgress from "./UIWindowProgress.js"
 import UITaskbar from "./UITaskbar.js"
 import new_context_menu_item from "../helpers/new_context_menu_item.js"
 import refresh_item_container from "../helpers/refresh_item_container.js"
@@ -1304,8 +1305,7 @@ async function UIDesktop(options) {
     // load from direct app URLs: /app/app-name
     // ---------------------------------------------
     else if (window.app_launched_from_url) {
-        let qparams = new URLSearchParams(window.location.search);
-        if (!qparams.has('c')) {
+        if (!window.url_query_params.has('c')) {
             let posargs = undefined;
             if (window.app_query_params && window.app_query_params.posargs) {
                 posargs = JSON.parse(window.app_query_params.posargs);
@@ -1313,8 +1313,8 @@ async function UIDesktop(options) {
             launch_app({
                 app: window.app_launched_from_url.name,
                 app_obj: window.app_launched_from_url,
-                readURL: qparams.get('readURL'),
-                maximized: qparams.get('maximized'),
+                readURL: window.url_query_params.get('readURL'),
+                maximized: window.url_query_params.get('maximized'),
                 params: window.app_query_params ?? [],
                 ...(posargs ? {
                     args: {
@@ -1678,11 +1678,11 @@ async function UIDesktop(options) {
     // i.e. https://puter.com/@<username>
     //--------------------------------------------------------------------------------------
     const url_paths = window.location.pathname.split('/').filter(element => element);
-    if (url_paths[0]?.startsWith('@')) {
-        const username = url_paths[0].substring(1);
+    if (window.url_paths[0]?.startsWith('@')) {
+        const username = window.url_paths[0].substring(1);
         let item_path = '/' + username + '/Public';
-        if ( url_paths.length > 1 ) {
-            item_path += '/' + url_paths.slice(1).join('/');
+        if ( window.url_paths.length > 1 ) {
+            item_path += '/' + window.url_paths.slice(1).join('/');
         }
 
         // GUARD: avoid invalid user directories
@@ -1780,6 +1780,59 @@ async function UIDesktop(options) {
             is_dir: true,
             app: 'explorer',
         });
+    }
+
+    if (window.url_paths.length === 0 && window.url_query_params.has('download')) {
+        const url = window.url_query_params.get('download');
+        
+        let progwin = await UIWindowProgress({
+            title: i18n('downloading'),
+            icon: window.icons[`app-icon-uploader.svg`],
+            operation_id: window.uuidv4(),
+            show_progress: true,
+        });
+        progwin?.set_status(i18n('downloading'));
+
+        (async () => {
+            try {
+                const response = await puter.net.fetch(url);
+                const total = Number(response.headers.get('content-length'));
+
+                const reader = response.body.getReader();
+                const chunks = [];
+                let received = 0;
+
+                while (true) {
+                    const { done, value } = await reader.read();
+                    if (done) break;
+                    if (value) {
+                        chunks.push(value);
+                        received += value.length;
+                        const progress = Number.isFinite(total) && total > 0
+                            ? received / total
+                            : 0;
+                        progwin?.set_progress(Math.floor(progress * 100));
+                    }
+                }
+                let blob = new Blob(chunks, {
+                    type: response.headers.get('content-type') ?? 'application/octet-stream',
+                });
+                progwin?.set_progress(0);
+                progwin?.set_status(i18n('uploading'));
+                await puter.fs.write(`~/Desktop/${url.split('/').pop()}`, blob, {
+                    dedupeName: true,
+                    progress: (_, percent) => {
+                        progwin?.set_progress(percent);
+                    },
+                });
+            } catch (e) {
+                await UIAlert({
+                    message: i18n('error_download_failed') + ': ' + e.message,
+                    type: 'error',
+                });
+            }
+            progwin?.close();
+        })();
     }
 }
 
