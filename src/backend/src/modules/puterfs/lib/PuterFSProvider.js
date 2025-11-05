@@ -90,7 +90,7 @@ class PuterFSProvider extends putility.AdvancedBase {
         selector,
     }) {
         console.error('This .quick_check should not be called!');
-        process.exit(1);
+        throw new Error('This .quick_check should not be called!');
     }
 
     async stat ({
@@ -383,12 +383,12 @@ class PuterFSProvider extends putility.AdvancedBase {
 
     async unlink ({ context, node, options = {} }) {
         console.error('This .unlink should not be called!');
-        process.exit(1);
+        throw new Error('This .unlink should not be called!');
     }
 
     async rmdir ({ context, node, options = {} }) {
         console.error('This .rmdir should not be called!');
-        process.exit(1);
+        throw new Error('This .rmdir should not be called!');
     }
 
     /**
@@ -858,7 +858,7 @@ class PuterFSProvider extends putility.AdvancedBase {
         range,
     }) {
         console.error('This .read should not be called!');
-        process.exit(1);
+        throw new Error('This .read should not be called!');
     }
 }
 
