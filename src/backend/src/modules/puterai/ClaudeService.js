@@ -128,7 +128,11 @@ class ClaudeService extends BaseService {
                 [system_prompts, messages] = Messages.extract_and_remove_system_messages(messages);
 
                 // Apply the cache control tag to all content blocks
-                if (system_prompts[0].cache_control && system_prompts[0]?.content) {
+                if (
+                    system_prompts.length > 0 &&
+                    system_prompts[0].cache_control &&
+                    system_prompts[0]?.content
+                ) {
                     system_prompts[0].content = system_prompts[0].content.map(prompt => {
                         prompt.cache_control = system_prompts[0].cache_control;
                         return prompt;
