@@ -33,6 +33,7 @@ import UIWindowShare from './UIWindowShare.js';
 import item_icon from '../helpers/item_icon.js';
 
 const el_body = document.getElementsByTagName('body')[0];
+const SNAP_PLACEHOLDER_DELAY_MS = 600; // delay before showing placeholder in any snap zone
 
 async function UIWindow(options) {
     const win_id = window.global_element_id++;
@@ -1752,6 +1753,7 @@ async function UIWindow(options) {
     let window_is_snapped = false;
     let snap_placeholder_active = false;
     let snap_trigger_timeout;
+    let last_snap_zone;
 
     if(options.is_draggable){
         let window_snap_placeholder = $(
@@ -1760,9 +1762,111 @@ async function UIWindow(options) {
              </div>`
         );
 
+        const showSnapPlaceholder = (zone) => {
+            if(window_is_snapped || !zone){
+                return false;
+            }
+
+            const snapDims = getSnapDimensions();
+            let css = null;
+
+            if(zone === 'w'){
+                css = {
+                    'display': 'block',
+                    'width': snapDims.available_width / 2,
+                    'height': snapDims.available_height,
+                    'top': snapDims.start_y,
+                    'left': snapDims.start_x,
+                    'z-index': window.last_window_zindex - 1,
+                };
+            } else if(zone === 'nw'){
+                css = {
+                    'display': 'block',
+                    'width': snapDims.available_width / 2,
+                    'height': snapDims.available_height / 2,
+                    'top': snapDims.start_y,
+                    'left': snapDims.start_x,
+                    'z-index': window.last_window_zindex - 1,
+                };
+            } else if(zone === 'ne'){
+                css = {
+                    'display': 'block',
+                    'width': snapDims.available_width / 2,
+                    'height': snapDims.available_height / 2,
+                    'top': snapDims.start_y,
+                    'left': snapDims.start_x + snapDims.available_width / 2,
+                    'z-index': window.last_window_zindex - 1,
+                };
+            } else if(zone === 'e'){
+                css = {
+                    'display': 'block',
+                    'width': snapDims.available_width / 2,
+                    'height': snapDims.available_height,
+                    'top': snapDims.start_y,
+                    'left': snapDims.start_x + snapDims.available_width / 2,
+                    'z-index': window.last_window_zindex - 1,
+                };
+            } else if(zone === 'n'){
+                css = {
+                    'display': 'block',
+                    'width': snapDims.available_width,
+                    'height': snapDims.available_height,
+                    'top': snapDims.start_y,
+                    'left': snapDims.start_x,
+                    'z-index': window.last_window_zindex - 1,
+                };
+            } else if(zone === 'sw'){
+                css = {
+                    'display': 'block',
+                    'top': snapDims.start_y + snapDims.available_height / 2,
+                    'left': snapDims.start_x,
+                    'width': snapDims.available_width / 2,
+                    'height': snapDims.available_height / 2,
+                    'z-index': window.last_window_zindex - 1,
+                };
+            } else if(zone === 'se'){
+                css = {
+                    'display': 'block',
+                    'top': snapDims.start_y + snapDims.available_height / 2,
+                    'left': snapDims.start_x + snapDims.available_width / 2,
+                    'width': snapDims.available_width / 2,
+                    'height': snapDims.available_height / 2,
+                    'z-index': window.last_window_zindex - 1,
+                };
+            }
+
+            if(!css){
+                return false;
+            }
+
+            window_snap_placeholder.css(css);
+
+            if(!snap_placeholder_active){
+                snap_placeholder_active = true;
+                $(el_body).append(window_snap_placeholder);
+            }
+
+            width_before_snap = $(el_window).width();
+            height_before_snap = $(el_window).height();
+            return true;
+        };
+
+        const hideSnapPlaceholder = () => {
+            if(snap_placeholder_active){
+                snap_placeholder_active = false;
+                window_snap_placeholder.fadeOut(80);
+            }
+        };
+
         $(el_window).draggable({
             start: function(e, ui){
                 window.a_window_is_being_dragged = true;
+                last_snap_zone = undefined;
+                if(snap_trigger_timeout){
+                    clearTimeout(snap_trigger_timeout);
+                    snap_trigger_timeout = undefined;
+                }
+                hideSnapPlaceholder();
                 $('.toolbar').css('pointer-events', 'none');
                 // if window is snapped, unsnap it and reset its position to where it was before snapping
                 if(options.is_resizable && window_is_snapped){
@@ -1816,119 +1920,44 @@ async function UIWindow(options) {
                 // Snap to screen edges
                 // --------------------------------------------------------
                 if(options.is_resizable){
-                    clearTimeout(snap_trigger_timeout);
-                    // if window is not snapped, check if it should be snapped
-                    snap_trigger_timeout = setTimeout(function(){
-                        // if cursor is not in a snap zone, don't snap
-                        if(!window.current_active_snap_zone){
-                            return;
-                        }
-                        // if dragging has stopped by now, don't snap
-                        if(!$(el_window).hasClass('window-dragging')){
-                            return;
+                    const activeZone = window.current_active_snap_zone;
+
+                    if(activeZone !== last_snap_zone){
+                        if(snap_trigger_timeout){
+                            clearTimeout(snap_trigger_timeout);
+                            snap_trigger_timeout = undefined;
                         }
 
-                        // Get taskbar-aware snap dimensions
-                        const snapDims = getSnapDimensions();
+                        hideSnapPlaceholder();
+                        last_snap_zone = activeZone;
 
-                        // W
-                        if(!window_is_snapped && window.current_active_snap_zone === 'w'){
-                            window_snap_placeholder.css({
-                                'display': 'block',
-                                'width': snapDims.available_width / 2,
-                                'height': snapDims.available_height,
-                                'top': snapDims.start_y,
-                                'left': snapDims.start_x,
-                                'z-index': window.last_window_zindex - 1,
-                            })
+                        if(activeZone){
+                            const scheduledZone = activeZone;
+                            snap_trigger_timeout = setTimeout(function(){
+                                snap_trigger_timeout = undefined;
+                                if(!$(el_window).hasClass('window-dragging')){
+                                    return;
+                                }
+                                if(window.current_active_snap_zone !== scheduledZone){
+                                    return;
+                                }
+                                showSnapPlaceholder(scheduledZone);
+                            }, SNAP_PLACEHOLDER_DELAY_MS);
                         }
-                        // NW
-                        else if(!window_is_snapped && window.current_active_snap_zone === 'nw'){
-                            window_snap_placeholder.css({
-                                'display': 'block',
-                                'width': snapDims.available_width / 2,
-                                'height': snapDims.available_height / 2,
-                                'top': snapDims.start_y,
-                                'left': snapDims.start_x,
-                                'z-index': window.last_window_zindex - 1,
-                            })
-                        }
-                        // NE
-                        else if(!window_is_snapped && window.current_active_snap_zone ==='ne'){
-                            window_snap_placeholder.css({
-                                'display': 'block',
-                                'width': snapDims.available_width / 2,
-                                'height': snapDims.available_height / 2,
-                                'top': snapDims.start_y,
-                                'left': snapDims.start_x + snapDims.available_width / 2,
-                                'z-index': window.last_window_zindex - 1,
-                            })
-                        }
-                        // E
-                        else if(!window_is_snapped && window.current_active_snap_zone ==='e'){
-                            window_snap_placeholder.css({
-                                'display': 'block',
-                                'width': snapDims.available_width / 2,
-                                'height': snapDims.available_height,
-                                'top': snapDims.start_y,
-                                'left': snapDims.start_x + snapDims.available_width / 2,
-                                'z-index': window.last_window_zindex - 1,
-                            })
-                        }
-                        // N
-                        else if(!window_is_snapped && window.current_active_snap_zone ==='n'){
-                            window_snap_placeholder.css({
-                                'display': 'block',
-                                'width': snapDims.available_width,
-                                'height': snapDims.available_height,
-                                'top': snapDims.start_y,
-                                'left': snapDims.start_x,
-                                'z-index': window.last_window_zindex - 1,
-                            })
-                        }
-                        // SW
-                        else if(!window_is_snapped && window.current_active_snap_zone ==='sw'){
-                            window_snap_placeholder.css({
-                                'display': 'block',
-                                'top': snapDims.start_y + snapDims.available_height / 2,
-                                'left': snapDims.start_x,
-                                'width': snapDims.available_width / 2,
-                                'height': snapDims.available_height / 2,
-                                'z-index': window.last_window_zindex - 1,
-                            })
-                        }
-                        // SE
-                        else if(!window_is_snapped && window.current_active_snap_zone ==='se'){
-                            window_snap_placeholder.css({
-                                'display': 'block',
-                                'top': snapDims.start_y + snapDims.available_height / 2,
-                                'left': snapDims.start_x + snapDims.available_width / 2,
-                                'width': snapDims.available_width / 2,
-                                'height': snapDims.available_height / 2,
-                                'z-index': window.last_window_zindex - 1,
-                            })
-                        }
+                    }
 
-                        // If snap placeholder is not active, append it and make it active
-                        if(!window_is_snapped && !snap_placeholder_active){
-                            snap_placeholder_active = true;
-                            $(el_body).append(window_snap_placeholder);
-                        }
-
-                        // save window size before snap
-                        width_before_snap = $(el_window).width();
-                        height_before_snap = $(el_window).height();
-                    }, 10);
-
-                    // if mouse is not in a snap zone, hide snap placeholder
-                    if(snap_placeholder_active && !window.current_active_snap_zone){
-                        snap_placeholder_active = false;
-                        window_snap_placeholder.fadeOut(80);
+                    if(!activeZone){
+                        hideSnapPlaceholder();
                     }
                 }
             },
             stop: function () {
                 window.a_window_is_being_dragged = false;
+                if(snap_trigger_timeout){
+                    clearTimeout(snap_trigger_timeout);
+                    snap_trigger_timeout = undefined;
+                }
+                last_snap_zone = undefined;
                 let window_will_snap = false;
                 $( el_window ).draggable( "option", "cursorAt", false );
 
