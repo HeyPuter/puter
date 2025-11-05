@@ -52,9 +52,27 @@ class PuterFSProvider {
         await this.#rmnode({ context, node, options });
     }
 
+    async rmdir ({ context, node, options = {} }) {
+        if ( await node.get('type') !== TYPE_DIRECTORY ) {
+            throw new APIError(409, 'Cannot rmdir a file.');
+        }
+
+        if ( await node.get('immutable') ) {
+            throw APIError.create('immutable');
+        }
+
+        const children = await svc_fsEntry.fast_get_direct_descendants(await node.get('uid'));
+
+        if ( children.length > 0 && !options.ignore_not_empty ) {
+            throw APIError.create('not_empty');
+        }
+
+        await this.#rmnode({ context, node, options });
+    }
+
     async #rmnode ({ node, options }) {
         // Services
-        if ( ! options.override_immutable && await node.get('immutable') ) {
+        if ( !options.override_immutable && await node.get('immutable') ) {
             throw new APIError(403, 'File is immutable.');
         }
 
