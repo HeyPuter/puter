@@ -53,7 +53,6 @@ class PuterFSProvider {
     }
 
     async #rmnode ({ node, options }) {
-        console.log('USING THE NEW IMPLEMENTATION');
         // Services
         if ( ! options.override_immutable && await node.get('immutable') ) {
             throw new APIError(403, 'File is immutable.');
