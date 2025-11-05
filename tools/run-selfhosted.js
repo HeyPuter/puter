@@ -212,10 +212,10 @@ const _print_error_help = (error_help) => {
 // }, 10000);
 
 // Graceful shutdown for c8 to flush coverage
-function shutdown() {
-    console.log('Shutting down...');
-    process.exit(0); // triggers c8 to write coverage
-}
+// function shutdown() {
+//     console.log('Shutting down...');
+//     process.exit(0); // triggers c8 to write coverage
+// }
 
-process.on('SIGINT', shutdown);   // Ctrl-C
-process.on('SIGTERM', shutdown);  // kill <pid>
+// process.on('SIGINT', shutdown);   // Ctrl-C
+// process.on('SIGTERM', shutdown);  // kill <pid>

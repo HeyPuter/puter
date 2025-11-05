@@ -58,9 +58,9 @@ def run():
 
     # import psutil
     # p = psutil.Process(backend_process.pid)
-    print(f"sending SIGINT to backend process {backend_process.pid}")
-    os.kill(backend_process.pid, signal.SIGINT)
-    backend_process.process.wait()
+    # print(f"sending SIGINT to backend process {backend_process.pid}")
+    # os.kill(backend_process.pid, signal.SIGINT)
+    # backend_process.process.wait()
 
 
 if __name__ == "__main__":
