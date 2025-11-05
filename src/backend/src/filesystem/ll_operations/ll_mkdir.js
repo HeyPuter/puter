@@ -16,19 +16,19 @@
  * You should have received a copy of the GNU Affero General Public License
  * along with this program.  If not, see <https://www.gnu.org/licenses/>.
  */
-const APIError = require("../../api/APIError");
-const { MODE_WRITE } = require("../../services/fs/FSLockService");
-const { Context } = require("../../util/context");
-const { NodeUIDSelector, NodeChildSelector } = require("../node/selectors");
-const { RESOURCE_STATUS_PENDING_CREATE } = require("../../modules/puterfs/ResourceService");
-const { LLFilesystemOperation } = require("./definitions");
+const APIError = require('../../api/APIError');
+const { MODE_WRITE } = require('../../services/fs/FSLockService');
+const { Context } = require('../../util/context');
+const { NodeUIDSelector, NodeChildSelector } = require('../node/selectors');
+const { RESOURCE_STATUS_PENDING_CREATE } = require('../../modules/puterfs/ResourceService');
+const { LLFilesystemOperation } = require('./definitions');
 
 class LLMkdir extends LLFilesystemOperation {
     static CONCERN = 'filesystem';
     static MODULES = {
         _path: require('path'),
         uuidv4: require('uuid').v4,
-    }
+    };
 
     async _run () {
         const { parent, name, immutable } = this.values;

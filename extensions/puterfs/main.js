@@ -17,13 +17,25 @@
  * along with this program.  If not, see <https://www.gnu.org/licenses/>.
  */
 
+const uuidv4 = require('uuid').v4;
+const path_ = require('node:path');
+
 const svc_metering = extension.import('service:meteringService');
 const svc_trace = extension.import('service:traceService');
+const svc_fs = extension.import('service:filesystem');
+
+// TODO: filesystem providers should not need to call EventService
+const svc_event = extension.import('service:event');
+
+// TODO: filesystem providers REALLY SHOULD NOT implement ACL logic!
+const svc_acl = extension.import('service:acl');
 
 // TODO: these services ought to be part of this extension
 const svc_size = extension.import('service:sizeService');
 const svc_fsEntry = extension.import('service:fsEntryService');
 const svc_fsEntryFetcher = extension.import('service:fsEntryFetcher');
+const svc_resource = extension.import('service:resourceService');
+const svc_fsLock = extension.import('service:fslock');
 
 // TODO: depending on mountpoint service will not be necessary
 //       once the storage provider is moved to this extension
@@ -52,8 +64,20 @@ const {
     NodeChildSelector,
     NodeUIDSelector,
     NodeInternalIDSelector,
-
 } = extension.import('core').fs.selectors;
+
+const {
+    // MODE_READ,
+    MODE_WRITE,
+} = extension.import('fs').lock;
+
+// ^ Yep I know, import('fs') and import('core').fs is confusing and
+// redundant... this will be cleaned up as the new API is developed
+
+const {
+    // MODE_READ,
+    RESOURCE_STATUS_PENDING_CREATE,
+} = extension.import('fs').resource;
 
 class PuterFSProvider {
     /**
@@ -117,6 +141,81 @@ class PuterFSProvider {
         }
 
         await this.#rmnode({ context, node, options });
+    }
+
+    /**
+     * Create a new directory.
+     *
+     * @param {Object} param
+     * @param {Context} param.context
+     * @param {FSNode} param.parent
+     * @param {string} param.name
+     * @param {boolean} param.immutable
+     * @returns {Promise<FSNode>}
+     */
+    async mkdir ({ context, parent, name, immutable }) {
+        const { actor, thumbnail } = context.values;
+
+        const lock_handle = await svc_fsLock.lock_child(await parent.get('path'),
+                        name,
+                        MODE_WRITE);
+
+        try {
+            const ts = Math.round(Date.now() / 1000);
+            const uid = uuidv4();
+
+            const existing = await svc_fs.node(new NodeChildSelector(parent.selector, name));
+
+            if ( await existing.exists() ) {
+                throw APIError.create('item_with_same_name_exists', null, {
+                    entry_name: name,
+                });
+            }
+
+            if ( ! await parent.exists() ) {
+                throw APIError.create('subject_does_not_exist');
+            }
+            if ( ! await svc_acl.check(actor, parent, 'write') ) {
+                throw await svc_acl.get_safe_acl_error(actor, parent, 'write');
+            }
+
+            svc_resource.register({
+                uid,
+                status: RESOURCE_STATUS_PENDING_CREATE,
+            });
+
+            const raw_fsentry = {
+                is_dir: 1,
+                uuid: uid,
+                parent_uid: await parent.get('uid'),
+                path: path_.join(await parent.get('path'), name),
+                user_id: actor.type.user.id,
+                name,
+                created: ts,
+                accessed: ts,
+                modified: ts,
+                immutable: immutable ?? false,
+                ...(thumbnail ? {
+                    thumbnail: thumbnail,
+                } : {}),
+            };
+
+            const entryOp = await svc_fsEntry.insert(raw_fsentry);
+
+            await entryOp.awaitDone();
+            svc_resource.free(uid);
+
+            const node = await svc_fs.node(new NodeUIDSelector(uid));
+
+            svc_event.emit('fs.create.directory', {
+                node,
+                context: Context.get(),
+            });
+
+            return node;
+        } finally {
+            await lock_handle.unlock();
+        }
     }
 
     async read ({ context, node, version_id, range }) {
