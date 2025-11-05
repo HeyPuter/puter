@@ -410,12 +410,8 @@ class PuterFSProvider extends putility.AdvancedBase {
     }
 
     async unlink({ context, node, options = {} }) {
-        if ( await node.get('type') === TYPE_DIRECTORY ) {
-            console.log(`\x1B[31;1m===N=====${await node.get('path')}=========\x1B[0m`);
-            throw new APIError(409, 'Cannot unlink a directory.');
-        }
-
-        await this.#rmnode({ context, node, options });
+        console.error('This .unlink should not be called!');
+        process.exit(1);
     }
 
     async rmdir({ context, node, options = {} }) {
