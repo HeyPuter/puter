@@ -89,36 +89,8 @@ class PuterFSProvider extends putility.AdvancedBase {
     async quick_check ({
         selector,
     }) {
-        // a wrapper that access underlying database directly
-        const fsEntryFetcher = this.#services.get('fsEntryFetcher');
-
-        // shortcut: has full path
-        if ( selector?.path ) {
-            const entry = await fsEntryFetcher.findByPath(selector.path);
-            return Boolean(entry);
-        }
-
-        // shortcut: has uid
-        if ( selector?.uid ) {
-            const entry = await fsEntryFetcher.findByUID(selector.uid);
-            return Boolean(entry);
-        }
-
-        // shortcut: parent uid + child name
-        if ( selector instanceof NodeChildSelector && selector.parent instanceof NodeUIDSelector ) {
-            return await fsEntryFetcher.nameExistsUnderParent(selector.parent.uid,
-                            selector.name);
-        }
-
-        // shortcut: parent id + child name
-        if ( selector instanceof NodeChildSelector && selector.parent instanceof NodeInternalIDSelector ) {
-            return await fsEntryFetcher.nameExistsUnderParentID(selector.parent.id,
-                            selector.name);
-        }
-
-        // TODO (xiaochen): we should fallback to stat but we cannot at this moment
-        // since stat requires a valid `FSNodeContext` argument.
-        return false;
+        console.error('This .quick_check should not be called!');
+        process.exit(1);
     }
 
     async stat ({
