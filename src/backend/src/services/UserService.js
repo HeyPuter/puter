@@ -27,18 +27,18 @@ class UserService extends BaseService {
         uuidv4: require('uuid').v4,
     };
 
-    async _init() {
+    async _init () {
         this.db = this.services.get('database').get(DB_WRITE, 'user-service');
         this.dir_system = null;
     }
 
-    async ['__on_filesystem.ready']() {
+    async ['__on_filesystem.ready'] () {
         const svc_fs = this.services.get('filesystem');
         // Ensure system user has a home directory
         const dir_system = await svc_fs.node(new NodeChildSelector(new RootNodeSelector(),
                         'system'));
 
-        if ( ! await dir_system.exists() ) {
+        if ( !await dir_system.exists() ) {
             const svc_getUser = this.services.get('get-user');
             await this.generate_default_fsentries({
                 user: await svc_getUser.get_user({ username: 'system' }),
@@ -50,12 +50,12 @@ class UserService extends BaseService {
         this.services.emit('user.system-user-ready');
     }
 
-    get_system_dir() {
+    get_system_dir () {
         return this.dir_system;
     }
 
     // used to be called: generate_system_fsentries
-    async generate_default_fsentries({ user }) {
+    async generate_default_fsentries ({ user }) {
 
         this.log.noticeme('YES THIS WAS USED');
 
@@ -141,16 +141,30 @@ class UserService extends BaseService {
         invalidate_cached_user(user);
     }
 
-    async updateUserMetadata(userId, updatedMetadata) {
-
+    async updateUserMetadata (userId, updatedMetadata) {
         // Fetch current metadata
         const [user] = await this.db.read('SELECT metadata FROM `user` WHERE uuid=?', [userId]);
-        let metadata = user?.metadata ? JSON.parse(user.metadata) : {};
+        let metadata = {};
+
+        if ( user?.metadata ) {
+            if ( typeof user.metadata === 'string' ) {
+                // SQLite stores as TEXT, need to parse JSON
+                try {
+                    metadata = JSON.parse(user.metadata);
+                } catch {
+                    // If parsing fails, start with empty object
+                    metadata = {};
+                }
+            } else {
+                // MySQL stores as JSON object
+                metadata = user.metadata;
+            }
+        }
 
         // Update fields
         Object.assign(metadata, updatedMetadata);
 
-        // Save back to DB
+        // Save back to DB - always stringify for compatibility with both databases
         await this.db.write('UPDATE `user` SET metadata=? WHERE uuid=?', [JSON.stringify(metadata), userId]);
     }
 }
