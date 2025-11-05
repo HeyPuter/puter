@@ -1281,7 +1281,8 @@ function UIItem(options){
             // -------------------------------------------
             // Set as Wallpaper
             // -------------------------------------------
-            const mime_type = mime.getType($(el_item).attr('data-name'));
+            const mime_type = mime.getType($(el_item).attr('data-name')) ??
+                'application/octet-stream';
             if(!is_trashed && !is_trash && !options.is_dir && mime_type.startsWith('image/')) {
                 menu_items.push({
                     html: i18n('set_as_background'),
