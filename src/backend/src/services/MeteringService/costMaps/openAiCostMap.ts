@@ -51,9 +51,11 @@ export const OPENAI_COST_MAP = {
     'openai:o1-pro:completion_tokens': 60000,
 
     // O3 models
-    'openai:o3:prompt_tokens': 1000,
-    'openai:o3:completion_tokens': 4000,
+    'openai:o3:prompt_tokens': 200,
+    'openai:o3:cached_tokens': 50,
+    'openai:o3:completion_tokens': 800,
     'openai:o3-mini:prompt_tokens': 110,
+    'openai:o3-mini:cached_tokens': 55,
     'openai:o3-mini:completion_tokens': 440,
 
     // O4 models

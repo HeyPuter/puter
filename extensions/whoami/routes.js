@@ -94,7 +94,7 @@ extension.get('/whoami', { subdomain: 'api' }, async (req, res, next) => {
         referral_code: req.user.referral_code,
         otp: !! req.user.otp_enabled,
         human_readable_age: timeago.format(new Date(req.user.timestamp)),
-        hasDevAccountAccess: !! req.user.metadata?.hasDevAccountAccess,
+        hasDevAccountAccess: !! req.actor.type.user.metadata?.hasDevAccountAccess,
         ...(req.new_token ? { token: req.token } : {}),
     };
 
@@ -149,9 +149,9 @@ extension.post('/whoami', { subdomain: 'api' }, async (req, res) => {
     let desktop_items = [];
 
     // check if user asked for desktop items
-    if ( req.query.return_desktop_items === 1 || req.query.return_desktop_items === '1' || req.query.return_desktop_items === 'true' ){
+    if ( req.query.return_desktop_items === 1 || req.query.return_desktop_items === '1' || req.query.return_desktop_items === 'true' ) {
         // by cached desktop id
-        if ( req.user.desktop_id ){
+        if ( req.user.desktop_id ) {
             // TODO: Check if used anywhere, maybe remove
             // eslint-disable-next-line no-undef
             desktop_items = await db.read(`SELECT * FROM fsentries
@@ -164,19 +164,19 @@ extension.post('/whoami', { subdomain: 'api' }, async (req, res) => {
         }
 
         // clean up desktop items and add some extra information
-        if ( desktop_items.length > 0 ){
-            if ( desktop_items.length > 0 ){
+        if ( desktop_items.length > 0 ) {
+            if ( desktop_items.length > 0 ) {
                 for ( let i = 0; i < desktop_items.length; i++ ) {
-                    if ( desktop_items[i].id !== null ){
+                    if ( desktop_items[i].id !== null ) {
                         // suggested_apps for files
-                        if ( !desktop_items[i].is_dir ){
+                        if ( !desktop_items[i].is_dir ) {
                             desktop_items[i].suggested_apps = await suggest_app_for_fsentry(desktop_items[i], { user: req.user });
                         }
                         // is_shared
                         desktop_items[i].is_shared   = await is_shared_with_anyone(desktop_items[i].id);
 
                         // associated_app
-                        if ( desktop_items[i].associated_app_id ){
+                        if ( desktop_items[i].associated_app_id ) {
                             const app = await get_app({ id: desktop_items[i].associated_app_id });
 
                             // remove some privileged information
@@ -220,6 +220,6 @@ extension.post('/whoami', { subdomain: 'api' }, async (req, res) => {
         taskbar_items: await get_taskbar_items(req.user),
         desktop_items: desktop_items,
         referral_code: req.user.referral_code,
-        hasDevAccountAccess: !! req.user.metadata?.hasDevAccountAccess,
+        hasDevAccountAccess: !! req.actor.user.metadata?.hasDevAccountAccess,
     }, whoami_common({ is_user, user: req.user })));
 });

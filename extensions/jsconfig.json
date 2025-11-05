@@ -1,17 +1,19 @@
 {
   "compilerOptions": {
-    "target": "ES2020",
-    "module": "esnext",
-    "moduleResolution": "node",
-    "baseUrl": ".",
+    "target": "ES2024",
+    "module": "node16",
+    "moduleResolution": "node16",
+    "rootDir": ".",
     "paths": {
-      "../src/*": ["../src/*"]
+      "../src/*": [
+        "../src/*"
+      ]
     },
     "allowJs": true,
     "checkJs": true
   },
   "include": [
-    "**/*.js",
-    "**/*.d.ts"
+    "./**/*.js",
+    "./**/*.d.ts"
   ]
 }

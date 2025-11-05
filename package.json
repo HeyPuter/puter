@@ -40,13 +40,13 @@
     "test": "npx mocha src/phoenix/test && npx vitest run src/backend && node src/backend/tools/test",
     "test:puterjs-api": "vitest run tests/puterJsApiTests",
     "start=gui": "nodemon --exec \"node dev-server.js\" ",
-    "start": "npm run build:ts && node ./tools/run-selfhosted.js",
+    "start": "node ./tools/run-selfhosted.js",
+    "prestart": "npm run build:ts",
     "dev": "npm run build:ts && DEVCONSOLE=1 node ./tools/run-selfhosted.js",
-    "build": "cd src/gui; node ./build.js",
+    "build": "npm run build:ts; cd src/gui; node ./build.js",
     "check-translations": "node tools/check-translations.js",
     "prepare": "husky",
     "build:ts": "tsc",
-    "postinstall": "npm run build:ts",
     "gen": "./scripts/gen.sh"
   },
   "workspaces": [

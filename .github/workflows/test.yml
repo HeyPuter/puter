@@ -27,6 +27,7 @@ jobs:
           rm package-lock.json
           npm install -g npm@latest
           npm install
+          npm run build
           npm run test
 
   api-test:

@@ -2,28 +2,28 @@ const fs = require('fs').promises;
 const path = require('path');
 
 async function prependToJSFiles(directory, snippet) {
-    const jsExtensions = new Set(['.js', '.cjs', '.mjs']);
+    const jsExtensions = new Set(['.js', '.cjs', '.mjs', '.ts']);
 
     async function processDirectory(dir) {
         try {
             const entries = await fs.readdir(dir, { withFileTypes: true });
             const promises = [];
 
-            for (const entry of entries) {
+            for ( const entry of entries ) {
                 const fullPath = path.join(dir, entry.name);
 
-                if (entry.isDirectory()) {
+                if ( entry.isDirectory() ) {
                     // Skip common directories that shouldn't be modified
-                    if (!shouldSkipDirectory(entry.name)) {
+                    if ( !shouldSkipDirectory(entry.name) ) {
                         promises.push(processDirectory(fullPath));
                     }
-                } else if (entry.isFile() && jsExtensions.has(path.extname(entry.name))) {
+                } else if ( entry.isFile() && jsExtensions.has(path.extname(entry.name)) ) {
                     promises.push(prependToFile(fullPath, snippet));
                 }
             }
 
             await Promise.all(promises);
-        } catch (error) {
+        } catch ( error ) {
             throw new Error(`error processing directory ${dir}`, {
                 cause: error,
             });
@@ -46,7 +46,7 @@ async function prependToJSFiles(directory, snippet) {
             if ( content.startsWith('//!no-prepend') ) return;
             const newContent = snippet + content;
             await fs.writeFile(filePath, newContent, 'utf8');
-        } catch (error) {
+        } catch ( error ) {
             throw new Error(`error processing file ${filePath}`, {
                 cause: error,
             });
@@ -57,5 +57,5 @@ async function prependToJSFiles(directory, snippet) {
 }
 
 module.exports = {
-    prependToJSFiles
+    prependToJSFiles,
 };
