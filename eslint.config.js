@@ -4,7 +4,9 @@ import tseslintPlugin from '@typescript-eslint/eslint-plugin';
 import tseslintParser from '@typescript-eslint/parser';
 import { defineConfig } from 'eslint/config';
 import globals from 'globals';
-import controlStructureSpacing from './control-structure-spacing.js';
+import bangSpaceIf from './eslint/bang-space-if.js';
+import controlStructureSpacing from './eslint/control-structure-spacing.js';
+import spaceUnaryOpsWithException from './eslint/space-unary-ops-with-exception.js';
 
 const rules = {
     'no-unused-vars': ['error', {
@@ -44,11 +46,12 @@ const rules = {
     '@stylistic/space-infix-ops': ['error'],
     'no-undef': 'error',
     'custom/control-structure-spacing': 'error',
+    'custom/bang-space-if': 'error',
     '@stylistic/no-trailing-spaces': 'error',
     '@stylistic/space-before-blocks': ['error', 'always'],
     'prefer-template': 'error',
     '@stylistic/no-mixed-spaces-and-tabs': ['error', 'smart-tabs'],
-    '@stylistic/space-unary-ops': ['error', { words: true, nonwords: false }],
+    'custom/space-unary-ops-with-exception': ['error', { words: true, nonwords: false }],
     '@stylistic/no-multi-spaces': ['error', { exceptions: { 'VariableDeclarator': true } }],
 };
 
@@ -124,7 +127,11 @@ export default defineConfig([
         plugins: {
             js,
             '@stylistic': stylistic,
-            custom: { rules: { 'control-structure-spacing': controlStructureSpacing } },
+            custom: { rules: {
+                'control-structure-spacing': controlStructureSpacing,
+                'bang-space-if': bangSpaceIf,
+                'space-unary-ops-with-exception': spaceUnaryOpsWithException,
+            } },
         },
     },
     {
