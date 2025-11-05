@@ -24,6 +24,10 @@ const svc_trace = extension.import('service:traceService');
 const svc_size = extension.import('service:sizeService');
 const svc_fsEntry = extension.import('service:fsEntryService');
 
+// TODO: depending on mountpoint service will not be necessary
+//       once the storage provider is moved to this extension
+const svc_mountpoint = extension.import('service:mountpoint');
+
 const {
     APIError,
     Actor,
@@ -68,6 +72,22 @@ class PuterFSProvider {
         }
 
         await this.#rmnode({ context, node, options });
+    }
+
+    async read ({ context, node, version_id, range }) {
+        const svc_mountpoint = context.get('services').get('mountpoint');
+        const storage = svc_mountpoint.get_storage(this.constructor.name);
+        const location = await node.get('s3:location') ?? {};
+        const stream = (await storage.create_read_stream(await node.get('uid'), {
+            // TODO: fs:decouple-s3
+            bucket: location.bucket,
+            bucket_region: location.bucket_region,
+            version_id,
+            key: location.key,
+            memory_file: node.entry,
+            ...(range ? { range } : {}),
+        }));
+        return stream;
     }
 
     async #rmnode ({ node, options }) {
