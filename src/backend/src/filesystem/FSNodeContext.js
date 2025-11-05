@@ -627,7 +627,7 @@ module.exports = class FSNodeContext {
 
         if ( key === 'mysql-id' ) {
             await this.fetchEntry();
-            return this.mysql_id;
+            return this.mysql_id ?? this.entry.id;
         }
 
         if ( key === 'owner' ) {
