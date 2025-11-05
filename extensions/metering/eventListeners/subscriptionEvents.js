@@ -21,7 +21,6 @@ extension.on('metering:registerAvailablePolicies', async (
 extension.on('metering:getUserSubscription', async (/** @type {{actor: import('@heyputer/backend/src/services/auth/Actor').Actor, userSubscriptionId: string}} */event) => {
     const userName = event?.actor?.type?.user?.username;
     if ( config.unlimitedAllowList?.includes(userName) ) {
-        console.warn(`WARNING!!! User ${userName} is on unlimited usage allow list, this is not recommended for production use`);
         event.userSubscriptionId;
     }
     else {
