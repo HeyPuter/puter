@@ -1,7 +1,7 @@
 import { expect } from '@playwright/test';
-import { BASE_PATH, test } from './fixtures';
+import { BASE_PATH, testDirCleaned } from './fixtures';
 
-test('write to new directory with default name', async ({ page }) => {
+testDirCleaned('write to new directory with default name', async ({ page }) => {
     const testPath = `${BASE_PATH}/write_test_1`;
     
     // Create directory
@@ -24,7 +24,7 @@ test('write to new directory with default name', async ({ page }) => {
     expect(result.name).toBe('uploaded_name.txt');
 });
 
-test('write with specified name', async ({ page }) => {
+testDirCleaned('write with specified name', async ({ page }) => {
     const testPath = `${BASE_PATH}/write_test_2`;
     
     // Create directory
@@ -46,7 +46,7 @@ test('write with specified name', async ({ page }) => {
     expect(result).toBeTruthy();
 });
 
-test('write with overwrite option', async ({ page }) => {
+testDirCleaned('write with overwrite option', async ({ page }) => {
     const testPath = `${BASE_PATH}/write_test_3`;
     const fileName = 'test_overwrite.txt';
     
@@ -85,7 +85,7 @@ test('write with overwrite option', async ({ page }) => {
     expect(readResult).toBe('updated content\n');
 });
 
-test('write to directory using UID', async ({ page }) => {
+testDirCleaned('write to directory using UID', async ({ page }) => {
     const testPath = `${BASE_PATH}/write_test_4`;
     
     // Create directory and get UID
@@ -110,7 +110,7 @@ test('write to directory using UID', async ({ page }) => {
     expect(result.uid).toBeTruthy();
 });
 
-test('write with dedupe name option', async ({ page }) => {
+testDirCleaned('write with dedupe name option', async ({ page }) => {
     const testPath = `${BASE_PATH}/write_test_5`;
     const fileName = 'dedupe_test.txt';
     
@@ -149,7 +149,7 @@ test('write with dedupe name option', async ({ page }) => {
     expect(result.result.name).toMatch(/dedupe_test \(\d\)\.txt/);
 });
 
-test('write string data', async ({ page }) => {
+testDirCleaned('write string data', async ({ page }) => {
     const testPath = `${BASE_PATH}/write_test_6`;
     
     // Create directory
@@ -178,7 +178,7 @@ test('write string data', async ({ page }) => {
     expect(readResult).toBe('Hello World\n');
 });
 
-test('write to file instead of directory should error', async ({ page }) => {
+testDirCleaned('write to file instead of directory should error', async ({ page }) => {
     const testPath = `${BASE_PATH}/write_test_7`;
     const fileName = 'destination.txt';
     
@@ -214,7 +214,7 @@ test('write to file instead of directory should error', async ({ page }) => {
     expect(result.success !== undefined).toBe(true);
 });
 
-test('write without overwrite on existing file should error', async ({ page }) => {
+testDirCleaned('write without overwrite on existing file should error', async ({ page }) => {
     const testPath = `${BASE_PATH}/write_test_8`;
     const fileName = 'existing.txt';
     const dedupedFileName = 'existing (1).txt';

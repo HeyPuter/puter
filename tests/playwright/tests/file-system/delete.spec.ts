@@ -1,7 +1,7 @@
 import { expect } from '@playwright/test';
-import { BASE_PATH, test } from './fixtures';
+import { BASE_PATH, testDirCleaned } from './fixtures';
 
-test('delete for normal file', async ({ page }) => {
+testDirCleaned('delete for normal file', async ({ page }) => {
     const testPath = `${BASE_PATH}/delete_test_1`;
     const testFile = `${testPath}/test_delete.txt`;
 
@@ -30,7 +30,7 @@ test('delete for normal file', async ({ page }) => {
     expect(result.exists).toBe(false);
 });
 
-test('error for non-existing file', async ({ page }) => {
+testDirCleaned('error for non-existing file', async ({ page }) => {
     const testPath = `${BASE_PATH}/delete_test_2`;
     const testFile = `${testPath}/test_delete.txt`;
 
@@ -53,7 +53,7 @@ test('error for non-existing file', async ({ page }) => {
     expect(result.success).toBe(false);
 });
 
-test('delete for directory', async ({ page }) => {
+testDirCleaned('delete for directory', async ({ page }) => {
     const testPath = `${BASE_PATH}/delete_test_3`;
     const testDir = `${testPath}/test_delete_dir`;
 
@@ -81,7 +81,7 @@ test('delete for directory', async ({ page }) => {
     expect(result.exists).toBe(false);
 });
 
-test('delete for non-empty directory with recursive=true', async ({ page }) => {
+testDirCleaned('delete for non-empty directory with recursive=true', async ({ page }) => {
     const testPath = `${BASE_PATH}/delete_test_5`;
     const testDir = `${testPath}/test_delete_dir`;
     const testFile = `${testDir}/test.txt`;

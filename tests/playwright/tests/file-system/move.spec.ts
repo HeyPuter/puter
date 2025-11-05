@@ -1,7 +1,7 @@
 import { expect } from '@playwright/test';
-import { BASE_PATH, ERROR_CODES, test } from './fixtures';
+import { BASE_PATH, ERROR_CODES, testDirCleaned } from './fixtures';
 
-test('move file', async ({ page }) => {
+testDirCleaned('move file', async ({ page }) => {
     const sourceFile = `${BASE_PATH}/just_a_file.txt`;
     const targetFile = `${BASE_PATH}/just_a_file_moved.txt`;
 
@@ -58,7 +58,7 @@ test('move file', async ({ page }) => {
     expect(ERROR_CODES.includes(sourceError)).toBe(true);
 });
 
-test('move file to existing file', async ({ page }) => {
+testDirCleaned('move file to existing file', async ({ page }) => {
     const sourceFile = `${BASE_PATH}/just_a_file.txt`;
     const targetFile = `${BASE_PATH}/dir_with_contents/a.txt`;
 
@@ -88,7 +88,7 @@ test('move file to existing file', async ({ page }) => {
     expect(ERROR_CODES.includes(errorCode), `unexpected error code: ${errorCode}`).toBe(true);
 });
 
-test('move directory', async ({ page }) => {
+testDirCleaned('move directory', async ({ page }) => {
     const sourceDir = `${BASE_PATH}/dir_no_contents`;
     const targetDir = `${BASE_PATH}/dir_no_contents_moved`;
 
@@ -145,7 +145,7 @@ test('move directory', async ({ page }) => {
     expect(ERROR_CODES.includes(sourceError)).toBe(true);
 });
 
-test('move file and create parents', async ({ page }) => {
+testDirCleaned('move file and create parents', async ({ page }) => {
     const sourceFile = `${BASE_PATH}/just_a_file.txt`;
     const targetFile = `${BASE_PATH}/dir_with_contents/q/w/e/just_a_file.txt`;
 

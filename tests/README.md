@@ -11,7 +11,7 @@
 
 End-to-end tests for puter-js and http API.
 
-## How to use
+## How to use (for Everyone)
 
 ### Initialize the Client Config
 
@@ -46,4 +46,56 @@ npx playwright test
 
 ```bash
 npm run test:puterjs-api
+```
+
+## Coverage (for CI Maintainers)
+
+```bash
+npm install --save-dev c8
+npx c8 -r lcov -r text -o coverage/backend npm start
+```
+
+## CI Debugging (for CI Maintainers)
+
+All of the following commands assume a Linux environment. This section is used when:
+
+- CI is failing.
+- CI scripts are updated.
+
+### API-Test
+
+Install dependencies:
+
+```bash
+TODO
+```
+
+Run the CI:
+
+```bash
+./tests/ci/api-test.py
+```
+
+### Playwright
+
+Install dependencies:
+
+```bash
+TODO
+```
+
+Run the CI:
+
+```bash
+./tests/ci/playwright-test.py
+```
+
+### Vitest
+
+TODO
+
+### Full End-to-End Test with Coverage
+
+```bash
+./tests/ci/full-test.py
 ```

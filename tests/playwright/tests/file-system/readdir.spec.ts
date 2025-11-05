@@ -1,7 +1,7 @@
 import { expect } from '@playwright/test';
-import { BASE_PATH, test } from './fixtures';
+import { BASE_PATH, testDirCleaned } from './fixtures';
 
-test('readdir test', async ({ page }) => {
+testDirCleaned('readdir test', async ({ page }) => {
     // Create test directory
     const testDir = `${BASE_PATH}/test_readdir`;
     
@@ -81,7 +81,7 @@ test('readdir test', async ({ page }) => {
     }
 });
 
-test('readdir of root shouldn\'t return everything', async ({ page }) => {
+testDirCleaned('readdir of root shouldn\'t return everything', async ({ page }) => {
     const result = await page.evaluate(async () => {
         const puter = (window as any).puter;
         try {
