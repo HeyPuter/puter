@@ -149,3 +149,33 @@ jobs:
         run: |
           pip install -r ./tests/ci/requirements.txt
           ./tests/ci/vitest.py
+
+  full-test:
+    name: full end-to-end test with coverage report
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+
+    strategy:
+      matrix:
+        node-version: [22.x]
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Use Node.js ${{ matrix.node-version }}
+        uses: actions/setup-node@v4
+        with:
+          node-version: ${{ matrix.node-version }}
+
+      - name: Vitest Test
+        run: |
+          pip install -r ./tests/ci/requirements.txt
+          ./tests/ci/full-test.py
+
+      - uses: actions/upload-artifact@v4
+        if: ${{ !cancelled() }}
+        id: coverage-report
+        with:
+          name: (full-test) coverage-report
+          path: coverage
+          retention-days: 3
