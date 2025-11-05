@@ -23,6 +23,7 @@ const svc_trace = extension.import('service:traceService');
 // TODO: these services ought to be part of this extension
 const svc_size = extension.import('service:sizeService');
 const svc_fsEntry = extension.import('service:fsEntryService');
+const svc_fsEntryFetcher = extension.import('service:fsEntryFetcher');
 
 // TODO: depending on mountpoint service will not be necessary
 //       once the storage provider is moved to this extension
@@ -47,7 +48,51 @@ const {
     TYPE_DIRECTORY,
 } = extension.import('core').fs;
 
+const {
+    NodeChildSelector,
+    NodeUIDSelector,
+    NodeInternalIDSelector,
+
+} = extension.import('core').fs.selectors;
+
 class PuterFSProvider {
+    /**
+     * Check if a given node exists.
+     *
+     * @param {Object} param
+     * @param {NodeSelector} param.selector - The selector used for checking.
+     * @returns {Promise<boolean>} - True if the node exists, false otherwise.
+     */
+    async quick_check ({
+        selector,
+    }) {
+        // shortcut: has full path
+        if ( selector?.path ) {
+            const entry = await svc_fsEntryFetcher.findByPath(selector.path);
+            return Boolean(entry);
+        }
+
+        // shortcut: has uid
+        if ( selector?.uid ) {
+            const entry = await svc_fsEntryFetcher.findByUID(selector.uid);
+            return Boolean(entry);
+        }
+
+        // shortcut: parent uid + child name
+        if ( selector instanceof NodeChildSelector && selector.parent instanceof NodeUIDSelector ) {
+            return await svc_fsEntryFetcher.nameExistsUnderParent(selector.parent.uid,
+                            selector.name);
+        }
+
+        // shortcut: parent id + child name
+        if ( selector instanceof NodeChildSelector && selector.parent instanceof NodeInternalIDSelector ) {
+            return await svc_fsEntryFetcher.nameExistsUnderParentID(selector.parent.id,
+                            selector.name);
+        }
+
+        return false;
+    }
+
     async unlink ({ context, node, options = {} }) {
         if ( await node.get('type') === TYPE_DIRECTORY ) {
             throw new APIError(409, 'Cannot unlink a directory.');
