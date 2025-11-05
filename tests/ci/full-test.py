@@ -56,6 +56,14 @@ def run():
         work_dir=f"{PUTER_ROOT}/tests/playwright",
     )
 
+    import psutil
+    p = psutil.Process(backend_process.pid)
+    for child in p.children(recursive=True):
+        # print(f"terminating child process {child.pid}")
+        # child.kill()
+        print(f"sending SIGINT to child process {child.pid}")
+        os.kill(child.pid, signal.SIGINT)
+
     # import psutil
     # p = psutil.Process(backend_process.pid)
     print(f"sending SIGINT to backend process {backend_process.pid}")
