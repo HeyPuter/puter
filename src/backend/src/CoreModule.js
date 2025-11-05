@@ -220,6 +220,9 @@ const install = async ({ context, services, app, useapi, modapi }) => {
     const { InformationService } = require('./services/information/InformationService');
     services.registerService('information', InformationService);
 
+    const { TraceService } = require('./services/TraceService.js');
+    services.registerService('traceService', TraceService);
+
     const { FilesystemService } = require('./filesystem/FilesystemService');
     services.registerService('filesystem', FilesystemService);
 
