@@ -179,3 +179,10 @@ jobs:
           name: (full-test) coverage-report
           path: coverage
           retention-days: 3
+
+      - uses: actions/upload-artifact@v4
+        if: ${{ !cancelled() }}
+        with:
+          name: (full-test) server-logs
+          path: /tmp/backend.log
+          retention-days: 3
