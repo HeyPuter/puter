@@ -449,6 +449,47 @@ class PuterFSProvider {
         return node;
     }
 
+    async move ({ context, node, new_parent, new_name, metadata }) {
+        const old_path = await node.get('path');
+        const new_path = path_.join(await new_parent.get('path'), new_name);
+
+        const op_update = await svc_fsEntry.update(node.uid, {
+            ...(
+                await node.get('parent_uid') !== await new_parent.get('uid')
+                    ? { parent_uid: await new_parent.get('uid') }
+                    : {}
+            ),
+            path: new_path,
+            name: new_name,
+            ...(metadata ? { metadata } : {}),
+        });
+
+        node.entry.name = new_name;
+        node.entry.path = new_path;
+
+        // NOTE: this is a safeguard passed to update_child_paths to isolate
+        //       changes to the owner's directory tree, ut this may need to be
+        //       removed in the future.
+        const user_id = await node.get('user_id');
+
+        await op_update.awaitDone();
+
+        await svc_fs.update_child_paths(old_path, node.entry.path, user_id);
+
+        const promises = [];
+        promises.push(svc_event.emit('fs.move.file', {
+            context,
+            moved: node,
+            old_path,
+        }));
+        promises.push(svc_event.emit('fs.rename', {
+            uid: await node.get('uid'),
+            new_name,
+        }));
+
+        return node;
+    }
+
     async #rmnode ({ node, options }) {
         // Services
         if ( !options.override_immutable && await node.get('immutable') ) {
