@@ -63,7 +63,7 @@ export default def(class QRCodeView extends Component {
 
     on_ready ({ listen }) {
         listen('value', value => {
-            $(this.dom_).find('.qr-code').empty();
+            // $(this.dom_).find('.qr-code').empty();
             new QRCode($(this.dom_).find('.qr-code').get(0), {
                 text: value,
                 // TODO: dynamic size

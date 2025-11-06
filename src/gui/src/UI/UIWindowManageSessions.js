@@ -16,8 +16,8 @@
  * You should have received a copy of the GNU Affero General Public License
  * along with this program.  If not, see <https://www.gnu.org/licenses/>.
  */
-import UIAlert from "../UIAlert.js";
-import UIWindow from "../UIWindow.js";
+import UIAlert from "./UIAlert.js";
+import UIWindow from "./UIWindow.js";
 
 const UIWindowManageSessions = async function UIWindowManageSessions (options) {
     options = options ?? {};
@@ -30,6 +30,8 @@ const UIWindowManageSessions = async function UIWindowManageSessions (options) {
         uid: null,
         is_dir: false,
         message: 'message',
+        // body_icon: options.body_icon,
+        // backdrop: options.backdrop ?? false,
         is_droppable: false,
         has_head: true,
         selectable_body: false,
@@ -38,15 +40,7 @@ const UIWindowManageSessions = async function UIWindowManageSessions (options) {
         window_class: 'window-session-manager',
         dominant: true,
         body_content: '',
-        width: 500,
-        height: "auto",
-        body_css: {
-            padding: '20px',
-            'background-color': 'rgb(245 247 249)',
-        },
-        window_css: {
-            'background-color': 'rgb(245 247 249)',
-        },
+        // width: 600,
         ...options.window_options,
     });
 
@@ -57,64 +51,42 @@ const UIWindowManageSessions = async function UIWindowManageSessions (options) {
             el.classList.add('current-session');
         }
         el.dataset.uuid = session.uuid;
+        // '<pre>' +
+        //    JSON.stringify(session, null, 2) +
+        //     '</pre>';
 
-        // Helper function to format relative time
-        const getRelativeTime = (timestamp) => {
-            if (!timestamp) return i18n('unknown');
-            const now = Date.now();
-            const time = new Date(timestamp).getTime();
-            const diff = now - time;
+        const el_uuid = document.createElement('div');
+        el_uuid.textContent = session.uuid;
+        el.appendChild(el_uuid);
+        el_uuid.classList.add('session-widget-uuid');
 
-            const seconds = Math.floor(diff / 1000);
-            const minutes = Math.floor(seconds / 60);
-            const hours = Math.floor(minutes / 60);
-            const days = Math.floor(hours / 24);
+        const el_meta = document.createElement('div');
+        el_meta.classList.add('session-widget-meta');
+        for ( const key in session.meta ) {
+            const el_entry = document.createElement('div');
+            el_entry.classList.add('session-widget-meta-entry');
 
-            if (days > 0) return `${days} ${i18n(days > 1 ? 'days' : 'day')} ${i18n('ago')}`;
-            if (hours > 0) return `${hours} ${i18n(hours > 1 ? 'hours' : 'hour')} ${i18n('ago')}`;
-            if (minutes > 0) return `${minutes} ${i18n(minutes > 1 ? 'minutes' : 'minute')} ${i18n('ago')}`;
-            return i18n('just_now');
-        };
+            const el_key = document.createElement('div');
+            el_key.textContent = key;
+            el_key.classList.add('session-widget-meta-key');
+            el_entry.appendChild(el_key);
 
-        // Helper function to detect device type from user agent
-        const getDeviceInfo = (userAgent) => {
-            if (!userAgent) return { type: 'desktop', name: i18n('device_desktop') };
+            const el_value = document.createElement('div');
+            el_value.textContent = session.meta[key];
+            el_value.classList.add('session-widget-meta-value');
+            el_entry.appendChild(el_value);
 
-            const ua = userAgent.toLowerCase();
-            if (ua.includes('mobile') || ua.includes('android') || ua.includes('iphone')) {
-                return { type: 'mobile', name: i18n('device_mobile') };
-            }
-            if (ua.includes('tablet') || ua.includes('ipad')) {
-                return { type: 'tablet', name: i18n('device_tablet') };
-            }
-            return { type: 'desktop', name: i18n('device_desktop') };
-        };
+            el_meta.appendChild(el_entry);
+        }
+        el.appendChild(el_meta);
 
-        const deviceInfo = getDeviceInfo(session.meta?.['user-agent']);
+        const el_actions = document.createElement('div');
+        el_actions.classList.add('session-widget-actions');
 
-        const el_content = document.createElement('div');
-        el_content.classList.add('session-widget-content');
-
-        const el_main = document.createElement('div');
-        el_main.classList.add('session-widget-main');
-        el_main.innerHTML = `
-            <div class="session-widget-title">
-                ${deviceInfo.name}
-                ${session.current ? `<span class="current-badge">${i18n('current')}</span>` : ''}
-            </div>
-            <div class="session-widget-details">
-                <span class="session-widget-time">${getRelativeTime(session.meta?.timestamp || session.created_at)}</span>
-                ${session.meta?.location || session.meta?.ip ? `<span class="session-widget-separator">•</span><span class="session-widget-location">${session.meta?.location || session.meta?.ip}</span>` : ''}
-            </div>
-        `;
-
-        el_content.appendChild(el_main);
-
-        if (!session.current) {
-            const el_btn_revoke = document.createElement('button');
-            el_btn_revoke.textContent = i18n('ui_revoke');
-            el_btn_revoke.classList.add('button', 'button-small', 'button-danger');
-            el_btn_revoke.addEventListener('click', async () => {
+        const el_btn_revoke = document.createElement('button');
+        el_btn_revoke.textContent = i18n('ui_revoke');
+        el_btn_revoke.classList.add('button', 'button-danger');
+        el_btn_revoke.addEventListener('click', async () => {
             try{
             const alert_resp = await UIAlert({
                 message: i18n('confirm_session_revoke'),
@@ -152,15 +124,13 @@ const UIWindowManageSessions = async function UIWindowManageSessions (options) {
                 el.remove();
                 return;
             }
-            UIAlert({ message: await resp.text() });
+            UIAlert({ message: await resp.text() }).appendTo(w_body);
             } catch ( e ) {
-                UIAlert({ message: e.toString() });
+                UIAlert({ message: e.toString() }).appendTo(w_body);
             }
         });
-            el_content.appendChild(el_btn_revoke);
-        }
-
-        el.appendChild(el_content);
+        el_actions.appendChild(el_btn_revoke);
+        el.appendChild(el_actions);
 
         return {
             appendTo (parent) {
@@ -197,14 +167,6 @@ const UIWindowManageSessions = async function UIWindowManageSessions (options) {
     const w_body = w.querySelector('.window-body');
 
     w_body.classList.add('session-manager-list');
-
-    // Add header
-    const header = document.createElement('div');
-    header.classList.add('session-manager-header');
-    header.innerHTML = `
-        <p class="session-manager-description">${i18n('session_manager_description')}</p>
-    `;
-    w_body.appendChild(header);
 
     reload_sessions();
     const interval = setInterval(reload_sessions, 8000);

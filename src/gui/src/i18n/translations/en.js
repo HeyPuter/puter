@@ -345,7 +345,6 @@ const en = {
         tarring: "Tarring %strong%",
 
         // === 2FA Setup ===
-        setup_2fa: 'Set Up Two-Factor Authentication',
         setup2fa_1_step_heading: 'Open your authenticator app',
         setup2fa_1_instructions: `
             You can use any authenticator app that supports the Time-based One-Time Password (TOTP) protocol.
@@ -364,28 +363,6 @@ const en = {
         setup2fa_5_confirmation_1: 'I have saved my recovery codes in a secure location',
         setup2fa_5_confirmation_2: 'I am ready to enable 2FA',
         setup2fa_5_button: 'Enable 2FA',
-        setup2fa_intro_title: 'Secure Your Account',
-        setup2fa_intro_description: 'Two-factor authentication adds an extra layer of security to your account by requiring a code from your phone in addition to your password.',
-        setup2fa_intro_what_youll_need: 'What you\'ll need',
-        setup2fa_intro_requirements: 'An authenticator app like Google Authenticator, Authy, or 1Password on your smartphone.',
-        setup2fa_intro_steps_title: 'What we\'ll do',
-        setup2fa_intro_step_1: 'Scan a QR code with your authenticator app',
-        setup2fa_intro_step_2: 'Verify the setup by entering a code',
-        setup2fa_intro_step_3: 'Save your recovery codes in a safe place',
-        setup2fa_scan_title: 'Scan QR Code',
-        setup2fa_scan_description: 'Open your authenticator app and scan this QR code to add your Puter account.',
-        setup2fa_manual_setup: 'Or enter this code manually:',
-        setup2fa_verify_title: 'Verify Setup',
-        setup2fa_verify_description: 'Enter the 6-digit code from your authenticator app to make sure everything is working.',
-        setup2fa_recovery_title: 'Save Your Recovery Codes',
-        setup2fa_recovery_warning: 'Keep these codes safe. You\'ll need them to access your account if you lose your device.',
-        setup2fa_codes_saved_confirmation: 'I have saved my recovery codes in a safe place',
-        code_invalid: 'Invalid code. Please try again.',
-        copied: 'Copied!',
-        back: 'Back',
-        continue: 'Continue',
-        verify_code: 'Verify Code',
-        finish: 'Finish',
 
         // === 2FA Login ===
         login2fa_otp_title: 'Enter 2FA Code',
@@ -533,38 +510,6 @@ const en = {
 
         'set_as_background': 'Set as Desktop Background',
 
-        // Settings - Usage Tab
-        'view_usage_details': 'View usage details',
-        'hide_usage_details': 'Hide usage details',
-        'resource': 'Resource',
-        'resource_units': 'Units',
-        'resource_cost': 'Cost',
-
-        // Settings - Account Tab
-        'profile_picture': 'Profile Picture',
-        'toggle_password_visibility': 'Toggle password visibility',
-
-        // Settings - Personalization Tab
-        'option_auto': 'Auto',
-        'option_hide': 'Hide',
-        'option_show': 'Show',
-
-        // Settings - Sessions Manager
-        'unknown': 'Unknown',
-        // TODO: Better time localization might be needed in the future
-        'day': 'day',
-        'days': 'days',
-        'hour': 'hour',
-        'hours': 'hours',
-        'minute': 'minute',
-        'minutes': 'minutes',
-        'ago': 'ago',
-        'just_now': 'Just now',
-        'device_desktop': 'Desktop',
-        'device_mobile': 'Mobile',
-        'device_tablet': 'Tablet',
-        'current': 'Current',
-        'session_manager_description': 'Manage your active sessions across all devices. You can revoke access to any session except your current one.',
         'error_user_or_path_not_found': 'User or path not found.',
         'error_invalid_username': 'Invalid username.',
     }

@@ -25,23 +25,21 @@ export default {
     title_i18n_key: 'language',
     icon: 'language.svg',
     html: () => {
-        const available_languages = window.listSupportedLanguages();
-        const languageItems = available_languages.map(lang => `
-            <div class="language-item ${window.locale === lang.code ? 'active': ''}" data-lang="${lang.code}" data-english-name="${html_encode(lang.english_name)}">
-                ${html_encode(lang.name)}
-                <img class="checkmark" src="${window.icons['checkmark.svg']}">
-            </div>
-        `).join('');
+        let h = `<h1>${i18n('language')}</h1>`;
 
-        return `
-            <h1 class="settings-section-header">${i18n('language')}</h1>
-            <div class="search-container">
+        // search
+        h += `<div class="search-container" style="margin-bottom: 10px;">
                 <input type="text" class="search search-language" placeholder="${i18n('search')}">
-            </div>
-            <div class="language-list">
-                ${languageItems}
-            </div>
-        `;
+            </div>`;
+
+        // list of languages
+        const available_languages = window.listSupportedLanguages();
+        h += `<div class="language-list">`;
+            for (let lang of available_languages) {
+                h += `<div class="language-item ${window.locale === lang.code ? 'active': ''}" data-lang="${lang.code}" data-english-name="${html_encode(lang.english_name)}">${html_encode(lang.name)}<img class="checkmark" src="${window.icons['checkmark.svg']}"></div>`;
+            }
+        h += `</div>`;
+        return h;
     },
     init: ($el_window) => {
         $el_window.on('click', '.language-item', function(){

@@ -87,8 +87,6 @@ async function UIWindow(options) {
     options.is_maximized = options.is_maximized ?? false;
     options.is_openFileDialog = options.is_openFileDialog ?? false;
     options.is_resizable = options.is_resizable ?? true;
-    options.minWidth = options.minWidth ?? 200;
-    options.minHeight = options.minHeight ?? 200;
 
     // if this is a fullpage window, it won't be resizable
     if(options.is_fullpage){
@@ -2127,8 +2125,8 @@ async function UIWindow(options) {
 
         $(el_window).resizable({
             handles: "n, ne, nw, e, s, se, sw, w",
-            minWidth: options.minWidth,
-            minHeight: options.minHeight,
+            minWidth: 200,
+            minHeight: 200,
             start: function(){
                 window.a_window_is_resizing = true;
                 $(el_window_app_iframe).css('pointer-events', 'none');

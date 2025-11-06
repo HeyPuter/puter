@@ -23,27 +23,36 @@ async function UIWindowFinalizeUserDeletion(options){
     return new Promise(async (resolve) => {
         options = options ?? {};
 
-        const h = window.user.is_temp ? `
-            <div class="deletion-dialog-content">
-                <div class="generic-close-window-button disable-user-select" role="button" aria-label="${i18n('close')}"> &times; </div>
-                <img src="${window.icons['danger.svg']}" class="account-deletion-confirmation-icon" alt="${i18n('warning')}" role="img">
-                <p class="account-deletion-confirmation-prompt">${i18n('type_confirm_to_delete_account')}</p>
-                <div class="form-error-msg" role="alert" aria-live="polite"></div>
-                <input type="text" class="confirm-temporary-user-deletion form-input" placeholder="${i18n('type_confirm_to_delete_account')}" aria-label="${i18n('type_confirm_to_delete_account')}" aria-required="true">
-                <button class="button button-block button-danger proceed-with-user-deletion" aria-label="${i18n('delete_account')}">${i18n('delete_account')}</button>
-                <button class="button button-block button-secondary cancel-user-deletion" aria-label="${i18n('cancel')}">${i18n('cancel')}</button>
-            </div>
-        ` : `
-            <div class="deletion-dialog-content">
-                <div class="generic-close-window-button disable-user-select" role="button" aria-label="${i18n('close')}"> &times; </div>
-                <img src="${window.icons['danger.svg']}" class="account-deletion-confirmation-icon" alt="${i18n('warning')}" role="img">
-                <p class="account-deletion-confirmation-prompt">${i18n('enter_password_to_confirm_delete_user')}</p>
-                <div class="form-error-msg" role="alert" aria-live="polite"></div>
-                <input type="password" class="confirm-user-deletion-password form-input" placeholder="${i18n('current_password')}" aria-label="${i18n('current_password')}" aria-required="true">
-                <button class="button button-block button-danger proceed-with-user-deletion" aria-label="${i18n('delete_account')}">${i18n('delete_account')}</button>
-                <button class="button button-block button-secondary cancel-user-deletion" aria-label="${i18n('cancel')}">${i18n('cancel')}</button>
-            </div>
-        `;
+        let h = '';
+
+        // if user is temporary, ask them to type in 'confirm' to delete their account
+        if(window.user.is_temp){
+            h += `<div style="padding: 20px;">`;
+                h += `<div class="generic-close-window-button disable-user-select"> &times; </div>`;
+                h += `<img src="${window.icons['danger.svg']}"  class="account-deletion-confirmation-icon">`;
+                h += `<p class="account-deletion-confirmation-prompt">${i18n('type_confirm_to_delete_account')}</p>`;
+                // error message
+                h += `<div class="error-message"></div>`;
+                // input field
+                h += `<input type="text" class="confirm-temporary-user-deletion" placeholder="${i18n('type_confirm_to_delete_account')}">`;
+                h += `<button class="button button-block button-danger proceed-with-user-deletion">${i18n('delete_account')}</button>`;
+                h += `<button class="button button-block button-secondary cancel-user-deletion">${i18n('cancel')}</button>`;
+            h += `</div>`;
+        }
+        // otherwise ask for password
+        else{
+            h += `<div style="padding: 20px;">`;
+                h += `<div class="generic-close-window-button disable-user-select"> &times; </div>`;
+                h += `<img src="${window.icons['danger.svg']}" class="account-deletion-confirmation-icon">`;
+                h += `<p class="account-deletion-confirmation-prompt">${i18n('enter_password_to_confirm_delete_user')}</p>`;
+                // error message
+                h += `<div class="error-message"></div>`;
+                // input field
+                h += `<input type="password" class="confirm-user-deletion-password" placeholder="${i18n('current_password')}">`;
+                h += `<button class="button button-block button-danger proceed-with-user-deletion">${i18n('delete_account')}</button>`;
+                h += `<button class="button button-block button-secondary cancel-user-deletion">${i18n('cancel')}</button>`;
+            h += `</div>`;
+        }
 
         const el_window = await UIWindow({
             title: i18n('confirm_delete_user_title'),
@@ -83,25 +92,28 @@ async function UIWindowFinalizeUserDeletion(options){
         });
 
         $(el_window).find('.proceed-with-user-deletion').on('click', function(){
-            $(el_window).find('.form-error-msg').removeClass('visible');
-
+            $(el_window).find('.error-message').hide();
+            // if user is temporary, check if they typed 'confirm'
             if(window.user.is_temp){
                 const confirm = $(el_window).find('.confirm-temporary-user-deletion').val().toLowerCase();
 
+                // user must type 'confirm' or the translation of 'confirm' to delete their account
                 if(confirm !== 'confirm' && confirm !== i18n('confirm').toLowerCase()){
-                    $(el_window).find('.form-error-msg').html(i18n('type_confirm_to_delete_account')).addClass('visible');
+                    $(el_window).find('.error-message').html(i18n('type_confirm_to_delete_account'), false);
+                    $(el_window).find('.error-message').show();
                     return;
                 }
             }
+            // otherwise, check if password is correct
             else{
                 if($(el_window).find('.confirm-user-deletion-password').val() === ''){
-                    $(el_window).find('.form-error-msg').html(i18n('all_fields_required')).addClass('visible');
+                    $(el_window).find('.error-message').html(i18n('all_fields_required'), false);
+                    $(el_window).find('.error-message').show();
                     return;
                 }
             }
 
-            $(el_window).find('.proceed-with-user-deletion').addClass('loading');
-
+            // delete user
             $.ajax({
                 url: window.api_origin + "/delete-own-user",
                 type: 'POST',
@@ -118,18 +130,21 @@ async function UIWindowFinalizeUserDeletion(options){
                         window.logout();
                     },
                     400: function(){
-                        $(el_window).find('.proceed-with-user-deletion').removeClass('loading');
-                        $(el_window).find('.form-error-msg').html(i18n('incorrect_password')).addClass('visible');
+                        $(el_window).find('.error-message').html(i18n('incorrect_password'));
+                        $(el_window).find('.error-message').show();
                     }
                 },
                 success: function(data){
                     if(data.success){
+                        // mark user as deleted
                         window.user.deleted = true;
+                        // log user out
                         window.logout();
                     }
                     else{
-                        $(el_window).find('.proceed-with-user-deletion').removeClass('loading');
-                        $(el_window).find('.form-error-msg').html(html_encode(data.error)).addClass('visible');
+                        $(el_window).find('.error-message').html(html_encode(data.error));
+                        $(el_window).find('.error-message').show();
+
                     }
                 }
             });

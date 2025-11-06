@@ -7,30 +7,30 @@
  * it under the terms of the GNU Affero General Public License as published
  * by the Free Software Foundation, either version 3 of the License, or
  * (at your option) any later version.
- *
+ * 
  * This program is distributed in the hope that it will be useful,
  * but WITHOUT ANY WARRANTY; without even the implied warranty of
  * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
  * GNU Affero General Public License for more details.
- *
+ * 
  * You should have received a copy of the GNU Affero General Public License
  * along with this program.  If not, see <https://www.gnu.org/licenses/>.
  */
 
-import UIWindow from './UIWindow.js';
-import path from '../lib/path.js';
-import UIAlert from './UIAlert.js';
-import launch_app from '../helpers/launch_app.js';
-import item_icon from '../helpers/item_icon.js';
-import UIContextMenu from './UIContextMenu.js';
+import UIWindow from './UIWindow.js'
+import path from "../lib/path.js"
+import UIAlert from './UIAlert.js'
+import launch_app from '../helpers/launch_app.js'
+import item_icon from '../helpers/item_icon.js'
+import UIContextMenu from './UIContextMenu.js'
 
 async function UIWindowSearch(options){
-    const h = `
-        <div class="search-input-wrapper">
-            <input type="text" class="search-input" placeholder="Search" style="background-image:url('${window.icons['magnifier-outline.svg']}');">
-        </div>
-        <div class="search-results">
-    `;
+    let h = '';
+
+    h += `<div class="search-input-wrapper">`;
+        h += `<input type="text" class="search-input" placeholder="Search" style="background-image:url('${window.icons['magnifier-outline.svg']}');">`;
+    h += `</div>`;
+    h += `<div class="search-results" style="overflow-y: auto; max-height: 300px;">`;
 
     const el_window = await UIWindow({
         icon: null,
@@ -69,7 +69,7 @@ async function UIWindowSearch(options){
             'overflow': 'hidden',
             'min-height': '65px',
             'padding-bottom': '10px',
-        },
+        }    
     });
 
     $(el_window).find('.search-input').focus();
@@ -77,7 +77,7 @@ async function UIWindowSearch(options){
     // Debounce function to limit rate of API calls
     function debounce(func, wait) {
         let timeout;
-        return function(...args) {
+        return function (...args) {
             const context = this;
             clearTimeout(timeout);
             timeout = setTimeout(() => {
@@ -92,57 +92,54 @@ async function UIWindowSearch(options){
     // Debounced search function
     const performSearch = debounce(async function(searchInput, resultsContainer) {
         // Don't search if input is empty
-        if ( searchInput.val() === '' ) {
+        if (searchInput.val() === '') {
             resultsContainer.html('');
             resultsContainer.hide();
             return;
         }
 
         // Set loading state
-        if ( !isSearching ) {
+        if (!isSearching) {
             isSearching = true;
         }
 
         try {
             // Perform the search
-            let results = await fetch(`${window.api_origin}/search`, {
+            let results = await fetch(window.api_origin + '/search', {
                 method: 'POST',
                 headers: {
                     'Content-Type': 'application/json',
-                    'Authorization': `Bearer ${puter.authToken}`,
+                    'Authorization': `Bearer ${puter.authToken}`
                 },
-                body: JSON.stringify({ text: searchInput.val() }),
+                body: JSON.stringify({ text: searchInput.val() })
             });
 
             results = await results.json();
 
             // Hide results if there are none
-            if ( results.length === 0 )
-            {
+            if(results.length === 0)
                 resultsContainer.hide();
-            }
             else
-            {
                 resultsContainer.show();
-            }
 
             // Build results HTML
             let h = '';
 
-            for ( let i = 0; i < results.length; i++ ){
+            for(let i = 0; i < results.length; i++){
                 const result = results[i];
-                h += `<div
+                h += `<div 
                         class="search-result"
-                        data-path="${html_encode(result.path)}"
+                        data-path="${html_encode(result.path)}" 
                         data-uid="${html_encode(result.uid)}"
                         data-is_dir="${html_encode(result.is_dir)}"
                     >`;
-                h += `<img class="search-result-icon" src="${(await item_icon(result)).image}">`;
+                // icon
+                h += `<img src="${(await item_icon(result)).image}" style="width: 20px; height: 20px; margin-right: 6px;">`;
                 h += html_encode(result.name);
-                h += '</div>';
+                h += `</div>`;
             }
             resultsContainer.html(h);
-        } catch( error ) {
+        } catch (error) {
             resultsContainer.html('<div class="search-error">Search failed. Please try again.</div>');
             console.error('Search error:', error);
         } finally {
@@ -164,11 +161,11 @@ $(document).on('click', '.search-result', async function(e){
     const is_dir = $(this).attr('data-is_dir') === 'true' || $(this).data('is_dir') === '1';
     let open_item_meta;
 
-    if ( is_dir ){
+    if(is_dir){
         UIWindow({
             path: fspath,
             title: path.basename(fspath),
-            icon: await item_icon({ is_dir: true, path: fspath }),
+            icon: await item_icon({is_dir: true, path: fspath}),
             uid: fsuid,
             is_dir: is_dir,
             app: 'explorer',
@@ -181,56 +178,57 @@ $(document).on('click', '.search-result', async function(e){
     }
 
     // get all info needed to open an item
-    try {
+    try{
         open_item_meta = await $.ajax({
-            url: `${window.api_origin}/open_item`,
+            url: window.api_origin + "/open_item",
             type: 'POST',
-            contentType: 'application/json',
+            contentType: "application/json",
             data: JSON.stringify({
                 uid: fsuid ?? undefined,
                 path: fspath ?? undefined,
             }),
             headers: {
-                'Authorization': `Bearer ${window.auth_token}`,
+                "Authorization": "Bearer "+window.auth_token
             },
             statusCode: {
-                401: function() {
+                401: function () {
                     window.logout();
                 },
             },
         });
-    } catch( err ){
+    }catch(err){
         // Ignored
     }
 
     // get a list of suggested apps for this file type.
-    let suggested_apps = open_item_meta?.suggested_apps ?? await window.suggest_apps_for_fsentry({ uid: fsuid, path: fspath });
-
+    let suggested_apps = open_item_meta?.suggested_apps ?? await window.suggest_apps_for_fsentry({uid: fsuid, path: fspath});
+    
     //---------------------------------------------
     // No suitable apps, ask if user would like to
     // download
     //---------------------------------------------
-    if ( suggested_apps.length === 0 ){
+    if(suggested_apps.length === 0){
         //---------------------------------------------
         // If .zip file, unzip it
         //---------------------------------------------
-        if ( path.extname(fspath) === '.zip' ){
+        if(path.extname(fspath) === '.zip'){
             window.unzipItem(fspath);
             return;
         }
-        const alert_resp = await UIAlert('Found no suitable apps to open this file with. Would you like to download it instead?',
-                        [
-                            {
-                                label: i18n('download_file'),
-                                value: 'download_file',
-                                type: 'primary',
+        const alert_resp = await UIAlert(
+                'Found no suitable apps to open this file with. Would you like to download it instead?',
+                [
+                {
+                    label: i18n('download_file'),
+                    value: 'download_file',
+                    type: 'primary',
 
-                            },
-                            {
-                                label: i18n('cancel'),
-                            },
-                        ]);
-        if ( alert_resp === 'download_file' ){
+                },
+                {
+                    label: i18n('cancel')
+                }
+            ])
+        if(alert_resp === 'download_file'){
             window.trigger_download([fspath]);
         }
         return;
@@ -238,9 +236,9 @@ $(document).on('click', '.search-result', async function(e){
     //---------------------------------------------
     // First suggested app is default app to open this item
     //---------------------------------------------
-    else {
+    else{
         launch_app({
-            name: suggested_apps[0].name,
+            name: suggested_apps[0].name, 
             token: open_item_meta.token,
             file_path: fspath,
             app_obj: suggested_apps[0],
@@ -251,22 +249,23 @@ $(document).on('click', '.search-result', async function(e){
         });
     }
 
+
     // close
     $(this).closest('.window').close();
-});
+})
 
 // Context menu for search results
 $(document).on('contextmenu', '.search-result', async function(e){
     e.preventDefault();
     e.stopPropagation();
-
+    
     const fspath = $(this).data('path');
     const fsuid = $(this).data('uid');
     const is_dir = $(this).attr('data-is_dir') === 'true' || $(this).data('is_dir') === '1';
-
+    
     // Get the parent directory path
     const parent_path = path.dirname(fspath);
-
+    
     // Build context menu items
     const menuItems = [
         {
@@ -274,12 +273,12 @@ $(document).on('contextmenu', '.search-result', async function(e){
             onClick: async function() {
                 // Trigger the same logic as clicking on the search result
                 $(e.target).trigger('click');
-            },
-        },
+            }
+        }
     ];
-
+    
     // Only add "Open enclosing folder" if we're not already at root
-    if ( parent_path && parent_path !== fspath && parent_path !== '/' ) {
+    if (parent_path && parent_path !== fspath && parent_path !== '/') {
         menuItems.push('-'); // divider
         menuItems.push({
             html: i18n('open_containing_folder'),
@@ -292,16 +291,16 @@ $(document).on('contextmenu', '.search-result', async function(e){
                     is_dir: true,
                     app: 'explorer',
                 });
-
+                
                 // Close search window
                 $(e.target).closest('.window').close();
-            },
+            }
         });
     }
-
+    
     UIContextMenu({
-        items: menuItems,
+        items: menuItems
     });
-});
+})
 
-export default UIWindowSearch;
+export default UIWindowSearch
