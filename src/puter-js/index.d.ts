@@ -9,7 +9,7 @@ declare global {
 declare class Puter {
     // Properties
     appID: string;
-    env: 'app' | 'web' | 'gui';
+    env: 'app' | 'web' | 'gui' | 'nodejs' | 'service-worker';
 
     // Utility methods
     print(text: string, options?: { code?: boolean }): void;
