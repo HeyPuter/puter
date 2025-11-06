@@ -73,6 +73,9 @@ async function UIWindowLogin(options){
                     h += `</div>`;
                     // login
                     h += `<button type="submit" class="login-btn button button-primary button-block button-normal">${i18n('log_in')}</button>`;
+                    if(window.gui_params?.google_oauth_enabled){
+                        h += `<button type="button" class="login-google-btn button button-secondary button-block button-normal" style="margin-top:12px;">Continue with Google</button>`;
+                    }
                     // password recovery
                     h += `<p style="text-align:center; margin-bottom: 0;"><span class="forgot-password-link">${i18n('forgot_pass_c2a')}</span></p>`;
                 h += `</form>`;
@@ -140,6 +143,26 @@ async function UIWindowLogin(options){
                 }
             });
         })
+
+        if(window.gui_params?.google_oauth_enabled){
+            $(el_window).find('.login-google-btn').on('click', function(){
+                let redirectTarget = window.location.href;
+                try {
+                    redirectTarget = new URL(window.location.href).toString();
+                } catch ( e ) {
+                    redirectTarget = window.gui_origin;
+                }
+
+                const authUrl = new URL('/auth/google', window.gui_origin);
+                authUrl.searchParams.set('redirect', redirectTarget);
+
+                if ( window.referral_code ) {
+                    authUrl.searchParams.set('referral_code', window.referral_code);
+                }
+
+                window.location.href = authUrl.toString();
+            });
+        }
 
         $(el_window).find('.login-btn').on('click', function(e){
             // Prevent default button behavior (important for async requests)

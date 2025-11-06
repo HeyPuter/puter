@@ -169,6 +169,7 @@ class PuterHomepageService extends BaseService {
                 co_isolation_enabled: req.co_isolation_enabled,
                 // Add captcha requirements to GUI parameters
                 captchaRequired: captchaRequired,
+                google_oauth_enabled: config.services?.['google-oauth']?.enabled === true,
                 turnstileSiteKey: turnstileSiteKey,
             },
         }));
