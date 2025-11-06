@@ -7,18 +7,18 @@
  * it under the terms of the GNU Affero General Public License as published
  * by the Free Software Foundation, either version 3 of the License, or
  * (at your option) any later version.
- * 
+ *
  * This program is distributed in the hope that it will be useful,
  * but WITHOUT ANY WARRANTY; without even the implied warranty of
  * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
  * GNU Affero General Public License for more details.
- * 
+ *
  * You should have received a copy of the GNU Affero General Public License
  * along with this program.  If not, see <https://www.gnu.org/licenses/>.
  */
 
 import Placeholder from '../../util/Placeholder.js';
-import UIWindow from '../UIWindow.js'
+import UIWindow from '../UIWindow.js';
 
 def(Symbol('TSettingsTab'), 'ui.traits.TSettingsTab');
 
@@ -31,43 +31,58 @@ async function UIWindowSettings(options){
         const tabs = svc_settings.get_tabs();
         const tab_placeholders = [];
 
-        let h = '';
+        const savedSize = await puter.kv.get('settings_window_size').catch(() => null);
 
-        h += `<div class="settings-container">`;
-        h += `<div class="settings">`;
-            // sidebar toggle
-            h += `<button class="sidebar-toggle hidden-lg hidden-xl hidden-md"><div class="sidebar-toggle-button"><span></span><span></span><span></span></div></button>`;
-            // sidebar
-            h += `<div class="settings-sidebar disable-user-select disable-context-menu">`;
-                // if data-is_fullpage="1" show title saying "Settings"
-                if (options.window_options?.is_fullpage) {
-                    h += `<div class="settings-sidebar-title">${i18n('settings')}</div>`;
-                }
+        const sidebarTitle = options.window_options?.is_fullpage
+            ? `<div class="settings-sidebar-title">${i18n('settings')}</div>`
+            : '';
 
-                // sidebar items
-                h += `<div class="settings-sidebar-burger disable-context-menu disable-user-select" style="background-image: url(${window.icons['menu']});"></div>`;
-                tabs.forEach((tab, i) => {
-                    h += `<div class="settings-sidebar-item disable-context-menu disable-user-select ${i === 0 ? 'active' : ''}" data-settings="${tab.id}" style="background-image: url(${window.icons[tab.icon]});">${i18n(tab.title_i18n_key)}</div>`;
-                });
-            h += `</div>`;
+        const sidebarItems = tabs.map((tab, i) => `
+            <div class="settings-sidebar-item disable-context-menu disable-user-select ${i === 0 ? 'active' : ''}"
+                 data-settings="${tab.id}"
+                 style="background-image: url(${window.icons[tab.icon]}); --icon-url: url(${window.icons[tab.icon]});">
+                ${i18n(tab.title_i18n_key)}
+            </div>
+        `).join('');
 
-            // content
-            h += `<div class="settings-content-container">`;
+        const contentTabs = tabs.map((tab, i) => {
+            let content;
+            if (tab.factory || tab.dom) {
+                tab_placeholders[i] = Placeholder();
+                content = tab_placeholders[i].html;
+            } else {
+                content = tab.html();
+            }
+            return `
+                <div class="settings-content ${i === 0 ? 'active' : ''}" data-settings="${tab.id}">
+                    ${content}
+                </div>
+            `;
+        }).join('');
 
-            tabs.forEach((tab, i) => {
-                h += `<div class="settings-content ${i === 0 ? 'active' : ''}" data-settings="${tab.id}">`;
-                if ( tab.factory || tab.dom ) {
-                    tab_placeholders[i] = Placeholder();
-                    h += tab_placeholders[i].html;
-                } else {
-                    h += tab.html();
-                }
-                h += `</div>`;
-            });
-
-            h += `</div>`;
-        h += `</div>`;
-        h += `</div>`;
+        const h = `
+            <div class="settings-container">
+                <div class="settings">
+                    <div class="settings-backdrop hidden-lg hidden-xl hidden-md"></div>
+                    <button class="sidebar-toggle hidden-lg hidden-xl hidden-md">
+                        <div class="sidebar-toggle-button">
+                            <span></span>
+                            <span></span>
+                            <span></span>
+                        </div>
+                    </button>
+                    <div class="settings-sidebar disable-user-select disable-context-menu">
+                        ${sidebarTitle}
+                        <div class="settings-sidebar-burger disable-context-menu disable-user-select"
+                             style="background-image: url(${window.icons['menu']});"></div>
+                        ${sidebarItems}
+                    </div>
+                    <div class="settings-content-container">
+                        ${contentTabs}
+                    </div>
+                </div>
+            </div>
+        `;
 
         const el_window = await UIWindow({
             title: 'Settings',
@@ -86,8 +101,10 @@ async function UIWindowSettings(options){
             allow_native_ctxmenu: true,
             allow_user_select: true,
             backdrop: false,
-            width: 800,
-            height: 'auto',
+            width: savedSize?.width || 800,
+            height: savedSize?.height || 'auto',
+            minWidth: 480,
+            minHeight: 500,
             dominant: true,
             show_in_taskbar: false,
             draggable_body: false,
@@ -99,9 +116,9 @@ async function UIWindowSettings(options){
             body_css: {
                 width: 'initial',
                 height: '100%',
-                overflow: 'auto'
+                overflow: 'auto',
             },
-            ...options?.window_options??{}
+            ...options?.window_options ?? {},
         });
         const $el_window = $(el_window);
         tabs.forEach((tab, i) => {
@@ -119,9 +136,9 @@ async function UIWindowSettings(options){
         });
 
         // If options.tab is provided, open that tab
-        if (options.tab) {
+        if ( options.tab ) {
             const $tabToOpen = $el_window.find(`.settings-sidebar-item[data-settings="${options.tab}"]`);
-            if ($tabToOpen.length > 0) {
+            if ( $tabToOpen.length > 0 ) {
                 setTimeout(() => {
                     $tabToOpen.trigger('click');
                 }, 50);
@@ -142,54 +159,88 @@ async function UIWindowSettings(options){
 
             // Run on_show handlers
             const tab = tabs.find((tab) => tab.id === settings);
-            if (tab?.on_show) {
+            if ( tab?.on_show ) {
                 tab.on_show($content);
             }
-        })
+
+            // hide sidebar on mobile
+            const $settings = $this.closest('.settings');
+            $settings.find('.settings-sidebar').removeClass('active');
+            $settings.find('.sidebar-toggle').removeClass('active');
+            $settings.find('.settings-backdrop').removeClass('active');
+        });
+
+        $(el_window).on('click', '.sidebar-toggle', function(e) {
+            e.preventDefault();
+            e.stopPropagation();
+            const $settings = $(this).closest('.settings');
+            const isActive = $settings.find('.settings-sidebar').hasClass('active');
+
+            $settings.find('.settings-sidebar').toggleClass('active');
+            $settings.find('.sidebar-toggle').toggleClass('active');
+            $settings.find('.settings-backdrop').toggleClass('active');
+
+            // Prevent body scroll when sidebar is open
+            if ( !isActive ) {
+                $('body').css('overflow', 'hidden');
+            } else {
+                $('body').css('overflow', '');
+            }
+        });
+
+        $(el_window).on('click', '.settings-backdrop', function() {
+            const $settings = $(this).closest('.settings');
+            $settings.find('.settings-sidebar').removeClass('active');
+            $settings.find('.sidebar-toggle').removeClass('active');
+            $settings.find('.settings-backdrop').removeClass('active');
+            $('body').css('overflow', '');
+        });
+
+        $(el_window).on('click', function(e) {
+            const $target = $(e.target);
+            if ( !$target.closest('.settings-sidebar').length &&
+                !$target.closest('.sidebar-toggle').length &&
+                !$target.closest('.settings-backdrop').length ) {
+                const $settings = $(el_window).find('.settings');
+                if ( $settings.find('.settings-sidebar').hasClass('active') ) {
+                    $settings.find('.settings-sidebar').removeClass('active');
+                    $settings.find('.sidebar-toggle').removeClass('active');
+                    $settings.find('.settings-backdrop').removeClass('active');
+                    $('body').css('overflow', '');
+                }
+            }
+        });
+
+        $(el_window).on('resizestop', function() {
+            const width = $(el_window).width();
+            const height = $(el_window).height();
+            puter.kv.set('settings_window_size', { width, height });
+        });
+
+        const updateWindowSizeClasses = () => {
+            const $settings = $el_window.find('.settings');
+            const width = $el_window.width();
+
+            $settings.removeClass('window-xs window-sm window-md');
+
+            if (width < 576) {
+                $settings.addClass('window-xs');
+            } else if (width < 768) {
+                $settings.addClass('window-sm');
+            } else if (width < 992) {
+                $settings.addClass('window-md');
+            }
+        };
+
+        const resizeObserver = new ResizeObserver(() => {
+            updateWindowSizeClasses();
+        });
+        resizeObserver.observe(el_window);
+
+        updateWindowSizeClasses();
 
         resolve(el_window);
     });
 }
 
-$(document).on('mousedown', '.sidebar-toggle', function(e) {
-    e.preventDefault();
-    $('.settings-sidebar').toggleClass('active');
-    $('.sidebar-toggle-button').toggleClass('active');
-    // move sidebar toggle button
-    setTimeout(() => {
-        $('.sidebar-toggle').css({
-            left: $('.settings-sidebar').hasClass('active') ? 243 : 2
-        });   
-    }, 10);
-})
-
-$(document).on('click', '.settings-sidebar-item', function(e) {
-    // hide sidebar
-    $('.settings-sidebar').removeClass('active');
-    // move sidebar toggle button ro the right
-    setTimeout(() => {
-        $('.sidebar-toggle').css({
-            left: 2
-        });   
-    }, 10);
-
-})
-
-// clicking anywhere on the page will close the sidebar
-$(document).on('click', function(e) {
-    // print event target class
-    
-    if (!$(e.target).closest('.settings-sidebar').length && !$(e.target).closest('.sidebar-toggle-button').length && !$(e.target).hasClass('sidebar-toggle-button') && !$(e.target).hasClass('sidebar-toggle')) {
-        $('.settings-sidebar').removeClass('active');
-        $('.sidebar-toggle-button').removeClass('active');
-        // move sidebar toggle button ro the right
-        setTimeout(() => {
-            $('.sidebar-toggle').css({
-                left: 2
-            });   
-        }, 10);
-
-    }
-})
-
-export default UIWindowSettings
+export default UIWindowSettings;
