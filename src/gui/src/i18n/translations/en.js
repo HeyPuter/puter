@@ -116,6 +116,7 @@ const en = {
         documents: 'Documents',
         dont_allow: 'Don\'t Allow',
         download: 'Download',
+        confirm_download_file_to_desktop: 'Are you sure you want to download this file to your Desktop?',
         download_file: 'Download File',
         downloading: "Downloading",
         error_download_failed: "Failed to download file",

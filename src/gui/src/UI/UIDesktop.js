@@ -1787,6 +1787,19 @@ async function UIDesktop(options) {
     // i.e. https://puter.com/?download=<file_url>
     //--------------------------------------------------------------------------------------
     if (window.url_paths.length === 0 && window.url_query_params.has('download')) {
+
+        let response = await UIAlert({
+            message: i18n('confirm_download_file_to_desktop'),
+            type: 'confirm',
+            buttons: [
+                { label: i18n('alert_yes'), value: true, type: "primary" },
+                { label: i18n('alert_no'), value: false, type: "secondary" }
+            ],
+        });
+
+        if (!response)
+            return;
+
         const url = window.url_query_params.get('download');
         
         // create progressbar dialog
