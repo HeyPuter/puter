@@ -104,11 +104,8 @@ class PuterFSProvider extends putility.AdvancedBase {
     }
 
     async readdir ({ node }) {
-        const uuid = await node.get('uid');
-        const svc_fsentry = this.#services.get('fsEntryService');
-        const child_uuids = await svc_fsentry
-            .fast_get_direct_descendants(uuid);
-        return child_uuids;
+        console.error('This .readdir should not be called!');
+        throw new Error('This .readdir should not be called!');
     }
 
     async move ({ context, node, new_parent, new_name, metadata }) {
