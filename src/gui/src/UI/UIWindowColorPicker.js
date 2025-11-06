@@ -17,7 +17,8 @@
  * along with this program.  If not, see <https://www.gnu.org/licenses/>.
  */
 
-import UIWindow from './UIWindow.js'
+import { UIColorPickerWidget } from './UIColorPickerWidget.js';
+import UIWindow from './UIWindow.js';
 
 async function UIWindowColorPicker(options){
     // set sensible defaults
@@ -31,7 +32,7 @@ async function UIWindowColorPicker(options){
     options = options ?? {};
 
     return new Promise(async (resolve) => {
-        let colorPicker;
+        let colorPickerWidget;
 
         let h = ``;
         h += `<div>`;
@@ -72,34 +73,8 @@ async function UIWindowColorPicker(options){
                 resolve(false)
             },
             onAppend: function(window){
-                colorPicker = new iro.ColorPicker($(window).find('.picker').get(0), {
-                    layout: [
-                        {
-                            component: iro.ui.Box,
-                            options: {
-                                layoutDirection: 'horizontal',
-                                width: 265,
-                                height: 265,
-                            }
-                        },
-                        {
-                            component: iro.ui.Slider,
-                            options: {
-                                sliderType: 'alpha',
-                                layoutDirection: 'horizontal',
-                                height: 265,
-                                width:265,
-                            }
-                        },
-                        {
-                            component: iro.ui.Slider,
-                            options: {
-                                sliderType: 'hue',
-                            }
-                        },
-                    ],
-                    // Set the initial color to pure red
-                    color: options.default ?? "#f00",
+                colorPickerWidget = UIColorPickerWidget($(window).find('.picker'), {
+                    default: options.default ?? "#f00",
                 });    
             },
             window_class: 'window-login',
@@ -115,7 +90,7 @@ async function UIWindowColorPicker(options){
         })
 
         $(el_window).find('.select-btn').on('click', function(e){            
-            resolve({color: colorPicker.color.hex8String});
+            resolve({color: colorPickerWidget.getHex8String()});
             $(el_window).close();
         })  
         $(el_window).find('.font-selector').on('click', function(e){
