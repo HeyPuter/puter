@@ -490,6 +490,12 @@ class PuterFSProvider {
         return node;
     }
 
+    async readdir ({ node }) {
+        const uuid = await node.get('uid');
+        const child_uuids = await svc_fsEntry.fast_get_direct_descendants(uuid);
+        return child_uuids;
+    }
+
     async #rmnode ({ node, options }) {
         // Services
         if ( !options.override_immutable && await node.get('immutable') ) {
