@@ -14,7 +14,7 @@ import type * as ExtensionControllerExports from './ExtensionController/src/Exte
 declare global {
     namespace Express {
         interface Request {
-            services: { get: <T extends (keyof ServiceNameMap ) | (string & {})>(string: T)=> T extends keyof ServiceNameMap ? ServiceNameMap[T] : unknown }
+            services: { get: <T extends (keyof ServiceNameMap) | (string & {}) >(string: T) => T extends keyof ServiceNameMap ? ServiceNameMap[T] : unknown }
             actor: Actor,
             rawBody: Buffer,
             /** @deprecated use actor instead */
@@ -68,11 +68,12 @@ interface ServiceNameMap {
 }
 interface Extension extends RouterMethods {
     exports: Record<string, unknown>,
-    on<T extends unknown[]>(event: string, listener: (...args: T)=> void): void, // TODO DS: type events better
-    import(module:'core'): CoreRuntimeModule,
-    import(module:'fs'): FilesystemModule,
-    import(module:'extensionController'): typeof ExtensionControllerExports
-    import<T extends `service:${keyof ServiceNameMap}`| (string & {})>(module: T): T extends `service:${infer R extends keyof ServiceNameMap}`
+    on<T extends unknown[]>(event: string, listener: (...args: T) => void): void, // TODO DS: type events better
+    import(module: 'data'): { db: BaseDatabaseAccessService, kv: DBKVStore, cache: unknown }// TODO DS: type cache better
+    import(module: 'core'): CoreRuntimeModule,
+    import(module: 'fs'): FilesystemModule,
+    import(module: 'extensionController'): typeof ExtensionControllerExports
+    import<T extends `service:${keyof ServiceNameMap}` | (string & {})>(module: T): T extends `service:${infer R extends keyof ServiceNameMap}`
         ? ServiceNameMap[R]
         : unknown;
 }

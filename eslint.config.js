@@ -53,6 +53,7 @@ const rules = {
     '@stylistic/no-mixed-spaces-and-tabs': ['error', 'smart-tabs'],
     'custom/space-unary-ops-with-exception': ['error', { words: true, nonwords: false }],
     '@stylistic/no-multi-spaces': ['error', { exceptions: { 'VariableDeclarator': true } }],
+    '@stylistic/type-annotation-spacing': 'error',
 };
 
 export default defineConfig([
