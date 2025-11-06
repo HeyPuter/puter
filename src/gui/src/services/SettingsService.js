@@ -21,6 +21,7 @@ import { Service } from "../definitions.js";
 import AboutTab from '../UI/Settings/UITabAbout.js';
 import UsageTab from '../UI/Settings/UITabUsage.js';
 import AccountTab from '../UI/Settings/UITabAccount.js';
+import SecurityTab from '../UI/Settings/UITabSecurity.js';
 import PersonalizationTab from '../UI/Settings/UITabPersonalization.js';
 import LanguageTag from '../UI/Settings/UITabLanguage.js';
 import UIElement from "../UI/UIElement.js";
@@ -32,6 +33,7 @@ export class SettingsService extends Service {
         ;[
             UsageTab,
             AccountTab,
+            SecurityTab,
             PersonalizationTab,
             LanguageTag,
             AboutTab,

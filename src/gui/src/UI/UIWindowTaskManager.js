@@ -143,20 +143,21 @@ const generate_task_rows = (items, { indent_level, is_last_item_stack }) => {
 const UIWindowTaskManager = async function UIWindowTaskManager () {
     const svc_process = globalThis.services.get('process');
 
-    const h = `
-        <div class="task-manager-container">
-            <table>
-                <thead>
-                    <tr>
-                        <th>${i18n('taskmgr_header_name')}</th>
-                        <th>${i18n('taskmgr_header_type')}</th>
-                        <th>${i18n('taskmgr_header_status')}</th>
-                    </tr>
-                </thead>
-                <tbody class="taskmgr-taskarea"></tbody>
-            </table>
-        </div>
-    `;
+    let h = '';
+
+    h += `<div class="task-manager-container">`;
+        h += `<table>`;
+            h += `<thead>`;
+                h += `<tr>`;
+                    h += `<th>${i18n('taskmgr_header_name')}</th>`;
+                    h += `<th>${i18n('taskmgr_header_type')}</th>`;
+                    h += `<th>${i18n('taskmgr_header_status')}</th>`;
+                h += `</tr>`;
+            h += `</thead>`;
+            h += `<tbody class="taskmgr-taskarea">`;
+            h += `</tbody>`;
+        h += `</table>`;
+    h += `</div>`;
 
     const el_window = await UIWindow({
         title: i18n('task_manager'),
@@ -181,7 +182,12 @@ const UIWindowTaskManager = async function UIWindowTaskManager () {
         },
         body_css: {
             width: 'initial',
-            'background-color': '#F5F5F7',
+            padding: '20px',
+            'background-color': `hsla(
+                var(--primary-hue),
+                var(--primary-saturation),
+                var(--primary-lightness),
+                var(--primary-alpha))`,
             'backdrop-filter': 'blur(3px)',
             'box-sizing': 'border-box',
             height: 'calc(100% - 30px)',
@@ -189,7 +195,7 @@ const UIWindowTaskManager = async function UIWindowTaskManager () {
             'flex-direction': 'column',
             '--scale': '2pt',
             '--line-color': '#6e6e6ebd',
-            padding: '20px',
+            padding: '0',
         },
     });
 
