@@ -19,7 +19,7 @@ export class MeteringService {
     #superUserService: SUService;
     #alarmService: AlarmService;
     #eventService: EventService;
-    constructor({ kvStore, superUserService, alarmService, eventService }: MeteringServiceDeps) {
+    constructor ({ kvStore, superUserService, alarmService, eventService }: MeteringServiceDeps) {
         this.#superUserService = superUserService;
         this.#kvStore = kvStore;
         this.#alarmService = alarmService;
@@ -27,12 +27,14 @@ export class MeteringService {
     }
 
     utilRecordUsageObject<T extends Record<string, number>>(trackedUsageObject: T, actor: Actor, modelPrefix: string, costsOverrides?: Record<keyof T, number>) {
-        Object.entries(trackedUsageObject).forEach(([usageKind, amount]) => {
-            this.incrementUsage(actor, `${modelPrefix}:${usageKind}`, amount, costsOverrides?.[usageKind as keyof T]);
-        });
+        this.batchIncrementUsages(actor, Object.entries(trackedUsageObject).map(([usageKind, amount]) => ({
+            usageType: `${modelPrefix}:${usageKind}`,
+            usageAmount: amount,
+            costOverride: costsOverrides?.[usageKind as keyof T],
+        })));
     }
 
-    #getMonthYearString() {
+    #getMonthYearString () {
         const now = new Date();
         return `${now.getUTCFullYear()}-${String(now.getUTCMonth() + 1).padStart(2, '0')}`;
     }
@@ -43,7 +45,7 @@ export class MeteringService {
      * @param appId
      * @returns
      */
-    #generateGloabalUsageKey(userId: string, appId: string, currentMonth: string) {
+    #generateGloabalUsageKey (userId: string, appId: string, currentMonth: string) {
         const hashOfUserAndApp = murmurhash.v3(`${userId}:${appId}`) % MeteringService.GLOBAL_SHARD_COUNT;
         const key = `${METRICS_PREFIX}:puter:${hashOfUserAndApp}:${currentMonth}`;
         return key;
@@ -55,14 +57,14 @@ export class MeteringService {
      * @param currentMonth
      * @returns
      */
-    #generateAppUsageKey(appId: string, currentMonth: string) {
+    #generateAppUsageKey (appId: string, currentMonth: string) {
         const hashOfApp = murmurhash.v3(`${appId}`) % MeteringService.APP_SHARD_COUNT;
         const key = `${METRICS_PREFIX}:app:${appId}:${hashOfApp}:${currentMonth}`;
         return key;
     }
 
     // TODO DS: track daily and hourly usage as well
-    async incrementUsage(actor: Actor, usageType: (keyof typeof COST_MAPS) | (string & {}), usageAmount: number, costOverride?: number) {
+    async incrementUsage (actor: Actor, usageType: (keyof typeof COST_MAPS) | (string & {}), usageAmount: number, costOverride?: number) {
         try {
             if ( !usageAmount || !usageType || !actor ) {
                 // silent fail for now;
@@ -184,7 +186,7 @@ export class MeteringService {
                 }
                 return actorUsages;
             });
-        } catch( e ) {
+        } catch ( e ) {
             console.error('Metering: Failed to increment usage for actor', actor, 'usageType', usageType, 'usageAmount', usageAmount, e);
             this.#alarmService.create('metering-service-error', (e as Error).message, {
                 error: e,
@@ -197,7 +199,160 @@ export class MeteringService {
         }
     }
 
-    async getActorCurrentMonthUsageDetails(actor: Actor) {
+    async batchIncrementUsages (actor: Actor, usages: { usageType: (keyof typeof COST_MAPS) | (string & {}), usageAmount: number, costOverride?: number }[]) {
+        try {
+            if ( !usages || usages.length === 0 || !actor ) {
+                // silent fail for now;
+                return { total: 0 } as UsageByType;
+            }
+
+            if ( actor.type instanceof SystemActorType || actor.type?.user?.username === 'system' ) {
+                // Don't track for now since it will trigger infinite noise;
+                return { total: 0 } as UsageByType;
+            }
+
+            const currentMonth = this.#getMonthYearString();
+
+            return this.#superUserService.sudo(async () => {
+                // Aggregate all pathAndAmountMap entries for all usages
+                const aggregatedPathAndAmountMap: Record<string, number> = {};
+                let totalBatchCost = 0;
+                let hasZeroCostWarning = false;
+
+                // Process each usage and aggregate the pathAndAmountMap
+                for ( const usage of usages ) {
+                    const { usageType, usageAmount, costOverride } = usage;
+
+                    if ( !usageAmount || !usageType ) {
+                        continue; // skip invalid entries
+                    }
+
+                    const totalCost = (costOverride ?? (COST_MAPS[usageType as keyof typeof COST_MAPS] || 0) * usageAmount) || 0;
+                    totalBatchCost += totalCost;
+
+                    // Check for zero cost warning (only flag once per batch)
+                    if ( !hasZeroCostWarning && COST_MAPS[usageType as keyof typeof COST_MAPS] !== 0 && totalCost === 0 && costOverride === undefined ) {
+                        hasZeroCostWarning = true;
+                        this.#alarmService.create('metering-service-0-cost-warning', 'potential abuse vector', {
+                            actor,
+                            usageType,
+                            usageAmount,
+                            costOverride,
+                        });
+                    }
+
+                    const escapedUsageType = usageType.replace(/\./g, PERIOD_ESCAPE) as keyof typeof COST_MAPS;
+
+                    // Aggregate into the pathAndAmountMap
+                    aggregatedPathAndAmountMap['total'] = (aggregatedPathAndAmountMap['total'] || 0) + totalCost;
+                    aggregatedPathAndAmountMap[`${escapedUsageType}.units`] = (aggregatedPathAndAmountMap[`${escapedUsageType}.units`] || 0) + usageAmount;
+                    aggregatedPathAndAmountMap[`${escapedUsageType}.cost`] = (aggregatedPathAndAmountMap[`${escapedUsageType}.cost`] || 0) + totalCost;
+                    aggregatedPathAndAmountMap[`${escapedUsageType}.count`] = (aggregatedPathAndAmountMap[`${escapedUsageType}.count`] || 0) + 1;
+                }
+
+                const appId = actor.type?.app?.uid || GLOBAL_APP_KEY;
+                const userId = actor.type?.user.uuid;
+
+                const actorUsageKey = `${METRICS_PREFIX}:actor:${userId}:${currentMonth}`;
+                const actorUsagesPromise = this.#kvStore.incr({
+                    key: actorUsageKey,
+                    pathAndAmountMap: aggregatedPathAndAmountMap,
+                }) as Promise<UsageByType>;
+
+                const puterConsumptionKey = this.#generateGloabalUsageKey(userId, appId, currentMonth);
+                this.#kvStore.incr({
+                    key: puterConsumptionKey,
+                    pathAndAmountMap: aggregatedPathAndAmountMap,
+                }).catch((e: Error) => {
+                    console.warn('Failed to increment aux usage data \'puterConsumptionKey\' with error: ', e);
+                });
+
+                const actorAppUsageKey = `${METRICS_PREFIX}:actor:${userId}:app:${appId}:${currentMonth}`;
+                this.#kvStore.incr({
+                    key: actorAppUsageKey,
+                    pathAndAmountMap: aggregatedPathAndAmountMap,
+                }).catch((e: Error) => {
+                    console.warn('Failed to increment aux usage data \'actorAppUsageKey\' with error: ', e);
+                });
+
+                const appUsageKey = this.#generateAppUsageKey(appId, currentMonth);
+                this.#kvStore.incr({
+                    key: appUsageKey,
+                    pathAndAmountMap: aggregatedPathAndAmountMap,
+                }).catch((e: Error) => {
+                    console.warn('Failed to increment aux usage data \'appUsageKey\' with error: ', e);
+                });
+
+                const actorAppTotalsKey = `${METRICS_PREFIX}:actor:${userId}:apps:${currentMonth}`;
+                this.#kvStore.incr({
+                    key: actorAppTotalsKey,
+                    pathAndAmountMap: {
+                        [`${appId}.total`]: totalBatchCost,
+                        [`${appId}.count`]: usages.length,
+                    },
+                }).catch((e: Error) => {
+                    console.warn('Failed to increment aux usage data \'actorAppTotalsKey\' with error: ', e);
+                });
+
+                const lastUpdatedKey = `${METRICS_PREFIX}:actor:${userId}:lastUpdated`;
+                this.#kvStore.set({
+                    key: lastUpdatedKey,
+                    value: Date.now(),
+                }).catch((e: Error) => {
+                    console.warn('Failed to set lastUpdatedKey with error: ', e);
+                });
+
+                // update addon usage if we are over the allowance
+                const actorSubscriptionPromise = this.getActorSubscription(actor);
+                const actorAddonsPromise = this.getActorAddons(actor);
+                const [actorUsages, actorSubscription, actorAddons] = (await Promise.all([actorUsagesPromise, actorSubscriptionPromise, actorAddonsPromise]));
+
+                if ( actorUsages.total > actorSubscription.monthUsageAllowance && actorAddons.purchasedCredits && actorAddons.purchasedCredits > (actorAddons.consumedPurchaseCredits || 0) ) {
+                    // if we are now over the allowance, start consuming purchased credits
+                    const withinBoundsUsage = Math.max(0, actorSubscription.monthUsageAllowance - actorUsages.total + totalBatchCost);
+                    const overageUsage = totalBatchCost - withinBoundsUsage;
+
+                    if ( overageUsage > 0 ) {
+                        await this.#kvStore.incr({
+                            key: `${POLICY_PREFIX}:actor:${userId}:addons`,
+                            pathAndAmountMap: {
+                                consumedPurchaseCredits: Math.min(overageUsage, actorAddons.purchasedCredits - (actorAddons.consumedPurchaseCredits || 0)),
+                            },
+                        });
+                    }
+                }
+
+                // alert if significantly over allowance and no purchased credits left
+                const allowedUsageMultiple = Math.floor(actorUsages.total / actorSubscription.monthUsageAllowance);
+                const previousAllowedUsageMultiple = Math.floor((actorUsages.total - totalBatchCost) / actorSubscription.monthUsageAllowance);
+                const isOver2x = allowedUsageMultiple >= 2;
+                const isChangeOverPastOverage = previousAllowedUsageMultiple < allowedUsageMultiple;
+                const hasNoAddonCredit = (actorAddons.purchasedCredits || 0) <= (actorAddons.consumedPurchaseCredits || 0);
+
+                if ( isOver2x && isChangeOverPastOverage && hasNoAddonCredit ) {
+                    this.#alarmService.create('metering-service-usage-limit-exceeded', `Actor ${userId} has exceeded their usage allowance significantly`, {
+                        actor,
+                        batchUsages: usages,
+                        totalBatchCost,
+                        totalUsage: actorUsages.total,
+                        monthUsageAllowance: actorSubscription.monthUsageAllowance,
+                    });
+                }
+
+                return actorUsages;
+            });
+        } catch (e) {
+            console.error('Metering: Failed to batch increment usage for actor', actor, 'usages', usages, e);
+            this.#alarmService.create('metering-service-error', (e as Error).message, {
+                error: e,
+                actor,
+                batchUsages: usages,
+            });
+            return { total: 0 } as UsageByType;
+        }
+    }
+
+    async getActorCurrentMonthUsageDetails (actor: Actor) {
         if ( !actor.type?.user?.uuid ) {
             throw new Error('Actor must be a user to get usage details');
         }
@@ -242,7 +397,7 @@ export class MeteringService {
         });
     }
 
-    async getActorCurrentMonthAppUsageDetails(actor: Actor, appId?: string) {
+    async getActorCurrentMonthAppUsageDetails (actor: Actor, appId?: string) {
         if ( !actor.type?.user?.uuid ) {
             throw new Error('Actor must be a user to get usage details');
         }
@@ -262,13 +417,13 @@ export class MeteringService {
         });
     }
 
-    async getRemainingUsage(actor: Actor) {
+    async getRemainingUsage (actor: Actor) {
         const allowedUsage = await this.getAllowedUsage(actor);
         return allowedUsage.remaining || 0;
 
     }
 
-    async getAllowedUsage(actor: Actor) {
+    async getAllowedUsage (actor: Actor) {
         const userSubscriptionPromise = this.getActorSubscription(actor);
         const userAddonsPromise = this.getActorAddons(actor);
         const currentUsagePromise = this.getActorCurrentMonthUsageDetails(actor);
@@ -281,22 +436,22 @@ export class MeteringService {
         };
     }
 
-    async hasAnyUsage(actor: Actor) {
+    async hasAnyUsage (actor: Actor) {
         return (await this.getRemainingUsage(actor)) > 0;
     }
 
-    async hasEnoughCreditsFor(actor: Actor, usageType: keyof typeof COST_MAPS, usageAmount: number) {
+    async hasEnoughCreditsFor (actor: Actor, usageType: keyof typeof COST_MAPS, usageAmount: number) {
         const remainingUsage = await this.getRemainingUsage(actor);
         const cost = (COST_MAPS[usageType] || 0) * usageAmount;
         return remainingUsage >= cost;
     }
 
-    async hasEnoughCredits(actor: Actor, amount: number) {
+    async hasEnoughCredits (actor: Actor, amount: number) {
         const remainingUsage = await this.getRemainingUsage(actor);
         return remainingUsage >= amount;
     }
 
-    async getActorSubscription(actor: Actor): Promise<(typeof SUB_POLICIES)[number]> {
+    async getActorSubscription (actor: Actor): Promise<(typeof SUB_POLICIES)[number]> {
         // TODO DS: maybe allow non-user actors to have subscriptions eventually
         if ( !actor.type?.user.uuid ) {
             throw new Error('Actor must be a user to get policy');
@@ -320,7 +475,7 @@ export class MeteringService {
         return availablePolicies.find(({ id }) => id === userSubscriptionId) || availablePolicies.find(({ id }) => id === defaultSubscriptionId)!;
     }
 
-    async getActorAddons(actor: Actor) {
+    async getActorAddons (actor: Actor) {
         if ( !actor.type?.user?.uuid ) {
             throw new Error('Actor must be a user to get policy addons');
         }
@@ -331,7 +486,7 @@ export class MeteringService {
         });
     }
 
-    async getActorAppUsage(actor: Actor, appId: string) {
+    async getActorAppUsage (actor: Actor, appId: string) {
         if ( !actor.type?.user?.uuid ) {
             throw new Error('Actor must be a user to get app usage');
         }
@@ -349,7 +504,7 @@ export class MeteringService {
         });
     }
 
-    async getGlobalUsage(){
+    async getGlobalUsage () {
 
         // TODO DS: add validation here?
 
@@ -380,7 +535,7 @@ export class MeteringService {
         });
     }
 
-    async updateAddonCredit(userId:string, tokenAmount: number) {
+    async updateAddonCredit (userId:string, tokenAmount: number) {
         if ( !userId ) {
             throw new Error('User needed to update extra credits');
         }
