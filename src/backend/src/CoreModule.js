@@ -26,6 +26,8 @@ const { LLOWrite } = require('./filesystem/ll_operations/ll_write');
 const { LLRead } = require('./filesystem/ll_operations/ll_read');
 const { RuntimeModule } = require('./extension/RuntimeModule.js');
 const { TYPE_DIRECTORY, TYPE_FILE } = require('./filesystem/FSNodeContext.js');
+const { TDetachable } = require('@heyputer/putility/src/traits/traits.js');
+const { MultiDetachable } = require('@heyputer/putility/src/libs/listener.js');
 
 /**
  * Core module for the Puter platform that includes essential services including
@@ -89,6 +91,10 @@ const install = async ({ context, services, app, useapi, modapi }) => {
         def('core.Context', Context);
 
         def('core', require('./services/auth/Actor'), { assign: true });
+        def('core', {
+            TDetachable,
+            MultiDetachable,
+        }, { assign: true });
         def('core.config', config);
 
         // Note: this is an incomplete export; it was added for a proprietary
@@ -275,11 +281,11 @@ const install = async ({ context, services, app, useapi, modapi }) => {
     });
     services.registerService('__refresh-assocs', RefreshAssociationsService);
     services.registerService('__prod-debugging', MakeProdDebuggingLessAwfulService);
-    if ( config.env == 'dev' && ! config.no_devsocket ) {
+    if ( config.env == 'dev' && !config.no_devsocket ) {
         const { DevSocketService } = require('./services/DevSocketService.js');
         services.registerService('dev-socket', DevSocketService);
     }
-    if ( (config.env == 'dev' && ! config.no_devconsole && process.env.DEVCONSOLE) || config.devconsole ) {
+    if ( (config.env == 'dev' && !config.no_devconsole && process.env.DEVCONSOLE) || config.devconsole ) {
         const { DevConsoleService } = require('./services/DevConsoleService');
         services.registerService('dev-console', DevConsoleService);
     } else {
