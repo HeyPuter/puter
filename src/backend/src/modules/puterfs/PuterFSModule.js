@@ -24,6 +24,7 @@ const selectors = require('../../filesystem/node/selectors');
 const { RuntimeModule } = require('../../extension/RuntimeModule');
 const { TmpProxyFSProvider } = require('./TmpProxyFSProvider');
 const { MODE_READ, MODE_WRITE } = require('../../services/fs/FSLockService');
+const { UploadProgressTracker } = require('../../filesystem/storage/UploadProgressTracker');
 
 class PuterFSModule extends AdvancedBase {
     async install (context) {
@@ -45,6 +46,9 @@ class PuterFSModule extends AdvancedBase {
                 },
                 resource: {
                     RESOURCE_STATUS_PENDING_CREATE,
+                },
+                util: {
+                    UploadProgressTracker,
                 },
             };
             context.get('runtime-modules').register(runtimeModule);

@@ -69,6 +69,10 @@ const {
 } = extension.import('core').fs.selectors;
 
 const {
+    FSNodeContext,
+} = extension.import('fs');
+
+const {
     // MODE_READ,
     MODE_WRITE,
 } = extension.import('fs').lock;
@@ -80,6 +84,10 @@ const {
     // MODE_READ,
     RESOURCE_STATUS_PENDING_CREATE,
 } = extension.import('fs').resource;
+
+const {
+    UploadProgressTracker,
+} = extension.import('fs').util;
 
 class PuterFSProvider {
     /**
@@ -303,6 +311,142 @@ class PuterFSProvider {
         }
 
         return entry;
+    }
+
+    async copy_tree ({ context, source, parent, target_name }) {
+        // Context
+        const actor = (context ?? Context).get('actor');
+        const user = actor.type.user;
+
+        const tracer = svc_trace.tracer;
+        const uuid = uuidv4();
+        const timestamp = Math.round(Date.now() / 1000);
+        await parent.fetchEntry();
+        await source.fetchEntry({ thumbnail: true });
+
+        // New filesystem entry
+        const raw_fsentry = {
+            uuid,
+            is_dir: source.entry.is_dir,
+            ...(source.entry.is_shortcut ? {
+                is_shortcut: source.entry.is_shortcut,
+                shortcut_to: source.entry.shortcut_to,
+            } : {}),
+            parent_uid: parent.uid,
+            name: target_name,
+            created: timestamp,
+            modified: timestamp,
+
+            path: path_.join(await parent.get('path'), target_name),
+
+            // if property exists but the value is undefined,
+            // it will still be included in the INSERT, causing
+            // an error
+            ...(source.entry.thumbnail ?
+                { thumbnail: source.entry.thumbnail } : {}),
+
+            user_id: user.id,
+        };
+
+        svc_event.emit('fs.pending.file', {
+            fsentry: FSNodeContext.sanitize_pending_entry_info(raw_fsentry),
+            context: context,
+        });
+
+        if ( await source.get('has-s3') ) {
+            Object.assign(raw_fsentry, {
+                size: source.entry.size,
+                associated_app_id: source.entry.associated_app_id,
+                bucket: source.entry.bucket,
+                bucket_region: source.entry.bucket_region,
+            });
+
+            await tracer.startActiveSpan('fs:cp:storage-copy', async span => {
+                let progress_tracker = new UploadProgressTracker();
+
+                svc_event.emit('fs.storage.progress.copy', {
+                    upload_tracker: progress_tracker,
+                    context,
+                    meta: {
+                        item_uid: uuid,
+                        item_path: raw_fsentry.path,
+                    },
+                });
+
+                // const storage = new PuterS3StorageStrategy({ services: svc });
+                const storage = context.get('storage');
+                const state_copy = storage.create_copy();
+                await state_copy.run({
+                    src_node: source,
+                    dst_storage: {
+                        key: uuid,
+                        bucket: raw_fsentry.bucket,
+                        bucket_region: raw_fsentry.bucket_region,
+                    },
+                    storage_api: { progress_tracker },
+                });
+
+                span.end();
+            });
+        }
+
+        {
+            await svc_size.add_node_size(undefined, source, user);
+        }
+
+        svc_resource.register({
+            uid: uuid,
+            status: RESOURCE_STATUS_PENDING_CREATE,
+        });
+
+        const entryOp = await svc_fsEntry.insert(raw_fsentry);
+
+        let node;
+
+        const tasks = new ParallelTasks({ tracer, max: 4 });
+        await context.arun('fs:cp:parallel-portion', async () => {
+            // Add child copy tasks if this is a directory
+            if ( source.entry.is_dir ) {
+                const children = await svc_fsEntry.fast_get_direct_descendants(source.uid);
+                for ( const child_uuid of children ) {
+                    tasks.add('fs:cp:copy-child', async () => {
+                        const child_node = await svc_fs.node(new NodeUIDSelector(child_uuid));
+                        const child_name = await child_node.get('name');
+
+                        await this.copy_tree({
+                            context,
+                            source: await svc_fs.node(new NodeUIDSelector(child_uuid)),
+                            parent: await svc_fs.node(new NodeUIDSelector(uuid)),
+                            target_name: child_name,
+                        });
+                    });
+                }
+            }
+
+            // Add task to await entry
+            tasks.add('fs:cp:entry-op', async () => {
+                await entryOp.awaitDone();
+                svc_resource.free(uuid);
+                const copy_fsNode = await svc_fs.node(new NodeUIDSelector(uuid));
+                copy_fsNode.entry = raw_fsentry;
+                copy_fsNode.found = true;
+                copy_fsNode.path = raw_fsentry.path;
+
+                node = copy_fsNode;
+
+                svc_event.emit('fs.create.file', {
+                    node,
+                    context,
+                });
+            }, { force: true });
+
+            await tasks.awaitAll();
+        });
+
+        node = node || await svc_fs.node(new NodeUIDSelector(uuid));
+
+        // TODO: What event do we emit? How do we know if we're overwriting?
+        return node;
     }
 
     async #rmnode ({ node, options }) {
