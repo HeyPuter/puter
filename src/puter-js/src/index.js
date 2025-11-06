@@ -29,6 +29,7 @@ import { FilesystemService } from './services/Filesystem.js';
 import { FSRelayService } from './services/FSRelay.js';
 import { NoPuterYetService } from './services/NoPuterYet.js';
 import { XDIncomingService } from './services/XDIncoming.js';
+import FileReaderPoly from './lib/polyfills/minimalfilereader.js';
 
 // TODO: This is for a safe-guard below; we should check if we can
 //       generalize this behavior rather than hard-coding it.
@@ -171,6 +172,9 @@ const puterInit = (function() {
                 if ( !globalThis.localStorage ) {
                     globalThis.localStorage = localStorageMemory;
                 }
+                if ( !globalThis.FileReader ) {
+                    globalThis.FileReader = FileReaderPoly;
+                }
             } else if ( globalThis.process ) {
                 this.env = 'nodejs';
                 if ( !globalThis.localStorage ) {
@@ -183,8 +187,11 @@ const puterInit = (function() {
                     globalThis.location = new URL('https://nodejs.puter.site/');
                 }
                 if ( !globalThis.addEventListener ) {
-                    globalThis.addEventListener = () => {
-                    }; // API Stub
+                    globalThis.addEventListener = () => {}; // API Stub
+                }
+
+                if ( !globalThis.FileReader ) {
+                    globalThis.FileReader = FileReaderPoly;
                 }
             } else {
                 this.env = 'web';

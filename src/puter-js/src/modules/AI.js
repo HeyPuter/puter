@@ -296,7 +296,8 @@ class AI{
                 } else {
                     throw { message: 'Unexpected audio response format', code: 'invalid_audio_response' };
                 }
-                const audio = new Audio(url);
+                const audio = new (globalThis.Audio || Object)(url);
+                audio.src = url;
                 audio.toString = () => url;
                 audio.valueOf = () => url;
                 return audio;
@@ -881,7 +882,7 @@ class AI{
                 } else {
                     throw { message: 'Unexpected image response format', code: 'invalid_image_response' };
                 }
-                let img = new Image();
+                let img = new (globalThis.Image || Object)();
                 img.src = url;
                 img.toString = () => img.src;
                 img.valueOf = () => img.src;
@@ -973,14 +974,18 @@ class AI{
                     return result;
                 }
 
-                const video = document.createElement('video');
+                const video = (globalThis.document?.createElement('video') || Object);
                 video.src = sourceUrl;
-                video.controls = true;
-                video.preload = 'metadata';
-                if (mimeType) {
-                    video.setAttribute('data-mime-type', mimeType);
+
+                if (video.setAttribute) {
+                    video.controls = true;
+                    video.preload = 'metadata';
+                    if (mimeType) {
+                        video.setAttribute('data-mime-type', mimeType);
+                    }
+                    video.setAttribute('data-source', sourceUrl);
                 }
-                video.setAttribute('data-source', sourceUrl);
+
                 video.toString = () => video.src;
                 video.valueOf = () => video.src;
                 return video;
