@@ -156,66 +156,55 @@ class PuterFSProvider {
     async mkdir ({ context, parent, name, immutable }) {
         const { actor, thumbnail } = context.values;
 
-        const lock_handle = await svc_fsLock.lock_child(await parent.get('path'),
-                        name,
-                        MODE_WRITE);
+        const ts = Math.round(Date.now() / 1000);
+        const uid = uuidv4();
 
-        try {
-            const ts = Math.round(Date.now() / 1000);
-            const uid = uuidv4();
+        const existing = await svc_fs.node(new NodeChildSelector(parent.selector, name));
 
-            const existing = await svc_fs.node(new NodeChildSelector(parent.selector, name));
-
-            if ( await existing.exists() ) {
-                throw APIError.create('item_with_same_name_exists', null, {
-                    entry_name: name,
-                });
-            }
-
-            if ( ! await parent.exists() ) {
-                throw APIError.create('subject_does_not_exist');
-            }
-            if ( ! await svc_acl.check(actor, parent, 'write') ) {
-                throw await svc_acl.get_safe_acl_error(actor, parent, 'write');
-            }
-
-            svc_resource.register({
-                uid,
-                status: RESOURCE_STATUS_PENDING_CREATE,
+        if ( await existing.exists() ) {
+            throw APIError.create('item_with_same_name_exists', null, {
+                entry_name: name,
             });
-
-            const raw_fsentry = {
-                is_dir: 1,
-                uuid: uid,
-                parent_uid: await parent.get('uid'),
-                path: path_.join(await parent.get('path'), name),
-                user_id: actor.type.user.id,
-                name,
-                created: ts,
-                accessed: ts,
-                modified: ts,
-                immutable: immutable ?? false,
-                ...(thumbnail ? {
-                    thumbnail: thumbnail,
-                } : {}),
-            };
-
-            const entryOp = await svc_fsEntry.insert(raw_fsentry);
-
-            await entryOp.awaitDone();
-            svc_resource.free(uid);
-
-            const node = await svc_fs.node(new NodeUIDSelector(uid));
-
-            svc_event.emit('fs.create.directory', {
-                node,
-                context: Context.get(),
-            });
-
-            return node;
-        } finally {
-            await lock_handle.unlock();
         }
+
+        if ( ! await parent.exists() ) {
+            throw APIError.create('subject_does_not_exist');
+        }
+
+        svc_resource.register({
+            uid,
+            status: RESOURCE_STATUS_PENDING_CREATE,
+        });
+
+        const raw_fsentry = {
+            is_dir: 1,
+            uuid: uid,
+            parent_uid: await parent.get('uid'),
+            path: path_.join(await parent.get('path'), name),
+            user_id: actor.type.user.id,
+            name,
+            created: ts,
+            accessed: ts,
+            modified: ts,
+            immutable: immutable ?? false,
+            ...(thumbnail ? {
+                thumbnail: thumbnail,
+            } : {}),
+        };
+
+        const entryOp = await svc_fsEntry.insert(raw_fsentry);
+
+        await entryOp.awaitDone();
+        svc_resource.free(uid);
+
+        const node = await svc_fs.node(new NodeUIDSelector(uid));
+
+        svc_event.emit('fs.create.directory', {
+            node,
+            context: Context.get(),
+        });
+
+        return node;
     }
 
     async read ({ context, node, version_id, range }) {
