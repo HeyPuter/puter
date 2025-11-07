@@ -17,12 +17,18 @@
  * along with this program.  If not, see <https://www.gnu.org/licenses/>.
  */
 
+const STUCK_STATUS_TIMEOUT = 10 * 1000;
+const STUCK_ALARM_TIMEOUT = 20 * 1000;
+
 const uuidv4 = require('uuid').v4;
 const path_ = require('node:path');
+
+const { db } = extension.import('data');
 
 const svc_metering = extension.import('service:meteringService');
 const svc_trace = extension.import('service:traceService');
 const svc_fs = extension.import('service:filesystem');
+const { stuck_detector_stream, hashing_stream } = extension.import('core').util.streamutil;
 
 // TODO: filesystem providers should not need to call EventService
 const svc_event = extension.import('service:event');
@@ -36,6 +42,9 @@ const svc_fsEntry = extension.import('service:fsEntryService');
 const svc_fsEntryFetcher = extension.import('service:fsEntryFetcher');
 const svc_resource = extension.import('service:resourceService');
 const svc_fsLock = extension.import('service:fslock');
+
+// Not sure where these really belong yet
+const svc_fileCache = extension.import('service:file-cache');
 
 // TODO: depending on mountpoint service will not be necessary
 //       once the storage provider is moved to this extension
@@ -494,6 +503,225 @@ class PuterFSProvider {
         const uuid = await node.get('uid');
         const child_uuids = await svc_fsEntry.fast_get_direct_descendants(uuid);
         return child_uuids;
+    }
+
+    /**
+     * Write a new file to the filesystem. Throws an error if the destination
+     * already exists.
+     *
+     * @param {Object} param
+     * @param {Context} param.context
+     * @param {FSNode} param.parent: The parent directory of the file.
+     * @param {string} param.name: The name of the file.
+     * @param {File} param.file: The file to write.
+     * @returns {Promise<FSNode>}
+     */
+    async write_new ({ context, parent, name, file }) {
+        console.log('calling write new');
+        const {
+            tmp, fsentry_tmp, message, actor: inputActor, app_id,
+        } = context.values;
+        const actor = inputActor ?? Context.get('actor');
+
+        const uid = uuidv4();
+
+        // determine bucket region
+        let bucket_region = config.s3_region ?? config.region;
+        let bucket = config.s3_bucket;
+
+        if ( ! await svc_acl.check(actor, parent, 'write') ) {
+            throw await svc_acl.get_safe_acl_error(actor, parent, 'write');
+        }
+
+        const storage_resp = await this.#storage_upload({
+            uuid: uid,
+            bucket,
+            bucket_region,
+            file,
+            tmp: {
+                ...tmp,
+                path: path_.join(await parent.get('path'), name),
+            },
+        });
+
+        fsentry_tmp.thumbnail = await fsentry_tmp.thumbnail_promise;
+        delete fsentry_tmp.thumbnail_promise;
+
+        const timestamp = Math.round(Date.now() / 1000);
+        const raw_fsentry = {
+            uuid: uid,
+            is_dir: 0,
+            user_id: actor.type.user.id,
+            created: timestamp,
+            accessed: timestamp,
+            modified: timestamp,
+            parent_uid: await parent.get('uid'),
+            name,
+            size: file.size,
+            path: path_.join(await parent.get('path'), name),
+            ...fsentry_tmp,
+            bucket_region,
+            bucket,
+            associated_app_id: app_id ?? null,
+        };
+
+        svc_event.emit('fs.pending.file', {
+            fsentry: FSNodeContext.sanitize_pending_entry_info(raw_fsentry),
+            context,
+        });
+
+        svc_resource.register({
+            uid,
+            status: RESOURCE_STATUS_PENDING_CREATE,
+        });
+
+        const filesize = file.size;
+        svc_size.change_usage(actor.type.user.id, filesize);
+
+        // Meter ingress
+        const ownerId = await parent.get('user_id');
+        const ownerActor =  new Actor({
+            type: new UserActorType({
+                user: await get_user({ id: ownerId }),
+            }),
+        });
+
+        svc_metering.incrementUsage(ownerActor, 'filesystem:ingress:bytes', filesize);
+
+        const entryOp = await svc_fsEntry.insert(raw_fsentry);
+
+        (async () => {
+            await entryOp.awaitDone();
+            svc_resource.free(uid);
+
+            const new_item_node = await svc_fs.node(new NodeUIDSelector(uid));
+            const new_item = await new_item_node.get('entry');
+            const store_version_id = storage_resp.VersionId;
+            if ( store_version_id ) {
+                // insert version into db
+                db.write('INSERT INTO `fsentry_versions` (`user_id`, `fsentry_id`, `fsentry_uuid`, `version_id`, `message`, `ts_epoch`) VALUES (?, ?, ?, ?, ?, ?)',
+                                [
+                                    actor.type.user.id,
+                                    new_item.id,
+                                    new_item.uuid,
+                                    store_version_id,
+                                    message ?? null,
+                                    timestamp,
+                                ]);
+            }
+        })();
+
+        const node = await svc_fs.node(new NodeUIDSelector(uid));
+
+        svc_event.emit('fs.create.file', {
+            node,
+            context,
+        });
+
+        return node;
+    }
+
+    /**
+    * @param {Object} param
+    * @param {File} param.file: The file to write.
+    * @returns
+    */
+    async #storage_upload ({
+        uuid,
+        bucket,
+        bucket_region,
+        file,
+        tmp,
+    }) {
+        const storage = svc_mountpoint.get_storage(this.constructor.name);
+
+        bucket ??= config.s3_bucket;
+        bucket_region ??= config.s3_region ?? config.region;
+
+        let upload_tracker = new UploadProgressTracker();
+
+        svc_event.emit('fs.storage.upload-progress', {
+            upload_tracker,
+            context: Context.get(),
+            meta: {
+                item_uid: uuid,
+                item_path: tmp.path,
+            },
+        });
+
+        if ( ! file.buffer ) {
+            let stream = file.stream;
+            let alarm_timeout = null;
+            stream = stuck_detector_stream(stream, {
+                timeout: STUCK_STATUS_TIMEOUT,
+                on_stuck: () => {
+                    this.frame.status = OperationFrame.FRAME_STATUS_STUCK;
+                    console.warn('Upload stream stuck might be stuck', {
+                        bucket_region,
+                        bucket,
+                        uuid,
+                    });
+                    alarm_timeout = setTimeout(() => {
+                        extension.errors.report('fs.write.s3-upload', {
+                            message: 'Upload stream stuck for too long',
+                            alarm: true,
+                            extra: {
+                                bucket_region,
+                                bucket,
+                                uuid,
+                            },
+                        });
+                    }, STUCK_ALARM_TIMEOUT);
+                },
+                on_unstuck: () => {
+                    clearTimeout(alarm_timeout);
+                    this.frame.status = OperationFrame.FRAME_STATUS_WORKING;
+                },
+            });
+            file = { ...file, stream };
+        }
+
+        let hashPromise;
+        if ( file.buffer ) {
+            const hash = crypto.createHash('sha256');
+            hash.update(file.buffer);
+            hashPromise = Promise.resolve(hash.digest('hex'));
+        } else {
+            const hs = hashing_stream(file.stream);
+            file.stream = hs.stream;
+            hashPromise = hs.hashPromise;
+        }
+
+        hashPromise.then(hash => {
+            svc_event.emit('outer.fs.write-hash', {
+                hash, uuid,
+            });
+        });
+
+        const state_upload = storage.create_upload();
+
+        try {
+            await state_upload.run({
+                uid: uuid,
+                file,
+                storage_meta: { bucket, bucket_region },
+                storage_api: { progress_tracker: upload_tracker },
+            });
+        } catch (e) {
+            extension.errors.report('fs.write.storage-upload', {
+                source: e || new Error('unknown'),
+                trace: true,
+                alarm: true,
+                extra: {
+                    bucket_region,
+                    bucket,
+                    uuid,
+                },
+            });
+            throw APIError.create('upload_failed');
+        }
+
+        return state_upload;
     }
 
     async #rmnode ({ node, options }) {
