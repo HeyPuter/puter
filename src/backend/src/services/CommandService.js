@@ -127,7 +127,18 @@ class CommandService extends BaseService {
     }
 
     registerCommands(serviceName, commands) {
-        if ( ! this.log ) process.exit(1);
+        if ( ! this.log ) {
+            /* eslint-disable */
+            console.error(
+                'CommandService.registerCommands was called before a logger ' +
+                'was initialied. This happens when calling registerCommands ' +
+                'in the "construct" phase instead of the "init" phase. If ' +
+                'you are migrating a legacy service that does not extend ' +
+                'BaseService, maybe the _construct hook is calling init()'
+            );
+            /* eslint-enable */
+            process.exit(1);
+        }
         for (const command of commands) {
             this.log.debug(`registering command ${serviceName}:${command.id}`);
             this.commands_.push(new Command({
