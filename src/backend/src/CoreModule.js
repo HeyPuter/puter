@@ -28,6 +28,7 @@ const { RuntimeModule } = require('./extension/RuntimeModule.js');
 const { TYPE_DIRECTORY, TYPE_FILE } = require('./filesystem/FSNodeContext.js');
 const { TDetachable } = require('@heyputer/putility/src/traits/traits.js');
 const { MultiDetachable } = require('@heyputer/putility/src/libs/listener.js');
+const { OperationFrame } = require('./services/OperationTraceService');
 
 /**
  * Core module for the Puter platform that includes essential services including
@@ -107,6 +108,7 @@ const install = async ({ context, services, app, useapi, modapi }) => {
             LLRead,
             TYPE_DIRECTORY,
             TYPE_FILE,
+            OperationFrame,
         });
         def('core.fs.selectors', require('./filesystem/node/selectors'));
         def('core.util.stream', require('./util/streamutil'));
