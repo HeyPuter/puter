@@ -622,6 +622,104 @@ class PuterFSProvider {
     }
 
     /**
+     * Overwrite an existing file. Throws an error if the destination does not
+     * exist.
+     *
+     * @param {Object} param
+     * @param {Context} param.context
+     * @param {FSNodeContext} param.node: The node to write to.
+     * @param {File} param.file: The file to write.
+     * @returns {Promise<FSNodeContext>}
+     */
+    async write_overwrite ({ context, node, file }) {
+        const {
+            tmp, fsentry_tmp, message, actor: inputActor,
+        } = context.values;
+        const actor = inputActor ?? Context.get('actor');
+
+        if ( ! await svc_acl.check(actor, node, 'write') ) {
+            throw await svc_acl.get_safe_acl_error(actor, node, 'write');
+        }
+
+        const uid = await node.get('uid');
+
+        const bucket_region = node.entry.bucket_region;
+        const bucket = node.entry.bucket;
+
+        const state_upload = await this.#storage_upload({
+            uuid: node.entry.uuid,
+            bucket,
+            bucket_region,
+            file,
+            tmp: {
+                ...tmp,
+                path: await node.get('path'),
+            },
+        });
+
+        if ( fsentry_tmp?.thumbnail_promise ) {
+            fsentry_tmp.thumbnail = await fsentry_tmp.thumbnail_promise;
+            delete fsentry_tmp.thumbnail_promise;
+        }
+
+        const ts = Math.round(Date.now() / 1000);
+        const raw_fsentry_delta = {
+            modified: ts,
+            accessed: ts,
+            size: file.size,
+            ...fsentry_tmp,
+        };
+
+        svc_resource.register({
+            uid,
+            status: RESOURCE_STATUS_PENDING_CREATE,
+        });
+
+        const filesize = file.size;
+        svc_size.change_usage(actor.type.user.id, filesize);
+
+        // Meter ingress
+        const ownerId = await node.get('user_id');
+        const ownerActor =  new Actor({
+            type: new UserActorType({
+                user: await get_user({ id: ownerId }),
+            }),
+        });
+        svc_metering.incrementUsage(ownerActor, 'filesystem:ingress:bytes', filesize);
+
+        const entryOp = await svc_fsEntry.update(uid, raw_fsentry_delta);
+
+        // depends on fsentry, does not depend on S3
+        const entryOpPromise = (async () => {
+            await entryOp.awaitDone();
+            svc_resource.free(uid);
+        })();
+
+        const cachePromise = (async () => {
+            await svc_fileCache.invalidate(node);
+        })();
+
+        (async () => {
+            await Promise.all([entryOpPromise, cachePromise]);
+            svc_event.emit('fs.write.file', {
+                node,
+                context,
+            });
+        })();
+
+        // TODO (xiaochen): determine if this can be removed, post_insert handler need
+        // to skip events from other servers (why? 1. current write logic is inside
+        // the local server 2. broadcast system conduct "fire-and-forget" behavior)
+        state_upload.post_insert({
+            db, user: actor.type.user, node, uid, message, ts,
+        });
+
+        await cachePromise;
+
+        return node;
+    }
+
+    /**
     * @param {Object} param
     * @param {File} param.file: The file to write.
     * @returns
