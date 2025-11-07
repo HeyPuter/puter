@@ -18,5 +18,5 @@
  */
 globalThis.__CONFIG__ = {
     "origin": "http://127.0.0.1:8082",
-    "sdk_url": "http://puter.localhost:4100/sdk/puter.js",
+    "sdk_url": "http://puter.localhost:4100/puter.js/v2",
 };
