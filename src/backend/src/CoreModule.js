@@ -433,18 +433,19 @@ const install = async ({ context, services, app, useapi, modapi }) => {
 
     const { PermissionShortcutService } = require('./services/auth/PermissionShortcutService');
     services.registerService('permission-shortcut', PermissionShortcutService);
+
+    const { FileCacheService } = require('./services/file-cache/FileCacheService');
+    services.registerService('file-cache', FileCacheService);
 };
 
 const install_legacy = async ({ services }) => {
     const { OperationTraceService } = require('./services/OperationTraceService');
     const { ClientOperationService } = require('./services/ClientOperationService');
     const { EngPortalService } = require('./services/EngPortalService');
-    const { FileCacheService } = require('./services/file-cache/FileCacheService');
 
     // === Services which do not yet extend BaseService ===
     // services.registerService('filesystem', FilesystemService);
     services.registerService('operationTrace', OperationTraceService);
-    services.registerService('file-cache', FileCacheService);
     services.registerService('client-operation', ClientOperationService);
     services.registerService('engineering-portal', EngPortalService);
 
