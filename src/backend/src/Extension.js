@@ -23,6 +23,8 @@ const { Context } = require('./util/context');
 const { ExtensionServiceState } = require('./ExtensionService');
 const { display_time } = require('@heyputer/putility/src/libs/time');
 
+let memoized_errors = null;
+
 /**
  * This class creates the `extension` global that is seen by Puter backend
  * extensions.
@@ -139,6 +141,12 @@ class Extension extends AdvancedBase {
                 'initialized');
         }
         return log_context;
+    }
+    
+    get errors () {
+        return memoized_errors ?? (() => {
+            return this.services.get('error-service').create(this.log_context);
+        })();
     }
 
     /**
