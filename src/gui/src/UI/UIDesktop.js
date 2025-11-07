@@ -1801,6 +1801,9 @@ async function UIDesktop(options) {
             return;
 
         const url = window.url_query_params.get('download');
+
+        let cancelled = false;
+        let uploadXhr = null;
         
         // create progressbar dialog
         let progwin = await UIWindowProgress({
@@ -1808,6 +1811,12 @@ async function UIDesktop(options) {
             icon: window.icons[`app-icon-uploader.svg`],
             operation_id: window.uuidv4(),
             show_progress: true,
+            on_cancel: () => {
+                cancelled = true;
+                if (uploadXhr) {
+                    uploadXhr.abort();
+                }
+            }
         });
         progwin?.set_status(i18n('downloading'));
 
@@ -1824,7 +1833,8 @@ async function UIDesktop(options) {
 
                 while (true) {
                     const { done, value } = await reader.read();
-                    if (done) break;
+                    if (done || cancelled) break;
+
                     if (value) {
                         // store the chunk
                         chunks.push(value);
@@ -1836,6 +1846,11 @@ async function UIDesktop(options) {
                         // update progressbar
                         progwin?.set_progress(Math.floor(progress * 100));
                     }
+                }
+
+                if (cancelled) {
+                    progwin?.close();
+                    return;
                 }
 
                 // combine chunks into a blob
@@ -1854,6 +1869,9 @@ async function UIDesktop(options) {
                         // update progressbar
                         progwin?.set_progress(percent);
                     },
+                    init: (_, xhr) => {
+                        uploadXhr = xhr;
+                    }
                 });
             } catch (e) {
                 // show error
