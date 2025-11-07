@@ -4,7 +4,7 @@
   "description": "The ugly name is intentional. We prefer to refactor incrementally which means we need a way to \"re-core\" the backend, and we may do this more than once simultaneously (hence it's `0` right now).",
   "type": "module",
   "scripts": {
-    "build": "rollup -c",
+    "build": "webpack",
     "prepare": "npm run build",
     "test": "echo \"Error: no test specified\" && exit 1"
   },
@@ -15,11 +15,8 @@
     }
   },
   "devDependencies": {
-    "rollup": "^3.21.4",
-    "rollup-plugin-copy": "^3.4.0",
-    "@rollup/plugin-commonjs": "^24.1.0",
-    "@rollup/plugin-node-resolve": "^15.0.2",
-    "@rollup/plugin-replace": "^5.0.2"
+    "webpack": "^5.88.2",
+    "webpack-cli": "^5.1.1"
   },
   "keywords": [],
   "author": "",

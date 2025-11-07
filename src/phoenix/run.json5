@@ -7,8 +7,8 @@
             command: 'npx http-server -p 8080',
         },
         {
-            name: 'shell.rollup',
-            command: 'npx rollup -c rollup.config.js --watch',
+            name: 'shell.webpack',
+            command: 'npx webpack --watch',
             pwd: '.'
         },
     ],
