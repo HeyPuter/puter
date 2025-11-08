@@ -1787,9 +1787,11 @@ async function UIDesktop(options) {
     // i.e. https://puter.com/?download=<file_url>
     //--------------------------------------------------------------------------------------
     if (window.url_paths.length === 0 && window.url_query_params.has('download')) {
+        const url = window.url_query_params.get('download');
+        let file_name = url.split('/').pop().split('?')[0];
 
         let response = await UIAlert({
-            message: i18n('confirm_download_file_to_desktop'),
+            message: i18n('confirm_download_file_to_desktop', file_name),
             type: 'confirm',
             buttons: [
                 { label: i18n('alert_yes'), value: true, type: "primary" },
@@ -1800,7 +1802,7 @@ async function UIDesktop(options) {
         if (!response)
             return;
 
-        const url = window.url_query_params.get('download');
+        
 
         let cancelled = false;
         let upload_xhr = null;
@@ -1820,7 +1822,7 @@ async function UIDesktop(options) {
                 }
             }
         });
-        progwin?.set_status(i18n('downloading'));
+        progwin?.set_status(i18n('downloading_file', file_name));
 
         (async () => {
             try {
@@ -1864,10 +1866,10 @@ async function UIDesktop(options) {
                 
                 // reset progressbar
                 progwin?.set_progress(0);
-                progwin?.set_status(i18n('uploading'));
+                progwin?.set_status(i18n('uploading_file', file_name));
 
                 // upload to user's desktop
-                await puter.fs.write(`~/Desktop/${url.split('/').pop()}`, blob, {
+                await puter.fs.write(`~/Desktop/${file_name}`, blob, {
                     dedupeName: true,
                     progress: (_, percent) => {
                         // update progressbar
