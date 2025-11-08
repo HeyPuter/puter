@@ -1803,7 +1803,8 @@ async function UIDesktop(options) {
         const url = window.url_query_params.get('download');
 
         let cancelled = false;
-        let uploadXhr = null;
+        let upload_xhr = null;
+        const abort_controller = new AbortController();
         
         // create progressbar dialog
         let progwin = await UIWindowProgress({
@@ -1813,8 +1814,9 @@ async function UIDesktop(options) {
             show_progress: true,
             on_cancel: () => {
                 cancelled = true;
-                if (uploadXhr) {
-                    uploadXhr.abort();
+                abort_controller.abort();
+                if (upload_xhr) {
+                    upload_xhr.abort();
                 }
             }
         });
@@ -1823,7 +1825,9 @@ async function UIDesktop(options) {
         (async () => {
             try {
                 // download the file
-                const response = await puter.net.fetch(url);
+                const response = await puter.net.fetch(url, {
+                    signal: abort_controller.signal,
+                });
 
                 const total = Number(response.headers.get('content-length'));
                 const reader = response.body.getReader();
@@ -1870,15 +1874,17 @@ async function UIDesktop(options) {
                         progwin?.set_progress(percent);
                     },
                     init: (_, xhr) => {
-                        uploadXhr = xhr;
+                        upload_xhr = xhr;
                     }
                 });
             } catch (e) {
-                // show error
-                await UIAlert({
-                    message: i18n('error_download_failed') + ': ' + e.message,
-                    type: 'error',
-                });
+                // alert the user if there's a genuine error
+                if (!cancelled && e.name !== 'AbortError') {
+                    await UIAlert({
+                        message: i18n('error_download_failed') + ': ' + e.message,
+                        type: 'error',
+                    });
+                }
             }
             // close progress window
             progwin?.close();
