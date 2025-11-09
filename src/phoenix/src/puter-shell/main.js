@@ -16,28 +16,28 @@
  * You should have received a copy of the GNU Affero General Public License
  * along with this program.  If not, see <https://www.gnu.org/licenses/>.
  */
-import builtins from './coreutils/__exports__.js';
 import ReadlineLib from "../ansi-shell/readline/readline.js";
+import builtins from './coreutils/__exports__.js';
 
 // TODO: auto-gen argument parser registry from files
+import { libs } from '@heyputer/putility';
+import { BetterReader } from 'dev-pty';
+import { ANSIShell } from "../ansi-shell/ANSIShell.js";
 import SimpleArgParser from "../ansi-shell/arg-parsers/simple-parser.js";
 import ErrorsDecorator from "../ansi-shell/decorators/errors.js";
-import { ANSIShell } from "../ansi-shell/ANSIShell.js";
-import { libs } from '@heyputer/putility';
-const { Context } = libs.context;
-import { SHELL_VERSIONS } from "../meta/versions.js";
-import { PuterShellParser } from "../ansi-shell/parsing/PuterShellParser.js";
-import { BuiltinCommandProvider } from "./providers/BuiltinCommandProvider.js";
-import { CreateChatHistoryPlugin } from './plugins/ChatHistoryPlugin.js';
-import { Pipe } from '../ansi-shell/pipeline/Pipe.js';
-import { Coupler } from '../ansi-shell/pipeline/Coupler.js';
-import { BetterReader } from 'dev-pty';
 import { MultiWriter } from '../ansi-shell/ioutil/MultiWriter.js';
+import { PuterShellParser } from "../ansi-shell/parsing/PuterShellParser.js";
+import { Coupler } from '../ansi-shell/pipeline/Coupler.js';
+import { Pipe } from '../ansi-shell/pipeline/Pipe.js';
+import { SHELL_VERSIONS } from "../meta/versions.js";
+import { CreateChatHistoryPlugin } from './plugins/ChatHistoryPlugin.js';
+import { BuiltinCommandProvider } from "./providers/BuiltinCommandProvider.js";
 import { CompositeCommandProvider } from './providers/CompositeCommandProvider.js';
-import { ScriptCommandProvider } from './providers/ScriptCommandProvider.js';
-import { PuterAppCommandProvider } from './providers/PuterAppCommandProvider.js';
 import { EmuCommandProvider } from './providers/EmuCommandProvider.js';
 import { PDECommandProvider } from './providers/PDECommandProvider.js';
+import { PuterAppCommandProvider } from './providers/PuterAppCommandProvider.js';
+import { ScriptCommandProvider } from './providers/ScriptCommandProvider.js';
+const { Context } = libs.context;
 
 const argparser_registry = {
     [SimpleArgParser.name]: SimpleArgParser
@@ -78,7 +78,7 @@ export const launchPuterShell = async (ctx) => {
     }
 
     // PathCommandProvider is only compatible with node.js for now
-    // HACK: The import path is split to fool rollup into not including it.
+    // HACK: The import path is split to fool webpack into not including it.
     const { PathCommandProvider } = (ctx.platform.name === 'node')
         ? await import('./providers/' + 'PathCommandProvider.js')
         : { PathCommandProvider: null };

@@ -51,23 +51,21 @@ class SelfHostedModule extends AdvancedBase {
         {
             services.registerService('__dev-watcher', DevWatcherService, {
                 root: path_.resolve(__dirname, RELATIVE_PATH),
-                rollup: [
+                webpack: [
                     {
                         name: 'phoenix',
                         directory: 'src/phoenix',
                         env: {
-                            PUTER_JS_URL: ({ global_config: config }) => config.origin + '/sdk/puter.dev.js',
+                            PUTER_JS_URL: ({ global_config: config }) => config?.origin ? config.origin + '/puter.js/v2' : '',
                         },
                     },
                     {
                         name: 'terminal',
                         directory: 'src/terminal',
                         env: {
-                            PUTER_JS_URL: ({ global_config: config }) => config.origin + '/sdk/puter.dev.js',
+                            PUTER_JS_URL: ({ global_config: config }) => config?.origin ? config.origin + '/puter.js/v2' : '',
                         },
                     },
-                ],
-                webpack: [
                     {
                         name: 'puter.js',
                         directory: 'src/puter-js',
@@ -76,8 +74,8 @@ class SelfHostedModule extends AdvancedBase {
                             config.devtool = 'source-map';
                         },
                         env: {
-                            PUTER_ORIGIN: ({ global_config: config }) => config.origin,
-                            PUTER_API_ORIGIN: ({ global_config: config }) => config.api_base_url,
+                            PUTER_ORIGIN: ({ global_config: config }) => config?.origin || '',
+                            PUTER_API_ORIGIN: ({ global_config: config }) => config?.api_base_url || '',
                         },
                     },
                     {

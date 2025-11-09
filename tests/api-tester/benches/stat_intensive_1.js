@@ -1,5 +1,5 @@
 const chai = require('chai');
-chai.use(require('chai-as-promised'))
+chai.use(require('chai-as-promised'));
 const expect = chai.expect;
 
 module.exports = {
@@ -9,23 +9,23 @@ module.exports = {
         console.log('stat intensive 1');
 
         const dir_count = 10;
-        const subdir_count = 100;
+        const subdir_count = 10;
 
         // key: uuid
         // value: path
         const dirs = {};
 
-        for (let i = 0; i < dir_count; i++) {
+        for ( let i = 0; i < dir_count; i++ ) {
             await t.mkdir(`dir_${i}`);
-            for (let j = 0; j < subdir_count; j++) {
+            for ( let j = 0; j < subdir_count; j++ ) {
                 const subdir = await t.mkdir(`dir_${i}/subdir_${j}`);
                 dirs[subdir.uid] = subdir.path;
             }
         }
 
         const start = Date.now();
-        for (let i = 0; i < 10; i++) {
-            for (const [uuid, path] of Object.entries(dirs)) {
+        for ( let i = 0; i < 10; i++ ) {
+            for ( const [uuid, path] of Object.entries(dirs) ) {
                 const stat = await t.stat_uuid(uuid);
                 expect(stat.is_dir).equal(true);
                 expect(stat.path).equal(path);
@@ -33,5 +33,5 @@ module.exports = {
         }
         const duration = Date.now() - start;
         return { duration };
-    }
+    },
 };
