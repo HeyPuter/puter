@@ -1676,101 +1676,150 @@ async function UIDesktop(options) {
     //--------------------------------------------------------------------------------------
     // Trying to view a user's public folder?
     // i.e. https://puter.com/@<username>
+    // or https://puter.com/withapp/<app-or-uuid>/@<username>
     //--------------------------------------------------------------------------------------
     const url_paths = window.location.pathname.split('/').filter(element => element);
-    if (window.url_paths[0]?.startsWith('@')) {
-        const username = window.url_paths[0].substring(1);
+    const publicShareRoute = getPublicShareRouteFromURL();
+    if (publicShareRoute) {
+        await handlePublicShareRoute(publicShareRoute);
+    }
+
+    function getPublicShareRouteFromURL() {
+        if (window.url_paths[0]?.startsWith('@')) {
+            return {
+                usernameSegment: window.url_paths[0],
+                restSegments: window.url_paths.slice(1),
+            };
+        }
+
+        if (window.url_paths[0]?.toLocaleLowerCase() === 'withapp') {
+            const encodedIdentifier = window.url_paths[1];
+            const usernameSegment = window.url_paths[2];
+
+            if (!encodedIdentifier || !usernameSegment?.startsWith('@')) {
+                return null;
+            }
+
+            let decodedIdentifier = encodedIdentifier;
+            try {
+                decodedIdentifier = decodeURIComponent(encodedIdentifier);
+            } catch (_err) {
+                // ignore decode errors and fall back to the raw segment
+            }
+
+            return {
+                usernameSegment,
+                restSegments: window.url_paths.slice(3),
+                specifiedAppIdentifier: decodedIdentifier,
+            };
+        }
+
+        return null;
+    }
+
+    async function handlePublicShareRoute({
+        usernameSegment,
+        restSegments = [],
+        specifiedAppIdentifier = null,
+    }) {
+        const username = usernameSegment.substring(1);
         let item_path = '/' + username + '/Public';
-        if ( window.url_paths.length > 1 ) {
-            item_path += '/' + window.url_paths.slice(1).join('/');
+        if (restSegments.length > 0) {
+            item_path += '/' + restSegments.join('/');
         }
 
         // GUARD: avoid invalid user directories
-        {
-            if (!username.match(/^[a-z0-9_]+$/i)) {
-                UIAlert({
-                    message: i18n('error_invalid_username')
-                });
-                return;
-            }
+        if (!isValidPublicUsername(username)) {
+            await alertInvalidUsername();
+            return;
         }
 
         let stat;
         try {
-          stat = await puter.fs.stat({path: item_path, consistency: 'eventual'});
-        } catch ( e ) {
+            stat = await puter.fs.stat({ path: item_path, consistency: 'eventual' });
+        } catch (_e) {
             window.history.replaceState(null, document.title, '/');
-            UIAlert({
+            await UIAlert({
                 message: i18n('error_user_or_path_not_found'),
                 type: 'error'
             });
             return;
         }
 
-        // TODO: DRY everything here with open_item. Unfortunately we can't
-        //       use open_item here because it's coupled with UI logic;
-        //       it requires a UIItem element and cannot operate on a
-        //       file path on its own.
-        if ( ! stat.is_dir ) {
-            if ( stat.associated_app ) {
+        if (!stat.is_dir) {
+            if (specifiedAppIdentifier) {
+                const specifiedResult = await tryLaunchSpecifiedApp(specifiedAppIdentifier, item_path);
+                if (specifiedResult.success) {
+                    return;
+                }
+
+                let specifiedMessage = 'Unable to launch the requested app.';
+                if (specifiedResult.reason === 'app_not_found') {
+                    specifiedMessage = 'Requested app could not be found.';
+                } else if (specifiedResult.reason === 'open_item_failed') {
+                    specifiedMessage = 'Unable to prepare file for the requested app.';
+                }
+
+                await UIAlert({
+                    message: specifiedMessage + ' Opening directory instead.',
+                    type: 'error',
+                });
+                item_path = item_path.split('/').slice(0, -1).join('/');
+            }
+            else if (stat.associated_app) {
                 launch_app({ name: stat.associated_app.name });
                 return;
             }
-            
-            const ext_pref =
-                window.user_preferences[`default_apps${path.extname(item_path).toLowerCase()}`];
-            
-            if ( ext_pref ) {
-                launch_app({
-                    name: ext_pref,
-                    file_path: item_path,
+            else {
+                const ext_pref =
+                    window.user_preferences[`default_apps${path.extname(item_path).toLowerCase()}`];
+
+                if (ext_pref) {
+                    launch_app({
+                        name: ext_pref,
+                        file_path: item_path,
+                    });
+                    return;
+                }
+
+                let open_item_meta;
+                try {
+                    open_item_meta = await fetchOpenItemMeta(item_path);
+                } catch (e) {
+                    console.error('Failed to open public file', e);
+                    await UIAlert({
+                        message: 'Unable to open this file right now.',
+                        type: 'error',
+                    });
+                    return;
+                }
+
+                const suggested_apps = open_item_meta?.suggested_apps ?? await window.suggest_apps_for_fsentry({
+                    path: item_path
                 });
-                return;
-            }
-            
 
-            const open_item_meta = await $.ajax({
-                url: window.api_origin + "/open_item",
-                type: 'POST',
-                contentType: "application/json",
-                data: JSON.stringify({
-                    path: item_path,
-                }),
-                headers: {
-                    "Authorization": "Bearer "+window.auth_token
-                },
-                statusCode: {
-                    401: function () {
-                        window.logout();
-                    },
-                },
-            });
-            const suggested_apps = open_item_meta?.suggested_apps ?? await window.suggest_apps_for_fsentry({
-                path: item_path
-            });
+                // Note: I'm not adding unzipping logic here. We'll wait until
+                //       we've refactored open_item so that Puter can have a
+                //       properly-reusable open function.
+                if (suggested_apps.length !== 0) {
+                    launch_app({
+                        name: suggested_apps[0].name,
+                        token: open_item_meta.token,
+                        file_path: item_path,
+                        app_obj: suggested_apps[0],
+                        window_title: path.basename(item_path),
+                        maximized: options.maximized,
+                        file_signature: open_item_meta.signature,
+                        custom_path: window.location.pathname,
+                    });
+                    return;
+                }
 
-            // Note: I'm not adding unzipping logic here. We'll wait until
-            //       we've refactored open_item so that Puter can have a
-            //       properly-reusable open function.
-            if ( suggested_apps.length !== 0 ) {
-                launch_app({
-                    name: suggested_apps[0].name, 
-                    token: open_item_meta.token,
-                    file_path: item_path,
-                    app_obj: suggested_apps[0],
-                    window_title: path.basename(item_path),
-                    maximized: options.maximized,
-                    file_signature: open_item_meta.signature,
-                    custom_path: window.location.pathname,
+                await UIAlert({
+                    message: 'Cannot find an app to open this file; opening directory instead.'
                 });
-                return;
+                item_path = item_path.split('/').slice(0, -1).join('/');
             }
-
-            await UIAlert({
-                message: 'Cannot find an app to open this file; ' +
-                    'opening directory instead.'
-            });
-            item_path = item_path.split('/').slice(0, -1).join('/')
         }
 
         UIWindow({
@@ -1780,6 +1829,79 @@ async function UIDesktop(options) {
             is_dir: true,
             app: 'explorer',
         });
+    }
+
+    async function tryLaunchSpecifiedApp(appIdentifier, itemPath) {
+        const appInfo = await resolveAppByIdentifier(appIdentifier);
+        if (!appInfo) {
+            return { success: false, reason: 'app_not_found' };
+        }
+
+        let open_item_meta;
+        try {
+            open_item_meta = await fetchOpenItemMeta(itemPath);
+        } catch (e) {
+            console.error('Unable to prepare file for specified app', e);
+            return { success: false, reason: 'open_item_failed' };
+        }
+
+        launch_app({
+            name: appInfo.name,
+            token: open_item_meta.token,
+            file_path: itemPath,
+            app_obj: appInfo,
+            window_title: path.basename(itemPath),
+            maximized: options.maximized,
+            file_signature: open_item_meta.signature,
+            custom_path: window.location.pathname,
+        });
+
+        return { success: true };
+    }
+
+    async function fetchOpenItemMeta(itemPath) {
+        return $.ajax({
+            url: window.api_origin + "/open_item",
+            type: 'POST',
+            contentType: "application/json",
+            data: JSON.stringify({
+                path: itemPath,
+            }),
+            headers: {
+                "Authorization": "Bearer " + window.auth_token
+            },
+            statusCode: {
+                401: function () {
+                    window.logout();
+                },
+            },
+        });
+    }
+
+    function isValidPublicUsername(username) {
+        return /^[a-z0-9_]+$/i.test(username);
+    }
+
+    async function alertInvalidUsername() {
+        await UIAlert({
+            message: i18n('error_invalid_username'),
+        });
+    }
+
+    async function resolveAppByIdentifier(identifier) {
+        if (!identifier) {
+            return null;
+        }
+
+        try {
+            return await puter.apps.get(identifier, { icon_size: 64 });
+        } catch (_err) {
+            try {
+                return await puter.apps.get({ uid: identifier, icon_size: 64 });
+            } catch (_innerErr) {
+                return null;
+            }
+        }
     }
 
     //--------------------------------------------------------------------------------------
