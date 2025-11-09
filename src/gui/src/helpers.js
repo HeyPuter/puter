@@ -3186,3 +3186,9 @@ window.handle_same_name_exists = async ({
         return false;
     }
 }
+
+// TODO: it would be better to define validation rules for both frontend and
+//       backend in a common place; maybe we move these to putility?
+window.validate_username = username => {
+    return /^[a-z0-9_]+$/i.test(username);
+};

@@ -516,6 +516,7 @@ const en = {
         'set_as_background': 'Set as Desktop Background',
 
         'error_user_or_path_not_found': 'User or path not found.',
+        'error_invalid_path_in_url': 'The URL does not contain a valid path to a file or directory on Puter.',
         'error_invalid_username': 'Invalid username.',
     }
 };

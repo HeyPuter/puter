@@ -1676,9 +1676,22 @@ async function UIDesktop(options) {
     //--------------------------------------------------------------------------------------
     // Trying to view a user's public folder?
     // i.e. https://puter.com/@<username>
-    // or https://puter.com/withapp/<app-or-uuid>/@<username>
+    // Trying to view a public file in a specific app?
+    // i.e. https://puter.com/withapp/<app-or-uuid>/@<username>
     //--------------------------------------------------------------------------------------
-    const url_paths = window.location.pathname.split('/').filter(element => element);
+    const url_paths = window.location.pathname
+        .split('/')
+        .filter(element => element)
+        .map(uriComponent => {
+            try {
+                return decodeURIComponent(uriComponent);
+            } catch (e) {
+                // If the URI component was invalid we can treat it literally.
+                // There are no security implications because an encoded URI
+                // could encode the literal text of this component anyway.
+                return uriComponent;
+            }
+        });
     const publicShareRoute = getPublicShareRouteFromURL();
     if (publicShareRoute) {
         await handlePublicShareRoute(publicShareRoute);
@@ -1693,24 +1706,31 @@ async function UIDesktop(options) {
         }
 
         if (window.url_paths[0]?.toLocaleLowerCase() === 'withapp') {
-            const encodedIdentifier = window.url_paths[1];
+            const specifiedAppIdentifier = window.url_paths[1];
             const usernameSegment = window.url_paths[2];
+            const restSegments = window.url_paths.slice(3);
 
-            if (!encodedIdentifier || !usernameSegment?.startsWith('@')) {
+            if (!specifiedAppIdentifier || !usernameSegment?.startsWith('@')) {
                 return null;
             }
-
-            let decodedIdentifier = encodedIdentifier;
-            try {
-                decodedIdentifier = decodeURIComponent(encodedIdentifier);
-            } catch (_err) {
-                // ignore decode errors and fall back to the raw segment
+            
+            for ( const pathComponent of restSegments ) {
+                try {
+                    console.log('validating path component', pathComponent);
+                    window.valdate_fsentry_name(pathComponent);
+                } catch (e) {
+                    UIAlert({
+                        message: i18n('error_invalid_path_in_url'),
+                        type: 'error'
+                    });
+                    return null;
+                }
             }
 
             return {
                 usernameSegment,
+                specifiedAppIdentifier,
                 restSegments: window.url_paths.slice(3),
-                specifiedAppIdentifier: decodedIdentifier,
             };
         }
 
