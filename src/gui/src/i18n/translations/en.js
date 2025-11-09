@@ -253,6 +253,7 @@ const en = {
         replace_all: 'Replace All',
         resend_confirmation_code: "Re-send Confirmation Code",
         reset_colors: "Reset Colors",
+        reset_colors_warning: "You will lose your current color settings. Continue?",
         "Resources": "Resources",
         restart_puter_confirm: "Are you sure you want to restart Puter?",
         restore: "Restore",

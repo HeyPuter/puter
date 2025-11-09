@@ -92,6 +92,7 @@ pre {
     --primary-color-icon: invert(0);
     --primary-color-sidebar-item: #fefeff;
     --window-backdrop-filter: blur(3px);
+    --toolbar-backdrop-filter: blur(3px);
 
     --window-head-hue: var(--primary-hue);
     --window-head-saturation: var(--primary-saturation);
@@ -1865,7 +1866,7 @@ label {
 @supports ((backdrop-filter: blur())) {
     .toolbar {
         background-color: #00000040;
-        backdrop-filter: var(--window-backdrop-filter);
+        backdrop-filter: var(--toolbar-backdrop-filter, blur(10px));
     }
 }
 

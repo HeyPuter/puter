@@ -18,6 +18,7 @@
  */
 import { UIColorPickerWidget, hslaToHex8 } from './UIColorPickerWidget.js';
 import UIWindow from './UIWindow.js';
+import UIAlert from './UIAlert.js';
 import setupMobileSidebar from './utils/setupMobileSidebar.js';
 
 const encodeHTML = (value) => {
@@ -848,6 +849,13 @@ const UIWindowThemeDialog = async function UIWindowThemeDialog (options) {
             justify-content: space-between;
             gap: 12px;
         }
+        .ui-theme-dialog .reset-colors-btn {
+            min-width: 140px;
+            text-transform: none;
+            white-space: normal;
+            line-height: 1.2;
+            padding: 8px 14px;
+        }
         .ui-theme-dialog .theme-panel-section-copy {
             display: flex;
             flex-direction: column;
@@ -1083,7 +1091,20 @@ const UIWindowThemeDialog = async function UIWindowThemeDialog (options) {
     });
 
     // Reset button handler
-    $(el_window).find('.reset-colors-btn').on('click', function () {
+    $(el_window).find('.reset-colors-btn').on('click', async function () {
+        const warningText = i18n?.('reset_colors_warning') ?? 'Resetting colors will revert all custom UI color and filter settings. Continue?';
+        const confirmValue = await UIAlert({
+            type: 'confirm',
+            message: warningText,
+            buttons: [
+                { label: i18n?.('cancel') ?? 'Cancel', value: 'cancel', type: 'secondary' },
+                { label: i18n?.('reset_colors') ?? 'Reset colors', value: 'confirm', type: 'danger' },
+            ],
+            stay_on_top: true,
+        });
+        if ( confirmValue !== 'confirm' ) {
+            return;
+        }
         svc_theme.reset();
         const resetHue = svc_theme.get('hue');
         const resetSat = svc_theme.get('sat');
