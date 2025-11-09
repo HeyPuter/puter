@@ -321,12 +321,18 @@ class AIChatService extends BaseService {
                         Messages.normalize_messages(parameters.messages);
                 }
 
-                if ( ! test_mode && ! await this.moderate(parameters) ) {
+                // Skip moderation for Ollama (local service) and other local services
+                const should_moderate = ! test_mode && 
+                    intended_service !== 'ollama' && 
+                    ! parameters.model?.startsWith('ollama:');
+                
+                if ( should_moderate && ! await this.moderate(parameters) ) {
                     test_mode = true;
                     throw APIError.create('moderation_failed');
                 }
 
-                if ( ! test_mode ) {
+                // Only set moderated flag if we actually ran moderation
+                if ( ! test_mode && should_moderate ) {
                     Context.set('moderated', true);
                 }
 
