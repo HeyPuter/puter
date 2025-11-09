@@ -743,6 +743,9 @@ class AI{
         else if ( requestParams.model.startsWith('openrouter:') ) {
             driver = 'openrouter';
         }
+        else if ( requestParams.model.startsWith('ollama:') ) {
+            driver = 'ollama';
+        }
 
         // stream flag from userParams
         if(userParams.stream !== undefined && typeof userParams.stream === 'boolean'){
