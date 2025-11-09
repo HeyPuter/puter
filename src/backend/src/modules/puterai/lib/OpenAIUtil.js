@@ -127,7 +127,6 @@ const create_chat_stream_handler = ({
             // A: For now, reasoning_content and content never appear together, but I’m not sure if they’ll always be mutually exclusive.
         }
 
-
         if ( choice.delta.content ){
             if ( mode === 'tool' ) {
                 toolblock.end();

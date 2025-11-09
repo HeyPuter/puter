@@ -137,7 +137,6 @@ class OpenRouterService extends BaseService {
                         stream_options: { include_usage: true },
                     } : {}),
                 }
-                // console.log('\x1B[26;1m ===== SDK PARAMETERS', require('util').inspect(sdk_params, undefined, Infinity));
 
                 const completion = await this.openai.chat.completions.create(sdk_params);
 
