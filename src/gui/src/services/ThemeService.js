@@ -30,7 +30,18 @@ const default_values = {
     lig: 93.33,
     alpha: 0.8,
     light_text: false,
+    accents: {
+        titlebar: null,
+        body: null,
+    },
 };
+
+const cloneDefaultState = () => ({
+    ...default_values,
+    accents: {
+        ...default_values.accents,
+    },
+});
 
 export class ThemeService extends Service {
     #broadcastService;
@@ -38,13 +49,7 @@ export class ThemeService extends Service {
     async _init () {
         this.#broadcastService = globalThis.services.get('broadcast');
 
-        this.state = {
-            sat: 41.18,
-            hue: 210,
-            lig: 93.33,
-            alpha: 0.8,
-            light_text: false,
-        };
+        this.state = cloneDefaultState();
         this.root = document.querySelector(':root');
         // this.ss = new CSSStyleSheet();
         // document.adoptedStyleSheets.push(this.ss);
@@ -62,9 +67,14 @@ export class ThemeService extends Service {
                     try {
                         data = JSON.parse(data.toString());
                         if ( data && data.colors ) {
+                            const { accents: loadedAccents, ...colorValues } = data.colors;
                             this.state = {
                                 ...this.state,
-                                ...data.colors,
+                                ...colorValues,
+                                accents: {
+                                    ...(this.state.accents ?? cloneDefaultState().accents),
+                                    ...loadedAccents,
+                                },
                             };
                             this.reload_();
                         }
@@ -93,21 +103,56 @@ export class ThemeService extends Service {
     }
 
     reset () {
-        this.state = default_values;
+        this.state = cloneDefaultState();
         this.reload_();
         puter.fs.delete(PUTER_THEME_DATA_FILENAME);
     }
 
     apply (values) {
+        const nextAccents = values?.accents
+            ? {
+                ...(this.state.accents ?? cloneDefaultState().accents),
+                ...values.accents,
+            }
+            : this.state.accents;
         this.state = {
             ...this.state,
             ...values,
+            accents: nextAccents,
         };
         this.reload_();
         this.save_();
     }
 
     get (key) { return this.state[key]; }
+
+    setAccentColor (region, hsla) {
+        if ( !this.#isAccentRegion(region) || !hsla ) return;
+        const normalized = this.#normalizeAccentColor(hsla);
+        this.state = {
+            ...this.state,
+            accents: {
+                ...(this.state.accents ?? cloneDefaultState().accents),
+                [region]: normalized,
+            },
+        };
+        this.reload_();
+        this.save_();
+    }
+
+    clearAccentColor (region) {
+        if ( !this.#isAccentRegion(region) ) return;
+        if ( !this.state.accents?.[region] ) return;
+        this.state = {
+            ...this.state,
+            accents: {
+                ...(this.state.accents ?? cloneDefaultState().accents),
+                [region]: null,
+            },
+        };
+        this.reload_();
+        this.save_();
+    }
 
     reload_() {
         // debugger;
@@ -125,6 +170,23 @@ export class ThemeService extends Service {
         this.root.style.setProperty('--primary-color', s.light_text ? 'white' : '#373e44');
         this.root.style.setProperty('--primary-color-icon', s.light_text ? 'invert(1)' : 'invert(0)');
         this.root.style.setProperty('--primary-color-sidebar-item', s.light_text ? '#5a5d61aa' : '#fefeff');
+
+        const accents = this.state.accents ?? cloneDefaultState().accents;
+        const baseColor = {
+            hue: s.hue,
+            sat: s.sat,
+            lig: s.lig,
+            alpha: s.alpha,
+            light_text: s.light_text,
+        };
+        const titlebarColor = accents.titlebar ?? baseColor;
+        this.#applyWindowHeadColor(titlebarColor);
+
+        if ( accents.body ) {
+            this.#applyWindowBodyColor(accents.body);
+        } else {
+            this.#clearWindowBodyColor();
+        }
 
         // TODO: Should we debounce this to reduce traffic?
         this.#broadcastService.sendBroadcast('themeChanged', {
@@ -152,5 +214,42 @@ export class ThemeService extends Service {
             undefined,
             5,
         ));
+    }
+
+    #isAccentRegion (region) {
+        return ['titlebar', 'body'].includes(region);
+    }
+
+    #normalizeAccentColor (hsla) {
+        return {
+            hue: hsla.h,
+            sat: hsla.s,
+            lig: hsla.l,
+            alpha: hsla.a,
+            light_text: hsla.l < 60,
+        };
+    }
+
+    #applyWindowHeadColor (color) {
+        this.root.style.setProperty('--window-head-hue', color.hue);
+        this.root.style.setProperty('--window-head-saturation', color.sat + '%');
+        this.root.style.setProperty('--window-head-lightness', color.lig + '%');
+        this.root.style.setProperty('--window-head-alpha', color.alpha);
+        this.root.style.setProperty('--window-head-color', color.light_text ? 'white' : '#373e44');
+    }
+
+    #applyWindowBodyColor (color) {
+        const hsla = this.#hslaString(color);
+        this.root.style.setProperty('--window-body-background', hsla);
+        this.root.style.setProperty('--window-body-foreground', color.light_text ? '#fefeff' : '#1b1f22');
+    }
+
+    #clearWindowBodyColor () {
+        this.root.style.removeProperty('--window-body-background');
+        this.root.style.removeProperty('--window-body-foreground');
+    }
+
+    #hslaString (color) {
+        return `hsla(${color.hue}, ${color.sat}%, ${color.lig}%, ${color.alpha})`;
     }
 }

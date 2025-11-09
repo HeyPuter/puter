@@ -104,6 +104,9 @@ pre {
     --window-sidebar-alpha: calc(min(1, 0.11 + var(--primary-alpha)));
     --window-sidebar-color: var(--primary-color);
 
+    --window-body-background: white;
+    --window-body-foreground: inherit;
+
     --taskbar-hue: var(--primary-hue);
     --taskbar-saturation: var(--primary-saturation);
     --taskbar-lightness: var(--primary-lightness);
@@ -1186,7 +1189,8 @@ span.header-sort-icon img {
 .window-body {
     width: 100%;
     height: calc(100% - 77px);
-    background-color: white;
+    background-color: var(--window-body-background, white);
+    color: var(--window-body-foreground, inherit);
     overflow: auto;
 }
 

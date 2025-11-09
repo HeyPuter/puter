@@ -32,7 +32,7 @@ const createThemeFieldFactory = () => {
     let fieldCount = 0;
     const pendingInitializers = [];
     const fieldAPIs = new Map();
-    const colorFieldSubscribers = new Map();
+    const fieldLinkSubscribers = new Map();
 
     const registerInitializer = (callback) => {
         pendingInitializers.push(callback);
@@ -44,22 +44,22 @@ const createThemeFieldFactory = () => {
 
     const getFieldApi = (fieldId) => fieldAPIs.get(fieldId);
 
-    const subscribeToColorField = (fieldId, callback) => {
-        if (!colorFieldSubscribers.has(fieldId)) {
-            colorFieldSubscribers.set(fieldId, new Set());
+    const subscribeToFieldValue = (fieldId, callback) => {
+        if (!fieldLinkSubscribers.has(fieldId)) {
+            fieldLinkSubscribers.set(fieldId, new Set());
         }
-        const set = colorFieldSubscribers.get(fieldId);
+        const set = fieldLinkSubscribers.get(fieldId);
         set.add(callback);
         return () => {
             set.delete(callback);
             if (set.size === 0) {
-                colorFieldSubscribers.delete(fieldId);
+                fieldLinkSubscribers.delete(fieldId);
             }
         };
     };
 
-    const notifyColorSubscribers = (fieldId, payload) => {
-        const listeners = colorFieldSubscribers.get(fieldId);
+    const notifyLinkedFields = (fieldId, payload) => {
+        const listeners = fieldLinkSubscribers.get(fieldId);
         if (!listeners) return;
         listeners.forEach((listener) => {
             try {
@@ -163,6 +163,16 @@ const createThemeFieldFactory = () => {
             // Move the popout to <body> so it is not clipped by window chrome.
             $popout.appendTo(document.body);
 
+            const dispatchLinkToggle = () => {
+                if ( !linkable ) return;
+                options.onLinkToggle?.({
+                    linked: linkedState,
+                    fieldId,
+                    sourceFieldId: linkable?.sourceFieldId ?? null,
+                    hsla: colorPickerWidget?.getHSLA?.() ?? null,
+                });
+            };
+
             const updatePreview = (colorValue, background) => {
                 if ( ! colorValue ) return;
                 const normalized = colorValue.toUpperCase();
@@ -180,7 +190,7 @@ const createThemeFieldFactory = () => {
                     ...extra,
                 };
                 options.onColorChange?.(payload);
-                notifyColorSubscribers(fieldId, payload);
+                notifyLinkedFields(fieldId, payload);
             };
 
             const updateLinkedVisualState = () => {
@@ -294,7 +304,7 @@ const createThemeFieldFactory = () => {
                 if ( sourceInitialColor ) {
                     latestLinkedColor = sourceInitialColor;
                 }
-                unsubscribeLinkedSource = subscribeToColorField(linkable.sourceFieldId, handleLinkedSourceUpdate);
+                unsubscribeLinkedSource = subscribeToFieldValue(linkable.sourceFieldId, handleLinkedSourceUpdate);
             }
 
             const setLinkedState = (isLinked) => {
@@ -314,6 +324,7 @@ const createThemeFieldFactory = () => {
                     }
                     emitColorPayload();
                 }
+                dispatchLinkToggle();
             };
 
             if ( $linkToggle?.length && linkable ) {
@@ -349,6 +360,7 @@ const createThemeFieldFactory = () => {
             latestLinkedColor = initialHex;
             updatePreview(initialHex, initialBackground);
             updateLinkedVisualState();
+            dispatchLinkToggle();
             if ( linkable && linkedState && latestLinkedColor ) {
                 colorPickerWidget.setColor(latestLinkedColor);
             }
@@ -394,6 +406,8 @@ const createThemeFieldFactory = () => {
         const inputId = `${fieldId}-input`;
         const classes = ['theme-field-numeric'];
         if ( options.extraFieldClass ) classes.push(options.extraFieldClass);
+        const linkable = options.linkable ?? null;
+        const toggleId = linkable ? `${fieldId}-link-toggle` : null;
         const inputAttributes = [
             `id="${encodeHTML(inputId)}"`,
             'type="number"',
@@ -410,29 +424,125 @@ const createThemeFieldFactory = () => {
             label: options.label,
             description: options.description,
             labelFor: inputId,
-            controlMarkup: `<div class="theme-field-input ${options.suffix ? 'has-suffix' : ''}">
+            controlMarkup: `
+                <div class="theme-field-input ${options.suffix ? 'has-suffix' : ''}">
                     <input ${inputAttributes.join(' ')} />
                     ${options.suffix ? `<span class="theme-field-suffix">${encodeHTML(options.suffix)}</span>` : ''}
-                </div>`,
+                </div>
+                ${linkable ? `
+                    <div class="theme-field-link-controls">
+                        <label class="theme-field-link-toggle" for="${encodeHTML(toggleId)}">
+                            <input type="checkbox"
+                                id="${encodeHTML(toggleId)}"
+                                data-field-link-toggle
+                                aria-checked="false" />
+                            <span>${encodeHTML(linkable.toggleLabel ?? 'Customize separately')}</span>
+                        </label>
+                        <p class="theme-field-link-hint">${encodeHTML(linkable.hint ?? 'Matches the base value until customized.')}</p>
+                    </div>
+                ` : ''}
+            `,
             extraClass: classes.join(' '),
         });
 
         registerInitializer(($root) => {
             const $field = $root.find(`[data-theme-field-id="${fieldId}"]`);
             const $input = $field.find(`#${inputId}`);
+            const $linkToggle = linkable ? $field.find('[data-field-link-toggle]') : null;
             if ( options.defaultValue !== undefined && options.defaultValue !== null ) {
                 $input.val(options.defaultValue);
             }
 
-            const emitChange = (event) => {
+            let linkedState = linkable ? (linkable.defaultLinked !== false) : false;
+            let latestLinkedValue = options.defaultValue ?? null;
+            let customValue = options.defaultValue ?? null;
+            let unsubscribeLinkedSource = null;
+
+            const setInputDisabled = (disabled) => {
+                $input.prop('disabled', disabled);
+                $input.attr('aria-disabled', disabled ? 'true' : 'false');
+                $field.toggleClass('theme-field-linked', disabled);
+            };
+
+            const dispatchLinkToggle = () => {
+                if ( !linkable ) return;
+                const raw = $input.val();
+                const value = raw === '' ? null : Number(raw);
+                options.onLinkToggle?.({
+                    linked: linkedState,
+                    fieldId,
+                    sourceFieldId: linkable?.sourceFieldId ?? null,
+                    value,
+                });
+            };
+
+            const emitChange = (event, optionsOverride = {}) => {
                 const raw = event.target.value;
                 const value = raw === '' ? null : Number(raw);
+                if ( !optionsOverride.skipNotify ) {
+                    if ( !linkedState ) {
+                        customValue = value;
+                    } else {
+                        latestLinkedValue = value;
+                    }
+                    notifyLinkedFields(fieldId, { value });
+                }
                 options.onChange?.({ value, event, $input, $field });
             };
 
+            const setLinkedState = (isLinked) => {
+                if ( !linkable || linkedState === isLinked ) return;
+                linkedState = isLinked;
+                setInputDisabled(linkedState);
+                if ( linkedState ) {
+                    if ( latestLinkedValue !== undefined ) {
+                        $input.val(latestLinkedValue ?? '');
+                        emitChange({ target: $input.get(0) }, { skipNotify: true });
+                    }
+                } else {
+                    if ( customValue !== undefined ) {
+                        $input.val(customValue ?? '');
+                        emitChange({ target: $input.get(0) }, { skipNotify: true });
+                    }
+                }
+                if ( $linkToggle?.length ) {
+                    $linkToggle.prop('checked', !linkedState);
+                    $linkToggle.attr('aria-checked', (!linkedState).toString());
+                }
+                dispatchLinkToggle();
+            };
+
+            const handleLinkedSourceUpdate = ({ value }) => {
+                latestLinkedValue = value ?? latestLinkedValue;
+                if ( linkedState ) {
+                    $input.val(latestLinkedValue ?? '');
+                    emitChange({ target: $input.get(0) }, { skipNotify: true });
+                }
+            };
+
+            if ( linkable?.sourceFieldId ) {
+                const sourceApi = getFieldApi(linkable.sourceFieldId);
+                if ( sourceApi?.getValue ) {
+                    latestLinkedValue = sourceApi.getValue();
+                    if ( linkedState ) {
+                        $input.val(latestLinkedValue ?? '');
+                    }
+                }
+                unsubscribeLinkedSource = subscribeToFieldValue(linkable.sourceFieldId, handleLinkedSourceUpdate);
+            }
+
+            if ( $linkToggle?.length ) {
+                setInputDisabled(linkedState);
+                $linkToggle.prop('checked', !linkedState);
+                $linkToggle.on('change', () => {
+                    const wantsCustom = $linkToggle.is(':checked');
+                    setLinkedState(!wantsCustom);
+                });
+            }
+
             $input.on('input change', emitChange);
 
-            options.onReady?.({
+            const fieldApi = {
                 setValue: (value) => {
                     if ( value === null || value === undefined ) {
                         $input.val('');
@@ -444,9 +554,27 @@ const createThemeFieldFactory = () => {
                     const raw = $input.val();
                     return raw === '' ? null : Number(raw);
                 },
+                setLinked: (value) => setLinkedState(value),
+                isLinked: () => linkedState,
                 $field,
                 $input,
+            };
+
+            registerFieldApi(fieldId, fieldApi);
+
+            options.onReady?.(fieldApi);
+
+            if ( linkable && linkedState ) {
+                setLinkedState(true);
+            }
+
+            $field.on('remove', () => {
+                unsubscribeLinkedSource?.();
             });
+
+            if ( !linkable || !linkedState ) {
+                dispatchLinkToggle();
+            }
         });
 
         return markup;
@@ -468,7 +596,8 @@ const createThemeFieldFactory = () => {
         degreesField,
         runInitializers,
         getFieldApi,
-        subscribeToColorField,
+        subscribeToFieldValue,
+        notifyLinkedFields,
     };
 };
 
@@ -501,6 +630,23 @@ const UIWindowThemeDialog = async function UIWindowThemeDialog (options) {
         svc_theme.apply(state);
     };
 
+    const onAccentColorChange = (region) => (payload) => {
+        if ( !payload?.hsla ) return;
+        if ( payload.isLinked ) {
+            svc_theme.clearAccentColor(region);
+            return;
+        }
+        svc_theme.setAccentColor(region, payload.hsla);
+    };
+
+    const onAccentLinkToggle = (region) => ({ linked, hsla }) => {
+        if ( linked ) {
+            svc_theme.clearAccentColor(region);
+        } else if ( hsla ) {
+            svc_theme.setAccentColor(region, hsla);
+        }
+    };
+
     const baseColorFieldMarkup = fieldFactory.colorField({
         id: baseColorFieldId,
         label: 'Base color',
@@ -524,6 +670,8 @@ const UIWindowThemeDialog = async function UIWindowThemeDialog (options) {
             toggleLabel: 'Customize titlebar color',
             hint: 'Leave unchecked to inherit the base color.',
         },
+        onColorChange: onAccentColorChange('titlebar'),
+        onLinkToggle: onAccentLinkToggle('titlebar'),
         onReady: (api) => {
             titlebarColorFieldApi = api;
         },
@@ -539,6 +687,8 @@ const UIWindowThemeDialog = async function UIWindowThemeDialog (options) {
             toggleLabel: 'Customize body color',
             hint: 'Leave unchecked to inherit the base color.',
         },
+        onColorChange: onAccentColorChange('body'),
+        onLinkToggle: onAccentLinkToggle('body'),
         onReady: (api) => {
             bodyColorFieldApi = api;
         },
