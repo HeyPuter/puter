@@ -120,8 +120,9 @@ const create_chat_stream_handler = ({
 
         const choice = chunk.choices[0];
 
-        if ( choice.delta.reasoning_content ){
-            textblock.addReasoning(choice.delta.reasoning_content);
+        // Deepseek returns choice.delta.reasoning_content, openrouter returns choice.delta.reasoning.
+        if ( choice.delta.reasoning_content || choice.delta.reasoning ) {
+            textblock.addReasoning(choice.delta.reasoning_content || choice.delta.reasoning);
             // Q: Why don't "continue" to next chunk here?
             // A: For now, reasoning_content and content never appear together, but I’m not sure if they’ll always be mutually exclusive.
         }

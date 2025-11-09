@@ -126,8 +126,7 @@ class OpenRouterService extends BaseService {
                 const actor = Context.get('actor');
 
                 messages = await OpenAIUtil.process_input_messages(messages);
-
-                const completion = await this.openai.chat.completions.create({
+                const sdk_params = {
                     messages,
                     model: model ?? this.get_default_model(),
                     ...(tools ? { tools } : {}),
@@ -137,7 +136,9 @@ class OpenRouterService extends BaseService {
                     ...(stream ? {
                         stream_options: { include_usage: true },
                     } : {}),
-                });
+                }
+
+                const completion = await this.openai.chat.completions.create(sdk_params);
 
                 const modelDetails =  (await this.models_()).find(m => m.id === 'openrouter:' + model);
                 const rawPriceModelDetails =  (await this.models_(true)).find(m => m.id === 'openrouter:' + model);
