@@ -176,7 +176,7 @@ async function UIWindowPublishWebsite(target_dir_uid, target_dir_name, target_di
             width: 'initial',
             height: '100%',
             'background-color': 'rgb(245 247 249)',
-            'backdrop-filter': 'blur(3px)',
+            'backdrop-filter': 'var(--window-backdrop-filter)',
         }    
     })
 

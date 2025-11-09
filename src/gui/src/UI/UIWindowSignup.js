@@ -160,7 +160,7 @@ function UIWindowSignup(options){
             body_css: {
                 width: 'initial',
                 'background-color': 'white',
-                'backdrop-filter': 'blur(3px)',
+                'backdrop-filter': 'var(--window-backdrop-filter)',
                 'display': 'flex',
                 'flex-direction': 'column',
                 'justify-content': 'center',

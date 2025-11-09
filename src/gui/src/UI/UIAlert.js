@@ -148,7 +148,7 @@ function UIAlert(options) {
                 width: 'initial',
                 padding: '20px',
                 'background-color': 'rgba(231, 238, 245, .95)',
-                'backdrop-filter': 'blur(3px)',
+                'backdrop-filter': 'var(--window-backdrop-filter)',
             }
         });
         // focus to primary btn

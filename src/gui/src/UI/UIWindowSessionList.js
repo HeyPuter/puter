@@ -74,7 +74,7 @@ async function UIWindowSessionList(options){
                 width: 'initial',
                 height: '100%',
                 'background-color': 'rgb(245 247 249)',
-                'backdrop-filter': 'blur(3px)',
+                'backdrop-filter': 'var(--window-backdrop-filter)',
                 'display': 'flex',
                 'flex-direction': 'column',
                 'justify-content': 'center',

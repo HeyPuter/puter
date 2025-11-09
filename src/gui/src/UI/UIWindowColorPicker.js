@@ -85,7 +85,7 @@ async function UIWindowColorPicker(options){
                 width: 'initial',
                 padding: '0',
                 'background-color': 'rgba(231, 238, 245, .95)',
-                'backdrop-filter': 'blur(3px)',
+                'backdrop-filter': 'var(--window-backdrop-filter)',
             }    
         })
 

@@ -61,7 +61,7 @@ async function UIWindowRefer(options){
             width: 'initial',
             'max-height': 'calc(100vh - 200px)',
             'background-color': 'rgb(241 246 251)',
-            'backdrop-filter': 'blur(3px)',
+            'backdrop-filter': 'var(--window-backdrop-filter)',
             'padding': '10px 20px 20px 20px',
             'height': 'initial',
         }    

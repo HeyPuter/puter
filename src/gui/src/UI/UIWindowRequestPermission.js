@@ -75,7 +75,7 @@ async function create_permission_window(options, permission_description, resolve
             width: 'initial',
             padding: '0',
             'background-color': 'rgba(231, 238, 245, .95)',
-            'backdrop-filter': 'blur(3px)',
+            'backdrop-filter': 'var(--window-backdrop-filter)',
         }
     });
 }

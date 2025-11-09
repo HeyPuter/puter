@@ -91,6 +91,7 @@ pre {
     --primary-color: #373e44;
     --primary-color-icon: invert(0);
     --primary-color-sidebar-item: #fefeff;
+    --window-backdrop-filter: blur(3px);
 
     --window-head-hue: var(--primary-hue);
     --window-head-saturation: var(--primary-saturation);
@@ -1860,7 +1861,7 @@ label {
 @supports ((backdrop-filter: blur())) {
     .toolbar {
         background-color: #00000040;
-        backdrop-filter: blur(10px);
+        backdrop-filter: var(--window-backdrop-filter);
     }
 }
 
@@ -2745,7 +2746,7 @@ label {
 
 .task-manager-container thead th {
     box-shadow: 0 1px 4px -2px rgba(0,0,0,0.2);
-    backdrop-filter: blur(2px);
+    backdrop-filter: var(--window-backdrop-filter);
     position: sticky;
     z-index: 100;
     padding: calc(10 * var(--scale)) calc(2.5 * var(--scale)) calc(5 * var(--scale)) calc(2.5 * var(--scale));
@@ -2860,7 +2861,7 @@ label {
                 var(--taskbar-saturation),
                 var(--taskbar-lightness),
                 var(--taskbar-alpha));
-        backdrop-filter: blur(10px);
+        backdrop-filter: var(--window-backdrop-filter);
     }
 
     .taskbar .taskbar-icon img {
@@ -2921,7 +2922,7 @@ label {
     border-radius: 2px;
     font: 14px "Helvetica Neue", Sans-Serif;
     border: none !important;
-    backdrop-filter: blur(3px);
+    backdrop-filter: var(--window-backdrop-filter);
     filter: drop-shadow(0 0 3px rgba(0, 0, 0, .455));
 }
 
@@ -3059,7 +3060,7 @@ label {
     position: absolute;
     box-sizing: border-box;
     padding: 10px;
-    backdrop-filter: blur(5px);
+    backdrop-filter: var(--window-backdrop-filter);
 }
 
 .window-snap-placeholder-inner {
@@ -3086,7 +3087,7 @@ label {
 @supports ((backdrop-filter: blur())) {
     .launch-popover {
         background-color: rgba(231, 238, 245, .92);
-        backdrop-filter: blur(3px);
+        backdrop-filter: var(--window-backdrop-filter);
     }
 }
 
@@ -3138,7 +3139,7 @@ label {
 .notification {
     min-height: 54px;
     background: #ffffffcd;
-    backdrop-filter: blur(5px);
+    backdrop-filter: var(--window-backdrop-filter);
     z-index: 99999999;
     box-shadow: 0px 0px 17px -9px #000;
     border: 1px solid #d5d5d5;
@@ -3249,7 +3250,7 @@ label {
     border: 1px solid #bbc2c9;
     border-radius: 4px;
     background-color: rgba(231, 238, 245, .92);
-    backdrop-filter: blur(3px);
+    backdrop-filter: var(--window-backdrop-filter);
     box-sizing: border-box;
     overflow-y: scroll;
 }
@@ -3606,7 +3607,7 @@ fieldset[name=number-code] {
                 var(--window-head-saturation),
                 var(--window-head-lightness),
                 var(--window-head-alpha));
-        backdrop-filter: blur(10px);
+        backdrop-filter: var(--window-backdrop-filter);
     }
 
     .notification {
@@ -3614,12 +3615,12 @@ fieldset[name=number-code] {
                 var(--window-head-saturation),
                 var(--window-head-lightness),
                 var(--window-head-alpha));
-        backdrop-filter: blur(10px);
+        backdrop-filter: var(--window-backdrop-filter);
     }
 
     .device-phone .window-head {
         background-color: rgba(231, 238, 245);
-        backdrop-filter: blur(10px);
+        backdrop-filter: var(--window-backdrop-filter);
     }
 
     .window-sidebar {
@@ -3628,21 +3629,21 @@ fieldset[name=number-code] {
                 var(--window-sidebar-saturation),
                 var(--window-sidebar-lightness),
                 var(--window-sidebar-alpha));
-        backdrop-filter: blur(10px);
+        backdrop-filter: var(--window-backdrop-filter);
     }
 
     .window-snap-placeholder {
-        backdrop-filter: blur(5px);
+        backdrop-filter: var(--window-backdrop-filter);
     }
 
     .context-menu {
         background-color: rgb(255 255 255 / 92%);
-        backdrop-filter: blur(3px);
+        backdrop-filter: var(--window-backdrop-filter);
     }
 
     .popover:not(.device-phone .popover) {
         background-color: rgb(238, 243, 248);
-        backdrop-filter: blur(10px);
+        backdrop-filter: var(--window-backdrop-filter);
     }
 }
 

@@ -24,6 +24,28 @@ const PUTER_THEME_DATA_FILENAME = '~/.__puter_gui.json';
 
 const SAVE_COOLDOWN_TIME = 1000;
 
+const BACKDROP_FILTER_DEFAULTS = {
+    blur: 3,
+    saturate: 100,
+    hueRotate: 0,
+    invert: 0,
+    brightness: 100,
+    contrast: 100,
+    grayscale: 0,
+    sepia: 0,
+};
+
+const BACKDROP_FILTER_META = {
+    blur: { min: 0, max: 50, precision: 2 },
+    saturate: { min: 0, max: 400, precision: 1 },
+    hueRotate: { min: 0, max: 360, precision: 1 },
+    invert: { min: 0, max: 100, precision: 1 },
+    brightness: { min: 0, max: 300, precision: 1 },
+    contrast: { min: 0, max: 300, precision: 1 },
+    grayscale: { min: 0, max: 100, precision: 1 },
+    sepia: { min: 0, max: 100, precision: 1 },
+};
+
 const default_values = {
     sat: 41.18,
     hue: 210,
@@ -34,12 +56,16 @@ const default_values = {
         titlebar: null,
         body: null,
     },
+    filters: { ...BACKDROP_FILTER_DEFAULTS },
 };
 
 const cloneDefaultState = () => ({
     ...default_values,
     accents: {
         ...default_values.accents,
+    },
+    filters: {
+        ...default_values.filters,
     },
 });
 
@@ -67,7 +93,7 @@ export class ThemeService extends Service {
                     try {
                         data = JSON.parse(data.toString());
                         if ( data && data.colors ) {
-                            const { accents: loadedAccents, ...colorValues } = data.colors;
+                            const { accents: loadedAccents, filters: loadedFilters, ...colorValues } = data.colors;
                             this.state = {
                                 ...this.state,
                                 ...colorValues,
@@ -75,6 +101,7 @@ export class ThemeService extends Service {
                                     ...(this.state.accents ?? cloneDefaultState().accents),
                                     ...loadedAccents,
                                 },
+                                filters: this.#mergeFilters(loadedFilters),
                             };
                             this.reload_();
                         }
@@ -115,16 +142,32 @@ export class ThemeService extends Service {
                 ...values.accents,
             }
             : this.state.accents;
+        const nextFilters = values?.filters
+            ? this.#mergeFilters(values.filters)
+            : (this.state.filters ?? cloneDefaultState().filters);
         this.state = {
             ...this.state,
             ...values,
             accents: nextAccents,
+            filters: nextFilters,
         };
         this.reload_();
         this.save_();
     }
 
-    get (key) { return this.state[key]; }
+    get (key) {
+        if ( key === 'filters' ) {
+            return this.getFilters();
+        }
+        return this.state[key];
+    }
+
+    getFilters () {
+        return {
+            ...cloneDefaultState().filters,
+            ...(this.state.filters ?? {}),
+        };
+    }
 
     setAccentColor (region, hsla) {
         if ( !this.#isAccentRegion(region) || !hsla ) return;
@@ -154,6 +197,16 @@ export class ThemeService extends Service {
         this.save_();
     }
 
+    setBackdropFilters (partial) {
+        if ( !partial ) return;
+        this.state = {
+            ...this.state,
+            filters: this.#mergeFilters(partial),
+        };
+        this.reload_();
+        this.save_();
+    }
+
     reload_() {
         // debugger;
         const s = this.state;
@@ -170,6 +223,9 @@ export class ThemeService extends Service {
         this.root.style.setProperty('--primary-color', s.light_text ? 'white' : '#373e44');
         this.root.style.setProperty('--primary-color-icon', s.light_text ? 'invert(1)' : 'invert(0)');
         this.root.style.setProperty('--primary-color-sidebar-item', s.light_text ? '#5a5d61aa' : '#fefeff');
+
+        const filterString = this.#composeBackdropFilter(this.getFilters());
+        this.root.style.setProperty('--window-backdrop-filter', filterString);
 
         const accents = this.state.accents ?? cloneDefaultState().accents;
         const baseColor = {
@@ -251,5 +307,75 @@ export class ThemeService extends Service {
 
     #hslaString (color) {
         return `hsla(${color.hue}, ${color.sat}%, ${color.lig}%, ${color.alpha})`;
+    }
+
+    #composeBackdropFilter (filters) {
+        const defaults = BACKDROP_FILTER_DEFAULTS;
+        const segments = [];
+        const blur = Number(filters.blur ?? defaults.blur);
+        if ( blur > 0 ) {
+            segments.push(`blur(${blur}px)`);
+        }
+        if ( filters.saturate !== defaults.saturate ) {
+            segments.push(`saturate(${filters.saturate ?? defaults.saturate}%)`);
+        }
+        if ( filters.brightness !== defaults.brightness ) {
+            segments.push(`brightness(${filters.brightness ?? defaults.brightness}%)`);
+        }
+        if ( filters.contrast !== defaults.contrast ) {
+            segments.push(`contrast(${filters.contrast ?? defaults.contrast}%)`);
+        }
+        if ( filters.hueRotate !== defaults.hueRotate ) {
+            segments.push(`hue-rotate(${filters.hueRotate ?? defaults.hueRotate}deg)`);
+        }
+        if ( filters.invert ) {
+            segments.push(`invert(${filters.invert ?? defaults.invert}%)`);
+        }
+        if ( filters.grayscale ) {
+            segments.push(`grayscale(${filters.grayscale ?? defaults.grayscale}%)`);
+        }
+        if ( filters.sepia ) {
+            segments.push(`sepia(${filters.sepia ?? defaults.sepia}%)`);
+        }
+        return segments.length ? segments.join(' ') : 'none';
+    }
+
+    #mergeFilters (partial = {}) {
+        const current = {
+            ...cloneDefaultState().filters,
+            ...(this.state.filters ?? {}),
+        };
+        const next = { ...current };
+        Object.entries(partial ?? {}).forEach(([key, value]) => {
+            if ( !(key in BACKDROP_FILTER_META) ) {
+                return;
+            }
+            if ( value === null || value === undefined || value === '' ) {
+                next[key] = BACKDROP_FILTER_DEFAULTS[key];
+                return;
+            }
+            next[key] = this.#clampFilterValue(key, value);
+        });
+        return next;
+    }
+
+    #clampFilterValue (key, value) {
+        const meta = BACKDROP_FILTER_META[key];
+        if ( !meta ) return value;
+        let num = Number(value);
+        if ( Number.isNaN(num) ) {
+            return BACKDROP_FILTER_DEFAULTS[key];
+        }
+        if ( typeof meta.min === 'number' ) {
+            num = Math.max(meta.min, num);
+        }
+        if ( typeof meta.max === 'number' ) {
+            num = Math.min(meta.max, num);
+        }
+        if ( typeof meta.precision === 'number' ) {
+            const factor = 10 ** meta.precision;
+            num = Math.round(num * factor) / factor;
+        }
+        return num;
     }
 }

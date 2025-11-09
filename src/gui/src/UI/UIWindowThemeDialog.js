@@ -618,6 +618,7 @@ const UIWindowThemeDialog = async function UIWindowThemeDialog (options) {
     let baseColorFieldApi = null;
     let titlebarColorFieldApi = null;
     let bodyColorFieldApi = null;
+    const filterFieldAPIs = {};
 
     const applyWindowColorFromHSLA = (hsla) => {
         const state = {
@@ -645,6 +646,29 @@ const UIWindowThemeDialog = async function UIWindowThemeDialog (options) {
         } else if ( hsla ) {
             svc_theme.setAccentColor(region, hsla);
         }
+    };
+
+    const fallbackFilterDefaults = {
+        blur: 3,
+        saturate: 100,
+        brightness: 100,
+        contrast: 100,
+        hueRotate: 0,
+        invert: 0,
+        grayscale: 0,
+        sepia: 0,
+    };
+    const currentFilterValues = typeof svc_theme.getFilters === 'function'
+        ? svc_theme.getFilters()
+        : fallbackFilterDefaults;
+    const filterDefaults = {
+        ...fallbackFilterDefaults,
+        ...currentFilterValues,
+    };
+    const handleBackdropFilterChange = (key) => ({ value }) => {
+        svc_theme.setBackdropFilters({
+            [key]: value,
+        });
     };
 
     const baseColorFieldMarkup = fieldFactory.colorField({
@@ -694,6 +718,31 @@ const UIWindowThemeDialog = async function UIWindowThemeDialog (options) {
         },
     });
 
+    const backdropFilterFieldDefinitions = [
+        { key: 'blur', label: 'Blur', suffix: 'px', min: 0, max: 50, step: 0.5 },
+        { key: 'saturate', label: 'Saturation', suffix: '%', min: 0, max: 400, step: 1 },
+        { key: 'brightness', label: 'Brightness', suffix: '%', min: 0, max: 300, step: 1 },
+        { key: 'contrast', label: 'Contrast', suffix: '%', min: 0, max: 300, step: 1 },
+        { key: 'hueRotate', label: 'Hue rotate', suffix: '°', min: 0, max: 360, step: 1 },
+        { key: 'invert', label: 'Invert', suffix: '%', min: 0, max: 100, step: 1 },
+        { key: 'grayscale', label: 'Grayscale', suffix: '%', min: 0, max: 100, step: 1 },
+        { key: 'sepia', label: 'Sepia', suffix: '%', min: 0, max: 100, step: 1 },
+    ];
+
+    const backdropFilterFieldsMarkup = backdropFilterFieldDefinitions.map((descriptor) => fieldFactory.numericField({
+        id: `window-filter-${descriptor.key}`,
+        label: descriptor.label,
+        suffix: descriptor.suffix,
+        min: descriptor.min,
+        max: descriptor.max,
+        step: descriptor.step,
+        defaultValue: filterDefaults[descriptor.key],
+        onChange: handleBackdropFilterChange(descriptor.key),
+        onReady: (api) => {
+            filterFieldAPIs[descriptor.key] = api;
+        },
+    })).join('');
+
     const tabDefinitions = [
         {
             id: 'themes',
@@ -716,6 +765,10 @@ const UIWindowThemeDialog = async function UIWindowThemeDialog (options) {
                         <p class="theme-panel-subsection-title">Surface accents</p>
                         ${titlebarColorFieldMarkup}
                         ${bodyColorFieldMarkup}
+                    </div>
+                    <div class="theme-panel-subsection">
+                        <p class="theme-panel-subsection-title">Backdrop filters</p>
+                        ${backdropFilterFieldsMarkup}
                     </div>
                 </div>`,
         },
@@ -1032,7 +1085,7 @@ const UIWindowThemeDialog = async function UIWindowThemeDialog (options) {
                 var(--primary-saturation),
                 var(--primary-lightness),
                 var(--primary-alpha))`,
-            'backdrop-filter': 'blur(3px)',
+            'backdrop-filter': 'var(--window-backdrop-filter)',
         },
         ...options.window_options,
         onAppend: function (window) {
@@ -1073,6 +1126,12 @@ const UIWindowThemeDialog = async function UIWindowThemeDialog (options) {
         if ( bodyColorFieldApi ) {
             bodyColorFieldApi.setLinked(true);
         }
+        const resetFilters = typeof svc_theme.getFilters === 'function'
+            ? svc_theme.getFilters()
+            : fallbackFilterDefaults;
+        backdropFilterFieldDefinitions.forEach(({ key }) => {
+            filterFieldAPIs[key]?.setValue(resetFilters[key]);
+        });
     });
 
     return {};

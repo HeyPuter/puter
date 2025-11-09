@@ -106,7 +106,7 @@ async function UIWindowProgress({
                 var(--primary-saturation),
                 var(--primary-lightness),
                 var(--primary-alpha))`,
-            'backdrop-filter': 'blur(3px)',
+            'backdrop-filter': 'var(--window-backdrop-filter)',
         }    
     });
 

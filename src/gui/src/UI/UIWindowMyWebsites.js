@@ -49,7 +49,7 @@ async function UIWindowMyWebsites(options){
             padding: '10px',
             width: 'initial',
             'background-color': 'rgba(231, 238, 245)',
-            'backdrop-filter': 'blur(3px)',
+            'backdrop-filter': 'var(--window-backdrop-filter)',
             'padding-bottom': 0,
             'height': '351px',
             'box-sizing': 'border-box',

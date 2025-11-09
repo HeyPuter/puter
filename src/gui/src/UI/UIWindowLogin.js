@@ -123,7 +123,7 @@ async function UIWindowLogin(options){
                 width: 'initial',
                 padding: '0',
                 'background-color': 'rgb(255 255 255)',
-                'backdrop-filter': 'blur(3px)',
+                'backdrop-filter': 'var(--window-backdrop-filter)',
                 'display': 'flex',
                 'flex-direction': 'column',
                 'justify-content': 'center',
@@ -348,7 +348,7 @@ async function UIWindowLogin(options){
                                 width: 'initial',
                                 height: '100%',
                                 'background-color': 'rgb(245 247 249)',
-                                'backdrop-filter': 'blur(3px)',
+                                'backdrop-filter': 'var(--window-backdrop-filter)',
                                 padding: '20px',
                             },
                         });

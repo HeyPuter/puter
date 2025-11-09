@@ -87,7 +87,7 @@ function UIWindowEmailConfirmationRequired(options){
                 width: 'initial',
                 height: 'initial',
                 'background-color': 'rgb(247 251 255)',
-                'backdrop-filter': 'blur(3px)',
+                'backdrop-filter': 'var(--window-backdrop-filter)',
             }
         })
 
