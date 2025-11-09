@@ -1289,6 +1289,10 @@ span.header-sort-icon img {
 }
 
 .window-sidebar-item, .window-sidebar-item.grabbing {
+    /* overrides for <button> elements */
+    border: none;
+
+    /* button style for <div> elements */
     margin-bottom: 8px;
     margin-top: 2px;
     padding: 4px;

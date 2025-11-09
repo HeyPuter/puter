@@ -19,6 +19,7 @@
 
 import Placeholder from '../../util/Placeholder.js';
 import UIWindow from '../UIWindow.js'
+import setupMobileSidebar from '../utils/setupMobileSidebar.js';
 
 def(Symbol('TSettingsTab'), 'ui.traits.TSettingsTab');
 
@@ -104,6 +105,7 @@ async function UIWindowSettings(options){
             ...options?.window_options??{}
         });
         const $el_window = $(el_window);
+        setupMobileSidebar($el_window);
         tabs.forEach((tab, i) => {
             tab.init && tab.init($el_window);
             if ( tab.factory ) {
@@ -150,46 +152,5 @@ async function UIWindowSettings(options){
         resolve(el_window);
     });
 }
-
-$(document).on('mousedown', '.sidebar-toggle', function(e) {
-    e.preventDefault();
-    $('.settings-sidebar').toggleClass('active');
-    $('.sidebar-toggle-button').toggleClass('active');
-    // move sidebar toggle button
-    setTimeout(() => {
-        $('.sidebar-toggle').css({
-            left: $('.settings-sidebar').hasClass('active') ? 243 : 2
-        });   
-    }, 10);
-})
-
-$(document).on('click', '.settings-sidebar-item', function(e) {
-    // hide sidebar
-    $('.settings-sidebar').removeClass('active');
-    // move sidebar toggle button ro the right
-    setTimeout(() => {
-        $('.sidebar-toggle').css({
-            left: 2
-        });   
-    }, 10);
-
-})
-
-// clicking anywhere on the page will close the sidebar
-$(document).on('click', function(e) {
-    // print event target class
-    
-    if (!$(e.target).closest('.settings-sidebar').length && !$(e.target).closest('.sidebar-toggle-button').length && !$(e.target).hasClass('sidebar-toggle-button') && !$(e.target).hasClass('sidebar-toggle')) {
-        $('.settings-sidebar').removeClass('active');
-        $('.sidebar-toggle-button').removeClass('active');
-        // move sidebar toggle button ro the right
-        setTimeout(() => {
-            $('.sidebar-toggle').css({
-                left: 2
-            });   
-        }, 10);
-
-    }
-})
 
 export default UIWindowSettings

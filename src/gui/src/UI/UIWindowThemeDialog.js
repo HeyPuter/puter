@@ -18,6 +18,7 @@
  */
 import { UIColorPickerWidget, hslaToHex8 } from './UIColorPickerWidget.js';
 import UIWindow from './UIWindow.js';
+import setupMobileSidebar from './utils/setupMobileSidebar.js';
 
 const encodeHTML = (value) => {
     if ( value === undefined || value === null ) return '';
@@ -45,14 +46,14 @@ const createThemeFieldFactory = () => {
     const getFieldApi = (fieldId) => fieldAPIs.get(fieldId);
 
     const subscribeToFieldValue = (fieldId, callback) => {
-        if (!fieldLinkSubscribers.has(fieldId)) {
+        if ( ! fieldLinkSubscribers.has(fieldId) ) {
             fieldLinkSubscribers.set(fieldId, new Set());
         }
         const set = fieldLinkSubscribers.get(fieldId);
         set.add(callback);
         return () => {
             set.delete(callback);
-            if (set.size === 0) {
+            if ( set.size === 0 ) {
                 fieldLinkSubscribers.delete(fieldId);
             }
         };
@@ -60,11 +61,11 @@ const createThemeFieldFactory = () => {
 
     const notifyLinkedFields = (fieldId, payload) => {
         const listeners = fieldLinkSubscribers.get(fieldId);
-        if (!listeners) return;
+        if ( ! listeners ) return;
         listeners.forEach((listener) => {
             try {
                 listener(payload);
-            } catch (err) {
+            } catch ( err ) {
                 console.error('Theme field subscriber error', err);
             }
         });
@@ -164,7 +165,7 @@ const createThemeFieldFactory = () => {
             $popout.appendTo(document.body);
 
             const dispatchLinkToggle = () => {
-                if ( !linkable ) return;
+                if ( ! linkable ) return;
                 options.onLinkToggle?.({
                     linked: linkedState,
                     fieldId,
@@ -194,7 +195,7 @@ const createThemeFieldFactory = () => {
             };
 
             const updateLinkedVisualState = () => {
-                if ( !linkable ) return;
+                if ( ! linkable ) return;
                 $field.toggleClass('theme-field-linked', linkedState);
                 $previewButton.prop('disabled', linkedState);
                 $previewButton.attr('aria-disabled', linkedState ? 'true' : 'false');
@@ -317,7 +318,7 @@ const createThemeFieldFactory = () => {
                         colorPickerWidget?.setColor(latestLinkedColor);
                     }
                 } else {
-                    if ( !customColorHex ) {
+                    if ( ! customColorHex ) {
                         customColorHex = colorPickerWidget?.getHex8String
                             ? colorPickerWidget.getHex8String()
                             : customColorHex;
@@ -339,7 +340,7 @@ const createThemeFieldFactory = () => {
                 const hexValue = color?.hex8String ?? colorPickerWidget?.getHex8String?.() ?? color?.hexString;
                 const backgroundValue = color?.rgbaString ?? hexValue;
                 updatePreview(hexValue, backgroundValue);
-                if ( !linkedState ) {
+                if ( ! linkedState ) {
                     customColorHex = hexValue;
                 } else {
                     latestLinkedColor = hexValue;
@@ -465,7 +466,7 @@ const createThemeFieldFactory = () => {
             };
 
             const dispatchLinkToggle = () => {
-                if ( !linkable ) return;
+                if ( ! linkable ) return;
                 const raw = $input.val();
                 const value = raw === '' ? null : Number(raw);
                 options.onLinkToggle?.({
@@ -479,8 +480,8 @@ const createThemeFieldFactory = () => {
             const emitChange = (event, optionsOverride = {}) => {
                 const raw = event.target.value;
                 const value = raw === '' ? null : Number(raw);
-                if ( !optionsOverride.skipNotify ) {
-                    if ( !linkedState ) {
+                if ( ! optionsOverride.skipNotify ) {
+                    if ( ! linkedState ) {
                         customValue = value;
                     } else {
                         latestLinkedValue = value;
@@ -632,7 +633,7 @@ const UIWindowThemeDialog = async function UIWindowThemeDialog (options) {
     };
 
     const onAccentColorChange = (region) => (payload) => {
-        if ( !payload?.hsla ) return;
+        if ( ! payload?.hsla ) return;
         if ( payload.isLinked ) {
             svc_theme.clearAccentColor(region);
             return;
@@ -747,12 +748,16 @@ const UIWindowThemeDialog = async function UIWindowThemeDialog (options) {
         {
             id: 'themes',
             label: 'Themes',
-            content: () => '<div class="theme-dialog-placeholder">Saved themes will appear here. Use this space to store and load custom looks for your desktop.</div>',
+            content: () => `
+                <div class="settings-card theme-panel-section">
+                    <div class="theme-dialog-placeholder">Saved themes will appear here. Use this space to store and load custom looks for your desktop.</div>
+                </div>`,
         },
         {
             id: 'window-color',
             label: 'Window Color',
-            content: () => `<div class="theme-panel-section" data-section="window-color">
+            content: () => `<h1 class="theme-panel-heading">${i18n('ui_colors')}</h1>
+                <div class="settings-card theme-panel-section" data-section="window-color">
                     <div class="theme-panel-section-header">
                         <div class="theme-panel-section-copy">
                             <h3 class="theme-panel-title">Window Color</h3>
@@ -773,99 +778,69 @@ const UIWindowThemeDialog = async function UIWindowThemeDialog (options) {
                 </div>`,
         },
     ];
+    const defaultActiveTabId = 'window-color';
 
-    const navButtonsMarkup = tabDefinitions.map((tab) => {
+    const getSidebarIconStyle = (iconName) => {
+        const iconPath = iconName && window.icons?.[iconName];
+        return iconPath ? ` style="background-image: url(${iconPath});"` : '';
+    };
+
+    const sidebarItemsMarkup = tabDefinitions.map((tab) => {
         const safeTabId = encodeHTML(tab.id);
         const safeLabel = encodeHTML(tab.label);
+        const isActive = tab.id === defaultActiveTabId;
+        const iconStyle = getSidebarIconStyle(tab.icon);
         return `
-            <button type="button"
-                class="theme-dialog-nav-button"
-                data-tab="${safeTabId}"
-                role="tab"
-                aria-selected="false"
-                aria-controls="theme-panel-${safeTabId}"
-                id="theme-tab-${safeTabId}">
+            <div class="settings-sidebar-item disable-context-menu disable-user-select ${isActive ? 'active' : ''}"
+                data-settings="${safeTabId}"${iconStyle}>
                 ${safeLabel}
-            </button>`;
+            </div>`;
     }).join('');
 
     const panelsMarkup = tabDefinitions.map((tab) => {
         const safeTabId = encodeHTML(tab.id);
+        const isActive = tab.id === defaultActiveTabId;
         return `
-            <section class="theme-dialog-panel stack"
-                id="theme-panel-${safeTabId}"
-                data-tab="${safeTabId}"
-                role="tabpanel"
-                aria-hidden="true"
-                aria-labelledby="theme-tab-${safeTabId}">
+            <div class="settings-content theme-dialog-panel ${isActive ? 'active' : ''}"
+                data-settings="${safeTabId}">
                 ${tab.content()}
-            </section>`;
+            </div>`;
     }).join('');
+
+    const menuIcon = window.icons?.menu ?? null;
+    const burgerMarkup = menuIcon
+        ? `<div class="settings-sidebar-burger disable-context-menu disable-user-select" style="background-image: url(${menuIcon});"></div>`
+        : '';
 
     let h = '';
     h += `<style>
-        .ui-theme-dialog .theme-dialog-layout {
-            display: flex;
-            gap: 16px;
+        .ui-theme-dialog .settings {
             min-width: 320px;
         }
-        .ui-theme-dialog .theme-dialog-nav {
-            display: flex;
-            flex-direction: column;
-            gap: 6px;
-            min-width: 140px;
-        }
-        .ui-theme-dialog .theme-dialog-nav-button {
-            background: transparent;
-            border: none;
-            border-radius: 10px;
-            padding: 10px 12px;
-            text-align: left;
-            font-weight: 600;
-            color: var(--text-color, #fff);
-            cursor: pointer;
-            transition: background-color 0.15s ease;
-        }
-        .ui-theme-dialog .theme-dialog-nav-button.active {
-            background-color: rgba(255, 255, 255, 0.14);
-        }
-        .ui-theme-dialog .theme-dialog-nav-button:focus-visible {
-            outline: 2px solid rgba(255, 255, 255, 0.6);
-            outline-offset: 2px;
-        }
-        .ui-theme-dialog .theme-dialog-panels {
-            flex: 1;
-            min-width: 0;
+        .ui-theme-dialog .settings-content-container {
             min-height: 220px;
             overflow: visible;
         }
-        .ui-theme-dialog .theme-dialog-panel {
-            display: none;
+        .ui-theme-dialog .settings-content.theme-dialog-panel {
+            width: 100%;
+            max-width: none;
+            margin: 0;
         }
-        .ui-theme-dialog .theme-dialog-panel.active {
-            display: flex;
-        }
-        .ui-theme-dialog .theme-dialog-panel.stack {
-            flex-direction: column;
+        .ui-theme-dialog .settings-content.theme-dialog-panel.active {
             gap: 12px;
         }
         .ui-theme-dialog .theme-dialog-placeholder {
-            padding: 14px;
-            border-radius: 12px;
-            border: 1px dashed rgba(255, 255, 255, 0.3);
             font-size: 0.9em;
             line-height: 1.4;
-            opacity: 0.9;
+            color: #555;
         }
-        .ui-theme-dialog .theme-panel-section {
+        .ui-theme-dialog .settings-card.theme-panel-section {
             display: flex;
             flex-direction: column;
-            gap: 14px;
+            align-items: stretch;
+            gap: 16px;
+            height: auto;
             padding: 18px;
-            border-radius: 18px;
-            background-color: rgba(0, 0, 0, 0.15);
-            width: 100%;
-            box-sizing: border-box;
         }
         .ui-theme-dialog .theme-panel-section-header {
             display: flex;
@@ -941,7 +916,7 @@ const UIWindowThemeDialog = async function UIWindowThemeDialog (options) {
         .ui-theme-dialog .theme-panel-subsection {
             margin-top: 4px;
             padding-top: 12px;
-            border-top: 1px solid rgba(255, 255, 255, 0.15);
+            border-top: 1px solid #e0e0e0;
             display: flex;
             flex-direction: column;
             gap: 12px;
@@ -1047,12 +1022,17 @@ const UIWindowThemeDialog = async function UIWindowThemeDialog (options) {
         }
     </style>`;
     h += '<div class="ui-theme-dialog">';
-    h += '  <div class="theme-dialog-layout">';
-    h += '      <nav class="theme-dialog-nav" role="tablist" aria-label="Theme options">';
-    h += navButtonsMarkup;
-    h += '      </nav>';
-    h += '      <div class="theme-dialog-panels">';
+    h += '  <div class="settings-container">';
+    h += '      <div class="settings">';
+    h += '          <button class="sidebar-toggle hidden-lg hidden-xl hidden-md"><div class="sidebar-toggle-button"><span></span><span></span><span></span></div></button>';
+    h += '          <div class="settings-sidebar disable-user-select disable-context-menu">';
+    h += `              <div class="settings-sidebar-title">${i18n('ui_colors')}</div>`;
+    h += burgerMarkup;
+    h += sidebarItemsMarkup;
+    h += '          </div>';
+    h += '          <div class="settings-content-container">';
     h += panelsMarkup;
+    h += '          </div>';
     h += '      </div>';
     h += '  </div>';
     h += '</div>';
@@ -1073,39 +1053,32 @@ const UIWindowThemeDialog = async function UIWindowThemeDialog (options) {
         show_in_taskbar: false,
         window_class: 'window-alert',
         dominant: true,
-        width: 580,
+        width: 700,
         window_css: {
             height: 'initial',
         },
         body_css: {
             width: 'initial',
-            padding: '20px',
-            'background-color': `hsla(
-                var(--primary-hue),
-                var(--primary-saturation),
-                var(--primary-lightness),
-                var(--primary-alpha))`,
-            'backdrop-filter': 'var(--window-backdrop-filter)',
         },
         ...options.window_options,
         onAppend: function (window) {
-            // Setup tab navigation and initialize registered theme fields
             const $dialog = $(window);
             const setActiveTab = (tabName) => {
-                const $buttons = $dialog.find('.theme-dialog-nav-button');
-                const $panels = $dialog.find('.theme-dialog-panel');
-                $buttons.attr('aria-selected', 'false').removeClass('active');
-                $panels.attr('aria-hidden', 'true').removeClass('active');
-                $buttons.filter(`[data-tab="${tabName}"]`).attr('aria-selected', 'true').addClass('active');
-                $panels.filter(`[data-tab="${tabName}"]`).attr('aria-hidden', 'false').addClass('active');
+                const $items = $dialog.find('.settings-sidebar-item');
+                const $panels = $dialog.find('.settings-content.theme-dialog-panel');
+                $items.removeClass('active');
+                $panels.removeClass('active');
+                $items.filter(`[data-settings="${tabName}"]`).addClass('active');
+                $panels.filter(`[data-settings="${tabName}"]`).addClass('active');
             };
 
-            $dialog.find('.theme-dialog-nav-button').on('click', function () {
-                setActiveTab($(this).data('tab'));
+            $dialog.on('click', '.settings-sidebar-item', function () {
+                setActiveTab($(this).attr('data-settings'));
             });
 
-            setActiveTab('window-color');
+            setActiveTab(defaultActiveTabId);
             fieldFactory.runInitializers($dialog);
+            setupMobileSidebar($dialog);
         },
     });
 
