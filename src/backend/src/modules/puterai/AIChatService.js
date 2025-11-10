@@ -403,6 +403,9 @@ class AIChatService extends BaseService {
                     parameters.max_tokens = Math.floor(Math.min(parameters.max_tokens ?? Number.POSITIVE_INFINITY,
                                     max_allowed_output_tokens,
                                     model_max_tokens - (Math.ceil(text.length / 4))));
+                    if (parameters.max_tokens < 1) {
+                        parameters.max_tokens = undefined;
+                    }
                 }
                 try {
                     ret = await svc_driver.call_new_({
