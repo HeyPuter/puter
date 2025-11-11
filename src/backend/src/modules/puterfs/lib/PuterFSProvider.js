@@ -18,42 +18,11 @@
  */
 
 const putility = require('@heyputer/putility');
-const { MultiDetachable } = putility.libs.listener;
-const { TDetachable } = putility.traits;
-const { NodeInternalIDSelector, NodeChildSelector, NodeUIDSelector } = require('../../../filesystem/node/selectors');
 const { Context } = require('../../../util/context');
 const fsCapabilities = require('../../../filesystem/definitions/capabilities');
-const { UploadProgressTracker } = require('../../../filesystem/storage/UploadProgressTracker');
-const FSNodeContext = require('../../../filesystem/FSNodeContext');
-const { RESOURCE_STATUS_PENDING_CREATE } = require('../ResourceService');
-const { ParallelTasks } = require('../../../util/otelutil');
-const { TYPE_DIRECTORY } = require('../../../filesystem/FSNodeContext');
-const APIError = require('../../../api/APIError');
-const { MODE_WRITE } = require('../../../services/fs/FSLockService');
-const { DB_WRITE } = require('../../../services/database/consts');
-const { stuck_detector_stream, hashing_stream } = require('../../../util/streamutil');
-const crypto = require('crypto');
-const { OperationFrame } = require('../../../services/OperationTraceService');
-const path = require('path');
-const uuidv4 = require('uuid').v4;
 const config = require('../../../config.js');
-const { Actor } = require('../../../services/auth/Actor.js');
-const { UserActorType } = require('../../../services/auth/Actor.js');
-const { get_user } = require('../../../helpers.js');
-
-const STUCK_STATUS_TIMEOUT = 10 * 1000;
-const STUCK_ALARM_TIMEOUT = 20 * 1000;
 
 class PuterFSProvider extends putility.AdvancedBase {
-
-    get #services () { // we really should just pass services in constructor, global state is a bit messy
-        return Context.get('services');
-    }
-
-    /** @type {import('../../../services/MeteringService/MeteringService.js').MeteringService} */
-    get #meteringService () {
-        return this.#services.get('meteringService').meteringService;
-    }
 
     constructor (...a) {
         super(...a);
@@ -86,44 +55,37 @@ class PuterFSProvider extends putility.AdvancedBase {
      * @param {NodeSelector} param.selector - The selector used for checking.
      * @returns {Promise<boolean>} - True if the node exists, false otherwise.
      */
-    async quick_check ({
-        selector,
-    }) {
+    async quick_check () {
         console.error('This .quick_check should not be called!');
         throw new Error('This .quick_check should not be called!');
     }
 
-    async stat ({
-        selector,
-        options,
-        controls,
-        node,
-    }) {
+    async stat () {
         console.error('This .stat should not be called!');
         throw new Error('This .stat should not be called!');
     }
 
-    async readdir ({ node }) {
+    async readdir () {
         console.error('This .readdir should not be called!');
         throw new Error('This .readdir should not be called!');
     }
 
-    async move ({ context, node, new_parent, new_name, metadata }) {
+    async move () {
         console.error('This .move should not be called!');
         throw new Error('This .move should not be called!');
     }
 
-    async copy_tree ({ context, node, options = {} }) {
+    async copy_tree () {
         console.error('This .copy_tree should not be called!');
         throw new Error('This .copy_tree should not be called!');
     }
 
-    async unlink ({ context, node, options = {} }) {
+    async unlink () {
         console.error('This .unlink should not be called!');
         throw new Error('This .unlink should not be called!');
     }
 
-    async rmdir ({ context, node, options = {} }) {
+    async rmdir () {
         console.error('This .rmdir should not be called!');
         throw new Error('This .rmdir should not be called!');
     }
@@ -138,7 +100,7 @@ class PuterFSProvider extends putility.AdvancedBase {
      * @param {boolean} param.immutable
      * @returns {Promise<FSNode>}
      */
-    async mkdir ({ context, parent, name, immutable }) {
+    async mkdir () {
         console.error('This .mkdir should not be called!');
         throw new Error('This .mkdir should not be called!');
     }
@@ -188,7 +150,7 @@ class PuterFSProvider extends putility.AdvancedBase {
      * @param {File} param.file: The file to write.
      * @returns {Promise<FSNode>}
      */
-    async write_new ({ context, parent, name, file }) {
+    async write_new () {
         console.error('This .write_new should not be called!');
         throw new Error('This .write_new should not be called!');
     }
@@ -203,126 +165,12 @@ class PuterFSProvider extends putility.AdvancedBase {
      * @param {File} param.file: The file to write.
      * @returns {Promise<FSNodeContext>}
      */
-    async write_overwrite ({ context, node, file }) {
+    async write_overwrite () {
         console.error('This .write_overwrite should not be called!');
         throw new Error('This .write_overwrite should not be called!');
     }
 
-    /**
-    * @param {Object} param
-    * @param {File} param.file: The file to write.
-    * @returns
-    */
-    async #storage_upload ({
-        uuid,
-        bucket,
-        bucket_region,
-        file,
-        tmp,
-    }) {
-        const log = this.#services.get('log-service').create('fs.#storage_upload');
-        const errors = this.#services.get('error-service').create(log);
-        const svc_event = this.#services.get('event');
-
-        const svc_mountpoint = this.#services.get('mountpoint');
-        const storage = svc_mountpoint.get_storage(this.constructor.name);
-
-        bucket ??= config.s3_bucket;
-        bucket_region ??= config.s3_region ?? config.region;
-
-        let upload_tracker = new UploadProgressTracker();
-
-        svc_event.emit('fs.storage.upload-progress', {
-            upload_tracker,
-            context: Context.get(),
-            meta: {
-                item_uid: uuid,
-                item_path: tmp.path,
-            },
-        });
-
-        if ( ! file.buffer ) {
-            let stream = file.stream;
-            let alarm_timeout = null;
-            stream = stuck_detector_stream(stream, {
-                timeout: STUCK_STATUS_TIMEOUT,
-                on_stuck: () => {
-                    this.frame.status = OperationFrame.FRAME_STATUS_STUCK;
-                    log.warn('Upload stream stuck might be stuck', {
-                        bucket_region,
-                        bucket,
-                        uuid,
-                    });
-                    alarm_timeout = setTimeout(() => {
-                        errors.report('fs.write.s3-upload', {
-                            message: 'Upload stream stuck for too long',
-                            alarm: true,
-                            extra: {
-                                bucket_region,
-                                bucket,
-                                uuid,
-                            },
-                        });
-                    }, STUCK_ALARM_TIMEOUT);
-                },
-                on_unstuck: () => {
-                    clearTimeout(alarm_timeout);
-                    this.frame.status = OperationFrame.FRAME_STATUS_WORKING;
-                },
-            });
-            file = { ...file, stream };
-        }
-
-        let hashPromise;
-        if ( file.buffer ) {
-            const hash = crypto.createHash('sha256');
-            hash.update(file.buffer);
-            hashPromise = Promise.resolve(hash.digest('hex'));
-        } else {
-            const hs = hashing_stream(file.stream);
-            file.stream = hs.stream;
-            hashPromise = hs.hashPromise;
-        }
-
-        hashPromise.then(hash => {
-            const svc_event = this.#services.get('event');
-            svc_event.emit('outer.fs.write-hash', {
-                hash, uuid,
-            });
-        });
-
-        const state_upload = storage.create_upload();
-
-        try {
-            await state_upload.run({
-                uid: uuid,
-                file,
-                storage_meta: { bucket, bucket_region },
-                storage_api: { progress_tracker: upload_tracker },
-            });
-        } catch (e) {
-            errors.report('fs.write.storage-upload', {
-                source: e || new Error('unknown'),
-                trace: true,
-                alarm: true,
-                extra: {
-                    bucket_region,
-                    bucket,
-                    uuid,
-                },
-            });
-            throw APIError.create('upload_failed');
-        }
-
-        return state_upload;
-    }
-
-    async read ({
-        context,
-        node,
-        version_id,
-        range,
-    }) {
+    async read () {
         console.error('This .read should not be called!');
         throw new Error('This .read should not be called!');
     }
