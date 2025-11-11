@@ -79,6 +79,7 @@ const {
 
 const {
     FSNodeContext,
+    capabilities,
 } = extension.import('fs');
 
 const {
@@ -99,6 +100,25 @@ const {
 } = extension.import('fs').util;
 
 class PuterFSProvider {
+    // TODO: should this be a static member instead?
+    get_capabilities () {
+        return new Set([
+            capabilities.THUMBNAIL,
+            capabilities.UPDATE_THUMBNAIL,
+            capabilities.UUID,
+            capabilities.OPERATION_TRACE,
+            capabilities.READDIR_UUID_MODE,
+
+            capabilities.COPY_TREE,
+
+            capabilities.READ,
+            capabilities.WRITE,
+            capabilities.CASE_SENSITIVE,
+            capabilities.SYMLINK,
+            capabilities.TRASH,
+        ]);
+    }
+
     /**
      * Check if a given node exists.
      *
@@ -222,6 +242,41 @@ class PuterFSProvider {
             node,
             context: Context.get(),
         });
+
+        return node;
+    }
+
+    async update_thumbnail ({ context, node, thumbnail }) {
+        const {
+            actor: inputActor,
+        } = context.values;
+        const actor = inputActor ?? Context.get('actor');
+
+        context = context ?? Context.get();
+        const services = context.get('services');
+
+        // TODO: this ACL check should not be here, but there's no LL method yet
+        //       and it's possible we will never implement the thumbnail
+        //       capability for any other filesystem type
+
+        const svc_acl = services.get('acl');
+        if ( ! await svc_acl.check(actor, node, 'write') ) {
+            throw await svc_acl.get_safe_acl_error(actor, node, 'write');
+        }
+
+        const uid = await node.get('uid');
+
+        const entryOp = await svc_fsEntry.update(uid, {
+            thumbnail,
+        });
+
+        (async () => {
+            await entryOp.awaitDone();
+            svc_event.emit('fs.write.file', {
+                node,
+                context,
+            });
+        })();
 
         return node;
     }
