@@ -17,12 +17,10 @@
  * You should have received a copy of the GNU Affero General Public License
  * along with this program.  If not, see <https://www.gnu.org/licenses/>.
  */
-const { LocalDiskStorageStrategy } = require("../filesystem/strategies/storage_a/LocalDiskStorageStrategy");
-const { PuterFSProvider } = require("../modules/puterfs/lib/PuterFSProvider");
+const { LocalDiskStorageStrategy } = require('../filesystem/strategies/storage_a/LocalDiskStorageStrategy');
 const { TeePromise } = require('@heyputer/putility').libs.promise;
-const { progress_stream, size_limit_stream } = require("../util/streamutil");
-const BaseService = require("./BaseService");
-
+const { progress_stream, size_limit_stream } = require('../util/streamutil');
+const BaseService = require('./BaseService');
 
 /**
 * @class LocalDiskStorageService
@@ -36,8 +34,7 @@ class LocalDiskStorageService extends BaseService {
     static MODULES = {
         fs: require('fs'),
         path: require('path'),
-    }
-
+    };
 
     /**
     * Initializes the context for the storage service.
@@ -51,11 +48,12 @@ class LocalDiskStorageService extends BaseService {
         const svc_contextInit = this.services.get('context-init');
         const storage = new LocalDiskStorageStrategy({ services: this.services });
         svc_contextInit.register_value('storage', storage);
-        
-        const svc_mountpoint = this.services.get('mountpoint');
-        svc_mountpoint.set_storage(PuterFSProvider.name, storage);
-    }
 
+        // TODO: this is rather silly and can be removed once the storage
+        //       implementation is moved into the extension as part of puterfs
+        const svc_mountpoint = this.services.get('mountpoint');
+        svc_mountpoint.set_storage('PuterFSProvider', storage);
+    }
 
     /**
     * Initializes the local disk storage service.
@@ -81,7 +79,6 @@ class LocalDiskStorageService extends BaseService {
         return path.join(this.path, key);
     }
 
-
     /**
     * Stores a stream to local disk storage.
     *
@@ -105,7 +102,7 @@ class LocalDiskStorageService extends BaseService {
             total: size,
             progress_callback: on_progress,
         });
-        
+
         stream = size_limit_stream(stream, {
             limit: size,
         });
@@ -121,7 +118,6 @@ class LocalDiskStorageService extends BaseService {
 
         return await writePromise;
     }
-
 
     /**
     * Stores a buffer to the local disk.
@@ -141,7 +137,6 @@ class LocalDiskStorageService extends BaseService {
         await fs.promises.writeFile(path, buffer);
     }
 
-
     /**
     * Creates a read stream for a given key.
     *
@@ -155,30 +150,29 @@ class LocalDiskStorageService extends BaseService {
         const fs = require('fs');
 
         const path = this._get_path(uid);
-        
+
         // Handle range requests for partial content
         const { range } = options;
-        if (range) {
+        if ( range ) {
             const rangeMatch = range.match(/bytes=(\d+)-(\d*)/);
-            if (rangeMatch) {
+            if ( rangeMatch ) {
                 const start = parseInt(rangeMatch[1], 10);
                 const endStr = rangeMatch[2];
-                
+
                 const streamOptions = { start };
-                
+
                 // If end is specified, set it (fs.createReadStream end is inclusive)
-                if (endStr) {
+                if ( endStr ) {
                     streamOptions.end = parseInt(endStr, 10);
                 }
-                
+
                 return fs.createReadStream(path, streamOptions);
             }
         }
-        
+
         // Default: create stream for entire file
         return fs.createReadStream(path);
     }
-
 
     /**
     * Copies a file from one key to another within the local disk storage.
@@ -197,7 +191,6 @@ class LocalDiskStorageService extends BaseService {
 
         await fs.promises.copyFile(src_path, dst_path);
     }
-
 
     /**
     * Deletes a file from the local disk storage.

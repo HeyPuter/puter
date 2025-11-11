@@ -28,7 +28,6 @@ const { UserActorType } = require('../services/auth/Actor');
 const { get_user } = require('../helpers');
 const BaseService = require('../services/BaseService');
 const { MANAGE_PERM_PREFIX } = require('../services/auth/permissionConts.mjs');
-const { PuterFSProvider } = require('../modules/puterfs/lib/PuterFSProvider.js');
 const { quot } = require('@heyputer/putility/src/libs/string.js');
 
 class FilesystemService extends BaseService {
@@ -95,7 +94,7 @@ class FilesystemService extends BaseService {
                     || permission.startsWith(`${MANAGE_PERM_PREFIX}:${MANAGE_PERM_PREFIX}:fs:`); // owner has implicit rule to give others manage access;
             },
             checker: async ({ actor, permission }) => {
-                if ( !(actor.type instanceof UserActorType) ) {
+                if ( ! (actor.type instanceof UserActorType) ) {
                     return undefined;
                 }
 
@@ -109,7 +108,7 @@ class FilesystemService extends BaseService {
                 const owner_id = await node.get('user_id');
 
                 // These conditions should never happen
-                if ( ! owner_id || ! actor.type.user.id ) {
+                if ( !owner_id || !actor.type.user.id ) {
                     throw new Error('something unexpected happened');
                 }
 
@@ -330,8 +329,8 @@ class FilesystemService extends BaseService {
         }
 
         if ( ! (selector instanceof NodeSelector) ) {
-            throw new Error('FileSystemService could not resolve the specified node value ' +
-                quot('' + selector) + ` (type: ${typeof selector}) ` +
+            throw new Error(`FileSystemService could not resolve the specified node value ${
+                quot(`${ selector}`) } (type: ${typeof selector}) ` +
                 'to a filesystem node selector');
         }
 

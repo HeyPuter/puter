@@ -918,12 +918,10 @@ class PuterFSProvider {
     }
 }
 
-const { TmpProxyFSProvider } = extension.import('fs');
-
 extension.on('create.filesystem-types', event => {
     event.createFilesystemType('puterfs', {
         mount ({ path }) {
-            return new TmpProxyFSProvider(path, new PuterFSProvider(path));
+            return new PuterFSProvider(path);
         },
     });
 });
