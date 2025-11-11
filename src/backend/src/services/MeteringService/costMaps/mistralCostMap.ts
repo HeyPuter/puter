@@ -57,4 +57,9 @@ export const MISTRAL_COST_MAP = {
     'mistral:open-mistral-nemo:completion_tokens': 10,
     'mistral:mistral-ocr-latest:prompt_tokens': 100,
     'mistral:mistral-ocr-latest:completion_tokens': 300,
+    // OCR page-based pricing (values in microcents/page)
+    // $1 / 1000 pages -> $0.001 per page -> 100000 microcents
+    'mistral-ocr:ocr:page': 100000,
+    // $3 / 1000 pages -> $0.003 per page -> 300000 microcents
+    'mistral-ocr:annotations:page': 300000,
 };

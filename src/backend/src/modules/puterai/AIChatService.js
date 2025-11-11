@@ -122,7 +122,8 @@ class AIChatService extends BaseService {
             const svc_driver = this.services.get('driver');
             for ( const provider of this.providers ) {
                 svc_driver.register_service_alias('ai-chat',
-                                provider.service_name);
+                                provider.service_name,
+                                { iface: 'puter-chat-completion' });
             }
         }
 
