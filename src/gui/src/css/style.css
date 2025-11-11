@@ -614,12 +614,27 @@ span.header-sort-icon img {
 }
 
 .item-container-list .item-badges {
-    display: none;
+    /* display: none; */
+    justify-content: flex-start !important;
+    left: 15px;
+    top: 12px;
+}
+.item-container-list .item-badges .item-badge {
+    height: 8px;
+    width: 8px;
 }
 
 .item-container-details .item-badges {
-    display: none;
+    /* display: none; */
+    justify-content: flex-start !important;
+    left: 15px;
+    top: 12px;
 }
+.item-container-details .item-badges .item-badge {
+    height: 8px;
+    width: 8px;
+}
+
 
 .item-badge {
     filter: drop-shadow(0px 0px 1px rgba(0, 0, 0, .4));
