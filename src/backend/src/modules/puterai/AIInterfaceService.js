@@ -47,6 +47,35 @@ class AIInterfaceService extends BaseService {
                         source: {
                             type: 'file',
                         },
+                        model: {
+                            type: 'string',
+                            optional: true,
+                        },
+                        pages: {
+                            type: 'json',
+                            subtype: 'array',
+                            optional: true,
+                        },
+                        includeImageBase64: {
+                            type: 'flag',
+                            optional: true,
+                        },
+                        imageLimit: {
+                            type: 'number',
+                            optional: true,
+                        },
+                        imageMinSize: {
+                            type: 'number',
+                            optional: true,
+                        },
+                        bboxAnnotationFormat: {
+                            type: 'json',
+                            optional: true,
+                        },
+                        documentAnnotationFormat: {
+                            type: 'json',
+                            optional: true,
+                        },
                     },
                     result: {
                         type: {

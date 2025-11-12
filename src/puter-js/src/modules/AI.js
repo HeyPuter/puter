@@ -118,48 +118,100 @@ class AI{
     }
     
     img2txt = async (...args) => {
-        let MAX_INPUT_SIZE = 10 * 1024 * 1024;
-        let options = {};
-        let testMode = false;
-
-        // Check that the argument is not undefined or null
-        if(!args){
-            throw({message: 'Arguments are required', code: 'arguments_required'});
+        const MAX_INPUT_SIZE = 10 * 1024 * 1024;
+        if (!args || args.length === 0) {
+            throw { message: 'Arguments are required', code: 'arguments_required' };
         }
 
-        // if argument is string transform it to the object that the API expects
-        if (typeof args[0] === 'string' || args[0] instanceof Blob) {
+        const isBlobLike = (value) => {
+            if (typeof Blob === 'undefined') return false;
+            return value instanceof Blob || (typeof File !== 'undefined' && value instanceof File);
+        };
+        const isPlainObject = (value) => value && typeof value === 'object' && !Array.isArray(value) && !isBlobLike(value);
+        const normalizeProvider = (value) => {
+            if (!value) return 'aws-textract';
+            const normalized = String(value).toLowerCase();
+            if (['aws', 'textract', 'aws-textract'].includes(normalized)) return 'aws-textract';
+            if (['mistral', 'mistral-ocr'].includes(normalized)) return 'mistral';
+            return 'aws-textract';
+        };
+
+        let options = {};
+        if (isPlainObject(args[0])) {
+            options = { ...args[0] };
+        } else {
             options.source = args[0];
         }
 
-        // if input is a blob, transform it to a data URI
-        if (args[0].source instanceof Blob) {
-            options.source = await utils.blobToDataUri(args[0].source);
+        let testMode = false;
+        for (let i = 1; i < args.length; i++) {
+            const value = args[i];
+            if (typeof value === 'boolean') {
+                testMode = testMode || value;
+            } else if (isPlainObject(value)) {
+                options = { ...options, ...value };
+            }
         }
 
-        // check input size
-        if (options.source.length > this.MAX_INPUT_SIZE) {
+        if (typeof options.testMode === 'boolean') {
+            testMode = options.testMode;
+        }
+
+        const provider = normalizeProvider(options.provider);
+        delete options.provider;
+        delete options.testMode;
+
+        if (!options.source) {
+            throw { message: 'Source is required', code: 'source_required' };
+        }
+
+        if (isBlobLike(options.source)) {
+            options.source = await utils.blobToDataUri(options.source);
+        } else if (options.source?.source && isBlobLike(options.source.source)) {
+            // Support shape { source: Blob }
+            options.source = await utils.blobToDataUri(options.source.source);
+        }
+
+        if (typeof options.source === 'string' &&
+            options.source.startsWith('data:') &&
+            options.source.length > MAX_INPUT_SIZE) {
             throw { message: 'Input size cannot be larger than ' + MAX_INPUT_SIZE, code: 'input_too_large' };
         }
 
-        // determine if test mode is enabled
-        if (typeof args[1] === 'boolean' && args[1] === true ||
-            typeof args[2] === 'boolean' && args[2] === true ||
-            typeof args[3] === 'boolean' && args[3] === true) {
-            testMode = true;
-        }
-    
-        return await utils.make_driver_method(['source'], 'puter-ocr', 'aws-textract', 'recognize', {
-            test_mode: testMode ?? false,
-            transform: async (result) => {
+        const toText = (result) => {
+            if (!result) return '';
+            if (Array.isArray(result.blocks) && result.blocks.length) {
                 let str = '';
-                for (let i = 0; i < result?.blocks?.length; i++) {
-                    if("text/textract:LINE" === result.blocks[i].type)
-                        str += result.blocks[i].text + "\n";
+                for (const block of result.blocks) {
+                    if (typeof block?.text !== 'string') continue;
+                    if (!block.type || block.type === 'text/textract:LINE' || block.type.startsWith('text/')) {
+                        str += block.text + '\n';
+                    }
                 }
-                return str;
+                if (str.trim()) return str;
             }
-        }).call(this, options);
+            if (Array.isArray(result.pages) && result.pages.length) {
+                const markdown = result.pages
+                    .map(page => (page?.markdown || '').trim())
+                    .filter(Boolean)
+                    .join('\n\n');
+                if (markdown.trim()) return markdown;
+            }
+            if (typeof result.document_annotation === 'string') {
+                return result.document_annotation;
+            }
+            if (typeof result.text === 'string') {
+                return result.text;
+            }
+            return '';
+        };
+
+        const driverCall = utils.make_driver_method(['source'], 'puter-ocr', provider, 'recognize', {
+            test_mode: testMode ?? false,
+            transform: async (result) => toText(result),
+        });
+
+        return await driverCall.call(this, options);
     }
 
     txt2speech = async (...args) => {

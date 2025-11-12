@@ -47,6 +47,9 @@ interface AI {
     chat(messages: ChatMessage[], testMode?: boolean, options?: NonStreamingChatOptions): Promise<ChatResponse>;
 
     img2txt(image: string | File | Blob, testMode?: boolean): Promise<string>;
+    img2txt(image: string | File | Blob, options?: Img2TxtOptions): Promise<string>;
+    img2txt(image: string | File | Blob, testMode?: boolean, options?: Img2TxtOptions): Promise<string>;
+    img2txt(options: Img2TxtOptions): Promise<string>;
 
     txt2img(prompt: string, testMode?: boolean): Promise<HTMLImageElement>;
     txt2img(prompt: string, options?: Txt2ImgOptions): Promise<HTMLImageElement>;
@@ -146,6 +149,19 @@ interface Txt2VidOptions {
     service?: string;
     driver?: string;
     test_mode?: boolean;
+}
+
+interface Img2TxtOptions {
+    source?: string | File | Blob;
+    provider?: 'aws-textract' | 'mistral';
+    model?: string;
+    pages?: number[];
+    includeImageBase64?: boolean;
+    imageLimit?: number;
+    imageMinSize?: number;
+    bboxAnnotationFormat?: Record<string, unknown>;
+    documentAnnotationFormat?: Record<string, unknown>;
+    testMode?: boolean;
 }
 
 interface Txt2SpeechOptions {

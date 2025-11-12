@@ -22,6 +22,9 @@ const BaseService = require('../../services/BaseService');
 const axios = require('axios');
 const OpenAIUtil = require('./lib/OpenAIUtil');
 const { Context } = require('../../util/context');
+const APIError = require('../../api/APIError');
+const mime = require('mime-types');
+const path = require('path');
 
 /**
 * MistralAIService class extends BaseService to provide integration with the Mistral AI API.
@@ -310,6 +313,69 @@ class MistralAIService extends BaseService {
         return 'mistral-large-latest';
     }
     static IMPLEMENTS = {
+        'driver-capabilities': {
+            supports_test_mode(iface, method_name) {
+                return iface === 'puter-ocr' && method_name === 'recognize';
+            },
+        },
+        'puter-ocr': {
+            async recognize({
+                source,
+                model,
+                pages,
+                includeImageBase64,
+                imageLimit,
+                imageMinSize,
+                bboxAnnotationFormat,
+                documentAnnotationFormat,
+                test_mode,
+            }) {
+                if ( test_mode ) {
+                    return this._sampleOcrResponse();
+                }
+                if ( ! source ) {
+                    throw APIError.create('missing_required_argument', {
+                        interface_name: 'puter-ocr',
+                        method_name: 'recognize',
+                        arg_name: 'source',
+                    });
+                }
+
+                const document = await this._buildDocumentChunkFromSource(source);
+                const payload = {
+                    model: model ?? 'mistral-ocr-latest',
+                    document,
+                };
+                if ( Array.isArray(pages) ) {
+                    payload.pages = pages;
+                }
+                if ( typeof includeImageBase64 === 'boolean' ) {
+                    payload.includeImageBase64 = includeImageBase64;
+                }
+                if ( typeof imageLimit === 'number' ) {
+                    payload.imageLimit = imageLimit;
+                }
+                if ( typeof imageMinSize === 'number' ) {
+                    payload.imageMinSize = imageMinSize;
+                }
+                if ( bboxAnnotationFormat !== undefined ) {
+                    payload.bboxAnnotationFormat = bboxAnnotationFormat;
+                }
+                if ( documentAnnotationFormat !== undefined ) {
+                    payload.documentAnnotationFormat = documentAnnotationFormat;
+                }
+
+                const response = await this.client.ocr.process(payload);
+                const annotationsRequested = (
+                    payload.documentAnnotationFormat !== undefined ||
+                    payload.bboxAnnotationFormat !== undefined
+                );
+                this._recordOcrUsage(response, payload.model, {
+                    annotationsRequested,
+                });
+                return this._normalizeOcrResponse(response);
+            },
+        },
         'puter-chat-completion': {
             /**
              * Returns a list of available models and their details.
@@ -399,6 +465,157 @@ class MistralAIService extends BaseService {
             },
         },
     };
+
+    async _buildDocumentChunkFromSource(fileFacade) {
+        const dataUrl = await this._safeFileValue(fileFacade, 'data_url');
+        const webUrl = await this._safeFileValue(fileFacade, 'web_url');
+        const filePath = await this._safeFileValue(fileFacade, 'path');
+        const fsNode = await this._safeFileValue(fileFacade, 'fs-node');
+        const fileName = filePath ? path.basename(filePath) : fsNode?.name;
+        const inferredMime = this._inferMimeFromName(fileName);
+
+        if ( webUrl ) {
+            return this._chunkFromUrl(webUrl, fileName, inferredMime);
+        }
+        if ( dataUrl ) {
+            const mimeFromUrl = this._extractMimeFromDataUrl(dataUrl) ?? inferredMime;
+            return this._chunkFromUrl(dataUrl, fileName, mimeFromUrl);
+        }
+
+        const buffer = await this._safeFileValue(fileFacade, 'buffer');
+        if ( ! buffer ) {
+            throw APIError.create('field_invalid', null, {
+                key: 'source',
+                expected: 'file, data URL, or web URL',
+            });
+        }
+        const mimeType = inferredMime ?? 'application/octet-stream';
+        const generatedDataUrl = this._createDataUrl(buffer, mimeType);
+        return this._chunkFromUrl(generatedDataUrl, fileName, mimeType);
+    }
+
+    async _safeFileValue(fileFacade, key) {
+        if ( ! fileFacade || typeof fileFacade.get !== 'function' ) return undefined;
+        const maybeCache = fileFacade.values?.values;
+        if ( maybeCache && Object.prototype.hasOwnProperty.call(maybeCache, key) ) {
+            return maybeCache[key];
+        }
+        try {
+            return await fileFacade.get(key);
+        } catch (e) {
+            return undefined;
+        }
+    }
+
+    _chunkFromUrl(url, fileName, mimeType) {
+        const lowerName = fileName?.toLowerCase();
+        const urlLooksPdf = /\.pdf($|\?)/i.test(url);
+        const mimeLooksPdf = mimeType?.includes('pdf');
+        const isPdf = mimeLooksPdf || urlLooksPdf || (lowerName ? lowerName.endsWith('.pdf') : false);
+
+        if ( isPdf ) {
+            const chunk = {
+                type: 'document_url',
+                documentUrl: url,
+            };
+            if ( fileName ) {
+                chunk.documentName = fileName;
+            }
+            return chunk;
+        }
+
+        return {
+            type: 'image_url',
+            imageUrl: {
+                url,
+            },
+        };
+    }
+
+    _inferMimeFromName(name) {
+        if ( ! name ) return undefined;
+        return mime.lookup(name) || undefined;
+    }
+
+    _extractMimeFromDataUrl(url) {
+        if ( typeof url !== 'string' ) return undefined;
+        const match = url.match(/^data:([^;,]+)[;,]/);
+        return match ? match[1] : undefined;
+    }
+
+    _createDataUrl(buffer, mimeType) {
+        return `data:${mimeType || 'application/octet-stream'};base64,${buffer.toString('base64')}`;
+    }
+
+    _normalizeOcrResponse(response) {
+        if ( ! response ) return {};
+        const normalized = {
+            model: response.model,
+            pages: response.pages ?? [],
+            usage_info: response.usageInfo,
+        };
+        const blocks = [];
+        if ( Array.isArray(response.pages) ) {
+            for ( const page of response.pages ) {
+                if ( typeof page?.markdown !== 'string' ) continue;
+                const lines = page.markdown.split('\n').map(line => line.trim()).filter(Boolean);
+                for ( const line of lines ) {
+                    blocks.push({
+                        type: 'text/mistral:LINE',
+                        text: line,
+                        page: page.index,
+                    });
+                }
+            }
+        }
+        normalized.blocks = blocks;
+        if ( blocks.length ) {
+            normalized.text = blocks.map(block => block.text).join('\n');
+        } else if ( Array.isArray(response.pages) ) {
+            normalized.text = response.pages.map(page => page?.markdown || '').join('\n\n').trim();
+        }
+        return normalized;
+    }
+
+    _recordOcrUsage(response, model, { annotationsRequested } = {}) {
+        try {
+            if ( ! this.meteringService ) return;
+            const actor = Context.get('actor');
+            if ( ! actor ) return;
+            const pagesProcessed =
+                response?.usageInfo?.pagesProcessed ??
+                (Array.isArray(response?.pages) ? response.pages.length : 1);
+            this.meteringService.incrementUsage(actor, 'mistral-ocr:ocr:page', pagesProcessed);
+            if ( annotationsRequested ) {
+                this.meteringService.incrementUsage(actor, 'mistral-ocr:annotations:page', pagesProcessed);
+            }
+        } catch (e) {
+            // ignore metering failures to avoid blocking OCR results
+        }
+    }
+
+    _sampleOcrResponse() {
+        const markdown = 'Sample OCR output (test mode).';
+        return {
+            model: 'mistral-ocr-latest',
+            pages: [
+                {
+                    index: 0,
+                    markdown,
+                    images: [],
+                    dimensions: null,
+                },
+            ],
+            blocks: [
+                {
+                    type: 'text/mistral:LINE',
+                    text: markdown,
+                    page: 0,
+                },
+            ],
+            text: markdown,
+        };
+    }
 }
 
 module.exports = { MistralAIService };

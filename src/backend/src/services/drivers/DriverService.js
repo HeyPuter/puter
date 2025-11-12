@@ -86,6 +86,7 @@ class DriverService extends BaseService {
         this.interface_to_implementation = {};
         this.interface_to_test_service = {};
         this.service_aliases = {};
+        this.interface_service_aliases = {};
     }
 
     _init () {
@@ -121,13 +122,12 @@ class DriverService extends BaseService {
             },
             'no_implementation_available': {
                 status: 502,
-                message: ({
-                    iface,
-                    interface_name,
-                    driver
-                }) => `No implementation available for ` +
-                    (iface ?? interface_name) ? 'interface' : 'driver' +
-                    ' ' + quot(iface ?? interface_name ?? driver) + '.',
+                message: ({ iface, interface_name, driver }) => {
+                    const has_interface = (iface ?? interface_name) !== undefined;
+                    const target_type = has_interface ? 'interface' : 'driver';
+                    const target_name = quot(iface ?? interface_name ?? driver);
+                    return `No implementation available for ${target_type} ${target_name}.`;
+                },
             },
         });
     }
@@ -219,7 +219,15 @@ class DriverService extends BaseService {
         this.interface_to_test_service[interface_name] = service_name;
     }
 
-    register_service_alias (service_name, alias) {
+    register_service_alias (service_name, alias, options = {}) {
+        const iface = options.iface;
+        if ( iface ) {
+            if ( ! this.interface_service_aliases[iface] ) {
+                this.interface_service_aliases[iface] = {};
+            }
+            this.interface_service_aliases[iface][alias] = service_name;
+            return;
+        }
         this.service_aliases[alias] = service_name;
     }
     
@@ -323,7 +331,12 @@ class DriverService extends BaseService {
             response_metadata: {},
             test_mode,
         };
-        driver = this.service_aliases[driver] ?? driver;
+        const iface_aliases = this.interface_service_aliases[iface];
+        if ( iface_aliases && iface_aliases[driver] ) {
+            driver = iface_aliases[driver];
+        } else {
+            driver = this.service_aliases[driver] ?? driver;
+        }
 
         const service = this.get_service_or_throw_(driver, iface);
 
