@@ -526,8 +526,8 @@ class PuterFSProvider {
         const uid = uuidv4();
 
         // determine bucket region
-        let bucket_region = config.s3_region ?? config.region;
-        let bucket = config.s3_bucket;
+        let bucket_region = global_config.s3_region ?? global_config.region;
+        let bucket = global_config.s3_bucket;
 
         if ( ! await svc_acl.check(actor, parent, 'write') ) {
             throw await svc_acl.get_safe_acl_error(actor, parent, 'write');
@@ -645,6 +645,7 @@ class PuterFSProvider {
 
         const bucket_region = node.entry.bucket_region;
         const bucket = node.entry.bucket;
+        console.log('BUCKET AND ENTRY?', bucket, node.entry);
 
         const state_upload = await this.#storage_upload({
             uuid: node.entry.uuid,
@@ -733,8 +734,8 @@ class PuterFSProvider {
     }) {
         const storage = svc_mountpoint.get_storage(this.constructor.name);
 
-        bucket ??= config.s3_bucket;
-        bucket_region ??= config.s3_region ?? config.region;
+        bucket ??= global_config.s3_bucket;
+        bucket_region ??= global_config.s3_region ?? global_config.region;
 
         let upload_tracker = new UploadProgressTracker();
 
