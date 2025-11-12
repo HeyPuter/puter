@@ -136,6 +136,11 @@ class TogetherImageGenerationService extends BaseService {
 
     static DEFAULT_MODEL = 'black-forest-labs/FLUX.1-schnell';
     static DEFAULT_RATIO = { w: 1024, h: 1024 };
+    static CONDITION_IMAGE_MODELS = [
+        'black-forest-labs/flux.1-kontext-dev',
+        'black-forest-labs/flux.1-kontext-pro',
+        'black-forest-labs/flux.1-kontext-max',
+    ];
 
     /**
     * Generates an image using Together AI client
@@ -199,12 +204,15 @@ class TogetherImageGenerationService extends BaseService {
             prompt_strength,
             disable_safety_checker,
             response_format,
+            input_image,
         } = options;
 
         const request = {
             prompt,
             model: model ?? this.constructor.DEFAULT_MODEL,
         };
+        const requiresConditionImage =
+            this.constructor._modelRequiresConditionImage(request.model);
 
         const ratioWidth = (ratio && ratio.w !== undefined) ? Number(ratio.w) : undefined;
         const ratioHeight = (ratio && ratio.h !== undefined) ? Number(ratio.h) : undefined;
@@ -235,12 +243,28 @@ class TogetherImageGenerationService extends BaseService {
             request.disable_safety_checker = disable_safety_checker;
         }
         if ( typeof response_format === 'string' ) request.response_format = response_format;
+
+        const resolvedImageBase64 = typeof image_base64 === 'string'
+            ? image_base64
+            : (typeof input_image === 'string' ? input_image : undefined);
+
         if ( typeof image_url === 'string' ) request.image_url = image_url;
-        if ( typeof image_base64 === 'string' ) request.image_base64 = image_base64;
+        if ( resolvedImageBase64 ) request.image_base64 = resolvedImageBase64;
         if ( typeof mask_image_url === 'string' ) request.mask_image_url = mask_image_url;
         if ( typeof mask_image_base64 === 'string' ) request.mask_image_base64 = mask_image_base64;
         if ( typeof prompt_strength === 'number' && Number.isFinite(prompt_strength) ) {
             request.prompt_strength = Math.max(0, Math.min(1, prompt_strength));
+        }
+        if ( requiresConditionImage ) {
+            const conditionSource = resolvedImageBase64
+                ? resolvedImageBase64
+                : (typeof image_url === 'string' ? image_url : undefined);
+
+            if ( !conditionSource ) {
+                throw new Error(`Model ${request.model} requires an image_url or image_base64 input`);
+            }
+
+            request.condition_image = conditionSource;
         }
 
         return request;
@@ -251,6 +275,15 @@ class TogetherImageGenerationService extends BaseService {
         const rounded = Math.max(64, Math.round(value));
         // Flux models expect multiples of 8. Snap to the nearest multiple without going below 64.
         return Math.max(64, Math.round(rounded / 8) * 8);
+    }
+
+    static _modelRequiresConditionImage(model) {
+        if ( typeof model !== 'string' || model.trim() === '' ) {
+            return false;
+        }
+
+        const normalized = model.toLowerCase();
+        return this.CONDITION_IMAGE_MODELS.some(required => normalized === required);
     }
 }
 
