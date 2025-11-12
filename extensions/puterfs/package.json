@@ -1,5 +1,6 @@
 {
     "main": "main.js",
+    "type": "module",
     "dependencies": {
         "uuid": "^13.0.0"
     }

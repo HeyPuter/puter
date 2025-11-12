@@ -20,8 +20,8 @@
 const STUCK_STATUS_TIMEOUT = 10 * 1000;
 const STUCK_ALARM_TIMEOUT = 20 * 1000;
 
-const uuidv4 = require('uuid').v4;
-const path_ = require('node:path');
+import path_ from 'node:path';
+import { v4 as uuidv4 } from 'uuid';
 
 const { db } = extension.import('data');
 
