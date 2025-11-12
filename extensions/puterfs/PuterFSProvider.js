@@ -112,6 +112,7 @@ export default class PuterFSProvider {
             capabilities.READDIR_UUID_MODE,
 
             capabilities.COPY_TREE,
+            capabilities.GET_RECURSIVE_SIZE,
 
             capabilities.READ,
             capabilities.WRITE,
@@ -775,6 +776,27 @@ export default class PuterFSProvider {
         await cachePromise;
 
         return node;
+    }
+
+    async get_recursive_size ({ node }) {
+        const uuid = await node.get('uid');
+        const cte_query = `
+            WITH RECURSIVE descendant_cte AS (
+                SELECT uuid, parent_uid, size
+                FROM fsentries
+                WHERE parent_uid = ?
+
+                UNION ALL
+
+                SELECT f.uuid, f.parent_uid, f.size
+                FROM fsentries f
+                INNER JOIN descendant_cte d
+                ON f.parent_uid = d.uuid
+            )
+            SELECT SUM(size) AS total_size FROM descendant_cte
+        `;
+        const rows = await db.read(cte_query, [uuid]);
+        return rows[0].total_size;
     }
 
     /**
