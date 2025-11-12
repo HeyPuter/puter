@@ -108,7 +108,7 @@ class SizeService extends BaseService {
         let sz;
         if ( node.entry.is_dir ) {
             if ( node.entry.uuid ) {
-                sz = await fsEntryService.get_recursive_size(node.entry.uuid);
+                sz = await node.fetchSize();
             } else {
                 // very unlikely, but a warning is better than a throw right now
                 // TODO: remove this once we're sure this is never hit
