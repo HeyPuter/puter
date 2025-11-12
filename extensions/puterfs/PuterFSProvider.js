@@ -38,7 +38,6 @@ const svc_acl = extension.import('service:acl');
 
 // TODO: these services ought to be part of this extension
 const svc_size = extension.import('service:sizeService');
-const svc_fsEntry = extension.import('service:fsEntryService');
 const svc_fsEntryFetcher = extension.import('service:fsEntryFetcher');
 const svc_resource = extension.import('service:resourceService');
 
@@ -99,6 +98,10 @@ const {
 } = extension.import('fs').util;
 
 export default class PuterFSProvider {
+    constructor ({ fsEntryController }) {
+        this.fsEntryController = fsEntryController;
+    }
+
     // TODO: should this be a static member instead?
     get_capabilities () {
         return new Set([
@@ -172,7 +175,7 @@ export default class PuterFSProvider {
             throw APIError.create('immutable');
         }
 
-        const children = await svc_fsEntry.fast_get_direct_descendants(await node.get('uid'));
+        const children = await this.fsEntryController.fast_get_direct_descendants(await node.get('uid'));
 
         if ( children.length > 0 && !options.ignore_not_empty ) {
             throw APIError.create('not_empty');
@@ -230,7 +233,8 @@ export default class PuterFSProvider {
             } : {}),
         };
 
-        const entryOp = await svc_fsEntry.insert(raw_fsentry);
+        console.log('raw fsentry', raw_fsentry);
+        const entryOp = await this.fsEntryController.insert(raw_fsentry);
 
         await entryOp.awaitDone();
         svc_resource.free(uid);
@@ -265,7 +269,7 @@ export default class PuterFSProvider {
 
         const uid = await node.get('uid');
 
-        const entryOp = await svc_fsEntry.update(uid, {
+        const entryOp = await this.fsEntryController.update(uid, {
             thumbnail,
         });
 
@@ -344,14 +348,14 @@ export default class PuterFSProvider {
                 // is guaranteed to resolve eventually, and then this
                 // detachable will be detached by `callback` so the
                 // listener can be garbage collected.
-                const det = svc_fsEntry.waitForEntry(node, callback.bind(null, 'fsEntryService'));
+                const det = this.fsEntryController.waitForEntry(node, callback.bind(null, 'fsEntryService'));
                 if ( det ) detachables.add(det);
             }
         });
 
         const maybe_uid = node.uid;
         if ( svc_resource.getResourceInfo(maybe_uid) ) {
-            entry = await svc_fsEntry.get(maybe_uid, options);
+            entry = await this.fsEntryController.get(maybe_uid, options);
             controls.log.debug('got an entry from the future');
         } else {
             entry = await svc_fsEntryFetcher.find(selector, options);
@@ -462,7 +466,7 @@ export default class PuterFSProvider {
             status: RESOURCE_STATUS_PENDING_CREATE,
         });
 
-        const entryOp = await svc_fsEntry.insert(raw_fsentry);
+        const entryOp = await this.fsEntryController.insert(raw_fsentry);
 
         let node;
 
@@ -470,7 +474,7 @@ export default class PuterFSProvider {
         await context.arun('fs:cp:parallel-portion', async () => {
             // Add child copy tasks if this is a directory
             if ( source.entry.is_dir ) {
-                const children = await svc_fsEntry.fast_get_direct_descendants(source.uid);
+                const children = await this.fsEntryController.fast_get_direct_descendants(source.uid);
                 for ( const child_uuid of children ) {
                     tasks.add('fs:cp:copy-child', async () => {
                         const child_node = await svc_fs.node(new NodeUIDSelector(child_uuid));
@@ -516,7 +520,7 @@ export default class PuterFSProvider {
         const old_path = await node.get('path');
         const new_path = path_.join(await new_parent.get('path'), new_name);
 
-        const op_update = await svc_fsEntry.update(node.uid, {
+        const op_update = await this.fsEntryController.update(node.uid, {
             ...(
                 await node.get('parent_uid') !== await new_parent.get('uid')
                     ? { parent_uid: await new_parent.get('uid') }
@@ -555,7 +559,7 @@ export default class PuterFSProvider {
 
     async readdir ({ node }) {
         const uuid = await node.get('uid');
-        const child_uuids = await svc_fsEntry.fast_get_direct_descendants(uuid);
+        const child_uuids = await this.fsEntryController.fast_get_direct_descendants(uuid);
         return child_uuids;
     }
 
@@ -642,7 +646,7 @@ export default class PuterFSProvider {
 
         svc_metering.incrementUsage(ownerActor, 'filesystem:ingress:bytes', filesize);
 
-        const entryOp = await svc_fsEntry.insert(raw_fsentry);
+        const entryOp = await this.fsEntryController.insert(raw_fsentry);
 
         (async () => {
             await entryOp.awaitDone();
@@ -741,7 +745,7 @@ export default class PuterFSProvider {
         });
         svc_metering.incrementUsage(ownerActor, 'filesystem:ingress:bytes', filesize);
 
-        const entryOp = await svc_fsEntry.update(uid, raw_fsentry_delta);
+        const entryOp = await this.fsEntryController.update(uid, raw_fsentry_delta);
 
         // depends on fsentry, does not depend on S3
         const entryOpPromise = (async () => {
@@ -899,7 +903,7 @@ export default class PuterFSProvider {
         const tasks = new ParallelTasks({ tracer, max: 4 });
 
         tasks.add('remove-fsentry', async () => {
-            await svc_fsEntry.delete(await node.get('uid'));
+            await this.fsEntryController.delete(await node.get('uid'));
         });
 
         if ( await node.get('has-s3') ) {

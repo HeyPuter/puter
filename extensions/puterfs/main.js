@@ -17,12 +17,21 @@
  * along with this program.  If not, see <https://www.gnu.org/licenses/>.
  */
 
+import FSEntryController from './fsentries/FSEntryController.js';
 import PuterFSProvider from './PuterFSProvider.js';
+
+const fsEntryController = new FSEntryController();
+
+extension.on('init', () => {
+    fsEntryController.init();
+});
 
 extension.on('create.filesystem-types', event => {
     event.createFilesystemType('puterfs', {
         mount ({ path }) {
-            return new PuterFSProvider(path);
+            return new PuterFSProvider({
+                fsEntryController,
+            });
         },
     });
 });
