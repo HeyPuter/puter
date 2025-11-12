@@ -645,7 +645,6 @@ class PuterFSProvider {
 
         const bucket_region = node.entry.bucket_region;
         const bucket = node.entry.bucket;
-        console.log('BUCKET AND ENTRY?', bucket, node.entry);
 
         const state_upload = await this.#storage_upload({
             uuid: node.entry.uuid,
