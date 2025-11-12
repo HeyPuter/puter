@@ -53,6 +53,7 @@ class LLMkdir extends LLFilesystemOperation {
             }
 
             return await parent.provider.mkdir({
+                actor,
                 context: this.context,
                 parent,
                 name,
