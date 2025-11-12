@@ -192,8 +192,9 @@ class PuterFSProvider {
      * @param {boolean} param.immutable
      * @returns {Promise<FSNode>}
      */
-    async mkdir ({ context, parent, name, immutable }) {
-        const { actor, thumbnail } = context.values;
+    async mkdir ({ actor, context, parent, name, immutable }) {
+        let { thumbnail } = context.values;
+        actor = actor ?? context.get('actor');
 
         const ts = Math.round(Date.now() / 1000);
         const uid = uuidv4();
