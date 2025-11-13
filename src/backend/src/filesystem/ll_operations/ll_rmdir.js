@@ -58,12 +58,11 @@ class LLRmDir extends LLFilesystemOperation {
             throw APIError.create('immutable');
         }
 
-        const svc_fsEntry = svc.get('fsEntryService');
         const fs = svc.get('filesystem');
 
-        const children = await svc_fsEntry.fast_get_direct_descendants(
-            await target.get('uid')
-        );
+        const children = await target.provider.readdir({
+            node: target,
+        });
 
         if ( children.length > 0 && ! recursive && ! ignore_not_empty ) {
             throw APIError.create('not_empty');
