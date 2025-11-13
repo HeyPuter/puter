@@ -614,6 +614,17 @@ export default class PuterFSProvider {
         return child_uuids;
     }
 
+    async directory_has_name ({ parent, name }) {
+        const uid = await parent.get('uid');
+        /* eslint-disable */
+        let check_dupe = await db.read(
+            'SELECT `id` FROM `fsentries` WHERE `parent_uid` = ? AND name = ? LIMIT 1',
+            [uid, name],
+        );
+        /* eslint-enable */
+        return !!check_dupe[0];
+    }
+
     /**
      * Write a new file to the filesystem. Throws an error if the destination
      * already exists.
