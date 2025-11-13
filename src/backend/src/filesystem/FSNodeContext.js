@@ -614,6 +614,10 @@ module.exports = class FSNodeContext {
         }
 
         if ( key === 'uid' ) {
+            const uidSelector = this.get_selector_of_type(NodeUIDSelector);
+            if ( uidSelector ) {
+                return uidSelector.value;
+            }
             await this.fetchEntry();
             return this.uid;
         }
@@ -736,6 +740,10 @@ module.exports = class FSNodeContext {
         }
 
         return await this.fs.node(new NodeChildSelector(this.selector, name));
+    }
+    
+    async hasChild(name) {
+        return await this.provider.directory_has_name({ parent: this, name });
     }
 
     async getTarget() {
