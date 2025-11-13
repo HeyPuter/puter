@@ -286,7 +286,16 @@ module.exports = class APIError {
         'unresolved_relative_path': {
             status: 400,
             message: ({ path }) => `Unresolved relative path: ${quot(path)}. ` +
-                    "You may need to specify a full path starting with '/'.",
+                "You may need to specify a full path starting with '/'.",
+        },
+        'missing_filesystem_capability': {
+            status: 422,
+            message: ({ action, subjectName, providerName, capability }) => {
+                return `Cannot perform action ${quot(action)} on ` +
+                    `${quot(subjectName)} because it is inside a filesystem ` +
+                    `of type ${providerName}, which does not implement the ` +
+                    `required capability called ${quot(capability)}.`;
+            },
         },
 
         // Open
@@ -514,11 +523,11 @@ module.exports = class APIError {
             status: 400,
             message: ({ engine, valid_engines }) => `Invalid engine: ${quot(engine)}. Valid engines are: ${valid_engines.map(quot).join(', ')}.`,
         },
-        
+
         // Abuse prevention
         'moderation_failed': {
             status: 422,
-            message: `Content moderation failed`,
+            message: 'Content moderation failed',
         },
     };
 
@@ -540,7 +549,7 @@ module.exports = class APIError {
      * - an object with a message property to use as the error message
      * @returns
      */
-    static create(status, source, fields = {}) {
+    static create (status, source, fields = {}) {
         // Just the error code
         if ( typeof status === 'string' ) {
             const code = this.codes[status];
@@ -578,12 +587,12 @@ module.exports = class APIError {
         console.error('Invalid APIError source:', source);
         return new APIError(500, 'Internal Server Error', null, {});
     }
-    static adapt(err) {
+    static adapt (err) {
         if ( err instanceof APIError ) return err;
 
         return APIError.create('internal_error');
     }
-    constructor(status, message, source, fields = {}) {
+    constructor (status, message, source, fields = {}) {
         this.codes = this.constructor.codes;
         this.status = status;
         this._message = message;
@@ -595,7 +604,7 @@ module.exports = class APIError {
             this._message = this.codes[message].message;
         }
     }
-    write(res) {
+    write (res) {
         const message = typeof this.message === 'function'
             ? this.message(this.fields)
             : this.message;
@@ -604,7 +613,7 @@ module.exports = class APIError {
             ...this.fields,
         });
     }
-    serialize() {
+    serialize () {
         return {
             ...this.fields,
             $: 'heyputer:api/APIError',
@@ -613,11 +622,11 @@ module.exports = class APIError {
         };
     }
 
-    querystringize(extra) {
+    querystringize (extra) {
         return new URLSearchParams(this.querystringize_(extra));
     }
 
-    querystringize_(extra) {
+    querystringize_ (extra) {
         const fields = {};
         for ( const k in this.fields ) {
             fields[`field_${k}`] = this.fields[k];
@@ -631,14 +640,14 @@ module.exports = class APIError {
         };
     }
 
-    get message() {
+    get message () {
         const message = typeof this._message === 'function'
             ? this._message(this.fields)
             : this._message;
         return message;
     }
 
-    toString() {
+    toString () {
         return `APIError(${this.status}, ${this.message})`;
     }
 };
