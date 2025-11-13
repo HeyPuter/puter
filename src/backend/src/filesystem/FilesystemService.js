@@ -29,6 +29,7 @@ const { get_user } = require('../helpers');
 const BaseService = require('../services/BaseService');
 const { MANAGE_PERM_PREFIX } = require('../services/auth/permissionConts.mjs');
 const { quot } = require('@heyputer/putility/src/libs/string.js');
+const fsCapabilities = require('./definitions/capabilities.js');
 
 class FilesystemService extends BaseService {
     static MODULES = {
@@ -165,59 +166,18 @@ class FilesystemService extends BaseService {
             throw APIError.create('shortcut_to_does_not_exist');
         }
 
-        await target.fetchEntry({ thumbnail: true });
+        if ( ! parent.provider.get_capabilities().has(fsCapabilities.PUTER_SHORTCUT) ) {
+            throw APIError.create('missing_filesystem_capability', null, {
+                action: 'make shortcut',
+                subjectName: parent.path ?? parent.uid,
+                providerName: parent.provider.name,
+                capability: 'PUTER_SHORTCUT',
+            });
+        }
 
-        const { _path, uuidv4 } = this.modules;
-        const svc_fsEntry = this.services.get('fsEntryService');
-        const resourceService = this.services.get('resourceService');
-
-        const ts = Math.round(Date.now() / 1000);
-        const uid = uuidv4();
-
-        resourceService.register({
-            uid,
-            status: RESOURCE_STATUS_PENDING_CREATE,
+        return await parent.provider.puter_shortcut({
+            parent, name, user, target,
         });
-
-        console.log('registered entry');
-
-        const raw_fsentry = {
-            is_shortcut: 1,
-            shortcut_to: target.mysql_id,
-            is_dir: target.entry.is_dir,
-            thumbnail: target.entry.thumbnail,
-            uuid: uid,
-            parent_uid: await parent.get('uid'),
-            path: _path.join(await parent.get('path'), name),
-            user_id: user.id,
-            name,
-            created: ts,
-            updated: ts,
-            modified: ts,
-            immutable: false,
-        };
-
-        this.log.debug('creating fsentry', { fsentry: raw_fsentry });
-
-        const entryOp = await svc_fsEntry.insert(raw_fsentry);
-
-        console.log('entry op', entryOp);
-
-        (async () => {
-            await entryOp.awaitDone();
-            this.log.debug('finished creating fsentry', { uid });
-            resourceService.free(uid);
-        })();
-
-        const node = await this.node(new NodeUIDSelector(uid));
-
-        const svc_event = this.services.get('event');
-        svc_event.emit('fs.create.shortcut', {
-            node,
-            context: Context.get(),
-        });
-
-        return node;
     }
 
     async mklink ({ parent, name, user, target }) {

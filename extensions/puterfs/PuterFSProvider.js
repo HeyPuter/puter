@@ -100,6 +100,7 @@ const {
 export default class PuterFSProvider {
     constructor ({ fsEntryController }) {
         this.fsEntryController = fsEntryController;
+        this.name = 'puterfs';
     }
 
     // TODO: should this be a static member instead?
@@ -110,6 +111,7 @@ export default class PuterFSProvider {
             capabilities.UUID,
             capabilities.OPERATION_TRACE,
             capabilities.READDIR_UUID_MODE,
+            capabilities.PUTER_SHORTCUT,
 
             capabilities.COPY_TREE,
             capabilities.GET_RECURSIVE_SIZE,
@@ -121,6 +123,89 @@ export default class PuterFSProvider {
             capabilities.TRASH,
         ]);
     }
+
+    // #region PuterOnly
+    async update_thumbnail ({ context, node, thumbnail }) {
+        const {
+            actor: inputActor,
+        } = context.values;
+        const actor = inputActor ?? Context.get('actor');
+
+        context = context ?? Context.get();
+        const services = context.get('services');
+
+        // TODO: this ACL check should not be here, but there's no LL method yet
+        //       and it's possible we will never implement the thumbnail
+        //       capability for any other filesystem type
+
+        const svc_acl = services.get('acl');
+        if ( ! await svc_acl.check(actor, node, 'write') ) {
+            throw await svc_acl.get_safe_acl_error(actor, node, 'write');
+        }
+
+        const uid = await node.get('uid');
+
+        const entryOp = await this.fsEntryController.update(uid, {
+            thumbnail,
+        });
+
+        (async () => {
+            await entryOp.awaitDone();
+            svc_event.emit('fs.write.file', {
+                node,
+                context,
+            });
+        })();
+
+        return node;
+    }
+
+    async puter_shortcut ({ parent, name, user, target }) {
+        await target.fetchEntry({ thumbnail: true });
+
+        const ts = Math.round(Date.now() / 1000);
+        const uid = uuidv4();
+
+        svc_resource.register({
+            uid,
+            status: RESOURCE_STATUS_PENDING_CREATE,
+        });
+
+        const raw_fsentry = {
+            is_shortcut: 1,
+            shortcut_to: target.mysql_id,
+            is_dir: target.entry.is_dir,
+            thumbnail: target.entry.thumbnail,
+            uuid: uid,
+            parent_uid: await parent.get('uid'),
+            path: path_.join(await parent.get('path'), name),
+            user_id: user.id,
+            name,
+            created: ts,
+            updated: ts,
+            modified: ts,
+            immutable: false,
+        };
+
+        const entryOp = await this.fsEntryController.insert(raw_fsentry);
+
+        (async () => {
+            await entryOp.awaitDone();
+            svc_resource.free(uid);
+        })();
+
+        const node = await svc_fs.node(new NodeUIDSelector(uid));
+
+        svc_event.emit('fs.create.shortcut', {
+            node,
+            context: Context.get(),
+        });
+
+        return node;
+    }
+    // #endregion
+
+    // #region Standard FS
 
     /**
      * Check if a given node exists.
@@ -246,41 +331,6 @@ export default class PuterFSProvider {
             node,
             context: Context.get(),
         });
-
-        return node;
-    }
-
-    async update_thumbnail ({ context, node, thumbnail }) {
-        const {
-            actor: inputActor,
-        } = context.values;
-        const actor = inputActor ?? Context.get('actor');
-
-        context = context ?? Context.get();
-        const services = context.get('services');
-
-        // TODO: this ACL check should not be here, but there's no LL method yet
-        //       and it's possible we will never implement the thumbnail
-        //       capability for any other filesystem type
-
-        const svc_acl = services.get('acl');
-        if ( ! await svc_acl.check(actor, node, 'write') ) {
-            throw await svc_acl.get_safe_acl_error(actor, node, 'write');
-        }
-
-        const uid = await node.get('uid');
-
-        const entryOp = await this.fsEntryController.update(uid, {
-            thumbnail,
-        });
-
-        (async () => {
-            await entryOp.awaitDone();
-            svc_event.emit('fs.write.file', {
-                node,
-                context,
-            });
-        })();
 
         return node;
     }
@@ -799,6 +849,10 @@ export default class PuterFSProvider {
         return rows[0].total_size;
     }
 
+    // #endregion
+
+    // #region internal
+
     /**
     * @param {Object} param
     * @param {File} param.file: The file to write.
@@ -941,4 +995,5 @@ export default class PuterFSProvider {
 
         await tasks.awaitAll();
     }
+    // #endregion
 }

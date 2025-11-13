@@ -24,6 +24,7 @@ const capabilityNames = [
     'operation-trace',
     'readdir-uuid-mode',
     'update-thumbnail',
+    'puter-shortcut',
 
     // Standard Capabilities
     'read',
