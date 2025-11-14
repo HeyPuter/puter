@@ -202,6 +202,10 @@ const bench_20ms = async (ctx) => {
 
 window.onload = async function()
 {
+	try {
+	await puter.fs.mkdir(puter.appDataPath)
+	} catch {}
+
     const modules = {};
     modules.bench = (await WebAssembly.instantiateStreaming(
         fetch('./static/bench.wasm'))).instance.exports;
@@ -213,7 +217,9 @@ window.onload = async function()
     } catch (e) {}
 
     if ( ! emu_config ) {
+		console.log("writing emu config")
         await puter.fs.write('config.json', JSON.stringify({}));
+		console.log("writing emu config1")
         emu_config = {};
     }
 

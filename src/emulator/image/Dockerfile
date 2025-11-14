@@ -15,7 +15,6 @@ RUN  apk add --update \
     passwd -d root && \
     chsh -s /bin/bash
 
-RUN apk add neofetch
 # programming language tools
 RUN apk add --no-cache \
     nodejs npm \
