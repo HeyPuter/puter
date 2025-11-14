@@ -78,6 +78,16 @@ interface ChatOptions {
     stream?: boolean;
     max_tokens?: number;
     temperature?: number;
+    reasoning?: {
+        effort?: 'none' | 'low' | 'medium' | 'high' | 'minimal';
+        [key: string]: unknown;
+    };
+    reasoning_effort?: 'none' | 'low' | 'medium' | 'high' | 'minimal';
+    text?: {
+        verbosity?: 'low' | 'medium' | 'high';
+        [key: string]: unknown;
+    };
+    verbosity?: 'low' | 'medium' | 'high';
     tools?: ToolDefinition[];
 }
 

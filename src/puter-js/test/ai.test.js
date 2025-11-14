@@ -7,6 +7,7 @@ const TEST_MODELS = [
     "openrouter:anthropic/claude-sonnet-4",
     "google/gemini-2.5-pro",
     "deepseek-chat",
+    "gpt-5.1",
     "gpt-5-nano",
     "openai/gpt-5-nano",
     "claude-sonnet-4-latest",
@@ -48,7 +49,9 @@ const testChatWithParametersCore = async function(model) {
     const result = await puter.ai.chat("What is 2+2?", { 
         model: model,
         temperature: 0.7,
-        max_tokens: 50
+        max_tokens: 50,
+        reasoning: { effort: 'low' },
+        text: { verbosity: 'low' },
     });
     
     // Check basic result structure

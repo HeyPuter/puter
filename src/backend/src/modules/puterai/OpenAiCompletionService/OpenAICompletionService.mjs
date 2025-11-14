@@ -109,7 +109,7 @@ export class OpenAICompletionService {
         return this.#defaultModel;
     }
 
-    async complete({ messages, stream, model, tools, max_tokens, temperature }) {
+    async complete({ messages, stream, model, tools, max_tokens, temperature, reasoning, text, reasoning_effort, verbosity }) {
         return await this.#complete(messages, {
             model: model,
             tools,
@@ -117,7 +117,10 @@ export class OpenAICompletionService {
             stream,
             max_tokens,
             temperature,
-
+            reasoning,
+            text,
+            reasoning_effort,
+            verbosity,
         });
     }
 
@@ -166,6 +169,7 @@ export class OpenAICompletionService {
     async #complete(messages, {
         stream, moderation, model, tools,
         temperature, max_tokens,
+        reasoning, text, reasoning_effort, verbosity,
     }) {
         // Validate messages
         if ( ! Array.isArray(messages) ) {
@@ -252,7 +256,11 @@ export class OpenAICompletionService {
         // that's missing. We normalise it here so the token count code works.
         messages = await OpenAIUtil.process_input_messages(messages);
 
-        const completion = await this.#openAi.chat.completions.create({
+        const requestedReasoningEffort = reasoning_effort ?? reasoning?.effort;
+        const requestedVerbosity = verbosity ?? text?.verbosity;
+        const supportsReasoningControls = typeof model === 'string' && model.startsWith('gpt-5');
+
+        const completionParams = {
             user: user_private_uid,
             messages: messages,
             model: model,
@@ -263,7 +271,18 @@ export class OpenAICompletionService {
             ...(stream ? {
                 stream_options: { include_usage: true },
             } : {}),
-        });
+        };
+
+        if ( supportsReasoningControls ) {
+            if ( requestedReasoningEffort ) {
+                completionParams.reasoning_effort = requestedReasoningEffort;
+            }
+            if ( requestedVerbosity ) {
+                completionParams.verbosity = requestedVerbosity;
+            }
+        }
+
+        const completion = await this.#openAi.chat.completions.create(completionParams);
         // TODO DS: simplify this logic for all the ai services, each service should handle its cost calculation in the service
         // for now I'm overloading this usage calculator to handle the future promise resolution...
         return OpenAIUtil.handle_completion_output({
