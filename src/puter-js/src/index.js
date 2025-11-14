@@ -785,6 +785,43 @@ export const puter =  puterInit();
 export default puter;
 globalThis.puter = puter;
 
+puter.tools = [];
+/**
+ * @type {{messageTarget: Window}}
+ */
+const puterParent = puter.ui.parentApp();
+window.puterParent = puterParent;
+if (puterParent) {
+    console.log("I have a parent, registering tools")
+    puterParent.on('message', async (event) => {
+        console.log("Got tool req ", event)
+        if (event.$ === "requestTools") {
+            console.log("Responding with tools")
+            puterParent.postMessage({
+                $: "providedTools",
+                tools: JSON.parse(JSON.stringify(puter.tools))
+            });
+        }
+
+        if (event.$ === "executeTool") {
+            console.log("xecuting tools")
+            /**
+             * Puter tools format
+             * @type {[{exec: Function, function: {description: string, name: string, parameters: {properties: any, required: Array<string>}, type: string}}]}
+             */
+            const [tool] = puter.tools.filter(e=>e.function.name === event.toolName);
+
+            const response = await tool.exec(event.parameters);
+            puterParent.postMessage({
+                $: "toolResponse",
+                response,
+                tag: event.tag,
+            });
+        }
+    });
+    puterParent.postMessage({$: "ready"});
+}
+
 globalThis.addEventListener && globalThis.addEventListener('message', async (event) => {
     // if the message is not from Puter, then ignore it
     if ( event.origin !== puter.defaultGUIOrigin ) return;
