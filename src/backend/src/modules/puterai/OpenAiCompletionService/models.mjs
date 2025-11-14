@@ -2,6 +2,16 @@
 
 export const OPEN_AI_MODELS = [
     {
+        id: 'gpt-5.1',
+        cost: {
+            currency: 'usd-cents',
+            tokens: 1_000_000,
+            input: 125,
+            output: 1000,
+        },
+        max_tokens: 128000,
+    },
+    {
         id: 'gpt-5-2025-08-07',
         aliases: ['gpt-5'],
         cost: {

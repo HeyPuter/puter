@@ -20,6 +20,9 @@
 
 export const OPENAI_COST_MAP = {
     // GPT-5 models
+    'openai:gpt-5.1:prompt_tokens': 125,
+    'openai:gpt-5.1:cached_tokens': 13,
+    'openai:gpt-5.1:completion_tokens': 1000,
     'openai:gpt-5-2025-08-07:prompt_tokens': 125,
     'openai:gpt-5-2025-08-07:cached_tokens': 13,
     'openai:gpt-5-2025-08-07:completion_tokens': 1000,
