@@ -536,15 +536,13 @@ module.exports = class FSNodeContext {
      * already fetched.
      */
     async fetchSize() {
-        const { fsEntryService } = Context.get('services').values;
-
         // we already have the size for files
         if ( ! this.entry.is_dir ) {
             await this.fetchEntry();
             return this.entry.size;
         }
 
-        this.entry.size = await fsEntryService.get_recursive_size(this.entry.uuid);
+        this.entry.size = await this.provider.get_recursive_size({ node: this });
 
         return this.entry.size;
     }
@@ -621,6 +619,10 @@ module.exports = class FSNodeContext {
         }
 
         if ( key === 'uid' ) {
+            const uidSelector = this.get_selector_of_type(NodeUIDSelector);
+            if ( uidSelector ) {
+                return uidSelector.value;
+            }
             await this.fetchEntry();
             return this.uid;
         }
@@ -743,6 +745,10 @@ module.exports = class FSNodeContext {
         }
 
         return await this.fs.node(new NodeChildSelector(this.selector, name));
+    }
+    
+    async hasChild(name) {
+        return await this.provider.directory_has_name({ parent: this, name });
     }
 
     async getTarget() {

@@ -152,14 +152,11 @@ class HLMove extends HLFilesystemOperation {
             }
 
             if ( values.dedupe_name ) {
-                const svc_fsEntryFetcher = svc.get('fsEntryFetcher');
                 const target_ext = _path.extname(target_name);
                 const target_noext = _path.basename(target_name, target_ext);
                 for ( let i=1 ;; i++ ) {
                     const try_new_name = `${target_noext} (${i})${target_ext}`;
-                    const exists = await svc_fsEntryFetcher.nameExistsUnderParent(
-                        parent.uid, try_new_name
-                    );
+                    const exists = await parent.hasChild(try_new_name);
                     if ( ! exists ) {
                         target_name = try_new_name;
                         break;
