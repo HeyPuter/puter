@@ -11,6 +11,36 @@ export const OPEN_AI_MODELS = [
         },
         max_tokens: 128000,
     },
+    {   
+        id: 'gpt-5.1-codex',
+        cost: {
+            currency: 'usd-cents',
+            tokens: 1_000_000,
+            input: 125,
+            output: 1000,
+        },
+        max_tokens: 400000,
+    },
+    {
+        id: 'gpt-5.1-codex-mini',
+        cost: {
+            currency: 'usd-cents',
+            tokens: 1_000_000,
+            input: 25,
+            output: 200,
+        },
+        max_tokens: 400000,
+    },
+    {
+        id: 'gpt-5.1-chat-latest',
+        cost: {
+            currency: 'usd-cents',
+            tokens: 1_000_000,
+            input: 125,
+            output: 1000,
+        },
+        max_tokens: 400000,
+    },
     {
         id: 'gpt-5-2025-08-07',
         aliases: ['gpt-5'],
