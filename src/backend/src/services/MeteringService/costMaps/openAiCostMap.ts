@@ -24,7 +24,7 @@ export const OPENAI_COST_MAP = {
     'openai:gpt-5.1:cached_tokens': 13,
     'openai:gpt-5.1:completion_tokens': 1000,
     'openai:gpt-5.1-codex:prompt_tokens': 125,
-    'openai:gpt-5.1-codex:cached_tokens': 12.5,
+    'openai:gpt-5.1-codex:cached_tokens': 13,
     'openai:gpt-5.1-codex:completion_tokens': 1000,
     'openai:gpt-5.1-codex-mini:prompt_tokens': 25,
     'openai:gpt-5.1-codex-mini:cached_tokens': 3,

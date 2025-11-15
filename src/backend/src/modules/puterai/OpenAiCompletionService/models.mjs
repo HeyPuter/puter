@@ -19,7 +19,7 @@ export const OPEN_AI_MODELS = [
             input: 125,
             output: 1000,
         },
-        max_tokens: 400000,
+        max_tokens: 128000,
     },
     {
         id: 'gpt-5.1-codex-mini',
@@ -29,7 +29,7 @@ export const OPEN_AI_MODELS = [
             input: 25,
             output: 200,
         },
-        max_tokens: 400000,
+        max_tokens: 128000,
     },
     {
         id: 'gpt-5.1-chat-latest',
@@ -39,7 +39,7 @@ export const OPEN_AI_MODELS = [
             input: 125,
             output: 1000,
         },
-        max_tokens: 400000,
+        max_tokens: 16384,
     },
     {
         id: 'gpt-5-2025-08-07',
