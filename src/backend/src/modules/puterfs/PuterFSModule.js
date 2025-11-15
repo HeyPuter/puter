@@ -24,6 +24,7 @@ const selectors = require('../../filesystem/node/selectors');
 const { RuntimeModule } = require('../../extension/RuntimeModule');
 const { MODE_READ, MODE_WRITE } = require('../../services/fs/FSLockService');
 const { UploadProgressTracker } = require('../../filesystem/storage/UploadProgressTracker');
+const { PuterPath } = require('../../filesystem/lib/PuterPath');
 
 class PuterFSModule extends AdvancedBase {
     async install (context) {
@@ -38,6 +39,7 @@ class PuterFSModule extends AdvancedBase {
                 capabilities,
                 selectors,
                 FSNodeContext,
+                PuterPath,
                 lock: {
                     MODE_READ,
                     MODE_WRITE,
