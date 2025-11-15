@@ -24,6 +24,28 @@ let config = {};
 
 // Static defaults
 config.servers = [];
+config.services = config.services ?? {};
+
+{
+    const defaultGoogleOAuthConfig = {
+        enabled: false,
+        client_id: null,
+        client_secret: null,
+        redirect_uri: null,
+        callback_path: '/auth/google/callback',
+        scopes: ['openid', 'email', 'profile'],
+        access_type: 'online',
+        prompt: 'select_account',
+        allowed_domains: [],
+        allow_signup: true,
+    };
+
+    const existing = config.services['google-oauth'] ?? {};
+    config.services['google-oauth'] = {
+        ...defaultGoogleOAuthConfig,
+        ...existing,
+    };
+}
 
 config.disable_user_signup = false;
 config.default_user_group = '78b1b1dd-c959-44d2-b02c-8735671f9997';
