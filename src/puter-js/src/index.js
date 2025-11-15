@@ -37,7 +37,6 @@ const PROD_ORIGIN = 'https://puter.com';
 
 const puterInit = (function() {
     'use strict';
-
     class Puter{
         // The environment that the SDK is running in. Can be 'gui', 'app' or 'web'.
         // 'gui' means the SDK is running in the Puter GUI, i.e. Puter.com.
@@ -62,6 +61,7 @@ const puterInit = (function() {
             this.#defaultGUIOrigin = v;
         }
 
+        as = (obj) => { return obj.puter } 
         // An optional callback when the user is authenticated. This can be set by the app using the SDK.
         onAuth;
 
