@@ -38,7 +38,6 @@ const svc_acl = extension.import('service:acl');
 
 // TODO: these services ought to be part of this extension
 const svc_size = extension.import('service:sizeService');
-const svc_fsEntryFetcher = extension.import('service:fsEntryFetcher');
 const svc_resource = extension.import('service:resourceService');
 
 // Not sure where these really belong yet
@@ -219,25 +218,25 @@ export default class PuterFSProvider {
     }) {
         // shortcut: has full path
         if ( selector?.path ) {
-            const entry = await svc_fsEntryFetcher.findByPath(selector.path);
+            const entry = await this.fsEntryController.findByPath(selector.path);
             return Boolean(entry);
         }
 
         // shortcut: has uid
         if ( selector?.uid ) {
-            const entry = await svc_fsEntryFetcher.findByUID(selector.uid);
+            const entry = await this.fsEntryController.findByUID(selector.uid);
             return Boolean(entry);
         }
 
         // shortcut: parent uid + child name
         if ( selector instanceof NodeChildSelector && selector.parent instanceof NodeUIDSelector ) {
-            return await svc_fsEntryFetcher.nameExistsUnderParent(selector.parent.uid,
+            return await this.fsEntryController.nameExistsUnderParent(selector.parent.uid,
                             selector.name);
         }
 
         // shortcut: parent id + child name
         if ( selector instanceof NodeChildSelector && selector.parent instanceof NodeInternalIDSelector ) {
-            return await svc_fsEntryFetcher.nameExistsUnderParentID(selector.parent.id,
+            return await this.fsEntryController.nameExistsUnderParentID(selector.parent.id,
                             selector.name);
         }
 
@@ -358,7 +357,7 @@ export default class PuterFSProvider {
         node,
     }) {
         // For Puter FS nodes, we assume we will obtain all properties from
-        // fsEntryService/fsEntryFetcher, except for 'thumbnail' unless it's
+        // fsEntryController, except for 'thumbnail' unless it's
         // explicitly requested.
 
         if ( options.tracer == null ) {
@@ -409,7 +408,7 @@ export default class PuterFSProvider {
             entry = await this.fsEntryController.get(maybe_uid, options);
             controls.log.debug('got an entry from the future');
         } else {
-            entry = await svc_fsEntryFetcher.find(selector, options);
+            entry = await this.fsEntryController.find(selector, options);
         }
 
         if ( ! entry ) {

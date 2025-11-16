@@ -63,9 +63,6 @@ class PuterFSModule extends AdvancedBase {
         const { MountpointService } = require('./MountpointService');
         services.registerService('mountpoint', MountpointService);
 
-        const DatabaseFSEntryFetcher = require('./DatabaseFSEntryFetcher');
-        services.registerService('fsEntryFetcher', DatabaseFSEntryFetcher);
-
         const { MemoryFSService } = require('./customfs/MemoryFSService');
         services.registerService('memoryfs', MemoryFSService);
     }
