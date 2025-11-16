@@ -16,23 +16,23 @@
  * You should have received a copy of the GNU Affero General Public License
  * along with this program.  If not, see <https://www.gnu.org/licenses/>.
  */
-const APIError = require("../../api/APIError");
-const FSNodeParam = require("../../api/filesystem/FSNodeParam");
-const FlagParam = require("../../api/filesystem/FlagParam");
-const StringParam = require("../../api/filesystem/StringParam");
-const UserParam = require("../../api/filesystem/UserParam");
-const config = require("../../config");
-const { chkperm, validate_fsentry_name } = require("../../helpers");
-const { TeePromise } = require("@heyputer/putility").libs.promise;
-const { pausing_tee, logging_stream, offset_write_stream, stream_to_the_void } = require("../../util/streamutil");
-const { TYPE_DIRECTORY } = require("../FSNodeContext");
-const { LLRead } = require("../ll_operations/ll_read");
-const { RootNodeSelector, NodePathSelector } = require("../node/selectors");
-const { is_valid_node_name } = require("../validation");
-const { HLFilesystemOperation } = require("./definitions");
-const { MkTree } = require("./hl_mkdir");
-const { Actor } = require("../../services/auth/Actor");
-const { LLCWrite, LLOWrite } = require("../ll_operations/ll_write");
+const APIError = require('../../api/APIError');
+const FSNodeParam = require('../../api/filesystem/FSNodeParam');
+const FlagParam = require('../../api/filesystem/FlagParam');
+const StringParam = require('../../api/filesystem/StringParam');
+const UserParam = require('../../api/filesystem/UserParam');
+const config = require('../../config');
+const { chkperm, validate_fsentry_name } = require('../../helpers');
+const { TeePromise } = require('@heyputer/putility').libs.promise;
+const { pausing_tee, logging_stream, offset_write_stream, stream_to_the_void } = require('../../util/streamutil');
+const { TYPE_DIRECTORY } = require('../FSNodeContext');
+const { LLRead } = require('../ll_operations/ll_read');
+const { RootNodeSelector, NodePathSelector } = require('../node/selectors');
+const { is_valid_node_name } = require('../validation');
+const { HLFilesystemOperation } = require('./definitions');
+const { MkTree } = require('./hl_mkdir');
+const { Actor } = require('../../services/auth/Actor');
+const { LLCWrite, LLOWrite } = require('../ll_operations/ll_write');
 
 class WriteCommonFeature {
     install_in_instance (instance) {
@@ -43,7 +43,7 @@ class WriteCommonFeature {
             ) {
                 throw APIError.create('file_too_large', null, {
                     max_size: config.max_file_size,
-                })
+                });
             }
 
             if (
@@ -52,9 +52,9 @@ class WriteCommonFeature {
             ) {
                 throw APIError.create('thumbnail_too_large', null, {
                     max_size: config.max_thumbnail_size,
-                })
+                });
             }
-        }
+        };
 
         instance._verify_room = async function () {
             if ( ! this.values.file ) return;
@@ -67,10 +67,10 @@ class WriteCommonFeature {
 
             const usage = await sizeService.get_usage(user.id);
             const capacity = await sizeService.get_storage_capacity(user.id);
-            if( capacity - usage - file.size < 0 ) {
+            if ( capacity - usage - file.size < 0 ) {
                 throw APIError.create('storage_limit_reached');
             }
-        }
+        };
     }
 }
 
@@ -85,11 +85,11 @@ class HLWrite extends HLFilesystemOperation {
         - deduplicate files with the same name
         // - create thumbnails; this will happen in low-level operation for now
         - create shortcuts
-    `
+    `;
 
     static FEATURES = [
         new WriteCommonFeature(),
-    ]
+    ];
 
     static PARAMETERS = {
         // the parent directory, or a filepath that doesn't exist yet
@@ -117,7 +117,7 @@ class HLWrite extends HLFilesystemOperation {
     static MODULES = {
         _path: require('path'),
         mime: require('mime-types'),
-    }
+    };
 
     async _run () {
         const { context, values } = this;
@@ -134,7 +134,7 @@ class HLWrite extends HLFilesystemOperation {
 
         this.checkpoint('before parent exists check');
 
-        if ( ! await parent.exists() && values.create_missing_parents ) {
+        if ( !await parent.exists() && values.create_missing_parents ) {
             if ( ! (parent.selector instanceof NodePathSelector) ) {
                 throw APIError.create('dest_does_not_exist', null, {
                     parent: parent.selector,
@@ -178,7 +178,7 @@ class HLWrite extends HLFilesystemOperation {
 
         this.checkpoint('check parent DNE or is not a directory');
         if (
-            ! await parent.exists() ||
+            !await parent.exists() ||
             await parent.get('type') !== TYPE_DIRECTORY
         ) {
             destination = parent;
@@ -219,16 +219,16 @@ class HLWrite extends HLFilesystemOperation {
 
         const dest_exists = await destination.exists();
 
-        if ( values.offset !== undefined && ! dest_exists ) {
+        if ( values.offset !== undefined && !dest_exists ) {
             throw APIError.create('offset_without_existing_file');
         }
-        
+
         // The correct ACL check here depends on context.
         // ll_write checks ACL, but we need to shortcut it here
         // or else we might send the user too much information.
         {
             const node_to_check =
-                ( dest_exists && overwrite && ! dedupe_name )
+                ( dest_exists && overwrite && !dedupe_name )
                     ? destination : parent;
 
             const actor = values.actor ?? Actor.adapt(values.user);
@@ -239,17 +239,16 @@ class HLWrite extends HLFilesystemOperation {
         }
 
         if ( dest_exists ) {
-            if ( ! overwrite && ! dedupe_name ) {
+            if ( !overwrite && !dedupe_name ) {
                 throw APIError.create('item_with_same_name_exists', null, {
-                    entry_name: target_name
+                    entry_name: target_name,
                 });
             }
 
             if ( dedupe_name ) {
-                const fsEntryFetcher = context.get('services').get('fsEntryFetcher');
                 const target_ext = _path.extname(target_name);
                 const target_noext = _path.basename(target_name, target_ext);
-                for ( let i=1 ;; i++ ) {
+                for ( let i = 1 ;; i++ ) {
                     const try_new_name = `${target_noext} (${i})${target_ext}`;
                     const exists = await parent.hasChild(try_new_name);
                     if ( ! exists ) {
@@ -302,53 +301,55 @@ class HLWrite extends HLFilesystemOperation {
         let thumbnail_promise = new TeePromise();
         if ( await parent.isAppDataDirectory() || values.no_thumbnail ) {
             thumbnail_promise.resolve(undefined);
-        } else (async () => {
-            const reason = await (async () => {
-                const { mime } = this.modules;
-                const thumbnails = context.get('services').get('thumbnails');
-                if ( values.thumbnail ) return 'already thumbnail';
+        } else {
+            (async () => {
+                const reason = await (async () => {
+                    const { mime } = this.modules;
+                    const thumbnails = context.get('services').get('thumbnails');
+                    if ( values.thumbnail ) return 'already thumbnail';
 
-                const content_type = mime.contentType(target_name);
-                this.log.debug('CONTENT TYPE', content_type);
-                if ( ! content_type ) return 'no content type';
-                if ( ! thumbnails.is_supported_mimetype(content_type) ) return 'unsupported content type';
-                if ( ! thumbnails.is_supported_size(values.file.size) ) return 'too large';
+                    const content_type = mime.contentType(target_name);
+                    this.log.debug('CONTENT TYPE', content_type);
+                    if ( ! content_type ) return 'no content type';
+                    if ( ! thumbnails.is_supported_mimetype(content_type) ) return 'unsupported content type';
+                    if ( ! thumbnails.is_supported_size(values.file.size) ) return 'too large';
 
-                // Create file object for thumbnail by either using an existing
-                // buffer (ex: /download endpoint) or by forking a stream
-                // (ex: /write and /batch endpoints).
-                const thumb_file = (() => {
-                    if ( values.file.buffer ) return values.file;
+                    // Create file object for thumbnail by either using an existing
+                    // buffer (ex: /download endpoint) or by forking a stream
+                    // (ex: /write and /batch endpoints).
+                    const thumb_file = (() => {
+                        if ( values.file.buffer ) return values.file;
 
-                    const [replace_stream, thumbnail_stream] =
-                        pausing_tee(values.file.stream, 2);
+                        const [replace_stream, thumbnail_stream] =
+                            pausing_tee(values.file.stream, 2);
 
-                    values.file.stream = replace_stream;
-                    return { ...values.file, stream: thumbnail_stream };
+                        values.file.stream = replace_stream;
+                        return { ...values.file, stream: thumbnail_stream };
+                    })();
+
+                    let thumbnail;
+                    try {
+                        thumbnail = await thumbnails.thumbify(thumb_file);
+                    } catch (e) {
+                        stream_to_the_void(thumb_file.stream);
+                        return `thumbnail error: ${ e.message}`;
+                    }
+
+                    const thumbnailData = { url: thumbnail };
+                    if ( thumbnailData.url ) {
+                        await svc_event.emit('thumbnail.created', thumbnailData); // An extension can modify where this thumbnail is stored
+                    }
+
+                    thumbnail_promise.resolve(thumbnailData.url);
                 })();
-
-                let thumbnail;
-                try {
-                    thumbnail = await thumbnails.thumbify(thumb_file);
-                } catch (e) {
-                    stream_to_the_void(thumb_file.stream);
-                    return 'thumbnail error: ' + e.message;
-                }
-
-                const thumbnailData = { url: thumbnail }
-                if (thumbnailData.url) {
-                    await svc_event.emit('thumbnail.created', thumbnailData); // An extension can modify where this thumbnail is stored
-                }
-
-                thumbnail_promise.resolve(thumbnailData.url);
-            })();
-            if ( reason ) {
-                this.log.debug('REASON', reason);
-                thumbnail_promise.resolve(undefined);
+                if ( reason ) {
+                    this.log.debug('REASON', reason);
+                    thumbnail_promise.resolve(undefined);
 
                 // values.file.stream = logging_stream(values.file.stream);
-            }
-        })();
+                }
+            })();
+        }
 
         this.checkpoint('before delegate');
 
