@@ -288,7 +288,6 @@ module.exports = class FSNodeContext {
      * @void
      */
     async fetchEntry (fetch_entry_options = {}) {
-        const svc_event = this.services.get('event');
         if ( this.fetching !== null ) {
             await Context.get('services').get('traceService').spanify('fetching', async () => {
                 // ???: does this need to be double-checked? I'm not actually sure...
@@ -309,9 +308,6 @@ module.exports = class FSNodeContext {
         ) {
             const promise = this.fetching;
             this.fetching = null;
-            if (this.entry.thumbnail) {
-                await svc_event.emit("thumbnail.read", this.entry);
-            }
             promise.resolve();
             return;
         }
@@ -360,7 +356,6 @@ module.exports = class FSNodeContext {
         const promise = this.fetching;
         this.fetching = null;
 
-        await svc_event.emit("thumbnail.read", this.entry);
         promise.resolve();
     }
 
@@ -786,6 +781,8 @@ module.exports = class FSNodeContext {
     }
 
     async getSafeEntry(fetch_options = {}) {
+        const svc_event = this.services.get('event');
+        
         if ( this.found === false ) {
             throw new Error(`Tried to get entry of non-existent fsentry: ` +
                 this.selector.describe(true));
@@ -794,6 +791,9 @@ module.exports = class FSNodeContext {
 
         const res = this.entry;
         const fsentry = {};
+        if (res.thumbnail) {
+            await svc_event.emit("thumbnail.read", this.entry);
+        }
 
         // This property will not be serialized, but it can be checked
         // by other code to verify that API calls do not send
