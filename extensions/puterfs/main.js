@@ -22,6 +22,8 @@ import PuterFSProvider from './PuterFSProvider.js';
 import LocalDiskStorageController from './storage/LocalDiskStorageController.js';
 import ProxyStorageController from './storage/ProxyStorageController.js';
 
+const svc_event = extension.import('service:event');
+
 const fsEntryController = new FSEntryController();
 const storageController = new ProxyStorageController();
 
@@ -29,6 +31,7 @@ extension.on('init', async () => {
     fsEntryController.init();
 
     // Keep track of possible storage strategies for puterfs here
+    let defaultStorage = 'flat-files';
     const storageStrategies = {
         'flat-files': new LocalDiskStorageController(),
     };
@@ -37,13 +40,22 @@ extension.on('init', async () => {
     const event = {
         createStorageStrategy (name, implementation) {
             storageStrategies[name] = implementation;
+            if ( implementation === undefined ) {
+                throw new Error('createStorageStrategy was called wrong');
+            }
+            if ( implementation.forceDefault ) {
+                defaultStorage = name;
+            }
         },
     };
     // Awaiting the event ensures all the storage strategies are registered
-    await extension.emit('puterfs.storage.create', event);
+    await svc_event.emit('puterfs.storage.create', event);
+
+    let configuredStorage = defaultStorage;
+    if ( config.storage ) configuredStorage = config.storage;
 
     // Not we can select the configured strategy
-    const storageToUse = storageStrategies['flat-files'];
+    const storageToUse = storageStrategies[configuredStorage];
     storageController.setDelegate(storageToUse);
 
     // The StorageController may need to await some asynchronous operations
