@@ -97,8 +97,9 @@ const {
 } = extension.import('fs').util;
 
 export default class PuterFSProvider {
-    constructor ({ fsEntryController }) {
+    constructor ({ fsEntryController, storageController }) {
         this.fsEntryController = fsEntryController;
+        this.storageController = storageController;
         this.name = 'puterfs';
     }
 
@@ -943,7 +944,7 @@ export default class PuterFSProvider {
         const state_upload = storage.create_upload();
 
         try {
-            await state_upload.run({
+            await this.storageController.upload({
                 uid: uuid,
                 file,
                 storage_meta: { bucket, bucket_region },
