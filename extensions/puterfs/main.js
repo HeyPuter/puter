@@ -19,11 +19,37 @@
 
 import FSEntryController from './fsentries/FSEntryController.js';
 import PuterFSProvider from './PuterFSProvider.js';
+import LocalDiskStorageController from './storage/LocalDiskStorageController.js';
+import ProxyStorageController from './storage/ProxyStorageController.js';
 
 const fsEntryController = new FSEntryController();
+const storageController = new ProxyStorageController();
 
-extension.on('init', () => {
+extension.on('init', async () => {
     fsEntryController.init();
+
+    // Keep track of possible storage strategies for puterfs here
+    const storageStrategies = {
+        'flat-files': new LocalDiskStorageController(),
+    };
+
+    // Emit the "create storage strategies" event
+    const event = {
+        createStorageStrategy (name, implementation) {
+            storageStrategies[name] = implementation;
+        },
+    };
+    // Awaiting the event ensures all the storage strategies are registered
+    await extension.emit('puterfs.storage.create', event);
+
+    // Not we can select the configured strategy
+    const storageToUse = storageStrategies['flat-files'];
+    storageController.setDelegate(storageToUse);
+
+    // The StorageController may need to await some asynchronous operations
+    // before it's ready to be used.
+    await storageController.init();
+
 });
 
 extension.on('create.filesystem-types', event => {
@@ -31,6 +57,7 @@ extension.on('create.filesystem-types', event => {
         mount ({ path }) {
             return new PuterFSProvider({
                 fsEntryController,
+                storageController,
             });
         },
     });
