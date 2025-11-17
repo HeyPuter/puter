@@ -790,7 +790,7 @@ puter.tools = [];
  * @type {{messageTarget: Window}}
  */
 const puterParent = puter.ui.parentApp();
-window.puterParent = puterParent;
+globalThis.puterParent = puterParent;
 if (puterParent) {
     console.log("I have a parent, registering tools")
     puterParent.on('message', async (event) => {
