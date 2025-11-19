@@ -137,6 +137,66 @@ class GeminiService extends BaseService {
                 },
                 max_tokens: 8192,
             },
+            {
+                id: 'gemini-2.0-flash-lite',
+                name: 'Gemini 2.0 Flash-Lite',
+                context: 1_048_576,
+                cost: {
+                    currency: 'usd-cents',
+                    tokens: 1_000_000,
+                    input: 8,
+                    output: 32,
+                },
+                max_tokens: 8192,
+            },
+            {
+                id: 'gemini-2.5-flash',
+                name: 'Gemini 2.5 Flash',
+                context: 1_048_576,
+                cost: {
+                    currency: 'usd-cents',
+                    tokens: 1_000_000,
+                    input: 12,
+                    output: 48,
+                },
+                max_tokens: 65536,
+            },
+            {
+                id: 'gemini-2.5-flash-lite',
+                name: 'Gemini 2.5 Flash-Lite',
+                context: 1_048_576,
+                cost: {
+                    currency: 'usd-cents',
+                    tokens: 1_000_000,
+                    input: 10,
+                    output: 40,
+                },
+                max_tokens: 65536,
+            },
+            {
+                id: 'gemini-2.5-pro',
+                name: 'Gemini 2.5 Pro',
+                context: 1_048_576,
+                cost: {
+                    currency: 'usd-cents',
+                    tokens: 1_000_000,
+                    input: 15,
+                    output: 60,
+                },
+                max_tokens: 65536,
+            },
+            {
+                id: 'gemini-3-pro-preview',
+                name: 'Gemini 3 Pro',
+                context: 1_048_576,
+                cost: {
+                    currency: 'usd-cents',
+                    tokens: 1_000_000,
+                    input: 25,
+                    output: 100,
+                },
+                max_tokens: 65536,
+            },
         ];
     }
 }

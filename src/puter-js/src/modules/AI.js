@@ -788,7 +788,12 @@ class AI{
         }
         else if(
             requestParams.model === 'gemini-1.5-flash' ||
-            requestParams.model === 'gemini-2.0-flash'
+            requestParams.model === 'gemini-2.0-flash' ||
+            requestParams.model === 'gemini-2.5-flash' || 
+            requestParams.model === 'gemini-2.5-flash-lite' ||
+            requestParams.model === 'gemini-2.0-flash-lite' ||
+            requestParams.model === 'gemini-3-pro-preview' ||
+            requestParams.model === 'gemini-2.5-pro'
         ){
             driver = 'gemini';
         }
