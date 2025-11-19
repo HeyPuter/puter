@@ -141,7 +141,9 @@ module.exports = class GeminiSquareHole {
 
                 // assume text as default
                 const text = part.text;
-                textblock.addText(text);
+                if ( text ) {
+                    textblock.addText(text);
+                }
             }
 
             last_usage = chunk.usageMetadata;
