@@ -2,6 +2,7 @@
     "main": "main.js",
     "type": "module",
     "dependencies": {
+        "teepromise": "^0.1.1",
         "uuid": "^13.0.0"
     }
 }

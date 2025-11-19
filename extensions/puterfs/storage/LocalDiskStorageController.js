@@ -1,6 +1,6 @@
-import putility from '@heyputer/putility';
 import fs from 'node:fs';
 import path_ from 'node:path';
+import { TeePromise } from 'teepromise';
 
 const {
     progress_stream,
@@ -40,7 +40,7 @@ export default class LocalDiskStorageController {
             limit: file.size,
         });
 
-        const writePromise = new putility.libs.promise.TeePromise();
+        const writePromise = new TeePromise();
         const path = this.#getPath(uid);
         const write_stream = fs.createWriteStream(path);
 
