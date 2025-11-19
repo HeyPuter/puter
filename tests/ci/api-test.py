@@ -32,7 +32,7 @@ def update_server_config():
     # Add the mountpoint configuration
     mountpoint_config = {
         "/": {"mounter": "puterfs"},
-        "/admin/tmp": {"mounter": "memoryfs"},
+        # "/admin/tmp": {"mounter": "memoryfs"},
     }
 
     # Merge mountpoints (overwrite existing ones)
