@@ -11,7 +11,7 @@ export const OPEN_AI_MODELS = [
         },
         max_tokens: 128000,
     },
-    {   
+    {
         id: 'gpt-5.1-codex',
         cost: {
             currency: 'usd-cents',

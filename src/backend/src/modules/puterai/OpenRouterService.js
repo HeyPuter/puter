@@ -22,7 +22,9 @@ const APIError = require('../../api/APIError');
 const BaseService = require('../../services/BaseService');
 const OpenAIUtil = require('./lib/OpenAIUtil');
 const { Context } = require('../../util/context');
-
+const openai = require('openai');
+const uuidv4 = require('uuid').v4;
+const axios = require('axios');
 /**
 * XAIService class - Provides integration with X.AI's API for chat completions
 * Extends BaseService to implement the puter-chat-completion interface.
@@ -32,17 +34,29 @@ const { Context } = require('../../util/context');
 */
 class OpenRouterService extends BaseService {
     static MODULES = {
-        openai: require('openai'),
         kv: globalThis.kv,
-        uuidv4: require('uuid').v4,
-        axios: require('axios'),
+    };
+
+    // TODO DS: extract this into driver wrapper like openAiService
+    static IMPLEMENTS = {
+        ['puter-chat-completion']: {
+            async models () {
+                return await this.models();
+            },
+            async list () {
+                return await this.list();
+            },
+            async complete (...params) {
+                return await this.complete(...params);
+            },
+        },
     };
 
     /**
     * Gets the system prompt used for AI interactions
     * @returns {string} The base system prompt that identifies the AI as running on Puter
     */
-    adapt_model(model) {
+    adapt_model (model) {
         return model;
     }
 
@@ -54,13 +68,13 @@ class OpenRouterService extends BaseService {
     * @private
     * @returns {Promise<void>} Resolves when initialization is complete
     */
-    async _init() {
+    async _init () {
         this.api_base_url = 'https://openrouter.ai/api/v1';
-        this.openai = new this.modules.openai.OpenAI({
+        this.openai = new openai.OpenAI({
             apiKey: this.config.apiKey,
             baseURL: this.api_base_url,
         });
-        this.kvkey = this.modules.uuidv4();
+        this.kvkey = uuidv4();
 
         const svc_aiChat = this.services.get('ai-chat');
         svc_aiChat.register_provider({
@@ -74,97 +88,81 @@ class OpenRouterService extends BaseService {
     * Returns the default model identifier for the XAI service
     * @returns {string} The default model ID 'grok-beta'
     */
-    get_default_model() {
-        return 'grok-beta';
+    get_default_model () {
     }
-
-    static IMPLEMENTS = {
-        ['puter-chat-completion']: {
-            /**
-             * Returns a list of available models and their details.
-             * See AIChatService for more information.
-             *
-             * @returns Promise<Array<Object>> Array of model details
-             */
-            async models() {
-                return await this.models_();
-            },
-            /**
+    /**
             * Returns a list of available model names including their aliases
             * @returns {Promise<string[]>} Array of model identifiers and their aliases
             * @description Retrieves all available model IDs and their aliases,
             * flattening them into a single array of strings that can be used for model selection
             */
-            async list() {
-                const models = await this.models_();
-                const model_names = [];
-                for ( const model of models ) {
-                    model_names.push(model.id);
-                }
-                return model_names;
-            },
+    async list () {
+        const models = await this.models();
+        const model_names = [];
+        for ( const model of models ) {
+            model_names.push(model.id);
+        }
+        return model_names;
+    }
 
-            /**
+    /**
              * AI Chat completion method.
              * See AIChatService for more details.
              */
-            async complete({ messages, stream, model, tools, max_tokens, temperature }) {
-                model = this.adapt_model(model);
+    async complete ({ messages, stream, model, tools, max_tokens, temperature }) {
+        model = this.adapt_model(model);
 
-                if ( model.startsWith('openrouter:') ) {
-                    model = model.slice('openrouter:'.length);
-                }
+        if ( model.startsWith('openrouter:') ) {
+            model = model.slice('openrouter:'.length);
+        }
 
-                if ( model === 'openrouter/auto' ) {
-                    throw APIError.create('field_invalid', null, {
-                        key: 'model',
-                        expected: 'allowed model',
-                        got: 'disallowed model',
-                    });
-                }
+        if ( model === 'openrouter/auto' ) {
+            throw APIError.create('field_invalid', null, {
+                key: 'model',
+                expected: 'allowed model',
+                got: 'disallowed model',
+            });
+        }
 
-                const actor = Context.get('actor');
+        const actor = Context.get('actor');
 
-                messages = await OpenAIUtil.process_input_messages(messages);
-                const sdk_params = {
-                    messages,
-                    model: model ?? this.get_default_model(),
-                    ...(tools ? { tools } : {}),
-                    max_tokens,
-                    temperature: temperature, // default to 1.0
-                    stream,
-                    ...(stream ? {
-                        stream_options: { include_usage: true },
-                    } : {}),
-                }
+        messages = await OpenAIUtil.process_input_messages(messages);
 
-                const completion = await this.openai.chat.completions.create(sdk_params);
+        const completion = await this.openai.chat.completions.create({
+            messages,
+            model: model ?? this.get_default_model(),
+            ...(tools ? { tools } : {}),
+            max_tokens,
+            temperature: temperature, // default to 1.0
+            stream,
+            ...(stream ? {
+                stream_options: { include_usage: true },
+            } : {}),
+        });
 
-                const modelDetails =  (await this.models_()).find(m => m.id === 'openrouter:' + model);
-                const rawPriceModelDetails =  (await this.models_(true)).find(m => m.id === 'openrouter:' + model);
-                return OpenAIUtil.handle_completion_output({
-                    usage_calculator: ({ usage }) => {
-                        // custom open router logic because they're pricing are weird
-                        const trackedUsage = {
-                            prompt: usage.prompt_tokens ?? 0,
-                            completion: usage.completion_tokens ?? 0,
-                            input_cache_read: usage.prompt_tokens_details?.cached_tokens ?? 0,
-                        };
-                        const costOverwrites = Object.fromEntries(Object.keys(trackedUsage).map((k) => {
-                            return [k, rawPriceModelDetails.cost[k] * trackedUsage[k]];
-                        }));
-                        this.meteringService.utilRecordUsageObject(trackedUsage, actor, modelDetails.id, costOverwrites);
-                        const legacyCostCalculator = OpenAIUtil.create_usage_calculator({
-                            model_details: modelDetails,
-                        });
-                        return legacyCostCalculator({ usage });
-                    },
-                    stream,
-                    completion,
+        const modelDetails =  (await this.models()).find(m => m.id === `openrouter:${ model}`);
+        const rawPriceModelDetails =  (await this.models(true)).find(m => m.id === `openrouter:${ model}`);
+        return OpenAIUtil.handle_completion_output({
+            usage_calculator: ({ usage }) => {
+                // custom open router logic because they're pricing are weird
+                const trackedUsage = {
+                    prompt: (usage.prompt_tokens ?? 0 ) - (usage.prompt_tokens_details?.cached_tokens ?? 0),
+                    completion: usage.completion_tokens ?? 0,
+                    input_cache_read: usage.prompt_tokens_details?.cached_tokens ?? 0,
+                };
+                const costOverwrites = Object.fromEntries(Object.keys(trackedUsage).map((k) => {
+                    return [k, rawPriceModelDetails.cost[k] * trackedUsage[k]];
+                }));
+                this.meteringService.utilRecordUsageObject(trackedUsage, actor, modelDetails.id, costOverwrites);
+                const legacyCostCalculator = OpenAIUtil.create_usage_calculator({
+                    model_details: modelDetails,
                 });
+                return legacyCostCalculator({ usage });
             },
-        },
-    };
+            stream,
+            completion,
+        });
+    }
 
     /**
     * Retrieves available AI models and their specifications
@@ -173,19 +171,21 @@ class OpenRouterService extends BaseService {
     *   - name: Human readable model name
     *   - context: Maximum context window size
     *   - cost: Pricing information object with currency and rates
-    * @private
     */
-    async models_(rawPriceKeys = false) {
-        const axios = this.require('axios');
-
+    async models (rawPriceKeys = false) {
         let models = this.modules.kv.get(`${this.kvkey}:models`);
-        if ( !models ) {
-            const resp = await axios.request({
-                method: 'GET',
-                url: this.api_base_url + '/models',
-            });
-            models = resp.data.data;
-            this.modules.kv.set(`${this.kvkey}:models`, models);
+        if ( ! models ) {
+            try {
+                const resp = await axios.request({
+                    method: 'GET',
+                    url: `${this.api_base_url}/models`,
+                });
+
+                models = resp.data.data;
+                this.modules.kv.set(`${this.kvkey}:models`, models);
+            } catch (e) {
+                console.log(e);
+            }
         }
         const coerced_models = [];
         for ( const model of models ) {
@@ -194,8 +194,8 @@ class OpenRouterService extends BaseService {
                 output: Math.round(model.pricing.completion * 1_000_000 * 100),
             };
             coerced_models.push({
-                id: 'openrouter:' + model.id,
-                name: model.name + ' (OpenRouter)',
+                id: `openrouter:${ model.id}`,
+                name: `${model.name } (OpenRouter)`,
                 max_tokens: model.top_provider.max_completion_tokens,
                 cost: {
                     currency: 'usd-cents',
