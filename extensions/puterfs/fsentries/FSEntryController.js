@@ -11,6 +11,8 @@ const { PuterPath } = extension.import('fs');
 
 const { Context } = extension.import('core');
 
+const { id2path } = extension.import('core').util.helpers;
+
 const {
     RootNodeSelector,
     NodeChildSelector,
