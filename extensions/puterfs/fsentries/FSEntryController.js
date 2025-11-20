@@ -91,6 +91,7 @@ export default class {
                 try {
                     return await id2path(uuid);
                 } catch (e) {
+                    console.error('DASH VOID ERROR !!', e);
                     return `/-void/${ uuid}`;
                 }
             });
