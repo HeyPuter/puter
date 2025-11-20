@@ -18,14 +18,14 @@
  */
 // TODO: database access can be a service
 const { RESOURCE_STATUS_PENDING_CREATE } = require('../modules/puterfs/ResourceService.js');
-const { NodePathSelector, NodeUIDSelector, NodeInternalIDSelector, NodeSelector } = require('./node/selectors.js');
+const { NodePathSelector, NodeUIDSelector, NodeInternalIDSelector, NodeSelector, NodeChildSelector } = require('./node/selectors.js');
 const FSNodeContext = require('./FSNodeContext.js');
 const { Context } = require('../util/context.js');
 const APIError = require('../api/APIError.js');
 const { PermissionUtil, PermissionRewriter, PermissionImplicator, PermissionExploder } = require('../services/auth/permissionUtils.mjs');
 const { DB_WRITE } = require('../services/database/consts');
 const { UserActorType } = require('../services/auth/Actor');
-const { get_user } = require('../helpers');
+const { get_user, is_valid_uuid4 } = require('../helpers');
 const BaseService = require('../services/BaseService');
 const { MANAGE_PERM_PREFIX } = require('../services/auth/permissionConts.mjs');
 const { quot } = require('@heyputer/putility/src/libs/string.js');
@@ -330,6 +330,68 @@ class FilesystemService extends BaseService {
 
         return fsNode;
     }
+
+    // #region Simplified API
+    async read (selector, options = {}) {
+        const node = this.#coerceToNode(selector);
+        const ll_read = new LLRead();
+        const stream = await ll_read.run({
+            ...options,
+            fsNode: node,
+        });
+        return stream;
+    }
+
+    #coerceToNode (stringOrSelectorOrNode, { creatable } = {}) {
+        if ( stringOrSelectorOrNode instanceof FSNodeContext ) {
+            if ( creatable ) {
+                throw new Error('cannot specify a file/directory to create with an FSNodeContext');
+            }
+            return stringOrSelectorOrNode;
+        }
+
+        if ( stringOrSelectorOrNode instanceof NodeSelector ) {
+            if ( creatable && (stringOrSelectorOrNode instanceof NodeUIDSelector) ) {
+                throw new Error('cannot specify a file/directory to create by UUID');
+            }
+            return this.node(stringOrSelectorOrNode);
+        }
+
+        if ( typeof stringOrSelectorOrNode !== 'string' ) {
+            throw new Error('expected string, NodeSelector, or FSNodeContext');
+        }
+        const string = stringOrSelectorOrNode;
+
+        if ( string.startsWith('./') ) {
+            throw new Error('relative paths are not supported here');
+        }
+
+        // This will be coerced by `this.node` to a NodePathSelector
+        if ( string.startsWith('/') ) {
+            return this.node(string);
+        }
+
+        // UUID followed by path component
+        if ( string.includes('/') ) {
+            const uuidPart = string.slice(0, string.indexOf('/'));
+            if ( ! is_valid_uuidv4(uuidPart) ) {
+                throw new Error('expected file/directory identifier to begin with UUID or /');
+            }
+
+            throw new Error('"UUID/then/path" form is not yet supported');
+        }
+
+        if ( ! is_valid_uuid4(string) ) {
+            throw new Error('string is not a valid file/directory specifier');
+        }
+
+        if ( creatable ) {
+            throw new Error('cannot specify a file/directory to create by UID');
+        }
+
+        return this.node(new NodeUIDSelector(string));
+    }
+    // #endregion
 
     /**
      * get_entry() returns a filesystem entry using
