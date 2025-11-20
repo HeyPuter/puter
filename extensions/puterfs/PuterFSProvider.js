@@ -523,10 +523,7 @@ export default class PuterFSProvider {
                     },
                 });
 
-                // const storage = new PuterS3StorageStrategy({ services: svc });
-                const storage = context.get('storage');
-                const state_copy = storage.create_copy();
-                await state_copy.run({
+                await this.storageController.copy({
                     src_node: source,
                     dst_storage: {
                         key: uuid,
@@ -1025,10 +1022,7 @@ export default class PuterFSProvider {
 
         if ( await node.get('has-s3') ) {
             tasks.add('remove-from-s3', async () => {
-                // const storage = new PuterS3StorageStrategy({ services: svc });
-                const storage = Context.get('storage');
-                const state_delete = storage.create_delete();
-                await state_delete.run({
+                await this.storageController.delete({
                     node: node,
                 });
             });
