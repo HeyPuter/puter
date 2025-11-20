@@ -121,14 +121,17 @@ module.exports = class FunctionCalling {
     }
 
     static make_gemini_tools (tools) {
-        return [
-            {
-                function_declarations: tools.map(t => {
-                    const tool = t.function;
-                    delete tool.parameters.additionalProperties;
-                    return tool;
-                })
-            }
-        ];
+        if (Array.isArray(tools)) {
+            return [
+                {
+                    function_declarations: tools.map(t => {
+                        const tool = t.function;
+                        delete tool.parameters.additionalProperties;
+                        return tool;
+                    })
+                }
+            ];
+        };
+
     }
 }
