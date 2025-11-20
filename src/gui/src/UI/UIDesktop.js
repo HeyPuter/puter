@@ -1548,21 +1548,21 @@ async function UIDesktop(options) {
     };
 
     // debounce timer to prevent toolbar showing immediately after drag ends
-    window.dragReleaseDebounceTimer = null;
+    window.drag_release_debounce_timer = null;
     const DRAG_RELEASE_DEBOUNCE_MS = 300; 
 
     // track when drag operations end to enable debounce
     $(document).on('dragend', function() {
-        window.dragReleaseDebounceTimer = setTimeout(() => {
-            window.dragReleaseDebounceTimer = null;
+        window.drag_release_debounce_timer = setTimeout(() => {
+            window.drag_release_debounce_timer = null;
         }, DRAG_RELEASE_DEBOUNCE_MS);
     });
 
     // also debounce when mouseup occurs while in drag state
     $(document).on('mouseup', function() {
         if (window.a_window_is_being_dragged || window.an_item_is_being_dragged) {
-            window.dragReleaseDebounceTimer = setTimeout(() => {
-                window.dragReleaseDebounceTimer = null;
+            window.drag_release_debounce_timer = setTimeout(() => {
+                window.drag_release_debounce_timer = null;
             }, DRAG_RELEASE_DEBOUNCE_MS);
         }
     });
@@ -1570,7 +1570,7 @@ async function UIDesktop(options) {
     // hovering over a hidden toolbar will show it
     $(document).on('mouseenter', '.toolbar-hidden', function () {
         // if a window is being dragged or currently in drag release debounce period, don't show the toolbar
-        if(window.a_window_is_being_dragged || window.dragReleaseDebounceTimer !== null)
+        if(window.a_window_is_being_dragged || window.drag_release_debounce_timer !== null)
             return;
 
         // if selectable is active , don't show the toolbar
