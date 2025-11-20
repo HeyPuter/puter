@@ -68,7 +68,29 @@ export default class LocalDiskStorageController {
         const path = this.#getPath(await node.get('uid'));
         await fs.promises.unlink(path);
     }
-    read () {
+    async read ({ uid, range }) {
+        const path = this.#getPath(uid);
+
+        // Handle range requests for partial content
+        if ( range ) {
+            const rangeMatch = range.match(/bytes=(\d+)-(\d*)/);
+            if ( rangeMatch ) {
+                const start = parseInt(rangeMatch[1], 10);
+                const endStr = rangeMatch[2];
+
+                const streamOptions = { start };
+
+                // If end is specified, set it (fs.createReadStream end is inclusive)
+                if ( endStr ) {
+                    streamOptions.end = parseInt(endStr, 10);
+                }
+
+                return fs.createReadStream(path, streamOptions);
+            }
+        }
+
+        // Default: create stream for entire file
+        return fs.createReadStream(path);
     }
 
     #getPath (key) {

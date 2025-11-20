@@ -362,19 +362,14 @@ export default class PuterFSProvider {
         return node;
     }
 
-    async read ({ context, node, version_id, range }) {
-        const svc_mountpoint = context.get('services').get('mountpoint');
-        const storage = svc_mountpoint.get_storage(this.constructor.name);
+    async read ({ node, version_id, range }) {
         const location = await node.get('s3:location') ?? {};
-        const stream = (await storage.create_read_stream(await node.get('uid'), {
-            // TODO: fs:decouple-s3
-            bucket: location.bucket,
-            bucket_region: location.bucket_region,
+        const stream = this.storageController.read({
+            uid: await node.get('uid'),
+            location,
+            range,
             version_id,
-            key: location.key,
-            memory_file: node.entry,
-            ...(range ? { range } : {}),
-        }));
+        });
         return stream;
     }
 
