@@ -578,7 +578,7 @@ class Kernel extends AdvancedBase {
 
     async run_npm_install (path) {
         const npmCmd = process.platform === "win32" ? "npm.cmd" : "npm";
-        const proc = spawn(npmCmd, ["install"], { cwd: path, stdio: "pipe" });
+        const proc = spawn(npmCmd, ["install"], { cwd: path, stdio: "pipe", shell: true });
 
         let buffer = '';
 
