@@ -898,7 +898,6 @@ export default class PuterFSProvider {
             stream = stuck_detector_stream(stream, {
                 timeout: STUCK_STATUS_TIMEOUT,
                 on_stuck: () => {
-                    this.frame.status = OperationFrame.FRAME_STATUS_STUCK;
                     console.warn('Upload stream stuck might be stuck', {
                         bucket_region,
                         bucket,
@@ -918,7 +917,6 @@ export default class PuterFSProvider {
                 },
                 on_unstuck: () => {
                     clearTimeout(alarm_timeout);
-                    this.frame.status = OperationFrame.FRAME_STATUS_WORKING;
                 },
             });
             file = { ...file, stream };
