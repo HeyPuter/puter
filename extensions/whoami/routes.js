@@ -1,6 +1,7 @@
 // static imports
 import TimeAgo from 'javascript-time-ago';
 import localeEn from 'javascript-time-ago/locale/en';
+import _path from 'fs';
 
 // runtime imports
 const { UserActorType, AppUnderUserActorType } = extension.import('core');
@@ -92,9 +93,9 @@ extension.get('/whoami', { subdomain: 'api' }, async (req, res, next) => {
                 : { no_icons: true }),
         }),
         referral_code: req.user.referral_code,
-        otp: !! req.user.otp_enabled,
+        otp: !!req.user.otp_enabled,
         human_readable_age: timeago.format(new Date(req.user.timestamp)),
-        hasDevAccountAccess: !! req.actor.type.user.metadata?.hasDevAccountAccess,
+        hasDevAccountAccess: !!req.actor.type.user.metadata?.hasDevAccountAccess,
         ...(req.new_token ? { token: req.token } : {}),
     };
 
@@ -160,7 +161,7 @@ extension.post('/whoami', { subdomain: 'api' }, async (req, res) => {
         }
         // by desktop path
         else {
-            desktop_items = await get_descendants(req.user.username + '/Desktop', req.user, 1, true);
+            desktop_items = await get_descendants(`${req.user.username }/Desktop`, req.user, 1, true);
         }
 
         // clean up desktop items and add some extra information
@@ -169,11 +170,11 @@ extension.post('/whoami', { subdomain: 'api' }, async (req, res) => {
                 for ( let i = 0; i < desktop_items.length; i++ ) {
                     if ( desktop_items[i].id !== null ) {
                         // suggested_apps for files
-                        if ( !desktop_items[i].is_dir ) {
+                        if ( ! desktop_items[i].is_dir ) {
                             desktop_items[i].suggested_apps = await suggest_app_for_fsentry(desktop_items[i], { user: req.user });
                         }
                         // is_shared
-                        desktop_items[i].is_shared   = await is_shared_with_anyone(desktop_items[i].id);
+                        desktop_items[i].is_shared = await is_shared_with_anyone(desktop_items[i].id);
 
                         // associated_app
                         if ( desktop_items[i].associated_app_id ) {
@@ -220,6 +221,6 @@ extension.post('/whoami', { subdomain: 'api' }, async (req, res) => {
         taskbar_items: await get_taskbar_items(req.user),
         desktop_items: desktop_items,
         referral_code: req.user.referral_code,
-        hasDevAccountAccess: !! req.actor.user.metadata?.hasDevAccountAccess,
+        hasDevAccountAccess: !!req.actor.user.metadata?.hasDevAccountAccess,
     }, whoami_common({ is_user, user: req.user })));
 });
