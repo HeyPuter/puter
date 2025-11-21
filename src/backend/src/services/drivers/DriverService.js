@@ -524,7 +524,7 @@ class DriverService extends BaseService {
                                     ? method_spec.result_choices[0].type
                                     : method_spec.result.type
                                     ;
-                            const svc_coercion = services.get('coercion');
+                            const svc_coercion = this.services.get('coercion');
                             result = await svc_coercion.coerce(desired_type, result);
                         }
                         return result;
