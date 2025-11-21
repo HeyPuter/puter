@@ -20,23 +20,23 @@ import { makeIndent } from './utils.js';
 
 // Either a line number or a regex
 export class Address {
-    constructor(value) {
+    constructor (value) {
         this.value = value;
     }
 
-    matches(lineNumber, line) {
-        if (this.value instanceof RegExp) {
+    matches (lineNumber, line) {
+        if ( this.value instanceof RegExp ) {
             return this.value.test(line);
         }
         return this.value === lineNumber;
     }
 
-    isLineNumberBefore(lineNumber) {
+    isLineNumberBefore (lineNumber) {
         return (typeof this.value === 'number') && this.value < lineNumber;
     }
 
-    dump(indent) {
-        if (this.value instanceof RegExp) {
+    dump (indent) {
+        if ( this.value instanceof RegExp ) {
             return `${makeIndent(indent)}REGEX: ${this.value}\n`;
         }
         return `${makeIndent(indent)}LINE: ${this.value}\n`;
@@ -48,7 +48,7 @@ export class AddressRange {
     // - Empty (includes everything)
     // - Single (matches individual line)
     // - Range (matches lines between start and end, inclusive)
-    constructor({ start, end, inverted = false } = {}) {
+    constructor ({ start, end, inverted = false } = {}) {
         this.start = start;
         this.end = end;
         this.inverted = inverted;
@@ -56,32 +56,32 @@ export class AddressRange {
         this.leaveRangeNextLine = false;
     }
 
-    get addressCount() {
+    get addressCount () {
         return (this.start ? 1 : 0) + (this.end ? 1 : 0);
     }
 
-    updateMatchState(lineNumber, line) {
+    updateMatchState (lineNumber, line) {
         // Only ranges have a state to update
-        if (!(this.start && this.end)) {
+        if ( ! (this.start && this.end) ) {
             return;
         }
 
         // Reset our state each time we start a new file.
-        if (lineNumber === 1) {
+        if ( lineNumber === 1 ) {
             this.insideRange = false;
             this.leaveRangeNextLine = false;
         }
 
         // Leave the range if the previous line matched the end.
-        if (this.leaveRangeNextLine) {
+        if ( this.leaveRangeNextLine ) {
             this.insideRange = false;
             this.leaveRangeNextLine = false;
         }
 
-        if (this.insideRange) {
+        if ( this.insideRange ) {
             // We're inside the range, does this line end it?
             // If the end address is a line number in the past, yes, immediately.
-            if (this.end.isLineNumberBefore(lineNumber)) {
+            if ( this.end.isLineNumberBefore(lineNumber) ) {
                 this.insideRange = false;
                 return;
             }
@@ -93,18 +93,18 @@ export class AddressRange {
         }
     }
 
-    matches(lineNumber, line) {
+    matches (lineNumber, line) {
         const invertIfNeeded = (value) => {
             return this.inverted ? !value : value;
         };
 
         // Empty - matches all lines
-        if (!this.start) {
+        if ( ! this.start ) {
             return invertIfNeeded(true);
         }
 
         // Range
-        if (this.end) {
+        if ( this.end ) {
             return invertIfNeeded(this.insideRange);
         }
 
@@ -112,23 +112,23 @@ export class AddressRange {
         return invertIfNeeded(this.start.matches(lineNumber, line));
     }
 
-    dump(indent) {
-        const inverted = this.inverted ? `${makeIndent(indent+1)}(INVERTED)\n` : '';
+    dump (indent) {
+        const inverted = this.inverted ? `${makeIndent(indent + 1)}(INVERTED)\n` : '';
 
-        if (!this.start) {
-            return `${makeIndent(indent)}ADDRESS RANGE (EMPTY)\n`
-                + inverted;
+        if ( ! this.start ) {
+            return `${makeIndent(indent)}ADDRESS RANGE (EMPTY)\n${
+                inverted}`;
         }
 
-        if (this.end) {
-            return `${makeIndent(indent)}ADDRESS RANGE (RANGE):\n`
-                + inverted
-                + this.start.dump(indent+1)
-                + this.end.dump(indent+1);
+        if ( this.end ) {
+            return `${makeIndent(indent)}ADDRESS RANGE (RANGE):\n${
+                inverted
+            }${this.start.dump(indent + 1)
+            }${this.end.dump(indent + 1)}`;
         }
 
-        return `${makeIndent(indent)}ADDRESS RANGE (SINGLE):\n`
-            + this.start.dump(indent+1)
-            + inverted;
+        return `${makeIndent(indent)}ADDRESS RANGE (SINGLE):\n${
+            this.start.dump(indent + 1)
+        }${inverted}`;
     }
 }

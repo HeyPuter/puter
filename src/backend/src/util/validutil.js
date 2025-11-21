@@ -17,7 +17,7 @@
  * along with this program.  If not, see <https://www.gnu.org/licenses/>.
  */
 const valid_file_size = v => {
-    v =  Number(v);
+    v = Number(v);
     if ( ! Number.isInteger(v) ) {
         return { ok: false, v };
     }

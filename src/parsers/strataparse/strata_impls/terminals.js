@@ -16,10 +16,10 @@
  * You should have received a copy of the GNU Affero General Public License
  * along with this program.  If not, see <https://www.gnu.org/licenses/>.
  */
-import { TerminalPStratumImplType } from "../strata.js";
+import { TerminalPStratumImplType } from '../strata.js';
 
 export class BytesPStratumImpl {
-    static TYPE = TerminalPStratumImplType
+    static TYPE = TerminalPStratumImplType;
 
     constructor (bytes, opt_i) {
         this.bytes = bytes;
@@ -45,7 +45,7 @@ export class BytesPStratumImpl {
 }
 
 export class StringPStratumImpl {
-    static TYPE = TerminalPStratumImplType
+    static TYPE = TerminalPStratumImplType;
 
     constructor (str) {
         const encoder = new TextEncoder();

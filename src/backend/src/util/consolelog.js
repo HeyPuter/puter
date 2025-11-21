@@ -30,18 +30,18 @@ class ConsoleLogManager {
 
     static PROXY_METHOD = function (method, ...args) {
         const decorators = this.get_log_decorators_(method);
-        
+
         // TODO: Add this feature later
         // const pre_listeners = self.get_log_pre_listeners_(method);
         // const post_listeners = self.get_log_post_listeners_(method);
 
         const replace = (...newargs) => {
             args = newargs;
-        }
+        };
         for ( const dec of decorators ) {
             dec({
                 manager: this,
-                replace
+                replace,
             }, ...args);
         }
 
@@ -51,7 +51,7 @@ class ConsoleLogManager {
         for ( const fn of post_hooks ) {
             fn();
         }
-    }
+    };
 
     get_log_decorators_ (method) {
         return this.__log_decorators[method];
@@ -71,7 +71,7 @@ class ConsoleLogManager {
         this.__proxy_methods = {};
         this.__log_decorators = {};
         this.__log_hooks_post = {};
-        
+
         // TODO: Add this feature later
         // this.__log_pre_listeners = {};
         // this.__log_post_listeners = {};
@@ -112,5 +112,5 @@ class ConsoleLogManager {
 }
 
 module.exports = {
-    consoleLogManager: ConsoleLogManager.getInstance()
+    consoleLogManager: ConsoleLogManager.getInstance(),
 };

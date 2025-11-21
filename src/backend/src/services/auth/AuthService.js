@@ -17,20 +17,20 @@
  * You should have received a copy of the GNU Affero General Public License
  * along with this program.  If not, see <https://www.gnu.org/licenses/>.
  */
-const { Actor, UserActorType, AppUnderUserActorType, AccessTokenActorType, SiteActorType } = require("./Actor");
-const BaseService = require("../BaseService");
-const { get_user, get_app } = require("../../helpers");
-const { Context } = require("../../util/context");
-const APIError = require("../../api/APIError");
-const { DB_WRITE } = require("../database/consts");
-const { UUIDFPE } = require("../../util/uuidfpe");
-const { nou } = require("../../util/langutil");
+const { Actor, UserActorType, AppUnderUserActorType, AccessTokenActorType, SiteActorType } = require('./Actor');
+const BaseService = require('../BaseService');
+const { get_user, get_app } = require('../../helpers');
+const { Context } = require('../../util/context');
+const APIError = require('../../api/APIError');
+const { DB_WRITE } = require('../database/consts');
+const { UUIDFPE } = require('../../util/uuidfpe');
+const { nou } = require('../../util/langutil');
 
 // This constant defines the namespace used for generating app UUIDs from their origins
 const APP_ORIGIN_UUID_NAMESPACE = '33de3768-8ee0-43e9-9e73-db192b97a5d8';
 
-const LegacyTokenError = class extends Error {};
-
+const LegacyTokenError = class extends Error {
+};
 
 /**
 * @class AuthService
@@ -42,24 +42,23 @@ class AuthService extends BaseService {
         crypto: require('crypto'),
         uuidv5: require('uuid').v5,
         uuidv4: require('uuid').v4,
-    }
-
+    };
 
     async _init () {
         this.db = await this.services.get('database').get(DB_WRITE, 'auth');
         this.svc_session = await this.services.get('session');
-        
-        const svc_feature_flag = await this.services.get("feature-flag");
-        svc_feature_flag.register("temp-users-disabled", {
-            $: "config-flag",
-            value: this.global_config.disable_temp_users ?? false
+
+        const svc_feature_flag = await this.services.get('feature-flag');
+        svc_feature_flag.register('temp-users-disabled', {
+            $: 'config-flag',
+            value: this.global_config.disable_temp_users ?? false,
         });
 
-        svc_feature_flag.register("user-signup-disabled", {
-            $: "config-flag",
-            value: this.global_config.disable_user_signup ?? false
-        })
-        
+        svc_feature_flag.register('user-signup-disabled', {
+            $: 'config-flag',
+            value: this.global_config.disable_user_signup ?? false,
+        });
+
         // "FPE" stands for "Format Preserving Encryption"
         // The `uuid_fpe_key` is a key for creating encrypted alternatives
         // to UUIDs and decrypting them back to the original UUIDs
@@ -79,8 +78,6 @@ class AuthService extends BaseService {
         };
     }
 
-    
-
     /**
     * This method authenticates a user or app using a token.
     * It checks the token's type (session, app-under-user, access-token) and decodes it.
@@ -89,10 +86,8 @@ class AuthService extends BaseService {
     * @returns {Promise<Actor>} The authenticated user or app actor.
     */
     async authenticate_from_token (token) {
-        const decoded = this.modules.jwt.verify(
-            token,
-            this.global_config.jwt_secret
-        );
+        const decoded = this.modules.jwt.verify(token,
+                        this.global_config.jwt_secret);
 
         if ( ! decoded.hasOwnProperty('type') ) {
             throw new LegacyTokenError();
@@ -110,7 +105,7 @@ class AuthService extends BaseService {
             if ( nou(user) ) {
                 throw APIError.create('user_not_found');
             }
-            
+
             const actor_type = new UserActorType({
                 user,
                 session: session.uuid,
@@ -186,7 +181,7 @@ class AuthService extends BaseService {
                 type: actor_type,
             });
         }
-        
+
         if ( decoded.type === 'actor-site' ) {
             const site_uid = decoded.site_uid;
             const svc_puterSite = this.services.get('puter-site');
@@ -212,46 +207,41 @@ class AuthService extends BaseService {
         this.log.debug(`generating user-app token for app ${app_uid} and user ${actor_type.user.uuid}`, {
             app_uid,
             user_uid: actor_type.user.uuid,
-        })
+        });
 
-        const token = this.modules.jwt.sign(
-            {
-                type: 'app-under-user',
-                version: '0.0.0',
-                user_uid: actor_type.user.uuid,
-                app_uid,
-                ...(actor_type.session ? { session: this.uuid_fpe.encrypt(actor_type.session) } : {}),
-            },
-            this.global_config.jwt_secret,
-        );
+        const token = this.modules.jwt.sign({
+            type: 'app-under-user',
+            version: '0.0.0',
+            user_uid: actor_type.user.uuid,
+            app_uid,
+            ...(actor_type.session ? { session: this.uuid_fpe.encrypt(actor_type.session) } : {}),
+        },
+        this.global_config.jwt_secret);
 
         return token;
     }
-    
+
     get_site_app_token ({ site_uid }) {
-        const token = this.modules.jwt.sign(
-            {
-                type: 'actor-site',
-                version: '0.0.0',
-                site_uid,
-            },
-            this.global_config.jwt_secret,
-            { expiresIn: '1h' },
-        );
-        
+        const token = this.modules.jwt.sign({
+            type: 'actor-site',
+            version: '0.0.0',
+            site_uid,
+        },
+        this.global_config.jwt_secret,
+        { expiresIn: '1h' });
+
         return token;
     }
-
 
     /**
      * Internal method for creating a session.
-     * 
+     *
      * If a request object is provided in the metadata, it will be used to
      * extract information about the requestor and include it in the
      * session's metadata.
      */
     async create_session_ (user, meta = {}) {
-        this.log.debug(`CREATING SESSION`);
+        this.log.debug('CREATING SESSION');
 
         if ( meta.req ) {
             const req = meta.req;
@@ -259,7 +249,7 @@ class AuthService extends BaseService {
 
             const ip = this.global_config.fowarded
                 ? req.headers['x-forwarded-for'] ||
-                    req.connection.remoteAddress
+                req.connection.remoteAddress
                 : req.connection.remoteAddress
                 ;
 
@@ -293,7 +283,6 @@ class AuthService extends BaseService {
         return await this.svc_session.create_session(user, meta);
     }
 
-
     /**
      * Alias to SessionService's get_session method,
      * in case AuthService ever needs to wrap this functionality.
@@ -302,14 +291,13 @@ class AuthService extends BaseService {
         return await this.svc_session.get_session(uuid);
     }
 
-
     /**
      * Creates a session token using TokenService's sign method
      * with type 'session' using a newly created session for the
      * specified user.
-     * @param {*} user 
-     * @param {*} meta 
-     * @returns 
+     * @param {*} user
+     * @param {*} meta
+     * @returns
      */
     async create_session_token (user, meta) {
         const session = await this.create_session_(user, meta);
@@ -325,7 +313,6 @@ class AuthService extends BaseService {
         return { session, token };
     }
 
-
     /**
     * This method checks if the provided session token is valid and returns the associated user and token.
     * If the token is not a valid session token or it does not exist in the database, it returns an empty object.
@@ -335,9 +322,7 @@ class AuthService extends BaseService {
     * @returns {object} Object containing the user and token if the token is valid, otherwise an empty object.
     */
     async check_session (cur_token, meta) {
-        const decoded = this.modules.jwt.verify(
-            cur_token, this.global_config.jwt_secret
-        );
+        const decoded = this.modules.jwt.verify(cur_token, this.global_config.jwt_secret);
 
         console.log('\x1B[36;1mDECODED SESSION', decoded);
 
@@ -345,10 +330,10 @@ class AuthService extends BaseService {
             return {};
         }
 
-        const is_legacy = ! decoded.type;
+        const is_legacy = !decoded.type;
 
         const user = await get_user({ uuid:
-            is_legacy ? decoded.uuid : decoded.user_uid
+            is_legacy ? decoded.uuid : decoded.user_uid,
         });
         if ( ! user ) {
             return {};
@@ -365,7 +350,7 @@ class AuthService extends BaseService {
             return { user, token: cur_token };
         }
 
-        this.log.info(`UPGRADING SESSION`);
+        this.log.info('UPGRADING SESSION');
 
         // Upgrade legacy token
         // TODO: phase this out
@@ -384,7 +369,6 @@ class AuthService extends BaseService {
         return { actor, user, token };
     }
 
-
     /**
     * Removes a session with the specified token
     *
@@ -392,9 +376,7 @@ class AuthService extends BaseService {
     * @returns {Promise<void>}
     */
     async remove_session_by_token (token) {
-        const decoded = this.modules.jwt.verify(
-            token, this.global_config.jwt_secret
-        );
+        const decoded = this.modules.jwt.verify(token, this.global_config.jwt_secret);
 
         if ( decoded.type !== 'session' ) {
             return;
@@ -403,16 +385,15 @@ class AuthService extends BaseService {
         await this.svc_session.remove_session(decoded.uuid);
     }
 
-
     /**
      * This method is used to create an access token for a user or an application.
-     * 
+     *
      * Access tokens aren't currently used by any of Puter's features.
      * The feature is kept here for future-use.
      *
      * @param {1} authorizer - The actor that is creating the access token.
      * @param {*} permissions - The permissions to be granted to the access token.
-     * @returns 
+     * @returns
      */
     async create_access_token (authorizer, permissions, options) {
         const jwt_obj = {};
@@ -461,23 +442,20 @@ class AuthService extends BaseService {
             };
             const cols = Object.keys(insert_object).join(', ');
             const vals = Object.values(insert_object).map(v => '?').join(', ');
-            await this.db.write(
-                'INSERT INTO `access_token_permissions` ' +
+            await this.db.write('INSERT INTO `access_token_permissions` ' +
                 `(${cols}) VALUES (${vals})`,
-                Object.values(insert_object),
-            );
+            Object.values(insert_object));
         }
 
         return jwt;
     }
 
-
     /**
      * Get the session list for the specified actor.
-     * 
+     *
      * This is primarily used by the `/list-sessions` API endpoint
      * for the Session Manager in Puter's settings window.
-     * 
+     *
      * @param {*} actor - The actor for which to list sessions.
      * @returns {Promise<Array>} - A list of sessions for the actor.
      */
@@ -493,10 +471,8 @@ class AuthService extends BaseService {
 
         // We won't take the cached sessions here because it's
         // possible the user has sessions on other servers
-        const db_sessions = await this.db.read(
-            'SELECT uuid, meta FROM `sessions` WHERE `user_id` = ?',
-            [actor.type.user.id],
-        );
+        const db_sessions = await this.db.read('SELECT uuid, meta FROM `sessions` WHERE `user_id` = ?',
+                        [actor.type.user.id]);
 
         for ( const session of db_sessions ) {
             if ( seen.has(session.uuid) ) {
@@ -510,7 +486,7 @@ class AuthService extends BaseService {
                 * @param {string} token - The user or app access token.
                 * @returns {Actor} - Actor object representing the authenticated user or app.
                 */
-                otherwise: () => JSON.parse(session.meta ?? "{}")
+                otherwise: () => JSON.parse(session.meta ?? '{}'),
             })();
             sessions.push(session);
         };
@@ -524,36 +500,32 @@ class AuthService extends BaseService {
         return sessions;
     }
 
-
     /**
      * Revokes a session by UUID. The actor is ignored but should be provided
      * for future use.
-     * 
-     * @param {*} actor 
-     * @param {*} uuid 
+     *
+     * @param {*} actor
+     * @param {*} uuid
      */
     async revoke_session (actor, uuid) {
         delete this.sessions[uuid];
         this.svc_session.remove_session(uuid);
     }
 
-
     /**
      * This method is used to create or obtain a user-app token deterministically
      * from an origin at which puter.js might be embedded.
-     * 
+     *
      * @param {*} origin - The origin URL at which puter.js is embedded.
-     * @returns 
+     * @returns
      */
     async get_user_app_token_from_origin (origin) {
         origin = this._origin_from_url(origin);
         const app_uid = await this._app_uid_from_origin(origin);
 
         // Determine if the app exists
-        const apps = await this.db.read(
-            "SELECT * FROM `apps` WHERE `uid` = ? LIMIT 1",
-            [app_uid],
-        );
+        const apps = await this.db.read('SELECT * FROM `apps` WHERE `uid` = ? LIMIT 1',
+                        [app_uid]);
 
         if ( apps[0] ) {
             return this.get_user_app_token(app_uid);
@@ -568,22 +540,19 @@ class AuthService extends BaseService {
         const owner_user_id = null;
 
         // Create the app
-        await this.db.write(
-            'INSERT INTO `apps` ' +
+        await this.db.write('INSERT INTO `apps` ' +
             '(`uid`, `name`, `title`, `description`, `index_url`, `owner_user_id`) ' +
             'VALUES (?, ?, ?, ?, ?, ?)',
-            [app_uid, name, title, description, index_url, owner_user_id],
-        );
+        [app_uid, name, title, description, index_url, owner_user_id]);
 
         return this.get_user_app_token(app_uid);
     }
 
-
     /**
      * Generates a deterministic app uuid from an origin
-     * 
-     * @param {*} origin 
-     * @returns 
+     *
+     * @param {*} origin
+     * @returns
      */
     async app_uid_from_origin (origin) {
         origin = this._origin_from_url(origin);
@@ -592,7 +561,6 @@ class AuthService extends BaseService {
         }
         return await this._app_uid_from_origin(origin);
     }
-
 
     async _app_uid_from_origin (origin) {
         const event = { origin };
@@ -608,7 +576,7 @@ class AuthService extends BaseService {
             const parsedUrl = new URL(url);
             // Origin is protocol + hostname + port
             return `${parsedUrl.protocol}//${parsedUrl.hostname}${parsedUrl.port ? `:${parsedUrl.port}` : ''}`;
-        } catch (error) {
+        } catch ( error ) {
             console.error('Invalid URL:', error.message);
             return null;
         }

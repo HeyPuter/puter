@@ -17,21 +17,21 @@
  * along with this program.  If not, see <https://www.gnu.org/licenses/>.
  */
 const list_ws = [' ', '\n', '\t'];
-const list_quot = [`"`, `'`];
+const list_quot = ['"', '\''];
 const list_stoptoken = [
-    '|','>','<','&','\\','#',';','(',')',
+    '|', '>', '<', '&', '\\', '#', ';', '(', ')',
     ...list_ws,
-    ...list_quot
+    ...list_quot,
 ];
 
 export class UnquotedTokenParserImpl {
     static meta = {
         inputs: 'bytes',
-        outputs: 'node'
-    }
+        outputs: 'node',
+    };
     static data = {
-        excludes: list_stoptoken
-    }
+        excludes: list_stoptoken,
+    };
     parse (lexer) {
         const { excludes } = this.constructor.data;
         let text = '';
@@ -46,7 +46,7 @@ export class UnquotedTokenParserImpl {
         }
 
         if ( text.length === 0 ) return;
-        
+
         return { $: 'symbol', text };
     }
 }

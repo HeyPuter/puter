@@ -16,7 +16,7 @@
  * You should have received a copy of the GNU Affero General Public License
  * along with this program.  If not, see <https://www.gnu.org/licenses/>.
  */
-"use strict"
+'use strict';
 const eggspress = require('../../api/eggspress.js');
 const { Context } = require('../../util/context.js');
 

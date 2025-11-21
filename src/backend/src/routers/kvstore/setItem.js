@@ -16,45 +16,60 @@
  * You should have received a copy of the GNU Affero General Public License
  * along with this program.  If not, see <https://www.gnu.org/licenses/>.
  */
-"use strict"
+'use strict';
 const express = require('express');
 const router = express.Router();
 const auth = require('../../middleware/auth.js');
 const config = require('../../config.js');
-const {app_exists, byte_format} = require('../../helpers.js');
+const { app_exists, byte_format } = require('../../helpers.js');
 const { Actor, AppUnderUserActorType, UserActorType } = require('../../services/auth/Actor.js');
 const { Context } = require('../../util/context.js');
 
 // -----------------------------------------------------------------------//
 // POST /setItem
 // -----------------------------------------------------------------------//
-router.post('/setItem', auth, express.json(), async (req, res, next)=>{
+router.post('/setItem', auth, express.json(), async (req, res, next) => {
     // check subdomain
-    if(require('../../helpers.js').subdomain(req) !== 'api')
+    if ( require('../../helpers.js').subdomain(req) !== 'api' )
+    {
         next();
+    }
 
     // check if user is verified
-    if((config.strict_email_verification_required || req.user.requires_email_confirmation) && !req.user.email_confirmed)
-        return res.status(400).send({code: 'account_is_not_verified', message: 'Account is not verified'});
-
+    if ( (config.strict_email_verification_required || req.user.requires_email_confirmation) && !req.user.email_confirmed )
+    {
+        return res.status(400).send({ code: 'account_is_not_verified', message: 'Account is not verified' });
+    }
 
     // validation
-    if(!req.body.key)
+    if ( ! req.body.key )
+    {
         return res.status(400).send('`key` is required');
-    else if(typeof req.body.key !== 'string')
+    }
+    else if ( typeof req.body.key !== 'string' )
+    {
         return res.status(400).send('`key` must be a string');
-    else if(!req.body.value)
+    }
+    else if ( ! req.body.value )
+    {
         return res.status(400).send('`value` is required');
+    }
 
     req.body.key = String(req.body.key);
     req.body.value = String(req.body.value);
 
-    if(Buffer.byteLength(req.body.key, 'utf8') > config.kv_max_key_size)
-        return res.status(400).send('`key` is too large. Max size is '+byte_format(config.kv_max_key_size)+'.');
-    else if(Buffer.byteLength(req.body.value, 'utf8') > config.kv_max_value_size)
-        return res.status(400).send('`value` is too large. Max size is '+byte_format(config.kv_max_value_size)+'.');
-    else if(req.body.app && !await app_exists({uid: req.body.app}))
+    if ( Buffer.byteLength(req.body.key, 'utf8') > config.kv_max_key_size )
+    {
+        return res.status(400).send(`\`key\` is too large. Max size is ${byte_format(config.kv_max_key_size)}.`);
+    }
+    else if ( Buffer.byteLength(req.body.value, 'utf8') > config.kv_max_value_size )
+    {
+        return res.status(400).send(`\`value\` is too large. Max size is ${byte_format(config.kv_max_value_size)}.`);
+    }
+    else if ( req.body.app && !await app_exists({ uid: req.body.app }) )
+    {
         return res.status(400).send('`app` does not exist');
+    }
 
     // insert into KV 1
     const actor = req.body.app
@@ -85,10 +100,10 @@ router.post('/setItem', auth, express.json(), async (req, res, next)=>{
         }
         driver_result = driver_response.result;
     } catch (e) {
-        return res.status(400).send('puter-kvstore driver error: ' + e.message);
+        return res.status(400).send(`puter-kvstore driver error: ${ e.message}`);
     }
 
     // send results to client
     return res.send({});
-})
-module.exports = router
+});
+module.exports = router;

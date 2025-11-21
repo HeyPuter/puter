@@ -16,8 +16,8 @@
  * You should have received a copy of the GNU Affero General Public License
  * along with this program.  If not, see <https://www.gnu.org/licenses/>.
  */
-import { ParserConfigDSL } from "../dsl/ParserBuilder.js";
-import { AcceptParserUtil, Parser, ParseResult } from "../parse.js";
+import { ParserConfigDSL } from '../dsl/ParserBuilder.js';
+import { AcceptParserUtil, Parser, ParseResult } from '../parse.js';
 
 export class SequenceParserImpl {
     static createFunction ({ parserFactory }) {

@@ -1,24 +1,24 @@
 /*
  * Copyright (C) 2024-present Puter Technologies Inc.
- * 
+ *
  * This file is part of Puter.
- * 
+ *
  * Puter is free software: you can redistribute it and/or modify
  * it under the terms of the GNU Affero General Public License as published
  * by the Free Software Foundation, either version 3 of the License, or
  * (at your option) any later version.
- * 
+ *
  * This program is distributed in the hope that it will be useful,
  * but WITHOUT ANY WARRANTY; without even the implied warranty of
  * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
  * GNU Affero General Public License for more details.
- * 
+ *
  * You should have received a copy of the GNU Affero General Public License
  * along with this program.  If not, see <https://www.gnu.org/licenses/>.
  */
 
-const { Endpoint } = require("../util/expressutil");
-const BaseService = require("./BaseService");
+const { Endpoint } = require('../util/expressutil');
+const BaseService = require('./BaseService');
 
 const { LRUCache: LRU } = require('lru-cache');
 const crypto = require('crypto');
@@ -39,13 +39,13 @@ const SNS_TYPES = {
     },
     Notification: {
         signature_fields: ['Message', 'MessageId', 'Subject', 'Timestamp', 'TopicArn', 'Type'],
-    }
+    },
 };
 
 const CERT_URL_PATTERN = /^https:\/\/sns\.[a-zA-Z0-9-]{3,}\.amazonaws\.com(\.cn)?\/SimpleNotificationService-[a-zA-Z0-9]{32}\.pem$/;
 
 // When testing locally, put a certificate from SNS here
-const TEST_CERT = ``;
+const TEST_CERT = '';
 // When testing locally, put a message from SNS here
 const TEST_MESSAGE = {};
 
@@ -57,7 +57,7 @@ class SNSService extends BaseService {
             maxAge: 1000 * 60,
         });
     }
-    
+
     _init () {
         const svc_web = this.services.get('web-server');
         svc_web.allow_undefined_origin('/sns', '/sns/');
@@ -83,7 +83,8 @@ class SNSService extends BaseService {
 
                 if ( ! SNS_TYPES[message.Type] ) {
                     this.log.info('SES response', {
-                        status: 400, because: 'invalid Type',
+                        status: 400,
+                        because: 'invalid Type',
                         value: message.Type,
                     });
                     res.status(400).send('Invalid SNS message type');
@@ -92,16 +93,18 @@ class SNSService extends BaseService {
 
                 if ( message.SignatureVersion !== '1' ) {
                     this.log.info('SES response', {
-                        status: 400, because: 'invalid SignatureVersion',
+                        status: 400,
+                        because: 'invalid SignatureVersion',
                         value: message.SignatureVersion,
                     });
                     res.status(400).send('Invalid SignatureVersion');
                     return;
                 }
-        
+
                 if ( ! CERT_URL_PATTERN.test(message.SigningCertURL) ) {
                     this.log.info('SES response', {
-                        status: 400, because: 'invalid SigningCertURL',
+                        status: 400,
+                        because: 'invalid SigningCertURL',
                         value: message.SignatureVersion,
                     });
                     throw Error('Invalid certificate URL');
@@ -110,7 +113,8 @@ class SNSService extends BaseService {
                 const topic_arns = this.config?.topic_arns ?? [];
                 if ( ! topic_arns.includes(message.TopicArn) ) {
                     this.log.info('SES response', {
-                        status: 403, because: 'invalid TopicArn',
+                        status: 403,
+                        because: 'invalid TopicArn',
                         value: message.TopicArn,
                     });
                     res.status(403).send('Invalid TopicArn');
@@ -119,7 +123,8 @@ class SNSService extends BaseService {
 
                 if ( ! await this.verify_message_(message) ) {
                     this.log.info('SES response', {
-                        status: 403, because: 'message signature validation',
+                        status: 403,
+                        because: 'message signature validation',
                         value: message.SignatureVersion,
                     });
                     res.status(403).send('Invalid signature');
@@ -129,7 +134,7 @@ class SNSService extends BaseService {
                 if ( message.Type === 'SubscriptionConfirmation' ) {
                     // Confirm subscription
                     const response = await axios.get(message.SubscribeURL);
-                    if (response.status !== 200) {
+                    if ( response.status !== 200 ) {
                         res.status(500).send('Failed to confirm subscription');
                         return;
                     }
@@ -147,10 +152,12 @@ class SNSService extends BaseService {
         let cert;
         if ( options.test_mode ) {
             cert = TEST_CERT;
-        } else try {
-            cert = await this.get_sns_cert_(message.SigningCertURL);
-        } catch (e) {
-            throw e;
+        } else {
+            try {
+                cert = await this.get_sns_cert_(message.SigningCertURL);
+            } catch (e) {
+                throw e;
+            }
         }
 
         const verify = crypto.createVerify('sha1WithRSAEncryption');
@@ -169,7 +176,7 @@ class SNSService extends BaseService {
         }
 
         const cached = this.cert_cache.get(url);
-        if (cached) {
+        if ( cached ) {
             return cached;
         }
 
@@ -177,7 +184,7 @@ class SNSService extends BaseService {
         for ( let i = 0 ; i < MAX_CERT_RETRIES ; i++ ) {
             try {
                 const response = await axios.get(url);
-                if (response.status !== 200) {
+                if ( response.status !== 200 ) {
                     throw Error(`Failed to fetch certificate: ${response.status}`);
                 }
                 cert = response.data;

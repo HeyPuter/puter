@@ -5,7 +5,7 @@ const rename = function (...args) {
     let options;
 
     // If first argument is an object, it's the options
-    if (typeof args[0] === 'object' && args[0] !== null) {
+    if ( typeof args[0] === 'object' && args[0] !== null ) {
         options = args[0];
     } else {
         // Otherwise, we assume separate arguments are provided
@@ -19,12 +19,12 @@ const rename = function (...args) {
     }
 
     return new Promise(async (resolve, reject) => {
-        // If auth token is not provided and we are in the web environment, 
+        // If auth token is not provided and we are in the web environment,
         // try to authenticate with Puter
-        if(!puter.authToken && puter.env === 'web'){
-            try{
+        if ( !puter.authToken && puter.env === 'web' ) {
+            try {
                 await puter.ui.authenticateWithPuter();
-            }catch(e){
+            } catch (e) {
                 // if authentication fails, throw an error
                 reject('Authentication failed.');
             }
@@ -40,18 +40,18 @@ const rename = function (...args) {
             original_client_socket_id: options.excludeSocketID || options.original_client_socket_id,
             new_name: options.new_name || options.newName,
         };
-        
-        if (options.uid !== undefined) {
+
+        if ( options.uid !== undefined ) {
             dataToSend.uid = options.uid;
-        } else if (options.path !== undefined) {
+        } else if ( options.path !== undefined ) {
             // If dirPath is not provided or it's not starting with a slash, it means it's a relative path
             // in that case, we need to prepend the app's root directory to it
             dataToSend.path = getAbsolutePathForApp(options.path);
         }
-        
+
         xhr.send(JSON.stringify(dataToSend));
 
-    })
-}
+    });
+};
 
 export default rename;

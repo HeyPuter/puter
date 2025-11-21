@@ -10,7 +10,7 @@ class GeminiService extends BaseService {
     */
     meteringService = undefined;
 
-    async _init() {
+    async _init () {
         const svc_aiChat = this.services.get('ai-chat');
         svc_aiChat.register_provider({
             service_name: this.service_name,
@@ -21,10 +21,10 @@ class GeminiService extends BaseService {
 
     static IMPLEMENTS = {
         ['puter-chat-completion']: {
-            async models() {
+            async models () {
                 return await this.models_();
             },
-            async list() {
+            async list () {
                 const models = await this.models_();
                 const model_names = [];
                 for ( const model of models ) {
@@ -36,7 +36,7 @@ class GeminiService extends BaseService {
                 return model_names;
             },
 
-            async complete({ messages, stream, model, tools, max_tokens, temperature }) {
+            async complete ({ messages, stream, model, tools, max_tokens, temperature }) {
                 tools = FunctionCalling.make_gemini_tools(tools);
 
                 model = model ?? 'gemini-2.0-flash';
@@ -45,8 +45,8 @@ class GeminiService extends BaseService {
                     model,
                     tools,
                     generationConfig: {
-                        temperature: temperature,                   // Set temperature (0.0 to 1.0). Defaults to 0.7
-                        maxOutputTokens: max_tokens,       // Note: it's maxOutputTokens, not max_tokens
+                        temperature: temperature, // Set temperature (0.0 to 1.0). Defaults to 0.7
+                        maxOutputTokens: max_tokens, // Note: it's maxOutputTokens, not max_tokens
                     },
                 });
 
@@ -111,7 +111,7 @@ class GeminiService extends BaseService {
         },
     };
 
-    async models_() {
+    async models_ () {
         return [
             {
                 id: 'gemini-1.5-flash',

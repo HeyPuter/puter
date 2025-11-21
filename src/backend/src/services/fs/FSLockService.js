@@ -17,8 +17,8 @@
  * You should have received a copy of the GNU Affero General Public License
  * along with this program.  If not, see <https://www.gnu.org/licenses/>.
  */
-const { RWLock } = require("../../util/lockutil");
-const BaseService = require("../BaseService");
+const { RWLock } = require('../../util/lockutil');
+const BaseService = require('../BaseService');
 
 // Constant representing the read lock mode used for distinguishing between read and write operations.
 const MODE_READ = Symbol('read');
@@ -52,38 +52,37 @@ class FSLockService extends BaseService {
                 description: 'lists locks',
                 handler: async (args, log) => {
                     for ( const path in this.locks ) {
-                        let line = path + ': ';
+                        let line = `${path }: `;
                         if ( this.locks[path].effective_mode === MODE_READ ) {
                             line += `READING (${this.locks[path].readers_})`;
                             log.log(line);
                         }
                         else
-                        if ( this.locks[path].effective_mode === MODE_WRITE ) {
-                            line += 'WRITING';
-                            log.log(line);
-                        }
-                        else {
-                            line += 'UNKNOWN';
-                            log.log(line);
-
-                            // log the lock's internal state
-                            const lines = JSON.stringify(
-                                this.locks[path],
-                                null, 2
-                            ).split('\n');
-                            for ( const line of lines ) {
-                                log.log(' -> ' + line);
+                            if ( this.locks[path].effective_mode === MODE_WRITE ) {
+                                line += 'WRITING';
+                                log.log(line);
                             }
-                        }
+                            else {
+                                line += 'UNKNOWN';
+                                log.log(line);
+
+                                // log the lock's internal state
+                                const lines = JSON.stringify(this.locks[path],
+                                                null,
+                                                2).split('\n');
+                                for ( const line of lines ) {
+                                    log.log(` -> ${ line}`);
+                                }
+                            }
                     }
-                }
-            }
+                },
+            },
         ]);
     }
-    
+
     /**
      * Lock a file by parent path and child node name.
-     * 
+     *
      * @param {string} path - The path to lock.
      * @param {string} name - The name of the resource to lock.
      * @param {symbol} mode - The mode of the lock (read or write).
@@ -92,12 +91,12 @@ class FSLockService extends BaseService {
      */
     async lock_child (path, name, mode) {
         if ( path.endsWith('/') ) path = path.slice(0, -1);
-        return await this.lock_path(path + '/' + name, mode);
+        return await this.lock_path(`${path }/${ name}`, mode);
     }
 
     /**
      * Lock a file by path.
-     * 
+     *
      * @param {string} path - The path to lock.
      * @param {symbol} mode - The mode of the lock (read or write).
      * @returns {Promise} A promise that resolves when the lock is acquired.
@@ -125,8 +124,8 @@ class FSLockService extends BaseService {
             this.locks[path] = rwlock;
         }
 
-        this.log.info('WAITING FOR LOCK: ' + path + ' ' +
-            mode.toString());
+        this.log.info(`WAITING FOR LOCK: ${ path } ${
+            mode.toString()}`);
 
         if ( mode === MODE_READ ) {
             return await this.locks[path].rlock();
@@ -143,5 +142,5 @@ class FSLockService extends BaseService {
 module.exports = {
     MODE_READ,
     MODE_WRITE,
-    FSLockService
+    FSLockService,
 };

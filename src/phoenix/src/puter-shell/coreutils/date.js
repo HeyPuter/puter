@@ -21,7 +21,7 @@ import { Exit } from './coreutil_lib/exit.js';
 // "When no formatting operand is specified, the output in the POSIX locale shall be equivalent to specifying:"
 const DEFAULT_FORMAT = '+%a %b %e %H:%M:%S %Z %Y';
 
-function padStart(number, length, padChar) {
+function padStart (number, length, padChar) {
     let string = number.toString();
     if ( string.length >= length ) {
         return string;
@@ -30,7 +30,7 @@ function padStart(number, length, padChar) {
     return padChar.repeat(length - string.length) + string;
 }
 
-function highlight(text) {
+function highlight (text) {
     return `\x1B[92m${text}\x1B[0m`;
 }
 
@@ -72,7 +72,7 @@ export default {
             `    ${highlight('%y')}     Year within century, 2 digits padded with '0'\n` +
             `    ${highlight('%Y')}     Year\n` +
             `    ${highlight('%Z')}     Timezone name, if it can be determined\n` +
-            `    ${highlight('%%')}     A percent sign\n`
+            `    ${highlight('%%')}     A percent sign\n`,
     },
     args: {
         $: 'simple-parser',
@@ -83,8 +83,8 @@ export default {
                 type: 'boolean',
                 short: 'u',
                 default: false,
-            }
-        }
+            },
+        },
     },
     execute: async ctx => {
         const { out, err } = ctx.externs;
@@ -118,206 +118,206 @@ export default {
         const getSeconds = () => values.utc ? date.getUTCSeconds() : date.getSeconds();
 
         let output = '';
-        for (let i = 0; i < format.length; i++) {
+        for ( let i = 0; i < format.length; i++ ) {
             let char = format[i];
             if ( char === '%' ) {
                 char = format[++i];
-                switch (char) {
-                    // "Locale's abbreviated weekday name."
-                    case 'a': {
-                        output += date.toLocaleDateString(locale, { timeZone: timeZone, weekday: 'short' });
-                        break;
-                    }
+                switch ( char ) {
+                // "Locale's abbreviated weekday name."
+                case 'a': {
+                    output += date.toLocaleDateString(locale, { timeZone: timeZone, weekday: 'short' });
+                    break;
+                }
 
-                    // "Locale's full weekday name."
-                    case 'A': {
-                        output += date.toLocaleDateString(locale, { timeZone: timeZone, weekday: 'long' });
-                        break;
-                    }
+                // "Locale's full weekday name."
+                case 'A': {
+                    output += date.toLocaleDateString(locale, { timeZone: timeZone, weekday: 'long' });
+                    break;
+                }
 
-                    // b: "Locale's abbreviated month name."
-                    // h: "A synonym for %b."
-                    case 'b':
-                    case 'h': {
-                        output += date.toLocaleDateString(locale, { timeZone: timeZone, month: 'short' });
-                        break;
-                    }
+                // b: "Locale's abbreviated month name."
+                // h: "A synonym for %b."
+                case 'b':
+                case 'h': {
+                    output += date.toLocaleDateString(locale, { timeZone: timeZone, month: 'short' });
+                    break;
+                }
 
-                    // "Locale's full month name."
-                    case 'B': {
-                        output += date.toLocaleDateString(locale, { timeZone: timeZone, month: 'long' });
-                        break;
-                    }
+                // "Locale's full month name."
+                case 'B': {
+                    output += date.toLocaleDateString(locale, { timeZone: timeZone, month: 'long' });
+                    break;
+                }
 
-                    // "Locale's appropriate date and time representation."
-                    case 'c':  {
-                        output += date.toLocaleString(locale, { timeZone: timeZone });
-                        break;
-                    }
+                // "Locale's appropriate date and time representation."
+                case 'c': {
+                    output += date.toLocaleString(locale, { timeZone: timeZone });
+                    break;
+                }
 
-                    // "Century (a year divided by 100 and truncated to an integer) as a decimal number [00,99]."
-                    case 'C': {
-                        output += Math.trunc(getYear() / 100);
-                        break;
-                    }
+                // "Century (a year divided by 100 and truncated to an integer) as a decimal number [00,99]."
+                case 'C': {
+                    output += Math.trunc(getYear() / 100);
+                    break;
+                }
 
-                    // "Day of the month as a decimal number [01,31]."
-                    case 'd': {
-                        output += padStart(getDate(), 2, '0');
-                        break;
-                    }
+                // "Day of the month as a decimal number [01,31]."
+                case 'd': {
+                    output += padStart(getDate(), 2, '0');
+                    break;
+                }
 
-                    // "Date in the format mm/dd/yy."
-                    case 'D': {
-                        const month = padStart(getMonth() + 1, 2, '0');
-                        const day = padStart(getDate(), 2, '0');
-                        const year = padStart(getYear() % 100, 2, '0');
-                        output += `${month}/${day}/${year}`;
-                        break;
-                    }
+                // "Date in the format mm/dd/yy."
+                case 'D': {
+                    const month = padStart(getMonth() + 1, 2, '0');
+                    const day = padStart(getDate(), 2, '0');
+                    const year = padStart(getYear() % 100, 2, '0');
+                    output += `${month}/${day}/${year}`;
+                    break;
+                }
 
-                    // "Day of the month as a decimal number [1,31] in a two-digit field with leading <space>
-                    // character fill."
-                    case 'e': {
-                        output += padStart(getDate(), 2, ' ');
-                        break;
-                    }
+                // "Day of the month as a decimal number [1,31] in a two-digit field with leading <space>
+                // character fill."
+                case 'e': {
+                    output += padStart(getDate(), 2, ' ');
+                    break;
+                }
 
-                    // "Hour (24-hour clock) as a decimal number [00,23]."
-                    case 'H': {
-                        output += padStart(getHours(), 2, '0');
-                        break;
-                    }
+                // "Hour (24-hour clock) as a decimal number [00,23]."
+                case 'H': {
+                    output += padStart(getHours(), 2, '0');
+                    break;
+                }
 
-                    // "Hour (12-hour clock) as a decimal number [01,12]."
-                    case 'I': {
-                        output += padStart((getHours() % 12) || 12, 2, '0');
-                        break;
-                    }
+                // "Hour (12-hour clock) as a decimal number [01,12]."
+                case 'I': {
+                    output += padStart((getHours() % 12) || 12, 2, '0');
+                    break;
+                }
 
-                    // TODO: "Day of the year as a decimal number [001,366]."
-                    case 'j': break;
+                // TODO: "Day of the year as a decimal number [001,366]."
+                case 'j': break;
 
                     // "Month as a decimal number [01,12]."
-                    case 'm': {
-                        // getMonth() starts at 0 for January
-                        output += padStart(getMonth() + 1, 2, '0');
-                        break;
-                    }
+                case 'm': {
+                    // getMonth() starts at 0 for January
+                    output += padStart(getMonth() + 1, 2, '0');
+                    break;
+                }
 
-                    // "Minute as a decimal number [00,59]."
-                    case 'M': {
-                        output += padStart(getMinutes(), 2, '0');
-                        break;
-                    }
+                // "Minute as a decimal number [00,59]."
+                case 'M': {
+                    output += padStart(getMinutes(), 2, '0');
+                    break;
+                }
 
-                    // "A <newline>."
-                    case 'n': output += '\n'; break;
+                // "A <newline>."
+                case 'n': output += '\n'; break;
 
                     // "Locale's equivalent of either AM or PM."
-                    case 'p': {
-                        // TODO: We should access this from the locale.
-                        output += getHours() < 12 ? 'AM' : 'PM';
-                        break;
-                    }
+                case 'p': {
+                    // TODO: We should access this from the locale.
+                    output += getHours() < 12 ? 'AM' : 'PM';
+                    break;
+                }
 
-                    // "12-hour clock time [01,12] using the AM/PM notation; in the POSIX locale, this shall be
-                    // equivalent to %I : %M : %S %p."
-                    case 'r': {
-                        const rawHours = getHours();
-                        const hours = padStart((rawHours % 12) || 12, 2, '0');
-                        // TODO: We should access this from the locale.
-                        const am_pm = rawHours < 12 ? 'AM' : 'PM';
-                        const minutes = padStart(getMinutes(), 2, '0');
-                        const seconds = padStart(getSeconds(), 2, '0');
-                        output += `${hours}:${minutes}:${seconds} ${am_pm}`;
-                        break;
-                    }
+                // "12-hour clock time [01,12] using the AM/PM notation; in the POSIX locale, this shall be
+                // equivalent to %I : %M : %S %p."
+                case 'r': {
+                    const rawHours = getHours();
+                    const hours = padStart((rawHours % 12) || 12, 2, '0');
+                    // TODO: We should access this from the locale.
+                    const am_pm = rawHours < 12 ? 'AM' : 'PM';
+                    const minutes = padStart(getMinutes(), 2, '0');
+                    const seconds = padStart(getSeconds(), 2, '0');
+                    output += `${hours}:${minutes}:${seconds} ${am_pm}`;
+                    break;
+                }
 
-                    // "Seconds as a decimal number [00,60]."
-                    case 'S': {
-                        output += padStart(getSeconds(), 2, '0');
-                        break;
-                    }
+                // "Seconds as a decimal number [00,60]."
+                case 'S': {
+                    output += padStart(getSeconds(), 2, '0');
+                    break;
+                }
 
-                    // "A <tab>."
-                    case 't': output += '\t'; break;
+                // "A <tab>."
+                case 't': output += '\t'; break;
 
                     // "24-hour clock time [00,23] in the format HH:MM:SS."
-                    case 'T': {
-                        const hours = padStart(getHours(), 2, '0');
-                        const minutes = padStart(getMinutes(), 2, '0');
-                        const seconds = padStart(getSeconds(), 2, '0');
-                        output += `${hours}:${minutes}:${seconds}`;
-                        break;
-                    }
+                case 'T': {
+                    const hours = padStart(getHours(), 2, '0');
+                    const minutes = padStart(getMinutes(), 2, '0');
+                    const seconds = padStart(getSeconds(), 2, '0');
+                    output += `${hours}:${minutes}:${seconds}`;
+                    break;
+                }
 
-                    // "Weekday as a decimal number [1,7] (1=Monday)."
-                    case 'u': {
-                        // getDay() returns 0 for Sunday
-                        output += getDay() || 7;
-                        break;
-                    }
+                // "Weekday as a decimal number [1,7] (1=Monday)."
+                case 'u': {
+                    // getDay() returns 0 for Sunday
+                    output += getDay() || 7;
+                    break;
+                }
 
-                    // TODO: "Week of the year (Sunday as the first day of the week) as a decimal number [00,53].
-                    //       All days in a new year preceding the first Sunday shall be considered to be in week 0."
-                    case 'U': break;
+                // TODO: "Week of the year (Sunday as the first day of the week) as a decimal number [00,53].
+                //       All days in a new year preceding the first Sunday shall be considered to be in week 0."
+                case 'U': break;
 
                     // TODO: "Week of the year (Monday as the first day of the week) as a decimal number [01,53].
                     //       If the week containing January 1 has four or more days in the new year, then it shall be
                     //       considered week 1; otherwise, it shall be the last week of the previous year, and the next
                     //       week shall be week 1."
-                    case 'V': break;
+                case 'V': break;
 
                     // "Weekday as a decimal number [0,6] (0=Sunday)."
-                    case 'w': {
-                        output += getDay();
-                        break;
-                    }
+                case 'w': {
+                    output += getDay();
+                    break;
+                }
 
-                    // TODO: "Week of the year (Monday as the first day of the week) as a decimal number [00,53].
-                    //       All days in a new year preceding the first Monday shall be considered to be in week 0."
-                    case 'W': break;
+                // TODO: "Week of the year (Monday as the first day of the week) as a decimal number [00,53].
+                //       All days in a new year preceding the first Monday shall be considered to be in week 0."
+                case 'W': break;
 
                     // "Locale's appropriate date representation."
-                    case 'x': {
-                        output += date.toLocaleDateString(locale, { timeZone: timeZone });
-                        break;
-                    }
+                case 'x': {
+                    output += date.toLocaleDateString(locale, { timeZone: timeZone });
+                    break;
+                }
 
-                    // "Locale's appropriate time representation."
-                    case 'X': {
-                        output += date.toLocaleTimeString(locale, { timeZone: timeZone });
-                        break;
-                    }
+                // "Locale's appropriate time representation."
+                case 'X': {
+                    output += date.toLocaleTimeString(locale, { timeZone: timeZone });
+                    break;
+                }
 
-                    // "Year within century [00,99]."
-                    case 'y': {
-                        output += getYear() % 100;
-                        break;
-                    }
+                // "Year within century [00,99]."
+                case 'y': {
+                    output += getYear() % 100;
+                    break;
+                }
 
-                    // "Year with century as a decimal number."
-                    case 'Y': {
-                        output += getYear();
-                        break;
-                    }
+                // "Year with century as a decimal number."
+                case 'Y': {
+                    output += getYear();
+                    break;
+                }
 
-                    // "Timezone name, or no characters if no timezone is determinable."
-                    case 'Z': {
-                        const parts = new Intl.DateTimeFormat(locale, { timeZone: timeZone, timeZoneName: 'short' }).formatToParts(date);
-                        output += parts.find(it => it.type === 'timeZoneName').value;
-                        break;
-                    }
+                // "Timezone name, or no characters if no timezone is determinable."
+                case 'Z': {
+                    const parts = new Intl.DateTimeFormat(locale, { timeZone: timeZone, timeZoneName: 'short' }).formatToParts(date);
+                    output += parts.find(it => it.type === 'timeZoneName').value;
+                    break;
+                }
 
-                    // "A <percent-sign> character."
-                    case '%': output += '%'; break;
+                // "A <percent-sign> character."
+                case '%': output += '%'; break;
 
                     // We reached the end of the string, just output the %.
-                    case undefined: output += '%'; break;
+                case undefined: output += '%'; break;
 
                     // If nothing matched, just output the input verbatim
-                    default: output += '%' + char; break;
+                default: output += `%${ char}`; break;
                 }
                 continue;
             }
@@ -326,5 +326,5 @@ export default {
         output += '\n';
 
         await out.write(output);
-    }
+    },
 };

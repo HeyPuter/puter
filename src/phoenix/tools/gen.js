@@ -28,19 +28,19 @@ const files = fs.readdirSync(target);
 
 let output = '';
 const line = str => {
-    output += str + '\n';
-}
+    output += `${str }\n`;
+};
 
 const toVar = name => {
     name = name.replace(/-/g, '_');
-    return 'module_' + name;
-}
+    return `module_${ name}`;
+};
 
-const licenseLines = fs.readFileSync('../doc/license_header.txt', {encoding: 'utf8'}).split('\n');
+const licenseLines = fs.readFileSync('../doc/license_header.txt', { encoding: 'utf8' }).split('\n');
 licenseLines.pop(); // Remove trailing empty line
 line('/*');
-for (const licenseLine of licenseLines) {
-    if (licenseLine.length === 0) {
+for ( const licenseLine of licenseLines ) {
+    if ( licenseLine.length === 0 ) {
         line(' *');
     } else {
         line(` * ${licenseLine}`);

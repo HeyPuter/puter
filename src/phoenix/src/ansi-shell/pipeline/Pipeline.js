@@ -16,18 +16,18 @@
  * You should have received a copy of the GNU Affero General Public License
  * along with this program.  If not, see <https://www.gnu.org/licenses/>.
  */
-import { SyncLinesReader } from "../ioutil/SyncLinesReader.js";
-import { ByteWriter } from "../ioutil/ByteWriter.js";
-import { Coupler } from "./Coupler.js";
-import { CommandStdinDecorator } from "./iowrappers.js";
-import { Pipe } from "./Pipe.js";
-import { MemReader } from "../ioutil/MemReader.js";
-import { MemWriter } from "../ioutil/MemWriter.js";
-import { MultiWriter } from "../ioutil/MultiWriter.js";
-import { NullifyWriter } from "../ioutil/NullifyWriter.js";
-import { ConcreteSyntaxError } from "../ConcreteSyntaxError.js";
-import { SignalReader } from "../ioutil/SignalReader.js";
-import { Exit } from "../../puter-shell/coreutils/coreutil_lib/exit.js";
+import { SyncLinesReader } from '../ioutil/SyncLinesReader.js';
+import { ByteWriter } from '../ioutil/ByteWriter.js';
+import { Coupler } from './Coupler.js';
+import { CommandStdinDecorator } from './iowrappers.js';
+import { Pipe } from './Pipe.js';
+import { MemReader } from '../ioutil/MemReader.js';
+import { MemWriter } from '../ioutil/MemWriter.js';
+import { MultiWriter } from '../ioutil/MultiWriter.js';
+import { NullifyWriter } from '../ioutil/NullifyWriter.js';
+import { ConcreteSyntaxError } from '../ConcreteSyntaxError.js';
+import { SignalReader } from '../ioutil/SignalReader.js';
+import { Exit } from '../../puter-shell/coreutils/coreutil_lib/exit.js';
 import { resolveRelativePath } from '../../util/path.js';
 import { printUsage } from '../../puter-shell/coreutils/coreutil_lib/help.js';
 
@@ -72,7 +72,7 @@ class Token {
             if ( component.$ === 'pipeline' ) {
                 const pipeline = await Pipeline.createFromAST(ctx, component);
                 const memWriter = new MemWriter();
-                const cmdCtx = { externs: { out: memWriter } }
+                const cmdCtx = { externs: { out: memWriter } };
                 const subCtx = ctx.sub(cmdCtx);
                 await pipeline.execute(subCtx);
                 value += memWriter.getAsString().trimEnd();
@@ -99,7 +99,6 @@ export class PreparedCommand {
         ast = { ...ast };
         const command_token = Token.createFromAST(ctx, ast.tokens.shift());
 
-        
         // TODO: check that node for command name is of a
         //       supported type - maybe use adapt pattern
         const cmd = command_token.maybeStaticallyResolve(ctx);
@@ -112,10 +111,8 @@ export class PreparedCommand {
             : command_token;
 
         if ( command === undefined ) {
-            throw new ConcreteSyntaxError(
-                `no command: ${JSON.stringify(cmd)}`,
-                command_token.$cst,
-            );
+            throw new ConcreteSyntaxError(`no command: ${JSON.stringify(cmd)}`,
+                            command_token.$cst);
         }
 
         // TODO: test this
@@ -160,7 +157,7 @@ export class PreparedCommand {
             const { commandProvider } = this.ctx.externs;
             command = await commandProvider.lookup(cmd, { ctx: this.ctx });
             if ( command === undefined ) {
-                throw new Error('no command: ' + JSON.stringify(cmd));
+                throw new Error(`no command: ${ JSON.stringify(cmd)}`);
             }
         }
 
@@ -181,8 +178,7 @@ export class PreparedCommand {
             const dest_path = this.inputRedirect instanceof Token
                 ? await this.inputRedirect.resolve(this.ctx)
                 : this.inputRedirect;
-            const response = await filesystem.read(
-                resolveRelativePath(this.ctx.vars, dest_path));
+            const response = await filesystem.read(resolveRelativePath(this.ctx.vars, dest_path));
             in_ = new MemReader(response);
         }
 
@@ -196,7 +192,7 @@ export class PreparedCommand {
             },
             on (listener) {
                 this.listeners_.push(listener);
-            }
+            },
         };
 
         if ( ! command.no_signal_reader ) {
@@ -211,7 +207,7 @@ export class PreparedCommand {
         let out = this.ctx.externs.out;
         const outputMemWriters = [];
         if ( this.outputRedirects.length > 0 ) {
-            for ( let i=0 ; i < this.outputRedirects.length ; i++ ) {
+            for ( let i = 0 ; i < this.outputRedirects.length ; i++ ) {
                 outputMemWriters.push(new MemWriter());
             }
             out = new NullifyWriter({ delegate: out });
@@ -234,7 +230,7 @@ export class PreparedCommand {
                 command,
                 args,
                 outputIsRedirected: this.outputRedirects.length > 0,
-            }
+            },
         });
 
         if ( command.args ) {
@@ -264,7 +260,7 @@ export class PreparedCommand {
                 const params = command.decorators[decoratorId];
                 const decorator = decorators[decoratorId];
                 execute = decorator.decorate(execute, {
-                    command, params, ctx
+                    command, params, ctx,
                 });
             }
         }
@@ -274,7 +270,7 @@ export class PreparedCommand {
         //        but for some reason Node crashes first, unless we set this handler,
         //        EVEN IF IT DOES NOTHING. I also can't find a place to safely remove it,
         //        so apologies if it makes debugging promises harder.
-        if (ctx.platform.name === 'node') {
+        if ( ctx.platform.name === 'node' ) {
             const rejectionCatcher = (reason, promise) => {
             };
             process.on('unhandledRejection', rejectionCatcher);
@@ -287,18 +283,14 @@ export class PreparedCommand {
             if ( e instanceof Exit ) {
                 exit_code = e.code;
             } else if ( e.code ) {
-                await ctx.externs.err.write(
-                    '\x1B[31;1m' +
-                    command.name + ': ' +
-                    e.message + '\x1B[0m\n'
-                );
+                await ctx.externs.err.write(`\x1B[31;1m${
+                    command.name }: ${
+                    e.message }\x1B[0m\n`);
                 exit_code = -1;
             } else {
-                await ctx.externs.err.write(
-                    '\x1B[31;1m' +
-                    command.name + ': ' +
-                    e.toString() + '\x1B[0m\n'
-                );
+                await ctx.externs.err.write(`\x1B[31;1m${
+                    command.name }: ${
+                    e.toString() }\x1B[0m\n`);
                 exit_code = -1;
             }
             if ( ! (e instanceof Exit) ) console.error(e);
@@ -307,7 +299,7 @@ export class PreparedCommand {
         await ctx.externs.out.close();
 
         // TODO: need write command from puter-shell before this can be done
-        for ( let i=0 ; i < this.outputRedirects.length ; i++ ) {
+        for ( let i = 0 ; i < this.outputRedirects.length ; i++ ) {
             const { filesystem } = this.ctx.platform;
             const outputRedirect = this.outputRedirects[i];
             const dest_path = outputRedirect instanceof Token
@@ -355,7 +347,7 @@ export class Pipeline {
         // TODO: this will eventually defer piping of certain
         //       sub-pipelines to the Puter Shell.
 
-        for ( let i=0 ; i < preparedCommands.length ; i++ ) {
+        for ( let i = 0 ; i < preparedCommands.length ; i++ ) {
             const command = preparedCommands[i];
 
             // if ( command.command.input?.syncLines ) {
@@ -377,7 +369,6 @@ export class Pipeline {
             command.setContext(ctx.sub(cmdCtx));
         }
 
-
         const coupler = new Coupler(lastPipe.out, ctx.externs.out);
 
         const commandPromises = [];
@@ -387,7 +378,7 @@ export class Pipeline {
         }
         const results = await Promise.all(commandPromises);
         // TODO: Consider what to do about intermediate exit codes
-        ctx.locals.exit = results[results.length-1];
+        ctx.locals.exit = results[results.length - 1];
         await coupler.isDone;
 
         valve.close();

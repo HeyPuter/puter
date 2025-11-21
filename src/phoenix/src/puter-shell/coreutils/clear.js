@@ -28,12 +28,14 @@ export default {
                 description: 'Only clear the visible portion of the screen, and keep the scrollback.',
                 type: 'boolean',
                 short: 'x',
-            }
+            },
         },
     },
     execute: async ctx => {
         await ctx.externs.out.write('\x1B[H\x1B[2J');
-        if (!ctx.locals.values['keep-scrollback'])
+        if ( ! ctx.locals.values['keep-scrollback'] )
+        {
             await ctx.externs.out.write('\x1B[H\x1B[3J');
-    }
+        }
+    },
 };

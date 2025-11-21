@@ -21,7 +21,7 @@ export const findNextWord = (str, from, reverse) => {
     let incr = reverse ? -1 : 1;
     const cond = reverse ? i => i > 0 : i => i < str.length;
     if ( reverse && from !== 0 ) from--;
-    for ( let i=from ; cond(i) ; i += incr ) {
+    for ( let i = from ; cond(i) ; i += incr ) {
         if ( stage === 0 ) {
             if ( str[i] !== ' ' ) stage++;
             continue;
@@ -31,4 +31,4 @@ export const findNextWord = (str, from, reverse) => {
         }
     }
     return reverse ? 0 : str.length;
-}
+};

@@ -40,7 +40,7 @@ const can = (v, ...checking) => {
         }
     }
     return true;
-}
+};
 
 module.exports = {
     whatis,

@@ -16,15 +16,15 @@
  * You should have received a copy of the GNU Affero General Public License
  * along with this program.  If not, see <https://www.gnu.org/licenses/>.
  */
-const { RootNodeSelector, NodeChildSelector } = require("../node/selectors");
-const { LLFilesystemOperation } = require("./definitions");
+const { RootNodeSelector, NodeChildSelector } = require('../node/selectors');
+const { LLFilesystemOperation } = require('./definitions');
 
 class LLListUsers extends LLFilesystemOperation {
     static description = `
         List user directories which are relevant to the
         current actor.
     `;
-    
+
     async _run () {
         const { context } = this;
         const svc = context.get('services');
@@ -35,19 +35,16 @@ class LLListUsers extends LLFilesystemOperation {
         const issuers = await svc_permission.list_user_permission_issuers(user);
 
         const nodes = [];
-        
-        nodes.push(await svc_fs.node(new NodeChildSelector(
-            new RootNodeSelector(),
-            user.username,
-        )));
+
+        nodes.push(await svc_fs.node(new NodeChildSelector(new RootNodeSelector(),
+                        user.username)));
 
         for ( const issuer of issuers ) {
-            const node = await svc_fs.node(new NodeChildSelector(
-                new RootNodeSelector(),
-                issuer.username));
+            const node = await svc_fs.node(new NodeChildSelector(new RootNodeSelector(),
+                            issuer.username));
             nodes.push(node);
         }
-        
+
         return nodes;
     }
 }

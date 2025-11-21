@@ -46,7 +46,7 @@ export class PStratum {
 
         const implTypeClass = this.impl.constructor.TYPE
             ?? DelegatingPStratumImplType;
-        
+
         this.implType = new implTypeClass(this);
         this.api = this.implType.getImplAPI();
 
@@ -55,7 +55,7 @@ export class PStratum {
 
         this.history = [];
         // TODO: make this configurable
-        this.historyOn = ! this.impl.reach;
+        this.historyOn = !this.impl.reach;
     }
 
     setDelegate (delegate) {
@@ -106,7 +106,7 @@ export class PStratum {
 
     reach (start, end) {
         if ( this.impl.reach ) {
-            return this.impl.reach(this.api, start, end)
+            return this.impl.reach(this.api, start, end);
         }
         if ( this.historyOn ) {
             return this.history.slice(start, end);

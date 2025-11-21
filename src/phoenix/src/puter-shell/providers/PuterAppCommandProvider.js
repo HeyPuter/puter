@@ -24,17 +24,17 @@ const BUILT_IN_APPS = [
 ];
 
 const lookup_app = async (id) => {
-    if (BUILT_IN_APPS.includes(id)) {
+    if ( BUILT_IN_APPS.includes(id) ) {
         return { success: true, path: null };
     }
 
     const request = await fetch(`${puter.APIOrigin}/drivers/call`, {
-        "headers": {
-            "Content-Type": "application/json",
-            "Authorization": `Bearer ${puter.authToken}`,
+        'headers': {
+            'Content-Type': 'application/json',
+            'Authorization': `Bearer ${puter.authToken}`,
         },
-        "body": JSON.stringify({ interface: 'puter-apps', method: 'read', args: { id: { name: id } } }),
-        "method": "POST",
+        'body': JSON.stringify({ interface: 'puter-apps', method: 'read', args: { id: { name: id } } }),
+        'method': 'POST',
     });
 
     const { success, result } = await request.json();
@@ -45,18 +45,18 @@ export class PuterAppCommandProvider {
 
     async lookup (id) {
         const { success, path } = await lookup_app(id);
-        if (!success) return;
+        if ( ! success ) return;
 
         return {
             name: id,
             path: path ?? 'Built-in Puter app',
             // TODO: Let apps expose option/positional definitions like builtins do, and parse them here?
-            async execute(ctx) {
+            async execute (ctx) {
                 const args = {
                     command_line: {
                         args: ctx.locals.args,
                     },
-                    env: {...ctx.env},
+                    env: { ...ctx.env },
                 };
                 const child = await puter.ui.launchApp(id, args);
 
@@ -66,7 +66,7 @@ export class PuterAppCommandProvider {
                         windowSize: {
                             rows: evt.detail.rows,
                             cols: evt.detail.cols,
-                        }
+                        },
                     });
                 };
                 ctx.shell.addEventListener('signal.window-resize', resize_listener);
@@ -78,7 +78,7 @@ export class PuterAppCommandProvider {
                 // });
                 const app_close_promise = new Promise((resolve, reject) => {
                     child.on('close', (data) => {
-                        if ((data.statusCode ?? 0) != 0) {
+                        if ( (data.statusCode ?? 0) != 0 ) {
                             reject(new Exit(data.statusCode));
                         } else {
                             resolve({ done: true });
@@ -89,7 +89,7 @@ export class PuterAppCommandProvider {
                 // Wait for SIGINT
                 const sigint_promise = new Promise((resolve, reject) => {
                     ctx.externs.sig.on((signal) => {
-                        if (signal === signals.SIGINT) {
+                        if ( signal === signals.SIGINT ) {
                             child.close();
                             reject(new Exit(130));
                         }
@@ -97,13 +97,13 @@ export class PuterAppCommandProvider {
                 });
 
                 // We don't connect stdio to non-SDK apps, because they won't make use of it.
-                if (child.usesSDK) {
+                if ( child.usesSDK ) {
                     const decoder = new TextDecoder();
                     child.on('message', message => {
-                        if (message.$ === 'stdout') {
+                        if ( message.$ === 'stdout' ) {
                             ctx.externs.out.write(decoder.decode(message.data));
                         }
-                        if (message.$ === 'chtermios') {
+                        if ( message.$ === 'chtermios' ) {
                             if ( message.termios.echo !== undefined ) {
                                 if ( message.termios.echo ) {
                                     ctx.externs.echo.on();
@@ -121,12 +121,12 @@ export class PuterAppCommandProvider {
                         ({ value: data, done } = await Promise.race([
                             app_close_promise, sigint_promise, ctx.externs.in_.read(),
                         ]));
-                        if (data) {
+                        if ( data ) {
                             child.postMessage({
                                 $: 'stdin',
                                 data: data,
                             });
-                            if (!done) setTimeout(next_data, 0);
+                            if ( ! done ) setTimeout(next_data, 0);
                         }
                     };
                     setTimeout(next_data, 0);
@@ -136,7 +136,7 @@ export class PuterAppCommandProvider {
                 const exit = await Promise.race([ app_close_promise, sigint_promise ]);
                 ctx.shell.removeEventListener('signal.window-resize', resize_listener);
                 return exit;
-            }
+            },
         };
     }
 
@@ -150,28 +150,28 @@ export class PuterAppCommandProvider {
     }
 
     async complete (query, { ctx }) {
-        if (query === '') return [];
+        if ( query === '' ) return [];
 
         const results = [];
 
-        for (const app_name of BUILT_IN_APPS) {
-            if (app_name.startsWith(query)) {
+        for ( const app_name of BUILT_IN_APPS ) {
+            if ( app_name.startsWith(query) ) {
                 results.push(app_name);
             }
         }
 
         const request = await fetch(`${puter.APIOrigin}/drivers/call`, {
-            "headers": {
-                "Content-Type": "application/json",
-                "Authorization": `Bearer ${puter.authToken}`,
+            'headers': {
+                'Content-Type': 'application/json',
+                'Authorization': `Bearer ${puter.authToken}`,
             },
-            "body": JSON.stringify({ interface: 'puter-apps', method: 'select', args: { predicate: [ 'name-like', query + '%' ] } }),
-            "method": "POST",
+            'body': JSON.stringify({ interface: 'puter-apps', method: 'select', args: { predicate: [ 'name-like', `${query }%` ] } }),
+            'method': 'POST',
         });
 
         const json = await request.json();
-        if (json.success) {
-            for (const app of json.result) {
+        if ( json.success ) {
+            for ( const app of json.result ) {
                 results.push(app.name);
             }
         }

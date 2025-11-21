@@ -7,12 +7,12 @@
  * it under the terms of the GNU Affero General Public License as published
  * by the Free Software Foundation, either version 3 of the License, or
  * (at your option) any later version.
- * 
+ *
  * This program is distributed in the hope that it will be useful,
  * but WITHOUT ANY WARRANTY; without even the implied warranty of
  * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
  * GNU Affero General Public License for more details.
- * 
+ *
  * You should have received a copy of the GNU Affero General Public License
  * along with this program.  If not, see <https://www.gnu.org/licenses/>.
  */
@@ -21,12 +21,12 @@ import UIAlert from './UI/UIAlert.js';
 import UIWindow from './UI/UIWindow.js';
 import UIWindowSignup from './UI/UIWindowSignup.js';
 import UIWindowRequestPermission from './UI/UIWindowRequestPermission.js';
-import UIItem from './UI/UIItem.js'
+import UIItem from './UI/UIItem.js';
 import UIWindowFontPicker from './UI/UIWindowFontPicker.js';
 import UIWindowColorPicker from './UI/UIWindowColorPicker.js';
 import UIPrompt from './UI/UIPrompt.js';
 import download from './helpers/download.js';
-import path from "./lib/path.js";
+import path from './lib/path.js';
 import UIContextMenu from './UI/UIContextMenu.js';
 import update_mouse_position from './helpers/update_mouse_position.js';
 import item_icon from './helpers/item_icon.js';
@@ -42,24 +42,26 @@ window.ipc_handlers = {};
  * In Puter, apps are loaded in iframes and communicate with the graphical user interface (GUI), and each other, using the postMessage API.
  * The following sets up an Inter-Process Messaging System between apps and the GUI that enables communication
  * for various tasks such as displaying alerts, prompts, managing windows, handling file operations, and more.
- * 
+ *
  * The system listens for 'message' events on the window object, handling different types of messages from the app (which is loaded in an iframe),
- * such as ALERT, createWindow, showOpenFilePicker, ... 
+ * such as ALERT, createWindow, showOpenFilePicker, ...
  * Each message handler performs specific actions, including creating UI windows, handling file saves and reads, and responding to user interactions.
- * 
+ *
  * Precautions are taken to ensure proper usage of appInstanceIDs and other sensitive information.
  */
 const ipc_listener = async (event, handled) => {
     const app_env = event.data?.env ?? 'app';
 
     // Only process messages from apps
-    if(app_env !== 'app')
+    if ( app_env !== 'app' )
+    {
         return handled.resolve(false);
+    }
 
     // --------------------------------------------------------
     // A response to a GUI message received from the app.
     // --------------------------------------------------------
-    if (typeof event.data.original_msg_id !== "undefined" && typeof window.appCallbackFunctions[event.data.original_msg_id] !== "undefined") {
+    if ( typeof event.data.original_msg_id !== 'undefined' && typeof window.appCallbackFunctions[event.data.original_msg_id] !== 'undefined' ) {
         // Execute callback
         window.appCallbackFunctions[event.data.original_msg_id](event.data);
         // Remove this callback function since it won't be needed again
@@ -74,16 +76,16 @@ const ipc_listener = async (event, handled) => {
     // --------------------------------------------------------
 
     // `data` and `msg` are required
-    if(!event.data || !event.data.msg){
+    if ( !event.data || !event.data.msg ) {
         return handled.resolve(false);
     }
 
     // `appInstanceID` is required
-    if(!event.data.appInstanceID){
-        console.error(`appInstanceID is needed`);
+    if ( ! event.data.appInstanceID ) {
+        console.error('appInstanceID is needed');
         return handled.resolve(false);
-    }else if(!window.app_instance_ids.has(event.data.appInstanceID)){
-        console.error(`appInstanceID is invalid`);
+    } else if ( ! window.app_instance_ids.has(event.data.appInstanceID) ) {
+        console.error('appInstanceID is invalid');
         return handled.resolve(false);
     }
 
@@ -96,7 +98,7 @@ const ipc_listener = async (event, handled) => {
     const msg_id = event.data.uuid;
     const app_name = $(target_iframe).attr('data-app');
     const app_uuid = $el_parent_window.attr('data-app_uuid');
-    
+
     // New IPC handlers should be registered here.
     // Do this by calling `register_ipc_handler` of IPCService.
     if ( window.ipc_handlers.hasOwnProperty(event.data.msg) ) {
@@ -108,16 +110,15 @@ const ipc_listener = async (event, handled) => {
         if ( event.data.$ === undefined ) {
             event.data.$ = 'puter-ipc';
             event.data.v = 1;
-            event.data.parameters = {...event.data};
+            event.data.parameters = { ...event.data };
             delete event.data.parameters.msg;
             delete event.data.parameters.appInstanceId;
             delete event.data.parameters.env;
             delete event.data.parameters.uuid;
         }
-        
+
         // The IPC context contains information about the call
-        const iframe = window.iframe_for_app_instance(
-            event.data.appInstanceID);
+        const iframe = window.iframe_for_app_instance(event.data.appInstanceID);
         const process = svc_process.get_by_uuid(event.data.appInstanceID);
         const ipc_context = {
             caller: {
@@ -129,15 +130,14 @@ const ipc_listener = async (event, handled) => {
                 },
             },
         };
-        
+
         // Registered IPC handlers are an object with a `handle()`
         // method. We call it "spec" here, meaning specification.
         const spec = window.ipc_handlers[event.data.msg];
-        let retval = await spec.handler(
-            event.data.parameters, { msg_id, ipc_context });
-            
+        let retval = await spec.handler(event.data.parameters, { msg_id, ipc_context });
+
         puter.util.rpc.send(iframe.contentWindow, msg_id, retval);
-        
+
         return;
     }
 
@@ -150,7 +150,7 @@ const ipc_listener = async (event, handled) => {
     //-------------------------------------------------
     // READY
     //-------------------------------------------------
-    if(event.data.msg === 'READY'){
+    if ( event.data.msg === 'READY' ) {
         const services = globalThis.services;
         const svc_process = services.get('process');
         const process = svc_process.get_by_uuid(event.data.appInstanceID);
@@ -160,15 +160,15 @@ const ipc_listener = async (event, handled) => {
     //-------------------------------------------------
     // windowFocused
     //-------------------------------------------------
-    if(event.data.msg === 'windowFocused'){
+    if ( event.data.msg === 'windowFocused' ) {
         // TODO: Respond to this
     }
     //--------------------------------------------------------
     // requestEmailConfirmation
     //--------------------------------------------------------
-    else if(event.data.msg === 'requestEmailConfirmation'){
+    else if ( event.data.msg === 'requestEmailConfirmation' ) {
         // If the user has an email and it is confirmed, respond with success
-        if(window.user.email && window.user.email_confirmed){
+        if ( window.user.email && window.user.email_confirmed ) {
             target_iframe.contentWindow.postMessage({
                 original_msg_id: msg_id,
                 msg: 'requestEmailConfirmationResponded',
@@ -177,15 +177,15 @@ const ipc_listener = async (event, handled) => {
         }
 
         // If the user is a temporary user, show the save account window
-        if(window.user.is_temp && 
+        if ( window.user.is_temp &&
             !await UIWindowSaveAccount({
                 send_confirmation_code: true,
                 message: 'Please create an account to proceed.',
                 window_options: {
                     backdrop: true,
                     close_on_backdrop_click: false,
-                }                                
-            })){
+                },
+            }) ) {
             target_iframe.contentWindow.postMessage({
                 original_msg_id: msg_id,
                 msg: 'requestEmailConfirmationResponded',
@@ -193,7 +193,7 @@ const ipc_listener = async (event, handled) => {
             }, '*');
             return;
         }
-        else if(!window.user.email_confirmed && !await UIWindowEmailConfirmationRequired()){
+        else if ( !window.user.email_confirmed && !await UIWindowEmailConfirmationRequired() ) {
             target_iframe.contentWindow.postMessage({
                 original_msg_id: msg_id,
                 msg: 'requestEmailConfirmationResponded',
@@ -215,7 +215,7 @@ const ipc_listener = async (event, handled) => {
     //--------------------------------------------------------
     // ALERT
     //--------------------------------------------------------
-    else if(event.data.msg === 'ALERT' && event.data.message !== undefined){
+    else if ( event.data.msg === 'ALERT' && event.data.message !== undefined ) {
         const alert_resp = await UIAlert({
             message: event.data.message,
             buttons: event.data.buttons,
@@ -223,8 +223,8 @@ const ipc_listener = async (event, handled) => {
             window_options: {
                 parent_uuid: event.data.appInstanceID,
                 disable_parent_window: true,
-            }
-        })
+            },
+        });
 
         target_iframe.contentWindow.postMessage({
             original_msg_id: msg_id,
@@ -235,15 +235,15 @@ const ipc_listener = async (event, handled) => {
     //--------------------------------------------------------
     // PROMPT
     //--------------------------------------------------------
-    else if(event.data.msg === 'PROMPT' && event.data.message !== undefined){
+    else if ( event.data.msg === 'PROMPT' && event.data.message !== undefined ) {
         const prompt_resp = await UIPrompt({
             message: html_encode(event.data.message),
             placeholder: html_encode(event.data.placeholder),
             window_options: {
                 parent_uuid: event.data.appInstanceID,
                 disable_parent_window: true,
-            }
-        })
+            },
+        });
 
         target_iframe.contentWindow.postMessage({
             original_msg_id: msg_id,
@@ -254,7 +254,7 @@ const ipc_listener = async (event, handled) => {
     //--------------------------------------------------------
     // getLanguage
     //--------------------------------------------------------
-    else if(event.data.msg === 'getLanguage'){
+    else if ( event.data.msg === 'getLanguage' ) {
         target_iframe.contentWindow.postMessage({
             original_msg_id: msg_id,
             msg: 'languageReceived',
@@ -264,9 +264,9 @@ const ipc_listener = async (event, handled) => {
     //--------------------------------------------------------
     // getInstancesOpen
     //--------------------------------------------------------
-    else if(event.data.msg === 'getInstancesOpen'){
+    else if ( event.data.msg === 'getInstancesOpen' ) {
         // count open windows of this app
-        let instances_open = $('.window-app[data-app_uuid="'+app_uuid+'"]').length;
+        let instances_open = $(`.window-app[data-app_uuid="${app_uuid}"]`).length;
 
         // send number of open instances of this app
         target_iframe.contentWindow.postMessage({
@@ -278,23 +278,23 @@ const ipc_listener = async (event, handled) => {
     //--------------------------------------------------------
     // socialShare
     //--------------------------------------------------------
-    else if(event.data.msg === 'socialShare' && event.data.url !== undefined){
+    else if ( event.data.msg === 'socialShare' && event.data.url !== undefined ) {
         const window_position = $el_parent_window.position();
 
         // left position provided
-        if(event.data.options.left !== undefined){
+        if ( event.data.options.left !== undefined ) {
             event.data.options.left = Math.abs(event.data.options.left);
             event.data.options.left += window_position.left;
         }
         // left position not provided
-        else{
+        else {
             // use top left of the window
             event.data.options.left = window_position.left;
         }
-        if(event.data.options.top !== undefined){
+        if ( event.data.options.top !== undefined ) {
             event.data.options.top = Math.abs(event.data.options.top);
             event.data.options.top += window_position.top + 30;
-        }else{
+        } else {
             // use top left of the window
             event.data.options.top = window_position.top + 30;
         }
@@ -303,25 +303,25 @@ const ipc_listener = async (event, handled) => {
         event.data.options.top = parseFloat(event.data.options.top);
         event.data.options.left = parseFloat(event.data.options.left);
 
-        const social_links = socialLink({url: event.data.url, title: event.data.message, description: event.data.message});
+        const social_links = socialLink({ url: event.data.url, title: event.data.message, description: event.data.message });
 
-        let h = ``;
-        let copy_icon = `<svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" fill="currentColor" class="bi bi-copy" viewBox="0 0 16 16"> <path fill-rule="evenodd" d="M4 2a2 2 0 0 1 2-2h8a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2zm2-1a1 1 0 0 0-1 1v8a1 1 0 0 0 1 1h8a1 1 0 0 0 1-1V2a1 1 0 0 0-1-1zM2 5a1 1 0 0 0-1 1v8a1 1 0 0 0 1 1h8a1 1 0 0 0 1-1v-1h1v1a2 2 0 0 1-2 2H2a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2h1v1z"/> </svg>`;
-        
+        let h = '';
+        let copy_icon = '<svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" fill="currentColor" class="bi bi-copy" viewBox="0 0 16 16"> <path fill-rule="evenodd" d="M4 2a2 2 0 0 1 2-2h8a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2zm2-1a1 1 0 0 0-1 1v8a1 1 0 0 0 1 1h8a1 1 0 0 0 1-1V2a1 1 0 0 0-1-1zM2 5a1 1 0 0 0-1 1v8a1 1 0 0 0 1 1h8a1 1 0 0 0 1-1v-1h1v1a2 2 0 0 1-2 2H2a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2h1v1z"/> </svg>';
+
         // create html
-        h += `<div style="padding: 10px 10px 2px;">`;
-            h += `<div style="display:flex;">`;
-                h += `<input type="text" style="margin-bottom:10px; font-size: 13px;" class="social-url" readonly value="${html_encode(event.data.url)}"/>`;
-                h += `<button class="button copy-link" style="white-space:nowrap; text-align:center; white-space: nowrap; text-align: center; padding-left: 10px; padding-right: 10px; height: 33px; box-shadow: none; margin-left: 4px;">${(copy_icon)}</button>`;
-            h += `</div>`;
+        h += '<div style="padding: 10px 10px 2px;">';
+        h += '<div style="display:flex;">';
+        h += `<input type="text" style="margin-bottom:10px; font-size: 13px;" class="social-url" readonly value="${html_encode(event.data.url)}"/>`;
+        h += `<button class="button copy-link" style="white-space:nowrap; text-align:center; white-space: nowrap; text-align: center; padding-left: 10px; padding-right: 10px; height: 33px; box-shadow: none; margin-left: 4px;">${(copy_icon)}</button>`;
+        h += '</div>';
 
-            h += `<p style="margin: 0; text-align: center; margin-bottom: 0px; color: #484a57; font-weight: 500; font-size: 14px;">${i18n('share_to')}</p>`
-            h += `<a class="copy-link-social-btn" target="_blank" href="${social_links.twitter}" style=""><svg viewBox="0 0 24 24" aria-hidden="true" style="opacity: 0.7;"><g><path d="M18.244 2.25h3.308l-7.227 8.26 8.502 11.24H16.17l-5.214-6.817L4.99 21.75H1.68l7.73-8.835L1.254 2.25H8.08l4.713 6.231zm-1.161 17.52h1.833L7.084 4.126H5.117z"></path></g></svg></a>`
-            h += `<a class="copy-link-social-btn" target="_blank" href="${social_links.whatsapp}" style=""><img src="${window.icons['logo-whatsapp.svg']}"></a>`
-            h += `<a class="copy-link-social-btn" target="_blank" href="${social_links.facebook}" style=""><img src="${window.icons['logo-facebook.svg']}"></a>`
-            h += `<a class="copy-link-social-btn" target="_blank" href="${social_links.linkedin}" style=""><img src="${window.icons['logo-linkedin.svg']}"></a>`
-            h += `<a class="copy-link-social-btn" target="_blank" href="${social_links.reddit}" style=""><img src="${window.icons['logo-reddit.svg']}"></a>`
-            h += `<a class="copy-link-social-btn" target="_blank" href="${social_links['telegram.me']}" style=""><img src="${window.icons['logo-telegram.svg']}"></a>`
+        h += `<p style="margin: 0; text-align: center; margin-bottom: 0px; color: #484a57; font-weight: 500; font-size: 14px;">${i18n('share_to')}</p>`;
+        h += `<a class="copy-link-social-btn" target="_blank" href="${social_links.twitter}" style=""><svg viewBox="0 0 24 24" aria-hidden="true" style="opacity: 0.7;"><g><path d="M18.244 2.25h3.308l-7.227 8.26 8.502 11.24H16.17l-5.214-6.817L4.99 21.75H1.68l7.73-8.835L1.254 2.25H8.08l4.713 6.231zm-1.161 17.52h1.833L7.084 4.126H5.117z"></path></g></svg></a>`;
+        h += `<a class="copy-link-social-btn" target="_blank" href="${social_links.whatsapp}" style=""><img src="${window.icons['logo-whatsapp.svg']}"></a>`;
+        h += `<a class="copy-link-social-btn" target="_blank" href="${social_links.facebook}" style=""><img src="${window.icons['logo-facebook.svg']}"></a>`;
+        h += `<a class="copy-link-social-btn" target="_blank" href="${social_links.linkedin}" style=""><img src="${window.icons['logo-linkedin.svg']}"></a>`;
+        h += `<a class="copy-link-social-btn" target="_blank" href="${social_links.reddit}" style=""><img src="${window.icons['logo-reddit.svg']}"></a>`;
+        h += `<a class="copy-link-social-btn" target="_blank" href="${social_links['telegram.me']}" style=""><img src="${window.icons['logo-telegram.svg']}"></a>`;
         h += '</div>';
 
         let po = await UIPopover({
@@ -336,26 +336,26 @@ const ipc_listener = async (event, handled) => {
             position: 'bottom',
         });
 
-        $(po).find('.copy-link').on('click', function(e){
+        $(po).find('.copy-link').on('click', function (e) {
             e.preventDefault();
             e.stopPropagation();
             const url = $(po).find('.social-url').val();
             navigator.clipboard.writeText(url);
             // set checkmark
-            $(po).find('.copy-link').html(`<svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" fill="currentColor" class="bi bi-check2" viewBox="0 0 16 16"> <path d="M13.854 3.646a.5.5 0 0 1 0 .708l-7 7a.5.5 0 0 1-.708 0l-3.5-3.5a.5.5 0 1 1 .708-.708L6.5 10.293l6.646-6.647a.5.5 0 0 1 .708 0"/> </svg>`);
+            $(po).find('.copy-link').html('<svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" fill="currentColor" class="bi bi-check2" viewBox="0 0 16 16"> <path d="M13.854 3.646a.5.5 0 0 1 0 .708l-7 7a.5.5 0 0 1-.708 0l-3.5-3.5a.5.5 0 1 1 .708-.708L6.5 10.293l6.646-6.647a.5.5 0 0 1 .708 0"/> </svg>');
             // reset checkmark
-            setTimeout(function(){
-                $(po).find('.copy-link').html(copy_icon)
+            setTimeout(function () {
+                $(po).find('.copy-link').html(copy_icon);
             }, 1000);
 
             return false;
-        })
+        });
     }
 
     //--------------------------------------------------------
     // env
     //--------------------------------------------------------
-    else if(event.data.msg === 'env'){
+    else if ( event.data.msg === 'env' ) {
         target_iframe.contentWindow.postMessage({
             original_msg_id: msg_id,
         }, '*');
@@ -363,9 +363,9 @@ const ipc_listener = async (event, handled) => {
     //--------------------------------------------------------
     // createWindow
     //--------------------------------------------------------
-    else if(event.data.msg === 'createWindow'){
+    else if ( event.data.msg === 'createWindow' ) {
         // todo: validate as many of these as possible
-        if(event.data.options){
+        if ( event.data.options ) {
             const win = await UIWindow({
                 title: event.data.options.title,
                 disable_parent_window: event.data.options.disable_parent_window,
@@ -374,15 +374,15 @@ const ipc_listener = async (event, handled) => {
                 is_resizable: event.data.options.is_resizable,
                 has_head: event.data.options.has_head,
                 center: event.data.options.center,
-                show_in_taskbar: event.data.options.show_in_taskbar,                    
+                show_in_taskbar: event.data.options.show_in_taskbar,
                 iframe_srcdoc: event.data.options.content,
                 parent_uuid: event.data.appInstanceID,
-            })
+            });
 
             // create safe window object
             const safe_win = {
                 id: $(win).attr('data-element_uuid'),
-            }
+            };
 
             // send confirmation to requester window
             target_iframe.contentWindow.postMessage({
@@ -394,7 +394,7 @@ const ipc_listener = async (event, handled) => {
     //--------------------------------------------------------
     // setItem
     //--------------------------------------------------------
-    else if(event.data.msg === 'setItem' && event.data.key && event.data.value){
+    else if ( event.data.msg === 'setItem' && event.data.key && event.data.value ) {
         puter.kv.set({
             key: event.data.key,
             value: event.data.value,
@@ -404,12 +404,12 @@ const ipc_listener = async (event, handled) => {
             target_iframe.contentWindow.postMessage({
                 original_msg_id: msg_id,
             }, '*');
-        })
+        });
     }
     //--------------------------------------------------------
     // getItem
     //--------------------------------------------------------
-    else if(event.data.msg === 'getItem' && event.data.key){
+    else if ( event.data.msg === 'getItem' && event.data.key ) {
         puter.kv.get({
             key: event.data.key,
             app_uid: app_uuid,
@@ -420,12 +420,12 @@ const ipc_listener = async (event, handled) => {
                 msg: 'getItemSucceeded',
                 value: result ?? null,
             }, '*');
-        })
+        });
     }
     //--------------------------------------------------------
     // removeItem
     //--------------------------------------------------------
-    else if(event.data.msg === 'removeItem' && event.data.key){
+    else if ( event.data.msg === 'removeItem' && event.data.key ) {
         puter.kv.del({
             key: event.data.key,
             app_uid: app_uuid,
@@ -434,38 +434,44 @@ const ipc_listener = async (event, handled) => {
             target_iframe.contentWindow.postMessage({
                 original_msg_id: msg_id,
             }, '*');
-        })
+        });
     }
     //--------------------------------------------------------
     // showOpenFilePicker
     //--------------------------------------------------------
-    else if(event.data.msg === 'showOpenFilePicker'){
+    else if ( event.data.msg === 'showOpenFilePicker' ) {
         // Auth
-        if(!window.is_auth() && !(await UIWindowSignup({referrer: app_name})))
+        if ( !window.is_auth() && !(await UIWindowSignup({ referrer: app_name })) )
+        {
             return;
+        }
 
         // Disable parent window
-        $el_parent_window.addClass('window-disabled')
+        $el_parent_window.addClass('window-disabled');
         $el_parent_disable_mask.show();
         $el_parent_disable_mask.css('z-index', parseInt($el_parent_window.css('z-index')) + 1);
         $(target_iframe).blur();
 
         // Allowed_file_types
-        let allowed_file_types = "";
-        if(event.data.options && event.data.options.accept)
+        let allowed_file_types = '';
+        if ( event.data.options && event.data.options.accept )
+        {
             allowed_file_types = event.data.options.accept;
+        }
 
         // selectable_body
         let is_selectable_body = false;
-        if(event.data.options && event.data.options.multiple && event.data.options.multiple === true)
+        if ( event.data.options && event.data.options.multiple && event.data.options.multiple === true )
+        {
             is_selectable_body = true;
+        }
 
         // Open dialog
-        let path = event.data.options?.path ??  '/' + window.user.username + '/Desktop';
-        if ( (''+path).toLowerCase().startsWith('%appdata%') ) {
+        let path = event.data.options?.path ?? `/${ window.user.username }/Desktop`;
+        if ( (`${path}`).toLowerCase().startsWith('%appdata%') ) {
             path = path.slice('%appdata%'.length);
-            if ( path !== '' && ! path.startsWith('/') ) path = '/' + path;
-            path = '/' + window.user.username + '/AppData/' + app_uuid + path;
+            if ( path !== '' && !path.startsWith('/') ) path = `/${ path}`;
+            path = `/${ window.user.username }/AppData/${ app_uuid }${path}`;
         }
         UIWindow({
             allowed_file_types: allowed_file_types,
@@ -474,8 +480,8 @@ const ipc_listener = async (event, handled) => {
             parent_uuid: event.data.appInstanceID,
             onDialogCancel: () => {
                 target_iframe.contentWindow.postMessage({
-                    msg: "fileOpenCancelled", 
-                    original_msg_id: msg_id, 
+                    msg: 'fileOpenCancelled',
+                    original_msg_id: msg_id,
                 }, '*');
             },
             show_maximize_button: false,
@@ -492,37 +498,43 @@ const ipc_listener = async (event, handled) => {
     //--------------------------------------------------------
     // mouseClicked
     //--------------------------------------------------------
-    else if(event.data.msg === 'mouseClicked'){
+    else if ( event.data.msg === 'mouseClicked' ) {
         // close all popovers whose parent_id is parent_window_id
-        $('.popover[data-parent_id="'+parent_window_id+'"]').remove();
+        $(`.popover[data-parent_id="${parent_window_id}"]`).remove();
     }
     //--------------------------------------------------------
     // showDirectoryPicker
     //--------------------------------------------------------
-    else if(event.data.msg === 'showDirectoryPicker'){
+    else if ( event.data.msg === 'showDirectoryPicker' ) {
         // Auth
-        if(!window.is_auth() && !(await UIWindowSignup({referrer: app_name})))
+        if ( !window.is_auth() && !(await UIWindowSignup({ referrer: app_name })) )
+        {
             return;
+        }
 
         // Disable parent window
-        $el_parent_window.addClass('window-disabled')
+        $el_parent_window.addClass('window-disabled');
         $el_parent_disable_mask.show();
         $el_parent_disable_mask.css('z-index', parseInt($el_parent_window.css('z-index')) + 1);
         $(target_iframe).blur();
 
         // allowed_file_types
-        let allowed_file_types = "";
-        if(event.data.options && event.data.options.accept)
+        let allowed_file_types = '';
+        if ( event.data.options && event.data.options.accept )
+        {
             allowed_file_types = event.data.options.accept;
+        }
 
         // selectable_body
         let is_selectable_body = false;
-        if(event.data.options && event.data.options.multiple && event.data.options.multiple === true)
+        if ( event.data.options && event.data.options.multiple && event.data.options.multiple === true )
+        {
             is_selectable_body = true;
+        }
 
         // open dialog
         UIWindow({
-            path: '/' + window.user.username + '/Desktop',
+            path: `/${ window.user.username }/Desktop`,
             // this is the uuid of the window to which this dialog will return
             parent_uuid: event.data.appInstanceID,
             show_maximize_button: false,
@@ -539,30 +551,36 @@ const ipc_listener = async (event, handled) => {
     //--------------------------------------------------------
     // setWindowTitle
     //--------------------------------------------------------
-    else if(event.data.msg === 'setWindowTitle' && event.data.new_title !== undefined){
+    else if ( event.data.msg === 'setWindowTitle' && event.data.new_title !== undefined ) {
         let el_window;
         // specific window
-        if( event.data.window_id )
-            el_window = $(`.window[data-element_uuid="${html_encode(event.data.window_id)}"]`)
+        if ( event.data.window_id )
+        {
+            el_window = $(`.window[data-element_uuid="${html_encode(event.data.window_id)}"]`);
+        }
         // app window
         else
+        {
             el_window = window.window_for_app_instance(event.data.appInstanceID);
+        }
 
         // window not found
-        if(!el_window || el_window.length === 0)
+        if ( !el_window || el_window.length === 0 )
+        {
             return;
+        }
 
         // set window title
-        $(el_window).find(`.window-head-title`).html(html_encode(event.data.new_title));
+        $(el_window).find('.window-head-title').html(html_encode(event.data.new_title));
         // send confirmation to requester window
         target_iframe.contentWindow.postMessage({
-            original_msg_id: msg_id, 
+            original_msg_id: msg_id,
         }, '*');
     }
     //--------------------------------------------------------
     // showWindow
     //--------------------------------------------------------
-    else if(event.data.msg === 'showWindow'){
+    else if ( event.data.msg === 'showWindow' ) {
         let el_window;
         // show the app window
         el_window = window.window_for_app_instance(event.data.appInstanceID);
@@ -573,7 +591,7 @@ const ipc_listener = async (event, handled) => {
     //--------------------------------------------------------
     // hideWindow
     //--------------------------------------------------------
-    else if(event.data.msg === 'hideWindow'){
+    else if ( event.data.msg === 'hideWindow' ) {
         let el_window;
         // hide the app window
         el_window = window.window_for_app_instance(event.data.appInstanceID);
@@ -584,10 +602,12 @@ const ipc_listener = async (event, handled) => {
     //--------------------------------------------------------
     // mouseMoved
     //--------------------------------------------------------
-    else if(event.data.msg === 'mouseMoved'){
+    else if ( event.data.msg === 'mouseMoved' ) {
         // Auth
-        if(!window.is_auth() && !(await UIWindowSignup({referrer: app_name})))
+        if ( !window.is_auth() && !(await UIWindowSignup({ referrer: app_name })) )
+        {
             return;
+        }
 
         // get x and y and sanitize
         let x = parseInt(event.data.x);
@@ -601,13 +621,13 @@ const ipc_listener = async (event, handled) => {
 
         // does this window have a menubar?
         const $menubar = $(el_window).find('.window-menubar');
-        if($menubar.length > 0){
+        if ( $menubar.length > 0 ) {
             y += $menubar.height();
         }
 
         // does this window have a head?
         const $head = $(el_window).find('.window-head');
-        if($head.length > 0 && $head.css('display') !== 'none'){
+        if ( $head.length > 0 && $head.css('display') !== 'none' ) {
             y += $head.height();
         }
 
@@ -617,10 +637,12 @@ const ipc_listener = async (event, handled) => {
     //--------------------------------------------------------
     // contextMenu
     //--------------------------------------------------------
-    else if(event.data.msg === 'contextMenu'){
+    else if ( event.data.msg === 'contextMenu' ) {
         // Auth
-        if(!window.is_auth() && !(await UIWindowSignup({referrer: app_name})))
+        if ( !window.is_auth() && !(await UIWindowSignup({ referrer: app_name })) )
+        {
             return;
+        }
 
         const hydrator = puter.util.rpc.getHydrator({
             target: target_iframe.contentWindow,
@@ -634,14 +656,14 @@ const ipc_listener = async (event, handled) => {
         const sanitize_items = items => {
             return items.map(item => {
                 // make sure item.icon and item.icon_active are valid base64 strings
-                if (item.icon && !item.icon.startsWith('data:image')) {
+                if ( item.icon && !item.icon.startsWith('data:image') ) {
                     item.icon = undefined;
                 }
-                if (item.icon_active && !item.icon_active.startsWith('data:image')) {
+                if ( item.icon_active && !item.icon_active.startsWith('data:image') ) {
                     item.icon_active = undefined;
                 }
                 // Check if the item is just '-'
-                if (item === '-') {
+                if ( item === '-' ) {
                     return '-';
                 }
                 // Otherwise, proceed as before
@@ -651,13 +673,13 @@ const ipc_listener = async (event, handled) => {
                     icon_active: item.icon_active ? `<img style="width: 15px; height: 15px; position: absolute; top: 4px; left: 6px;" src="${html_encode(item.icon_active)}" />` : undefined,
                     disabled: item.disabled,
                     onClick: () => {
-                        if (item.action !== undefined) {
+                        if ( item.action !== undefined ) {
                             item.action();
                         }
                         // focus the window
                         $(el_window).focusWindow();
                     },
-                    items: item.items ? sanitize_items(item.items) : undefined
+                    items: item.items ? sanitize_items(item.items) : undefined,
                 };
             });
         };
@@ -669,42 +691,42 @@ const ipc_listener = async (event, handled) => {
             items: items,
         });
 
-        $(target_iframe).get(0).focus({preventScroll:true});
+        $(target_iframe).get(0).focus({ preventScroll: true });
     }
     // --------------------------------------------------------
     // disableMenuItem
     // --------------------------------------------------------
-    else if(event.data.msg === 'disableMenuItem'){
+    else if ( event.data.msg === 'disableMenuItem' ) {
         set_menu_item_prop(window.menubars[event.data.appInstanceID], event.data.value.id, 'disabled', true);
     }
     // --------------------------------------------------------
     // enableMenuItem
     // --------------------------------------------------------
-    else if(event.data.msg === 'enableMenuItem'){
+    else if ( event.data.msg === 'enableMenuItem' ) {
         set_menu_item_prop(window.menubars[event.data.appInstanceID], event.data.value.id, 'disabled', false);
     }
     //--------------------------------------------------------
     // setMenuItemIcon
     //--------------------------------------------------------
-    else if(event.data.msg === 'setMenuItemIcon'){
+    else if ( event.data.msg === 'setMenuItemIcon' ) {
         set_menu_item_prop(window.menubars[event.data.appInstanceID], event.data.value.id, 'icon', event.data.value.icon);
     }
     //--------------------------------------------------------
     // setMenuItemIconActive
     //--------------------------------------------------------
-    else if(event.data.msg === 'setMenuItemIconActive'){
+    else if ( event.data.msg === 'setMenuItemIconActive' ) {
         set_menu_item_prop(window.menubars[event.data.appInstanceID], event.data.value.id, 'icon_active', event.data.value.icon_active);
     }
     //--------------------------------------------------------
     // setMenuItemChecked
     //--------------------------------------------------------
-    else if(event.data.msg === 'setMenuItemChecked'){
+    else if ( event.data.msg === 'setMenuItemChecked' ) {
         set_menu_item_prop(window.menubars[event.data.appInstanceID], event.data.value.id, 'checked', event.data.value.checked);
     }
     //--------------------------------------------------------
     // setMenubar
     //--------------------------------------------------------
-    else if(event.data.msg === 'setMenubar') {
+    else if ( event.data.msg === 'setMenubar' ) {
         const el_window = window.window_for_app_instance(event.data.appInstanceID);
 
         const hydrator = puter.util.rpc.getHydrator({
@@ -714,10 +736,10 @@ const ipc_listener = async (event, handled) => {
 
         // Show menubar
         let $menubar;
-        $menubar = $(el_window).find('.window-menubar')
+        $menubar = $(el_window).find('.window-menubar');
         // add window-with-menubar class to the window
         $(el_window).addClass('window-with-menubar');
-        
+
         $menubar.css('display', 'flex');
 
         // disable system context menu
@@ -728,8 +750,10 @@ const ipc_listener = async (event, handled) => {
         // empty menubar
         $menubar.empty();
 
-        if(!window.menubars[event.data.appInstanceID])
+        if ( ! window.menubars[event.data.appInstanceID] )
+        {
             window.menubars[event.data.appInstanceID] = value.items;
+        }
 
         // disable system context menu
         $menubar.on('contextmenu', (e) => {
@@ -739,7 +763,7 @@ const ipc_listener = async (event, handled) => {
         const sanitize_items = items => {
             return items.map(item => {
                 // Check if the item is just '-'
-                if (item === '-') {
+                if ( item === '-' ) {
                     return '-';
                 }
                 // Otherwise, proceed as before
@@ -750,11 +774,11 @@ const ipc_listener = async (event, handled) => {
                     icon: item.icon ? `<img style="width: 15px; height: 15px; position: absolute; top: 4px; left: 6px;" src="${html_encode(item.icon)}" />` : undefined,
                     icon_active: item.icon_active ? `<img style="width: 15px; height: 15px; position: absolute; top: 4px; left: 6px;" src="${html_encode(item.icon_active)}" />` : undefined,
                     action: item.action,
-                    items: item.items ? sanitize_items(item.items) : undefined
+                    items: item.items ? sanitize_items(item.items) : undefined,
                 };
             });
         };
-          
+
         // This array will store the menubar button elements
         const menubar_buttons = [];
 
@@ -783,9 +807,9 @@ const ipc_listener = async (event, handled) => {
             const ctxMenu = UIContextMenu({
                 delay: delay,
                 parent_element: parent_element,
-                position: {top: pos.top + 30, left: pos.left},
+                position: { top: pos.top + 30, left: pos.left },
                 css: {
-                    'box-shadow': '0px 2px 6px #00000059'
+                    'box-shadow': '0px 2px 6px #00000059',
                 },
                 items: sanitize_items(items),
             });
@@ -801,16 +825,16 @@ const ipc_listener = async (event, handled) => {
                 current_i = null;
                 current = null;
                 state_open = false;
-            }
+            };
         };
         const add_items = (parent, items) => {
-            for (let i=0; i < items.length; i++) {
+            for ( let i = 0; i < items.length; i++ ) {
                 const I = i;
                 const item = items[i];
                 const label = html_encode(item.label);
                 const el_item = $(`<div class="window-menubar-item"><span>${label}</span></div>`);
                 const parent_element = el_item.get(0);
-                
+
                 el_item.on('mousedown', (e) => {
                     // check if it has has-open-context-menu class
                     if ( el_item.hasClass('has-open-contextmenu') ) {
@@ -822,7 +846,7 @@ const ipc_listener = async (event, handled) => {
                         current_i = null;
                         current = null;
                     }
-                    if (item.items) {
+                    if ( item.items ) {
                         const pos = el_item[0].getBoundingClientRect();
                         open_menu({
                             i,
@@ -835,11 +859,11 @@ const ipc_listener = async (event, handled) => {
                         e.preventDefault();
                         return;
                     }
-                })
-                
+                });
+
                 // Clicking an item with an action will trigger that action
                 el_item.on('click', () => {
-                    if (item.action) {
+                    if ( item.action ) {
                         item.action();
                     }
                 });
@@ -865,357 +889,423 @@ const ipc_listener = async (event, handled) => {
     //--------------------------------------------------------
     // setWindowWidth
     //--------------------------------------------------------
-    else if(event.data.msg === 'setWindowWidth' && event.data.width !== undefined){
+    else if ( event.data.msg === 'setWindowWidth' && event.data.width !== undefined ) {
         let el_window;
         // specific window
-        if( event.data.window_id )
-            el_window = $(`.window[data-element_uuid="${html_encode(event.data.window_id)}"]`)
+        if ( event.data.window_id )
+        {
+            el_window = $(`.window[data-element_uuid="${html_encode(event.data.window_id)}"]`);
+        }
         // app window
         else
+        {
             el_window = window.window_for_app_instance(event.data.appInstanceID);
+        }
 
         // window not found
-        if(!el_window || el_window.length === 0)
+        if ( !el_window || el_window.length === 0 )
+        {
             return;
+        }
 
         event.data.width = parseFloat(event.data.width);
         // must be at least 200
-        if(event.data.width < 200)
+        if ( event.data.width < 200 )
+        {
             event.data.width = 200;
+        }
         // set window width
         $(el_window).css('width', event.data.width);
         // send confirmation to requester window
         target_iframe.contentWindow.postMessage({
-            original_msg_id: msg_id, 
+            original_msg_id: msg_id,
         }, '*');
     }
     //--------------------------------------------------------
     // setWindowHeight
     //--------------------------------------------------------
-    else if(event.data.msg === 'setWindowHeight' && event.data.height !== undefined){
+    else if ( event.data.msg === 'setWindowHeight' && event.data.height !== undefined ) {
         let el_window;
         // specific window
-        if( event.data.window_id )
-            el_window = $(`.window[data-element_uuid="${html_encode(event.data.window_id)}"]`)
+        if ( event.data.window_id )
+        {
+            el_window = $(`.window[data-element_uuid="${html_encode(event.data.window_id)}"]`);
+        }
         // app window
         else
+        {
             el_window = window.window_for_app_instance(event.data.appInstanceID);
+        }
 
         // window not found
-        if(!el_window || el_window.length === 0)
+        if ( !el_window || el_window.length === 0 )
+        {
             return;
+        }
 
         event.data.height = parseFloat(event.data.height);
         // must be at least 200
-        if(event.data.height < 200)
+        if ( event.data.height < 200 )
+        {
             event.data.height = 200;
+        }
 
         // convert to number and set
         $(el_window).css('height', event.data.height);
 
         // send confirmation to requester window
         target_iframe.contentWindow.postMessage({
-            original_msg_id: msg_id, 
+            original_msg_id: msg_id,
         }, '*');
     }
     //--------------------------------------------------------
     // setWindowSize
     //--------------------------------------------------------
-    else if(event.data.msg === 'setWindowSize' && (event.data.width !== undefined || event.data.height !== undefined)){
+    else if ( event.data.msg === 'setWindowSize' && (event.data.width !== undefined || event.data.height !== undefined) ) {
         let el_window;
         // specific window
-        if( event.data.window_id )
-            el_window = $(`.window[data-element_uuid="${html_encode(event.data.window_id)}"]`)
+        if ( event.data.window_id )
+        {
+            el_window = $(`.window[data-element_uuid="${html_encode(event.data.window_id)}"]`);
+        }
         // app window
         else
+        {
             el_window = window.window_for_app_instance(event.data.appInstanceID);
+        }
 
         // window not found
-        if(!el_window || el_window.length === 0)
+        if ( !el_window || el_window.length === 0 )
+        {
             return;
+        }
 
         // convert to number and set
-        if(event.data.width !== undefined){
+        if ( event.data.width !== undefined ) {
             event.data.width = parseFloat(event.data.width);
             // must be at least 200
-            if(event.data.width < 200)
+            if ( event.data.width < 200 )
+            {
                 event.data.width = 200;
+            }
             $(el_window).css('width', event.data.width);
         }
-        
-        if(event.data.height !== undefined){
+
+        if ( event.data.height !== undefined ) {
             event.data.height = parseFloat(event.data.height);
             // must be at least 200
-            if(event.data.height < 200)
+            if ( event.data.height < 200 )
+            {
                 event.data.height = 200;
+            }
             $(el_window).css('height', event.data.height);
         }
 
         // send confirmation to requester window
         target_iframe.contentWindow.postMessage({
-            original_msg_id: msg_id, 
+            original_msg_id: msg_id,
         }, '*');
     }
     //--------------------------------------------------------
     // setWindowPosition
     //--------------------------------------------------------
-    else if(event.data.msg === 'setWindowPosition' && (event.data.x !== undefined || event.data.y !== undefined)){
+    else if ( event.data.msg === 'setWindowPosition' && (event.data.x !== undefined || event.data.y !== undefined) ) {
         let el_window;
         // specific window
-        if( event.data.window_id )
-            el_window = $(`.window[data-element_uuid="${html_encode(event.data.window_id)}"]`)
+        if ( event.data.window_id )
+        {
+            el_window = $(`.window[data-element_uuid="${html_encode(event.data.window_id)}"]`);
+        }
         // app window
         else
+        {
             el_window = window.window_for_app_instance(event.data.appInstanceID);
+        }
 
         // window not found
-        if(!el_window || el_window.length === 0)
+        if ( !el_window || el_window.length === 0 )
+        {
             return;
+        }
 
         // convert to number and set
-        if(event.data.x !== undefined){
+        if ( event.data.x !== undefined ) {
             event.data.x = parseFloat(event.data.x);
             // we don't want the window to go off the left edge of the screen
-            if(event.data.x < 0)
+            if ( event.data.x < 0 )
+            {
                 event.data.x = 0;
+            }
             // we don't want the window to go off the right edge of the screen
-            if(event.data.x > window.innerWidth - 100)
+            if ( event.data.x > window.innerWidth - 100 )
+            {
                 event.data.x = window.innerWidth - 100;
+            }
             // set window left
             $(el_window).css('left', parseFloat(event.data.x));
         }
 
-        if(event.data.y !== undefined){
+        if ( event.data.y !== undefined ) {
             event.data.y = parseFloat(event.data.y);
             // we don't want the window to go off the top edge of the screen
-            if(event.data.y < window.taskbar_height)
+            if ( event.data.y < window.taskbar_height )
+            {
                 event.data.y = window.taskbar_height;
+            }
             // we don't want the window to go off the bottom edge of the screen
-            if(event.data.y > window.innerHeight - 100)
+            if ( event.data.y > window.innerHeight - 100 )
+            {
                 event.data.y = window.innerHeight - 100;
+            }
             // set window top
             $(el_window).css('top', parseFloat(event.data.y));
         }
 
         // send confirmation to requester window
         target_iframe.contentWindow.postMessage({
-            original_msg_id: msg_id, 
+            original_msg_id: msg_id,
         }, '*');
     }
     //--------------------------------------------------------
     // setWindowX
     //--------------------------------------------------------
-    else if(event.data.msg === 'setWindowX' && (event.data.x !== undefined)){
+    else if ( event.data.msg === 'setWindowX' && (event.data.x !== undefined) ) {
         let el_window;
         // specific window
-        if( event.data.window_id )
-            el_window = $(`.window[data-element_uuid="${html_encode(event.data.window_id)}"]`)
+        if ( event.data.window_id )
+        {
+            el_window = $(`.window[data-element_uuid="${html_encode(event.data.window_id)}"]`);
+        }
         // app window
         else
+        {
             el_window = window.window_for_app_instance(event.data.appInstanceID);
+        }
 
         // window not found
-        if(!el_window || el_window.length === 0)
+        if ( !el_window || el_window.length === 0 )
+        {
             return;
+        }
 
         // convert to number and set
-        if(event.data.x !== undefined){
+        if ( event.data.x !== undefined ) {
             event.data.x = parseFloat(event.data.x);
             // we don't want the window to go off the left edge of the screen
-            if(event.data.x < 0)
+            if ( event.data.x < 0 )
+            {
                 event.data.x = 0;
+            }
             // we don't want the window to go off the right edge of the screen
-            if(event.data.x > window.innerWidth - 100)
+            if ( event.data.x > window.innerWidth - 100 )
+            {
                 event.data.x = window.innerWidth - 100;
+            }
             // set window left
             $(el_window).css('left', parseFloat(event.data.x));
         }
 
         // send confirmation to requester window
         target_iframe.contentWindow.postMessage({
-            original_msg_id: msg_id, 
+            original_msg_id: msg_id,
         }, '*');
     }
     //--------------------------------------------------------
     // setWindowY
     //--------------------------------------------------------
-    else if(event.data.msg === 'setWindowY' && (event.data.y !== undefined)){
+    else if ( event.data.msg === 'setWindowY' && (event.data.y !== undefined) ) {
         let el_window;
         // specific window
-        if( event.data.window_id )
-            el_window = $(`.window[data-element_uuid="${html_encode(event.data.window_id)}"]`)
+        if ( event.data.window_id )
+        {
+            el_window = $(`.window[data-element_uuid="${html_encode(event.data.window_id)}"]`);
+        }
         // app window
         else
+        {
             el_window = window.window_for_app_instance(event.data.appInstanceID);
+        }
 
         // window not found
-        if(!el_window || el_window.length === 0)
+        if ( !el_window || el_window.length === 0 )
+        {
             return;
+        }
 
         // convert to number and set
-        if(event.data.y !== undefined){
+        if ( event.data.y !== undefined ) {
             event.data.y = parseFloat(event.data.y);
             // we don't want the window to go off the top edge of the screen
-            if(event.data.y < window.taskbar_height)
+            if ( event.data.y < window.taskbar_height )
+            {
                 event.data.y = window.taskbar_height;
+            }
             // we don't want the window to go off the bottom edge of the screen
-            if(event.data.y > window.innerHeight - 100)
+            if ( event.data.y > window.innerHeight - 100 )
+            {
                 event.data.y = window.innerHeight - 100;
+            }
             // set window top
             $(el_window).css('top', parseFloat(event.data.y));
         }
 
         // send confirmation to requester window
         target_iframe.contentWindow.postMessage({
-            original_msg_id: msg_id, 
+            original_msg_id: msg_id,
         }, '*');
-    }    
+    }
     //--------------------------------------------------------
     // watchItem
     //--------------------------------------------------------
-    else if(event.data.msg === 'watchItem' && event.data.item_uid !== undefined){
-        if(!window.watchItems[event.data.item_uid])
+    else if ( event.data.msg === 'watchItem' && event.data.item_uid !== undefined ) {
+        if ( ! window.watchItems[event.data.item_uid] )
+        {
             window.watchItems[event.data.item_uid] = [];
+        }
 
         window.watchItems[event.data.item_uid].push(event.data.appInstanceID);
     }
     //--------------------------------------------------------
     // readAppDataFile
     //--------------------------------------------------------
-    else if(event.data.msg === 'readAppDataFile' && event.data.path !== undefined){
+    else if ( event.data.msg === 'readAppDataFile' && event.data.path !== undefined ) {
         // resolve path to absolute
         event.data.path = path.resolve(event.data.path);
-        
+
         // join with appdata dir
         const file_path = path.join(window.appdata_path, app_uuid, event.data.path);
 
         puter.fs.sign(app_uuid, {
-                path: file_path, 
-                action: 'write',
-            }, 
-            function(signature){
-                signature = signature.items;
-                signature.signatures = signature.signatures ?? [signature];
-                if(signature.signatures.length > 0 && signature.signatures[0].path){
-                    signature.signatures[0].path = privacy_aware_path(signature.signatures[0].path)
-                    // send confirmation to requester window
-                    target_iframe.contentWindow.postMessage({
-                        msg: "readAppDataFileSucceeded",
-                        original_msg_id: msg_id, 
-                        item: signature.signatures[0],
-                    }, '*');
-                }else{
-                    // send error to requester window
-                    target_iframe.contentWindow.postMessage({
-                        msg: "readAppDataFileFailed",
-                        original_msg_id: msg_id, 
-                    }, '*');
-                }
+            path: file_path,
+            action: 'write',
+        }, function (signature) {
+            signature = signature.items;
+            signature.signatures = signature.signatures ?? [signature];
+            if ( signature.signatures.length > 0 && signature.signatures[0].path ) {
+                signature.signatures[0].path = privacy_aware_path(signature.signatures[0].path);
+                // send confirmation to requester window
+                target_iframe.contentWindow.postMessage({
+                    msg: 'readAppDataFileSucceeded',
+                    original_msg_id: msg_id,
+                    item: signature.signatures[0],
+                }, '*');
+            } else {
+                // send error to requester window
+                target_iframe.contentWindow.postMessage({
+                    msg: 'readAppDataFileFailed',
+                    original_msg_id: msg_id,
+                }, '*');
             }
-        )
+        });
     }
     //--------------------------------------------------------
     // getAppData
     //--------------------------------------------------------
     // todo appdata should be provided from the /open_item api call
-    else if(event.data.msg === 'getAppData'){
-        if(window.appdata_signatures[app_uuid]){
+    else if ( event.data.msg === 'getAppData' ) {
+        if ( window.appdata_signatures[app_uuid] ) {
             target_iframe.contentWindow.postMessage({
-                msg: "getAppDataSucceeded",
-                original_msg_id: msg_id, 
+                msg: 'getAppDataSucceeded',
+                original_msg_id: msg_id,
                 item: window.appdata_signatures[app_uuid],
-            }, '*');    
+            }, '*');
         }
         // make app directory if it doesn't exist
         puter.fs.mkdir({
-            path: path.join( window.appdata_path, app_uuid),
+            path: path.join(window.appdata_path, app_uuid),
             rename: false,
             overwrite: false,
-            success: function(dir){
+            success: function (dir) {
                 puter.fs.sign(app_uuid, {
-                    uid: dir.uid, 
+                    uid: dir.uid,
                     action: 'write',
-                    success: function(signature){
+                    success: function (signature) {
                         signature = signature.items;
                         window.appdata_signatures[app_uuid] = signature;
                         // send confirmation to requester window
                         target_iframe.contentWindow.postMessage({
-                            msg: "getAppDataSucceeded",
-                            original_msg_id: msg_id, 
+                            msg: 'getAppDataSucceeded',
+                            original_msg_id: msg_id,
                             item: signature,
                         }, '*');
-                    }
-                })
+                    },
+                });
             },
-            error: function(err){
-                if(err.existing_fsentry || err.code === 'path_exists'){
+            error: function (err) {
+                if ( err.existing_fsentry || err.code === 'path_exists' ) {
                     puter.fs.sign(app_uuid, {
-                        uid: err.existing_fsentry.uid, 
+                        uid: err.existing_fsentry.uid,
                         action: 'write',
-                        success: function(signature){
+                        success: function (signature) {
                             signature = signature.items;
                             window.appdata_signatures[app_uuid] = signature;
                             // send confirmation to requester window
                             target_iframe.contentWindow.postMessage({
-                                msg: "getAppDataSucceeded",
-                                original_msg_id: msg_id, 
+                                msg: 'getAppDataSucceeded',
+                                original_msg_id: msg_id,
                                 item: signature,
                             }, '*');
-                        }
-                    })    
+                        },
+                    });
                 }
-            }
+            },
         });
     }
     //--------------------------------------------------------
     // requestPermission
     //--------------------------------------------------------
-    else if(event.data.msg === 'requestPermission'){
+    else if ( event.data.msg === 'requestPermission' ) {
         // auth
-        if(!window.is_auth() && !(await UIWindowSignup({referrer: app_name})))
+        if ( !window.is_auth() && !(await UIWindowSignup({ referrer: app_name })) )
+        {
             return;
+        }
 
         // options must be an object
-        if(event.data.options === undefined || typeof event.data.options !== 'object')
+        if ( event.data.options === undefined || typeof event.data.options !== 'object' )
+        {
             event.data.options = {};
+        }
 
         // options.permission must be provided and be a string
-        if(!event.data.options.permission || typeof event.data.options.permission !== 'string')
+        if ( !event.data.options.permission || typeof event.data.options.permission !== 'string' )
+        {
             return;
+        }
 
-        let granted = await UIWindowRequestPermission(
-            {
-                permission: event.data.options.permission,
-                window_options: {
-                    parent_uuid: event.data.appInstanceID,
-                    disable_parent_window: true,
-                },
-                app_uid: app_uuid, 
-                app_name: app_name, 
-            }
-        );
-        
+        let granted = await UIWindowRequestPermission({
+            permission: event.data.options.permission,
+            window_options: {
+                parent_uuid: event.data.appInstanceID,
+                disable_parent_window: true,
+            },
+            app_uid: app_uuid,
+            app_name: app_name,
+        });
+
         // send selected font to requester window
         target_iframe.contentWindow.postMessage({
-            msg: "permissionGranted", 
+            msg: 'permissionGranted',
             granted: granted,
-            original_msg_id: msg_id, 
+            original_msg_id: msg_id,
         }, '*');
-        $(target_iframe).get(0).focus({preventScroll:true});
+        $(target_iframe).get(0).focus({ preventScroll: true });
     }
     //--------------------------------------------------------
     // showFontPicker
     //--------------------------------------------------------
-    else if(event.data.msg === 'showFontPicker'){
+    else if ( event.data.msg === 'showFontPicker' ) {
         // auth
-        if(!window.is_auth() && !(await UIWindowSignup({referrer: app_name})))
+        if ( !window.is_auth() && !(await UIWindowSignup({ referrer: app_name })) )
+        {
             return;
+        }
 
         // set options
         event.data.options = event.data.options ?? {};
 
         // clear window_options for security reasons
-        event.data.options.window_options = {}
+        event.data.options.window_options = {};
 
         // Set app as parent window of font picker window
         event.data.options.window_options.parent_uuid = event.data.appInstanceID;
@@ -1225,25 +1315,27 @@ const ipc_listener = async (event, handled) => {
 
         // send selected font to requester window
         target_iframe.contentWindow.postMessage({
-            msg: "fontPicked", 
-            original_msg_id: msg_id, 
+            msg: 'fontPicked',
+            original_msg_id: msg_id,
             font: selected_font,
         }, '*');
-        $(target_iframe).get(0).focus({preventScroll:true});
+        $(target_iframe).get(0).focus({ preventScroll: true });
     }
     //--------------------------------------------------------
     // showColorPicker
     //--------------------------------------------------------
-    else if(event.data.msg === 'showColorPicker'){
+    else if ( event.data.msg === 'showColorPicker' ) {
         // Auth
-        if(!window.is_auth() && !(await UIWindowSignup({referrer: app_name})))
+        if ( !window.is_auth() && !(await UIWindowSignup({ referrer: app_name })) )
+        {
             return;
+        }
 
         // set options
         event.data.options = event.data.options ?? {};
 
         // Clear window_options for security reasons
-        event.data.options.window_options = {}
+        event.data.options.window_options = {};
 
         // Set app as parent window of the font picker window
         event.data.options.window_options.parent_uuid = event.data.appInstanceID;
@@ -1253,44 +1345,48 @@ const ipc_listener = async (event, handled) => {
 
         // Send selected color to requester window
         target_iframe.contentWindow.postMessage({
-            msg: "colorPicked", 
-            original_msg_id: msg_id, 
+            msg: 'colorPicked',
+            original_msg_id: msg_id,
             color: selected_color ? selected_color.color : undefined,
         }, '*');
-        $(target_iframe).get(0).focus({preventScroll:true});
-    }        
+        $(target_iframe).get(0).focus({ preventScroll: true });
+    }
     //--------------------------------------------------------
     // setWallpaper
     //--------------------------------------------------------
-    else if(event.data.msg === 'setWallpaper'){
+    else if ( event.data.msg === 'setWallpaper' ) {
         // Auth
-        if(!window.is_auth() && !(await UIWindowSignup({referrer: app_name})))
+        if ( !window.is_auth() && !(await UIWindowSignup({ referrer: app_name })) )
+        {
             return;
+        }
 
         // No options?
-        if(!event.data.options)
+        if ( ! event.data.options )
+        {
             event.data.options = {};
+        }
 
         // /set-desktop-bg
-        try{
+        try {
             await $.ajax({
-                url: window.api_origin + "/set-desktop-bg",
+                url: `${window.api_origin }/set-desktop-bg`,
                 type: 'POST',
-                data: JSON.stringify({ 
+                data: JSON.stringify({
                     url: event.data.readURL,
                     fit: event.data.options.fit ?? 'cover',
                     color: event.data.options.color,
                 }),
                 async: true,
-                contentType: "application/json",
+                contentType: 'application/json',
                 headers: {
-                    "Authorization": "Bearer "+window.auth_token
+                    'Authorization': `Bearer ${window.auth_token}`,
                 },
                 statusCode: {
                     401: function () {
                         window.logout();
                     },
-                },    
+                },
             });
 
             // Set wallpaper
@@ -1298,44 +1394,46 @@ const ipc_listener = async (event, handled) => {
                 url: event.data.readURL,
                 fit: event.data.options.fit ?? 'cover',
                 color: event.data.options.color,
-            })
-    
+            });
+
             // Send success to app
             target_iframe.contentWindow.postMessage({
-                msg: "wallpaperSet", 
-                original_msg_id: msg_id, 
+                msg: 'wallpaperSet',
+                original_msg_id: msg_id,
             }, '*');
-            $(target_iframe).get(0).focus({preventScroll:true});
-        }catch(err){
+            $(target_iframe).get(0).focus({ preventScroll: true });
+        } catch ( err ) {
             console.error(err);
         }
-    }        
+    }
 
     //--------------------------------------------------------
     // showSaveFilePicker
     //--------------------------------------------------------
-    else if(event.data.msg === 'showSaveFilePicker'){
+    else if ( event.data.msg === 'showSaveFilePicker' ) {
         //auth
-        if(!window.is_auth() && !(await UIWindowSignup({referrer: app_name})))
+        if ( !window.is_auth() && !(await UIWindowSignup({ referrer: app_name })) )
+        {
             return;
+        }
 
         //disable parent window
-        $el_parent_window.addClass('window-disabled')
+        $el_parent_window.addClass('window-disabled');
         $el_parent_disable_mask.show();
         $el_parent_disable_mask.css('z-index', parseInt($el_parent_window.css('z-index')) + 1);
         $(target_iframe).blur();
-        
+
         const tell_caller_and_update_views = async ({
             target_path,
             el_filedialog_window,
             res,
         }) => {
-            let file_signature = await puter.fs.sign(app_uuid, {uid: res.uid, action: 'write'});
+            let file_signature = await puter.fs.sign(app_uuid, { uid: res.uid, action: 'write' });
             file_signature = file_signature.items;
 
             target_iframe.contentWindow.postMessage({
-                msg: "fileSaved", 
-                original_msg_id: msg_id, 
+                msg: 'fileSaved',
+                original_msg_id: msg_id,
                 filename: res.name,
                 saved_file: {
                     name: file_signature.fsentry_name,
@@ -1344,11 +1442,11 @@ const ipc_listener = async (event, handled) => {
                     metadataURL: file_signature.metadata_url,
                     type: file_signature.type,
                     uid: file_signature.uid,
-                    path: privacy_aware_path(res.path)
+                    path: privacy_aware_path(res.path),
                 },
             }, '*');
 
-            $(target_iframe).get(0).focus({preventScroll:true});
+            $(target_iframe).get(0).focus({ preventScroll: true });
             // Update matching items on open windows
             // todo don't blanket-update, mostly files with thumbnails really need to be updated
             // first remove overwritten items
@@ -1370,36 +1468,34 @@ const ipc_listener = async (event, handled) => {
                 suggested_apps: res.suggested_apps,
             });
             // sort each window
-            $(`.item-container[data-path="${html_encode(path.dirname(target_path))}" i]`).each(function(){
-                window.sort_items(this, $(this).attr('data-sort_by'), $(this).attr('data-sort_order'))
-            });                            
+            $(`.item-container[data-path="${html_encode(path.dirname(target_path))}" i]`).each(function () {
+                window.sort_items(this, $(this).attr('data-sort_by'), $(this).attr('data-sort_order'));
+            });
             $(el_filedialog_window).close();
             window.show_save_account_notice_if_needed();
         };
 
         const tell_caller_its_cancelled = async () => {
             target_iframe.contentWindow.postMessage({
-                msg: "fileSaveCancelled", 
-                original_msg_id: msg_id, 
+                msg: 'fileSaveCancelled',
+                original_msg_id: msg_id,
             }, '*');
         };
-        
+
         const write_file_tell_caller_and_update_views = async ({
             target_path, el_filedialog_window,
             file_to_upload, overwrite,
         }) => {
-            const res = await puter.fs.write(
-                target_path,
-                file_to_upload, 
-                { 
-                    dedupeName: false,
-                    overwrite: overwrite
-                }
-            );
-            
+            const res = await puter.fs.write(target_path,
+                            file_to_upload,
+                            {
+                                dedupeName: false,
+                                overwrite: overwrite,
+                            });
+
             await tell_caller_and_update_views({ res, el_filedialog_window, target_path });
-        }
-        
+        };
+
         const handle_url_save = async ({ target_path }) => {
             // download progress tracker
             let dl_op_id = window.operation_id++;
@@ -1412,9 +1508,9 @@ const ipc_listener = async (event, handled) => {
             window.progress_tracker[dl_op_id][0].cloud_uploaded = 0;
 
             let item_with_same_name_already_exists = true;
-            while(item_with_same_name_already_exists){
+            while ( item_with_same_name_already_exists ) {
                 await download({
-                    url: event.data.url, 
+                    url: event.data.url,
                     name: path.basename(target_path),
                     dest_path: path.dirname(target_path),
                     auth_token: window.auth_token,
@@ -1423,23 +1519,25 @@ const ipc_listener = async (event, handled) => {
                     overwrite: false,
                     operation_id: dl_op_id,
                     item_upload_id: 0,
-                    success: function(res){
+                    success: function (res) {
                     },
-                    error: function(err){
-                        UIAlert(err && err.message ? err.message : "Download failed.");
-                    }
+                    error: function (err) {
+                        UIAlert(err && err.message ? err.message : 'Download failed.');
+                    },
                 });
                 item_with_same_name_already_exists = false;
             }
         };
-        
+
         const handle_data_save = async ({ target_path, el_filedialog_window }) => {
             let file_to_upload = new File([event.data.content], path.basename(target_path));
             const written = await window.handle_same_name_exists({
                 action: async ({ overwrite }) => {
                     await write_file_tell_caller_and_update_views({
-                        target_path, el_filedialog_window,
-                        file_to_upload, overwrite,
+                        target_path,
+                        el_filedialog_window,
+                        file_to_upload,
+                        overwrite,
                     });
                 },
                 parent_uuid: $(el_filedialog_window).attr('data-element_uuid'),
@@ -1448,21 +1546,21 @@ const ipc_listener = async (event, handled) => {
             if ( written ) return true;
             $(el_filedialog_window).find('.window-disable-mask, .busy-indicator').hide();
         };
-        
+
         const handle_move_save = async ({
             // when 'source_path' has a value, 'save_type' is checked to determine
             // if a fs.move() or fs.copy() needs to be performed.
             save_type,
-            
+
             source_path, target_path, el_filedialog_window,
         }) => {
             // source path must be in appdata directory
-            const stat_info = await puter.fs.stat({path: source_path, consistency: 'eventual'});
-            if ( ! stat_info.appdata_app || stat_info.appdata_app !== app_uuid ) {
+            const stat_info = await puter.fs.stat({ path: source_path, consistency: 'eventual' });
+            if ( !stat_info.appdata_app || stat_info.appdata_app !== app_uuid ) {
                 const source_file_owner = stat_info?.appdata_app ?? 'the user';
                 if ( stat_info.appdata_app && stat_info.appdata_app !== app_uuid ) {
                     await UIAlert({
-                        message: `apps are prohibited from accessing AppData of other apps`
+                        message: 'apps are prohibited from accessing AppData of other apps',
                     });
                     return;
                 }
@@ -1473,15 +1571,15 @@ const ipc_listener = async (event, handled) => {
                     return;
                 }
                 const FORCE_ALLOWED_APPS = [
-                    "app-dc2505ed-9844-4298-92fa-b72873b8381e", // OnlyOffice Word Processor
-                    "app-064a54ac-d07d-481e-b38c-ceb99345013d", // OnlyOffice Spreadsheet application
-                    "app-60b1382b-3367-4968-9259-23930c6fd376", // OnlyOffice Presentation Editor
-                    "app-075ddc0b-2d4e-460e-9664-a8d21b960c4a" // OnlyOffice PDF editor
-                ]
+                    'app-dc2505ed-9844-4298-92fa-b72873b8381e', // OnlyOffice Word Processor
+                    'app-064a54ac-d07d-481e-b38c-ceb99345013d', // OnlyOffice Spreadsheet application
+                    'app-60b1382b-3367-4968-9259-23930c6fd376', // OnlyOffice Presentation Editor
+                    'app-075ddc0b-2d4e-460e-9664-a8d21b960c4a', // OnlyOffice PDF editor
+                ];
 
                 let alert_resp;
-                if (FORCE_ALLOWED_APPS.includes(app_uuid)) {
-                    alert_resp = true
+                if ( FORCE_ALLOWED_APPS.includes(app_uuid) ) {
+                    alert_resp = true;
                 } else {
                     alert_resp = await UIAlert({
                         message: `the app ${app_name} is trying to copy ${source_path}; is this okay?`,
@@ -1496,22 +1594,22 @@ const ipc_listener = async (event, handled) => {
                                 value: false,
                                 type: 'secondary',
                             },
-                        ]
+                        ],
                     });
                 }
-                
+
                 // `alert_resp` will be `"false"`, but this check is forward-compatible
                 // with a version of UIAlert that returns `false`.
-                if ( ! alert_resp || alert_resp === 'false' ) return;
+                if ( !alert_resp || alert_resp === 'false' ) return;
             }
-            
+
             let node;
             const written = await window.handle_same_name_exists({
                 action: async ({ overwrite }) => {
                     if ( overwrite ) {
                         await puter.fs.delete(target_path);
                     }
-                    
+
                     if ( save_type === 'copy' ) {
                         const target_dir = path.dirname(target_path);
                         const new_name = path.basename(target_path);
@@ -1538,7 +1636,7 @@ const ipc_listener = async (event, handled) => {
         };
 
         await UIWindow({
-            path: '/' + window.user.username + '/Desktop',
+            path: `/${ window.user.username }/Desktop`,
             // this is the uuid of the window to which this dialog will return
             parent_uuid: event.data.appInstanceID,
             show_maximize_button: false,
@@ -1552,11 +1650,11 @@ const ipc_listener = async (event, handled) => {
             center: true,
             initiating_app_uuid: app_uuid,
             onDialogCancel: () => tell_caller_its_cancelled(),
-            onSaveFileDialogSave: async function(target_path, el_filedialog_window){
+            onSaveFileDialogSave: async function (target_path, el_filedialog_window) {
                 $(el_filedialog_window).find('.window-disable-mask, .busy-indicator').show();
                 let busy_init_ts = Date.now();
 
-                if (event.data.url){
+                if ( event.data.url ) {
                     await handle_url_save({ target_path });
                 } else if ( event.data.source_path ) {
                     await handle_move_save({
@@ -1567,24 +1665,24 @@ const ipc_listener = async (event, handled) => {
                 } else {
                     await handle_data_save({ target_path, el_filedialog_window });
                 }
-                
+
                 let busy_duration = (Date.now() - busy_init_ts);
-                if( busy_duration >= window.busy_indicator_hide_delay){
-                    $(el_filedialog_window).close();   
-                }else{
+                if ( busy_duration >= window.busy_indicator_hide_delay ) {
+                    $(el_filedialog_window).close();
+                } else {
                     setTimeout(() => {
                         // close this dialog
-                        $(el_filedialog_window).close();  
+                        $(el_filedialog_window).close();
                     }, Math.abs(window.busy_indicator_hide_delay - busy_duration));
                 }
-            }
+            },
         });
     }
     //--------------------------------------------------------
     // saveToPictures/Desktop/Documents/Videos/Audio/AppData
     //--------------------------------------------------------
-    else if((event.data.msg === 'saveToPictures' || event.data.msg === 'saveToDesktop' || event.data.msg === 'saveToAppData' || 
-            event.data.msg === 'saveToDocuments' || event.data.msg === 'saveToVideos' || event.data.msg === 'saveToAudio')){
+    else if (( event.data.msg === 'saveToPictures' || event.data.msg === 'saveToDesktop' || event.data.msg === 'saveToAppData' ||
+        event.data.msg === 'saveToDocuments' || event.data.msg === 'saveToVideos' || event.data.msg === 'saveToAudio' )) {
         let target_path;
         let create_missing_ancestors = false;
 
@@ -1592,23 +1690,35 @@ const ipc_listener = async (event, handled) => {
         event.data.filename = path.normalize(event.data.filename)
             .replace(/(\.+\/|\.+\\)/g, '');
 
-        if(event.data.msg === 'saveToPictures')
+        if ( event.data.msg === 'saveToPictures' )
+        {
             target_path = path.join(window.pictures_path, event.data.filename);
-        else if(event.data.msg === 'saveToDesktop')
+        }
+        else if ( event.data.msg === 'saveToDesktop' )
+        {
             target_path = path.join(window.desktop_path, event.data.filename);
-        else if(event.data.msg === 'saveToDocuments')
+        }
+        else if ( event.data.msg === 'saveToDocuments' )
+        {
             target_path = path.join(window.documents_path, event.data.filename);
-        else if(event.data.msg === 'saveToVideos')
+        }
+        else if ( event.data.msg === 'saveToVideos' )
+        {
             target_path = path.join(window.videos_path, event.data.filename);
-        else if(event.data.msg === 'saveToAudio')
+        }
+        else if ( event.data.msg === 'saveToAudio' )
+        {
             target_path = path.join(window.audio_path, event.data.filename);
-        else if(event.data.msg === 'saveToAppData'){
+        }
+        else if ( event.data.msg === 'saveToAppData' ) {
             target_path = path.join(window.appdata_path, app_uuid, event.data.filename);
             create_missing_ancestors = true;
         }
         //auth
-        if(!window.is_auth() && !(await UIWindowSignup({referrer: app_name})))
+        if ( !window.is_auth() && !(await UIWindowSignup({ referrer: app_name })) )
+        {
             return;
+        }
 
         let item_with_same_name_already_exists = true;
         let overwrite = false;
@@ -1616,7 +1726,7 @@ const ipc_listener = async (event, handled) => {
         // -------------------------------------
         // URL
         // -------------------------------------
-        if(event.data.url){
+        if ( event.data.url ) {
             let overwrite = false;
             // download progress tracker
             let dl_op_id = window.operation_id++;
@@ -1629,9 +1739,9 @@ const ipc_listener = async (event, handled) => {
             window.progress_tracker[dl_op_id][0].cloud_uploaded = 0;
 
             let item_with_same_name_already_exists = true;
-            while(item_with_same_name_already_exists){
+            while ( item_with_same_name_already_exists ) {
                 const res = await download({
-                    url: event.data.url, 
+                    url: event.data.url,
                     name: path.basename(target_path),
                     dest_path: path.dirname(target_path),
                     auth_token: window.auth_token,
@@ -1640,11 +1750,11 @@ const ipc_listener = async (event, handled) => {
                     overwrite: false,
                     operation_id: dl_op_id,
                     item_upload_id: 0,
-                    success: function(res){
+                    success: function (res) {
                     },
-                    error: function(err){
-                        UIAlert(err && err.message ? err.message : "Download failed.");
-                    }
+                    error: function (err) {
+                        UIAlert(err && err.message ? err.message : 'Download failed.');
+                    },
                 });
                 item_with_same_name_already_exists = false;
             }
@@ -1652,25 +1762,27 @@ const ipc_listener = async (event, handled) => {
         // -------------------------------------
         // File
         // -------------------------------------
-        else{
+        else {
             let file_to_upload = new File([event.data.content], path.basename(target_path));
-            
-            while(item_with_same_name_already_exists){
-                if(overwrite)
+
+            while ( item_with_same_name_already_exists ) {
+                if ( overwrite )
+                {
                     item_with_same_name_already_exists = false;
-                try{
+                }
+                try {
                     const res = await puter.fs.write(target_path, file_to_upload, {
                         dedupeName: true,
                         overwrite: false,
                         createMissingAncestors: create_missing_ancestors,
                     });
                     item_with_same_name_already_exists = false;
-                    let file_signature = await puter.fs.sign(app_uuid, {uid: res.uid, action: 'write'});
+                    let file_signature = await puter.fs.sign(app_uuid, { uid: res.uid, action: 'write' });
                     file_signature = file_signature.items;
 
                     target_iframe.contentWindow.postMessage({
-                        msg: "fileSaved", 
-                        original_msg_id: msg_id, 
+                        msg: 'fileSaved',
+                        original_msg_id: msg_id,
                         filename: res.name,
                         saved_file: {
                             name: file_signature.fsentry_name,
@@ -1681,13 +1793,13 @@ const ipc_listener = async (event, handled) => {
                             path: privacy_aware_path(res.path),
                         },
                     }, '*');
-                    $(target_iframe).get(0).focus({preventScroll:true});
+                    $(target_iframe).get(0).focus({ preventScroll: true });
                 }
-                catch(err){
-                    if(err.code === 'item_with_same_name_exists'){
+                catch ( err ) {
+                    if ( err.code === 'item_with_same_name_exists' ) {
                         const alert_resp = await UIAlert({
                             message: `<strong>${html_encode(err.entry_name)}</strong> already exists.`,
-                            buttons:[
+                            buttons: [
                                 {
                                     label: i18n('replace'),
                                     value: 'replace',
@@ -1695,17 +1807,17 @@ const ipc_listener = async (event, handled) => {
                                 },
                                 {
                                     label: i18n('cancel'),
-                                    value: 'cancel'
+                                    value: 'cancel',
                                 },
                             ],
                             parent_uuid: event.data.appInstanceID,
-                        })
-                        if(alert_resp === 'replace'){
+                        });
+                        if ( alert_resp === 'replace' ) {
                             overwrite = true;
-                        }else if(alert_resp === 'cancel'){
+                        } else if ( alert_resp === 'cancel' ) {
                             item_with_same_name_already_exists = false;
                         }
-                    }else{
+                    } else {
                         break;
                     }
                 }
@@ -1715,7 +1827,7 @@ const ipc_listener = async (event, handled) => {
     //--------------------------------------------------------
     // messageToApp
     //--------------------------------------------------------
-    else if (event.data.msg === 'messageToApp') {
+    else if ( event.data.msg === 'messageToApp' ) {
         const { appInstanceID, targetAppInstanceID, targetAppOrigin, contents } = event.data;
         // TODO: Determine if we should allow the message
         // TODO: Track message traffic between apps
@@ -1730,7 +1842,7 @@ const ipc_listener = async (event, handled) => {
 
         // pass on the message
         const target_iframe = window.iframe_for_app_instance(targetAppInstanceID);
-        if (!target_iframe) {
+        if ( ! target_iframe ) {
             console.error('Failed to send message to non-existent app', event);
             return;
         }
@@ -1744,11 +1856,11 @@ const ipc_listener = async (event, handled) => {
     //--------------------------------------------------------
     // closeApp
     //--------------------------------------------------------
-    else if (event.data.msg === 'closeApp') {
+    else if ( event.data.msg === 'closeApp' ) {
         const { appInstanceID, targetAppInstanceID } = event.data;
 
         const target_window = window.window_for_app_instance(targetAppInstanceID);
-        if (!target_window) {
+        if ( ! target_window ) {
             console.warn(`Failed to close non-existent app ${targetAppInstanceID}`);
             return;
         }
@@ -1756,14 +1868,14 @@ const ipc_listener = async (event, handled) => {
         // Check permissions
         const allowed = await (async () => {
             // Parents can close their children
-            if (target_window.dataset['parent_instance_id'] === appInstanceID) {
+            if ( target_window.dataset['parent_instance_id'] === appInstanceID ) {
                 console.log(`⚠️ Allowing app ${appInstanceID} to close child app ${targetAppInstanceID}`);
                 return true;
             }
 
             // God-mode apps can close anything
             const app_info = await window.get_apps(app_name);
-            if (app_info.godmode === 1) {
+            if ( app_info.godmode === 1 ) {
                 console.log(`⚠️ Allowing GODMODE app ${appInstanceID} to close app ${targetAppInstanceID}`);
                 return true;
             }
@@ -1772,7 +1884,7 @@ const ipc_listener = async (event, handled) => {
             return false;
         })();
 
-        if (allowed) {
+        if ( allowed ) {
             $(target_window).close();
         } else {
             console.warn(`⚠️ App ${appInstanceID} is not permitted to close app ${targetAppInstanceID}`);
@@ -1782,10 +1894,10 @@ const ipc_listener = async (event, handled) => {
     //--------------------------------------------------------
     // exit
     //--------------------------------------------------------
-    else if(event.data.msg === 'exit'){
+    else if ( event.data.msg === 'exit' ) {
         // Ensure status code is a number. Convert any truthy non-numbers to 1.
         let status_code = event.data.statusCode ?? 0;
-        if (status_code && (typeof status_code !== 'number')) {
+        if ( status_code && (typeof status_code !== 'number') ) {
             status_code = 1;
         }
 

@@ -16,9 +16,9 @@
  * You should have received a copy of the GNU Affero General Public License
  * along with this program.  If not, see <https://www.gnu.org/licenses/>.
  */
-const { AdvancedBase } = require("@heyputer/putility");
-const { WeakConstructorFeature } = require("../../traits/WeakConstructorFeature");
-const { Context } = require("../../util/context");
+const { AdvancedBase } = require('@heyputer/putility');
+const { WeakConstructorFeature } = require('../../traits/WeakConstructorFeature');
+const { Context } = require('../../util/context');
 
 /**
  * BaseES is a base class for Entity Store classes.
@@ -26,7 +26,7 @@ const { Context } = require("../../util/context");
 class BaseES extends AdvancedBase {
     static FEATURES = [
         new WeakConstructorFeature(),
-    ]
+    ];
 
     // Default implementations
     static METHODS = {
@@ -59,7 +59,7 @@ class BaseES extends AdvancedBase {
                 throw Error('Missing terminal operation');
             }
             return await this.upstream.create_predicate(id, ...args);
-        }
+        },
     };
 
     constructor (...a) {
@@ -107,7 +107,7 @@ class BaseES extends AdvancedBase {
             const retry_predicate = await this.retry_predicate_rewrite(uid);
             if ( retry_predicate ) {
                 entity = await this.call_on_impl_('read',
-                    { predicate: retry_predicate });
+                                { predicate: retry_predicate });
             }
         }
         if ( ! this.impl_methods.read_transform ) return entity;
@@ -135,7 +135,6 @@ class BaseES extends AdvancedBase {
         if ( ! this.impl_methods.retry_predicate_rewrite ) return;
         return await this.call_on_impl_('retry_predicate_rewrite', { predicate });
     }
-
 
     async read_transform (entity) {
         if ( ! entity ) return entity;

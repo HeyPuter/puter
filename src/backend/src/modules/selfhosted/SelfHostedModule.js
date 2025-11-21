@@ -16,11 +16,11 @@
  * You should have received a copy of the GNU Affero General Public License
  * along with this program.  If not, see <https://www.gnu.org/licenses/>.
  */
-const { AdvancedBase } = require("@heyputer/putility");
-const config = require("../../config");
+const { AdvancedBase } = require('@heyputer/putility');
+const config = require('../../config');
 
 class SelfHostedModule extends AdvancedBase {
-    async install(context) {
+    async install (context) {
         const services = context.get('services');
 
         const { SelfhostedService } = require('./SelfhostedService');
@@ -35,10 +35,10 @@ class SelfHostedModule extends AdvancedBase {
         const DevWatcherService = require('./DevWatcherService');
         const path_ = require('path');
 
-        const DevCreditService = require("./DevCreditService");
+        const DevCreditService = require('./DevCreditService');
         services.registerService('dev-credit', DevCreditService);
 
-        const { DBKVServiceWrapper } = require("../../services/repositories/DBKVStore/index.mjs");
+        const { DBKVServiceWrapper } = require('../../services/repositories/DBKVStore/index.mjs');
         services.registerService('puter-kvstore', DBKVServiceWrapper);
 
         // const MinLogService = require('./MinLogService');
@@ -56,14 +56,14 @@ class SelfHostedModule extends AdvancedBase {
                         name: 'phoenix',
                         directory: 'src/phoenix',
                         env: {
-                            PUTER_JS_URL: ({ global_config: config }) => config?.origin ? config.origin + '/puter.js/v2' : '',
+                            PUTER_JS_URL: ({ global_config: config }) => config?.origin ? `${config.origin }/puter.js/v2` : '',
                         },
                     },
                     {
                         name: 'terminal',
                         directory: 'src/terminal',
                         env: {
-                            PUTER_JS_URL: ({ global_config: config }) => config?.origin ? config.origin + '/puter.js/v2' : '',
+                            PUTER_JS_URL: ({ global_config: config }) => config?.origin ? `${config.origin }/puter.js/v2` : '',
                         },
                     },
                     {
@@ -92,7 +92,7 @@ class SelfHostedModule extends AdvancedBase {
             });
         }
 
-        const { ServeStaticFilesService } = require("./ServeStaticFilesService");
+        const { ServeStaticFilesService } = require('./ServeStaticFilesService');
         services.registerService('__serve-puterjs', ServeStaticFilesService, {
             directories: [
                 {

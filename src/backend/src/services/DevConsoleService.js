@@ -22,7 +22,6 @@ const { consoleLogManager } = require('../util/consolelog');
 const BaseService = require('./BaseService');
 const { NullDevConsoleService } = require('./NullDevConsoleService');
 
-
 /**
 * DevConsoleService - A service for managing the developer console interface,
 * providing functionalities such as adding and removing widgets, updating the display,
@@ -31,13 +30,12 @@ const { NullDevConsoleService } = require('./NullDevConsoleService');
 class DevConsoleService extends BaseService {
     static MODULES = {
         fs: require('fs'),
-    }
-
+    };
 
     /**
-    * Initializes the DevConsoleService instance, setting up required properties 
+    * Initializes the DevConsoleService instance, setting up required properties
     * and determining if the application is running in a Docker environment.
-    * 
+    *
     * @returns {void} This method does not return a value.
     */
     _construct () {
@@ -45,7 +43,7 @@ class DevConsoleService extends BaseService {
         this.widgets = [];
         this.identifiers = {};
         this.has_updates = false;
-        
+
         try {
             const require = this.require;
             const fs = require('fs');
@@ -58,7 +56,6 @@ class DevConsoleService extends BaseService {
         }
     }
 
-
     /**
      * Activates the warning lights by adding a widget that outputs a warning message.
      * The widget will display a flashing warning message when it is turned on.
@@ -66,8 +63,8 @@ class DevConsoleService extends BaseService {
     turn_on_the_warning_lights () {
         /**
         * Turns on the warning lights by adding a warning widget to the console.
-        * This function calls the `add_widget` method to display a formatted 
-        * warning message. The widget will be shown in red and blinking, 
+        * This function calls the `add_widget` method to display a formatted
+        * warning message. The widget will be shown in red and blinking,
         * indicating a warning state.
         */
         this.add_widget(() => {
@@ -92,16 +89,16 @@ class DevConsoleService extends BaseService {
         this.widgets = this.widgets.filter(w => w !== id_or_outputter);
         this.mark_updated();
     }
-    
+
     notice = NullDevConsoleService.notice;
-    
+
     /**
      * Updates the displayed output based on the current state of widgets.
-     * This method collects output from all active widgets, handles any errors, 
+     * This method collects output from all active widgets, handles any errors,
      * and maintains the integrity of displayed information.
-     * 
-     * It modifies the static_lines array to reflect the latest outputs and 
-     * removes widgets that produce errors. The display is updated only if there 
+     *
+     * It modifies the static_lines array to reflect the latest outputs and
+     * removes widgets that produce errors. The display is updated only if there
      * are changes in the output.
      */
     update_ () {
@@ -129,10 +126,10 @@ class DevConsoleService extends BaseService {
         const size_ok = () =>
             process.stdout.rows - DESIRED_MIN_OUT > this.static_lines.length;
         let n_hidden = 0;
-        for ( let i = this.widgets.length-1 ; i >= 0 ; i-- ) {
+        for ( let i = this.widgets.length - 1 ; i >= 0 ; i-- ) {
             if ( size_ok() ) break;
             const w = this.widgets[i];
-            if ( w.critical ) continue; 
+            if ( w.critical ) continue;
             if ( ! w.unimportant ) continue;
             n_hidden++;
             const [start, length] = positions[i];
@@ -142,7 +139,7 @@ class DevConsoleService extends BaseService {
                 positions[j][0] -= length;
             }
         }
-        for ( let i = this.widgets.length-1 ; i >= 0 ; i-- ) {
+        for ( let i = this.widgets.length - 1 ; i >= 0 ; i-- ) {
             if ( size_ok() ) break;
             const w = this.widgets[i];
             if ( w.critical ) continue;
@@ -151,17 +148,13 @@ class DevConsoleService extends BaseService {
             this.static_lines.splice(start, length);
         }
         if ( n_hidden && size_ok() ) {
-            this.static_lines.push(
-                `\x1B[33m` +
-                this.generateEnd(
-                    `[ ${n_hidden} widget${n_hidden === 1 ? '' : 's'} hidden ]`
-                ) +
-                `\x1B[0m`
-            );
+            this.static_lines.push(`\x1B[33m${
+                this.generateEnd(`[ ${n_hidden} widget${n_hidden === 1 ? '' : 's'} hidden ]`)
+            }\x1B[0m`);
         }
 
-        if (!this.arrays_equal(initialOutput, this.static_lines)) {
-            this.mark_updated();  // Update only if outputs have changed
+        if ( ! this.arrays_equal(initialOutput, this.static_lines) ) {
+            this.mark_updated(); // Update only if outputs have changed
         }
         for ( const w of to_remove ) {
             this.remove_widget(w);
@@ -172,7 +165,6 @@ class DevConsoleService extends BaseService {
         return a.length === b.length && a.every((val, index) => val === b[index]);
     }
 
-
     /**
     * Marks that an update has occurred in the DevConsoleService.
     * This method sets the has_updates flag to true, indicating that
@@ -181,7 +173,6 @@ class DevConsoleService extends BaseService {
     mark_updated () {
         this.has_updates = true;
     }
-
 
     /**
     * Initializes the DevConsoleService, setting up necessary interfaces
@@ -206,8 +197,10 @@ class DevConsoleService extends BaseService {
                 if ( line.includes(' ') ) {
                     const [ commandName, ...args ] = line.split(/\s+/);
                     const command = commands.getCommand(commandName);
-                    if (!command)
+                    if ( ! command )
+                    {
                         return;
+                    }
                     return [ command.completeArgument(args), args[args.length - 1] ];
                 }
 
@@ -227,54 +220,46 @@ class DevConsoleService extends BaseService {
             this._after_cmd();
         });
 
-
         /**
         * _before_cmd - Handles operations needed before a command is executed.
-        * 
+        *
         * (resets cursor to correct position, if I recall correctly)
         */
         this._before_cmd = () => {
             rl.pause();
             rl.output.write('\x1b[1A\r');
             rl.output.write('\x1b[2K\r');
-            console.log(
-                `\x1B[33m` +
-                this.generateSeparator(`[ Command Output ]`) +
-                `\x1B[0m`
-            );
-        }
-
+            console.log(`\x1B[33m${
+                this.generateSeparator('[ Command Output ]')
+            }\x1B[0m`);
+        };
 
         /**
         * _after_cmd - Handles operations needed after a command is executed.
-        * 
+        *
         * This method is called to clean up the output after a command has been processed.
         * It logs a formatted message indicating the end of the command output.
         */
         this._after_cmd = () => {
-            console.log(
-                `\x1B[33m` +
-                this.generateEnd() +
-                `\x1B[0m`
-            );
-        }
-
+            console.log(`\x1B[33m${
+                this.generateEnd()
+            }\x1B[0m`);
+        };
 
         /**
-         * Prepares the output console by pausing input, clearing the console lines, 
-         * and writing the static lines to be displayed. This method interacts directly 
+         * Prepares the output console by pausing input, clearing the console lines,
+         * and writing the static lines to be displayed. This method interacts directly
          * with the terminal output handling the cursor movements and line clearances.
          */
         this._pre_write = () => {
             rl.pause();
             process.stdout.write('\x1b[0m');
             rl.output.write('\x1b[2K\r');
-            for (let i = 0; i < this.static_lines.length + 1; i++) {
+            for ( let i = 0; i < this.static_lines.length + 1; i++ ) {
                 process.stdout.write('\x1b[1A'); // Move cursor up one line
                 process.stdout.write('\x1b[2K'); // Clear the line
             }
-        }
-
+        };
 
         /**
         * Re-draws static lines and the input prompt (everything at the bottom of
@@ -283,12 +268,10 @@ class DevConsoleService extends BaseService {
         this._post_write = () => {
             this.update_();
             // Draw separator bar
-            process.stdout.write(
-                `\x1B[36m` +
-                this.generateSeparator() +
-                `\x1B[0m\n`
-            );
-            
+            process.stdout.write(`\x1B[36m${
+                this.generateSeparator()
+            }\x1B[0m\n`);
+
             // Input background disabled on Mac OS because it
             // has a - brace yourself - light-theme terminal 😱
             const drawInputBackground =
@@ -296,7 +279,7 @@ class DevConsoleService extends BaseService {
 
             // Redraw the static lines
             this.static_lines.forEach(line => {
-                process.stdout.write(line + '\n');
+                process.stdout.write(`${line }\n`);
             });
             if ( drawInputBackground ) {
                 // input background
@@ -310,7 +293,6 @@ class DevConsoleService extends BaseService {
             }
         };
 
-
         /**
         * Triggers the pre-write and post-write processes to refresh the console output.
         * This method ensures that the latest changes are reflected in the console view.
@@ -320,14 +302,13 @@ class DevConsoleService extends BaseService {
             this._post_write();
         };
 
-
         /**
         * Starts an interval that periodically checks for updates and redraws the console output if needed.
-        * The interval runs every 2000 milliseconds (2 seconds) and invokes the `_redraw` method if 
+        * The interval runs every 2000 milliseconds (2 seconds) and invokes the `_redraw` method if
         * any updates have occurred since the last check.
         */
         setInterval(() => {
-            if (this.has_updates) {
+            if ( this.has_updates ) {
                 this._redraw();
                 this.has_updates = false;
             }
@@ -335,11 +316,11 @@ class DevConsoleService extends BaseService {
 
         /**
         * Decorates all console log messages with the specified pre-write actions.
-        * 
-        * This method is invoked before each log message is printed to the console, 
-        * ensuring that any necessary updates or redrawing of the console UI 
-        * can occur before the message is displayed. 
-        * 
+        *
+        * This method is invoked before each log message is printed to the console,
+        * ensuring that any necessary updates or redrawing of the console UI
+        * can occur before the message is displayed.
+        *
         * It does not accept any parameters and does not return any value.
         */
         consoleLogManager.decorate_all(({ replace }, ...args) => {
@@ -348,21 +329,21 @@ class DevConsoleService extends BaseService {
 
         consoleLogManager.post_all(() => {
             this._post_write();
-        })
+        });
 
         // This prevents the promptline background from staying
         // when Ctrl+C is used to terminate the server
         rl.on('SIGINT', () => {
-            process.stdout.write(`\x1b[0m\r`);
+            process.stdout.write('\x1b[0m\r');
             process.exit(0);
         });
     }
 
-    generateSeparator(text) {
+    generateSeparator (text) {
         text = text || '[ Dev Console ]';
         const totalWidth = process.stdout.columns;
 
-        if ( totalWidth <= text.length+1 ) {
+        if ( totalWidth <= text.length + 1 ) {
             return '═'.repeat(totalWidth < 0 ? 0 : totalWidth);
         }
 
@@ -372,7 +353,7 @@ class DevConsoleService extends BaseService {
         return '═'.repeat(Math.floor(paddingSize)) + text + '═'.repeat(Math.ceil(paddingSize));
     }
 
-    generateEnd(text) {
+    generateEnd (text) {
         text = text || '';
         const totalWidth = process.stdout.columns;
         const paddingSize = (totalWidth - text.length) / 2;
@@ -383,5 +364,5 @@ class DevConsoleService extends BaseService {
 }
 
 module.exports = {
-    DevConsoleService
+    DevConsoleService,
 };

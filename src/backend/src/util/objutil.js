@@ -1,4 +1,4 @@
-const { whatis } = require("./langutil");
+const { whatis } = require('./langutil');
 
 const DO_NOT_DEFINE = Symbol('DO_NOT_DEFINE');
 
@@ -11,7 +11,7 @@ const createTransformedValues = (input, options = {}, state = {}) => {
             return DO_NOT_DEFINE;
         }
         const output = [];
-        for ( let i=0 ; i < input.length; i++ ) {
+        for ( let i = 0 ; i < input.length; i++ ) {
             const value = input[i];
             state.keys.push(i);
             output.push(createTransformedValues(value, options, state));

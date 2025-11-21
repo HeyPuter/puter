@@ -17,13 +17,13 @@
  * You should have received a copy of the GNU Affero General Public License
  * along with this program.  If not, see <https://www.gnu.org/licenses/>.
  */
-const { AdvancedBase } = require("../../../../putility");
-const { Context } = require("../../util/context");
-const { MultiValue } = require("../../util/multivalue");
-const { stream_to_buffer } = require("../../util/streamutil");
-const { PassThrough } = require("stream");
-const { LLRead } = require("../../filesystem/ll_operations/ll_read");
-const APIError = require("../../api/APIError");
+const { AdvancedBase } = require('../../../../putility');
+const { Context } = require('../../util/context');
+const { MultiValue } = require('../../util/multivalue');
+const { stream_to_buffer } = require('../../util/streamutil');
+const { PassThrough } = require('stream');
+const { LLRead } = require('../../filesystem/ll_operations/ll_read');
+const APIError = require('../../api/APIError');
 
 /**
 * @class FileFacade
@@ -40,11 +40,11 @@ class FileFacade extends AdvancedBase {
     static OUT_TYPES = {
         S3_INFO: { key: 's3-info' },
         STREAM: { key: 'stream' },
-    }
+    };
 
     static MODULES = {
         axios: require('axios'),
-    }
+    };
 
     constructor (...a) {
         super(...a);
@@ -90,7 +90,7 @@ class FileFacade extends AdvancedBase {
         });
 
         this.values.add_factory('stream', 'web_url', async web_url => {
-            const response = await(async () => {
+            const response = await (async () => {
                 try {
                     return await FileFacade.MODULES.axios.get(web_url, {
                         responseType: 'stream',
@@ -99,7 +99,7 @@ class FileFacade extends AdvancedBase {
                     throw APIError.create('field_invalid', null, {
                         key: 'url',
                         expected: 'web URL',
-                        got: 'error during request: ' + e.message,
+                        got: `error during request: ${ e.message}`,
                     });
                 }
             })();
@@ -120,9 +120,12 @@ class FileFacade extends AdvancedBase {
         });
     }
 
-    set (k, v) { this.values.set(k, v); }
-    get (k) { return this.values.get(k); }
-
+    set (k, v) {
+        this.values.set(k, v);
+    }
+    get (k) {
+        return this.values.get(k);
+    }
 
 }
 

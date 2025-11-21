@@ -53,11 +53,11 @@ export default def(class TeePromise {
         this.status_ = this.constructor.STATUS_DONE;
         this.doneReject(err);
     }
-    
+
     /**
      * @deprecated use then() instead
      */
-    onComplete(fn) {
+    onComplete (fn) {
         return this.then(fn);
     }
 });

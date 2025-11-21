@@ -17,9 +17,8 @@
  * along with this program.  If not, see <https://www.gnu.org/licenses/>.
  */
 
-
 const Component = use('util.Component');
-import UIComponentWindow from "../UIComponentWindow.js";
+import UIComponentWindow from '../UIComponentWindow.js';
 
 export default def(class QRCodeView extends Component {
     static ID = 'ui.component.QRCodeView';
@@ -33,8 +32,8 @@ export default def(class QRCodeView extends Component {
         },
         enlarge_option: {
             value: true,
-        }
-    }
+        },
+    };
 
     static CSS = /*css*/`
         .qr-code {
@@ -52,7 +51,7 @@ export default def(class QRCodeView extends Component {
             cursor: -webkit-zoom-in; 
             cursor: zoom-in
         }
-    `
+    `;
 
     create_template ({ template }) {
         $(template).html(`
@@ -93,7 +92,7 @@ export default def(class QRCodeView extends Component {
                             'backdrop-filter': 'blur(3px)',
                             padding: '20px',
                         },
-                    })
+                    });
                 });
             }
         });

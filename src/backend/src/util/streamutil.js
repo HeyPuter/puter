@@ -42,19 +42,22 @@ class StreamBuffer extends TeePromise {
 }
 
 const stream_to_the_void = stream => {
-    stream.on('data', () => {});
-    stream.on('end', () => {});
-    stream.on('error', () => {});
+    stream.on('data', () => {
+    });
+    stream.on('end', () => {
+    });
+    stream.on('error', () => {
+    });
 };
 
 /**
  * This will split a stream (on the read side) into `n` streams.
  * The slowest reader will determine the speed the the source stream
  * is consumed at to avoid buffering.
- * 
- * @param {*} source 
- * @param {*} n 
- * @returns 
+ *
+ * @param {*} source
+ * @param {*} n
+ * @returns
  */
 const pausing_tee = (source, n) => {
     const { PassThrough } = require('stream');
@@ -62,7 +65,7 @@ const pausing_tee = (source, n) => {
     const ready_ = [];
     const streams_ = [];
     let first_ = true;
-    for ( let i=0 ; i < n ; i++ ) {
+    for ( let i = 0 ; i < n ; i++ ) {
         ready_.push(true);
         const stream = new PassThrough();
         streams_.push(stream);
@@ -72,7 +75,7 @@ const pausing_tee = (source, n) => {
                 source.resume();
                 first_ = false;
             }
-            if (ready_.every(v => !! v)) source.resume();
+            if ( ready_.every(v => !!v) ) source.resume();
         });
     }
 
@@ -80,20 +83,20 @@ const pausing_tee = (source, n) => {
         ready_.forEach((v, i) => {
             ready_[i] = streams_[i].write(chunk);
         });
-        if ( ! ready_.every(v => !! v) ) {
+        if ( ! ready_.every(v => !!v) ) {
             source.pause();
             return;
         }
     });
 
     source.on('end', () => {
-        for ( let i=0 ; i < n ; i++ ) {
+        for ( let i = 0 ; i < n ; i++ ) {
             streams_[i].end();
         }
     });
 
     source.on('error', (err) => {
-        for ( let i=0 ; i < n ; i++ ) {
+        for ( let i = 0 ; i < n ; i++ ) {
             streams_[i].emit('error', err);
         }
     });
@@ -105,12 +108,12 @@ const pausing_tee = (source, n) => {
  * A debugging stream transform that logs the data it receives.
  */
 class LoggingStream extends Transform {
-    constructor(options) {
+    constructor (options) {
         super(options);
         this.count = 0;
     }
 
-    _transform(chunk, encoding, callback) {
+    _transform (chunk, encoding, callback) {
         const stream_id = this.id ?? 'unknown';
         console.log(`[DATA@${stream_id}] :: ${chunk.length} (${this.count++})`);
         this.push(chunk);
@@ -152,17 +155,17 @@ const offset_write_stream = ({
     const implied = {
         get state () {
             const state =
-                remaining > 0      ? STATE_ORIGINAL_STREAM :
-                new_end && org_end ? STATE_END             :
-                new_end  ? STATE_CONTINUE        :
-                                     STATE_NEW_STREAM      ;
+                remaining > 0 ? STATE_ORIGINAL_STREAM :
+                    new_end && org_end ? STATE_END :
+                        new_end ? STATE_CONTINUE :
+                            STATE_NEW_STREAM ;
             // (comment to reset indentation)
             if ( state !== last_state ) {
                 last_state = state;
                 if ( state.on_enter ) state.on_enter();
             }
             return state;
-        }
+        },
     };
 
     let defer_buffer = Buffer.alloc(0);
@@ -209,13 +212,13 @@ const offset_write_stream = ({
         console.log('pushing from org stream:', chunk.toString());
         passThrough.push(chunk);
         implied.state;
-    }
+    };
 
     const STATE_ORIGINAL_STREAM = {
         on_enter: () => {
             console.log('STATE_ORIGINAL_STREAM');
             newDataStream.pause();
-        }
+        },
     };
     const STATE_NEW_STREAM = {
         on_enter: () => {
@@ -253,7 +256,7 @@ const offset_write_stream = ({
         on_enter: () => {
             console.log('STATE_END');
             passThrough.end();
-        }
+        },
     };
 
     implied.state;
@@ -263,7 +266,7 @@ const offset_write_stream = ({
         console.log('original stream end');
         org_end = true;
         implied.state;
-    })
+    });
 
     newDataStream.on('data', chunk => {
         console.log('new stream data', chunk.toString());
@@ -287,16 +290,15 @@ const offset_write_stream = ({
     return passThrough;
 };
 
-
 class ProgressReportingStream extends Transform {
-    constructor(options, { total, progress_callback }) {
+    constructor (options, { total, progress_callback }) {
         super(options);
         this.total = total;
         this.loaded = 0;
         this.progress_callback = progress_callback;
     }
 
-    _transform(chunk, encoding, callback) {
+    _transform (chunk, encoding, callback) {
         this.loaded += chunk.length;
         this.progress_callback({
             loaded: this.loaded,
@@ -312,16 +314,16 @@ const progress_stream = (source, { total, progress_callback }) => {
     const stream = new ProgressReportingStream({}, { total, progress_callback });
     source.pipe(stream);
     return stream;
-}
+};
 
 class SizeLimitingStream extends Transform {
-    constructor(options, { limit }) {
+    constructor (options, { limit }) {
         super(options);
         this.limit = limit;
         this.loaded = 0;
     }
 
-    _transform(chunk, encoding, callback) {
+    _transform (chunk, encoding, callback) {
         this.loaded += chunk.length;
         if ( this.loaded > this.limit ) {
             const excess = this.loaded - this.limit;
@@ -339,16 +341,16 @@ const size_limit_stream = (source, { limit }) => {
     const stream = new SizeLimitingStream({}, { limit });
     source.pipe(stream);
     return stream;
-}
+};
 
 class SizeMeasuringStream extends Transform {
-    constructor(options, probe) {
+    constructor (options, probe) {
         super(options);
         this.probe = probe;
         this.loaded = 0;
     }
 
-    _transform(chunk, encoding, callback) {
+    _transform (chunk, encoding, callback) {
         this.loaded += chunk.length;
         this.probe.amount = this.loaded;
         this.push(chunk);
@@ -371,10 +373,10 @@ const size_measure_stream = (source, probe = {}) => {
     const stream = new SizeMeasuringStream({}, probe);
     source.pipe(stream);
     return stream;
-}
+};
 
 class StuckDetectorStream extends Transform {
-    constructor(options, {
+    constructor (options, {
         timeout,
         on_stuck,
         on_unstuck,
@@ -398,7 +400,7 @@ class StuckDetectorStream extends Transform {
         }, this.timeout);
     }
 
-    _transform(chunk, encoding, callback) {
+    _transform (chunk, encoding, callback) {
         if ( this.stuck_ ) {
             this.stuck_ = false;
             this.on_unstuck();
@@ -408,7 +410,7 @@ class StuckDetectorStream extends Transform {
         callback();
     }
 
-    _flush(callback) {
+    _flush (callback) {
         clearTimeout(this.timer);
         callback();
     }
@@ -426,14 +428,15 @@ const stuck_detector_stream = (source, {
     });
     source.pipe(stream);
     return stream;
-}
+};
 
 const string_to_stream = (str, chunk_size) => {
     const s = new Readable();
-    s._read = () => {}; // redundant? see update below
+    s._read = () => {
+    }; // redundant? see update below
     // split string into chunks
     const chunks = [];
-    for (let i = 0; i < str.length; i += chunk_size) {
+    for ( let i = 0; i < str.length; i += chunk_size ) {
         chunks.push(str.slice(i, Math.min(i + chunk_size, str.length)));
     }
     // push each chunk onto the readable stream
@@ -444,7 +447,7 @@ const string_to_stream = (str, chunk_size) => {
     return s;
 };
 
-async function* chunk_stream(
+async function* chunk_stream (
     stream,
     chunk_size = 1024 * 1024 * 5,
     expected_chunk_time,
@@ -456,7 +459,7 @@ async function* chunk_stream(
         ? expected_chunk_time
         : null;
 
-    for await (const chunk of stream) {
+    for await ( const chunk of stream ) {
         if ( globalThis.average_chunk_size ) {
             globalThis.average_chunk_size.put(chunk.length);
         }
@@ -466,13 +469,13 @@ async function* chunk_stream(
         chunk.copy(buffer, offset, 0, amount);
         offset += amount;
 
-        while (offset >= chunk_size) {
+        while ( offset >= chunk_size ) {
             yield buffer;
 
             buffer = Buffer.alloc(chunk_size);
             offset = 0;
 
-            if (amount < chunk.length) {
+            if ( amount < chunk.length ) {
                 const leftover = chunk.length - amount;
                 const next_amount = Math.min(leftover, chunk_size);
                 chunk.copy(buffer, offset, amount, amount + next_amount);
@@ -488,14 +491,14 @@ async function* chunk_stream(
         }
     }
 
-    if (offset > 0) {
+    if ( offset > 0 ) {
         yield buffer.subarray(0, offset); // Yield remaining chunk if it's not empty.
     }
 }
 
 const stream_to_buffer = async (stream) => {
     const chunks = [];
-    for await (const chunk of stream) {
+    for await ( const chunk of stream ) {
         chunks.push(chunk);
     }
     return Buffer.concat(chunks);
@@ -511,11 +514,11 @@ const buffer_to_stream = (buffer) => {
 const hashing_stream = (source) => {
     const hash = crypto.createHash('sha256');
     const stream = new Transform({
-        transform(chunk, encoding, callback) {
+        transform (chunk, encoding, callback) {
             hash.update(chunk);
             this.push(chunk);
             callback();
-        }
+        },
     });
 
     source.pipe(stream);

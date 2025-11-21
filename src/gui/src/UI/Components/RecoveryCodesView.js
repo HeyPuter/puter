@@ -17,7 +17,6 @@
  * along with this program.  If not, see <https://www.gnu.org/licenses/>.
  */
 
-
 const Component = use('util.Component');
 
 export default def(class RecoveryCodesView extends Component {
@@ -26,8 +25,8 @@ export default def(class RecoveryCodesView extends Component {
     static PROPERTIES = {
         values: {
             description: 'The recovery codes to display',
-        }
-    }
+        },
+    };
 
     static CSS = /*css*/`
         .recovery-codes {
@@ -72,8 +71,7 @@ export default def(class RecoveryCodesView extends Component {
             display: flex;
             gap: 10px;
         }
-    `
-
+    `;
 
     create_template ({ template }) {
         $(template).html(`

@@ -18,7 +18,7 @@
  * along with this program.  If not, see <https://www.gnu.org/licenses/>.
  */
 
-const { AdvancedBase } = require("@heyputer/putility");
+const { AdvancedBase } = require('@heyputer/putility');
 const CaptchaService = require('./services/CaptchaService');
 
 /**
@@ -30,14 +30,14 @@ const CaptchaService = require('./services/CaptchaService');
  * that can be used to protect routes and determine captcha requirements.
  */
 class CaptchaModule extends AdvancedBase {
-    async install(context) {
-        
+    async install (context) {
+
         // Get services from context
         const services = context.get('services');
-        
+
         // Register the captcha service
         services.registerService('captcha', CaptchaService);
     }
 }
 
-module.exports = { CaptchaModule }; 
+module.exports = { CaptchaModule };

@@ -17,8 +17,7 @@
  * You should have received a copy of the GNU Affero General Public License
  * along with this program.  If not, see <https://www.gnu.org/licenses/>.
  */
-const BaseService = require("./BaseService");
-
+const BaseService = require('./BaseService');
 
 /**
 * SystemValidationService class.
@@ -47,11 +46,9 @@ class SystemValidationService extends BaseService {
         // The system is in an invalid state. The server will do whatever it
         // can to get our attention, and then it will shut down.
         if ( ! this.errors ) {
-            console.error(
-                'SystemValidationService is trying to mark the system as invalid, but the error service is not available.',
-                message,
-                source,
-            );
+            console.error('SystemValidationService is trying to mark the system as invalid, but the error service is not available.',
+                            message,
+                            source);
 
             // We can't do anything else. The server will crash.
             throw new Error('SystemValidationService is trying to mark the system as invalid, but the error service is not available.');
@@ -76,7 +73,7 @@ class SystemValidationService extends BaseService {
             * @returns {void}
             */
             svc_devConsole.add_widget(() => {
-                return `\x1B[33;1m *** SYSTEM IS IN AN INVALID STATE *** \x1B[0m`;
+                return '\x1B[33;1m *** SYSTEM IS IN AN INVALID STATE *** \x1B[0m';
             });
 
             // Don't shut down
@@ -87,7 +84,7 @@ class SystemValidationService extends BaseService {
         for ( let i = 0; i < 5; i++ ) {
             // After 5 minutes, raise another alarm
             await new Promise(rslv => setTimeout(rslv, 60 * 5000));
-            this.errors.report(`INVALID SYSTEM STATE (Reminder ${i+1})`, {
+            this.errors.report(`INVALID SYSTEM STATE (Reminder ${i + 1})`, {
                 source,
                 message,
                 trace: true,

@@ -19,12 +19,12 @@
 export default class WhitespaceParserImpl {
     static meta = {
         inputs: 'bytes',
-        outputs: 'node'
-    }
+        outputs: 'node',
+    };
     static data = {
         whitespaceCharCodes: ' \r\t'.split('')
-            .map(chr => chr.charCodeAt(0))
-    }
+            .map(chr => chr.charCodeAt(0)),
+    };
     parse (lexer) {
         const { whitespaceCharCodes } = this.constructor.data;
 

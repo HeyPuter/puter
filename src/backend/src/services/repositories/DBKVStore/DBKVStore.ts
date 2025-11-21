@@ -17,18 +17,18 @@ export class DBKVStore {
     #global_config: Record<string, unknown> = {};
 
     // TODO DS: make table name configurable
-    constructor({ sqlClient, meteringService, globalConfig }: { sqlClient: unknown, meteringService: MeteringService, globalConfig: Record<string, unknown> }) {
+    constructor ({ sqlClient, meteringService, globalConfig }: { sqlClient: unknown, meteringService: MeteringService, globalConfig: Record<string, unknown> }) {
         this.#db = sqlClient;
         this.#meteringService = meteringService;
         this.#global_config = globalConfig;
     }
 
-    async get({ key }: { key: string | string[] }) {
+    async get ({ key }: { key: string | string[] }) {
         const actor = Context.get('actor');
         const app = actor.type?.app ?? undefined;
         const user = actor.type?.user ?? undefined;
 
-        if ( !user ) {
+        if ( ! user ) {
             throw new Error('User not found');
         }
 
@@ -98,7 +98,7 @@ export class DBKVStore {
         return kv[0]?.value ?? null;
     }
 
-    async set({ key, value, expireAt }: { key: string, value: unknown, expireAt?: number }) {
+    async set ({ key, value, expireAt }: { key: string, value: unknown, expireAt?: number }) {
         const actor = Context.get('actor');
         const config = this.#global_config;
 
@@ -116,7 +116,7 @@ export class DBKVStore {
 
         const app = actor.type?.app ?? undefined;
         const user = actor.type?.user ?? undefined;
-        if ( !user ) {
+        if ( ! user ) {
             throw new Error('User not found');
         }
 
@@ -147,11 +147,11 @@ export class DBKVStore {
         return true;
     }
 
-    async del({ key }: { key: string }) {
+    async del ({ key }: { key: string }) {
         const actor = Context.get('actor');
         const app = actor.type?.app ?? undefined;
         const user = actor.type?.user ?? undefined;
-        if ( !user ) {
+        if ( ! user ) {
             throw new Error('User not found');
         }
 
@@ -168,12 +168,12 @@ export class DBKVStore {
         return true;
     }
 
-    async list({ as }: { as?: string }) {
+    async list ({ as }: { as?: string }) {
         const actor = Context.get('actor');
         const app = actor.type?.app ?? undefined;
         const user = actor.type?.user ?? undefined;
 
-        if ( !user ) {
+        if ( ! user ) {
             throw new Error('User not found');
         }
 
@@ -196,7 +196,7 @@ export class DBKVStore {
 
         as = as || 'entries';
 
-        if ( !['keys', 'values', 'entries'].includes(as) ) {
+        if ( ! ['keys', 'values', 'entries'].includes(as) ) {
             throw APIError.create('field_invalid', null, {
                 key: 'as',
                 expected: '"keys", "values", or "entries"',
@@ -214,11 +214,11 @@ export class DBKVStore {
         return rows;
     }
 
-    async flush() {
+    async flush () {
         const actor = Context.get('actor');
         const app = actor.type?.app ?? undefined;
         const user = actor.type?.user ?? undefined;
-        if ( !user ) {
+        if ( ! user ) {
             throw new Error('User not found');
         }
 
@@ -232,7 +232,7 @@ export class DBKVStore {
         return true;
     }
 
-    async expireAt({ key, timestamp }: { key: string, timestamp: number }){
+    async expireAt ({ key, timestamp }: { key: string, timestamp: number }) {
         if ( key === '' ) {
             throw APIError.create('field_empty', null, {
                 key: 'key',
@@ -244,7 +244,7 @@ export class DBKVStore {
         return await this.#expireat(key, timestamp);
     }
 
-    async expire({ key, ttl }: { key: string, ttl: number }) {
+    async expire ({ key, ttl }: { key: string, ttl: number }) {
         if ( key === '' ) {
             throw APIError.create('field_empty', null, {
                 key: 'key',
@@ -274,7 +274,7 @@ export class DBKVStore {
         if ( Array.isArray(currVal) ) {
             throw new Error('Current value is an array');
         }
-        if ( !currVal ) {
+        if ( ! currVal ) {
             currVal = {};
         }
         if ( typeof currVal !== 'object' ) {
@@ -287,7 +287,7 @@ export class DBKVStore {
             if ( obj === null ) continue;
             for ( let i = 0; i < pathParts.length - 1; i++ ) {
                 const part = pathParts[i];
-                if ( !obj[part] ) {
+                if ( ! obj[part] ) {
                     obj[part] = {};
                 }
                 if ( typeof obj[part] !== 'object' || Array.isArray(currVal) ) {
@@ -297,7 +297,7 @@ export class DBKVStore {
             }
             if ( obj === null ) continue;
             const lastPart = pathParts[pathParts.length - 1];
-            if ( !obj[lastPart] ) {
+            if ( ! obj[lastPart] ) {
                 obj[lastPart] = 0;
             }
             if ( typeof obj[lastPart] !== 'number' ) {
@@ -309,15 +309,15 @@ export class DBKVStore {
         return currVal as T extends { '': number } ? number : RecursiveRecord<number>;
     }
 
-    async decr({ key, pathAndAmountMap }: Parameters<typeof DBKVStore.prototype.incr>[0]): ReturnType<typeof DBKVStore.prototype.incr> {
+    async decr ({ key, pathAndAmountMap }: Parameters<typeof DBKVStore.prototype.incr>[0]): ReturnType<typeof DBKVStore.prototype.incr> {
         return await this.incr({ key, pathAndAmountMap: Object.fromEntries(Object.entries(pathAndAmountMap).map(([k, v]) => [k, -v])) });
     }
 
-    async #expireat(key: string, timestamp: number){
+    async #expireat (key: string, timestamp: number) {
         const actor = Context.get('actor');
         const app = actor.type?.app ?? undefined;
         const user = actor.type?.user ?? undefined;
-        if ( !user ) {
+        if ( ! user ) {
             throw new Error('User not found');
         }
 

@@ -16,8 +16,8 @@
  * You should have received a copy of the GNU Affero General Public License
  * along with this program.  If not, see <https://www.gnu.org/licenses/>.
  */
-import Spinner from "../UI/Components/Spinner";
-import { Service } from "../definitions";
+import Spinner from '../UI/Components/Spinner';
+import { Service } from '../definitions';
 
 /**
  * This class exists to keep exports to the service script API separate

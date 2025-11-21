@@ -5,7 +5,7 @@ const copy = function (...args) {
     let options;
 
     // If first argument is an object, it's the options
-    if (typeof args[0] === 'object' && args[0] !== null) {
+    if ( typeof args[0] === 'object' && args[0] !== null ) {
         options = args[0];
     } else {
         // Otherwise, we assume separate arguments are provided
@@ -24,12 +24,12 @@ const copy = function (...args) {
     }
 
     return new Promise(async (resolve, reject) => {
-        // If auth token is not provided and we are in the web environment, 
+        // If auth token is not provided and we are in the web environment,
         // try to authenticate with Puter
-        if(!puter.authToken && puter.env === 'web'){
-            try{
+        if ( !puter.authToken && puter.env === 'web' ) {
+            try {
                 await puter.ui.authenticateWithPuter();
-            }catch(e){
+            } catch (e) {
                 // if authentication fails, throw an error
                 reject('Authentication failed.');
             }
@@ -55,7 +55,7 @@ const copy = function (...args) {
             // if user is copying an item to where its source is, change the name so there is no conflict
             dedupe_name: (options.dedupe_name || options.dedupeName),
         }));
-    })
-}
+    });
+};
 
 export default copy;

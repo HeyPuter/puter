@@ -64,7 +64,7 @@ class KVStoreInterfaceService extends BaseService {
     * Service class for managing KVStore interface registrations.
     * Extends the base service to provide key-value store interface management.
     */
-    async ['__on_driver.register.interfaces']() {
+    async ['__on_driver.register.interfaces'] () {
         const svc_registry = this.services.get('registry');
         const col_interfaces = svc_registry.get('interfaces');
 

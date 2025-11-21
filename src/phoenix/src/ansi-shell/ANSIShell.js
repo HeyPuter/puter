@@ -16,8 +16,8 @@
  * You should have received a copy of the GNU Affero General Public License
  * along with this program.  If not, see <https://www.gnu.org/licenses/>.
  */
-import { ConcreteSyntaxError } from "./ConcreteSyntaxError.js";
-import { Pipeline } from "./pipeline/Pipeline.js";
+import { ConcreteSyntaxError } from './ConcreteSyntaxError.js';
+import { Pipeline } from './pipeline/Pipeline.js';
 
 export class ANSIShell extends EventTarget {
     constructor (ctx) {
@@ -41,14 +41,14 @@ export class ANSIShell extends EventTarget {
                     key: k,
                     oldValue: oldval,
                     newValue: target[k],
-                }))
+                }));
                 return retval;
-            }
-        })
+            },
+        });
 
         this.addEventListener('signal.window-resize', evt => {
             this.variables.size = evt.detail;
-        })
+        });
 
         this.env = {};
 
@@ -59,14 +59,14 @@ export class ANSIShell extends EventTarget {
         if ( typeof v === 'function' ) {
             Object.defineProperty(this.env, k, {
                 enumerable: true,
-                get: v
-            })
+                get: v,
+            });
             return;
         }
         this.env[k] = v;
     }
 
-    initializeReasonableDefaults() {
+    initializeReasonableDefaults () {
         const { env } = this.ctx.platform;
         const home = env.get('HOME');
         const user = env.get('USER');
@@ -80,19 +80,21 @@ export class ANSIShell extends EventTarget {
         Object.defineProperty(this.env, 'PWD', {
             enumerable: true,
             get: () => this.variables.pwd,
-            set: v => { this.variables.pwd = v }
-        })
+            set: v => {
+                this.variables.pwd = v;
+            },
+        });
         Object.defineProperty(this.env, 'ROWS', {
             enumerable: true,
-            get: () => this.variables.size?.rows ?? 0
-        })
+            get: () => this.variables.size?.rows ?? 0,
+        });
         Object.defineProperty(this.env, 'COLS', {
             enumerable: true,
             get: () => {
-                const v = this.variables.size?.cols ?? 0
+                const v = this.variables.size?.cols ?? 0;
                 return v;
-            }
-        })
+            },
+        });
 
         this.export_('LANG', 'en_US.UTF-8');
         this.export_('PS1', '[\\u@\\h \\w]\\$ ');
@@ -112,7 +114,7 @@ export class ANSIShell extends EventTarget {
         // TODO: add OLDPWD
     }
 
-    async doPromptIteration() {
+    async doPromptIteration () {
         if ( globalThis.force_eot && this.ctx.platform.name === 'node' ) {
             process.exit(0);
         }
@@ -127,10 +129,8 @@ export class ANSIShell extends EventTarget {
             shell: this,
         });
         this.ctx.externs.echo.off();
-        const input = await readline(
-            this.expandPromptString(this.env.PS1),
-            executionCtx,
-        );
+        const input = await readline(this.expandPromptString(this.env.PS1),
+                        executionCtx);
         this.ctx.externs.echo.on();
 
         if ( input.trim() === '' ) {
@@ -143,10 +143,8 @@ export class ANSIShell extends EventTarget {
             this.ctx.externs.out.write('%%%: interpreting as debug instruction\n');
             const [prefix, flag, onOff] = input.split(' ');
             const isOn = onOff === 'on' ? true : false;
-            this.ctx.externs.out.write(
-                `%%%: Setting ${JSON.stringify(flag)} to ` +
-                (isOn ? 'ON' : 'OFF') + '\n'
-            )
+            this.ctx.externs.out.write(`%%%: Setting ${JSON.stringify(flag)} to ${
+                isOn ? 'ON' : 'OFF' }\n`);
             this.debugFeatures[flag] = isOn;
             return; // don't run as a pipeline
         }
@@ -157,9 +155,9 @@ export class ANSIShell extends EventTarget {
         } catch (e) {
             if ( e instanceof ConcreteSyntaxError ) {
                 const here = e.print_here(input);
-                this.ctx.externs.out.write(here + '\n');
+                this.ctx.externs.out.write(`${here }\n`);
             }
-            this.ctx.externs.out.write('error: ' + e.message + '\n');
+            this.ctx.externs.out.write(`error: ${ e.message }\n`);
             console.log(e);
             this.ctx.locals.exit = -1;
             return;
@@ -175,10 +173,10 @@ export class ANSIShell extends EventTarget {
             ? (() => {
                 // TODO: move to doPromptIter with better error objects
                 try {
-                    return this.readtoken(cmdOrTokens)
+                    return this.readtoken(cmdOrTokens);
                 } catch (e) {
-                    this.ctx.externs.out.write('error: ' +
-                        e.message + '\n');
+                    this.ctx.externs.out.write(`error: ${
+                        e.message }\n`);
                     return;
                 }
             })()
@@ -188,9 +186,7 @@ export class ANSIShell extends EventTarget {
 
         if ( tokens.length > 1 ) {
             // TODO: as exception instead, and more descriptive
-            this.ctx.externs.out.write(
-                "something went wrong...\n"
-            );
+            this.ctx.externs.out.write('something went wrong...\n');
             return;
         }
 
@@ -208,11 +204,9 @@ export class ANSIShell extends EventTarget {
         //         components: [ast]
         //     };
         // }
-        
+
         if ( this.debugFeatures['show-ast'] ) {
-            this.ctx.externs.out.write(
-                JSON.stringify(tokens, undefined, '  ') + '\n'
-            );
+            this.ctx.externs.out.write(`${JSON.stringify(tokens, undefined, '  ') }\n`);
             return;
         }
 
@@ -222,11 +216,11 @@ export class ANSIShell extends EventTarget {
             env: this.env,
             locals: {
                 pwd: this.variables.pwd,
-            }
+            },
         });
-        
+
         const pipeline = await Pipeline.createFromAST(executionCtx, ast);
-        
+
         await pipeline.execute(executionCtx);
 
         // Store exit code for the next pipeline
@@ -247,7 +241,7 @@ export class ANSIShell extends EventTarget {
 
     async outputANSI (ctx) {
         await ctx.iterate(async item => {
-            ctx.externs.out.write(item.name + '\n');
+            ctx.externs.out.write(`${item.name }\n`);
         });
     }
 }

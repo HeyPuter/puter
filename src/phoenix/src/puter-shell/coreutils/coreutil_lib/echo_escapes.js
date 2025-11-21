@@ -19,7 +19,7 @@
 /*
     Echo Escapes Implementations
     ----------------------------
-    
+
     This documentation describes how functions in this file
     should be implemented.
 
@@ -42,7 +42,7 @@
         function: markIgnored
             informs the caller that the escape sequence should be
             treated as literal text
-        
+
         function: output
             commands the caller to write a string
 
@@ -131,15 +131,15 @@ export const processEscapes = str => {
             markIgnored: () => ignored = true,
             outputETX: () => {
                 state = states.STATE_ETX;
-            }
+            },
         };
         echo_escapes[chr](apiToCaller);
 
         if ( ignored ) {
-            output += '\\' + str[i];
+            output += `\\${ str[i]}`;
             return;
         }
-        
+
         return i;
     };
     states.STATE_NORMAL = i => {
@@ -154,8 +154,8 @@ export const processEscapes = str => {
     states.STATE_ETX = () => str.length;
     state = states.STATE_NORMAL;
 
-    for ( let i=0 ; i < str.length ; ) {
-        i = state(i) ?? i+1;
+    for ( let i = 0 ; i < str.length ; ) {
+        i = state(i) ?? i + 1;
     }
 
     return output;

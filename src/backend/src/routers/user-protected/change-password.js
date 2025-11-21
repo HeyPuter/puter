@@ -18,8 +18,8 @@
  */
 // TODO: DRY: This is the same function used by UIWindowChangePassword!
 
-const { invalidate_cached_user } = require("../../helpers");
-const { DB_WRITE } = require("../../services/database/consts");
+const { invalidate_cached_user } = require('../../helpers');
+const { DB_WRITE } = require('../../services/database/consts');
 
 // duplicate definition is in src/helpers.js (puter GUI)
 const check_password_strength = (password) => {
@@ -29,7 +29,7 @@ const check_password_strength = (password) => {
         hasUpperCase: /[A-Z]/.test(password),
         hasLowerCase: /[a-z]/.test(password),
         hasNumber: /\d/.test(password),
-        hasSpecialChar: /[!@#$%^&*()_+\-=[\]{};':"\\|,.<>/?]/.test(password)
+        hasSpecialChar: /[!@#$%^&*()_+\-=[\]{};':"\\|,.<>/?]/.test(password),
     };
 
     let overallPass = true;
@@ -59,8 +59,8 @@ const check_password_strength = (password) => {
     };
 
     // Check overall pass status and add messages
-    for (let criterion in criteria) {
-        if (!criteria_report[criterion].pass) {
+    for ( let criterion in criteria ) {
+        if ( ! criteria_report[criterion].pass ) {
             overallPass = false;
             break;
         }
@@ -70,7 +70,7 @@ const check_password_strength = (password) => {
         overallPass: overallPass,
         report: criteria_report,
     };
-}
+};
 
 module.exports = {
     route: '/change-password',
@@ -87,10 +87,8 @@ module.exports = {
         // TODO: DI for endpoint definitions like this one
         const bcrypt = require('bcrypt');
         const db = req.services.get('database').get(DB_WRITE, 'auth');
-        await db.write(
-            'UPDATE user SET password=?, `pass_recovery_token` = NULL, `change_email_confirm_token` = NULL WHERE `id` = ?',
-            [await bcrypt.hash(req.body.new_pass, 8), req.user.id]
-        );
+        await db.write('UPDATE user SET password=?, `pass_recovery_token` = NULL, `change_email_confirm_token` = NULL WHERE `id` = ?',
+                        [await bcrypt.hash(req.body.new_pass, 8), req.user.id]);
         invalidate_cached_user(req.user);
 
         // Notify user about password change
@@ -106,6 +104,6 @@ module.exports = {
             await svc_auth.revoke_session(req.actor, session.uuid);
         }
 
-        return res.send('Password successfully updated.')
-    }
+        return res.send('Password successfully updated.');
+    },
 };

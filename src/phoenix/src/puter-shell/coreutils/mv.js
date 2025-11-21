@@ -25,7 +25,7 @@ export default {
     description: 'Move SOURCE file or directory to DESTINATION.',
     args: {
         $: 'simple-parser',
-        allowPositionals: true
+        allowPositionals: true,
     },
     execute: async ctx => {
         const { positionals } = ctx.locals;
@@ -48,8 +48,8 @@ export default {
         const dstRelPath = positionals.shift();
 
         const srcAbsPath = resolveRelativePath(ctx.vars, srcRelPath);
-        let   dstAbsPath = resolveRelativePath(ctx.vars, dstRelPath);
+        let dstAbsPath = resolveRelativePath(ctx.vars, dstRelPath);
 
         await filesystem.move(srcAbsPath, dstAbsPath);
-    }
-}
+    },
+};

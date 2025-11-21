@@ -25,7 +25,7 @@ export default {
     description: 'Change the current directory to PATH.',
     args: {
         $: 'simple-parser',
-        allowPositionals: true
+        allowPositionals: true,
     },
     execute: async ctx => {
         // ctx.params to access processed args
@@ -39,10 +39,10 @@ export default {
         const result = await filesystem.readdir(target);
 
         if ( result.$ === 'error' ) {
-            await ctx.externs.err.write('cd: error: ' + result.message + '\n');
+            await ctx.externs.err.write(`cd: error: ${ result.message }\n`);
             throw new Exit(1);
         }
 
         ctx.vars.pwd = target;
-    }
+    },
 };

@@ -17,11 +17,10 @@
  * You should have received a copy of the GNU Affero General Public License
  * along with this program.  If not, see <https://www.gnu.org/licenses/>.
  */
-const { AdvancedBase } = require("@heyputer/putility");
-const BaseService = require("../BaseService");
-const { Context } = require("../../util/context");
-const config = require("../../config");
-
+const { AdvancedBase } = require('@heyputer/putility');
+const BaseService = require('../BaseService');
+const { Context } = require('../../util/context');
+const config = require('../../config');
 
 /**
 * @class Requester
@@ -65,7 +64,6 @@ class Requester {
         });
     }
 
-
     /**
     * Checks if the referer origin is from Puter.
     *
@@ -75,10 +73,9 @@ class Requester {
         const puter_origins = [
             config.origin,
             config.api_base_url,
-        ]
+        ];
         return puter_origins.includes(this.referer_origin);
     }
-
 
     /**
     * Checks if the request origin is from a known Puter origin.
@@ -89,10 +86,9 @@ class Requester {
         const puter_origins = [
             config.origin,
             config.api_base_url,
-        ]
+        ];
         return puter_origins.includes(this.origin);
     }
-
 
     /**
     * @method get rl_identifier
@@ -102,7 +98,6 @@ class Requester {
     get rl_identifier () {
         return this.ip_forwarded || this.ip;
     }
-
 
     /**
     * Serializes the Requester object into a plain JavaScript object.
@@ -135,7 +130,7 @@ class Requester {
 class RequesterIdentificationExpressMiddleware extends AdvancedBase {
     static MODULES = {
         isbot: require('isbot'),
-    }
+    };
     register_initializer (initializer) {
         this.value_initializers_.push(initializer);
     }
@@ -159,7 +154,6 @@ class RequesterIdentificationExpressMiddleware extends AdvancedBase {
         next();
     }
 }
-
 
 /**
 * @class IdentificationService

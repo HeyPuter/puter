@@ -1,13 +1,13 @@
 import { fsOperations, getProperMimeType } from '../utils.mjs';
 
-const  parseRangeHeader = ( rangeHeader ) => {
+const parseRangeHeader = ( rangeHeader ) => {
     // Check if this is a multipart range request
     if ( rangeHeader.includes(',') ) {
         // For now, we'll only serve the first range in multipart requests
         // as the underlying storage layer doesn't support multipart responses
         const firstRange = rangeHeader.split(',')[0].trim();
         const matches = firstRange.match(/bytes=(\d+)-(\d*)/);
-        if ( !matches ) {
+        if ( ! matches ) {
             return null;
         }
 
@@ -19,7 +19,7 @@ const  parseRangeHeader = ( rangeHeader ) => {
 
     // Single range request
     const matches = rangeHeader.match(/bytes=(\d+)-(\d*)/);
-    if ( !matches ) {
+    if ( ! matches ) {
         return null;
     }
 
@@ -35,7 +35,7 @@ const  parseRangeHeader = ( rangeHeader ) => {
 export const HEAD_GET = async ( req, res, _filePath, fileNode, _headerLockToken ) => {
     try {
         const exists = await fileNode?.exists();
-        if ( !exists ) {
+        if ( ! exists ) {
             res.status(404).end( 'File not found');
             return;
         }
@@ -49,7 +49,7 @@ export const HEAD_GET = async ( req, res, _filePath, fileNode, _headerLockToken 
         };
 
         // Set Content-Length for files (not directories)
-        if ( !fileStat.is_dir ) {
+        if ( ! fileStat.is_dir ) {
             headers['Content-Length'] = fileStat.size || 0;
             headers['Content-Type'] = getProperMimeType(fileStat.type, fileStat.name);
         }
@@ -95,7 +95,7 @@ export const HEAD_GET = async ( req, res, _filePath, fileNode, _headerLockToken 
                     if ( end === null ) {
                         actualEnd = fileSize - 1; // File size is 1-based, end byte is 0-based
                     }
-                } catch( _error ) {
+                } catch ( _error ) {
                     // If we can't get file size, we'll let the storage layer handle it
                     // and not set Content-Range header
                     actualEnd = null;
@@ -126,7 +126,7 @@ export const HEAD_GET = async ( req, res, _filePath, fileNode, _headerLockToken 
             console.error('Stream error:', error);
             res.status(500).end( 'Internal server error');
         });
-    } catch( error ) {
+    } catch ( error ) {
         console.error('HEAD or GET error:', error);
         res.status(500).end( 'Internal Server Error');
     }

@@ -1,26 +1,26 @@
 /*
  * Copyright (C) 2024-present Puter Technologies Inc.
- * 
+ *
  * This file is part of Puter.
- * 
+ *
  * Puter is free software: you can redistribute it and/or modify
  * it under the terms of the GNU Affero General Public License as published
  * by the Free Software Foundation, either version 3 of the License, or
  * (at your option) any later version.
- * 
+ *
  * This program is distributed in the hope that it will be useful,
  * but WITHOUT ANY WARRANTY; without even the implied warranty of
  * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
  * GNU Affero General Public License for more details.
- * 
+ *
  * You should have received a copy of the GNU Affero General Public License
  * along with this program.  If not, see <https://www.gnu.org/licenses/>.
  */
 
 // METADATA // {"ai-commented":{"service":"claude"}}
-const { Endpoint } = require("../util/expressutil");
-const BaseService = require("./BaseService");
-const APIError = require("../api/APIError");
+const { Endpoint } = require('../util/expressutil');
+const BaseService = require('./BaseService');
+const APIError = require('../api/APIError');
 
 /**
 * @class ChatAPIService
@@ -80,11 +80,11 @@ class ChatAPIService extends BaseService {
 
                     // Return the list of models
                     res.json({ models });
-                } catch (error) {
+                } catch ( error ) {
                     this.log.error('Error fetching models:', error);
                     throw APIError.create('internal_server_error');
                 }
-            }
+            },
         }).attach(router);
 
         // Endpoint to get detailed information about available AI chat models
@@ -103,11 +103,11 @@ class ChatAPIService extends BaseService {
 
                     // Return the detailed list of models
                     res.json({ models });
-                } catch (error) {
+                } catch ( error ) {
                     this.log.error('Error fetching model details:', error);
                     throw APIError.create('internal_server_error');
                 }
-            }
+            },
         }).attach(router);
     }
 }

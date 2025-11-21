@@ -17,7 +17,6 @@
  * along with this program.  If not, see <https://www.gnu.org/licenses/>.
  */
 
-
 const Component = use('util.Component');
 
 /**
@@ -37,7 +36,7 @@ export default def(class StepHeading extends Component {
             description: 'The heading to display',
             value: 'Heading',
         },
-    }
+    };
 
     static CSS = /*css*/`
         .heading {
@@ -64,7 +63,7 @@ export default def(class StepHeading extends Component {
             color: hsl(220, 25%, 31%);
             font-weight: 500;
         }
-    `
+    `;
 
     create_template ({ template }) {
         $(template).html(/*html*/`

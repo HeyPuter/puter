@@ -39,7 +39,8 @@
 // something like this was also done in backend and it proved useful.
 (scope => {
     globalThis.logger = {
-        info: (...a) => {},
+        info: (...a) => {
+        },
         // info: (...a) => console.log('%c[INIT/INFO]', 'color: #4287f5', ...a),
     };
 })(globalThis);
@@ -80,20 +81,20 @@ logger.info('start -> blocking initialization');
 
     const on_self_registered_api = {
         on_other_registered: hook => registry_.hooks_on_register.push(hook),
-    }
+    };
 
     scope.lib = {
         is_subclass (subclass, superclass) {
-            if (subclass === superclass) return true;
+            if ( subclass === superclass ) return true;
 
             let proto = subclass.prototype;
-            while (proto) {
-                if (proto === superclass.prototype) return true;
+            while ( proto ) {
+                if ( proto === superclass.prototype ) return true;
                 proto = Object.getPrototypeOf(proto);
             }
 
             return false;
-        }
+        },
     };
 
     scope.def = (cls, id) => {
@@ -136,12 +137,12 @@ logger.info('start -> blocking initialization');
             return registry_.classes_m;
         }
 
-        if ( !registry_.classes_m[id] ) {
+        if ( ! registry_.classes_m[id] ) {
             throw new Error(`Class with ID ${id} not registered`);
         }
 
         return registry_.classes_m[id];
-    }
+    };
 })(globalThis);
 
 logger.info('end -> blocking initialization');

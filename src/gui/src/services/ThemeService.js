@@ -17,8 +17,8 @@
  * along with this program.  If not, see <https://www.gnu.org/licenses/>.
  */
 
-import UIAlert from "../UI/UIAlert.js";
-import { Service } from "../definitions.js";
+import UIAlert from '../UI/UIAlert.js';
+import { Service } from '../definitions.js';
 
 const PUTER_THEME_DATA_FILENAME = '~/.__puter_gui.json';
 
@@ -57,7 +57,7 @@ export class ThemeService extends Service {
                 if ( typeof data === 'object' ) {
                     data = await data.text();
                 }
-                
+
                 if ( data ) {
                     try {
                         data = JSON.parse(data.toString());
@@ -72,8 +72,8 @@ export class ThemeService extends Service {
                         console.error(e);
                         UIAlert({
                             title: 'Error loading theme data',
-                            message: `Could not parse "${PUTER_THEME_DATA_FILENAME}": ` +
-                                e.message,
+                            message: `Could not parse "${PUTER_THEME_DATA_FILENAME}": ${
+                                e.message}`,
                         });
                     }
                 }
@@ -107,9 +107,11 @@ export class ThemeService extends Service {
         this.save_();
     }
 
-    get (key) { return this.state[key]; }
+    get (key) {
+        return this.state[key];
+    }
 
-    reload_() {
+    reload_ () {
         // debugger;
         const s = this.state;
         // this.ss.replace(`
@@ -119,8 +121,8 @@ export class ThemeService extends Service {
         // `)
         // this.root.style.setProperty('--puter-window-background', `hsla(${s.hue}, ${s.sat}%, ${s.lig}%, ${s.alpha})`);
         this.root.style.setProperty('--primary-hue', s.hue);
-        this.root.style.setProperty('--primary-saturation', s.sat + '%');
-        this.root.style.setProperty('--primary-lightness', s.lig + '%');
+        this.root.style.setProperty('--primary-saturation', `${s.sat }%`);
+        this.root.style.setProperty('--primary-lightness', `${s.lig }%`);
         this.root.style.setProperty('--primary-alpha', s.alpha);
         this.root.style.setProperty('--primary-color', s.light_text ? 'white' : '#373e44');
         this.root.style.setProperty('--primary-color-icon', s.light_text ? 'invert(1)' : 'invert(0)');
@@ -130,13 +132,13 @@ export class ThemeService extends Service {
         this.#broadcastService.sendBroadcast('themeChanged', {
             palette: {
                 primaryHue: s.hue,
-                primarySaturation: s.sat + '%',
-                primaryLightness: s.lig + '%',
+                primarySaturation: `${s.sat }%`,
+                primaryLightness: `${s.lig }%`,
                 primaryAlpha: s.alpha,
                 primaryColor: s.light_text ? 'white' : '#373e44',
             },
         }, { sendToNewAppInstances: true });
-    }   
+    }
 
     save_ () {
         if ( this.save_cooldown_ ) {
@@ -147,10 +149,8 @@ export class ThemeService extends Service {
         }, SAVE_COOLDOWN_TIME);
     }
     commit_save_ () {
-        puter.fs.write(PUTER_THEME_DATA_FILENAME, JSON.stringify(
-            { colors: this.state },
-            undefined,
-            5,
-        ));
+        puter.fs.write(PUTER_THEME_DATA_FILENAME, JSON.stringify({ colors: this.state },
+                        undefined,
+                        5));
     }
 }

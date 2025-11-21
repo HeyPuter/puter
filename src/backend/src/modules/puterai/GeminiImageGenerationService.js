@@ -31,13 +31,13 @@ const { GoogleGenAI } = require('@google/genai');
 */
 class GeminiImageGenerationService extends BaseService {
     /** @type {import('../../services/MeteringService/MeteringService').MeteringService} */
-    get meteringService(){
+    get meteringService () {
         return this.services.get('meteringService').meteringService;
     }
     static MODULES = {
     };
 
-    _construct() {
+    _construct () {
         this.models_ = {
             'gemini-2.5-flash-image-preview': {
                 '1024x1024': 0.039,
@@ -51,13 +51,13 @@ class GeminiImageGenerationService extends BaseService {
     * @async
     * @returns {Promise<void>}
     */
-    async _init() {
+    async _init () {
         this.genAI = new GoogleGenAI({ apiKey: this.global_config.services.gemini.apiKey });
     }
 
     static IMPLEMENTS = {
         ['driver-capabilities']: {
-            supports_test_mode(iface, method_name) {
+            supports_test_mode (iface, method_name) {
                 return iface === 'puter-image-generation' &&
                     method_name === 'generate';
             },
@@ -74,7 +74,7 @@ class GeminiImageGenerationService extends BaseService {
             * @returns {Promise<string>} URL of the generated image
             * @throws {Error} If prompt is not a string or ratio is invalid
             */
-            async generate(params) {
+            async generate (params) {
                 const { prompt, quality, test_mode, model, ratio, input_image, input_image_mime_type } = params;
 
                 if ( test_mode ) {
@@ -106,7 +106,7 @@ class GeminiImageGenerationService extends BaseService {
 
     static RATIO_SQUARE = { w: 1024, h: 1024 };
 
-    async generate(prompt, {
+    async generate (prompt, {
         ratio,
         model,
         input_image,
@@ -117,7 +117,7 @@ class GeminiImageGenerationService extends BaseService {
         }
 
         if ( !ratio || !this._validate_ratio(ratio, model) ) {
-            throw new Error('`ratio` must be a valid ratio for model ' + model);
+            throw new Error(`\`ratio\` must be a valid ratio for model ${ model}`);
         }
 
         // Validate input image if provided
@@ -136,21 +136,21 @@ class GeminiImageGenerationService extends BaseService {
         // Somewhat sane defaults
         model = model ?? 'gemini-2.5-flash-image-preview';
 
-        if ( !this.models_[model] ) {
+        if ( ! this.models_[model] ) {
             throw APIError.create('field_invalid', null, {
                 key: 'model',
-                expected: 'one of: ' +
-                    Object.keys(this.models_).join(', '),
+                expected: `one of: ${
+                    Object.keys(this.models_).join(', ')}`,
                 got: model,
             });
         }
 
         const price_key = `${ratio.w}x${ratio.h}`;
-        if ( !this.models_[model][price_key] ) {
+        if ( ! this.models_[model][price_key] ) {
             const availableSizes = Object.keys(this.models_[model]);
             throw APIError.create('field_invalid', null, {
                 key: 'size/quality combination',
-                expected: 'one of: ' + availableSizes.join(', '),
+                expected: `one of: ${ availableSizes.join(', ')}`,
                 got: price_key,
             });
         }
@@ -169,7 +169,7 @@ class GeminiImageGenerationService extends BaseService {
 
         const usageAllowed = await this.meteringService.hasEnoughCreditsFor(actor, usageType, 1);
 
-        if ( !usageAllowed ) {
+        if ( ! usageAllowed ) {
             throw APIError.create('insufficient_funds');
         }
 
@@ -204,11 +204,11 @@ class GeminiImageGenerationService extends BaseService {
                 // do nothing here
             } else if ( part.inlineData ) {
                 const imageData = part.inlineData.data;
-                url = 'data:image/png;base64,' + imageData;
+                url = `data:image/png;base64,${ imageData}`;
             }
         }
 
-        if ( !url ) {
+        if ( ! url ) {
             throw new Error('Failed to extract image URL from Gemini response');
         }
 
@@ -221,13 +221,13 @@ class GeminiImageGenerationService extends BaseService {
      * @returns {Array<Object>} Array of valid ratio objects
      * @private
      */
-    _getValidRatios(model) {
+    _getValidRatios (model) {
         if ( model === 'gemini-2.5-flash-image-preview' ) {
             return [this.constructor.RATIO_SQUARE];
         }
     }
 
-    _validate_ratio(ratio, model) {
+    _validate_ratio (ratio, model) {
         const validRatios = this._getValidRatios(model);
         return validRatios.includes(ratio);
     }
@@ -238,7 +238,7 @@ class GeminiImageGenerationService extends BaseService {
      * @returns {boolean} True if the MIME type is supported
      * @private
      */
-    _validate_image_mime_type(mimeType) {
+    _validate_image_mime_type (mimeType) {
         const supportedTypes = ['image/png', 'image/jpeg', 'image/jpg', 'image/webp'];
         return supportedTypes.includes(mimeType.toLowerCase());
     }

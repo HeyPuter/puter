@@ -22,9 +22,9 @@ export class CompositeCommandProvider {
     }
 
     async lookup (...a) {
-        for (const provider of this.providers) {
+        for ( const provider of this.providers ) {
             const command = await provider.lookup(...a);
-            if (command) {
+            if ( command ) {
                 return command;
             }
         }
@@ -32,7 +32,7 @@ export class CompositeCommandProvider {
 
     async lookupAll (...a) {
         const results = [];
-        for (const provider of this.providers) {
+        for ( const provider of this.providers ) {
             const commands = await provider.lookupAll(...a);
             if ( commands ) {
                 results.push(...commands);
@@ -45,22 +45,22 @@ export class CompositeCommandProvider {
 
     async complete (...a) {
         const query = a[0];
-        if (query === '') return [];
+        if ( query === '' ) return [];
 
         const results = [];
-        for (const provider of this.providers) {
+        for ( const provider of this.providers ) {
             if ( ! provider.complete ) continue;
             results.push(...await provider.complete(...a));
         }
         return results;
     }
 
-    async list() {
+    async list () {
         const results = [];
-        for (const provider of this.providers) {
-            if (typeof provider.list === 'function') {
+        for ( const provider of this.providers ) {
+            if ( typeof provider.list === 'function' ) {
                 const commands = await provider.list();
-                results.push(...commands); 
+                results.push(...commands);
             }
         }
         return results;

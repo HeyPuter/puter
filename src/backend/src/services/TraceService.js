@@ -67,7 +67,7 @@ class TraceService extends BaseService {
                 span.end();
             }
         });
-        this.tracer.startActiveSpan('name', {  }, () => {
+        this.tracer.startActiveSpan('name', { }, () => {
             // This block intentionally left blank
         });
         return await this.tracer.startActiveSpan(...args);

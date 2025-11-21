@@ -25,10 +25,10 @@ const BS  = String.fromCharCode(8);
 const VT  = String.fromCharCode(0x0B);
 const FF  = String.fromCharCode(0x0C);
 
-function parseFormat(input, startOffset) {
+function parseFormat (input, startOffset) {
     let i = startOffset;
 
-    if (input[i] !== '%') {
+    if ( input[i] !== '%' ) {
         throw new Error('Called parseFormat() without a format specifier!');
     }
     i++;
@@ -49,7 +49,7 @@ function parseFormat(input, startOffset) {
     };
 
     // Output a single % for '%%' or '%' followed by the end of the input.
-    if (input[i] === '%') {
+    if ( input[i] === '%' ) {
         i++;
         result.conversionSpecifier = '%';
         result.newOffset = i;
@@ -58,10 +58,10 @@ function parseFormat(input, startOffset) {
 
     const consumeInteger = () => {
         const startIndex = i;
-        while (input[i] >= '0' && input[i] <= '9') {
+        while ( input[i] >= '0' && input[i] <= '9' ) {
             i++;
         }
-        if (startIndex === i) {
+        if ( startIndex === i ) {
             return null;
         }
 
@@ -71,13 +71,13 @@ function parseFormat(input, startOffset) {
 
     // Flags
     const possibleFlags = '-+ #0';
-    while (possibleFlags.includes(input[i])) {
-        switch (input[i]) {
-            case '-': result.flags.leftJustify = true; break;
-            case '+': result.flags.prefixWithSign = true; break;
-            case ' ': result.flags.prefixWithSpaceIfWithoutSign = true; break;
-            case '#': result.flags.alternativeForm = true; break;
-            case '0': result.flags.padWithLeadingZeroes = true; break;
+    while ( possibleFlags.includes(input[i]) ) {
+        switch ( input[i] ) {
+        case '-': result.flags.leftJustify = true; break;
+        case '+': result.flags.prefixWithSign = true; break;
+        case ' ': result.flags.prefixWithSpaceIfWithoutSign = true; break;
+        case '#': result.flags.alternativeForm = true; break;
+        case '0': result.flags.padWithLeadingZeroes = true; break;
         }
         i++;
     }
@@ -86,14 +86,14 @@ function parseFormat(input, startOffset) {
     result.fieldWidth = consumeInteger();
 
     // Precision
-    if (input[i] === '.') {
+    if ( input[i] === '.' ) {
         i++;
         result.precision = consumeInteger() || 0;
     }
 
     // Conversion specifier
     const possibleConversionSpecifiers = 'cdeEfFgGiousxX';
-    if (possibleConversionSpecifiers.includes(input[i])) {
+    if ( possibleConversionSpecifiers.includes(input[i]) ) {
         result.conversionSpecifier = input[i];
         i++;
     } else {
@@ -104,11 +104,11 @@ function parseFormat(input, startOffset) {
     return result;
 }
 
-function formatOutput(parsedFormat, remainingArguments) {
+function formatOutput (parsedFormat, remainingArguments) {
     const { flags, fieldWidth, precision, conversionSpecifier } = parsedFormat;
 
     const padAndAlignString = (input) => {
-        if (!fieldWidth || input.length >= fieldWidth) {
+        if ( !fieldWidth || input.length >= fieldWidth ) {
             return input;
         }
 
@@ -119,35 +119,35 @@ function formatOutput(parsedFormat, remainingArguments) {
     const formatInteger = (integer, specifier) => {
         const unsigned = 'ouxX'.includes(specifier);
         const radix = (() => {
-            switch (specifier) {
-                case 'o': return 8;
-                case 'x':
-                case 'X': return 16;
-                default: return 10;
+            switch ( specifier ) {
+            case 'o': return 8;
+            case 'x':
+            case 'X': return 16;
+            default: return 10;
             }
         })();
 
         // POSIX doesn't specify what we should do to format a negative number as %u.
         // Common behavior seems to be bit-casting it to unsigned.
-        if (unsigned && integer < 0) {
+        if ( unsigned && integer < 0 ) {
             integer = integer >>> 0;
         }
 
         let digits = Math.abs(integer).toString(radix);
-        if (specifier === 'o' && flags.alternativeForm && digits[0] !== '0') {
+        if ( specifier === 'o' && flags.alternativeForm && digits[0] !== '0' ) {
             // "For the o conversion specifier, it shall increase the precision to force the first digit of the result to be a zero."
             // (Where 'it' is the alternative form flag.)
-            digits = '0' + digits;
+            digits = `0${ digits}`;
         }
         const signOrPrefix = (() => {
-            if (flags.alternativeForm) {
-                if (specifier === 'x') return '0x';
-                if (specifier === 'X') return '0X';
+            if ( flags.alternativeForm ) {
+                if ( specifier === 'x' ) return '0x';
+                if ( specifier === 'X' ) return '0X';
             }
-            if (unsigned) return '';
-            if (integer < 0) return '-';
-            if (flags.prefixWithSign) return '+';
-            if (flags.prefixWithSpaceIfWithoutSign) return ' ';
+            if ( unsigned ) return '';
+            if ( integer < 0 ) return '-';
+            if ( flags.prefixWithSign ) return '+';
+            if ( flags.prefixWithSpaceIfWithoutSign ) return ' ';
             return '';
         })();
 
@@ -155,19 +155,19 @@ function formatOutput(parsedFormat, remainingArguments) {
         // "The default precision shall be 1."
         const usedPrecision = precision ?? 1;
         // Special case: "The result of converting a zero value with a precision of 0 shall be no characters."
-        if (usedPrecision === 0 && integer === 0) {
+        if ( usedPrecision === 0 && integer === 0 ) {
             digits = '';
-        } else if (digits.length < precision) {
+        } else if ( digits.length < precision ) {
             digits = '0'.repeat(precision - digits.length) + digits;
         }
 
         // Pad up to `fieldWidth` with spaces or 0s.
         const width = signOrPrefix.length + digits.length;
         let output = signOrPrefix + digits;
-        if (width < fieldWidth) {
-            if (flags.leftJustify) {
+        if ( width < fieldWidth ) {
+            if ( flags.leftJustify ) {
                 output = signOrPrefix + digits + ' '.repeat(fieldWidth - width);
-            } else if (precision === null && flags.padWithLeadingZeroes) {
+            } else if ( precision === null && flags.padWithLeadingZeroes ) {
                 // "For d, i , o, u, x, and X conversion specifiers, if a precision is specified, the '0' flag shall be ignored."
                 output = signOrPrefix + '0'.repeat(fieldWidth - width) + digits;
             } else {
@@ -175,7 +175,7 @@ function formatOutput(parsedFormat, remainingArguments) {
             }
         }
 
-        if (specifier === specifier.toUpperCase()) {
+        if ( specifier === specifier.toUpperCase() ) {
             output = output.toUpperCase();
         }
 
@@ -183,110 +183,110 @@ function formatOutput(parsedFormat, remainingArguments) {
     };
 
     const formatFloat = (float, specifier) => {
-        if (float === undefined) float = 0;
+        if ( float === undefined ) float = 0;
 
         const sign = (() => {
-            if (float < 0) return '-';
-            if (flags.prefixWithSign) return '+';
-            if (flags.prefixWithSpaceIfWithoutSign) return ' ';
+            if ( float < 0 ) return '-';
+            if ( flags.prefixWithSign ) return '+';
+            if ( flags.prefixWithSpaceIfWithoutSign ) return ' ';
             return '';
         })();
         const floatString = (() => {
             // NaN and Infinity are the same regardless of representation
-            if (!isFinite(float)) {
+            if ( ! isFinite(float) ) {
                 return float.toString();
             }
 
             const formatExponential = (mantissaString, exponent) => {
                 // #: "For [...] e, E, [...] conversion specifiers, the result shall always contain a radix character,
                 // even if no digits follow the radix character."
-                if (flags.alternativeForm && !mantissaString.includes('.')) {
+                if ( flags.alternativeForm && !mantissaString.includes('.') ) {
                     mantissaString += '.';
                 }
 
                 // "The exponent shall always contain at least two digits."
                 const exponentOutput = (() => {
-                    if (exponent <= -10 || exponent >= 10) return exponent.toString();
-                    if (exponent < 0) return '-0' + Math.abs(exponent).toString();
-                    return '+0' + Math.abs(exponent).toString();
+                    if ( exponent <= -10 || exponent >= 10 ) return exponent.toString();
+                    if ( exponent < 0 ) return `-0${ Math.abs(exponent).toString()}`;
+                    return `+0${ Math.abs(exponent).toString()}`;
                 })();
-                return mantissaString + 'e' + exponentOutput;
+                return `${mantissaString }e${ exponentOutput}`;
             };
 
-            switch (specifier) {
-                // TODO: %a and %A, floats in hexadecimal
-                case 'e':
-                case 'E': {
-                    // "When the precision is missing, six digits shall be written after the radix character"
-                    const usedPrecision = precision ?? 6;
-                    // We unfortunately can't fully rely on toExponential() because printf has different formatting rules.
-                    const [mantissaString, exponentString] = Math.abs(float).toExponential(usedPrecision).split('e');
-                    const exponent = Number.parseInt(exponentString);
-                    return formatExponential(mantissaString, exponent);
+            switch ( specifier ) {
+            // TODO: %a and %A, floats in hexadecimal
+            case 'e':
+            case 'E': {
+                // "When the precision is missing, six digits shall be written after the radix character"
+                const usedPrecision = precision ?? 6;
+                // We unfortunately can't fully rely on toExponential() because printf has different formatting rules.
+                const [mantissaString, exponentString] = Math.abs(float).toExponential(usedPrecision).split('e');
+                const exponent = Number.parseInt(exponentString);
+                return formatExponential(mantissaString, exponent);
+            }
+            case 'f':
+            case 'F': {
+                // "If the precision is omitted from the argument, six digits shall be written after the radix character"
+                const usedPrecision = precision ?? 6;
+                const result = Math.abs(float).toFixed(usedPrecision);
+                if ( flags.alternativeForm && usedPrecision === 0 ) {
+                    // #: "For [...] f, F, [...] conversion specifiers, the result shall always contain a radix character,
+                    // even if no digits follow the radix character."
+                    return `${result }.`;
                 }
-                case 'f':
-                case 'F': {
-                    // "If the precision is omitted from the argument, six digits shall be written after the radix character"
-                    const usedPrecision = precision ?? 6;
-                    const result = Math.abs(float).toFixed(usedPrecision);
-                    if (flags.alternativeForm && usedPrecision === 0) {
-                        // #: "For [...] f, F, [...] conversion specifiers, the result shall always contain a radix character,
-                        // even if no digits follow the radix character."
-                        return result + '.';
-                    }
-                    return result;
+                return result;
+            }
+            case 'g':
+            case 'G': {
+                // Default isn't specified in the spec, but 6 matches behavior of other implementations.
+                const usedPrecision = precision ?? 6;
+
+                // "The style used depends on the value converted: style e (or E) shall be used only if the exponent
+                // resulting from the conversion is less than -4 or greater than or equal to the precision."
+                // We add a digit of precision to make sure we don't break things when rounding later.
+                const [mantissaString, exponentString] = Math.abs(float).toExponential(usedPrecision + 1).split('e');
+                const mantissa = Number.parseFloat(mantissaString);
+                const exponent = Number.parseInt(exponentString);
+
+                // Unfortunately, `float.toPrecision()` doesn't use the same rules as printf to decide whether to
+                // use decimal or exponential representation, so we have to construct the output ourselves.
+                const usingExponential = exponent > usedPrecision || exponent < -4;
+                if ( usingExponential ) {
+                    const decimalDigits = Math.max(0, usedPrecision - (mantissa < 1 ? 0 : 1));
+                    // "Trailing zeros are removed from the result."
+                    let mantissaOutput = mantissa.toFixed(decimalDigits)
+                        .replace(/\.0+/, '');
+                    return formatExponential(mantissaOutput, exponent);
                 }
-                case 'g':
-                case 'G': {
-                    // Default isn't specified in the spec, but 6 matches behavior of other implementations.
-                    const usedPrecision = precision ?? 6;
 
-                    // "The style used depends on the value converted: style e (or E) shall be used only if the exponent
-                    // resulting from the conversion is less than -4 or greater than or equal to the precision."
-                    // We add a digit of precision to make sure we don't break things when rounding later.
-                    const [mantissaString, exponentString] = Math.abs(float).toExponential(usedPrecision + 1).split('e');
-                    const mantissa = Number.parseFloat(mantissaString);
-                    const exponent = Number.parseInt(exponentString);
-
-                    // Unfortunately, `float.toPrecision()` doesn't use the same rules as printf to decide whether to
-                    // use decimal or exponential representation, so we have to construct the output ourselves.
-                    const usingExponential = exponent > usedPrecision || exponent < -4;
-                    if (usingExponential) {
-                        const decimalDigits = Math.max(0, usedPrecision - (mantissa < 1 ? 0 : 1));
-                        // "Trailing zeros are removed from the result."
-                        let mantissaOutput = mantissa.toFixed(decimalDigits)
-                           .replace(/\.0+/, '');
-                        return formatExponential(mantissaOutput, exponent);
-                    }
-
-                    // Decimal representation
-                    const result = Math.abs(float).toPrecision(usedPrecision);
-                    if (flags.alternativeForm && usedPrecision === 0) {
-                        // #: "For [...] g, and G conversion specifiers, the result shall always contain a radix character,
-                        // even if no digits follow the radix character."
-                        return result + '.';
-                    }
-                    // Trailing zeros are removed from the result.
-                    return result.replace(/\.0+/, '');
+                // Decimal representation
+                const result = Math.abs(float).toPrecision(usedPrecision);
+                if ( flags.alternativeForm && usedPrecision === 0 ) {
+                    // #: "For [...] g, and G conversion specifiers, the result shall always contain a radix character,
+                    // even if no digits follow the radix character."
+                    return `${result }.`;
                 }
-                default: throw new Error(`Invalid float specifier '${specifier}'`);
+                // Trailing zeros are removed from the result.
+                return result.replace(/\.0+/, '');
+            }
+            default: throw new Error(`Invalid float specifier '${specifier}'`);
             }
         })();
 
         // Pad up to `fieldWidth` with spaces or 0s.
         const width = sign.length + floatString.length;
         let output = sign + floatString;
-        if (width < fieldWidth) {
-            if (flags.leftJustify) {
+        if ( width < fieldWidth ) {
+            if ( flags.leftJustify ) {
                 output = sign + floatString + ' '.repeat(fieldWidth - width);
-            } else if (flags.padWithLeadingZeroes && isFinite(float)) {
+            } else if ( flags.padWithLeadingZeroes && isFinite(float) ) {
                 output = sign + '0'.repeat(fieldWidth - width) + floatString;
             } else {
                 output = ' '.repeat(fieldWidth - width) + sign + floatString;
             }
         }
 
-        if (specifier === specifier.toUpperCase()) {
+        if ( specifier === specifier.toUpperCase() ) {
             output = output.toUpperCase();
         } else {
             output = output.toLowerCase();
@@ -295,54 +295,54 @@ function formatOutput(parsedFormat, remainingArguments) {
         return output;
     };
 
-    switch (conversionSpecifier) {
-        // TODO: a,A: Float in hexadecimal format
-        // TODO: b: binary data with escapes
-        // TODO: Any other common options that are not in the posix spec
+    switch ( conversionSpecifier ) {
+    // TODO: a,A: Float in hexadecimal format
+    // TODO: b: binary data with escapes
+    // TODO: Any other common options that are not in the posix spec
 
-        // Integers
-        case 'd':
-        case 'i':
-        case 'o':
-        case 'u':
-        case 'x':
-        case 'X': {
-            return formatInteger(Number.parseInt(remainingArguments.shift()) || 0, conversionSpecifier);
+    // Integers
+    case 'd':
+    case 'i':
+    case 'o':
+    case 'u':
+    case 'x':
+    case 'X': {
+        return formatInteger(Number.parseInt(remainingArguments.shift()) || 0, conversionSpecifier);
+    }
+
+    // Floating point numbers
+    case 'e':
+    case 'E':
+    case 'f':
+    case 'F':
+    case 'g':
+    case 'G': {
+        return formatFloat(Number.parseFloat(remainingArguments.shift()), conversionSpecifier);
+    }
+
+    // Single character
+    case 'c': {
+        const argument = remainingArguments.shift() || '';
+        // It's unspecified whether an empty string produces a null byte or nothing.
+        // We'll go with nothing for now.
+        return padAndAlignString(argument[0] || '');
+    }
+
+    // String
+    case 's': {
+        let argument = remainingArguments.shift() || '';
+        if ( precision && precision < argument.length ) {
+            argument = argument.substring(0, precision);
         }
+        return padAndAlignString(argument);
+    }
 
-        // Floating point numbers
-        case 'e':
-        case 'E':
-        case 'f':
-        case 'F':
-        case 'g':
-        case 'G': {
-            return formatFloat(Number.parseFloat(remainingArguments.shift()), conversionSpecifier);
-        }
-
-        // Single character
-        case 'c': {
-            const argument = remainingArguments.shift() || '';
-            // It's unspecified whether an empty string produces a null byte or nothing.
-            // We'll go with nothing for now.
-            return padAndAlignString(argument[0] || '');
-        }
-
-        // String
-        case 's': {
-            let argument = remainingArguments.shift() || '';
-            if (precision && precision < argument.length) {
-                argument = argument.substring(0, precision);
-            }
-            return padAndAlignString(argument);
-        }
-
-        // Percent sign
-        case '%': return '%';
+    // Percent sign
+    case '%': return '%';
     }
 }
 
-function highlight(text) {
+function highlight (text) {
     return `\x1B[92m${text}\x1B[0m`;
 }
 
@@ -370,7 +370,7 @@ export default {
             'Flags:\n\n' +
             `    ${highlight('-')}       Left-justify the result\n` +
             `    ${highlight('+')}       For numeric types, always include a sign character\n` +
-            `    ${highlight('\' \'')}     ${highlight('(space)')} For numeric types, include a space where the sign would go for positive numbers. Overridden by ${highlight('+')}.\n`+
+            `    ${highlight('\' \'')}     ${highlight('(space)')} For numeric types, include a space where the sign would go for positive numbers. Overridden by ${highlight('+')}.\n` +
             `    ${highlight('#')}       Use alternative form, depending on the conversion:\n` +
             `            ${highlight('o')}              Ensure result is always prefixed with a '0'\n` +
             `            ${highlight('x,X')}            Prefix result with '0x' or '0X' respectively\n` +
@@ -397,14 +397,14 @@ export default {
     },
     args: {
         $: 'simple-parser',
-        allowPositionals: true
+        allowPositionals: true,
     },
     execute: async ctx => {
         const { out, err } = ctx.externs;
         const { positionals } = ctx.locals;
         const [ format, ...remainingArguments ] = ctx.locals.positionals;
 
-        if (positionals.length === 0) {
+        if ( positionals.length === 0 ) {
             await err.write('printf: Missing format argument\n');
             throw new Exit(1);
         }
@@ -414,52 +414,52 @@ export default {
             const previousRemainingArgumentCount = remainingArguments.length;
             let output = '';
 
-            for (let i = 0; i < format.length; ++i) {
+            for ( let i = 0; i < format.length; ++i ) {
                 let char = format[i];
                 // Escape sequences
-                if (char === '\\') {
+                if ( char === '\\' ) {
                     char = format[++i];
-                    switch (char) {
-                        case undefined: {
-                            // We reached the end of the string, just output the slash.
-                            output += '\\';
-                            break;
-                        }
-                        case '\\': output += '\\'; break;
-                        case 'a': output += BEL; break;
-                        case 'b': output += BS; break;
-                        case 'f': output += FF; break;
-                        case 'n': output += '\n'; break;
-                        case 'r': output += '\r'; break;
-                        case 't': output += '\t'; break;
-                        case 'v': output += VT; break;
-                        default: {
-                            // 1 to 3-digit octal number
-                            if (char >= '0' && char <= '9') {
-                                const digitsStartI = i;
-                                if (format[i+1] >= '0' && format[i+1] <= '9') {
+                    switch ( char ) {
+                    case undefined: {
+                        // We reached the end of the string, just output the slash.
+                        output += '\\';
+                        break;
+                    }
+                    case '\\': output += '\\'; break;
+                    case 'a': output += BEL; break;
+                    case 'b': output += BS; break;
+                    case 'f': output += FF; break;
+                    case 'n': output += '\n'; break;
+                    case 'r': output += '\r'; break;
+                    case 't': output += '\t'; break;
+                    case 'v': output += VT; break;
+                    default: {
+                        // 1 to 3-digit octal number
+                        if ( char >= '0' && char <= '9' ) {
+                            const digitsStartI = i;
+                            if ( format[i + 1] >= '0' && format[i + 1] <= '9' ) {
+                                i++;
+                                if ( format[i + 1] >= '0' && format[i + 1] <= '9' ) {
                                     i++;
-                                    if (format[i+1] >= '0' && format[i+1] <= '9') {
-                                        i++;
-                                    }
                                 }
-
-                                const octalString = format.substring(digitsStartI, i + 1);
-                                const octalValue = Number.parseInt(octalString, 8);
-                                output += String.fromCodePoint(octalValue);
-                                break;
                             }
 
-                            // Unrecognized, so just output the sequence verbatim.
-                            output += '\\' + char;
+                            const octalString = format.substring(digitsStartI, i + 1);
+                            const octalValue = Number.parseInt(octalString, 8);
+                            output += String.fromCodePoint(octalValue);
                             break;
                         }
+
+                        // Unrecognized, so just output the sequence verbatim.
+                        output += `\\${ char}`;
+                        break;
+                    }
                     }
                     continue;
                 }
 
                 // Conversion specifiers
-                if (char === '%') {
+                if ( char === '%' ) {
                     // Parse the conversion specifier
                     let parsedFormat;
                     try {
@@ -484,10 +484,10 @@ export default {
 
             // "If the format operand contains no conversion specifications and argument operands are present, the results are unspecified."
             // We handle this by printing it once and stopping.
-            if (remainingArguments.length === previousRemainingArgumentCount) {
+            if ( remainingArguments.length === previousRemainingArgumentCount ) {
                 break;
             }
-        } while (remainingArguments.length > 0);
+        } while ( remainingArguments.length > 0 );
 
-    }
+    },
 };

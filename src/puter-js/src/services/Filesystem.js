@@ -19,13 +19,13 @@ export class FilesystemService extends putility.concepts.Service {
                 re-initialize the socket connection whenever the
                 authentication token or API origin is changed.
             `,
-            async do() {
+            async do () {
                 this.initializeSocket();
             },
         },
     ];
 
-    _init() {
+    _init () {
         const env = this._.context.env;
 
         if ( env === 'app' ) {
@@ -40,14 +40,14 @@ export class FilesystemService extends putility.concepts.Service {
         this.initializeSocket();
     }
 
-    init_app_fs_() {
+    init_app_fs_ () {
         this.fs_nocache_ = new PostMessageFilesystem({
             messageTarget: globalThis.parent,
             rpc: this._.context.util.rpc,
         }).as(TFilesystem);
         this.filesystem = this.fs_nocache_;
     }
-    init_top_fs_() {
+    init_top_fs_ () {
         const api_info = this._.context.services.get('api-access').get_api_info();
         this.fs_nocache_ = new PuterAPIFilesystem({ api_info }).as(TFilesystem);
         this.fs_cache_ = new CachedFilesystem({ delegate: this.fs_nocache_ }).as(TFilesystem);
@@ -56,14 +56,14 @@ export class FilesystemService extends putility.concepts.Service {
         this.filesystem = this.fs_proxy_.as(TFilesystem);
     }
 
-    cache_on() {
+    cache_on () {
         this.fs_proxy_.delegate = this.fs_cache_;
     }
-    cache_off() {
+    cache_off () {
         this.fs_proxy_.delegate = this.fs_nocache_;
     }
 
-    async initializeSocket() {
+    async initializeSocket () {
         if ( this.socket ) {
             this.socket.disconnect();
         }
@@ -84,7 +84,7 @@ export class FilesystemService extends putility.concepts.Service {
         this.bindSocketEvents();
     }
 
-    bindSocketEvents() {
+    bindSocketEvents () {
         this.socket.on('connect', () => {
             if ( puter.debugMode )
             {

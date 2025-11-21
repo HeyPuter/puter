@@ -54,7 +54,7 @@ import th from './th.js';
 import tr from './tr.js';
 import ua from './ua.js';
 import ur from './ur.js';
-import vi from "./vi.js";
+import vi from './vi.js';
 import zh from './zh.js';
 import zhtw from './zhtw.js';
 

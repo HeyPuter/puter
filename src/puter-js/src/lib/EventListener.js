@@ -5,20 +5,20 @@ export default class EventListener {
     // Map of eventName -> array of listeners
     #eventListeners;
 
-    constructor(eventNames) {
+    constructor (eventNames) {
         this.#eventNames = eventNames;
 
         this.#eventListeners = (() => {
             const map = new Map();
-            for (let eventName of this.#eventNames) {
+            for ( let eventName of this.#eventNames ) {
                 map[eventName] = [];
             }
             return map;
         })();
     }
 
-    emit(eventName, data) {
-        if (!this.#eventNames.includes(eventName)) {
+    emit (eventName, data) {
+        if ( ! this.#eventNames.includes(eventName) ) {
             console.error(`Event name '${eventName}' not supported`);
             return;
         }
@@ -27,8 +27,8 @@ export default class EventListener {
         });
     }
 
-    on(eventName, callback) {
-        if (!this.#eventNames.includes(eventName)) {
+    on (eventName, callback) {
+        if ( ! this.#eventNames.includes(eventName) ) {
             console.error(`Event name '${eventName}' not supported`);
             return;
         }
@@ -36,14 +36,14 @@ export default class EventListener {
         return this;
     }
 
-    off(eventName, callback) {
-        if (!this.#eventNames.includes(eventName)) {
+    off (eventName, callback) {
+        if ( ! this.#eventNames.includes(eventName) ) {
             console.error(`Event name '${eventName}' not supported`);
             return;
         }
         const listeners = this.#eventListeners[eventName];
-        const index = listeners.indexOf(callback)
-        if (index !== -1) {
+        const index = listeners.indexOf(callback);
+        if ( index !== -1 ) {
             listeners.splice(index, 1);
         }
         return this;

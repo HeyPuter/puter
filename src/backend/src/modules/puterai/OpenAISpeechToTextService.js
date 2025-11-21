@@ -64,7 +64,7 @@ const TRANSCRIPTION_MODEL_CAPABILITIES = {
 
 class OpenAISpeechToTextService extends BaseService {
     /** @type {import('../../services/MeteringService/MeteringService').MeteringService} */
-    get meteringService() {
+    get meteringService () {
         return this.services.get('meteringService').meteringService;
     }
 
@@ -75,12 +75,12 @@ class OpenAISpeechToTextService extends BaseService {
         path: require('path'),
     };
 
-    async _init() {
+    async _init () {
         let apiKey =
             this.config?.services?.openai?.apiKey ??
             this.global_config?.services?.openai?.apiKey;
 
-        if ( !apiKey ) {
+        if ( ! apiKey ) {
             apiKey =
                 this.config?.openai?.secret_key ??
                 this.global_config.openai?.secret_key;
@@ -91,7 +91,7 @@ class OpenAISpeechToTextService extends BaseService {
             }
         }
 
-        if ( !apiKey ) {
+        if ( ! apiKey ) {
             throw new Error('OpenAI API key not configured');
         }
 
@@ -100,25 +100,25 @@ class OpenAISpeechToTextService extends BaseService {
 
     static IMPLEMENTS = {
         ['driver-capabilities']: {
-            supports_test_mode(iface, method_name) {
+            supports_test_mode (iface, method_name) {
                 return iface === 'puter-speech2txt' &&
                     (method_name === 'transcribe' || method_name === 'translate');
             },
         },
         ['puter-speech2txt']: {
-            async list_models() {
+            async list_models () {
                 return this.listModels();
             },
-            async transcribe(params) {
+            async transcribe (params) {
                 return this._handleTranscription({ ...params, translate: false });
             },
-            async translate(params) {
+            async translate (params) {
                 return this._handleTranscription({ ...params, translate: true });
             },
         },
     };
 
-    listModels() {
+    listModels () {
         return [
             {
                 id: 'gpt-4o-mini-transcribe',
@@ -157,7 +157,7 @@ class OpenAISpeechToTextService extends BaseService {
         ];
     }
 
-    async _handleTranscription({
+    async _handleTranscription ({
         file,
         translate = false,
         model,
@@ -187,7 +187,7 @@ class OpenAISpeechToTextService extends BaseService {
             });
         }
 
-        if ( !file ) {
+        if ( ! file ) {
             throw APIError.create('field_missing', null, { key: 'file' });
         }
 
@@ -208,7 +208,7 @@ class OpenAISpeechToTextService extends BaseService {
         const selectedModel = model || (translate ? DEFAULT_TRANSLATE_MODEL : DEFAULT_TRANSCRIBE_MODEL);
         const capabilities = TRANSCRIPTION_MODEL_CAPABILITIES[selectedModel];
 
-        if ( !capabilities ) {
+        if ( ! capabilities ) {
             throw APIError.create('field_invalid', null, {
                 key: 'model',
                 expected: Object.keys(TRANSCRIPTION_MODEL_CAPABILITIES).join(', '),
@@ -241,13 +241,13 @@ class OpenAISpeechToTextService extends BaseService {
         if ( timestamp_granularities && !capabilities.timestampGranularities ) {
             throw APIError.create('field_invalid', null, {
                 key: 'timestamp_granularities',
-                expected: `Only supported on models that provide timestamp granularity (such as whisper-1).`,
+                expected: 'Only supported on models that provide timestamp granularity (such as whisper-1).',
             });
         }
 
         let diarizationChunkingStrategy = chunking_strategy;
         if ( capabilities.diarization ) {
-            if ( !response_format ) {
+            if ( ! response_format ) {
                 response_format = 'diarized_json';
             }
             if ( !diarizationChunkingStrategy && capabilities.requiresChunkingOverThirtySeconds && estimatedSeconds > 30 ) {
@@ -259,15 +259,13 @@ class OpenAISpeechToTextService extends BaseService {
         const usageType = `openai:${selectedModel}:second`;
         const usageAllowed = await this.meteringService.hasEnoughCreditsFor(actor, usageType, estimatedSeconds);
 
-        if ( !usageAllowed ) {
+        if ( ! usageAllowed ) {
             throw APIError.create('insufficient_funds');
         }
 
-        const openaiFile = await this.modules.openai.toFile(
-            buffer,
-            filename,
-            mimeType ? { type: mimeType } : undefined,
-        );
+        const openaiFile = await this.modules.openai.toFile(buffer,
+                        filename,
+                        mimeType ? { type: mimeType } : undefined);
 
         const payload = {
             file: openaiFile,
@@ -304,7 +302,7 @@ class OpenAISpeechToTextService extends BaseService {
         return this._formatResponse(transcription, response_format);
     }
 
-    async _prepareAudioBuffer(file) {
+    async _prepareAudioBuffer (file) {
         const buffer = await file.get('buffer');
         if ( !buffer || !buffer.length ) {
             throw APIError.create('field_invalid', null, {
@@ -346,14 +344,14 @@ class OpenAISpeechToTextService extends BaseService {
             }
         }
 
-        if ( !mimeType ) {
+        if ( ! mimeType ) {
             const guessedMime = this.modules.mime.lookup(filename);
             if ( guessedMime ) {
                 mimeType = guessedMime;
             }
         }
 
-        if ( !filename.includes('.') ) {
+        if ( ! filename.includes('.') ) {
             const extension = mimeType ? this.modules.mime.extension(mimeType) : 'mp3';
             filename = `${filename}.${extension || 'mp3'}`;
         }
@@ -384,7 +382,7 @@ class OpenAISpeechToTextService extends BaseService {
         };
     }
 
-    _formatResponse(result, response_format) {
+    _formatResponse (result, response_format) {
         if ( response_format === 'text' && typeof result === 'string' ) {
             return result;
         }

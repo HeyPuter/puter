@@ -17,9 +17,8 @@
  * You should have received a copy of the GNU Affero General Public License
  * along with this program.  If not, see <https://www.gnu.org/licenses/>.
  */
-const BaseService = require("../../services/BaseService");
-const { time, promise } = require("@heyputer/putility").libs;
-
+const BaseService = require('../../services/BaseService');
+const { time, promise } = require('@heyputer/putility').libs;
 
 /**
 * The ServerHealthService class provides comprehensive health monitoring for the server.
@@ -28,15 +27,15 @@ const { time, promise } = require("@heyputer/putility").libs;
 * - Managing health check results and failures
 * - Triggering alarms for critical conditions
 * - Logging and managing statistics for health metrics
-* 
+*
 * This service is designed to work primarily on Linux systems, reading system metrics
 * from `/proc/meminfo` and handling alarms via an external 'alarm' service.
 */
 class ServerHealthService extends BaseService {
     static USE = {
-        linuxutil: 'core.util.linuxutil'
+        linuxutil: 'core.util.linuxutil',
     };
-    
+
     /**
     * Defines the modules used by ServerHealthService.
     * This static property is used to initialize and access system modules required for health checks.
@@ -45,12 +44,12 @@ class ServerHealthService extends BaseService {
     */
     static MODULES = {
         fs: require('fs'),
-    }
+    };
 
     /**
     * Initializes the internal checks and failure tracking for the service.
     * This method sets up empty arrays to store health checks and their failure statuses.
-    * 
+    *
     * @private
     */
     _construct () {
@@ -73,7 +72,6 @@ class ServerHealthService extends BaseService {
             `/proc/meminfo` directly.
         */
 
-
         const min_available_KiB = 1024 * 1024 * 2; // 2 GiB
 
         const svc_alarm = this.services.get('alarm');
@@ -84,28 +82,25 @@ class ServerHealthService extends BaseService {
         if ( process.platform !== 'linux' ) {
             return;
         }
-        
-        if ( this.config.no_system_checks ) return;
 
+        if ( this.config.no_system_checks ) return;
 
         /**
         * Adds a health check to the service.
-        * 
+        *
         * @param {string} name - The name of the health check.
         * @param {Function} fn - The function to execute for the health check.
         * @returns {Object} A chainable object to add failure handlers.
         */
         this.add_check('ram-usage', async () => {
-            const meminfo_text = await this.modules.fs.promises.readFile(
-                '/proc/meminfo', 'utf8'
-            );
+            const meminfo_text = await this.modules.fs.promises.readFile('/proc/meminfo', 'utf8');
             const meminfo = this.linuxutil.parse_meminfo(meminfo_text);
             const log_fields = {
                 mem_free: meminfo.MemFree,
                 mem_available: meminfo.MemAvailable,
                 mem_total: meminfo.MemTotal,
             };
-            
+
             this.log.debug('memory', log_fields);
 
             Object.assign(this.stats_, log_fields);
@@ -116,12 +111,11 @@ class ServerHealthService extends BaseService {
         });
     }
 
-
     /**
     * Initializes service health checks by setting up periodic checks.
     * This method configures an interval-based execution of health checks,
     * handles timeouts, and manages failure states.
-    * 
+    *
     * @param {none} - This method does not take any parameters.
     * @returns {void} - This method does not return any value.
     */
@@ -129,11 +123,11 @@ class ServerHealthService extends BaseService {
         const svc_alarm = this.services.get('alarm');
         /**
         * Initializes periodic health checks for the server.
-        * 
+        *
         * This method sets up an interval to run all registered health checks
         * at a specified frequency. It manages the execution of checks, handles
         * timeouts, and logs errors or triggers alarms when checks fail.
-        * 
+        *
         * @private
         * @method init_service_checks_
         * @memberof ServerHealthService
@@ -147,7 +141,7 @@ class ServerHealthService extends BaseService {
                 const p_timeout = new promise.TeePromise();
                 /**
                 * Creates a TeePromise to handle potential timeouts during health checks.
-                * 
+                *
                 * @returns {Promise} A promise that can be resolved or rejected from multiple places.
                 */
                 const timeout = setTimeout(() => {
@@ -166,14 +160,12 @@ class ServerHealthService extends BaseService {
                         return;
                     }
 
-                    svc_alarm.create(
-                        'health-check-failure',
-                        `Health check ${name} failed`,
-                        { error: err }
-                    );
+                    svc_alarm.create('health-check-failure',
+                                    `Health check ${name} failed`,
+                                    { error: err });
                     check_failures.push({ name });
-                    
-                    this.log.error(`Error for healthcheck fail on ${name}: ` + err.stack);
+
+                    this.log.error(`Error for healthcheck fail on ${name}: ${ err.stack}`);
 
                     // Run the on_fail handlers
                     for ( const fn of chainable.on_fail_ ) {
@@ -189,19 +181,16 @@ class ServerHealthService extends BaseService {
             this.failures_ = check_failures;
         }, 10 * time.SECOND, null, {
             onBehindSchedule: (drift) => {
-                svc_alarm.create(
-                    'health-checks-behind-schedule',
-                    'Health checks are behind schedule',
-                    { drift }
-                );
-            }
+                svc_alarm.create('health-checks-behind-schedule',
+                                'Health checks are behind schedule',
+                                { drift });
+            },
         });
     }
 
-
     /**
     * Retrieves the current server health statistics.
-    * 
+    *
     * @returns {Object} An object containing the current health statistics.
     * This method returns a shallow copy of the internal `stats_` object to prevent
     * direct manipulation of the service's data.
@@ -222,10 +211,9 @@ class ServerHealthService extends BaseService {
         return chainable;
     }
 
-
     /**
     * Retrieves the current health status of the server.
-    * 
+    *
     * @returns {Object} An object containing:
     * - `ok` {boolean}: Indicates if all health checks passed.
     * - `failed` {Array<string>}: An array of names of failed health checks, if any.

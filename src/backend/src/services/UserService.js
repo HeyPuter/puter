@@ -38,7 +38,7 @@ class UserService extends BaseService {
         const dir_system = await svc_fs.node(new NodeChildSelector(new RootNodeSelector(),
                         'system'));
 
-        if ( !await dir_system.exists() ) {
+        if ( ! await dir_system.exists() ) {
             const svc_getUser = this.services.get('get-user');
             await this.generate_default_fsentries({
                 user: await svc_getUser.get_user({ username: 'system' }),

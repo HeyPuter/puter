@@ -7,19 +7,19 @@
  * it under the terms of the GNU Affero General Public License as published
  * by the Free Software Foundation, either version 3 of the License, or
  * (at your option) any later version.
- * 
+ *
  * This program is distributed in the hope that it will be useful,
  * but WITHOUT ANY WARRANTY; without even the implied warranty of
  * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
  * GNU Affero General Public License for more details.
- * 
+ *
  * You should have received a copy of the GNU Affero General Public License
  * along with this program.  If not, see <https://www.gnu.org/licenses/>.
  */
 
-import UIWindow from './UIWindow.js'
+import UIWindow from './UIWindow.js';
 
-async function PuterDialog(options) {
+async function PuterDialog (options) {
     return new Promise(async (resolve) => {
         let h = '';
         h += `<div class="puter-auth-dialog-content">
@@ -34,8 +34,8 @@ async function PuterDialog(options) {
         </div>`;
 
         const el_window = await UIWindow({
-            title: `Upload`,
-            icon: window.icons[`app-icon-uploader.svg`],
+            title: 'Upload',
+            icon: window.icons['app-icon-uploader.svg'],
             uid: null,
             is_dir: false,
             body_content: h,
@@ -52,7 +52,7 @@ async function PuterDialog(options) {
             width: '100%',
             top: '0',
             dominant: true,
-            window_css:{
+            window_css: {
                 height: '100%',
                 width: '100%',
                 top: '0 !important',
@@ -63,19 +63,19 @@ async function PuterDialog(options) {
                 width: 'initial',
                 'background-color': 'rgba(231, 238, 245, .95)',
                 'backdrop-filter': 'blur(3px)',
-            }    
+            },
         });
 
         $(el_window).find('#launch-auth-popup').on('click submit', function (e) {
             $(el_window).close();
             resolve(true);
-        })
+        });
 
         $(el_window).find('#launch-auth-popup-cancel').on('click submit', function (e) {
             $(el_window).close();
             resolve(false);
-        })
-    })
+        });
+    });
 }
 // export as default
 export default PuterDialog;

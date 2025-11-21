@@ -1,23 +1,23 @@
 /*
  * Copyright (C) 2024-present Puter Technologies Inc.
- * 
+ *
  * This file is part of Puter.
- * 
+ *
  * Puter is free software: you can redistribute it and/or modify
  * it under the terms of the GNU Affero General Public License as published
  * by the Free Software Foundation, either version 3 of the License, or
  * (at your option) any later version.
- * 
+ *
  * This program is distributed in the hope that it will be useful,
  * but WITHOUT ANY WARRANTY; without even the implied warranty of
  * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
  * GNU Affero General Public License for more details.
- * 
+ *
  * You should have received a copy of the GNU Affero General Public License
  * along with this program.  If not, see <https://www.gnu.org/licenses/>.
  */
 
-import { Service } from "../definitions.js";
+import { Service } from '../definitions.js';
 
 class InternalConnection {
     constructor ({ source, target, uuid, reverse }, { services }) {
@@ -41,7 +41,7 @@ class InternalConnection {
 export class IPCService extends Service {
     static description = `
         Allows other services to expose methods to apps.
-    `
+    `;
 
     async _init () {
         this.connections_ = {};
@@ -51,12 +51,16 @@ export class IPCService extends Service {
         const uuid = window.uuidv4();
         const r_uuid = window.uuidv4();
         const forward = this.connections_[uuid] = {
-            source, target,
-            uuid: uuid, reverse: r_uuid,
+            source,
+            target,
+            uuid: uuid,
+            reverse: r_uuid,
         };
         const backward = this.connections_[r_uuid] = {
-            source: target, target: source,
-            uuid: r_uuid, reverse: uuid,
+            source: target,
+            target: source,
+            uuid: r_uuid,
+            reverse: uuid,
         };
         return { forward, backward };
     }
@@ -67,7 +71,7 @@ export class IPCService extends Service {
         if ( entry.object ) return entry.object;
         return entry.object = new InternalConnection(entry, this.context);
     }
-    
+
     register_ipc_handler (name, spec) {
         window.ipc_handlers[name] = spec;
     }

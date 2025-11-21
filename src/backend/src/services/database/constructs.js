@@ -29,7 +29,7 @@ const Statement = function Statement ({ statement, values }) {
     return {
         statement, values,
     };
-}
+};
 
 module.exports = {
     Statement,

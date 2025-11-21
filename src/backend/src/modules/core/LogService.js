@@ -54,7 +54,6 @@ const display_log_level_label = {
     100: 'ALL',
 };
 
-
 /**
 * Represents a logging context within the LogService.
 * This class is used to manage logging operations with specific context information,
@@ -69,20 +68,28 @@ class LogContext {
     }
 
     sub (name, fields = {}) {
-        return new LogContext(
-            this.logService,
-            {
-                crumbs: name ? [...this.crumbs, name] : [...this.crumbs],
-                fields: {...this.fields, ...fields},
-            }
-        );
+        return new LogContext(this.logService,
+                        {
+                            crumbs: name ? [...this.crumbs, name] : [...this.crumbs],
+                            fields: { ...this.fields, ...fields },
+                        });
     }
 
-    info  (message, fields, objects) { this.log(LOG_LEVEL_INFO, message, fields, objects); }
-    warn  (message, fields, objects) { this.log(LOG_LEVEL_WARN, message, fields, objects); }
-    debug (message, fields, objects) { this.log(LOG_LEVEL_DEBU, message, fields, objects); }
-    error (message, fields, objects) { this.log(LOG_LEVEL_ERRO, message, fields, objects); }
-    tick  (message, fields, objects) { this.log(LOG_LEVEL_TICK, message, fields, objects); }
+    info (message, fields, objects) {
+        this.log(LOG_LEVEL_INFO, message, fields, objects);
+    }
+    warn (message, fields, objects) {
+        this.log(LOG_LEVEL_WARN, message, fields, objects);
+    }
+    debug (message, fields, objects) {
+        this.log(LOG_LEVEL_DEBU, message, fields, objects);
+    }
+    error (message, fields, objects) {
+        this.log(LOG_LEVEL_ERRO, message, fields, objects);
+    }
+    tick (message, fields, objects) {
+        this.log(LOG_LEVEL_TICK, message, fields, objects);
+    }
     called (fields = {}) {
         this.log(LOG_LEVEL_DEBU, 'called', fields);
     }
@@ -94,11 +101,9 @@ class LogContext {
     }
 
     cache (isCacheHit, identifier, fields = {}) {
-        this.log(
-            LOG_LEVEL_DEBU,
-            isCacheHit ? 'cache_hit' : 'cache_miss',
-            { identifier, ...fields },
-        );
+        this.log(LOG_LEVEL_DEBU,
+                        isCacheHit ? 'cache_hit' : 'cache_miss',
+                        { identifier, ...fields });
     }
 
     log (log_level, message, fields = {}, objects = {}) {
@@ -108,7 +113,7 @@ class LogContext {
             if ( x && x.get('trace_request') ) {
                 fields.trace_request = x.get('trace_request');
             }
-            if ( ! fields.actor && x && x.get('actor') ) {
+            if ( !fields.actor && x && x.get('actor') ) {
                 try {
                     fields.actor = x.get('actor');
                 } catch (e) {
@@ -124,20 +129,19 @@ class LogContext {
         }
         if ( Context.get('injected_logger', { allow_fallback: true }) ) {
             Context.get('injected_logger').log(
-                message + (fields ? ('; fields: ' + JSON.stringify(fields)) : ''),
-            );
+                            message + (fields ? (`; fields: ${ JSON.stringify(fields)}`) : ''));
         }
-        this.logService.log_(
-            log_level,
-            this.crumbs,
-            message, fields, objects,
-        );
+        this.logService.log_(log_level,
+                        this.crumbs,
+                        message,
+                        fields,
+                        objects);
     }
 
     /**
     * Generates a human-readable trace ID for logging purposes.
-    * 
-    * @returns {string} A trace ID in the format 'xxxxxx-xxxxxx' where each segment is a 
+    *
+    * @returns {string} A trace ID in the format 'xxxxxx-xxxxxx' where each segment is a
     *                   random string of six lowercase letters and digits.
     */
     mkid () {
@@ -158,7 +162,6 @@ class LogContext {
         return this;
     }
 
-
     /**
      * Gets the log buffer maintained by the LogService. This shows the most
      * recent log entries.
@@ -176,10 +179,10 @@ class LogContext {
 /**
 * @class DevLogger
 * @classdesc
-* A development logger class designed for logging messages during development. 
-* This logger can either log directly to console or delegate logging to another logger. 
+* A development logger class designed for logging messages during development.
+* This logger can either log directly to console or delegate logging to another logger.
 * It provides functionality to turn logging on/off, and can optionally write logs to a file.
-* 
+*
 * @param {function} log - The logging function, typically `console.log` or similar.
 * @param {object} [opt_delegate] - An optional logger to which log messages can be delegated.
 */
@@ -196,34 +199,35 @@ class DevLogger {
     }
     onLogMessage (log_lvl, crumbs, message, fields, objects) {
         if ( this.delegate ) {
-            this.delegate.onLogMessage(
-                log_lvl, crumbs, message, fields, objects,
-            );
+            this.delegate.onLogMessage(log_lvl, crumbs, message, fields, objects);
         }
 
         if ( this.off ) return;
-        
-        if ( ! process.env.DEBUG && log_lvl.ordinal > display_log_level ) return;
 
-        const ld = Context.get('logdent', { allow_fallback: true })
+        if ( !process.env.DEBUG && log_lvl.ordinal > display_log_level ) return;
+
+        const ld = Context.get('logdent', { allow_fallback: true });
         const prefix = globalThis.dev_console_indent_on
             ? Array(ld ?? 0).fill('    ').join('')
             : '';
         this.log_(stringify_log_entry({
             prefix,
-            log_lvl, crumbs, message, fields, objects,
+            log_lvl,
+            crumbs,
+            message,
+            fields,
+            objects,
         }));
     }
-    
+
     log_ (text) {
         if ( this.recto ) {
             const fs = require('node:fs');
-            fs.appendFileSync(this.recto, text + '\n');
+            fs.appendFileSync(this.recto, `${text }\n`);
         }
         this.log(text);
     }
 }
-
 
 /**
 * @class NullLogger
@@ -244,10 +248,9 @@ class NullLogger {
     }
 }
 
-
 /**
 * WinstonLogger Class
-* 
+*
 * A logger that delegates log messages to a Winston logger instance.
 */
 class WinstonLogger {
@@ -264,13 +267,12 @@ class WinstonLogger {
     }
 }
 
-
 /**
 * @class TimestampLogger
 * @classdesc A logger that adds timestamps to log messages before delegating them to another logger.
 * This class wraps another logger instance to ensure that all log messages include a timestamp,
 * which can be useful for tracking the sequence of events in a system.
-* 
+*
 * @param {Object} delegate - The logger instance to which the timestamped log messages are forwarded.
 */
 class TimestampLogger {
@@ -282,7 +284,6 @@ class TimestampLogger {
         this.delegate.onLogMessage(log_lvl, crumbs, message, fields, ...a);
     }
 }
-
 
 /**
 * The `BufferLogger` class extends the logging functionality by maintaining a buffer of log entries.
@@ -307,7 +308,6 @@ class BufferLogger {
     }
 }
 
-
 /**
 * Represents a custom logger that can modify log messages before they are passed to another logger.
 * @class CustomLogger
@@ -331,25 +331,27 @@ class CustomLogger {
         try {
             ret = await this.callback({
                 context,
-                log_lvl, crumbs, message, fields, args: a,
-            });
-        } catch (e) {
-            console.error('error?', e);
-        }
-        
-        if ( ret && ret.skip ) return;
-
-        if ( ! ret ) {
-            this.delegate.onLogMessage(
                 log_lvl,
                 crumbs,
                 message,
                 fields,
-                ...a,
-            );
+                args: a,
+            });
+        } catch (e) {
+            console.error('error?', e);
+        }
+
+        if ( ret && ret.skip ) return;
+
+        if ( ! ret ) {
+            this.delegate.onLogMessage(log_lvl,
+                            crumbs,
+                            message,
+                            fields,
+                            ...a);
             return;
         }
-        
+
         const {
             log_lvl: _log_lvl,
             crumbs: _crumbs,
@@ -358,27 +360,24 @@ class CustomLogger {
             args,
         } = ret;
 
-        this.delegate.onLogMessage(
-            _log_lvl ?? log_lvl,
-            _crumbs ?? crumbs,
-            _message ?? message,
-            _fields ?? fields,
-            ...(args ?? a ?? []),
-        );
+        this.delegate.onLogMessage(_log_lvl ?? log_lvl,
+                        _crumbs ?? crumbs,
+                        _message ?? message,
+                        _fields ?? fields,
+                        ...(args ?? a ?? []));
     }
 }
 
-
 /**
-* The `LogService` class extends `BaseService` and is responsible for managing and 
-* orchestrating various logging functionalities within the application. It handles 
-* log initialization, middleware registration, log directory management, and 
+* The `LogService` class extends `BaseService` and is responsible for managing and
+* orchestrating various logging functionalities within the application. It handles
+* log initialization, middleware registration, log directory management, and
 * provides methods for creating log contexts and managing log output levels.
 */
 class LogService extends BaseService {
     static MODULES = {
         path: require('path'),
-    }
+    };
     /**
     * Defines the modules required by the LogService class.
     * This static property contains modules that are used for file path operations.
@@ -389,7 +388,7 @@ class LogService extends BaseService {
         this.loggers = [];
         this.bufferLogger = null;
     }
-    
+
     /**
      * Registers a custom logging middleware with the LogService.
      * @param {*} callback - The callback function that modifies log parameters before delegation.
@@ -397,7 +396,7 @@ class LogService extends BaseService {
     register_log_middleware (callback) {
         this.loggers[0] = new CustomLogger(this.loggers[0], callback);
     }
-    
+
     /**
      * Registers logging commands with the command service.
      */
@@ -408,20 +407,20 @@ class LogService extends BaseService {
                 id: 'show',
                 description: 'toggle log output',
                 handler: async (args, log) => {
-                    this.devlogger && (this.devlogger.off = ! this.devlogger.off);
-                }
+                    this.devlogger && (this.devlogger.off = !this.devlogger.off);
+                },
             },
             {
                 id: 'rec',
                 description: 'start recording to a file via dev logger',
                 handler: async (args, ctx) => {
                     const [name] = args;
-                    const {log} = ctx;
+                    const { log } = ctx;
                     if ( ! this.devlogger ) {
                         log('no dev logger; what are you doing?');
                     }
                     this.devlogger.recto = name;
-                }
+                },
             },
             {
                 id: 'stop',
@@ -431,15 +430,15 @@ class LogService extends BaseService {
                         log('no dev logger; what are you doing?');
                     }
                     this.devlogger.recto = null;
-                }
+                },
             },
             {
                 id: 'indent',
                 description: 'toggle log indentation',
                 handler: async (args, log) => {
                     globalThis.dev_console_indent_on =
-                        ! globalThis.dev_console_indent_on;
-                }
+                        !globalThis.dev_console_indent_on;
+                },
             },
             {
                 id: 'get-level',
@@ -460,11 +459,11 @@ class LogService extends BaseService {
     }
     /**
     * Registers logging commands with the command service.
-    * 
+    *
     * This method sets up various logging commands that can be used to
     * interact with the log output, such as toggling log display,
     * starting/stopping log recording, and toggling log indentation.
-    * 
+    *
     * @memberof LogService
     */
     async _init () {
@@ -475,8 +474,8 @@ class LogService extends BaseService {
         let logger;
 
         if ( ! config.no_winston )
-        logger = new WinstonLogger(
-            winston.createLogger({
+        {
+            logger = new WinstonLogger(winston.createLogger({
                 levels: WINSTON_LEVELS,
                 transports: [
                     new winston.transports.DailyRotateFile({
@@ -485,8 +484,8 @@ class LogService extends BaseService {
                         zippedArchive: true,
                         maxSize: '20m',
 
-                        // TODO: uncomment when we have a log backup strategy
-                        // maxFiles: '14d',
+                    // TODO: uncomment when we have a log backup strategy
+                    // maxFiles: '14d',
                     }),
                     new winston.transports.DailyRotateFile({
                         level: 'error',
@@ -495,8 +494,8 @@ class LogService extends BaseService {
                         zippedArchive: true,
                         maxSize: '20m',
 
-                        // TODO: uncomment when we have a log backup strategy
-                        // maxFiles: '14d',
+                    // TODO: uncomment when we have a log backup strategy
+                    // maxFiles: '14d',
                     }),
                     new winston.transports.DailyRotateFile({
                         level: 'system',
@@ -505,18 +504,18 @@ class LogService extends BaseService {
                         zippedArchive: true,
                         maxSize: '20m',
 
-                        // TODO: uncomment when we have a log backup strategy
-                        // maxFiles: '14d',
+                    // TODO: uncomment when we have a log backup strategy
+                    // maxFiles: '14d',
                     }),
                 ],
-            }),
-        );
+            }));
+        }
 
         if ( config.env === 'dev' ) {
             logger = config.flag_no_logs // useful for profiling
                 ? new NullLogger()
                 : new DevLogger(console.log.bind(console), logger);
-            
+
             this.devlogger = logger;
         }
 
@@ -565,10 +564,10 @@ class LogService extends BaseService {
             if ( ! globalThis.original_console_object ) {
                 globalThis.original_console_object = console;
             }
-            
+
             // Keep console prototype
             const logconsole = Object.create(console);
-            
+
             // Override simple log functions
             const logfn = level => (...a) => {
                 logger[level](a.map(arg => {
@@ -579,26 +578,24 @@ class LogService extends BaseService {
             logconsole.log = logfn('info');
             logconsole.warn = logfn('warn');
             logconsole.error = logfn('error');
-            
+
             globalThis.console = logconsole;
         }
     }
 
     /**
      * Create a new log context with the specified prefix
-     * 
+     *
      * @param {1} prefix - The prefix for the log context
      * @param {*} fields - Optional fields to include in the log context
      * @returns {LogContext} A new log context with the specified prefix and fields
      */
     create (prefix, fields = {}) {
-        const logContext = new LogContext(
-            this,
-            {
-                crumbs: [prefix],
-                fields,
-            },
-        );
+        const logContext = new LogContext(this,
+                        {
+                            crumbs: [prefix],
+                            fields,
+                        });
 
         return logContext;
     }
@@ -607,15 +604,13 @@ class LogService extends BaseService {
         try {
             // skip messages that are above the output level
             if ( log_lvl.ordinal > this.output_lvl ) return;
-            
+
             if ( this.config.trace_logs ) {
                 fields.stack = (new Error('logstack')).stack;
             }
 
             for ( const logger of this.loggers ) {
-                logger.onLogMessage(
-                    log_lvl, crumbs, message, fields, objects,
-                );
+                logger.onLogMessage(log_lvl, crumbs, message, fields, objects);
             }
         } catch (e) {
             // If logging fails, we don't want anything to happen
@@ -629,13 +624,12 @@ class LogService extends BaseService {
         }
     }
 
-
     /**
     * Ensures that a log directory exists for logging purposes.
     * This method attempts to create or locate a directory for log files,
     * falling back through several predefined paths if the preferred
     * directory does not exist or cannot be created.
-    * 
+    *
     * @throws {Error} If no suitable log directory can be found or created.
     */
     ensure_log_directory_ () {
@@ -689,7 +683,7 @@ class LogService extends BaseService {
 
     /**
     * Generates a sanitized file path for log files.
-    * 
+    *
     * @param {string} name - The name of the log file, which will be sanitized to remove any path characters.
     * @returns {string} A sanitized file path within the log directory.
     */
@@ -699,11 +693,10 @@ class LogService extends BaseService {
         return this.modules.path.join(this.log_directory, name);
     }
 
-
     /**
      * Get the most recent log entries from the buffer maintained by the LogService.
      * By default, the buffer contains the last 20 log entries.
-     * @returns 
+     * @returns
      */
     get_log_buffer () {
         return this.bufferLogger.buffer;
@@ -712,5 +705,5 @@ class LogService extends BaseService {
 
 module.exports = {
     LogService,
-    stringify_log_entry
+    stringify_log_entry,
 };

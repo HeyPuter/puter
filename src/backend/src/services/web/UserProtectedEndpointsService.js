@@ -17,14 +17,14 @@
  * You should have received a copy of the GNU Affero General Public License
  * along with this program.  If not, see <https://www.gnu.org/licenses/>.
  */
-const { get_user } = require("../../helpers");
-const auth2 = require("../../middleware/auth2");
-const { Context } = require("../../util/context");
-const BaseService = require("../BaseService");
-const { UserActorType } = require("../auth/Actor");
-const { Endpoint } = require("../../util/expressutil");
-const APIError = require("../../api/APIError.js");
-const configurable_auth = require("../../middleware/configurable_auth.js");
+const { get_user } = require('../../helpers');
+const auth2 = require('../../middleware/auth2');
+const { Context } = require('../../util/context');
+const BaseService = require('../BaseService');
+const { UserActorType } = require('../auth/Actor');
+const { Endpoint } = require('../../util/expressutil');
+const APIError = require('../../api/APIError.js');
+const configurable_auth = require('../../middleware/configurable_auth.js');
 
 /**
 * @class UserProtectedEndpointsService
@@ -46,7 +46,7 @@ class UserProtectedEndpointsService extends BaseService {
     * Sets up and configures routes for user-protected endpoints.
     * This method initializes an Express router, applies middleware for authentication,
     * rate limiting, and session validation, and attaches user-specific endpoints.
-    * 
+    *
     * @memberof UserProtectedEndpointsService
     * @instance
     * @method __on_install.routes
@@ -106,10 +106,10 @@ class UserProtectedEndpointsService extends BaseService {
 
         /**
         * Middleware to validate the provided password against the stored user password.
-        * 
-        * This method ensures that the user has entered their current password correctly before 
+        *
+        * This method ensures that the user has entered their current password correctly before
         * allowing changes to critical account settings. It uses bcrypt for password comparison.
-        * 
+        *
         * @param {Object} req - Express request object, containing user and password in body.
         * @param {Object} res - Express response object for sending back the response.
         * @param {Function} next - Callback to pass control to the next middleware or route handler.
@@ -120,7 +120,7 @@ class UserProtectedEndpointsService extends BaseService {
             if ( ! req.body.password ) {
                 return (APIError.create('password_required')).write(res);
             }
-            
+
             const bcrypt = (() => {
                 const require = this.require;
                 return require('bcrypt');
@@ -134,20 +134,14 @@ class UserProtectedEndpointsService extends BaseService {
             next();
         });
 
-        Endpoint(
-            require('../../routers/user-protected/change-password.js'),
-        ).attach(router);
+        Endpoint(require('../../routers/user-protected/change-password.js')).attach(router);
 
-        Endpoint(
-            require('../../routers/user-protected/change-email.js'),
-        ).attach(router);
+        Endpoint(require('../../routers/user-protected/change-email.js')).attach(router);
 
-        Endpoint(
-            require('../../routers/user-protected/disable-2fa.js'),
-        ).attach(router);
+        Endpoint(require('../../routers/user-protected/disable-2fa.js')).attach(router);
     }
 }
 
 module.exports = {
-    UserProtectedEndpointsService
+    UserProtectedEndpointsService,
 };

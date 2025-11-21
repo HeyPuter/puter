@@ -16,7 +16,7 @@
  * You should have received a copy of the GNU Affero General Public License
  * along with this program.  If not, see <https://www.gnu.org/licenses/>.
  */
-const { HLFilesystemOperation } = require("./definitions");
+const { HLFilesystemOperation } = require('./definitions');
 const { chkperm } = require('../../helpers');
 const { LLRead } = require('../ll_operations/ll_read');
 const APIError = require('../../api/APIError');
@@ -29,7 +29,7 @@ const APIError = require('../../api/APIError');
 class HLDataRead extends HLFilesystemOperation {
     static MODULES = {
         'stream': require('stream'),
-    }
+    };
 
     async _run () {
         const { context } = this;
@@ -53,7 +53,8 @@ class HLDataRead extends HLFilesystemOperation {
 
         const ll_read = new LLRead();
         let stream = await ll_read.run({
-            fsNode, user,
+            fsNode,
+            user,
             version_id,
         });
 
@@ -66,8 +67,8 @@ class HLDataRead extends HLFilesystemOperation {
     _stream_bytes_to_lines (stream) {
         const readline = require('readline');
         const rl = readline.createInterface({
-          input: stream,
-          terminal: false
+            input: stream,
+            terminal: false,
         });
 
         const { PassThrough } = this.modules.stream;
@@ -88,7 +89,7 @@ class HLDataRead extends HLFilesystemOperation {
         const { PassThrough } = this.modules.stream;
         const output_stream = new PassThrough();
         (async () => {
-            for await (const line of stream) {
+            for await ( const line of stream ) {
                 output_stream.write(JSON.parse(line));
             }
             output_stream.end();
@@ -98,5 +99,5 @@ class HLDataRead extends HLFilesystemOperation {
 }
 
 module.exports = {
-    HLDataRead
+    HLDataRead,
 };

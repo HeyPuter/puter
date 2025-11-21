@@ -20,7 +20,7 @@ import { resolveRelativePath } from '../../util/path.js';
 
 const lxor = (a, b) => a ? !b : b;
 
-import path_ from "path-browserify";
+import path_ from 'path-browserify';
 
 export default {
     name: 'grep',
@@ -36,23 +36,23 @@ export default {
             'ignore-case': {
                 description: 'Match the pattern case-insensitively',
                 type: 'boolean',
-                short: 'i'
+                short: 'i',
             },
             'invert-match': {
                 description: 'Print lines that do not match the pattern',
                 type: 'boolean',
-                short: 'v'
+                short: 'v',
             },
             'line-number': {
                 description: 'Print the line number before each result',
                 type: 'boolean',
-                short: 'n'
+                short: 'n',
             },
             recursive: {
                 description: 'Recursively search in directories',
                 type: 'boolean',
-                short: 'r'
-            }
+                short: 'r',
+            },
         },
     },
     output: 'text',
@@ -76,43 +76,39 @@ export default {
                     await do_grep_file(entryPath);
                 }
             }
-        }
-        
+        };
+
         const do_grep_line = async ( line, lineNumber ) => {
             if ( line.endsWith('\n') ) line = line.slice(0, -1);
-            const re = new RegExp(
-                pattern,
-                values['ignore-case'] ? 'i' : ''
-            );
+            const re = new RegExp(pattern,
+                            values['ignore-case'] ? 'i' : '');
 
-            console.log(
-                'Attempting to match line',
-                line,
-                'with pattern',
-                pattern,
-                'and re',
-                re,
-                'and parameters',
-                values
-            );
+            console.log('Attempting to match line',
+                            line,
+                            'with pattern',
+                            pattern,
+                            'and re',
+                            re,
+                            'and parameters',
+                            values);
 
             if ( lxor(values['invert-match'], re.test(line)) ) {
                 const lineToPrint = values['line-number']
                     ? `${lineNumber + 1}:${line}`
                     : line;
-                    
+
                 console.log(`LINE{${lineToPrint}}`);
-                await ctx.externs.out.write(lineToPrint + '\n');
+                await ctx.externs.out.write(`${lineToPrint }\n`);
             }
-        }
+        };
 
         const do_grep_lines = async ( lines ) => {
-            for ( let i=0 ; i < lines.length ; i++ ) {
+            for ( let i = 0 ; i < lines.length ; i++ ) {
                 const line = lines[i];
 
                 await do_grep_line(line, i);
             }
-        }
+        };
 
         const do_grep_file = async ( path ) => {
             console.log('about to read path', path);
@@ -122,9 +118,7 @@ export default {
             const lines = data_string.split('\n');
 
             await do_grep_lines(lines);
-        }
-
-
+        };
 
         if ( files.length === 0 ) {
             if ( values.recursive ) {
@@ -138,7 +132,7 @@ export default {
 
         for ( let file of files ) {
             if ( file === '-' ) {
-                for ( let i = 0; ; i++) {
+                for ( let i = 0; ; i++ ) {
                     const { value, done } = await ctx.externs.in_.read();
                     if ( done ) break;
                     await do_grep_line(value, i);
@@ -150,12 +144,12 @@ export default {
                     if ( values.recursive ) {
                         await do_grep_dir(file);
                     } else {
-                        await ctx.externs.err.write('grep: ' + file + ': Is a directory\n');
+                        await ctx.externs.err.write(`grep: ${ file }: Is a directory\n`);
                     }
                 } else {
                     await do_grep_file(file);
                 }
             }
         }
-    }
-}
+    },
+};

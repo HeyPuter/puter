@@ -16,15 +16,15 @@
  * You should have received a copy of the GNU Affero General Public License
  * along with this program.  If not, see <https://www.gnu.org/licenses/>.
  */
-const APIError = require("../../api/APIError");
-const { app_name_exists, refresh_apps_cache } = require("../../helpers");
+const APIError = require('../../api/APIError');
+const { app_name_exists, refresh_apps_cache } = require('../../helpers');
 
-const { AppUnderUserActorType } = require("../../services/auth/Actor");
-const { DB_WRITE } = require("../../services/database/consts");
-const { Context } = require("../../util/context");
-const { origin_from_url } = require("../../util/urlutil");
-const { Eq, Like, Or, And } = require("../query/query");
-const { BaseES } = require("./BaseES");
+const { AppUnderUserActorType } = require('../../services/auth/Actor');
+const { DB_WRITE } = require('../../services/database/consts');
+const { Context } = require('../../util/context');
+const { origin_from_url } = require('../../util/urlutil');
+const { Eq, Like, Or, And } = require('../query/query');
+const { BaseES } = require('./BaseES');
 
 const uuidv4 = require('uuid').v4;
 
@@ -79,25 +79,23 @@ class AppES extends BaseES {
                 }));
             }
 
-            options.predicate = options.predicate.and(
-                new Or({
-                    children: [
-                        new Eq({
-                            key: 'approved_for_listing',
-                            value: 1,
-                        }),
-                        new Eq({
-                            key: 'owner',
-                            value: user.id,
-                        }),
-                        ...additional,
-                    ],
-                }),
-            );
+            options.predicate = options.predicate.and(new Or({
+                children: [
+                    new Eq({
+                        key: 'approved_for_listing',
+                        value: 1,
+                    }),
+                    new Eq({
+                        key: 'owner',
+                        value: user.id,
+                    }),
+                    ...additional,
+                ],
+            }));
 
             return await this.upstream.select(options);
         },
-        
+
         /**
          * Creates or updates an application with proper name handling and associations
          * @param {Object} entity - Application entity to upsert
@@ -107,7 +105,7 @@ class AppES extends BaseES {
         async upsert (entity, extra) {
             if ( await app_name_exists(await entity.get('name')) ) {
                 const { old_entity } = extra;
-                const is_name_change = ( ! old_entity ) ||
+                const is_name_change = ( !old_entity ) ||
                     ( await old_entity.get('name') !== await entity.get('name') );
                 if ( is_name_change && extra?.options?.dedupe_name ) {
                     const base = await entity.get('name');
@@ -115,17 +113,17 @@ class AppES extends BaseES {
                     while ( await app_name_exists(`${base}-${number}`) ) {
                         number++;
                     }
-                    await entity.set('name', `${base}-${number}`)
+                    await entity.set('name', `${base}-${number}`);
                 }
                 else if ( is_name_change ) {
                     // The name might be taken because it's the old name
                     // of this same app. If it is, the app takes it back.
                     const svc_oldAppName = this.context.get('services').get('old-app-name');
                     const name_info = await svc_oldAppName.check_app_name(await entity.get('name'));
-                    if ( ! name_info || name_info.app_uid !== await entity.get('uid') ) {
+                    if ( !name_info || name_info.app_uid !== await entity.get('uid') ) {
                         // Throw error because the name really is taken
                         throw APIError.create('app_name_already_in_use', null, {
-                            name: await entity.get('name')
+                            name: await entity.get('name'),
                         });
                     }
 
@@ -142,25 +140,23 @@ class AppES extends BaseES {
 
             // Remove old file associations (if applicable)
             if ( extra.old_entity ) {
-                await this.db.write(
-                    `DELETE FROM app_filetype_association WHERE app_id = ?`,
-                    [insert_id]
-                );
+                await this.db.write('DELETE FROM app_filetype_association WHERE app_id = ?',
+                                [insert_id]);
             }
 
             // Add file associations (if applicable)
             const filetype_associations = await entity.get('filetype_associations');
             if ( (a => a && a.length > 0)(filetype_associations) ) {
                 const stmt =
-                    `INSERT INTO app_filetype_association ` +
-                    `(app_id, type) VALUES ` +
-                    filetype_associations.map(() => '(?, ?)').join(', ');
+                    'INSERT INTO app_filetype_association ' +
+                    `(app_id, type) VALUES ${
+                        filetype_associations.map(() => '(?, ?)').join(', ')}`;
                 const rows = filetype_associations.map(a => [insert_id, a.toLowerCase()]);
                 await this.db.write(stmt, rows.flat());
             }
 
             const has_new_icon =
-                ( ! extra.old_entity ) || (
+                ( !extra.old_entity ) || (
                     await entity.get('icon') !== await extra.old_entity.get('icon')
                 );
 
@@ -172,7 +168,7 @@ class AppES extends BaseES {
                 };
                 await svc_event.emit('app.new-icon', event);
                 if ( event.url ) {
-                    await entity.set('icon')
+                    await entity.set('icon');
                 }
             }
 
@@ -193,10 +189,8 @@ class AppES extends BaseES {
 
             // Associate app with subdomain (if applicable)
             if ( subdomain_id ) {
-                await this.db.write(
-                    `UPDATE subdomains SET associated_app_id = ? WHERE id = ?`,
-                    [insert_id, subdomain_id]
-                );
+                await this.db.write('UPDATE subdomains SET associated_app_id = ? WHERE id = ?',
+                                [insert_id, subdomain_id]);
             }
 
             const owner = extra.old_entity
@@ -235,16 +229,12 @@ class AppES extends BaseES {
             const recurse = async (predicate) => {
                 if ( predicate instanceof Or ) {
                     return new Or({
-                        children: await Promise.all(
-                            predicate.children.map(recurse)
-                        ),
+                        children: await Promise.all(predicate.children.map(recurse)),
                     });
                 }
                 if ( predicate instanceof And ) {
                     return new And({
-                        children: await Promise.all(
-                            predicate.children.map(recurse)
-                        ),
+                        children: await Promise.all(predicate.children.map(recurse)),
                     });
                 }
                 if ( predicate instanceof Eq ) {
@@ -267,22 +257,18 @@ class AppES extends BaseES {
          */
         async read_transform (entity) {
             // Add file associations
-            const rows = await this.db.read(
-                `SELECT type FROM app_filetype_association WHERE app_id = ?`,
-                [entity.private_meta.mysql_id]
-            );
+            const rows = await this.db.read('SELECT type FROM app_filetype_association WHERE app_id = ?',
+                            [entity.private_meta.mysql_id]);
             entity.set('filetype_associations', rows.map(row => row.type));
 
             const svc_appInformation = this.context.get('services').get('app-information');
-            const stats = await svc_appInformation.get_stats(await entity.get('uid'), {period: Context.get('es_params')?.stats_period, grouping: Context.get('es_params')?.stats_grouping, created_at: await entity.get('created_at')});
+            const stats = await svc_appInformation.get_stats(await entity.get('uid'), { period: Context.get('es_params')?.stats_period, grouping: Context.get('es_params')?.stats_grouping, created_at: await entity.get('created_at') });
             entity.set('stats', stats);
 
             entity.set('created_from_origin', await (async () => {
                 const svc_auth = this.context.get('services').get('auth');
                 try {
-                    const origin = origin_from_url(
-                        await entity.get('index_url')
-                    );
+                    const origin = origin_from_url(await entity.get('index_url'));
                     const expected_uid = await svc_auth.app_uid_from_origin(origin);
                     return expected_uid === await entity.get('uid')
                         ? origin : null ;
@@ -295,7 +281,7 @@ class AppES extends BaseES {
             // Check if the user is the owner
             const is_owner = await (async () => {
                 let owner = await entity.get('owner');
-                
+
                 // TODO: why does this happen?
                 if ( typeof owner === 'number' ) {
                     owner = { id: owner };
@@ -342,29 +328,26 @@ class AppES extends BaseES {
 
             let subdomain_id;
             if ( await entity.get('source_directory') ) {
-                await (
-                    await entity.get('source_directory')
+                await (await entity.get('source_directory')
                 ).fetchEntry();
                 const subdomain = await entity.get('subdomain');
                 const user = Context.get('user');
-                let subdomain_res = await this.db.write(
-                    `INSERT ${this.db.case({
-                        mysql: 'IGNORE',
-                        sqlite: 'OR IGNORE',
-                    })} INTO subdomains
+                let subdomain_res = await this.db.write(`INSERT ${this.db.case({
+                    mysql: 'IGNORE',
+                    sqlite: 'OR IGNORE',
+                })} INTO subdomains
                     (subdomain, user_id, root_dir_id,   uuid) VALUES
                     (        ?,       ?,           ?,      ?)`,
-                    [
-                        //subdomain
-                        subdomain,
-                        //user_id
-                        user.id,
-                        //root_dir_id
-                        (await entity.get('source_directory')).mysql_id,
-                        //uuid, `sd` stands for subdomain
-                        'sd-' + uuidv4()
-                    ]
-                );
+                [
+                    //subdomain
+                    subdomain,
+                    //user_id
+                    user.id,
+                    //root_dir_id
+                    (await entity.get('source_directory')).mysql_id,
+                    //uuid, `sd` stands for subdomain
+                    `sd-${ uuidv4()}`,
+                ]);
                 subdomain_id = subdomain_res.insertId;
             }
 

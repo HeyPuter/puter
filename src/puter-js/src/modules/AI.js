@@ -1,12 +1,12 @@
 import * as utils from '../lib/utils.js';
 
 const normalizeTTSProvider = (value) => {
-    if (typeof value !== 'string') {
+    if ( typeof value !== 'string' ) {
         return 'aws-polly';
     }
     const lower = value.toLowerCase();
-    if (lower === 'openai') return 'openai';
-    if (lower === 'aws' || lower === 'polly' || lower === 'aws-polly') return 'aws-polly';
+    if ( lower === 'openai' ) return 'openai';
+    if ( lower === 'aws' || lower === 'polly' || lower === 'aws-polly' ) return 'aws-polly';
     return value;
 };
 
@@ -40,7 +40,7 @@ const TOGETHER_VIDEO_MODEL_PREFIXES = [
     'wan-ai/',
 ];
 
-class AI{
+class AI {
     /**
      * Creates a new instance with the given authentication token, API origin, and app ID,
      *
@@ -68,7 +68,7 @@ class AI{
 
     /**
      * Sets the API origin.
-     * 
+     *
      * @param {string} APIOrigin - The new API origin.
      * @memberof [AI]
      * @returns {void}
@@ -77,26 +77,26 @@ class AI{
         this.APIOrigin = APIOrigin;
     }
 
-     /**
+    /**
      * Returns a list of available AI models.
      * @param {string} provider - The provider to filter the models returned.
      * @returns {Object} Object containing lists of available models by provider
      */
-     async listModels(provider) {
+    async listModels (provider) {
         const modelsByProvider = {};
 
-        const models = await puter.drivers.call('puter-chat-completion','ai-chat','models');
+        const models = await puter.drivers.call('puter-chat-completion', 'ai-chat', 'models');
 
-        if (!models || !models.result || !Array.isArray(models.result)) {
+        if ( !models || !models.result || !Array.isArray(models.result) ) {
             return modelsByProvider;
         }
         models.result.forEach(item => {
-            if (!item.provider || !item.id) return;
-            if (provider && item.provider !== provider) return;
-            if (!modelsByProvider[item.provider]) modelsByProvider[item.provider] = [];
+            if ( !item.provider || !item.id ) return;
+            if ( provider && item.provider !== provider ) return;
+            if ( ! modelsByProvider[item.provider] ) modelsByProvider[item.provider] = [];
             modelsByProvider[item.provider].push(item.id);
         });
-        
+
         return modelsByProvider;
     }
 
@@ -104,56 +104,56 @@ class AI{
      * Returns a list of all available AI providers
      * @returns {Array} Array containing providers
      */
-    async listModelProviders() {
+    async listModelProviders () {
         let providers = [];
-        const models = await puter.drivers.call('puter-chat-completion','ai-chat','models');
+        const models = await puter.drivers.call('puter-chat-completion', 'ai-chat', 'models');
 
-        if (!models || !models.result || !Array.isArray(models.result)) return providers; // if models is invalid then return empty array
+        if ( !models || !models.result || !Array.isArray(models.result) ) return providers; // if models is invalid then return empty array
         providers = new Set(); // Use a Set to store unique providers
         models.result.forEach(item => {
-            if (item.provider) providers.add(item.provider);
+            if ( item.provider ) providers.add(item.provider);
         });
         providers = Array.from(providers); // Convert Set to an array
         return providers;
     }
-    
+
     img2txt = async (...args) => {
         const MAX_INPUT_SIZE = 10 * 1024 * 1024;
-        if (!args || args.length === 0) {
+        if ( !args || args.length === 0 ) {
             throw { message: 'Arguments are required', code: 'arguments_required' };
         }
 
         const isBlobLike = (value) => {
-            if (typeof Blob === 'undefined') return false;
+            if ( typeof Blob === 'undefined' ) return false;
             return value instanceof Blob || (typeof File !== 'undefined' && value instanceof File);
         };
         const isPlainObject = (value) => value && typeof value === 'object' && !Array.isArray(value) && !isBlobLike(value);
         const normalizeProvider = (value) => {
-            if (!value) return 'aws-textract';
+            if ( ! value ) return 'aws-textract';
             const normalized = String(value).toLowerCase();
-            if (['aws', 'textract', 'aws-textract'].includes(normalized)) return 'aws-textract';
-            if (['mistral', 'mistral-ocr'].includes(normalized)) return 'mistral';
+            if ( ['aws', 'textract', 'aws-textract'].includes(normalized) ) return 'aws-textract';
+            if ( ['mistral', 'mistral-ocr'].includes(normalized) ) return 'mistral';
             return 'aws-textract';
         };
 
         let options = {};
-        if (isPlainObject(args[0])) {
+        if ( isPlainObject(args[0]) ) {
             options = { ...args[0] };
         } else {
             options.source = args[0];
         }
 
         let testMode = false;
-        for (let i = 1; i < args.length; i++) {
+        for ( let i = 1; i < args.length; i++ ) {
             const value = args[i];
-            if (typeof value === 'boolean') {
+            if ( typeof value === 'boolean' ) {
                 testMode = testMode || value;
-            } else if (isPlainObject(value)) {
+            } else if ( isPlainObject(value) ) {
                 options = { ...options, ...value };
             }
         }
 
-        if (typeof options.testMode === 'boolean') {
+        if ( typeof options.testMode === 'boolean' ) {
             testMode = options.testMode;
         }
 
@@ -161,46 +161,46 @@ class AI{
         delete options.provider;
         delete options.testMode;
 
-        if (!options.source) {
+        if ( ! options.source ) {
             throw { message: 'Source is required', code: 'source_required' };
         }
 
-        if (isBlobLike(options.source)) {
+        if ( isBlobLike(options.source) ) {
             options.source = await utils.blobToDataUri(options.source);
-        } else if (options.source?.source && isBlobLike(options.source.source)) {
+        } else if ( options.source?.source && isBlobLike(options.source.source) ) {
             // Support shape { source: Blob }
             options.source = await utils.blobToDataUri(options.source.source);
         }
 
-        if (typeof options.source === 'string' &&
+        if ( typeof options.source === 'string' &&
             options.source.startsWith('data:') &&
-            options.source.length > MAX_INPUT_SIZE) {
-            throw { message: 'Input size cannot be larger than ' + MAX_INPUT_SIZE, code: 'input_too_large' };
+            options.source.length > MAX_INPUT_SIZE ) {
+            throw { message: `Input size cannot be larger than ${ MAX_INPUT_SIZE}`, code: 'input_too_large' };
         }
 
         const toText = (result) => {
-            if (!result) return '';
-            if (Array.isArray(result.blocks) && result.blocks.length) {
+            if ( ! result ) return '';
+            if ( Array.isArray(result.blocks) && result.blocks.length ) {
                 let str = '';
-                for (const block of result.blocks) {
-                    if (typeof block?.text !== 'string') continue;
-                    if (!block.type || block.type === 'text/textract:LINE' || block.type.startsWith('text/')) {
-                        str += block.text + '\n';
+                for ( const block of result.blocks ) {
+                    if ( typeof block?.text !== 'string' ) continue;
+                    if ( !block.type || block.type === 'text/textract:LINE' || block.type.startsWith('text/') ) {
+                        str += `${block.text }\n`;
                     }
                 }
-                if (str.trim()) return str;
+                if ( str.trim() ) return str;
             }
-            if (Array.isArray(result.pages) && result.pages.length) {
+            if ( Array.isArray(result.pages) && result.pages.length ) {
                 const markdown = result.pages
                     .map(page => (page?.markdown || '').trim())
                     .filter(Boolean)
                     .join('\n\n');
-                if (markdown.trim()) return markdown;
+                if ( markdown.trim() ) return markdown;
             }
-            if (typeof result.document_annotation === 'string') {
+            if ( typeof result.document_annotation === 'string' ) {
                 return result.document_annotation;
             }
-            if (typeof result.text === 'string') {
+            if ( typeof result.text === 'string' ) {
                 return result.text;
             }
             return '';
@@ -212,17 +212,17 @@ class AI{
         });
 
         return await driverCall.call(this, options);
-    }
+    };
 
     txt2speech = async (...args) => {
         let MAX_INPUT_SIZE = 3000;
         let options = {};
         let testMode = false;
 
-        if(!args){
-            throw({message: 'Arguments are required', code: 'arguments_required'});
+        if ( ! args ) {
+            throw ({ message: 'Arguments are required', code: 'arguments_required' });
         }
-        
+
         // Accept arguments in the following formats:
         // 1. Shorthand API
         //      puter.ai.txt2speech("Hello world")
@@ -238,90 +238,89 @@ class AI{
         //      puter.ai.txt2speech("Hello world", "en-US")
         //      puter.ai.txt2speech("Hello world", "en-US", "Joanna")
         //      puter.ai.txt2speech("Hello world", "en-US", "Joanna", "neural")
-        // 
+        //
         // Undefined parameters will be set to default values:
         // - voice: "Joanna"
         // - engine: "standard"
         // - language: "en-US"
 
-
-        if (typeof args[0] === 'string') {
+        if ( typeof args[0] === 'string' ) {
             options = { text: args[0] };
         }
 
-        if (args[1] && typeof args[1] === 'object' && !Array.isArray(args[1])) {
+        if ( args[1] && typeof args[1] === 'object' && !Array.isArray(args[1]) ) {
             // for verbose object API
             Object.assign(options, args[1]);
-        } else if (args[1] && typeof args[1] === 'string') {
+        } else if ( args[1] && typeof args[1] === 'string' ) {
             // for legacy positional-arguments API
-            // 
+            //
             // puter.ai.txt2speech(<text>, <language>, <voice>, <engine>)
             options.language = args[1];
-            
-            if (args[2] && typeof args[2] === 'string') {
+
+            if ( args[2] && typeof args[2] === 'string' ) {
                 options.voice = args[2];
             }
-            
-            if (args[3] && typeof args[3] === 'string') {
+
+            if ( args[3] && typeof args[3] === 'string' ) {
                 options.engine = args[3];
             }
-        } else if (args[1] && typeof args[1] !== 'boolean') {
+        } else if ( args[1] && typeof args[1] !== 'boolean' ) {
             // If second argument is not an object, string, or boolean, throw an error
             throw { message: 'Second argument must be an options object or language string. Use: txt2speech("text", { voice: "name", engine: "type", language: "code" }) or txt2speech("text", "language", "voice", "engine")', code: 'invalid_arguments' };
         }
 
         // Validate required text parameter
-        if (!options.text) {
+        if ( ! options.text ) {
             throw { message: 'Text parameter is required', code: 'text_required' };
         }
 
         const validEngines = ['standard', 'neural', 'long-form', 'generative'];
         let provider = normalizeTTSProvider(options.provider);
 
-        if (options.engine && normalizeTTSProvider(options.engine) === 'openai' && !options.provider) {
+        if ( options.engine && normalizeTTSProvider(options.engine) === 'openai' && !options.provider ) {
             provider = 'openai';
         }
 
-        if (provider === 'openai') {
-            if (!options.model && typeof options.engine === 'string') {
+        if ( provider === 'openai' ) {
+            if ( !options.model && typeof options.engine === 'string' ) {
                 options.model = options.engine;
             }
-            if (!options.voice) {
+            if ( ! options.voice ) {
                 options.voice = 'alloy';
             }
-            if (!options.model) {
+            if ( ! options.model ) {
                 options.model = 'gpt-4o-mini-tts';
             }
-            if (!options.response_format) {
+            if ( ! options.response_format ) {
                 options.response_format = 'mp3';
             }
             delete options.engine;
         } else {
             provider = 'aws-polly';
 
-            if (options.engine && !validEngines.includes(options.engine)) {
-                throw { message: 'Invalid engine. Must be one of: ' + validEngines.join(', '), code: 'invalid_engine' };
+            if ( options.engine && !validEngines.includes(options.engine) ) {
+                throw { message: `Invalid engine. Must be one of: ${ validEngines.join(', ')}`, code: 'invalid_engine' };
             }
 
-            if (!options.voice) {
+            if ( ! options.voice ) {
                 options.voice = 'Joanna';
             }
-            if (!options.engine) {
+            if ( ! options.engine ) {
                 options.engine = 'standard';
             }
-            if (!options.language) {
+            if ( ! options.language ) {
                 options.language = 'en-US';
             }
         }
 
         // check input size
-        if (options.text.length > MAX_INPUT_SIZE) {
-            throw { message: 'Input size cannot be larger than ' + MAX_INPUT_SIZE, code: 'input_too_large' };
+        if ( options.text.length > MAX_INPUT_SIZE ) {
+            throw { message: `Input size cannot be larger than ${ MAX_INPUT_SIZE}`, code: 'input_too_large' };
         }
 
         // determine if test mode is enabled (check all arguments for boolean true)
-        for (let i = 0; i < args.length; i++) {
-            if (typeof args[i] === 'boolean' && args[i] === true) {
+        for ( let i = 0; i < args.length; i++ ) {
+            if ( typeof args[i] === 'boolean' && args[i] === true ) {
                 testMode = true;
                 break;
             }
@@ -334,14 +333,14 @@ class AI{
             test_mode: testMode ?? false,
             transform: async (result) => {
                 let url;
-                if (typeof result === 'string') {
+                if ( typeof result === 'string' ) {
                     url = result;
-                } else if (result instanceof Blob) {
+                } else if ( result instanceof Blob ) {
                     url = await utils.blob_to_url(result);
-                } else if (result instanceof ArrayBuffer) {
+                } else if ( result instanceof ArrayBuffer ) {
                     const blob = new Blob([result]);
                     url = await utils.blob_to_url(blob);
-                } else if (result && typeof result === 'object' && typeof result.arrayBuffer === 'function') {
+                } else if ( result && typeof result === 'object' && typeof result.arrayBuffer === 'function' ) {
                     const arrayBuffer = await result.arrayBuffer();
                     const blob = new Blob([arrayBuffer], { type: result.type || undefined });
                     url = await utils.blob_to_url(blob);
@@ -352,9 +351,9 @@ class AI{
                 audio.toString = () => url;
                 audio.valueOf = () => url;
                 return audio;
-            }
+            },
         }).call(this, options);
-    }
+    };
 
     speech2txt = async (...args) => {
         const MAX_INPUT_SIZE = 25 * 1024 * 1024;
@@ -398,7 +397,7 @@ class AI{
             options.file = await normalizeSource(options.file);
         }
 
-        if ( !options.file ) {
+        if ( ! options.file ) {
             throw { message: 'Audio input is required', code: 'audio_required' };
         }
 
@@ -426,7 +425,7 @@ class AI{
                 return result;
             },
         }).call(this, driverArgs);
-    }
+    };
 
     // Add new methods for TTS engine management
     txt2speech = Object.assign(this.txt2speech, {
@@ -438,15 +437,15 @@ class AI{
             let provider = 'aws-polly';
             let params = {};
 
-            if (typeof options === 'string') {
+            if ( typeof options === 'string' ) {
                 provider = normalizeTTSProvider(options);
-            } else if (options && typeof options === 'object') {
+            } else if ( options && typeof options === 'object' ) {
                 provider = normalizeTTSProvider(options.provider) || provider;
                 params = { ...options };
                 delete params.provider;
             }
 
-            if (provider === 'openai') {
+            if ( provider === 'openai' ) {
                 params.provider = 'openai';
             }
 
@@ -466,15 +465,15 @@ class AI{
             let provider = 'aws-polly';
             let params = {};
 
-            if (typeof options === 'string') {
+            if ( typeof options === 'string' ) {
                 params.engine = options;
-            } else if (options && typeof options === 'object') {
+            } else if ( options && typeof options === 'object' ) {
                 provider = normalizeTTSProvider(options.provider) || provider;
                 params = { ...options };
                 delete params.provider;
             }
 
-            if (provider === 'openai') {
+            if ( provider === 'openai' ) {
                 params.provider = 'openai';
                 delete params.engine;
             }
@@ -484,9 +483,8 @@ class AI{
             return utils.make_driver_method(['source'], 'puter-tts', driverName, 'list_voices', {
                 responseType: 'text',
             }).call(this, params);
-        }
+        },
     });
-
 
     // accepts either a string or an array of message objects
     // if string, it's treated as the prompt which is a shorthand for { messages: [{ content: prompt }] }
@@ -502,100 +500,99 @@ class AI{
         let driver = 'openai-completion';
 
         // Check that the argument is not undefined or null
-        if(!args){ 
-            throw({message: 'Arguments are required', code: 'arguments_required'});
+        if ( ! args ) {
+            throw ({ message: 'Arguments are required', code: 'arguments_required' });
         }
 
         // ai.chat(prompt)
-        if(typeof args[0] === 'string'){
+        if ( typeof args[0] === 'string' ) {
             requestParams = { messages: [{ content: args[0] }] };
         }
 
         // ai.chat(prompt, testMode)
-        if (typeof args[0] === 'string' && (!args[1] || typeof args[1] === 'boolean')) {
+        if ( typeof args[0] === 'string' && (!args[1] || typeof args[1] === 'boolean') ) {
             requestParams = { messages: [{ content: args[0] }] };
         }
 
         // ai.chat(prompt, imageURL/File)
         // ai.chat(prompt, imageURL/File, testMode)
-        else if (typeof args[0] === 'string' && (typeof args[1] === 'string' || args[1] instanceof File)) {
+        else if ( typeof args[0] === 'string' && (typeof args[1] === 'string' || args[1] instanceof File) ) {
             // if imageURL is a File, transform it to a data URI
-            if(args[1] instanceof File){
+            if ( args[1] instanceof File ) {
                 args[1] = await utils.blobToDataUri(args[1]);
             }
 
             // parse args[1] as an image_url object
-            requestParams = { 
+            requestParams = {
                 vision: true,
                 messages: [
-                    { 
+                    {
                         content: [
                             args[0],
                             {
                                 image_url: {
-                                    url: args[1]
-                                }
-                            }
-                        ], 
-                    }
-                ]
+                                    url: args[1],
+                                },
+                            },
+                        ],
+                    },
+                ],
             };
         }
         // chat(prompt, [imageURLs])
-        else if (typeof args[0] === 'string' && Array.isArray(args[1])) {
+        else if ( typeof args[0] === 'string' && Array.isArray(args[1]) ) {
             // parse args[1] as an array of image_url objects
-            for (let i = 0; i < args[1].length; i++) {
+            for ( let i = 0; i < args[1].length; i++ ) {
                 args[1][i] = { image_url: { url: args[1][i] } };
             }
-            requestParams = { 
+            requestParams = {
                 vision: true,
                 messages: [
-                    { 
+                    {
                         content: [
                             args[0],
-                            ...args[1]
-                        ], 
-                    }
-                ]
+                            ...args[1],
+                        ],
+                    },
+                ],
             };
         }
         // chat([messages])
-        else if (Array.isArray(args[0])) {
+        else if ( Array.isArray(args[0]) ) {
             requestParams = { messages: args[0] };
         }
 
         // determine if testMode is enabled
-        if (typeof args[1] === 'boolean' && args[1] === true ||
+        if ( typeof args[1] === 'boolean' && args[1] === true ||
             typeof args[2] === 'boolean' && args[2] === true ||
-            typeof args[3] === 'boolean' && args[3] === true) {
+            typeof args[3] === 'boolean' && args[3] === true ) {
             testMode = true;
         }
-    
+
         // if any of the args is an object, assume it's the user parameters object
         const is_object = v => {
             return typeof v === 'object' &&
                 !Array.isArray(v) &&
                 v !== null;
         };
-        for (let i = 0; i < args.length; i++) {
-            if (is_object(args[i])) {
+        for ( let i = 0; i < args.length; i++ ) {
+            if ( is_object(args[i]) ) {
                 userParams = args[i];
                 break;
             }
         }
 
-
         // Copy relevant parameters from userParams to requestParams
-        if (userParams.model) {
+        if ( userParams.model ) {
             requestParams.model = userParams.model;
         }
-        if (userParams.temperature) {
+        if ( userParams.temperature ) {
             requestParams.temperature = userParams.temperature;
         }
-        if (userParams.max_tokens) {
+        if ( userParams.max_tokens ) {
             requestParams.max_tokens = userParams.max_tokens;
         }
-        
+
         // convert undefined to empty string so that .startsWith works
         requestParams.model = requestParams.model ?? '';
 
@@ -604,21 +601,21 @@ class AI{
         // for example: "claude-3-5-sonnet" should become "anthropic/claude-3-5-sonnet"
         // but for now, we want to keep the old behavior
         // so we remove the "anthropic/" prefix if it exists
-        if (requestParams.model && requestParams.model.startsWith('anthropic/')) {
+        if ( requestParams.model && requestParams.model.startsWith('anthropic/') ) {
             requestParams.model = requestParams.model.replace('anthropic/', '');
         }
 
         // convert to the correct model name if necessary
-        if( requestParams.model === 'claude-3-5-sonnet'){
+        if ( requestParams.model === 'claude-3-5-sonnet' ) {
             requestParams.model = 'claude-3-5-sonnet-latest';
         }
-        if( requestParams.model === 'claude-3-7-sonnet' || requestParams.model === 'claude'){
+        if ( requestParams.model === 'claude-3-7-sonnet' || requestParams.model === 'claude' ) {
             requestParams.model = 'claude-3-7-sonnet-latest';
         }
-        if( requestParams.model === 'claude-sonnet-4' || requestParams.model === 'claude-sonnet-4-latest'){
+        if ( requestParams.model === 'claude-sonnet-4' || requestParams.model === 'claude-sonnet-4-latest' ) {
             requestParams.model = 'claude-sonnet-4-20250514';
         }
-        if( requestParams.model === 'claude-opus-4' || requestParams.model === 'claude-opus-4-latest') {
+        if ( requestParams.model === 'claude-opus-4' || requestParams.model === 'claude-opus-4-latest' ) {
             requestParams.model = 'claude-opus-4-20250514';
         }
         if ( requestParams.model === 'mistral' ) {
@@ -632,17 +629,17 @@ class AI{
         }
 
         // o1-mini to openrouter:openai/o1-mini
-        if ( requestParams.model === 'o1-mini') {
+        if ( requestParams.model === 'o1-mini' ) {
             requestParams.model = 'openrouter:openai/o1-mini';
         }
 
         // if a model is prepended with "openai/", remove it
-        if (requestParams.model && requestParams.model.startsWith('openai/')) {
+        if ( requestParams.model && requestParams.model.startsWith('openai/') ) {
             requestParams.model = requestParams.model.replace('openai/', '');
             driver = 'openai-completion';
         }
 
-        // if model starts with: 
+        // if model starts with:
         //      agentica-org/
         //      ai21/
         //      aion-labs/
@@ -691,10 +688,10 @@ class AI{
         //      tngtech/
         //      undi95/
         //      x-ai/
-        //      z-ai/   
+        //      z-ai/
 
         // prepend it with openrouter:
-        if ( 
+        if (
             requestParams.model.startsWith('agentica-org/') ||
             requestParams.model.startsWith('ai21/') ||
             requestParams.model.startsWith('aion-labs/') ||
@@ -708,9 +705,9 @@ class AI{
             requestParams.model.startsWith('bytedance/') ||
             requestParams.model.startsWith('cognitivecomputations/') ||
             requestParams.model.startsWith('cohere/') ||
-            requestParams.model.startsWith('deepseek/') || 
+            requestParams.model.startsWith('deepseek/') ||
             requestParams.model.startsWith('eleutherai/') ||
-            requestParams.model.startsWith('google/') || 
+            requestParams.model.startsWith('google/') ||
             requestParams.model.startsWith('gryphe/') ||
             requestParams.model.startsWith('inception/') ||
             requestParams.model.startsWith('infermatic/') ||
@@ -728,7 +725,7 @@ class AI{
             requestParams.model.startsWith('openrouter/') ||
             requestParams.model.startsWith('perplexity/') ||
             requestParams.model.startsWith('pygmalionai/') ||
-            requestParams.model.startsWith('qwen/') || 
+            requestParams.model.startsWith('qwen/') ||
             requestParams.model.startsWith('raifle/') ||
             requestParams.model.startsWith('rekaai/') ||
             requestParams.model.startsWith('sao10k/') ||
@@ -742,59 +739,59 @@ class AI{
             requestParams.model.startsWith('thudm/') ||
             requestParams.model.startsWith('tngtech/') ||
             requestParams.model.startsWith('undi95/') ||
-            requestParams.model.startsWith('x-ai/') || 
+            requestParams.model.startsWith('x-ai/') ||
             requestParams.model.startsWith('z-ai/')
         ) {
-            requestParams.model = 'openrouter:' + requestParams.model;
+            requestParams.model = `openrouter:${ requestParams.model}`;
         }
 
         // map model to the appropriate driver
-        if (!requestParams.model || requestParams.model.startsWith('gpt-')) {
+        if ( !requestParams.model || requestParams.model.startsWith('gpt-') ) {
             driver = 'openai-completion';
-        }else if(
+        } else if (
             requestParams.model.startsWith('claude-')
-        ){
+        ) {
             driver = 'claude';
-        }else if(requestParams.model === 'meta-llama/Meta-Llama-3.1-8B-Instruct-Turbo' || requestParams.model === 'meta-llama/Meta-Llama-3.1-70B-Instruct-Turbo' || requestParams.model === 'meta-llama/Meta-Llama-3.1-405B-Instruct-Turbo' || requestParams.model === `google/gemma-2-27b-it`){
+        } else if ( requestParams.model === 'meta-llama/Meta-Llama-3.1-8B-Instruct-Turbo' || requestParams.model === 'meta-llama/Meta-Llama-3.1-70B-Instruct-Turbo' || requestParams.model === 'meta-llama/Meta-Llama-3.1-405B-Instruct-Turbo' || requestParams.model === 'google/gemma-2-27b-it' ) {
             driver = 'together-ai';
-        }else if(requestParams.model.startsWith('mistral-') || requestParams.model.startsWith('codestral-') || requestParams.model.startsWith('pixtral-') || requestParams.model.startsWith('magistral-') || requestParams.model.startsWith('devstral-') || requestParams.model.startsWith('mistral-ocr-') || requestParams.model.startsWith('open-mistral-')){
+        } else if ( requestParams.model.startsWith('mistral-') || requestParams.model.startsWith('codestral-') || requestParams.model.startsWith('pixtral-') || requestParams.model.startsWith('magistral-') || requestParams.model.startsWith('devstral-') || requestParams.model.startsWith('mistral-ocr-') || requestParams.model.startsWith('open-mistral-') ) {
             driver = 'mistral';
-        }else if([
-            "distil-whisper-large-v3-en",
-            "gemma2-9b-it",
-            "gemma-7b-it",
-            "llama-3.1-70b-versatile",
-            "llama-3.1-8b-instant",
-            "llama3-70b-8192",
-            "llama3-8b-8192",
-            "llama3-groq-70b-8192-tool-use-preview",
-            "llama3-groq-8b-8192-tool-use-preview",
-            "llama-guard-3-8b",
-            "mixtral-8x7b-32768",
-            "whisper-large-v3"
-        ].includes(requestParams.model)) {
+        } else if ( [
+            'distil-whisper-large-v3-en',
+            'gemma2-9b-it',
+            'gemma-7b-it',
+            'llama-3.1-70b-versatile',
+            'llama-3.1-8b-instant',
+            'llama3-70b-8192',
+            'llama3-8b-8192',
+            'llama3-groq-70b-8192-tool-use-preview',
+            'llama3-groq-8b-8192-tool-use-preview',
+            'llama-guard-3-8b',
+            'mixtral-8x7b-32768',
+            'whisper-large-v3',
+        ].includes(requestParams.model) ) {
             driver = 'groq';
-        }else if(requestParams.model === 'grok-beta') {
+        } else if ( requestParams.model === 'grok-beta' ) {
             driver = 'xai';
         }
-        else if(requestParams.model.startsWith('grok-')){
+        else if ( requestParams.model.startsWith('grok-') ) {
             driver = 'openrouter';
         }
-        else if(
+        else if (
             requestParams.model === 'deepseek-chat' ||
             requestParams.model === 'deepseek-reasoner'
-        ){
+        ) {
             driver = 'deepseek';
         }
-        else if(
+        else if (
             requestParams.model === 'gemini-1.5-flash' ||
             requestParams.model === 'gemini-2.0-flash' ||
-            requestParams.model === 'gemini-2.5-flash' || 
+            requestParams.model === 'gemini-2.5-flash' ||
             requestParams.model === 'gemini-2.5-flash-lite' ||
             requestParams.model === 'gemini-2.0-flash-lite' ||
             requestParams.model === 'gemini-3-pro-preview' ||
             requestParams.model === 'gemini-2.5-pro'
-        ){
+        ) {
             driver = 'gemini';
         }
         else if ( requestParams.model.startsWith('openrouter:') ) {
@@ -805,10 +802,10 @@ class AI{
         }
 
         // stream flag from userParams
-        if(userParams.stream !== undefined && typeof userParams.stream === 'boolean'){
+        if ( userParams.stream !== undefined && typeof userParams.stream === 'boolean' ) {
             requestParams.stream = userParams.stream;
         }
-        
+
         if ( userParams.driver ) {
             driver = userParams.driver;
         }
@@ -820,7 +817,7 @@ class AI{
                 requestParams[name] = userParams[name];
             }
         }
-        
+
         if ( requestParams.model === '' ) {
             delete requestParams.model;
         }
@@ -835,16 +832,16 @@ class AI{
 
                 result.valueOf = () => {
                     return result.message?.content;
-                }
+                };
 
                 return result;
-            }
+            },
         }).call(this, requestParams);
-    }
+    };
 
     /**
      * Generate images from text prompts or perform image-to-image generation
-     * 
+     *
      * @param {string|object} prompt - Text prompt or options object
      * @param {object|boolean} [options] - Generation options or test mode flag
      * @param {string} [options.prompt] - Text description of the image to generate
@@ -853,11 +850,11 @@ class AI{
      * @param {string} [options.input_image] - Base64 encoded input image for image-to-image generation
      * @param {string} [options.input_image_mime_type] - MIME type of input image (e.g., "image/png")
      * @returns {Promise<Image>} Generated image object with src property
-     * 
+     *
      * @example
      * // Text-to-image
      * const img = await puter.ai.txt2img("A beautiful sunset");
-     * 
+     *
      * @example
      * // Image-to-image
      * const img = await puter.ai.txt2img({
@@ -871,32 +868,34 @@ class AI{
         let options = {};
         let testMode = false;
 
-        if(!args){
-            throw({message: 'Arguments are required', code: 'arguments_required'});
+        if ( ! args ) {
+            throw ({ message: 'Arguments are required', code: 'arguments_required' });
         }
 
         // if argument is string transform it to the object that the API expects
-        if (typeof args[0] === 'string') {
+        if ( typeof args[0] === 'string' ) {
             options = { prompt: args[0] };
         }
 
         // if second argument is string, it's the `testMode`
-        if (typeof args[1] === 'boolean' && args[1] === true) {
+        if ( typeof args[1] === 'boolean' && args[1] === true ) {
             testMode = true;
         }
 
-        if (typeof args[0] === 'string' && typeof args[1] === "object") {
+        if ( typeof args[0] === 'string' && typeof args[1] === 'object' ) {
             options = args[1];
             options.prompt = args[0];
         }
 
-        if (typeof args[0] === 'object') {
-            options = args[0]
+        if ( typeof args[0] === 'object' ) {
+            options = args[0];
         }
 
-        let AIService = "openai-image-generation"
-        if (options.model === "nano-banana") 
-            options.model = "gemini-2.5-flash-image-preview";
+        let AIService = 'openai-image-generation';
+        if ( options.model === 'nano-banana' )
+        {
+            options.model = 'gemini-2.5-flash-image-preview';
+        }
 
         const driverHint = typeof options.driver === 'string' ? options.driver : undefined;
         const providerRaw = typeof options.provider === 'string'
@@ -910,16 +909,16 @@ class AI{
             (TOGETHER_IMAGE_MODEL_PREFIXES.some(prefix => modelLower.startsWith(prefix)) ||
                 TOGETHER_IMAGE_MODEL_KEYWORDS.some(keyword => modelLower.includes(keyword)));
 
-        if (driverHint) {
+        if ( driverHint ) {
             AIService = driverHint;
-        } else if (providerHint === 'gemini') {
-            AIService = "gemini-image-generation";
-        } else if (providerHint === 'together' || providerHint === 'together-ai') {
-            AIService = "together-image-generation";
-        } else if (options.model === "gemini-2.5-flash-image-preview") {
-            AIService = "gemini-image-generation";
-        } else if (looksLikeTogetherModel) {
-            AIService = "together-image-generation";
+        } else if ( providerHint === 'gemini' ) {
+            AIService = 'gemini-image-generation';
+        } else if ( providerHint === 'together' || providerHint === 'together-ai' ) {
+            AIService = 'together-image-generation';
+        } else if ( options.model === 'gemini-2.5-flash-image-preview' ) {
+            AIService = 'gemini-image-generation';
+        } else if ( looksLikeTogetherModel ) {
+            AIService = 'together-image-generation';
         }
         // Call the original chat.complete method
         return await utils.make_driver_method(['prompt'], 'puter-image-generation', AIService, 'generate', {
@@ -946,44 +945,44 @@ class AI{
                 img.toString = () => img.src;
                 img.valueOf = () => img.src;
                 return img;
-            }
+            },
         }).call(this, options);
-    }
+    };
 
     txt2vid = async (...args) => {
         let options = {};
         let testMode = false;
 
-        if(!args){
-            throw({message: 'Arguments are required', code: 'arguments_required'});
+        if ( ! args ) {
+            throw ({ message: 'Arguments are required', code: 'arguments_required' });
         }
 
-        if (typeof args[0] === 'string') {
+        if ( typeof args[0] === 'string' ) {
             options = { prompt: args[0] };
         }
 
-        if (typeof args[1] === 'boolean' && args[1] === true) {
+        if ( typeof args[1] === 'boolean' && args[1] === true ) {
             testMode = true;
         }
 
-        if (typeof args[0] === 'string' && typeof args[1] === "object") {
+        if ( typeof args[0] === 'string' && typeof args[1] === 'object' ) {
             options = args[1];
             options.prompt = args[0];
         }
 
-        if (typeof args[0] === 'object') {
+        if ( typeof args[0] === 'object' ) {
             options = args[0];
         }
 
-        if (!options.prompt) {
-            throw({message: 'Prompt parameter is required', code: 'prompt_required'});
+        if ( ! options.prompt ) {
+            throw ({ message: 'Prompt parameter is required', code: 'prompt_required' });
         }
 
-        if (!options.model) {
+        if ( ! options.model ) {
             options.model = 'sora-2';
         }
 
-        if (options.duration !== undefined && options.seconds === undefined) {
+        if ( options.duration !== undefined && options.seconds === undefined ) {
             options.seconds = options.duration;
         }
 
@@ -999,17 +998,17 @@ class AI{
         const looksLikeTogetherVideoModel = typeof options.model === 'string' &&
             TOGETHER_VIDEO_MODEL_PREFIXES.some(prefix => modelLower.startsWith(prefix));
 
-        if (driverHintLower === 'together' || driverHintLower === 'together-ai') {
+        if ( driverHintLower === 'together' || driverHintLower === 'together-ai' ) {
             videoService = 'together-video-generation';
-        } else if (driverHintLower === 'together-video-generation') {
+        } else if ( driverHintLower === 'together-video-generation' ) {
             videoService = 'together-video-generation';
-        } else if (driverHintLower === 'openai') {
+        } else if ( driverHintLower === 'openai' ) {
             videoService = 'openai-video-generation';
-        } else if (driverHint) {
+        } else if ( driverHint ) {
             videoService = driverHint;
-        } else if (providerHint === 'together' || providerHint === 'together-ai') {
+        } else if ( providerHint === 'together' || providerHint === 'together-ai' ) {
             videoService = 'together-video-generation';
-        } else if (looksLikeTogetherVideoModel) {
+        } else if ( looksLikeTogetherVideoModel ) {
             videoService = 'together-video-generation';
         }
 
@@ -1019,17 +1018,17 @@ class AI{
             transform: async result => {
                 let sourceUrl = null;
                 let mimeType = null;
-                if (result instanceof Blob) {
+                if ( result instanceof Blob ) {
                     sourceUrl = await utils.blob_to_url(result);
                     mimeType = result.type || 'video/mp4';
-                } else if (typeof result === 'string') {
+                } else if ( typeof result === 'string' ) {
                     sourceUrl = result;
-                } else if (result && typeof result === 'object') {
+                } else if ( result && typeof result === 'object' ) {
                     sourceUrl = result.asset_url || result.url || result.href || null;
                     mimeType = result.mime_type || result.content_type || null;
                 }
 
-                if (!sourceUrl) {
+                if ( ! sourceUrl ) {
                     return result;
                 }
 
@@ -1037,16 +1036,16 @@ class AI{
                 video.src = sourceUrl;
                 video.controls = true;
                 video.preload = 'metadata';
-                if (mimeType) {
+                if ( mimeType ) {
                     video.setAttribute('data-mime-type', mimeType);
                 }
                 video.setAttribute('data-source', sourceUrl);
                 video.toString = () => video.src;
                 video.valueOf = () => video.src;
                 return video;
-            }
+            },
         }).call(this, options);
-    }
+    };
 }
 
 export default AI;

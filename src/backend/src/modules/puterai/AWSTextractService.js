@@ -32,7 +32,7 @@ const { Context } = require('../../util/context');
 */
 class AWSTextractService extends BaseService {
     /** @type {import('../../services/MeteringService/MeteringService').MeteringService} */
-    get meteringService(){
+    get meteringService () {
         return this.services.get('meteringService').meteringService;
     }
     /**
@@ -41,13 +41,13 @@ class AWSTextractService extends BaseService {
     * Implements interfaces for OCR recognition and driver capabilities
     * @extends BaseService
     */
-    _construct() {
+    _construct () {
         this.clients_ = {};
     }
 
     static IMPLEMENTS = {
         ['driver-capabilities']: {
-            supports_test_mode(iface, method_name) {
+            supports_test_mode (iface, method_name) {
                 return iface === 'puter-ocr' && method_name === 'recognize';
             },
         },
@@ -59,7 +59,7 @@ class AWSTextractService extends BaseService {
             * @param {boolean} params.test_mode - If true, returns sample test output instead of processing
             * @returns {Promise<Object>} Recognition results containing blocks of text with confidence scores
             */
-            async recognize({ source, test_mode }) {
+            async recognize ({ source, test_mode }) {
                 if ( test_mode ) {
                     return {
                         blocks: [
@@ -110,14 +110,14 @@ class AWSTextractService extends BaseService {
     * @private
     * @returns {Object} Object containing AWS access key ID and secret access key
     */
-    _create_aws_credentials() {
+    _create_aws_credentials () {
         return {
             accessKeyId: this.config.aws.access_key,
             secretAccessKey: this.config.aws.secret_key,
         };
     }
 
-    _get_client(region) {
+    _get_client (region) {
         if ( ! region ) {
             region = this.config.aws?.region ?? this.global_config.aws?.region
                 ?? 'us-west-2';
@@ -140,7 +140,7 @@ class AWSTextractService extends BaseService {
     * @description Processes document through Textract's AnalyzeDocument API with LAYOUT feature.
     * Will attempt to use S3 direct access first, falling back to buffer upload if needed.
     */
-    async analyze_document(file_facade) {
+    async analyze_document (file_facade) {
         const {
             client, document, using_s3,
         } = await this._get_client_and_document(file_facade);
@@ -207,9 +207,9 @@ class AWSTextractService extends BaseService {
     * @throws {APIError} If file does not exist
     * @throws {Error} If no suitable input format is available
     */
-    async _get_client_and_document(file_facade, force_buffer) {
+    async _get_client_and_document (file_facade, force_buffer) {
         const try_s3info = await file_facade.get('s3-info');
-        if ( try_s3info && ! force_buffer ) {
+        if ( try_s3info && !force_buffer ) {
             console.log('S3 INFO', try_s3info);
             return {
                 using_s3: true,
@@ -234,7 +234,7 @@ class AWSTextractService extends BaseService {
         }
 
         const fsNode = await file_facade.get('fs-node');
-        if ( fsNode && ! await fsNode.exists() ) {
+        if ( fsNode && !await fsNode.exists() ) {
             throw APIError.create('subject_does_not_exist');
         }
 

@@ -26,8 +26,8 @@
 - [Wikipedia](https://en.wikipedia.org/wiki/ANSI_escape_code)
 */
 
-import { ANSIContext, getActiveModifiersFromXTerm } from "../ANSIContext.js";
-import { findNextWord } from "./rl_words.js";
+import { ANSIContext, getActiveModifiersFromXTerm } from '../ANSIContext.js';
+import { findNextWord } from './rl_words.js';
 
 // TODO: potentially include metadata in handlers
 
@@ -69,12 +69,12 @@ export const PC_FN_HANDLERS = {
     3: ctx => {
         const { vars } = ctx;
         const deleteSequence = new Uint8Array([
-            consts.CHAR_ESC, consts.CHAR_CSI, cc('P')
+            consts.CHAR_ESC, consts.CHAR_CSI, cc('P'),
         ]);
         vars.result = vars.result.slice(0, vars.cursor) +
             vars.result.slice(vars.cursor + 1);
         ctx.externs.out.write(deleteSequence);
-    }
+    },
 };
 
 const save_history = ctx => {
@@ -91,8 +91,8 @@ const correct_cursor = (ctx, oldCursor) => {
     if ( amount === 0 ) return;
     const moveSequence = new Uint8Array([
         consts.CHAR_ESC, consts.CHAR_CSI,
-        ...(new TextEncoder().encode('' + Math.abs(amount))),
-        cc(L)
+        ...(new TextEncoder().encode(`${ Math.abs(amount)}`)),
+        cc(L),
     ]);
     ctx.externs.out.write(moveSequence);
 };
@@ -102,21 +102,21 @@ const home = ctx => {
     ctx.vars.cursor = 0;
     const moveSequence = new Uint8Array([
         consts.CHAR_ESC, consts.CHAR_CSI,
-        ...(new TextEncoder().encode('' + amount)),
-        cc('D')
+        ...(new TextEncoder().encode(`${ amount}`)),
+        cc('D'),
     ]);
     if ( amount !== 0 ) ctx.externs.out.write(moveSequence);
 };
 
 const select_current_history = ctx => {
-        const { history } = ctx.externs;
+    const { history } = ctx.externs;
     home(ctx);
     ctx.vars.result = history.get();
     ctx.vars.cursor = ctx.vars.result.length;
     const clearToEndSequence = new Uint8Array([
         consts.CHAR_ESC, consts.CHAR_CSI,
         ...(new TextEncoder().encode('0')),
-        cc('K')
+        cc('K'),
     ]);
     ctx.externs.out.write(clearToEndSequence);
     ctx.externs.out.write(history.get());
@@ -155,14 +155,14 @@ export const CSI_HANDLERS = {
             ctx.vars.cursor = ind;
             const moveSequence = new Uint8Array([
                 consts.CHAR_ESC, consts.CHAR_CSI,
-                ...(new TextEncoder().encode('' + diff)),
-                cc('D')
+                ...(new TextEncoder().encode(`${ diff}`)),
+                cc('D'),
             ]);
             ctx.externs.out.write(moveSequence);
             return;
         }
         ctx.vars.cursor -= ctx.locals.num;
-        ctx.locals.doWrite = true;        
+        ctx.locals.doWrite = true;
     }),
     // cursor forward
     [cc('C')]: CSI_INT_ARG(ctx => {
@@ -177,14 +177,14 @@ export const CSI_HANDLERS = {
             ctx.vars.cursor = ind;
             const moveSequence = new Uint8Array([
                 consts.CHAR_ESC, consts.CHAR_CSI,
-                ...(new TextEncoder().encode('' + diff)),
-                cc('C')
+                ...(new TextEncoder().encode(`${ diff}`)),
+                cc('C'),
             ]);
             ctx.externs.out.write(moveSequence);
             return;
         }
         ctx.vars.cursor += ctx.locals.num;
-        ctx.locals.doWrite = true;        
+        ctx.locals.doWrite = true;
     }),
     // PC-Style Function Keys
     [cc('~')]: CSI_INT_ARG(ctx => {
@@ -204,8 +204,8 @@ export const CSI_HANDLERS = {
         ctx.vars.cursor = ctx.vars.result.length;
         const moveSequence = new Uint8Array([
             consts.CHAR_ESC, consts.CHAR_CSI,
-            ...(new TextEncoder().encode('' + amount)),
-            cc('C')
+            ...(new TextEncoder().encode(`${ amount}`)),
+            cc('C'),
         ]);
         if ( amount !== 0 ) ctx.externs.out.write(moveSequence);
     },

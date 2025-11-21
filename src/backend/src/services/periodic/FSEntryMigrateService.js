@@ -17,12 +17,11 @@
  * You should have received a copy of the GNU Affero General Public License
  * along with this program.  If not, see <https://www.gnu.org/licenses/>.
  */
-const seedrandom = require("seedrandom");
-const { id2path, get_user } = require("../../helpers");
-const { generate_random_code } = require("../../util/identifier");
-const { DB_MODE_WRITE } = require("../MysqlAccessService");
-const { DB_MODE_READ } = require("../MysqlAccessService");
-
+const seedrandom = require('seedrandom');
+const { id2path, get_user } = require('../../helpers');
+const { generate_random_code } = require('../../util/identifier');
+const { DB_MODE_WRITE } = require('../MysqlAccessService');
+const { DB_MODE_READ } = require('../MysqlAccessService');
 
 /**
 * Base Job class for handling migration tasks in the FSEntryMigrateService.
@@ -48,7 +47,7 @@ class Job {
     */
     maybe_stop_ () {
         if ( this.state !== this.constructor.STATE_GREEN ) {
-            this.log.info(`Stopping job`);
+            this.log.info('Stopping job');
             this.state = this.constructor.STATE_RED;
             return true;
         }
@@ -78,7 +77,6 @@ class Job {
     }
 }
 
-
 /**
 * @class Mig_StorePath
 * @extends Job
@@ -93,7 +91,7 @@ class Mig_StorePath extends Job {
     * @param {Object} args - Command line arguments for the migration
     * @param {string[]} args.verbose - If --verbose is included, logs detailed path info
     * @returns {Promise<void>} Resolves when migration is complete
-    * 
+    *
     * Migrates fsentry records that have null paths by:
     * - Processing entries in batches of 50
     * - Converting UUIDs to full paths
@@ -107,17 +105,16 @@ class Mig_StorePath extends Job {
         for ( ;; ) {
             const t_0 = performance.now();
             const [fsentries] = await dbrr.promise().execute(
-                `SELECT id, uuid FROM fsentries WHERE path IS NULL ORDER BY accessed DESC LIMIT 50`
-            );
+                            'SELECT id, uuid FROM fsentries WHERE path IS NULL ORDER BY accessed DESC LIMIT 50');
 
             if ( fsentries.length === 0 ) {
-                log.info(`No more fsentries to migrate`);
+                log.info('No more fsentries to migrate');
                 this.state = this.constructor.STATE_RED;
                 return;
             }
             log.info(`Running migration on ${fsentries.length} fsentries`);
 
-            for ( let i=0 ; i < fsentries.length ; i++ ) {
+            for ( let i = 0 ; i < fsentries.length ; i++ ) {
                 const fsentry = fsentries[i];
                 let path;
                 try {
@@ -131,9 +128,8 @@ class Mig_StorePath extends Job {
                     log.info(`id=${fsentry.id} uuid=${fsentry.uuid} path=${path}`);
                 }
                 await dbrw.promise().execute(
-                    `UPDATE fsentries SET path=? WHERE id=?`,
-                    [path, fsentry.id],
-                );
+                                'UPDATE fsentries SET path=? WHERE id=?',
+                                [path, fsentry.id]);
             }
 
             const t_1 = performance.now();
@@ -141,9 +137,9 @@ class Mig_StorePath extends Job {
             // Give the server a break for twice the time it took to execute the query,
             // or 100ms at least.
             const time_to_wait = Math.max(100, 2 * (t_1 - t_0));
-            
+
             if ( this.maybe_stop_() ) return;
-            
+
             log.info(`Waiting for ${time_to_wait.toFixed(2)}ms`);
             await new Promise(rslv => setTimeout(rslv, time_to_wait));
 
@@ -151,7 +147,6 @@ class Mig_StorePath extends Job {
         }
     }
 }
-
 
 /**
 * @class Mig_IndexAccessed
@@ -165,8 +160,8 @@ class Mig_IndexAccessed extends Job {
     /**
     * Migrates fsentries to include 'accessed' timestamps by setting null values to their 'created' time
     * @param {Array} args - Command line arguments passed to the migration
-    * @returns {Promise<void>} 
-    * 
+    * @returns {Promise<void>}
+    *
     * Processes fsentries in batches of 10000, updating any null 'accessed' fields
     * to match their 'created' timestamp. Includes built-in delays between batches
     * to reduce server load. Continues until no more records need updating.
@@ -176,15 +171,14 @@ class Mig_IndexAccessed extends Job {
         const { dbrr, dbrw, log } = this;
 
         for ( ;; ) {
-            log.info(`Running update statement`);
+            log.info('Running update statement');
             const t_0 = performance.now();
             const [results] = await dbrr.promise().execute(
-                `UPDATE fsentries SET accessed = COALESCE(accessed, created) WHERE accessed IS NULL LIMIT 10000`
-            );
+                            'UPDATE fsentries SET accessed = COALESCE(accessed, created) WHERE accessed IS NULL LIMIT 10000');
             log.info(`Updated ${results.affectedRows} rows`);
 
             if ( results.affectedRows === 0 ) {
-                log.info(`No more fsentries to migrate`);
+                log.info('No more fsentries to migrate');
                 this.state = this.constructor.STATE_RED;
                 return;
             }
@@ -194,9 +188,9 @@ class Mig_IndexAccessed extends Job {
             // Give the server a break for twice the time it took to execute the query,
             // or 100ms at least.
             const time_to_wait = Math.max(100, 2 * (t_1 - t_0));
-            
+
             if ( this.maybe_stop_() ) return;
-            
+
             log.info(`Waiting for ${time_to_wait.toFixed(2)}ms`);
             await new Promise(rslv => setTimeout(rslv, time_to_wait));
 
@@ -204,7 +198,6 @@ class Mig_IndexAccessed extends Job {
         }
     }
 }
-
 
 /**
 * @class Mig_FixTrash
@@ -218,10 +211,10 @@ class Mig_FixTrash extends Job {
     /**
     * Handles migration to fix missing Trash directories for users
     * Creates a new Trash directory and updates necessary records if one doesn't exist
-    * 
+    *
     * @param {Array} args - Command line arguments passed to the migration
     * @returns {Promise<void>} Resolves when migration is complete
-    * 
+    *
     * @description
     * - Identifies users without a Trash directory
     * - Creates new Trash directory with UUID for each user
@@ -253,9 +246,9 @@ class Mig_FixTrash extends Job {
             const t_0 = performance.now();
             const user = await get_user({ username });
             const trash_uuid = uuidv4();
-            const trash_ts = Date.now()/1000;
+            const trash_ts = Date.now() / 1000;
             log.info(`Fixing trash for user ${user.username} ${user.id} ${user_dir_uuid} ${trash_uuid} ${trash_ts}`);
-            
+
             const insert_res = await dbrw.promise().execute(`
                 INSERT INTO fsentries
                 (uuid, parent_uid, user_id, name, path, is_dir, created, modified, immutable)
@@ -271,9 +264,9 @@ class Mig_FixTrash extends Job {
             const t_1 = performance.now();
 
             const time_to_wait = Math.max(100, 2 * (t_1 - t_0));
-            
+
             if ( this.maybe_stop_() ) return;
-            
+
             log.info(`Waiting for ${time_to_wait.toFixed(2)}ms`);
             await new Promise(rslv => setTimeout(rslv, time_to_wait));
 
@@ -281,7 +274,6 @@ class Mig_FixTrash extends Job {
         }
     }
 }
-
 
 /**
 * Class for managing referral code migrations in the user database.
@@ -306,14 +298,14 @@ class Mig_AddReferralCodes extends Job {
 
         let existing_codes = new Set();
         // Set to store existing referral codes to avoid duplicates during migration
-        const SQL_EXISTING_CODES = `SELECT referral_code FROM user`;
+        const SQL_EXISTING_CODES = 'SELECT referral_code FROM user';
         let [codes] = await dbrr.promise().execute(SQL_EXISTING_CODES);
         for ( const { referal_code } of codes ) {
             existing_codes.add(referal_code);
         }
 
         // SQL query to fetch all user IDs and their referral codes from the user table
-        const SQL_USER_IDS = `SELECT id, referral_code FROM user`;
+        const SQL_USER_IDS = 'SELECT id, referral_code FROM user';
 
         let [users] = await dbrr.promise().execute(SQL_USER_IDS);
 
@@ -337,12 +329,11 @@ class Mig_AddReferralCodes extends Job {
 
             i++;
             if ( i % 500 == 0 ) this.set_progress(i / users.length);
-            
+
             if ( this.maybe_stop_() ) return;
         }
     }
 }
-
 
 /**
 * @class Mig_AuditInitialStorage
@@ -357,7 +348,7 @@ class Mig_AuditInitialStorage extends Job {
     * Handles migration for auditing initial storage capacity for users
     * before auditing was implemented. Creates audit log entries for each
     * user's storage capacity from before the auditing system existed.
-    * 
+    *
     * @param {Array} args - Command line arguments passed to the migration
     * @returns {Promise<void>}
     */
@@ -369,7 +360,6 @@ class Mig_AuditInitialStorage extends Job {
         //       storage capacity before auditing was implemented.
     }
 }
-
 
 /**
 * @class FSEntryMigrateService
@@ -403,7 +393,7 @@ class FSEntryMigrateService {
                         throw new Error(`unknown migration: ${migration}`);
                     }
                     migrations[migration].start(args.slice(1));
-                }
+                },
             },
             {
                 id: 'stop',
@@ -414,8 +404,8 @@ class FSEntryMigrateService {
                         throw new Error(`unknown migration: ${migration}`);
                     }
                     migrations[migration].stop();
-                }
-            }
+                },
+            },
         ]);
     }
 }

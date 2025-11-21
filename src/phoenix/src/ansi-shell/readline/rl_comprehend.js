@@ -19,7 +19,7 @@
 // This function comprehends the readline input and returns something
 // called a "readline input state" - this includes any information needed
 
-import { readtoken, TOKENS } from "./readtoken.js";
+import { readtoken, TOKENS } from './readtoken.js';
 
 // TODO: update to use syntax parser
 
@@ -42,7 +42,7 @@ export const readline_comprehend = (ctx) => {
         return lastChar === ' ' ||
             lastChar === '\t' ||
             lastChar === '\r' ||
-            lastChar === '\n'
+            lastChar === '\n';
     })();
 
     let tokens = readtoken(relevantInput);
@@ -55,7 +55,7 @@ export const readline_comprehend = (ctx) => {
     if ( tokens.length === 0 ) return { $: 'empty' };
 
     // Remove tokens for previous commands
-    for ( let i=tokens.length ; i >= 0 ; i-- ) {
+    for ( let i = tokens.length ; i >= 0 ; i-- ) {
         const token = tokens[i];
         const isCommandSeparator =
             token === TOKENS['|'] ||
@@ -76,7 +76,7 @@ export const readline_comprehend = (ctx) => {
             lastToken === TOKENS['>']
         ) {
             return {
-                $: 'redirect'
+                $: 'redirect',
             };
         }
 
@@ -90,7 +90,7 @@ export const readline_comprehend = (ctx) => {
         ) {
             return {
                 $: 'redirect',
-                input: lastToken
+                input: lastToken,
             };
         }
 
@@ -106,13 +106,13 @@ export const readline_comprehend = (ctx) => {
     // this input is not considered comprehensible
     if ( typeof tokens[0] !== 'string' ) {
         return {
-            $: 'unrecognized'
+            $: 'unrecognized',
         };
     }
 
     // DRY: command arguments are parsed by readline
     const argTokens = [];
-    for ( let i=0 ; i < tokens.length ; i++ ) {
+    for ( let i = 0 ; i < tokens.length ; i++ ) {
         if (
             tokens[i] === TOKENS['<'] ||
             tokens[i] === TOKENS['>']

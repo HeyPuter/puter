@@ -17,7 +17,7 @@
  * You should have received a copy of the GNU Affero General Public License
  * along with this program.  If not, see <https://www.gnu.org/licenses/>.
  */
-const BaseService = require("../BaseService");
+const BaseService = require('../BaseService');
 
 const def = o => {
     for ( let k in o ) {
@@ -32,7 +32,7 @@ const def = o => {
             return acc;
         }, {}),
     };
-}
+};
 
 const defv = o => {
     return {
@@ -53,7 +53,7 @@ const uuid_compression = prefix => ({
             v = v.slice(prefix.length);
         }
 
-        const undecorated = v.replace(/-/g, "");
+        const undecorated = v.replace(/-/g, '');
         const base64 = Buffer
             .from(undecorated, 'hex')
             .toString('base64');
@@ -73,7 +73,7 @@ const uuid_compression = prefix => ({
             undecorated.slice(16, 20),
             undecorated.slice(20),
         ].join('-');
-    }
+    },
 });
 
 const compression = {
@@ -106,11 +106,10 @@ const compression = {
     }),
 };
 
-
 /**
 * TokenService class for managing token creation and verification.
-* This service extends the BaseService class and provides methods 
-* for signing and verifying JWTs, as well as compressing and decompressing 
+* This service extends the BaseService class and provides methods
+* for signing and verifying JWTs, as well as compressing and decompressing
 * payloads to and from a compact format.
 */
 class TokenService extends BaseService {
@@ -118,22 +117,20 @@ class TokenService extends BaseService {
         jwt: require('jsonwebtoken'),
     };
 
-
     /**
      * Constructs a new TokenService instance and initializes the compression settings.
      * This method is called when a TokenService object is created.
-     * 
+     *
      * @returns {void}
      */
     _construct () {
         this.compression = compression;
     }
 
-
     /**
      * Initializes the TokenService instance by setting the JWT secret
      * from the global configuration.
-     * 
+     *
      * @function
      * @returns {void}
      * @throws {Error} Throws an error if the jwt_secret is not defined in global_config.
@@ -215,7 +212,6 @@ class TokenService extends BaseService {
             const fullkey = short_to_fullkey[short];
             const compress_info = fullkey_to_info[fullkey];
 
-
             if ( compress_info.short ) k = fullkey;
             if ( compress_info.values && compress_info.values.to_long[v] ) {
                 v = compress_info.values.to_long[v];
@@ -242,7 +238,7 @@ class TokenService extends BaseService {
                 user_uid: U2,
                 app_uid: U3,
             };
-            
+
             const compressed = this._compress_payload(context, payload);
             assert(() => compressed.u === uuid_compression().encode(U1));
             assert(() => compressed.t === 's');
@@ -259,7 +255,7 @@ class TokenService extends BaseService {
                 uu: uuid_compression().encode(U2),
                 au: uuid_compression('app-').encode(U3),
             };
-            
+
             const decompressed = this._decompress_payload(context, payload);
             assert(() => decompressed.uuid === U1);
             assert(() => decompressed.type === 'session');

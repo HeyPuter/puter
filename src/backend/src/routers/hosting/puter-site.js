@@ -16,18 +16,18 @@
  * You should have received a copy of the GNU Affero General Public License
  * along with this program.  If not, see <https://www.gnu.org/licenses/>.
  */
-const { AdvancedBase } = require("@heyputer/putility");
-const api_error_handler = require("../../modules/web/lib/api_error_handler");
-const config = require("../../config");
-const { get_user, get_app } = require("../../helpers");
-const { Context } = require("../../util/context");
-const { NodeInternalIDSelector, NodePathSelector } = require("../../filesystem/node/selectors");
-const { TYPE_DIRECTORY } = require("../../filesystem/FSNodeContext");
-const { LLRead } = require("../../filesystem/ll_operations/ll_read");
-const { Actor, UserActorType, SiteActorType } = require("../../services/auth/Actor");
-const APIError = require("../../api/APIError");
-const { PermissionUtil } = require("../../services/auth/permissionUtils.mjs");
-const { default: dedent } = require("dedent");
+const { AdvancedBase } = require('@heyputer/putility');
+const api_error_handler = require('../../modules/web/lib/api_error_handler');
+const config = require('../../config');
+const { get_user, get_app } = require('../../helpers');
+const { Context } = require('../../util/context');
+const { NodeInternalIDSelector, NodePathSelector } = require('../../filesystem/node/selectors');
+const { TYPE_DIRECTORY } = require('../../filesystem/FSNodeContext');
+const { LLRead } = require('../../filesystem/ll_operations/ll_read');
+const { Actor, UserActorType, SiteActorType } = require('../../services/auth/Actor');
+const APIError = require('../../api/APIError');
+const { PermissionUtil } = require('../../services/auth/permissionUtils.mjs');
+const { default: dedent } = require('dedent');
 
 const AT_DIRECTORY_NAMESPACE = '4aa6dc52-34c1-4b8a-b63c-a62b27f727cf';
 
@@ -36,30 +36,30 @@ class PuterSiteMiddleware extends AdvancedBase {
         path: require('path'),
         mime: require('mime-types'),
         uuidv5: require('uuid').v5,
-    }
+    };
     install (app) {
         app.use(this.run.bind(this));
     }
     /**
-     * function wraps run_ 
-     * 
-     * @param {import("express").Request} req 
-     * @param {import("express").Response} res 
-     * @param {any} next 
-     * @returns 
+     * function wraps run_
+     *
+     * @param {import("express").Request} req
+     * @param {import("express").Response} res
+     * @param {any} next
+     * @returns
      */
     async run (req, res, next) {
 
-        ! req.hostname.endsWith(config.static_hosting_domain)
-        && ( req.subdomains[0] !== 'devtest' )
-        
+        !req.hostname.endsWith(config.static_hosting_domain)
+        && ( req.subdomains[0] !== 'devtest' );
+
         const is_subdomain =
             req.hostname.endsWith(config.static_hosting_domain)
             ||
             req.subdomains[0] === 'devtest'
             ;
 
-        if ( ! is_subdomain && ! req.is_custom_domain ) return next();
+        if ( !is_subdomain && !req.is_custom_domain ) return next();
 
         res.setHeader('Access-Control-Allow-Origin', '*');
 
@@ -67,7 +67,7 @@ class PuterSiteMiddleware extends AdvancedBase {
             const expected_ctx = req.ctx;
             const received_ctx = Context.get();
 
-            if ( expected_ctx && ! received_ctx ) {
+            if ( expected_ctx && !received_ctx ) {
                 await expected_ctx.arun(async () => {
                     await this.run_(req, res, next);
                 });
@@ -79,23 +79,23 @@ class PuterSiteMiddleware extends AdvancedBase {
     }
     /**
      * Mega function which handles all requests to "*.puter.site"
-     * 
-     * @param {import("express").Request} req 
-     * @param {import("express").Response} res 
-     * @param {any} next 
-     * @returns 
+     *
+     * @param {import("express").Request} req
+     * @param {import("express").Response} res
+     * @param {any} next
+     * @returns
      */
     async run_ (req, res, next) {
         const subdomain =
             req.is_custom_domain ? req.hostname :
-            req.subdomains[0] === 'devtest' ? 'devtest' :
-            req.hostname.slice(0, -1 * (config.static_hosting_domain.length + 1));
+                req.subdomains[0] === 'devtest' ? 'devtest' :
+                    req.hostname.slice(0, -1 * (config.static_hosting_domain.length + 1));
 
         let path = (req.baseUrl + req.path) || 'index.html';
 
         const context = Context.get();
         const services = context.get('services');
-        
+
         const get_username_site = (async () => {
             if ( ! subdomain.endsWith('.at') ) return;
             const parts = subdomain.split('.');
@@ -105,20 +105,16 @@ class PuterSiteMiddleware extends AdvancedBase {
                 return;
             }
             const svc_fs = services.get('filesystem');
-            const index_node = await svc_fs.node(new NodePathSelector(
-                `/${username}/Public/index.html`
-            ));
-            const node = await svc_fs.node(new NodePathSelector(
-                `/${username}/Public`
-            ));
+            const index_node = await svc_fs.node(new NodePathSelector(`/${username}/Public/index.html`));
+            const node = await svc_fs.node(new NodePathSelector(`/${username}/Public`));
             if ( ! await index_node.exists() ) return;
 
             return {
-                name: username + '.at',
+                name: `${username }.at`,
                 uuid: this.modules.uuidv5(username, AT_DIRECTORY_NAMESPACE),
                 root_dir_id: await node.get('mysql-id'),
             };
-        })
+        });
 
         const site =
             await get_username_site() ||
@@ -146,7 +142,7 @@ class PuterSiteMiddleware extends AdvancedBase {
 
         if (
             site.associated_app_id &&
-            ! req.query['puter.app_instance_id'] &&
+            !req.query['puter.app_instance_id'] &&
             ( path === '' || path.endsWith('/') )
         ) {
             console.log('ASSOC APP ID', site.associated_app_id);
@@ -164,9 +160,7 @@ class PuterSiteMiddleware extends AdvancedBase {
 
         let subdomain_root_path = '';
         if ( site.root_dir_id !== null && site.root_dir_id !== undefined ) {
-            const node = await svc_fs.node(
-                new NodeInternalIDSelector('mysql', site.root_dir_id)
-            );
+            const node = await svc_fs.node(new NodeInternalIDSelector('mysql', site.root_dir_id));
             if ( ! await node.exists() ) {
                 res.status(502).send('subdomain is pointing to deleted directory');
             }
@@ -185,7 +179,6 @@ class PuterSiteMiddleware extends AdvancedBase {
             subdomain_root_path = await node.get('path');
         }
 
-
         if ( ! subdomain_root_path ) {
             return this.respond_html_error_({
                 html: dedent(`
@@ -194,13 +187,11 @@ class PuterSiteMiddleware extends AdvancedBase {
             }, req, res, next);
         }
 
-        if ( ! subdomain_root_path || subdomain_root_path === '/' ) {
+        if ( !subdomain_root_path || subdomain_root_path === '/' ) {
             throw APIError.create('forbidden');
         }
 
-        const filepath = subdomain_root_path + decodeURIComponent(
-            resolved_url_path
-        );
+        const filepath = subdomain_root_path + decodeURIComponent(resolved_url_path);
 
         const target_node = await svc_fs.node(new NodePathSelector(filepath));
         await target_node.fetchEntry();
@@ -211,27 +202,25 @@ class PuterSiteMiddleware extends AdvancedBase {
 
         const target_is_dir = await target_node.get('type') === TYPE_DIRECTORY;
 
-        if ( target_is_dir && ! resolved_url_path.endsWith('/') ) {
-            return res.redirect(resolved_url_path + '/');
+        if ( target_is_dir && !resolved_url_path.endsWith('/') ) {
+            return res.redirect(`${resolved_url_path }/`);
         }
 
         if ( target_is_dir ) {
             return await this.respond_404_({ path }, req, res, next, subdomain_root_path);
         }
 
-        const contentType = this.modules.mime.contentType(
-            await target_node.get('name')
-        );
+        const contentType = this.modules.mime.contentType(await target_node.get('name'));
         res.set('Content-Type', contentType);
-        
+
         const acl_config = {
             no_acl: true,
             actor: null,
         };
-        
+
         if ( site.protected ) {
             const svc_auth = req.services.get('auth');
-            
+
             const get_site_actor_from_token = async () => {
                 const site_token = req.cookies['puter.site.token'];
                 if ( ! site_token ) return;
@@ -246,7 +235,7 @@ class PuterSiteMiddleware extends AdvancedBase {
                 }
 
                 if ( failed ) return;
-                    
+
                 if ( ! site_actor ) return;
 
                 // security measure: if 'puter.site.token' is set
@@ -255,60 +244,58 @@ class PuterSiteMiddleware extends AdvancedBase {
                 if ( ! (site_actor.type instanceof SiteActorType) ) {
                     return;
                 }
-                
+
                 acl_config.actor = site_actor;
-                
+
                 // Refresh the token if it's been 30 seconds since
                 // the last request
                 if (
-                    (Date.now() - site_actor.type.iat*1000)
+                    (Date.now() - site_actor.type.iat * 1000)
                     >
-                    1000*30
+                    1000 * 30
                 ) {
                     const site_token = svc_auth.get_site_app_token({
                         site_uid: site.uuid,
                     });
                     res.cookie('puter.site.token', site_token);
                 }
-                
+
                 return true;
             };
-            
+
             const make_site_actor_from_app_token = async () => {
                 const token = req.query['puter.auth.token'];
 
                 acl_config.no_acl = false;
-                
+
                 if ( ! token ) {
                     const e = APIError.create('token_missing');
                     return this.respond_error_({ req, res, e });
                 }
-                
+
                 const app_actor =
                     await svc_auth.authenticate_from_token(token);
-                    
+
                 const user_actor =
                     app_actor.get_related_actor(UserActorType);
-                
+
                 const svc_permission = req.services.get('permission');
                 const perm = await (async () => {
                     if ( user_actor.type.user.id === site.user_id ) {
                         return {};
                     }
-                        
-                    const reading = await svc_permission.scan(
-                        user_actor, `site:uid#${site.uuid}:access`
-                    );
+
+                    const reading = await svc_permission.scan(user_actor, `site:uid#${site.uuid}:access`);
                     const options = PermissionUtil.reading_to_options(reading);
                     return options.length > 0;
                 })();
-                
+
                 if ( ! perm ) {
                     const e = APIError.create('forbidden');
                     this.respond_error_({ req, res, e });
                     return false;
                 }
-                
+
                 const site_actor = await Actor.create(SiteActorType, { site });
                 acl_config.actor = site_actor;
 
@@ -320,8 +307,8 @@ class PuterSiteMiddleware extends AdvancedBase {
                 });
                 res.cookie('puter.site.token', site_token);
                 return true;
-            }
-            
+            };
+
             let ok = await get_site_actor_from_token();
             if ( ! ok ) {
                 ok = await make_site_actor_from_app_token();
@@ -334,12 +321,12 @@ class PuterSiteMiddleware extends AdvancedBase {
         // Helper function to parse Range header
         const parseRangeHeader = (rangeHeader) => {
             // Check if this is a multipart range request
-            if (rangeHeader.includes(',')) {
+            if ( rangeHeader.includes(',') ) {
                 // For now, we'll only serve the first range in multipart requests
                 // as the underlying storage layer doesn't support multipart responses
                 const firstRange = rangeHeader.split(',')[0].trim();
                 const matches = firstRange.match(/bytes=(\d+)-(\d*)/);
-                if (!matches) return null;
+                if ( ! matches ) return null;
 
                 const start = parseInt(matches[1], 10);
                 const end = matches[2] ? parseInt(matches[2], 10) : null;
@@ -349,19 +336,19 @@ class PuterSiteMiddleware extends AdvancedBase {
 
             // Single range request
             const matches = rangeHeader.match(/bytes=(\d+)-(\d*)/);
-            if (!matches) return null;
+            if ( ! matches ) return null;
 
             const start = parseInt(matches[1], 10);
             const end = matches[2] ? parseInt(matches[2], 10) : null;
 
             return { start, end, isMultipart: false };
         };
-        if (req.headers["range"]) {
+        if ( req.headers['range'] ) {
             res.status(206);
 
             // Parse the Range header and set Content-Range
-            const rangeInfo = parseRangeHeader(req.headers["range"]);
-            if (rangeInfo) {
+            const rangeInfo = parseRangeHeader(req.headers['range']);
+            if ( rangeInfo ) {
                 const { start, end, isMultipart } = rangeInfo;
 
                 // For open-ended ranges, we need to calculate the actual end byte
@@ -370,7 +357,7 @@ class PuterSiteMiddleware extends AdvancedBase {
 
                 try {
                     fileSize = await target_node.get('size');
-                    if (end === null) {
+                    if ( end === null ) {
                         actualEnd = fileSize - 1; // File size is 1-based, end byte is 0-based
                     }
                 } catch (e) {
@@ -380,28 +367,27 @@ class PuterSiteMiddleware extends AdvancedBase {
                     fileSize = null;
                 }
 
-                if (actualEnd !== null) {
+                if ( actualEnd !== null ) {
                     const totalSize = fileSize !== null ? fileSize : '*';
                     const contentRange = `bytes ${start}-${actualEnd}/${totalSize}`;
-                    res.set("Content-Range", contentRange);
+                    res.set('Content-Range', contentRange);
                 }
 
                 // If this was a multipart request, modify the range header to only include the first range
-                if (isMultipart) {
-                    req.headers["range"] = end !== null
+                if ( isMultipart ) {
+                    req.headers['range'] = end !== null
                         ? `bytes=${start}-${end}`
                         : `bytes=${start}-`;
                 }
             }
-            console.log("wow! range!!!: ", req.headers["range"], {
+            console.log('wow! range!!!: ', req.headers['range'], {
                 no_acl: acl_config.no_acl,
                 actor: acl_config.actor,
                 fsNode: target_node,
-                ...(req.headers['range'] ? { range: req.headers['range'] } : {})
-            })
+                ...(req.headers['range'] ? { range: req.headers['range'] } : {}),
+            });
         }
-        res.set({ "Accept-Ranges": "bytes" });
-        
+        res.set({ 'Accept-Ranges': 'bytes' });
 
         const ll_read = new LLRead();
         // const actor = Actor.adapt(req.user);
@@ -411,7 +397,7 @@ class PuterSiteMiddleware extends AdvancedBase {
             no_acl: acl_config.no_acl,
             actor: acl_config.actor,
             fsNode: target_node,
-            ...(req.headers['range'] ? { range: req.headers['range'] } : { })
+            ...(req.headers['range'] ? { range: req.headers['range'] } : { }),
         });
 
         // Destroy the stream if the client disconnects
@@ -422,28 +408,28 @@ class PuterSiteMiddleware extends AdvancedBase {
         try {
             return stream.pipe(res);
         } catch (e) {
-            return res.status(500).send('Error reading file: ' + e.message);
+            return res.status(500).send(`Error reading file: ${ e.message}`);
         }
     }
 
     async respond_404_ ({ path, html }, req, res, next, subdomain_root_path) {
         // Check for custom 404.html file in site root
-        if (subdomain_root_path) {
+        if ( subdomain_root_path ) {
             const context = Context.get();
             const services = context.get('services');
             const svc_fs = services.get('filesystem');
-            
-            const custom_404_filepath = subdomain_root_path + '/404.html';
+
+            const custom_404_filepath = `${subdomain_root_path }/404.html`;
             const custom_404_node = await svc_fs.node(new NodePathSelector(custom_404_filepath));
             await custom_404_node.fetchEntry();
-            
-            if (await custom_404_node.exists()) {
+
+            if ( await custom_404_node.exists() ) {
                 // Serve the custom 404.html file
                 res.status(404);
-                
+
                 const contentType = this.modules.mime.contentType('404.html');
                 res.set('Content-Type', contentType);
-                
+
                 const ll_read = new LLRead();
                 const stream = await ll_read.run({
                     no_acl: true,
@@ -464,7 +450,7 @@ class PuterSiteMiddleware extends AdvancedBase {
                 }
             }
         }
-        
+
         // Fall back to default error if no custom 404.html found
         return this.respond_html_error_({ path, html }, req, res, next);
     }
@@ -479,7 +465,7 @@ class PuterSiteMiddleware extends AdvancedBase {
         justify-content: center;
         flex-direction: column;">`);
         res.write('<h1 style="margin:0; color:#727272;">404</h1>');
-        res.write(`<p style="margin-top:10px;">`)
+        res.write('<p style="margin-top:10px;">');
         if ( path ) {
             if ( path === '/index.html' ) {
                 res.write('<code>index.html</code> Not Found');
@@ -489,23 +475,23 @@ class PuterSiteMiddleware extends AdvancedBase {
         } else {
             res.write(html);
         }
-        res.write(`</p>`)
+        res.write('</p>');
 
         res.write('</div>');
 
         return res.end();
     }
-    
+
     respond_error_ ({ req, res, e }) {
         if ( ! (e instanceof APIError) ) {
             // TODO: alarm here
             e = APIError.create('unknown_error');
         }
-        
+
         res.redirect(`${config.origin}?${e.querystringize({
             ...(req.query['puter.app_instance_id'] ? {
                 ['error_from_within_iframe']: true,
-            } : {})
+            } : {}),
         })}`);
     }
 }

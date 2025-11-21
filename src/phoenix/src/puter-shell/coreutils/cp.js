@@ -16,7 +16,7 @@
  * You should have received a copy of the GNU Affero General Public License
  * along with this program.  If not, see <https://www.gnu.org/licenses/>.
  */
-import { Exit } from "./coreutil_lib/exit.js";
+import { Exit } from './coreutil_lib/exit.js';
 import { resolveRelativePath } from '../../util/path.js';
 
 export default {
@@ -30,9 +30,9 @@ export default {
             recursive: {
                 description: 'Copy directories recursively',
                 type: 'boolean',
-                short: 'R'
-            }
-        }
+                short: 'R',
+            },
+        },
     },
     execute: async ctx => {
         const { positionals, values } = ctx.locals;
@@ -55,14 +55,14 @@ export default {
         const dstRelPath = positionals.shift();
 
         const srcAbsPath = resolveRelativePath(ctx.vars, srcRelPath);
-        let   dstAbsPath = resolveRelativePath(ctx.vars, dstRelPath);
+        let dstAbsPath = resolveRelativePath(ctx.vars, dstRelPath);
 
         const srcStat = await filesystem.stat(srcAbsPath);
-        if ( srcStat && srcStat.is_dir && ! values.recursive ) {
+        if ( srcStat && srcStat.is_dir && !values.recursive ) {
             await err.write(`cp: -R not specified; skipping directory '${srcRelPath}'\n`);
             throw new Exit(1);
         }
 
         await filesystem.copy(srcAbsPath, dstAbsPath);
-    }
-}
+    },
+};

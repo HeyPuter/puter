@@ -36,7 +36,7 @@ class CodeUtil {
             async _run () {
                 return await method.call(this.self, this.values);
             }
-        }
+        };
 
         Object.defineProperty(cls, 'name', { value: cls_name });
 
@@ -44,7 +44,7 @@ class CodeUtil {
             const op = new cls();
             op.self = this;
             return await op.run(...a);
-        }
+        };
     }
 }
 

@@ -18,26 +18,20 @@
  */
 class BootLogger {
     info (...args) {
-        console.log(
-            '\x1B[36;1m[BOOT/INFO]\x1B[0m',
-            ...args,
-        );
+        console.log('\x1B[36;1m[BOOT/INFO]\x1B[0m',
+                        ...args);
     }
     debug (...args) {
         if ( ! process.env.DEBUG ) return;
         console.log('\x1B[37m[BOOT/DEBUG]', ...args, '\x1B[0m');
     }
     error (...args) {
-        console.log(
-            '\x1B[31;1m[BOOT/ERROR]\x1B[0m',
-            ...args,
-        );
+        console.log('\x1B[31;1m[BOOT/ERROR]\x1B[0m',
+                        ...args);
     }
     warn (...args) {
-        console.log(
-            '\x1B[33;1m[BOOT/WARN]\x1B[0m',
-            ...args,
-        );
+        console.log('\x1B[33;1m[BOOT/WARN]\x1B[0m',
+                        ...args);
     }
 }
 

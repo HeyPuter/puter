@@ -16,11 +16,11 @@
  * You should have received a copy of the GNU Affero General Public License
  * along with this program.  If not, see <https://www.gnu.org/licenses/>.
  */
-const APIError = require("../../api/APIError");
-const eggspress = require("../../api/eggspress");
-const { UserActorType } = require("../../services/auth/Actor");
-const { DB_READ } = require("../../services/database/consts");
-const { Context } = require("../../util/context");
+const APIError = require('../../api/APIError');
+const eggspress = require('../../api/eggspress');
+const { UserActorType } = require('../../services/auth/Actor');
+const { DB_READ } = require('../../services/database/consts');
+const { Context } = require('../../util/context');
 
 module.exports = eggspress('/drivers/usage', {
     subdomain: 'api',
@@ -44,7 +44,7 @@ module.exports = eggspress('/drivers/usage', {
         app_objects: {},
         usages: [],
     };
-    
+
     const event = {
         actor,
         usages: [],
@@ -52,7 +52,6 @@ module.exports = eggspress('/drivers/usage', {
     const svc_event = x.get('services').get('event');
     await svc_event.emit('usages.query', event);
     usages.usages = event.usages;
-
 
     const user_is_verified = actor.type.user.email_confirmed;
 
@@ -66,4 +65,4 @@ module.exports = eggspress('/drivers/usage', {
         app_objects: usages.app_objects,
         usages: usages.usages,
     });
-})
+});

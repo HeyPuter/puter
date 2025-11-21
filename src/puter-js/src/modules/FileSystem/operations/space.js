@@ -4,7 +4,7 @@ const space = function (...args) {
     let options;
 
     // If first argument is an object, it's the options
-    if (typeof args[0] === 'object' && args[0] !== null) {
+    if ( typeof args[0] === 'object' && args[0] !== null ) {
         options = args[0];
     } else {
         // Otherwise, we assume separate arguments are provided
@@ -16,12 +16,12 @@ const space = function (...args) {
     }
 
     return new Promise(async (resolve, reject) => {
-        // If auth token is not provided and we are in the web environment, 
+        // If auth token is not provided and we are in the web environment,
         // try to authenticate with Puter
-        if(!puter.authToken && puter.env === 'web'){
-            try{
+        if ( !puter.authToken && puter.env === 'web' ) {
+            try {
                 await puter.ui.authenticateWithPuter();
-            }catch(e){
+            } catch (e) {
                 // if authentication fails, throw an error
                 reject('Authentication failed.');
             }
@@ -34,7 +34,7 @@ const space = function (...args) {
         utils.setupXhrEventHandlers(xhr, options.success, options.error, resolve, reject);
 
         xhr.send();
-    })
-}
+    });
+};
 
 export default space;

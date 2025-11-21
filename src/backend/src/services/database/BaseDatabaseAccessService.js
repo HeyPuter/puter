@@ -17,14 +17,13 @@
  * You should have received a copy of the GNU Affero General Public License
  * along with this program.  If not, see <https://www.gnu.org/licenses/>.
  */
-const BaseService = require("../BaseService");
-const { DB_WRITE, DB_READ } = require("./consts");
-
+const BaseService = require('../BaseService');
+const { DB_WRITE, DB_READ } = require('./consts');
 
 /**
-* BaseDatabaseAccessService class extends BaseService to provide 
-* an abstraction layer for database access, enabling operations 
-* like reading, writing, and inserting data while managing 
+* BaseDatabaseAccessService class extends BaseService to provide
+* an abstraction layer for database access, enabling operations
+* like reading, writing, and inserting data while managing
 * different database configurations and optimizations.
 */
 class BaseDatabaseAccessService extends BaseService {
@@ -47,9 +46,9 @@ class BaseDatabaseAccessService extends BaseService {
     * Retrieves the current instance of the service.
     * This method currently returns `this`, but it is designed
     * to allow for future enhancements such as auditing behavior
-    * or implementing service-specific optimizations for database 
+    * or implementing service-specific optimizations for database
     * interactions.
-    * 
+    *
     * @returns {BaseDatabaseAccessService} The current instance of the service.
     */
     get () {
@@ -58,7 +57,7 @@ class BaseDatabaseAccessService extends BaseService {
 
     async read (query, params) {
         const svc_trace = this.services.get('traceService');
-        return await svc_trace.spanify(`database:read`, async () => {
+        return await svc_trace.spanify('database:read', async () => {
             if ( this.config.slow ) await new Promise(rslv => setTimeout(rslv, 70));
             return await this._read(query, params);
         }, { attributes: { query, trace: (new Error()).stack } });
@@ -92,7 +91,7 @@ class BaseDatabaseAccessService extends BaseService {
         if ( this.config.slow ) await new Promise(rslv => setTimeout(rslv, 70));
         const results = this._tryHardRead(query, params);
         if ( results.length === 0 ) {
-            throw new Error('required read failed: ' + query);
+            throw new Error(`required read failed: ${ query}`);
         }
         return results;
     }
@@ -100,7 +99,7 @@ class BaseDatabaseAccessService extends BaseService {
     async pread (query, params) {
         if ( this.config.slow ) await new Promise(rslv => setTimeout(rslv, 70));
         const svc_trace = this.services.get('traceService');
-        return await svc_trace.spanify(`database:pread`, async () => {
+        return await svc_trace.spanify('database:pread', async () => {
             return await this._read(query, params, { use_primary: true });
         }, { attributes: { query, trace: (new Error()).stack } });
     }
@@ -108,7 +107,7 @@ class BaseDatabaseAccessService extends BaseService {
     async write (query, params) {
         if ( this.config.slow ) await new Promise(rslv => setTimeout(rslv, 70));
         const svc_trace = this.services.get('traceService');
-        return await svc_trace.spanify(`database:write`, async () => {
+        return await svc_trace.spanify('database:write', async () => {
             return await this._write(query, params);
         }, { attributes: { query, trace: (new Error()).stack } });
     }
@@ -122,11 +121,10 @@ class BaseDatabaseAccessService extends BaseService {
 
     _gen_insert_sql (table_name, data) {
         const cols = Object.keys(data);
-        return 'INSERT INTO `' + table_name + '` ' +
-            '(' + cols.map(str => '`' + str + '`').join(', ') + ') ' +
-            'VALUES (' + cols.map(() => '?').join(', ') + ')';
+        return `INSERT INTO \`${ table_name }\` ` +
+            `(${ cols.map(str => `\`${ str }\``).join(', ') }) ` +
+            `VALUES (${ cols.map(() => '?').join(', ') })`;
     }
-
 
     batch_write (statements) {
         return this._batch_write(statements);

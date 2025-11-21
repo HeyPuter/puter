@@ -25,7 +25,7 @@ class NumberParser extends Parser {
     static data = {
         startDigit: /[1-9]/,
         digit: /[0-9]/,
-    }
+    };
     _parse (stream) {
         const subStream = stream.fork();
 
@@ -47,7 +47,7 @@ class NumberParser extends Parser {
         // Returns the number of consumed characters
         const consumeDigitSequence = () => {
             let consumed = 0;
-            while (!done && digit.test(value)) {
+            while ( !done && digit.test(value) ) {
                 consumed++;
                 consume();
             }
@@ -56,32 +56,32 @@ class NumberParser extends Parser {
 
         // Sign
         if ( value === '-' ) {
-            if ( !consume() ) return UNRECOGNIZED;
+            if ( ! consume() ) return UNRECOGNIZED;
         }
 
         // Digits
-        if (value === '0') {
-            if ( !consume() ) return UNRECOGNIZED;
-        } else if (startDigit.test(value)) {
-            if (consumeDigitSequence() === 0) return UNRECOGNIZED;
+        if ( value === '0' ) {
+            if ( ! consume() ) return UNRECOGNIZED;
+        } else if ( startDigit.test(value) ) {
+            if ( consumeDigitSequence() === 0 ) return UNRECOGNIZED;
         } else {
             return UNRECOGNIZED;
         }
 
         // Decimal + digits
-        if (value === '.') {
-            if ( !consume() ) return UNRECOGNIZED;
-            if (consumeDigitSequence() === 0) return UNRECOGNIZED;
+        if ( value === '.' ) {
+            if ( ! consume() ) return UNRECOGNIZED;
+            if ( consumeDigitSequence() === 0 ) return UNRECOGNIZED;
         }
 
         // Exponent
-        if (value === 'e' || value === 'E') {
-            if ( !consume() ) return UNRECOGNIZED;
+        if ( value === 'e' || value === 'E' ) {
+            if ( ! consume() ) return UNRECOGNIZED;
 
-            if (value === '+' || value === '-') {
-                if ( !consume() ) return UNRECOGNIZED;
+            if ( value === '+' || value === '-' ) {
+                if ( ! consume() ) return UNRECOGNIZED;
             }
-            if (consumeDigitSequence() === 0) return UNRECOGNIZED;
+            if ( consumeDigitSequence() === 0 ) return UNRECOGNIZED;
         }
 
         if ( text.length === 0 ) return UNRECOGNIZED;
@@ -103,7 +103,7 @@ class StringParser extends Parser {
             '\t': '\t',
         },
         hexDigit: /[0-9A-Fa-f]/,
-    }
+    };
     _parse (stream) {
         const { escapes, hexDigit } = this.constructor.data;
 
@@ -121,36 +121,38 @@ class StringParser extends Parser {
         };
 
         // Opening "
-        if (value === '"') {
-            if (!next()) return UNRECOGNIZED;
+        if ( value === '"' ) {
+            if ( ! next() ) return UNRECOGNIZED;
         } else {
             return UNRECOGNIZED;
         }
 
         let insideString = true;
-        while (insideString) {
-            if (value === '"')
+        while ( insideString ) {
+            if ( value === '"' )
+            {
                 break;
+            }
 
             // Escape sequences
-            if (value === '\\') {
-                if (!next()) return UNRECOGNIZED;
+            if ( value === '\\' ) {
+                if ( ! next() ) return UNRECOGNIZED;
                 const escape = escapes[value];
-                if (escape) {
+                if ( escape ) {
                     text += escape;
-                    if (!next()) return UNRECOGNIZED;
+                    if ( ! next() ) return UNRECOGNIZED;
                     continue;
                 }
 
-                if (value === 'u') {
-                    if (!next()) return UNRECOGNIZED;
+                if ( value === 'u' ) {
+                    if ( ! next() ) return UNRECOGNIZED;
 
                     // Consume 4 hex digits, and decode as a unicode codepoint
                     let hexString = '';
-                    while (!done && hexString.length < 4) {
-                        if (hexDigit.test(value)) {
+                    while ( !done && hexString.length < 4 ) {
+                        if ( hexDigit.test(value) ) {
                             hexString += value;
-                            if (!next()) return UNRECOGNIZED;
+                            if ( ! next() ) return UNRECOGNIZED;
                             continue;
                         }
                         // Less than 4 hex digits read
@@ -167,11 +169,11 @@ class StringParser extends Parser {
 
             // Anything else is valid string content
             text += value;
-            if (!next()) return UNRECOGNIZED;
+            if ( ! next() ) return UNRECOGNIZED;
         }
 
         // Closing "
-        if (value === '"') {
+        if ( value === '"' ) {
             next();
         } else {
             return UNRECOGNIZED;
@@ -187,58 +189,40 @@ export default {
     name: 'concept-parser',
     args: {
         $: 'simple-parser',
-        allowPositionals: true
+        allowPositionals: true,
     },
     execute: async ctx => {
         const { in_, out, err } = ctx.externs;
         const grammar_context = new GrammarContext(standard_parsers());
 
         const parser = grammar_context.define_parser({
-            element: a => a.sequence(
-                a.optional(a.symbol('whitespace')),
-                a.symbol('value'),
-                a.optional(a.symbol('whitespace')),
-            ),
-            value: a => a.firstMatch(
-                a.symbol('object'),
-                a.symbol('array'),
-                a.symbol('string'),
-                a.symbol('number'),
-                a.symbol('true'),
-                a.symbol('false'),
-                a.symbol('null'),
-            ),
-            array: a => a.sequence(
-                a.literal('['),
-                a.firstMatch(
-                    a.repeat(
-                        a.symbol('element'),
-                        a.literal(','),
-                        { trailing: false },
-                    ),
-                    a.optional(a.symbol('whitespace')),
-                ),
-                a.literal(']'),
-            ),
-            member: a => a.sequence(
-                a.optional(a.symbol('whitespace')),
-                a.symbol('string'),
-                a.optional(a.symbol('whitespace')),
-                a.literal(':'),
-                a.symbol('element'),
-            ),
-            object: a => a.sequence(
-                a.literal('{'),
-                a.firstMatch(
-                    a.repeat(
-                        a.symbol('member'),
-                        a.literal(','),
-                        { trailing: false },
-                    ),
-                    a.optional(a.symbol('whitespace')),
-                ),
-                a.literal('}'),
-            ),
+            element: a => a.sequence(a.optional(a.symbol('whitespace')),
+                            a.symbol('value'),
+                            a.optional(a.symbol('whitespace'))),
+            value: a => a.firstMatch(a.symbol('object'),
+                            a.symbol('array'),
+                            a.symbol('string'),
+                            a.symbol('number'),
+                            a.symbol('true'),
+                            a.symbol('false'),
+                            a.symbol('null')),
+            array: a => a.sequence(a.literal('['),
+                            a.firstMatch(a.repeat(a.symbol('element'),
+                                            a.literal(','),
+                                            { trailing: false }),
+                            a.optional(a.symbol('whitespace'))),
+                            a.literal(']')),
+            member: a => a.sequence(a.optional(a.symbol('whitespace')),
+                            a.symbol('string'),
+                            a.optional(a.symbol('whitespace')),
+                            a.literal(':'),
+                            a.symbol('element')),
+            object: a => a.sequence(a.literal('{'),
+                            a.firstMatch(a.repeat(a.symbol('member'),
+                                            a.literal(','),
+                                            { trailing: false }),
+                            a.optional(a.symbol('whitespace'))),
+                            a.literal('}')),
             true: a => a.literal('true'),
             false: a => a.literal('false'),
             null: a => a.literal('null'),
@@ -251,7 +235,7 @@ export default {
             array: it => {
                 // A parsed array contains 3 values: `[`, the entries array, and `]`, so we only care about index 1.
                 // If it's less than 3, there were no entries.
-                if (it.length < 3) return [];
+                if ( it.length < 3 ) return [];
                 return (it[1].value || [])
                     .filter(it => it.$ === 'element')
                     .map(it => it.value);
@@ -263,7 +247,7 @@ export default {
             object: it => {
                 // A parsed object contains 3 values: `{`, the members array, and `}`, so we only care about index 1.
                 // If it's less than 3, there were no members.
-                if (it.length < 3) return {};
+                if ( it.length < 3 ) return {};
                 const result = {};
                 (it[1].value || [])
                     .filter(it => it.$ === 'member')
@@ -277,7 +261,8 @@ export default {
             null: _ => null,
             number: it => it,
             string: it => it,
-            whitespace: _ => {},
+            whitespace: _ => {
+            },
         });
 
         const input = ctx.locals.positionals.shift();
@@ -285,10 +270,10 @@ export default {
         try {
             const result = parser(stream, 'element');
             console.log('Parsed something!', result);
-            await out.write('Parsed: `' + JSON.stringify(result, undefined, 2) + '`\n');
+            await out.write(`Parsed: \`${ JSON.stringify(result, undefined, 2) }\`\n`);
         } catch (e) {
             await err.write(`Error while parsing: ${e.toString()}\n`);
-            await err.write(e.stack + '\n');
+            await err.write(`${e.stack }\n`);
         }
-    }
-}
+    },
+};

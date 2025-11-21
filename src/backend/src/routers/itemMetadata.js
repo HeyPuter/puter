@@ -16,64 +16,78 @@
  * You should have received a copy of the GNU Affero General Public License
  * along with this program.  If not, see <https://www.gnu.org/licenses/>.
  */
-"use strict"
+'use strict';
 const express = require('express');
 const router = express.Router();
-const {validate_signature_auth, get_url_from_req, is_valid_uuid4, get_dir_size, id2path} = require('../helpers');
+const { validate_signature_auth, get_url_from_req, is_valid_uuid4, get_dir_size, id2path } = require('../helpers');
 const { DB_READ } = require('../services/database/consts');
 
-// -----------------------------------------------------------------------// 
+// -----------------------------------------------------------------------//
 // GET /itemMetadata
 // -----------------------------------------------------------------------//
-router.get('/itemMetadata', async (req, res, next)=>{
+router.get('/itemMetadata', async (req, res, next) => {
     // Check subdomain
-    if(require('../helpers').subdomain(req) !== 'api')
+    if ( require('../helpers').subdomain(req) !== 'api' )
+    {
         next();
+    }
 
     // Validate URL signature
-    try{
+    try {
         validate_signature_auth(get_url_from_req(req), 'read');
     }
-    catch(e){
-        console.log(e)
+    catch (e) {
+        console.log(e);
         return res.status(403).send(e);
     }
 
     // Validation
-    if(!req.query.uid)
+    if ( ! req.query.uid )
+    {
         return res.status(400).send('`uid` is required');
+    }
     // uid must be a string
-    else if (req.query.uid && typeof req.query.uid !== 'string')
+    else if ( req.query.uid && typeof req.query.uid !== 'string' )
+    {
         return res.status(400).send('uid must be a string.');
+    }
     // uid cannot be empty
-    else if(req.query.uid && req.query.uid.trim() === '')
-        return res.status(400).send('uid cannot be empty')
+    else if ( req.query.uid && req.query.uid.trim() === '' )
+    {
+        return res.status(400).send('uid cannot be empty');
+    }
     // uid must be a valid uuid
-    else if(!is_valid_uuid4(req.query.uid))
-        return res.status(400).send('uid must be a valid uuid')
+    else if ( ! is_valid_uuid4(req.query.uid) )
+    {
+        return res.status(400).send('uid must be a valid uuid');
+    }
 
     // modules
-    const {uuid2fsentry} = require('../helpers');
+    const { uuid2fsentry } = require('../helpers');
 
     const uid = req.query.uid;
 
     const item = await uuid2fsentry(uid);
-    
-    // check if item owner is suspended
-    const user = await require('../helpers').get_user({id: item.user_id});
 
-    if (!user) {
+    // check if item owner is suspended
+    const user = await require('../helpers').get_user({ id: item.user_id });
+
+    if ( ! user ) {
         return res.status(400).send('User not found');
     }
 
-    if(user.suspended)
-        return res.status(401).send({error: 'Account suspended'});
+    if ( user.suspended )
+    {
+        return res.status(401).send({ error: 'Account suspended' });
+    }
 
-    if(!item)
+    if ( ! item )
+    {
         return res.status(400).send('Item not found');
- 
+    }
+
     const mime = require('mime-types');
-    const contentType = mime.contentType(res.name)
+    const contentType = mime.contentType(res.name);
 
     const itemMetadata = {
         uid: item.uuid,
@@ -88,34 +102,32 @@ router.get('/itemMetadata', async (req, res, next)=>{
     // ---------------------------------------------------------------//
     // return_path
     // ---------------------------------------------------------------//
-    if(req.query.return_path === 'true' || req.query.return_path === '1'){
-        const {id2path} = require('../helpers');
+    if ( req.query.return_path === 'true' || req.query.return_path === '1' ) {
+        const { id2path } = require('../helpers');
         itemMetadata.path = await id2path(item.id);
     }
     // ---------------------------------------------------------------//
     // Versions
     // ---------------------------------------------------------------//
-    if(req.query.return_versions){
+    if ( req.query.return_versions ) {
         const db = req.services.get('database').get(DB_READ, 'itemMetadata.js');
         itemMetadata.versions = [];
 
-        let versions = await db.read(
-            `SELECT * FROM fsentry_versions WHERE fsentry_id = ?`, 
-            [item.id]
-        );
-        if(versions.length > 0){
-            for (let index = 0; index < versions.length; index++) {
+        let versions = await db.read('SELECT * FROM fsentry_versions WHERE fsentry_id = ?',
+                        [item.id]);
+        if ( versions.length > 0 ) {
+            for ( let index = 0; index < versions.length; index++ ) {
                 const version = versions[index];
                 itemMetadata.versions.push({
-                    id: version.version_id, 
-                    message: version.message, 
+                    id: version.version_id,
+                    message: version.message,
                     timestamp: version.ts_epoch,
-                })    
+                });
             }
         }
     }
 
-    return res.send(itemMetadata)
-})
+    return res.send(itemMetadata);
+});
 
-module.exports = router
+module.exports = router;

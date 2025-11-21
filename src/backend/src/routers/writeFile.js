@@ -16,8 +16,8 @@
  * You should have received a copy of the GNU Affero General Public License
  * along with this program.  If not, see <https://www.gnu.org/licenses/>.
  */
-"use strict"
-const {uuid2fsentry, validate_signature_auth, get_url_from_req, get_user} = require('../helpers');
+'use strict';
+const { uuid2fsentry, validate_signature_auth, get_url_from_req, get_user } = require('../helpers');
 const eggspress = require('../api/eggspress');
 const { Context } = require('../util/context');
 const { Actor } = require('../services/auth/Actor');
@@ -33,17 +33,19 @@ module.exports = eggspress('/writeFile', {
     allowedMethods: ['POST'],
 }, async (req, res, next) => {
     // check subdomain
-    if(require('../helpers').subdomain(req) !== 'api')
+    if ( require('../helpers').subdomain(req) !== 'api' )
+    {
         next();
+    }
 
     const log = req.services.get('log-service').create('writeFile');
     const errors = req.services.get('error-service').create(log);
 
     // validate URL signature
-    try{
+    try {
         validate_signature_auth(get_url_from_req(req), 'write');
     }
-    catch(e){
+    catch (e) {
         return res.status(403).send(e);
     }
 
@@ -56,7 +58,7 @@ module.exports = eggspress('/writeFile', {
     }
 
     // check if requested_item owner is suspended
-    const owner_user = await require('../helpers').get_user({id: requested_item.user_id});
+    const owner_user = await require('../helpers').get_user({ id: requested_item.user_id });
 
     if ( ! owner_user ) {
         errors.report('writeFile_no_owner', {
@@ -67,45 +69,47 @@ module.exports = eggspress('/writeFile', {
                 requested_item,
                 body: req.body,
                 query: req.query,
-            }
-        })
+            },
+        });
 
         return res.status(500).send({ error: 'User not found' });
     }
 
-    if(owner_user.suspended)
-        return res.status(401).send({error: 'Account suspended'});
+    if ( owner_user.suspended )
+    {
+        return res.status(401).send({ error: 'Account suspended' });
+    }
 
     const writeFile_handler_api = {
         async get_dest_node () {
-            if(!req.body.destination_write_url){
+            if ( ! req.body.destination_write_url ) {
                 res.status(400).send({
-                    error:{
-                        message: 'No destination specified.'
-                    }
+                    error: {
+                        message: 'No destination specified.',
+                    },
                 });
                 return;
             }
-            try{
+            try {
                 validate_signature_auth(req.body.destination_write_url, 'write', {
                     uid: req.body.destination_uid,
                 });
-            }catch(e){
+            } catch (e) {
                 res.status(403).send(e);
                 return;
             }
             try {
                 return await (new FSNodeParam('dest_path')).consolidate({
-                    req, getParam: () => req.body.dest_path ?? req.body.destination_uid
+                    req, getParam: () => req.body.dest_path ?? req.body.destination_uid,
                 });
             } catch (e) {
                 res.status(500).send('Internal Server Error');
             }
-        }
+        },
     };
 
     const writeFile_handlers = require('./writeFile/writeFile_handlers.js');
-    
+
     let operation = req.query.operation ?? 'write';
     // Responding with an error here would typically be better,
     // but it would cause a regression for apps.
@@ -113,11 +117,11 @@ module.exports = eggspress('/writeFile', {
         operation = 'write';
     }
 
-    console.log('\x1B[36;1mwriteFile: ' + req.query.operation + '\x1B[0m');
+    console.log(`\x1B[36;1mwriteFile: ${ req.query.operation }\x1B[0m`);
     const node = await (new FSNodeParam('uid')).consolidate({
-        req, getParam: () => req.query.uid
+        req, getParam: () => req.query.uid,
     });
-    const user = await get_user({id: await node.get('user_id')});
+    const user = await get_user({ id: await node.get('user_id') });
     const actor = Actor.adapt(user);
 
     return await Context.get().sub({
@@ -125,7 +129,9 @@ module.exports = eggspress('/writeFile', {
     }).arun(async () => {
         return await writeFile_handlers[operation]({
             api: writeFile_handler_api,
-            req, res, actor,
+            req,
+            res,
+            actor,
             node,
         });
     });

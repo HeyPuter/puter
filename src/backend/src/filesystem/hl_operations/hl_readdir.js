@@ -16,19 +16,19 @@
  * You should have received a copy of the GNU Affero General Public License
  * along with this program.  If not, see <https://www.gnu.org/licenses/>.
  */
-const APIError = require("../../api/APIError");
-const { Context } = require("../../util/context");
-const { stream_to_buffer } = require("../../util/streamutil");
-const { ECMAP } = require("../ECMAP");
-const { TYPE_DIRECTORY, TYPE_SYMLINK } = require("../FSNodeContext");
-const { LLListUsers } = require("../ll_operations/ll_listusers");
-const { LLReadDir } = require("../ll_operations/ll_readdir");
-const { LLReadShares } = require("../ll_operations/ll_readshares");
-const { HLFilesystemOperation } = require("./definitions");
+const APIError = require('../../api/APIError');
+const { Context } = require('../../util/context');
+const { stream_to_buffer } = require('../../util/streamutil');
+const { ECMAP } = require('../ECMAP');
+const { TYPE_DIRECTORY, TYPE_SYMLINK } = require('../FSNodeContext');
+const { LLListUsers } = require('../ll_operations/ll_listusers');
+const { LLReadDir } = require('../ll_operations/ll_readdir');
+const { LLReadShares } = require('../ll_operations/ll_readshares');
+const { HLFilesystemOperation } = require('./definitions');
 
 class HLReadDir extends HLFilesystemOperation {
     static CONCERN = 'filesystem';
-    async _run() {
+    async _run () {
         return ECMAP.arun(async () => {
             const ecmap = Context.get(ECMAP.SYMBOL);
             ecmap.store_fsNodeContext(this.values.subject);
@@ -61,15 +61,14 @@ class HLReadDir extends HLFilesystemOperation {
             }
             throw APIError.create('readdir_of_non_directory');
         }
-        
+
         let children;
 
         this.log.debug('READDIR',
-            {
-            userdir: await subject.isUserDirectory(),
-            namediff: await subject.get('name') !== user.username
-            }
-        );
+                        {
+                            userdir: await subject.isUserDirectory(),
+                            namediff: await subject.get('name') !== user.username,
+                        });
         if ( subject.isRoot ) {
             const ll_listusers = new LLListUsers();
             children = await ll_listusers.run(this.values);
@@ -100,7 +99,7 @@ class HLReadDir extends HLFilesystemOperation {
                 ]);
             }
             const entry = await child.getSafeEntry();
-            if ( ! no_thumbs && entry.associated_app ) {
+            if ( !no_thumbs && entry.associated_app ) {
                 const svc_appIcon = this.context.get('services').get('app-icon');
                 const icon_result = await svc_appIcon.get_icon_stream({
                     app_icon: entry.associated_app.icon,

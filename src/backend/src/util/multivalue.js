@@ -16,7 +16,7 @@
  * You should have received a copy of the GNU Affero General Public License
  * along with this program.  If not, see <https://www.gnu.org/licenses/>.
  */
-const { AdvancedBase } = require("../../../putility");
+const { AdvancedBase } = require('../../../putility');
 
 /**
  * MutliValue represents a subject with multiple values or a value with multiple
@@ -59,8 +59,8 @@ class MultiValue extends AdvancedBase {
             return this.values[key];
         }
         const factories = this.factories[key];
-        if ( ! factories || ! factories.length ) {
-            console.log('no factory for key', key)
+        if ( !factories || !factories.length ) {
+            console.log('no factory for key', key);
             return undefined;
         }
         for ( const factory of factories ) {

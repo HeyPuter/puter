@@ -16,7 +16,7 @@
  * You should have received a copy of the GNU Affero General Public License
  * along with this program.  If not, see <https://www.gnu.org/licenses/>.
  */
-"use strict"
+'use strict';
 const eggspress = require('../../api/eggspress.js');
 const FSNodeParam = require('../../api/filesystem/FSNodeParam.js');
 const { HLWrite } = require('../../filesystem/hl_operations/hl_write.js');
@@ -53,12 +53,12 @@ module.exports = eggspress(['/up', '/write'], {
     };
 
     // modules
-    const {get_app} = require('../../helpers.js')
+    const { get_app } = require('../../helpers.js');
 
     // Is this an entry for an app?
     let app;
     if ( req.body.app_uid ) {
-        app = await get_app({uid: req.body.app_uid})
+        app = await get_app({ uid: req.body.app_uid });
     }
 
     const x = Context.get();
@@ -73,7 +73,7 @@ module.exports = eggspress(['/up', '/write'], {
                 user_id: req.user.id,
                 item_upload_id: req.body.item_upload_id,
             })
-            ;
+        ;
         x.set(operationTraceSvc.ckey('frame'), frame);
 
         const svc_clientOperation = x.get('services').get('client-operation');
@@ -81,10 +81,10 @@ module.exports = eggspress(['/up', '/write'], {
             frame,
             metadata: {
                 user_id: req.user.id,
-            }
+            },
         });
         x.set(svc_clientOperation.ckey('tracker'), tracker);
-    }
+    };
 
     //-------------------------------------------------------------
     // Multipart processing (using busboy)
@@ -109,14 +109,12 @@ module.exports = eggspress(['/up', '/write'], {
         const {
             filename, mimetype,
         } = details;
-        
+
         const { v: size, ok: size_ok } =
             valid_file_size(req.body.size);
-            
+
         if ( ! size_ok ) {
-            p_ready.reject(
-                APIError.create('invalid_file_metadata')
-            );
+            p_ready.reject(APIError.create('invalid_file_metadata'));
             return;
         }
 
@@ -139,12 +137,12 @@ module.exports = eggspress(['/up', '/write'], {
     });
 
     busboy.on('error', err => {
-        console.log('GOT ERROR READING', err )
+        console.log('GOT ERROR READING', err);
         p_ready.reject(err);
     });
 
     busboy.on('close', () => {
-        console.log('GOT DNE RADINGR')
+        console.log('GOT DNE RADINGR');
         p_ready.resolve();
     });
 
@@ -168,7 +166,7 @@ module.exports = eggspress(['/up', '/write'], {
     if ( req.body.size === undefined ) {
         throw APIError.create('missing_expected_metadata', null, {
             keys: ['size'],
-        })
+        });
     }
 
     console.log('TRGET', req.values.target);
@@ -182,10 +180,8 @@ module.exports = eggspress(['/up', '/write'], {
         dedupe_name: await boolify(req.body.dedupe_name),
         shortcut_to: req.values.target,
 
-        create_missing_parents: boolify(
-            req.body.create_missing_ancestors ??
-            req.body.create_missing_parents
-        ),
+        create_missing_parents: boolify(req.body.create_missing_ancestors ??
+            req.body.create_missing_parents),
 
         actor: req.actor,
         user: req.user,

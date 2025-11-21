@@ -16,10 +16,10 @@
  * You should have received a copy of the GNU Affero General Public License
  * along with this program.  If not, see <https://www.gnu.org/licenses/>.
  */
-const APIError = require("../../api/APIError");
-const eggspress = require("../../api/eggspress");
-const { UserActorType } = require("../../services/auth/Actor");
-const { Context } = require("../../util/context");
+const APIError = require('../../api/APIError');
+const eggspress = require('../../api/eggspress');
+const { UserActorType } = require('../../services/auth/Actor');
+const { Context } = require('../../util/context');
 
 module.exports = eggspress('/auth/grant-user-user', {
     subdomain: 'api',
@@ -41,14 +41,11 @@ module.exports = eggspress('/auth/grant-user-user', {
 
     if ( ! req.body.permission ) {
         throw APIError.create('field_missing', null, {
-            key: 'permission'
+            key: 'permission',
         });
     }
 
-    await svc_permission.grant_user_user_permission(
-        actor, req.body.target_username, req.body.permission,
-        req.body.extra || {}, req.body.meta || {}
-    );
+    await svc_permission.grant_user_user_permission(actor, req.body.target_username, req.body.permission, req.body.extra || {}, req.body.meta || {});
 
     res.json({});
 });

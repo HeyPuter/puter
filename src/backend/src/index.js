@@ -16,18 +16,17 @@
  * You should have received a copy of the GNU Affero General Public License
  * along with this program.  If not, see <https://www.gnu.org/licenses/>.
  */
-"use strict"
+'use strict';
 
-const { Kernel } = require("./Kernel");
-const CoreModule = require("./CoreModule");
-const { CaptchaModule } = require("./modules/captcha/CaptchaModule"); // Add CaptchaModule
+const { Kernel } = require('./Kernel');
+const CoreModule = require('./CoreModule');
+const { CaptchaModule } = require('./modules/captcha/CaptchaModule'); // Add CaptchaModule
 
 const testlaunch = () => {
     const k = new Kernel();
     k.add_module(new CoreModule());
     k.add_module(new CaptchaModule()); // Register the CaptchaModule
     k.boot();
-}
-
+};
 
 module.exports = { testlaunch };

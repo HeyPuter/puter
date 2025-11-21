@@ -50,7 +50,7 @@ export const LOCK = async ( req, res, filePath, fileNode, headerLockToken ) => {
         const existingFileFromLock = (await getLocksIfValid(...servicesForLocks, headerLockToken)).pop();
 
         // Check if the resource exists
-        if ( !exists ) {
+        if ( ! exists ) {
             // handle non exsiting child folder if lock is present to refresh parent
             if ( existingFileFromLock && filePath.startsWith(existingFileFromLock.path) ) {
                 filePath = existingFileFromLock.path;
@@ -96,7 +96,7 @@ export const LOCK = async ( req, res, filePath, fileNode, headerLockToken ) => {
         const lockResponse = getLockResponse(lockToken, lockScope, filePath);
         res.status(!exists ? 201 : 200);
         res.end(lockResponse);
-    } catch( error ) {
+    } catch ( error ) {
         console.error('LOCK error:', error);
         res.status(500).end( 'Internal Server Error');
     }

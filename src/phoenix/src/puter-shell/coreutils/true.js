@@ -22,9 +22,9 @@ export default {
     description: 'Do nothing, and return a success code.',
     args: {
         $: 'simple-parser',
-        allowPositionals: true
+        allowPositionals: true,
     },
     execute: async ctx => {
         return;
-    }
+    },
 };

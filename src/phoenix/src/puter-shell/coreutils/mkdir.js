@@ -16,8 +16,8 @@
  * You should have received a copy of the GNU Affero General Public License
  * along with this program.  If not, see <https://www.gnu.org/licenses/>.
  */
-import { validate_string } from "./coreutil_lib/validate.js";
-import { EMPTY } from "../../util/singleton.js";
+import { validate_string } from './coreutil_lib/validate.js';
+import { EMPTY } from '../../util/singleton.js';
 import { Exit } from './coreutil_lib/exit.js';
 import { resolveRelativePath } from '../../util/path.js';
 
@@ -33,9 +33,9 @@ export default {
             parents: {
                 description: 'Create parent directories if they do not exist. Do not treat existing directories as an error',
                 type: 'boolean',
-                short: 'p'
-            }
-        }
+                short: 'p',
+            },
+        },
     },
     decorators: { errors: EMPTY },
     execute: async ctx => {
@@ -61,5 +61,5 @@ export default {
             await ctx.externs.err.write(`mkdir: ${result.message}\n`);
             throw new Exit(1);
         }
-    }
+    },
 };

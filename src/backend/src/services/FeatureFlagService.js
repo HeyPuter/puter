@@ -1,27 +1,27 @@
 /*
  * Copyright (C) 2024-present Puter Technologies Inc.
- * 
+ *
  * This file is part of Puter.
- * 
+ *
  * Puter is free software: you can redistribute it and/or modify
  * it under the terms of the GNU Affero General Public License as published
  * by the Free Software Foundation, either version 3 of the License, or
  * (at your option) any later version.
- * 
+ *
  * This program is distributed in the hope that it will be useful,
  * but WITHOUT ANY WARRANTY; without even the implied warranty of
  * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
  * GNU Affero General Public License for more details.
- * 
+ *
  * You should have received a copy of the GNU Affero General Public License
  * along with this program.  If not, see <https://www.gnu.org/licenses/>.
  */
 
 // METADATA // {"ai-commented":{"service":"claude"}}
-const { Context } = require("../util/context");
-const { whatis } = require("../util/langutil");
-const { PermissionUtil } = require("./auth/permissionUtils.mjs");
-const BaseService = require("./BaseService");
+const { Context } = require('../util/context');
+const { whatis } = require('../util/langutil');
+const { PermissionUtil } = require('./auth/permissionUtils.mjs');
+const BaseService = require('./BaseService');
 
 /**
  * @class FeatureFlagService
@@ -48,7 +48,7 @@ class FeatureFlagService extends BaseService {
     /**
     * Initializes the feature flag service by registering a provider with the whoami service.
     * This provider adds feature flag information to user details when requested.
-    * 
+    *
     * @async
     * @private
     * @returns {Promise<void>}
@@ -73,7 +73,7 @@ class FeatureFlagService extends BaseService {
     /**
      * checks is a feature flag is enabled for the current user
      * @return {boolean} - true if the feature flag is enabled, false otherwise
-     * 
+     *
      * Usage:
      *   check({ actor }, 'flag-name')
      */
@@ -93,12 +93,12 @@ class FeatureFlagService extends BaseService {
             }
             return { options, value };
         })();
-        
+
         if ( ! this.known_flags.has(permission) ) {
             this.known_flags.set(permission, true);
         }
 
-        if(this.known_flags.get(permission)?.$ === "config-flag") {
+        if ( this.known_flags.get(permission)?.$ === 'config-flag' ) {
             return this.known_flags.get(permission)?.value;
         }
 
@@ -107,17 +107,16 @@ class FeatureFlagService extends BaseService {
         if ( this.known_flags.get(permission)?.$ === 'function-flag' ) {
             return await this.known_flags.get(permission)?.fn({
                 ...options,
-                actor
+                actor,
             });
         }
-        
+
         const svc_permission = this.services.get('permission');
         const reading = await svc_permission.scan(actor, `feature:${permission}`);
         const l = PermissionUtil.reading_to_options(reading);
         if ( l.length === 0 ) return false;
         return true;
     }
-
 
     /**
     * Gets a summary of all feature flags for a given actor
@@ -149,5 +148,5 @@ class FeatureFlagService extends BaseService {
 }
 
 module.exports = {
-    FeatureFlagService
+    FeatureFlagService,
 };

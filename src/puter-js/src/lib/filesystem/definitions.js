@@ -1,4 +1,4 @@
-import putility from "@heyputer/putility";
+import putility from '@heyputer/putility';
 
 export const TFilesystem = 'TFilesystem';
 
@@ -10,17 +10,18 @@ export const IFilesystem = {
             parameters: {
                 path: {
                     alias: 'uid',
-                }
-            }
-        }
-    }
+                },
+            },
+        },
+    },
 
 };
 
 export class ProxyFilesystem extends putility.AdvancedBase {
     static PROPERTIES = {
-        delegate: () => {}, 
-    }
+        delegate: () => {
+        },
+    };
     // TODO: constructor implied by properties
     constructor ({ delegate }) {
         super();
@@ -33,7 +34,7 @@ export class ProxyFilesystem extends putility.AdvancedBase {
             },
             readdir: async function (o) {
                 return this.delegate.readdir(o);
-            }
-        }
-    }
+            },
+        },
+    };
 }

@@ -34,6 +34,6 @@ export class Debug {
                 console.log('Got instruction to turn logs on!');
                 this.context.puter.logger.on(e.data.category);
             }
-        })
+        });
     }
 }

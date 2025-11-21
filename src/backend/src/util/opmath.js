@@ -30,8 +30,8 @@ const LinearByCountGetter = ({ initial, slope, pre = false }) => {
         let v = value;
         if ( ! pre ) value += slope;
         return v;
-    }
-}
+    };
+};
 
 const ConstantGetter = ({ initial }) => () => initial;
 
@@ -42,8 +42,8 @@ const Bind = (fn, important_parameters) => {
             ...given_parameters,
             ...important_parameters,
         });
-    }
-}
+    };
+};
 
 /**
  * SwitchByCountGetter
@@ -67,13 +67,13 @@ const SwitchByCountGetter = ({ initial, body }) => {
     return () => {
         if ( body.hasOwnProperty(count) ) {
             getter = body[count]({ initial: value });
-            console.log('getter is', getter)
+            console.log('getter is', getter);
         }
         value = getter();
         count++;
         return value;
-    }
-}
+    };
+};
 
 class StreamReducer {
     constructor (initial) {
@@ -206,4 +206,4 @@ module.exports = {
     MovingMode,
     TimeWindow,
     normalize,
-}
+};

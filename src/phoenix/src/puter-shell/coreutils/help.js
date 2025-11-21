@@ -18,7 +18,7 @@
  */
 // TODO: fetch help information from command registry
 
-import { printUsage } from "./coreutil_lib/help.js";
+import { printUsage } from './coreutil_lib/help.js';
 import { Exit } from './coreutil_lib/exit.js';
 
 export default {
@@ -29,7 +29,7 @@ export default {
         'Otherwise, list all the commands that are available.',
     args: {
         $: 'simple-parser',
-        allowPositionals: true
+        allowPositionals: true,
     },
     execute: async ctx => {
         const { positionals } = ctx.locals;
@@ -37,15 +37,15 @@ export default {
 
         const { out, err } = ctx.externs;
 
-        if (positionals.length > 1) {
+        if ( positionals.length > 1 ) {
             await err.write('help: Too many arguments, expected 0 or 1\n');
             throw new Exit(1);
         }
 
-        if (positionals.length === 1) {
+        if ( positionals.length === 1 ) {
             const commandName = positionals[0];
             const command = builtins[commandName];
-            if (!command) {
+            if ( ! command ) {
                 await err.write(`help: No builtin found named '${commandName}'\n`);
                 throw new Exit(1);
             }
@@ -60,17 +60,17 @@ export default {
         heading('available commands');
         out.write('Use \x1B[34;1mhelp COMMAND-NAME\x1B[0m for more information\n');
         for ( const k in builtins ) {
-            out.write('  - ' + k + '\n');
+            out.write(`  - ${ k }\n`);
         }
         out.write('\n');
         heading('available features');
-        out.write('  - pipes; ex: ls | tail -n 2\n')
-        out.write('  - redirects; ex: ls > some_file.txt\n')
-        out.write('  - simple tab completion\n')
-        out.write('  - in-memory command history\n')
+        out.write('  - pipes; ex: ls | tail -n 2\n');
+        out.write('  - redirects; ex: ls > some_file.txt\n');
+        out.write('  - simple tab completion\n');
+        out.write('  - in-memory command history\n');
         out.write('\n');
         heading('what\'s coming up?');
-        out.write('  - keep watching for \x1B[34;1mmore\x1B[0m (est: v0.1.11)\n')
+        out.write('  - keep watching for \x1B[34;1mmore\x1B[0m (est: v0.1.11)\n');
         // out.write('  - \x1B[34;1mcurl\x1B[0m up with your favorite terminal (est: TBA)\n')
-    }
-}
+    },
+};

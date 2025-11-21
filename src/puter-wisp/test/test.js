@@ -1,18 +1,18 @@
 /*
  * Copyright (C) 2024-present Puter Technologies Inc.
- * 
+ *
  * This file is part of Puter.
- * 
+ *
  * Puter is free software: you can redistribute it and/or modify
  * it under the terms of the GNU Affero General Public License as published
  * by the Free Software Foundation, either version 3 of the License, or
  * (at your option) any later version.
- * 
+ *
  * This program is distributed in the hope that it will be useful,
  * but WITHOUT ANY WARRANTY; without even the implied warranty of
  * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
  * GNU Affero General Public License for more details.
- * 
+ *
  * You should have received a copy of the GNU Affero General Public License
  * along with this program.  If not, see <https://www.gnu.org/licenses/>.
  */
@@ -43,8 +43,8 @@ const NewTestFullByteStream = uint8array => {
  * until the uint8array is exhausted. The last chunk
  * may be smaller than 'sz'.
  * @curry
- * @param {*} sz 
- * @param {*} uint8array 
+ * @param {*} sz
+ * @param {*} uint8array
  */
 const NewTestWindowByteStream = sz => {
     const fn = uint8array => {
@@ -68,7 +68,7 @@ const NewTestChunkedByteStream = chunks => {
             yield chunk;
         }
     })();
-}
+};
 
 const test = async (name, fn) => {
     console.log(`\x1B[36;1m=== [ Running test: ${name} ] ===\x1B[0m`);
@@ -79,11 +79,11 @@ const BASH_TEST_BYTES = [
     22, 0, 0, 0, 2, 1, 0, 0, 0, 27, 91, 63, 50, 48, 48, 52, 108, 13, 27, 91, 63, 50, 48, 48, 52, 104,
     10, 0, 0, 0, 2, 1, 0, 0, 0, 40, 110, 111, 110, 101,
     10, 0, 0, 0, 2, 1, 0, 0, 0, 41, 58, 47, 35, 32,
-    7,  0, 0, 0, 2, 1, 0, 0, 0, 13, 10,
+    7, 0, 0, 0, 2, 1, 0, 0, 0, 13, 10,
     14, 0, 0, 0, 2, 1, 0, 0, 0, 27, 91, 63, 50, 48, 48, 52, 108, 13,
     17, 0, 0, 0, 2, 1, 0, 0, 0, 27, 91, 63, 50, 48, 48, 52, 104, 40, 110, 111, 110,
-    11, 0, 0, 0, 2, 1, 0, 0, 0, 101, 41, 58, 47, 35, 32
-]
+    11, 0, 0, 0, 2, 1, 0, 0, 0, 101, 41, 58, 47, 35, 32,
+];
 
 const runit = async () => {
     const stream_behaviors = [
@@ -95,14 +95,12 @@ const runit = async () => {
 
     for ( const stream_behavior of stream_behaviors ) {
         await test(`Wisp CONTINUE ${stream_behavior.name_ ?? stream_behavior.name}`, async () => {
-            const byteStream = stream_behavior(
-                Uint8Array.from([
-                    9, 0, 0, 0, // size of frame: 9 bytes (u32-L)
-                    3, // CONTINUE (u8)
-                    0, 0, 0, 0, // stream id: 0 (u32-L)
-                    0x0F, 0x0F, 0, 0, // buffer size (u32-L)
-                ])
-            );
+            const byteStream = stream_behavior(Uint8Array.from([
+                9, 0, 0, 0, // size of frame: 9 bytes (u32-L)
+                3, // CONTINUE (u8)
+                0, 0, 0, 0, // stream id: 0 (u32-L)
+                0x0F, 0x0F, 0, 0, // buffer size (u32-L)
+            ]));
             const virtioStream = NewVirtioFrameStream(byteStream);
             const wispStream = NewWispPacketStream(virtioStream);
 
@@ -125,12 +123,12 @@ const runit = async () => {
             // "(none"
             Uint8Array.from([
                 10, 0, 0, 0, 2, 1, 0, 0, 0,
-                    40, 110, 111, 110, 101
+                40, 110, 111, 110, 101,
             ]),
             // "):/# "
             Uint8Array.from([
                 10, 0, 0, 0, 2, 1, 0, 0, 0,
-                    41, 58, 47, 35, 32,
+                41, 58, 47, 35, 32,
             ]),
         ]);
         const virtioStream = NewVirtioFrameStream(byteStream);
@@ -160,8 +158,8 @@ const runit = async () => {
         await runit();
     } catch (e) {
         console.error(e);
-        console.log(`\x1B[31;1mTest Failed\x1B[0m`);
+        console.log('\x1B[31;1mTest Failed\x1B[0m');
         process.exit(1);
     }
-    console.log(`\x1B[32;1mAll tests passed\x1B[0m`);
+    console.log('\x1B[32;1mAll tests passed\x1B[0m');
 })();

@@ -13,7 +13,7 @@ const readdir = async function (...args) {
     let options;
 
     // If first argument is an object, it's the options
-    if (typeof args[0] === 'object' && args[0] !== null) {
+    if ( typeof args[0] === 'object' && args[0] !== null ) {
         options = args[0];
     } else {
         // Otherwise, we assume separate arguments are provided
@@ -26,25 +26,25 @@ const readdir = async function (...args) {
 
     return new Promise(async (resolve, reject) => {
         // consistency levels
-        if(!options.consistency){
+        if ( ! options.consistency ) {
             options.consistency = 'strong';
         }
 
         // Either path or uid is required
-        if(!options.path && !options.uid){
+        if ( !options.path && !options.uid ) {
             throw new Error({ code: 'NO_PATH_OR_UID', message: 'Either path or uid must be provided.' });
         }
 
         // Generate cache key based on path or uid
         let cacheKey;
-        if(options.path){
-            cacheKey = 'readdir:' + options.path;
+        if ( options.path ) {
+            cacheKey = `readdir:${ options.path}`;
         }
 
-        if(options.consistency === 'eventual'){
+        if ( options.consistency === 'eventual' ) {
             // Check cache
             const cachedResult = await puter._cache.get(cacheKey);
-            if(cachedResult){
+            if ( cachedResult ) {
                 resolve(cachedResult);
                 return;
             }
@@ -62,17 +62,17 @@ const readdir = async function (...args) {
         // Check if there's already an in-flight request for the same parameters
         const existingEntry = inflightRequests.get(deduplicationKey);
         const now = Date.now();
-        
-        if (existingEntry) {
+
+        if ( existingEntry ) {
             const timeSinceRequest = now - existingEntry.timestamp;
-            
+
             // Only reuse the request if it's within the deduplication window
-            if (timeSinceRequest < DEDUPLICATION_WINDOW_MS) {
+            if ( timeSinceRequest < DEDUPLICATION_WINDOW_MS ) {
                 // Wait for the existing request and return its result
                 try {
                     const result = await existingEntry.promise;
                     resolve(result);
-                } catch (error) {
+                } catch ( error ) {
                     reject(error);
                 }
                 return;
@@ -84,12 +84,12 @@ const readdir = async function (...args) {
 
         // Create a promise for this request and store it to deduplicate concurrent calls
         const requestPromise = new Promise(async (resolveRequest, rejectRequest) => {
-            // If auth token is not provided and we are in the web environment, 
+            // If auth token is not provided and we are in the web environment,
             // try to authenticate with Puter
-            if(!puter.authToken && puter.env === 'web'){
-                try{
+            if ( !puter.authToken && puter.env === 'web' ) {
+                try {
                     await puter.ui.authenticateWithPuter();
-                }catch(e){
+                } catch (e) {
                     // if authentication fails, throw an error
                     rejectRequest('Authentication failed.');
                     return;
@@ -97,26 +97,26 @@ const readdir = async function (...args) {
             }
 
             // create xhr object
-            const xhr = utils.initXhr('/readdir', this.APIOrigin, undefined, "post", "text/plain;actually=json");
+            const xhr = utils.initXhr('/readdir', this.APIOrigin, undefined, 'post', 'text/plain;actually=json');
 
             // set up event handlers for load and error events
             utils.setupXhrEventHandlers(xhr, options.success, options.error, async (result) => {
                 // Calculate the size of the result for cache eligibility check
                 const resultSize = JSON.stringify(result).length;
-                
+
                 // Cache the result if it's not bigger than MAX_CACHE_SIZE
                 const MAX_CACHE_SIZE = 100 * 1024 * 1024;
 
-                if(resultSize <= MAX_CACHE_SIZE){
+                if ( resultSize <= MAX_CACHE_SIZE ) {
                     // UPSERT the cache
                     puter._cache.set(cacheKey, result);
                 }
 
                 // set each individual item's cache
-                for(const item of result){
-                    puter._cache.set('item:' + item.path, item);
+                for ( const item of result ) {
+                    puter._cache.set(`item:${ item.path}`, item);
                 }
-                
+
                 resolveRequest(result);
             }, rejectRequest);
 
@@ -124,13 +124,13 @@ const readdir = async function (...args) {
             const payload = {
                 no_thumbs: options.no_thumbs,
                 no_assocs: options.no_assocs,
-                auth_token: this.authToken
+                auth_token: this.authToken,
             };
 
             // Add either uid or path to the payload
-            if (options.uid) {
+            if ( options.uid ) {
                 payload.uid = options.uid;
-            } else if (options.path) {
+            } else if ( options.path ) {
                 payload.path = getAbsolutePathForApp(options.path);
             }
 
@@ -148,11 +148,11 @@ const readdir = async function (...args) {
             const result = await requestPromise;
             inflightRequests.delete(deduplicationKey);
             resolve(result);
-        } catch (error) {
+        } catch ( error ) {
             inflightRequests.delete(deduplicationKey);
             reject(error);
         }
-    })
-}
+    });
+};
 
 export default readdir;

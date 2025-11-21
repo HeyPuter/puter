@@ -17,8 +17,7 @@
  * You should have received a copy of the GNU Affero General Public License
  * along with this program.  If not, see <https://www.gnu.org/licenses/>.
  */
-const BaseService = require("../BaseService");
-
+const BaseService = require('../BaseService');
 
 /**
 * Represents the OTP (One-Time Password) service.
@@ -30,7 +29,7 @@ class OTPService extends BaseService {
         otpauth: require('otpauth'),
         crypto: require('crypto'),
         ['hi-base32']: require('hi-base32'),
-    }
+    };
 
     create_secret (label) {
         const require = this.require;
@@ -51,12 +50,11 @@ class OTPService extends BaseService {
         };
     }
 
-
     /**
     * Creates a recovery code for the user.
     * Generates a random byte sequence, encodes it in base32,
     * and returns a unique 8-character recovery code.
-    * 
+    *
     * @returns {string} The generated recovery code.
     */
     create_recovery_code () {
@@ -65,7 +63,7 @@ class OTPService extends BaseService {
         const { encode } = require('hi-base32');
 
         const buffer = crypto.randomBytes(6);
-        const code = encode(buffer).replace(/=/g, "").substring(0, 8);
+        const code = encode(buffer).replace(/=/g, '').substring(0, 8);
         return code;
     }
 
@@ -89,12 +87,11 @@ class OTPService extends BaseService {
         return true;
     }
 
-
     /**
     * Generates a random OTP secret.
     * This method creates a 15-byte random buffer and encodes it into a base32 string.
     * The resulting string is trimmed to a maximum length of 24 characters.
-    * 
+    *
     * @returns {string} The generated OTP secret in base32 format.
     */
     gen_otp_secret_ () {
@@ -103,7 +100,7 @@ class OTPService extends BaseService {
         const { encode } = require('hi-base32');
 
         const buffer = crypto.randomBytes(15);
-        const base32 = encode(buffer).replace(/=/g, "").substring(0, 24);
+        const base32 = encode(buffer).replace(/=/g, '').substring(0, 24);
         return base32;
     };
 };

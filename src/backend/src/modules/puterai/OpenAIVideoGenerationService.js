@@ -34,7 +34,7 @@ const ALLOWED_SECONDS = new Set(['4', '8', '12']);
 
 class OpenAIVideoGenerationService extends BaseService {
     /** @type {import('../../services/MeteringService/MeteringService').MeteringService} */
-    get meteringService(){
+    get meteringService () {
         return this.services.get('meteringService').meteringService;
     }
 
@@ -42,7 +42,7 @@ class OpenAIVideoGenerationService extends BaseService {
         openai: require('openai'),
     };
 
-    _construct() {
+    _construct () {
         this.models_ = {
             'sora-2': {
                 defaultUsageKey: 'openai:sora-2:default',
@@ -53,12 +53,12 @@ class OpenAIVideoGenerationService extends BaseService {
         };
     }
 
-    async _init() {
+    async _init () {
         let apiKey =
             this.config?.services?.openai?.apiKey ??
             this.global_config?.services?.openai?.apiKey;
 
-        if ( !apiKey ) {
+        if ( ! apiKey ) {
             apiKey =
                 this.config?.openai?.secret_key ??
                 this.global_config.openai?.secret_key;
@@ -74,19 +74,19 @@ class OpenAIVideoGenerationService extends BaseService {
 
     static IMPLEMENTS = {
         ['driver-capabilities']: {
-            supports_test_mode(iface, method_name) {
+            supports_test_mode (iface, method_name) {
                 return iface === 'puter-video-generation' &&
                     method_name === 'generate';
             },
         },
         ['puter-video-generation']: {
-            async generate(params) {
+            async generate (params) {
                 return await this.generateVideo(params);
             },
         },
     };
 
-    async generateVideo(params) {
+    async generateVideo (params) {
         const {
             prompt,
             model: requestedModel,
@@ -108,10 +108,10 @@ class OpenAIVideoGenerationService extends BaseService {
 
         const model = requestedModel ?? 'sora-2';
         const modelConfig = this.models_[model];
-        if ( !modelConfig ) {
+        if ( ! modelConfig ) {
             throw APIError.create('field_invalid', null, {
                 key: 'model',
-                expected: 'one of: ' + Object.keys(this.models_).join(', '),
+                expected: `one of: ${ Object.keys(this.models_).join(', ')}`,
                 got: model,
             });
         }
@@ -127,14 +127,14 @@ class OpenAIVideoGenerationService extends BaseService {
         const normalizedSeconds = this.#normalizeSeconds(seconds ?? duration) ?? '4';
 
         const usageKey = this.#determineUsageKey(model, normalizedSize);
-        if ( !usageKey ) {
+        if ( ! usageKey ) {
             throw new Error(`Unsupported pricing tier for model ${model}`);
         }
 
         const estimatedUnits = this.#parseSeconds(normalizedSeconds) ?? DEFAULT_DURATION_SECONDS;
         const actor = Context.get('actor');
         const usageAllowed = await this.meteringService.hasEnoughCreditsFor(actor, usageKey, estimatedUnits);
-        if ( !usageAllowed ) {
+        if ( ! usageAllowed ) {
             throw APIError.create('insufficient_funds');
         }
 
@@ -159,7 +159,7 @@ class OpenAIVideoGenerationService extends BaseService {
 
         const finalResolution = this.#normalizeSize(finalJob.size) ?? normalizedSize;
         const finalUsageKey = this.#determineUsageKey(model, finalResolution);
-        if ( !finalUsageKey ) {
+        if ( ! finalUsageKey ) {
             throw new Error(`Unsupported pricing tier for model ${model}`);
         }
 
@@ -173,7 +173,7 @@ class OpenAIVideoGenerationService extends BaseService {
             stream = Readable.fromWeb(stream);
         }
 
-        if ( !stream ) {
+        if ( ! stream ) {
             const arrayBuffer = await downloadResponse.arrayBuffer();
             stream = Readable.from(Buffer.from(arrayBuffer));
         }
@@ -186,7 +186,7 @@ class OpenAIVideoGenerationService extends BaseService {
         }, stream);
     }
 
-    async #pollUntilComplete(initialJob) {
+    async #pollUntilComplete (initialJob) {
         let job = initialJob;
         const start = Date.now();
 
@@ -202,12 +202,12 @@ class OpenAIVideoGenerationService extends BaseService {
         return job;
     }
 
-    async #delay(ms) {
+    async #delay (ms) {
         return await new Promise(resolve => setTimeout(resolve, ms));
     }
 
-    #normalizeSize(candidate) {
-        if ( !candidate ) return undefined;
+    #normalizeSize (candidate) {
+        if ( ! candidate ) return undefined;
         const normalized = this.#normalizeResolution(candidate);
         if ( normalized && ALLOWED_SIZES.has(normalized) ) {
             return normalized;
@@ -215,7 +215,7 @@ class OpenAIVideoGenerationService extends BaseService {
         return undefined;
     }
 
-    #normalizeSeconds(value) {
+    #normalizeSeconds (value) {
         if ( value === null || value === undefined ) {
             return undefined;
         }
@@ -240,9 +240,9 @@ class OpenAIVideoGenerationService extends BaseService {
         return undefined;
     }
 
-    #determineUsageKey(model, normalizedSize) {
+    #determineUsageKey (model, normalizedSize) {
         const config = this.models_[model];
-        if ( !config ) return null;
+        if ( ! config ) return null;
 
         if ( model === 'sora-2-pro' && normalizedSize === '1792x1024' ) {
             return 'openai:sora-2-pro:xl';
@@ -251,8 +251,8 @@ class OpenAIVideoGenerationService extends BaseService {
         return config.defaultUsageKey;
     }
 
-    #normalizeResolution(value) {
-        if ( !value ) return undefined;
+    #normalizeResolution (value) {
+        if ( ! value ) return undefined;
         if ( typeof value === 'string' ) {
             const match = value.match(/(\\d+)\\s*x\\s*(\\d+)/i);
             if ( match ) {
@@ -268,7 +268,7 @@ class OpenAIVideoGenerationService extends BaseService {
         return undefined;
     }
 
-    #parseSeconds(value) {
+    #parseSeconds (value) {
         if ( value === null || value === undefined ) return undefined;
         if ( typeof value === 'number' && Number.isFinite(value) ) {
             return value;

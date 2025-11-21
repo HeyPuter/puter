@@ -21,13 +21,13 @@ export const SHELL_VERSIONS = [
         v: '0.2.6',
         changes: [
             'add PDE execution from /admin/Public/bin',
-        ]
+        ],
     },
     {
         v: '0.2.5',
         changes: [
             'fixed app command provider exit',
-        ]
+        ],
     },
     {
         v: '0.2.4',
@@ -37,7 +37,7 @@ export const SHELL_VERSIONS = [
             '"which" command added',
             '"date" command added',
             'improvements when running under node.js',
-        ]
+        ],
     },
     {
         v: '0.2.3',
@@ -46,7 +46,7 @@ export const SHELL_VERSIONS = [
             '"help" command updated',
             '"errno" command added',
             'POSIX error code associations added',
-        ]
+        ],
     },
     {
         v: '0.2.2',
@@ -61,9 +61,9 @@ export const SHELL_VERSIONS = [
             '"cd" with no arguments works',
             'Filesystem errors are more consistent',
             '"help" output improved',
-            '"pwd" argument processing updated'
+            '"pwd" argument processing updated',
 
-        ]
+        ],
     },
     {
         v: '0.2.1',
@@ -76,7 +76,7 @@ export const SHELL_VERSIONS = [
             'improved coreutils documentation',
             'updates to existing coreutils',
             'readline fixes',
-        ]
+        ],
     },
     {
         v: '0.2.0',
@@ -88,14 +88,14 @@ export const SHELL_VERSIONS = [
             'coreutils updates',
             'added command substitution',
             'parser improvements',
-        ]
+        ],
     },
     {
         v: '0.1.10',
         changes: [
             'new input parser',
             'add pwd command',
-        ]
+        ],
     },
     {
         v: '0.1.9',
@@ -104,20 +104,20 @@ export const SHELL_VERSIONS = [
             'add changelog command',
             'add ioctl messages for window size',
             'add env.ROWS and env.COLS',
-        ]
+        ],
     },
     {
         v: '0.1.8',
         changes: [
             'add neofetch command',
             'add simple tab completion',
-        ]
+        ],
     },
     {
         v: '0.1.7',
         changes: [
             'add clear and printenv',
-        ]
+        ],
     },
     {
         v: '0.1.6',
@@ -144,13 +144,13 @@ export const SHELL_VERSIONS = [
             'mv added',
             'cat added',
             'readline history (transient) added',
-        ]
+        ],
     },
     {
         v: '0.1.2',
         changes: [
             'add echo',
             'fix synchronization of pipe coupler',
-        ]
-    }
+        ],
+    },
 ];

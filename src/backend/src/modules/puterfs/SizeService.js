@@ -16,12 +16,12 @@
  * You should have received a copy of the GNU Affero General Public License
  * along with this program.  If not, see <https://www.gnu.org/licenses/>.
  */
-const { get_dir_size, id2path, get_user, invalidate_cached_user_by_id } = require("../../helpers");
-const BaseService = require("../../services/BaseService");
+const { get_dir_size, id2path, get_user, invalidate_cached_user_by_id } = require('../../helpers');
+const BaseService = require('../../services/BaseService');
 
-const { DB_WRITE } = require("../../services/database/consts");
-const { Context } = require("../../util/context");
-const { nou } = require("../../util/langutil");
+const { DB_WRITE } = require('../../services/database/consts');
+const { Context } = require('../../util/context');
+const { nou } = require('../../util/langutil');
 
 // TODO: expose to a utility library
 class UserParameter {
@@ -38,7 +38,7 @@ class SizeService extends BaseService {
     _construct () {
         this.usages = {};
     }
-    
+
     _init () {
         this.db = this.services.get('database').get(DB_WRITE, 'filesystem');
 
@@ -54,7 +54,7 @@ class SizeService extends BaseService {
                     const user = await UserParameter.adapt(args[0]);
                     const usage = await this.get_usage(user.id);
                     log.log(`usage: ${usage} bytes`);
-                }
+                },
             },
             {
                 id: 'get-capacity',
@@ -63,7 +63,7 @@ class SizeService extends BaseService {
                     const user = await UserParameter.adapt(args[0]);
                     const capacity = await this.get_storage_capacity(user);
                     log.log(`capacity: ${capacity} bytes`);
-                }
+                },
             },
             {
                 id: 'get-cache-size',
@@ -71,9 +71,9 @@ class SizeService extends BaseService {
                 handler: async (args, log) => {
                     const size = Object.keys(this.usages).length;
                     log.log(`cache size: ${size}`);
-                }
+                },
             },
-        ])
+        ]);
     }
 
     async get_usage (user_id) {
@@ -81,11 +81,9 @@ class SizeService extends BaseService {
         //     return this.usages[user_id];
         // }
 
-        const fsentry = await this.db.read(
-            "SELECT SUM(size) AS total FROM `fsentries` WHERE `user_id` = ? LIMIT 1",
-            [user_id]
-        );
-        if(!fsentry[0] || !fsentry[0].total) {
+        const fsentry = await this.db.read('SELECT SUM(size) AS total FROM `fsentries` WHERE `user_id` = ? LIMIT 1',
+                        [user_id]);
+        if ( !fsentry[0] || !fsentry[0].total ) {
             this.usages[user_id] = 0;
         } else {
             this.usages[user_id] = parseInt(fsentry[0].total);
@@ -102,7 +100,7 @@ class SizeService extends BaseService {
     // TODO: remove fs arg and update all calls
     async add_node_size (fs, node, user, factor = 1) {
         const {
-            fsEntryService
+            fsEntryService,
         } = Context.get('services').values;
 
         let sz;
@@ -112,7 +110,7 @@ class SizeService extends BaseService {
             } else {
                 // very unlikely, but a warning is better than a throw right now
                 // TODO: remove this once we're sure this is never hit
-                this.log.warn('add_node_size: node has no uuid :(', node)
+                this.log.warn('add_node_size: node has no uuid :(', node);
                 sz = await get_dir_size(await id2path(node.mysql_id), user);
             }
         } else {
@@ -126,7 +124,7 @@ class SizeService extends BaseService {
         if ( ! this.global_config.is_storage_limited ) {
             return this.global_config.available_device_storage;
         }
-        
+
         if ( nou(user.free_storage) ) {
             return this.global_config.storage_capacity;
         }
@@ -166,26 +164,22 @@ class SizeService extends BaseService {
             const values = fields_.map(f => entry[f]);
 
             try {
-                await this.db.write(
-                    `INSERT INTO storage_audit (${fields}) VALUES (${placeholders})`,
-                    values,
-                );
+                await this.db.write(`INSERT INTO storage_audit (${fields}) VALUES (${placeholders})`,
+                                values);
             } catch (e) {
                 this.errors.report('size-service.audit-add-storage', {
                     source: e,
                     trace: true,
                     alarm: true,
-                })
+                });
             }
         }
 
         // Storage increase
         {
             try {
-                const res = await this.db.write(
-                    "UPDATE `user` SET `free_storage` = ? WHERE `id` = ? LIMIT 1",
-                    [capacity + amount_in_bytes, user.id]
-                );
+                const res = await this.db.write('UPDATE `user` SET `free_storage` = ? WHERE `id` = ? LIMIT 1',
+                                [capacity + amount_in_bytes, user.id]);
                 if ( ! res.anyRowsAffected ) {
                     throw new Error(`add_storage: failed to update user ${user.id}`);
                 }
@@ -194,7 +188,7 @@ class SizeService extends BaseService {
                     source: e,
                     trace: true,
                     alarm: true,
-                })
+                });
             }
             invalidate_cached_user_by_id(user.id);
         }

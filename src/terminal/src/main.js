@@ -73,22 +73,22 @@ linkHandler.activate = (e, url) => {
     }
     newWindow.document.write('Redirecting from Puter Terminal...');
     newWindow.location.href = uri;
-}
+};
 
 window.main_term = async () => {
     const pty = new PTY();
     const ptt = pty.getPTT();
 
     const shell = new XDocumentANSIShell({
-        ptt
+        ptt,
     });
 
     const pos_args = puter.args?.command_line?.args;
 
     const phoenix = pos_args
         ? await puter.ui.launchApp(pos_args.shift(), {
-            command_line: { args: pos_args }
-          })
+            command_line: { args: pos_args },
+        })
         : await puter.ui.launchApp('phoenix') ;
     shell.attachToApp(phoenix);
 

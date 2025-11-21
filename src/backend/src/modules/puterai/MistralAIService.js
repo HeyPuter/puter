@@ -45,7 +45,7 @@ class MistralAIService extends BaseService {
     * Each model entry specifies currency (usd-cents) and costs per million tokens.
     * @private
     */
-    _construct() {
+    _construct () {
         this.costs_ = {
             'mistral-large-latest': {
                 aliases: ['mistral-large-2411'],
@@ -239,7 +239,7 @@ class MistralAIService extends BaseService {
     * Each model entry specifies currency (USD cents) and costs per million tokens.
     * @private
     */
-    async _init() {
+    async _init () {
         const require = this.require;
         const { Mistral } = require('@mistralai/mistralai');
         this.api_base_url = 'https://api.mistral.ai/v1';
@@ -265,10 +265,10 @@ class MistralAIService extends BaseService {
     * @private
     * @returns {Promise<void>}
     */
-    async populate_models_() {
+    async populate_models_ () {
         const resp = await axios({
             method: 'get',
-            url: this.api_base_url + '/models',
+            url: `${this.api_base_url }/models`,
             headers: {
                 Authorization: `Bearer ${this.config.apiKey}`,
             },
@@ -309,17 +309,17 @@ class MistralAIService extends BaseService {
     * @async
     * @returns {void}
     */
-    get_default_model() {
+    get_default_model () {
         return 'mistral-large-latest';
     }
     static IMPLEMENTS = {
         'driver-capabilities': {
-            supports_test_mode(iface, method_name) {
+            supports_test_mode (iface, method_name) {
                 return iface === 'puter-ocr' && method_name === 'recognize';
             },
         },
         'puter-ocr': {
-            async recognize({
+            async recognize ({
                 source,
                 model,
                 pages,
@@ -383,7 +383,7 @@ class MistralAIService extends BaseService {
              *
              * @returns Promise<Array<Object>> Array of model details
              */
-            async models() {
+            async models () {
                 return this.models_array_;
             },
 
@@ -393,7 +393,7 @@ class MistralAIService extends BaseService {
             * @description Retrieves all available model IDs and their aliases,
             * flattening them into a single array of strings that can be used for model selection
             */
-            async list() {
+            async list () {
                 return this.models_array_.map(m => m.id);
             },
 
@@ -401,7 +401,7 @@ class MistralAIService extends BaseService {
              * AI Chat completion method.
              * See AIChatService for more details.
              */
-            async complete({ messages, stream, model, tools, max_tokens, temperature }) {
+            async complete ({ messages, stream, model, tools, max_tokens, temperature }) {
 
                 messages = await OpenAIUtil.process_input_messages(messages);
                 for ( const message of messages ) {
@@ -466,7 +466,7 @@ class MistralAIService extends BaseService {
         },
     };
 
-    async _buildDocumentChunkFromSource(fileFacade) {
+    async _buildDocumentChunkFromSource (fileFacade) {
         const dataUrl = await this._safeFileValue(fileFacade, 'data_url');
         const webUrl = await this._safeFileValue(fileFacade, 'web_url');
         const filePath = await this._safeFileValue(fileFacade, 'path');
@@ -494,8 +494,8 @@ class MistralAIService extends BaseService {
         return this._chunkFromUrl(generatedDataUrl, fileName, mimeType);
     }
 
-    async _safeFileValue(fileFacade, key) {
-        if ( ! fileFacade || typeof fileFacade.get !== 'function' ) return undefined;
+    async _safeFileValue (fileFacade, key) {
+        if ( !fileFacade || typeof fileFacade.get !== 'function' ) return undefined;
         const maybeCache = fileFacade.values?.values;
         if ( maybeCache && Object.prototype.hasOwnProperty.call(maybeCache, key) ) {
             return maybeCache[key];
@@ -507,7 +507,7 @@ class MistralAIService extends BaseService {
         }
     }
 
-    _chunkFromUrl(url, fileName, mimeType) {
+    _chunkFromUrl (url, fileName, mimeType) {
         const lowerName = fileName?.toLowerCase();
         const urlLooksPdf = /\.pdf($|\?)/i.test(url);
         const mimeLooksPdf = mimeType?.includes('pdf');
@@ -532,22 +532,22 @@ class MistralAIService extends BaseService {
         };
     }
 
-    _inferMimeFromName(name) {
+    _inferMimeFromName (name) {
         if ( ! name ) return undefined;
         return mime.lookup(name) || undefined;
     }
 
-    _extractMimeFromDataUrl(url) {
+    _extractMimeFromDataUrl (url) {
         if ( typeof url !== 'string' ) return undefined;
         const match = url.match(/^data:([^;,]+)[;,]/);
         return match ? match[1] : undefined;
     }
 
-    _createDataUrl(buffer, mimeType) {
+    _createDataUrl (buffer, mimeType) {
         return `data:${mimeType || 'application/octet-stream'};base64,${buffer.toString('base64')}`;
     }
 
-    _normalizeOcrResponse(response) {
+    _normalizeOcrResponse (response) {
         if ( ! response ) return {};
         const normalized = {
             model: response.model,
@@ -577,7 +577,7 @@ class MistralAIService extends BaseService {
         return normalized;
     }
 
-    _recordOcrUsage(response, model, { annotationsRequested } = {}) {
+    _recordOcrUsage (response, model, { annotationsRequested } = {}) {
         try {
             if ( ! this.meteringService ) return;
             const actor = Context.get('actor');
@@ -594,7 +594,7 @@ class MistralAIService extends BaseService {
         }
     }
 
-    _sampleOcrResponse() {
+    _sampleOcrResponse () {
         const markdown = 'Sample OCR output (test mode).';
         return {
             model: 'mistral-ocr-latest',

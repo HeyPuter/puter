@@ -24,7 +24,7 @@ export class Pipe {
             },
             close: () => {
                 this.writableController.close();
-            }
+            },
         });
         this.writableStream = new WritableStream({
             start: controller => {
@@ -35,9 +35,9 @@ export class Pipe {
             },
             close: () => {
                 this.readController.close();
-            }
+            },
         });
-        this.in  = this.writableStream.getWriter();
+        this.in = this.writableStream.getWriter();
         this.out = this.readableStream.getReader();
     }
 }

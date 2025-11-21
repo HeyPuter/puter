@@ -17,15 +17,14 @@
  * You should have received a copy of the GNU Affero General Public License
  * along with this program.  If not, see <https://www.gnu.org/licenses/>.
  */
-const BaseService = require("./BaseService");
+const BaseService = require('./BaseService');
 
 const express = require('express');
 const _path = require('path');
 
-
 /**
 * Class representing the ServeGUIService, which extends the BaseService.
-* This service is responsible for setting up the GUI-related routes 
+* This service is responsible for setting up the GUI-related routes
 * and serving static files for the Puter application.
 */
 class ServeGUIService extends BaseService {
@@ -44,12 +43,11 @@ class ServeGUIService extends BaseService {
         require('../routers/hosting/puter-site')(app);
 
         // Router for all other cases
-        app.use(require('../routers/_default'))
+        app.use(require('../routers/_default'));
 
         // Static files
-        app.use(express.static(_path.join(__dirname, '../../public')))
+        app.use(express.static(_path.join(__dirname, '../../public')));
     }
 }
 
 module.exports = ServeGUIService;
-

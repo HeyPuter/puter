@@ -31,7 +31,7 @@ const { Actor } = require('./services/auth/Actor');
  * future) to the default service.
  */
 class ExtensionServiceState extends AdvancedBase {
-    constructor(...a) {
+    constructor (...a) {
         super(...a);
 
         this.extension = a[0].extension;
@@ -41,7 +41,7 @@ class ExtensionServiceState extends AdvancedBase {
         // Values shared between the `extension` global and its service
         this.values = new Context();
     }
-    register_route_handler_(path, handler, options = {}) {
+    register_route_handler_ (path, handler, options = {}) {
         // handler and options may be flipped
         if ( typeof handler === 'object' ) {
             [handler, options] = [options, handler];
@@ -77,10 +77,10 @@ class ExtensionServiceState extends AdvancedBase {
  * provide a default service for extensions.
  */
 class ExtensionService extends BaseService {
-    _construct() {
+    _construct () {
         this.expressThings_ = [];
     }
-    async _init(args) {
+    async _init (args) {
         this.state = args.state;
 
         this.state.values.set('services', this.services);
@@ -153,7 +153,7 @@ class ExtensionService extends BaseService {
         this.state.extension.emit('preinit');
     }
 
-    async ['__on_boot.consolidation'](...a) {
+    async ['__on_boot.consolidation'] (...a) {
         const svc_su = this.services.get('su');
         await svc_su.sudo(async () => {
             await this.state.extension.emit('init', {}, {
@@ -161,7 +161,7 @@ class ExtensionService extends BaseService {
             });
         });
     }
-    async ['__on_boot.activation'](...a) {
+    async ['__on_boot.activation'] (...a) {
         const svc_su = this.services.get('su');
         await svc_su.sudo(async () => {
             await this.state.extension.emit('activate', {}, {
@@ -169,7 +169,7 @@ class ExtensionService extends BaseService {
             });
         });
     }
-    async ['__on_boot.ready'](...a) {
+    async ['__on_boot.ready'] (...a) {
         const svc_su = this.services.get('su');
         await svc_su.sudo(async () => {
             await this.state.extension.emit('ready', {}, {
@@ -178,7 +178,7 @@ class ExtensionService extends BaseService {
         });
     }
 
-    ['__on_install.routes'](_, { app }) {
+    ['__on_install.routes'] (_, { app }) {
         if ( ! this.state ) debugger;
         for ( const thing of this.state.expressThings_ ) {
             if ( thing.type === 'endpoint' ) {

@@ -1,18 +1,18 @@
-const BaseService = require("../../services/BaseService");
+const BaseService = require('../../services/BaseService');
 
 class MinLogService extends BaseService {
     static DESCRIPTION = `
         MinLogService hides any log messages which specify an area of concern.
         A developer can enable particular areas of concern through the console.
-    `
-    
+    `;
+
     _construct () {
         this.on = false;
         this.visible = new Set();
-        
+
         this.widget_ = null;
     }
-    
+
     _init () {
         // On operating systems where low-level config (high customization) is
         // expected, we can turn off minlog by default.
@@ -32,31 +32,31 @@ class MinLogService extends BaseService {
                     return { skip: true };
                 }
             }
-            
+
             return;
         });
-        
+
         this._register_commands(this.services.get('commands'));
     }
-    
-    add_dev_console_widget_() {
+
+    add_dev_console_widget_ () {
         const svc_devConsole = this.services.get('dev-console', { optional: true });
         if ( ! svc_devConsole ) return;
-        
+
         this.widget_ = () => {
             if ( ! this.on ) return ['minlog is off'];
             const lines = [
-                `\x1B[31;1mSome logs hidden! Type minlog:off to see all logs.\x1B[0m`
+                '\x1B[31;1mSome logs hidden! Type minlog:off to see all logs.\x1B[0m',
             ];
             return lines;
-        }
+        };
         svc_devConsole.add_widget(this.widget_);
     }
 
-    rm_dev_console_widget_() {
+    rm_dev_console_widget_ () {
         const svc_devConsole = this.services.get('dev-console', { optional: true });
         if ( ! svc_devConsole ) return;
-        
+
         const lines = this.widget_();
         this.log.info(lines[0]);
 
@@ -70,14 +70,14 @@ class MinLogService extends BaseService {
                 id: 'on',
                 handler: async (args, log) => {
                     this.on = true;
-                }
+                },
             },
             {
                 id: 'off',
                 handler: async (args, log) => {
                     this.rm_dev_console_widget_();
                     this.on = false;
-                }
+                },
             },
             {
                 id: 'show',
@@ -85,7 +85,7 @@ class MinLogService extends BaseService {
                     const [ name ] = args;
 
                     this.visible.add(name);
-                }
+                },
             },
             {
                 id: 'hide',
@@ -93,7 +93,7 @@ class MinLogService extends BaseService {
                     const [ name ] = args;
 
                     this.visible.delete(name);
-                }
+                },
             },
         ]);
     }

@@ -16,13 +16,13 @@
  * You should have received a copy of the GNU Affero General Public License
  * along with this program.  If not, see <https://www.gnu.org/licenses/>.
  */
-import { TeePromise, raceCase } from "../../promise.js";
+import { TeePromise, raceCase } from '../../promise.js';
 
 export class Coupler {
     static description = `
         Connects a read stream to a write stream.
         Does not close the write stream when the read stream is closed.
-    `
+    `;
 
     constructor (source, target) {
         this.source = source;
@@ -31,12 +31,16 @@ export class Coupler {
         this.closed_ = new TeePromise();
         this.isDone = new Promise(rslv => {
             this.resolveIsDone = rslv;
-        })
+        });
         this.listenLoop_();
     }
 
-    off () { this.on_ = false; }
-    on () { this.on_ = true; }
+    off () {
+        this.on_ = false;
+    }
+    on () {
+        this.on_ = true;
+    }
 
     close () {
         this.closed_.resolve({
@@ -46,8 +50,9 @@ export class Coupler {
 
     async listenLoop_ () {
         this.active = true;
-        for (;;) {
-            let cancel = () => {};
+        for ( ;; ) {
+            let cancel = () => {
+            };
             let promise;
             if ( this.source.read_with_cancel !== undefined ) {
                 ({ cancel, promise } = this.source.read_with_cancel());

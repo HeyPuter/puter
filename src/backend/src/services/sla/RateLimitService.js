@@ -17,15 +17,14 @@
  * You should have received a copy of the GNU Affero General Public License
  * along with this program.  If not, see <https://www.gnu.org/licenses/>.
  */
-const APIError = require("../../api/APIError");
-const { Context } = require("../../util/context");
-const BaseService = require("../BaseService");
-const { SyncFeature } = require("../../traits/SyncFeature");
-const { DB_WRITE } = require("../database/consts");
+const APIError = require('../../api/APIError');
+const { Context } = require('../../util/context');
+const BaseService = require('../BaseService');
+const { SyncFeature } = require('../../traits/SyncFeature');
+const { DB_WRITE } = require('../database/consts');
 
 const ts_to_sql = (ts) => Math.floor(ts / 1000);
 const ts_fr_sql = (ts) => ts * 1000;
-
 
 /**
 * RateLimitService class handles rate limiting functionality for API requests.
@@ -37,14 +36,13 @@ const ts_fr_sql = (ts) => ts * 1000;
 class RateLimitService extends BaseService {
     static MODULES = {
         kv: globalThis.kv,
-    }
+    };
 
     static FEATURES = [
         new SyncFeature([
             'check_and_increment',
         ]),
-    ]
-
+    ];
 
     /**
     * Initializes the service by setting up the database connection
@@ -56,7 +54,6 @@ class RateLimitService extends BaseService {
     async _init () {
         this.db = this.services.get('database').get(DB_WRITE, 'rate-limit');
     }
-
 
     /**
     * Checks if a rate limit has been exceeded and increments the counter
@@ -71,7 +68,7 @@ class RateLimitService extends BaseService {
         const { kv } = this.modules;
         const consumer_id = this._get_consumer_id();
         const method_name = key;
-        key = `${consumer_id}:${key}`
+        key = `${consumer_id}:${key}`;
         const kvkey = `rate-limit:${key}`;
         const dbkey = options.global ? key : `${this.global_config.server_id}:${key}`;
 
@@ -79,10 +76,8 @@ class RateLimitService extends BaseService {
         let window_start = kv.get(`${kvkey}:window_start`) ?? 0;
         if ( window_start === 0 ) {
             // Try database
-            const rows = await this.db.read(
-                'SELECT * FROM `rl_usage_fixed_window` WHERE `key` = ?',
-                [dbkey]
-            );
+            const rows = await this.db.read('SELECT * FROM `rl_usage_fixed_window` WHERE `key` = ?',
+                            [dbkey]);
 
             if ( rows.length !== 0 ) {
                 const row = rows[0];
@@ -99,15 +94,11 @@ class RateLimitService extends BaseService {
             kv.set(`${kvkey}:window_start`, window_start);
             kv.set(`${kvkey}:count`, 0);
 
-            await this.db.write(
-                'INSERT INTO `rl_usage_fixed_window` (`key`, `window_start`, `count`) VALUES (?, ?, ?)',
-                [dbkey, ts_to_sql(window_start), 0]
-            );
+            await this.db.write('INSERT INTO `rl_usage_fixed_window` (`key`, `window_start`, `count`) VALUES (?, ?, ?)',
+                            [dbkey, ts_to_sql(window_start), 0]);
 
-            this.log.debug(
-                'CREATE window_start and count',
-                { window_start, count: 0 }
-            );
+            this.log.debug('CREATE window_start and count',
+                            { window_start, count: 0 });
         }
 
         if ( window_start + period < Date.now() ) {
@@ -115,27 +106,22 @@ class RateLimitService extends BaseService {
             kv.set(`${kvkey}:window_start`, window_start);
             kv.set(`${kvkey}:count`, 0);
 
-            await this.db.write(
-                'UPDATE `rl_usage_fixed_window` SET `window_start` = ?, `count` = ? WHERE `key` = ?',
-                [ts_to_sql(window_start), 0, dbkey]
-            );
+            await this.db.write('UPDATE `rl_usage_fixed_window` SET `window_start` = ?, `count` = ? WHERE `key` = ?',
+                            [ts_to_sql(window_start), 0, dbkey]);
         }
 
         const current = kv.get(`${kvkey}:count`) ?? 0;
         if ( current >= max ) {
             throw APIError.create('rate_limit_exceeded', null, {
                 method_name,
-                rate_limit: { max, period }
+                rate_limit: { max, period },
             });
         }
 
         kv.incr(`${kvkey}:count`);
-        await this.db.write(
-            'UPDATE `rl_usage_fixed_window` SET `count` = `count` + 1 WHERE `key` = ?',
-            [dbkey]
-        );
+        await this.db.write('UPDATE `rl_usage_fixed_window` SET `count` = `count` + 1 WHERE `key` = ?',
+                        [dbkey]);
     }
-
 
     /**
     * Gets the consumer ID for rate limiting based on the current user context

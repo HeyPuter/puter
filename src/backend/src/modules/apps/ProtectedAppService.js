@@ -17,12 +17,11 @@
  * You should have received a copy of the GNU Affero General Public License
  * along with this program.  If not, see <https://www.gnu.org/licenses/>.
  */
-const { get_app } = require("../../helpers");
-const { UserActorType } = require("../../services/auth/Actor");
+const { get_app } = require('../../helpers');
+const { UserActorType } = require('../../services/auth/Actor');
 const { PermissionImplicator, PermissionUtil, PermissionRewriter } =
-    require("../../services/auth/permissionUtils.mjs");
-const BaseService = require("../../services/BaseService");
-
+    require('../../services/auth/permissionUtils.mjs');
+const BaseService = require('../../services/BaseService');
 
 /**
 * @class ProtectedAppService
@@ -53,9 +52,7 @@ class ProtectedAppService extends BaseService {
             rewriter: async permission => {
                 const [_1, name, ...rest] = PermissionUtil.split(permission);
                 const app = await get_app({ name });
-                return PermissionUtil.join(
-                    _1, `uid#${app.uid}`, ...rest,
-                );
+                return PermissionUtil.join(_1, `uid#${app.uid}`, ...rest);
             },
         }));
 
@@ -66,25 +63,25 @@ class ProtectedAppService extends BaseService {
                 return permission.startsWith('app:');
             },
             checker: async ({ actor, permission }) => {
-                if ( !(actor.type instanceof UserActorType) ) {
+                if ( ! (actor.type instanceof UserActorType) ) {
                     return undefined;
                 }
-                
+
                 const parts = PermissionUtil.split(permission);
                 if ( parts.length !== 3 ) return undefined;
-                
+
                 const [_, uid_part, lvl] = parts;
                 if ( lvl !== 'access' ) return undefined;
-                
+
                 // track: slice a prefix
                 const uid = uid_part.slice('uid#'.length);
-                
+
                 const app = await get_app({ uid });
 
                 if ( app.owner_user_id !== actor.type.user.id ) {
                     return undefined;
                 }
-                
+
                 return {};
             },
         }));

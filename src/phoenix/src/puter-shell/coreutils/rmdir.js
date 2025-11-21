@@ -34,9 +34,9 @@ export default {
             parents: {
                 description: 'Also remove empty parent directories',
                 type: 'boolean',
-                short: 'p'
-            }
-        }
+                short: 'p',
+            },
+        },
     },
     execute: async ctx => {
         // ctx.params to access processed args
@@ -48,5 +48,5 @@ export default {
         target = resolveRelativePath(ctx.vars, target);
 
         await filesystem.rmdir(target);
-    }
+    },
 };

@@ -40,7 +40,7 @@ class ClassB extends ClassA {
 describe('testing', () => {
     it('does a thing', () => {
         const b = new ClassB();
-    
+
         console.log(b._get_inheritance_chain());
         console.log([ClassA, ClassB]);
         expect(b._get_inheritance_chain()).deep.equal([ClassA, ClassB]);
@@ -95,7 +95,7 @@ describe('lib:invoker', () => {
                         a.cancel_error();
                         return { n: 5 };
                     },
-                }
+                },
             ],
             async delegate (args) {
                 const { n } = args;
@@ -103,7 +103,7 @@ describe('lib:invoker', () => {
                     throw new Error('test error');
                 }
                 return { n: 'oops' };
-            }
+            },
         });
         expect(await invoker.run({ n: 2 })).to.deep.equal({ n: 6 });
     });

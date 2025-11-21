@@ -16,9 +16,9 @@
  * You should have received a copy of the GNU Affero General Public License
  * along with this program.  If not, see <https://www.gnu.org/licenses/>.
  */
-import TeePromise from "../../util/TeePromise.js";
-import UIComponentWindow from "../UIComponentWindow.js";
-import UIWindow2FASetup from "../UIWindow2FASetup.js";
+import TeePromise from '../../util/TeePromise.js';
+import UIComponentWindow from '../UIComponentWindow.js';
+import UIWindow2FASetup from '../UIWindow2FASetup.js';
 
 export default {
     id: 'security',
@@ -29,37 +29,37 @@ export default {
         let user = window.user;
 
         // change password button
-        if(!user.is_temp){
-            h += `<div class="settings-card">`;
-                h += `<strong>${i18n('password')}</strong>`;
-                h += `<div style="flex-grow:1;">`;
-                    h += `<button class="button change-password" style="float:right;">${i18n('change_password')}</button>`;
-                h += `</div>`;
-            h += `</div>`;
+        if ( ! user.is_temp ) {
+            h += '<div class="settings-card">';
+            h += `<strong>${i18n('password')}</strong>`;
+            h += '<div style="flex-grow:1;">';
+            h += `<button class="button change-password" style="float:right;">${i18n('change_password')}</button>`;
+            h += '</div>';
+            h += '</div>';
         }
 
         // session manager
-        h += `<div class="settings-card">`;
-            h += `<strong>${i18n('sessions')}</strong>`;
-            h += `<div style="flex-grow:1;">`;
-                h += `<button class="button manage-sessions" style="float:right;">${i18n('manage_sessions')}</button>`;
-            h += `</div>`;
-        h += `</div>`;
+        h += '<div class="settings-card">';
+        h += `<strong>${i18n('sessions')}</strong>`;
+        h += '<div style="flex-grow:1;">';
+        h += `<button class="button manage-sessions" style="float:right;">${i18n('manage_sessions')}</button>`;
+        h += '</div>';
+        h += '</div>';
 
         // configure 2FA
-        if(!user.is_temp && user.email_confirmed){
+        if ( !user.is_temp && user.email_confirmed ) {
             h += `<div class="settings-card settings-card-security ${user.otp ? 'settings-card-success' : 'settings-card-warning'}">`;
-                h += `<div>`;
-                    h += `<strong style="display:block;">${i18n('two_factor')}</strong>`;
-                    h += `<span class="user-otp-state" style="display:block; margin-top:5px;">${
-                        i18n(user.otp ? 'two_factor_enabled' : 'two_factor_disabled')
-                    }</span>`;
-                h += `</div>`;
-                h += `<div style="flex-grow:1;">`;
-                    h += `<button class="button enable-2fa" style="float:right;${user.otp ? 'display:none;' : ''}">${i18n('enable_2fa')}</button>`;
-                    h += `<button class="button disable-2fa" style="float:right;${user.otp ? '' : 'display:none;'}">${i18n('disable_2fa')}</button>`;
-                h += `</div>`;
-            h += `</div>`;
+            h += '<div>';
+            h += `<strong style="display:block;">${i18n('two_factor')}</strong>`;
+            h += `<span class="user-otp-state" style="display:block; margin-top:5px;">${
+                i18n(user.otp ? 'two_factor_enabled' : 'two_factor_disabled')
+            }</span>`;
+            h += '</div>';
+            h += '<div style="flex-grow:1;">';
+            h += `<button class="button enable-2fa" style="float:right;${user.otp ? 'display:none;' : ''}">${i18n('enable_2fa')}</button>`;
+            h += `<button class="button disable-2fa" style="float:right;${user.otp ? '' : 'display:none;'}">${i18n('disable_2fa')}</button>`;
+            h += '</div>';
+            h += '</div>';
         }
 
         return h;
@@ -100,27 +100,28 @@ export default {
                     /* eslint no-empty: ["error", { "allowEmptyCatch": true }] */
                     let message; try {
                         message = (await resp.json()).message;
-                    } catch (e) {}
+                    } catch (e) {
+                    }
                     message = message || i18n('error_unknown_cause');
                     password_entry.set('error', message);
                     return;
                 }
                 password_confirm_promise.resolve(true);
                 $(win).close();
-            }
+            };
 
             let h = '';
-            h += `<div style="display: flex; flex-direction: column; gap: 20pt; justify-content: center;">`;
-            h += `<div>`;
+            h += '<div style="display: flex; flex-direction: column; gap: 20pt; justify-content: center;">';
+            h += '<div>';
             h += `<h3 style="text-align:center; font-weight: 500; font-size: 20px;">${i18n('disable_2fa_confirm')}</h3>`;
             h += `<p style="text-align:center; padding: 0 20px;">${i18n('disable_2fa_instructions')}</p>`;
-            h += `</div>`;
-            h += `<div style="display: flex; gap: 5pt;">`;
-            h += `<input type="password" class="password-entry" />`;
+            h += '</div>';
+            h += '<div style="display: flex; gap: 5pt;">';
+            h += '<input type="password" class="password-entry" />';
             h += `<button class="button confirm-disable-2fa">${i18n('disable_2fa')}</button>`;
             h += `<button class="button secondary cancel-disable-2fa">${i18n('cancel')}</button>`;
-            h += `</div>`;
-            h += `</div>`;
+            h += '</div>';
+            h += '</div>';
 
             win = await UIComponentWindow({
                 html: h,
@@ -138,9 +139,9 @@ export default {
             // Set up event listeners
             const $win = $(win);
             const $password_entry = $win.find('.password-entry');
-            
+
             $password_entry.on('keypress', (e) => {
-                if(e.which === 13) { // Enter key
+                if ( e.which === 13 ) { // Enter key
                     try_password();
                 }
             });
@@ -165,5 +166,5 @@ export default {
             $el_window.find('.settings-card-security').removeClass('settings-card-success');
             $el_window.find('.settings-card-security').addClass('settings-card-warning');
         });
-    }
-}
+    },
+};

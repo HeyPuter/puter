@@ -17,13 +17,12 @@
  * You should have received a copy of the GNU Affero General Public License
  * along with this program.  If not, see <https://www.gnu.org/licenses/>.
  */
-const { Context } = require("../util/context");
-const BaseService = require("./BaseService");
-
+const { Context } = require('../util/context');
+const BaseService = require('./BaseService');
 
 /**
 * Class RefreshAssociationsService
-* 
+*
 * This class is responsible for managing the refresh of associations in the system.
 * It extends the BaseService and provides methods to handle the refreshing operations
 * with context fallback capabilities to ensure reliability during the execution of tasks.
@@ -34,13 +33,12 @@ class RefreshAssociationsService extends BaseService {
      * This method is triggered on the '__on_boot.consolidation' event and
      * ensures that the cache is updated periodically. The first update occurs
      * after a delay of 15 seconds, followed by continuous updates every 30 seconds.
-     * 
+     *
      * @async
      * @returns {Promise<void>} - A promise that resolves when the cache refresh process is complete.
      */
     async ['__on_boot.consolidation'] () {
         const { refresh_associations_cache } = require('../helpers');
-
 
         /**
         * Executes the consolidation process on boot, refreshing the associations cache.
@@ -59,10 +57,10 @@ class RefreshAssociationsService extends BaseService {
         setTimeout(() => {
             /**
              * Schedules periodic refresh of associations cache after a timeout.
-             * 
+             *
              * This method initiates a cache refresh operation that is run at a specified interval.
              * The initial refresh occurs after a delay, followed by regular refreshes every 30 seconds.
-             * 
+             *
              * @returns {Promise<void>} A promise that resolves when the refresh process starts.
              */
             setInterval(async () => {
@@ -70,14 +68,14 @@ class RefreshAssociationsService extends BaseService {
                 * Initializes a periodic refresh of associations in the cache.
                 * The method sets a timeout before starting an interval that calls
                 * the `refresh_associations_cache` function every 30 seconds.
-                * 
+                *
                 * @returns {void}
                 */
                 await Context.allow_fallback(async () => {
                     await refresh_associations_cache();
-                })
+                });
             }, 30000);
-        }, 15000)
+        }, 15000);
     }
 }
 

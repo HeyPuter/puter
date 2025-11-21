@@ -24,18 +24,18 @@ export default {
     description: 'Exit the shell and return the given CODE. If no argument is given, uses the most recent return code.',
     args: {
         $: 'simple-parser',
-        allowPositionals: true
+        allowPositionals: true,
     },
     execute: async ctx => {
         const { positionals, exit } = ctx.locals;
 
         let status_code = 0;
 
-        if (positionals.length === 0) {
+        if ( positionals.length === 0 ) {
             status_code = exit;
-        } else if (positionals.length === 1) {
+        } else if ( positionals.length === 1 ) {
             const maybe_number = Number(positionals[0]);
-            if (Number.isInteger(maybe_number)) {
+            if ( Number.isInteger(maybe_number) ) {
                 status_code = maybe_number;
             }
         } else {
@@ -44,5 +44,5 @@ export default {
         }
 
         ctx.platform.system.exit(status_code);
-    }
+    },
 };

@@ -7,12 +7,12 @@
  * it under the terms of the GNU Affero General Public License as published
  * by the Free Software Foundation, either version 3 of the License, or
  * (at your option) any later version.
- * 
+ *
  * This program is distributed in the hope that it will be useful,
  * but WITHOUT ANY WARRANTY; without even the implied warranty of
  * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
  * GNU Affero General Public License for more details.
- * 
+ *
  * You should have received a copy of the GNU Affero General Public License
  * along with this program.  If not, see <https://www.gnu.org/licenses/>.
  */
@@ -22,7 +22,7 @@ import init_workers from './workers.js';
 import init_websites from './websites.js';
 
 window.url_params = new URLSearchParams(window.location.search);
-window.domain = 'puter.com'
+window.domain = 'puter.com';
 window.auth_username = null;
 window.dev_center_uid = puter.appID;
 window.developer;
@@ -33,40 +33,42 @@ window.user = null;
 (async () => {
     window.user = await puter.auth.getUser();
 
-    if (user?.username) {
+    if ( user?.username ) {
         window.auth_username = user.username;
     }
-})()
+})();
 
 // domain and APIOrigin
-if (window.url_params.has('puter.domain')) {
-    window.domain = window.url_params.get('puter.domain')
+if ( window.url_params.has('puter.domain') ) {
+    window.domain = window.url_params.get('puter.domain');
 }
 
 // static hosting domain
 window.static_hosting_domain = 'puter.site';
-if(window.domain === 'puter.localhost'){
+if ( window.domain === 'puter.localhost' ) {
     window.static_hosting_domain = 'site.puter.localhost';
 }
 
 // add port to static_hosting_domain if provided
-if (window.url_params.has('puter.port') && window.url_params.get('puter.port')) {
-    window.static_hosting_domain = window.static_hosting_domain + `:` + html_encode(window.url_params.get('puter.port'));
+if ( window.url_params.has('puter.port') && window.url_params.get('puter.port') ) {
+    window.static_hosting_domain = `${window.static_hosting_domain }:${ html_encode(window.url_params.get('puter.port'))}`;
 }
 
 // protocol
 window.protocol = 'https';
-if (window.url_params.has('puter.protocol') && window.url_params.get('puter.protocol') === 'http')
+if ( window.url_params.has('puter.protocol') && window.url_params.get('puter.protocol') === 'http' )
+{
     window.protocol = 'http';
+}
 
 // port
 window.port = '';
-if (window.url_params.has('puter.port') && window.url_params.get('puter.port')) {
+if ( window.url_params.has('puter.port') && window.url_params.get('puter.port') ) {
     window.port = html_encode(window.url_params.get('puter.port'));
 }
 
 // source_path
-if (window.url_params.has('source_path')) {
+if ( window.url_params.has('source_path') ) {
     window.source_path = window.url_params.get('source_path');
 } else {
     window.source_path = null;
@@ -96,12 +98,12 @@ $(document).on('click', '.tab-btn', async function (e) {
     $('section:not(.sidebar)').hide();
     $('.tab-btn').removeClass('active');
     $(this).addClass('active');
-    $('section[data-tab="' + $(this).attr('data-tab') + '"]').show();
+    $(`section[data-tab="${ $(this).attr('data-tab') }"]`).show();
 
     // ---------------------------------------------------------------
     // Apps tab
     // ---------------------------------------------------------------
-    if ($(this).attr('data-tab') === 'apps') {
+    if ( $(this).attr('data-tab') === 'apps' ) {
         refresh_app_list();
         activeTab = 'apps';
         // Reset apps search when tab is activated
@@ -110,7 +112,7 @@ $(document).on('click', '.tab-btn', async function (e) {
     // ---------------------------------------------------------------
     // Workers tab
     // ---------------------------------------------------------------
-    else if ($(this).attr('data-tab') === 'workers') {
+    else if ( $(this).attr('data-tab') === 'workers' ) {
         refresh_worker_list();
         activeTab = 'workers';
         // Reset workers search when tab is activated
@@ -119,7 +121,7 @@ $(document).on('click', '.tab-btn', async function (e) {
     // ---------------------------------------------------------------
     // Websites tab
     // ---------------------------------------------------------------
-    else if ($(this).attr('data-tab') === 'websites') {
+    else if ( $(this).attr('data-tab') === 'websites' ) {
         refresh_websites_list();
         activeTab = 'websites';
         // Reset websites search when tab is activated
@@ -128,22 +130,24 @@ $(document).on('click', '.tab-btn', async function (e) {
     // ---------------------------------------------------------------
     // Payout Method tab
     // ---------------------------------------------------------------
-    else if ($(this).attr('data-tab') === 'payout-method') {
+    else if ( $(this).attr('data-tab') === 'payout-method' ) {
         activeTab = 'payout-method';
         puter.ui.showSpinner();
         setTimeout(function () {
             puter.apps.getDeveloperProfile(function (dev_profile) {
                 // show payout method tab if dev has joined incentive program
-                if (dev_profile.joined_incentive_program) {
+                if ( dev_profile.joined_incentive_program ) {
                     $('#payout-method-email').html(dev_profile.paypal);
                 }
                 puter.ui.hideSpinner();
-                if (activeTab === 'payout-method')
+                if ( activeTab === 'payout-method' )
+                {
                     $('#tab-payout-method').show();
-            })
+                }
+            });
         }, 1000);
     }
-})
+});
 
 $('.jip-submit-btn').on('click', async function (e) {
     const first_name = $('#jip-first-name').val();
@@ -151,20 +155,30 @@ $('.jip-submit-btn').on('click', async function (e) {
     const paypal = $('#jip-paypal').val();
     let error;
 
-    if (first_name === '' || last_name === '' || paypal === '')
-        error = `All fields are required.`;
-    else if (first_name.length > 100)
+    if ( first_name === '' || last_name === '' || paypal === '' )
+    {
+        error = 'All fields are required.';
+    }
+    else if ( first_name.length > 100 )
+    {
         error = `<strong>First Name</strong> cannot be longer than ${100}.`;
-    else if (last_name.length > 100)
+    }
+    else if ( last_name.length > 100 )
+    {
         error = `<strong>Last Name</strong> cannot be longer than ${100}.`;
-    else if (paypal.length > 100)
+    }
+    else if ( paypal.length > 100 )
+    {
         error = `<strong>Paypal</strong> cannot be longer than ${100}.`;
+    }
     // check if email is valid
-    else if (!validateEmail(paypal))
-        error = `Paypal email must be a valid email address.`;
+    else if ( ! validateEmail(paypal) )
+    {
+        error = 'Paypal email must be a valid email address.';
+    }
 
     // error?
-    if (error) {
+    if ( error ) {
         $('#jip-error').show();
         $('#jip-error').html(error);
         document.body.scrollTop = document.documentElement.scrollTop = 0;
@@ -175,17 +189,17 @@ $('.jip-submit-btn').on('click', async function (e) {
     $('.jip-submit-btn').prop('disabled', true);
 
     $.ajax({
-        url: puter.APIOrigin + "/jip",
+        url: `${puter.APIOrigin }/jip`,
         type: 'POST',
         async: true,
-        contentType: "application/json",
+        contentType: 'application/json',
         data: JSON.stringify({
             first_name: first_name,
             last_name: last_name,
             paypal: paypal,
         }),
         headers: {
-            "Authorization": "Bearer " + puter.authToken
+            'Authorization': `Bearer ${ puter.authToken}`,
         },
         success: function () {
             $('#jip-success').show();
@@ -206,20 +220,20 @@ $('.jip-submit-btn').on('click', async function (e) {
             document.body.scrollTop = document.documentElement.scrollTop = 0;
             // enable submit button
             $('.jip-submit-btn').prop('disabled', false);
-        }
-    })
-})
+        },
+    });
+});
 
 $('#earn-money-c2a-close').click(async function (e) {
     $('#earn-money').get(0).close();
-    puter.kv.set('earn-money-c2a-closed', 'true')
-})
+    puter.kv.set('earn-money-c2a-closed', 'true');
+});
 
 $('#earn-money::backdrop').click(async function (e) {
     alert();
     $('#earn-money').get(0).close();
-    puter.kv.set('earn-money-c2a-closed', 'true')
-})
+    puter.kv.set('earn-money-c2a-closed', 'true');
+});
 
 // https://stackoverflow.com/a/43467144/1764493
 window.is_valid_url = (string) => {
@@ -231,8 +245,8 @@ window.is_valid_url = (string) => {
         return false;
     }
 
-    return url.protocol === "http:" || url.protocol === "https:";
-}
+    return url.protocol === 'http:' || url.protocol === 'https:';
+};
 
 window.getBase64ImageFromUrl = async (imageUrl) => {
     var res = await fetch(imageUrl);
@@ -240,7 +254,7 @@ window.getBase64ImageFromUrl = async (imageUrl) => {
 
     return new Promise((resolve, reject) => {
         var reader = new FileReader();
-        reader.addEventListener("load", function () {
+        reader.addEventListener('load', function () {
             resolve(reader.result);
         }, false);
 
@@ -248,20 +262,20 @@ window.getBase64ImageFromUrl = async (imageUrl) => {
             return reject(this);
         };
         reader.readAsDataURL(blob);
-    })
-}
+    });
+};
 
 /**
  * Formats a binary-byte integer into the human-readable form with units.
- * 
- * @param {integer} bytes 
- * @returns 
+ *
+ * @param {integer} bytes
+ * @returns
  */
 window.byte_format = (bytes) => {
     const sizes = ['Bytes', 'KB', 'MB', 'GB', 'TB'];
-    if (bytes === 0) return '0 Byte';
+    if ( bytes === 0 ) return '0 Byte';
     const i = parseInt(Math.floor(Math.log(bytes) / Math.log(1024)));
-    return Math.round(bytes / Math.pow(1024, i), 2) + ' ' + sizes[i];
+    return `${Math.round(bytes / Math.pow(1024, i), 2) } ${ sizes[i]}`;
 };
 
 /**
@@ -270,7 +284,7 @@ window.byte_format = (bytes) => {
 window.validateEmail = (email) => {
     var re = /\S+@\S+\.\S+/;
     return re.test(email);
-}
+};
 
 /**
  * Formats a number with grouped thousands.
@@ -284,7 +298,7 @@ window.validateEmail = (email) => {
  */
 window.number_format = (number, decimals, dec_point, thousands_sep) => {
     // Strip all characters but numerical ones.
-    number = (number + '').replace(/[^0-9+\-Ee.]/g, '');
+    number = (`${number }`).replace(/[^0-9+\-Ee.]/g, '');
     var n = !isFinite(+number) ? 0 : +number,
         prec = !isFinite(+decimals) ? 0 : Math.abs(decimals),
         sep = (typeof thousands_sep === 'undefined') ? ',' : thousands_sep,
@@ -292,19 +306,19 @@ window.number_format = (number, decimals, dec_point, thousands_sep) => {
         s = '',
         toFixedFix = function (n, prec) {
             var k = Math.pow(10, prec);
-            return '' + Math.round(n * k) / k;
+            return `${ Math.round(n * k) / k}`;
         };
     // Fix for IE parseFloat(0.55).toFixed(0) = 0;
-    s = (prec ? toFixedFix(n, prec) : '' + Math.round(n)).split('.');
-    if (s[0].length > 3) {
+    s = (prec ? toFixedFix(n, prec) : `${ Math.round(n)}`).split('.');
+    if ( s[0].length > 3 ) {
         s[0] = s[0].replace(/\B(?=(?:\d{3})+(?!\d))/g, sep);
     }
-    if ((s[1] || '').length < prec) {
+    if ( (s[1] || '').length < prec ) {
         s[1] = s[1] || '';
         s[1] += new Array(prec - s[1].length + 1).join('0');
     }
     return s.join(dec);
-}
+};
 
 $(document).on('click', '.close-message', function () {
     $($(this).attr('data-target')).fadeOut();
@@ -319,37 +333,41 @@ $(document).on('click', '.section-tab-btn', function (e) {
     $('.section-tab-btn').removeClass('active');
     // add active class to clicked tab button
     $(this).addClass('active');
-})
+});
 
 $(document).on('click', '.close-success-msg', function (e) {
     $(this).closest('div').fadeOut();
-})
+});
 
 $('body').on('dragover', function (event) {
     // skip if the user is dragging something over the drop area
-    if ($(event.target).hasClass('drop-area'))
+    if ( $(event.target).hasClass('drop-area') )
+    {
         return;
+    }
 
-    event.preventDefault();  // Prevent the default behavior
+    event.preventDefault(); // Prevent the default behavior
     event.stopPropagation(); // Stop the event from propagating
 });
 
 // Developers can drop items anywhere on the page to deploy them
 $('body').on('drop', async function (event) {
     // skip if the user is dragging something over the drop area
-    if ($(event.target).hasClass('drop-area'))
+    if ( $(event.target).hasClass('drop-area') )
+    {
         return;
+    }
 
     // prevent default behavior
     event.preventDefault();
     event.stopPropagation();
 
     // retrieve puter items from the event
-    if (event.detail?.items?.length > 0) {
+    if ( event.detail?.items?.length > 0 ) {
         window.dropped_items = event.detail.items;
         window.source_path = window.dropped_items[0].path;
         // by deploying an existing Puter folder. So we create the app and deploy it.
-        if (window.source_path) {
+        if ( window.source_path ) {
             // todo if there are no apps, go straight to creating a new app
             $('.insta-deploy-modal').get(0).showModal();
             // set item name
@@ -360,16 +378,18 @@ $('body').on('drop', async function (event) {
     // Local items dropped
     //-----------------------------------------------------------------------------
     const e = event.originalEvent;
-    if (!e.dataTransfer || !e.dataTransfer.items || e.dataTransfer.items.length === 0)
+    if ( !e.dataTransfer || !e.dataTransfer.items || e.dataTransfer.items.length === 0 )
+    {
         return;
+    }
 
     // Get dropped items
     window.dropped_items = await puter.ui.getEntriesFromDataTransferItems(e.dataTransfer.items);
 
     // Generate a flat array of full paths from the dropped items
     let paths = [];
-    for (let item of window.dropped_items) {
-        paths.push('/' + (item.fullPath ?? item.filepath));
+    for ( let item of window.dropped_items ) {
+        paths.push(`/${ item.fullPath ?? item.filepath}`);
     }
 
     // Generate a directory tree from the paths
@@ -378,7 +398,7 @@ $('body').on('drop', async function (event) {
     window.dropped_items = setRootDirTree(tree, window.dropped_items);
 
     // Alert if no index.html in root
-    if (!hasRootIndexHtml(tree)) {
+    if ( ! hasRootIndexHtml(tree) ) {
         puter.ui.alert(index_missing_error, [
             {
                 label: 'Ok',
@@ -396,14 +416,22 @@ $('body').on('drop', async function (event) {
     // Generate a list of items in the root in the form of a string (e.g. /index.html, /css/style.css) with maximum of 3 items
     let rootItems = '';
 
-    if (rootKeys.length === 1)
+    if ( rootKeys.length === 1 )
+    {
         rootItems = rootKeys[0];
-    else if (rootKeys.length === 2)
-        rootItems = rootKeys[0] + ', ' + rootKeys[1];
-    else if (rootKeys.length === 3)
-        rootItems = rootKeys[0] + ', ' + rootKeys[1] + ', and' + rootKeys[1];
-    else if (rootKeys.length > 3)
-        rootItems = rootKeys[0] + ', ' + rootKeys[1] + ', and ' + (rootKeys.length - 2) + ' more item' + (rootKeys.length - 2 > 1 ? 's' : '');
+    }
+    else if ( rootKeys.length === 2 )
+    {
+        rootItems = `${rootKeys[0] }, ${ rootKeys[1]}`;
+    }
+    else if ( rootKeys.length === 3 )
+    {
+        rootItems = `${rootKeys[0] }, ${ rootKeys[1] }, and${ rootKeys[1]}`;
+    }
+    else if ( rootKeys.length > 3 )
+    {
+        rootItems = `${rootKeys[0] }, ${ rootKeys[1] }, and ${ rootKeys.length - 2 } more item${ rootKeys.length - 2 > 1 ? 's' : ''}`;
+    }
 
     // Show insta-deploy modal
     $('.insta-deploy-modal').get(0)?.showModal();
@@ -428,7 +456,7 @@ window.getMimeType = (extension) => {
         webp: 'image/webp',
         svg: 'image/svg+xml',
         tiff: 'image/tiff',
-        ico: 'image/x-icon'
+        ico: 'image/x-icon',
     };
 
     // Remove leading dot if present and convert to lowercase
@@ -436,12 +464,12 @@ window.getMimeType = (extension) => {
 
     // Return the MIME type if found, otherwise return 'application/octet-stream'
     return mimeTypes[cleanExtension] || 'application/octet-stream';
-}
+};
 
 $(document).on('click', '.sidebar-toggle', function (e) {
     $('.sidebar').toggleClass('open');
     $('body').toggleClass('sidebar-open');
-})
+});
 
 // ---------------------------------------------------------------
 // Search Reset Functions
@@ -451,41 +479,41 @@ window.resetAppsSearch = () => {
     $('.search-clear-apps').hide();
     $('.search-apps').removeClass('has-value');
     // Reset search query in apps.js scope if search_apps function is available
-    if (typeof search_apps === 'function') {
+    if ( typeof search_apps === 'function' ) {
         search_apps();
     }
-}
+};
 
 window.resetWorkersSearch = () => {
     $('.search-workers').val('');
     $('.search-clear-workers').hide();
     $('.search-workers').removeClass('has-value');
     // Reset search query in workers.js scope if search_workers function is available
-    if (typeof search_workers === 'function') {
+    if ( typeof search_workers === 'function' ) {
         search_workers();
     }
-}
+};
 
 window.resetWebsitesSearch = () => {
     $('.search-websites').val('');
     $('.search-clear-websites').hide();
     $('.search-websites').removeClass('has-value');
     // Reset search query in websites.js scope if search_websites function is available
-    if (typeof search_websites === 'function') {
+    if ( typeof search_websites === 'function' ) {
         search_websites();
     }
-}
+};
 
 window.activate_tippy = () => {
     tippy('.tippy', {
-        content(reference) {
+        content (reference) {
             return reference.getAttribute('title');
         },
-        onMount(instance) {
+        onMount (instance) {
             // Remove the default title to prevent double tooltips
             instance.reference.removeAttribute('title');
         },
         placement: 'top',
         arrow: true,
-    });  
-}
+    });
+};

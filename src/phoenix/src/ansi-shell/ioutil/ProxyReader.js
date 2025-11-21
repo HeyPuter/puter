@@ -21,5 +21,7 @@ export class ProxyReader {
         this.delegate = delegate;
     }
 
-    read (...a) { return this.delegate.read(...a); }
+    read (...a) {
+        return this.delegate.read(...a);
+    }
 }

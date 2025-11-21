@@ -30,7 +30,7 @@ const Streaming = require('./lib/Streaming');
 * Can handle both streaming and non-streaming requests consistently.
 */
 class UsageLimitedChatService extends BaseService {
-    get_default_model() {
+    get_default_model () {
         return 'usage-limited';
     }
 
@@ -40,7 +40,7 @@ class UsageLimitedChatService extends BaseService {
             * Returns a list of available model names
             * @returns {Promise<string[]>} Array containing the single model identifier
             */
-            async list() {
+            async list () {
                 return ['usage-limited'];
             },
 
@@ -48,7 +48,7 @@ class UsageLimitedChatService extends BaseService {
             * Returns model details for the usage-limited model
             * @returns {Promise<Object[]>} Array containing the model details
             */
-            async models() {
+            async models () {
                 return [{
                     id: 'usage-limited',
                     name: 'Usage Limited',
@@ -70,7 +70,7 @@ class UsageLimitedChatService extends BaseService {
             * @param {string} params.model - The model to use (unused)
             * @returns {Object|TypedValue} A chat completion response or streamed response
             */
-            async complete({ stream, customLimitMessage }) {
+            async complete ({ stream, customLimitMessage }) {
                 const limitMessage = customLimitMessage || dedent(`
                     You have reached your AI usage limit for this account.
                 `);

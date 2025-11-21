@@ -34,12 +34,12 @@ const reused = {
             subject: 'RuntimeEnvironment.js',
             location: 'src/boot/ in repository',
             use: 'code that performs the checks',
-        }
-    ]
+        },
+    ],
 };
 
 const programmer_errors = [
-    'Assignment to constant variable.'
+    'Assignment to constant variable.',
 ];
 
 const error_help_details = [
@@ -51,7 +51,7 @@ const error_help_details = [
             more.references = [
                 ...reused.runtime_env_references,
             ];
-        }
+        },
     },
     {
         match: ({ message }) => (
@@ -72,7 +72,7 @@ const error_help_details = [
             more.references = [
                 ...reused.runtime_env_references,
             ];
-        }
+        },
     },
     {
         match: ({ message }) => (
@@ -84,21 +84,19 @@ const error_help_details = [
                     title: 'Create a valid config file',
                 },
             ];
-        }
+        },
     },
     {
         match: ({ message }) => (
-            message === `config_name is required`
+            message === 'config_name is required'
         ),
         apply (more) {
             more.solutions = [
                 'ensure config_name is present in your config file',
-                'Seek help on ' + osclink(
-                    'https://discord.gg/PQcx7Teh8u',
-                    'our Discord server'
-                ),
+                `Seek help on ${ osclink('https://discord.gg/PQcx7Teh8u',
+                                'our Discord server')}`,
             ];
-        }
+        },
     },
     {
         match: ({ message }) => (
@@ -110,10 +108,10 @@ const error_help_details = [
                     subject: 'MDN Reference for this error',
                     location: 'on the internet',
                     use: 'describes why this error occurs',
-                    url: 'https://developer.mozilla.org/en-US/docs/Web/JavaScript/Reference/Errors/Invalid_const_assignment'
+                    url: 'https://developer.mozilla.org/en-US/docs/Web/JavaScript/Reference/Errors/Invalid_const_assignment',
                 },
             ];
-        }
+        },
     },
     {
         match: ({ message }) => (
@@ -125,18 +123,16 @@ const error_help_details = [
             ];
             more.solutions = [
                 {
-                    title: `Check for an issue on ` +
-                        osclink('https://github.com/HeyPuter/puter/issues')
+                    title: `Check for an issue on ${
+                        osclink('https://github.com/HeyPuter/puter/issues')}`,
                 },
                 {
-                    title: `If there's no issue, please ` +
-                        osclink(
-                            'https://github.com/HeyPuter/puter/issues/new',
-                            'create one'
-                        ) + '.'
-                }
+                    title: `If there's no issue, please ${
+                        osclink('https://github.com/HeyPuter/puter/issues/new',
+                                        'create one') }.`,
+                },
             ];
-        }
+        },
     },
     {
         match: ({ message }) => (
@@ -146,8 +142,8 @@ const error_help_details = [
             more.notes = [
                 'There might be a trailing-comma in your config',
             ];
-        }
-    }
+        },
+    },
 ];
 
 /**
@@ -178,13 +174,13 @@ const print_error_help = (err, out = process.stdout) => {
     const wrap_list_title = s =>
         `\x1B[36;1m${s}:\x1B[0m`;
 
-    write(wrap_msg(err.message) + '\n');
+    write(`${wrap_msg(err.message) }\n`);
 
-    write = (s) => out.write('\x1B[31;1m┃\x1B[0m ' + s);
+    write = (s) => out.write(`\x1B[31;1m┃\x1B[0m ${ s}`);
 
     const vis = (stok, etok, str) => {
         return `\x1B[36;1m${stok}\x1B[0m${str}\x1B[36;1m${etok}\x1B[0m`;
-    }
+    };
 
     let lf_sep = false;
 
@@ -204,9 +200,9 @@ const print_error_help = (err, out = process.stdout) => {
         if ( lf_sep ) write('\n');
         lf_sep = true;
         any_help = true;
-        write('The suggestions below may help resolve this issue.\n')
+        write('The suggestions below may help resolve this issue.\n');
         write('\n');
-        write(wrap_list_title('Possible Solutions') + '\n');
+        write(`${wrap_list_title('Possible Solutions') }\n`);
         for ( const sol of err.more.solutions ) {
             write(`  - ${sol.title}\n`);
         }
@@ -216,9 +212,9 @@ const print_error_help = (err, out = process.stdout) => {
         if ( lf_sep ) write('\n');
         lf_sep = true;
         any_help = true;
-        write('The references below may be related to this issue.\n')
+        write('The references below may be related to this issue.\n');
         write('\n');
-        write(wrap_list_title('References') + '\n');
+        write(`${wrap_list_title('References') }\n`);
         for ( const ref of err.more.references ) {
             write(`  - ${vis('[', ']', ref.subject)} ` +
                 `${vis('(', ')', ref.location)};\n`);
@@ -234,9 +230,9 @@ const print_error_help = (err, out = process.stdout) => {
         write('Help can be added in src/errors/error_help_details.\n');
     }
 
-    out.write(`\x1B[31;1m┗━━ [ END HELP ]\x1B[0m\n`)
+    out.write('\x1B[31;1m┗━━ [ END HELP ]\x1B[0m\n');
     out.write('\n');
-}
+};
 
 module.exports = {
     error_help_details,

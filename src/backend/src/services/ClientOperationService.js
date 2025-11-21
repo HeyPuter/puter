@@ -17,14 +17,14 @@
  * You should have received a copy of the GNU Affero General Public License
  * along with this program.  If not, see <https://www.gnu.org/licenses/>.
  */
-const { Context } = require("../util/context");
+const { Context } = require('../util/context');
 
 // Key for tracing operations in the context, used for logging and tracking.
 const CONTEXT_KEY = Context.make_context_key('operation-trace');
 /**
 * Class representing a tracker for individual client operations.
 * The ClientOperationTracker class is designed to handle the metadata
-* and attributes associated with each operation, allowing for better 
+* and attributes associated with each operation, allowing for better
 * management and organization of client data during processing.
 */
 class ClientOperationTracker {
@@ -37,12 +37,11 @@ class ClientOperationTracker {
     }
 }
 
-
 /**
-* Class representing the ClientOperationService, which manages the 
-* operations related to client interactions. It provides methods to 
-* add new operations and handle their associated client operation 
-* trackers, ensuring efficient management and tracking of client-side 
+* Class representing the ClientOperationService, which manages the
+* operations related to client interactions. It provides methods to
+* add new operations and handle their associated client operation
+* trackers, ensuring efficient management and tracking of client-side
 * operations during their lifecycle.
 */
 class ClientOperationService {
@@ -50,10 +49,9 @@ class ClientOperationService {
         this.operations_ = [];
     }
 
-
     /**
     * Adds a new operation to the service by creating a ClientOperationTracker instance.
-    * 
+    *
     * @param {Object} parameters - The parameters for the new operation.
     * @returns {Promise<ClientOperationTracker>} A promise that resolves to the created ClientOperationTracker instance.
     */
@@ -64,7 +62,7 @@ class ClientOperationService {
     }
 
     ckey (key) {
-        return CONTEXT_KEY + ':' + key;
+        return `${CONTEXT_KEY }:${ key}`;
     }
 }
 

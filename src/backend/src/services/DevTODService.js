@@ -17,10 +17,10 @@
  * You should have received a copy of the GNU Affero General Public License
  * along with this program.  If not, see <https://www.gnu.org/licenses/>.
  */
-const putility = require("@heyputer/putility");
-const { surrounding_box } = require("../fun/dev-console-ui-utils");
-const BaseService = require("./BaseService");
-const config = require("../config");
+const putility = require('@heyputer/putility');
+const { surrounding_box } = require('../fun/dev-console-ui-utils');
+const BaseService = require('./BaseService');
+const config = require('../config');
 
 const tips = (
     // CLI tips
@@ -44,7 +44,6 @@ const tips = (
     .filter((line) => line.length)
     ;
 
-
 /**
 * Wraps text to specified width by breaking it into lines
 * @param {string} text - The text to wrap
@@ -59,7 +58,6 @@ const wordwrap = (text, width) => {
     }
     return lines;
 };
-
 
 /**
 * @class DevTODService
@@ -85,26 +83,24 @@ class DevTODService extends BaseService {
     * Handles the boot consolidation phase for the Tip of the Day service
     * Selects a random tip, wraps it to fit the console width, and creates
     * a widget function to display the formatted tip with optional header/footer
-    * 
+    *
     * @returns {Promise<void>}
     */
     async ['__on_boot.consolidation'] () {
         if ( ! config.tipofday ) return;
         let random_tip = tips[Math.floor(Math.random() * tips.length)];
         if ( this.config.old_widget_behavior ) {
-            random_tip = wordwrap(
-                random_tip,
-                process.stdout.columns
-                    ? process.stdout.columns - 6 : 50,
-            );
-        
+            random_tip = wordwrap(random_tip,
+                            process.stdout.columns
+                                ? process.stdout.columns - 6 : 50);
+
             this.tod_widget = () => {
                 const lines = [
                     ...random_tip,
                 ];
                 if ( ! this.global_config.minimal_console ) {
-                    lines.unshift("\x1B[1mTip of the Day\x1B[0m");
-                    lines.push("Type tod:dismiss to un-stick this message");
+                    lines.unshift('\x1B[1mTip of the Day\x1B[0m');
+                    lines.push('Type tod:dismiss to un-stick this message');
                 }
                 surrounding_box('33;1', lines);
                 return lines;
@@ -138,8 +134,8 @@ class DevTODService extends BaseService {
                     const lines = this.tod_widget();
                     for ( const line of lines ) log.log(line);
                     this.tod_widget = null;
-                }
-            }
+                },
+            },
         ]);
     }
 }

@@ -17,12 +17,12 @@
  * You should have received a copy of the GNU Affero General Public License
  * along with this program.  If not, see <https://www.gnu.org/licenses/>.
  */
-const { AdvancedBase } = require("../../../putility");
-const { Context } = require("../util/context");
-const { ContextAwareFeature } = require("../traits/ContextAwareFeature");
-const { OtelFeature } = require("../traits/OtelFeature");
-const APIError = require("../api/APIError");
-const { AssignableMethodsFeature } = require("../traits/AssignableMethodsFeature");
+const { AdvancedBase } = require('../../../putility');
+const { Context } = require('../util/context');
+const { ContextAwareFeature } = require('../traits/ContextAwareFeature');
+const { OtelFeature } = require('../traits/OtelFeature');
+const APIError = require('../api/APIError');
+const { AssignableMethodsFeature } = require('../traits/AssignableMethodsFeature');
 
 // CONTEXT_KEY is used to create a unique context key for operation tracing
 // and is utilized throughout the OperationTraceService to manage frames.
@@ -34,7 +34,7 @@ const CONTEXT_KEY = Context.make_context_key('operation-trace');
 */
 class OperationFrame {
     static LOG_DEBUG = true;
-    constructor({ parent, label, x }) {
+    constructor ({ parent, label, x }) {
         this.parent = parent;
         this.label = label;
         this.tags = [];
@@ -57,14 +57,14 @@ class OperationFrame {
     static FRAME_STATUS_READY = { label: 'ready' };
     static FRAME_STATUS_DONE = { label: 'done' };
 
-    set status(status) {
+    set status (status) {
         this.status_ = status;
         this._calc_effective_status();
 
-        this.log.debug(`FRAME STATUS ${status.label} ` +
-            (status !== this.effective_status_
+        this.log.debug(`FRAME STATUS ${status.label} ${
+            status !== this.effective_status_
                 ? `(effective: ${this.effective_status_.label}) `
-                : ''),
+                : ''}`,
         {
             tags: this.tags,
             ...this.attributes,
@@ -80,7 +80,7 @@ class OperationFrame {
     *
     * @param {Object} status - The new status to set.
     */
-    _calc_effective_status() {
+    _calc_effective_status () {
         for ( const child of this.children ) {
             if ( child.status === OperationFrame.FRAME_STATUS_STUCK ) {
                 this.effective_status_ = OperationFrame.FRAME_STATUS_STUCK;
@@ -119,37 +119,37 @@ class OperationFrame {
     *
     * @return {Object} The effective status of the operation frame.
     */
-    get status() {
+    get status () {
         return this.effective_status_;
     }
 
-    tag(...tags) {
+    tag (...tags) {
         this.tags.push(...tags);
         return this;
     }
 
-    attr(key, value) {
+    attr (key, value) {
         this.attributes[key] = value;
         return this;
     }
 
     // recursively go through frames to find the attribute
-    get_attr(key) {
+    get_attr (key) {
         if ( this.attributes[key] ) return this.attributes[key];
         if ( this.parent ) return this.parent.get_attr(key);
     }
 
-    log(message) {
+    log (message) {
         this.messages.push(message);
         return this;
     }
 
-    error(err) {
+    error (err) {
         this.error_ = err;
         return this;
     }
 
-    push_child(frame) {
+    push_child (frame) {
         this.children.push(frame);
         return this;
     }
@@ -159,7 +159,7 @@ class OperationFrame {
     *
     * @returns {OperationFrame} The root frame of the current frame hierarchy.
     */
-    get_root_frame() {
+    get_root_frame () {
         let frame = this;
         while ( frame.parent ) {
             frame = frame.parent;
@@ -173,17 +173,17 @@ class OperationFrame {
     * the effective status accordingly. It triggers a recalculation of the
     * effective status for parent frames if necessary.
     */
-    done() {
+    done () {
         this.status = OperationFrame.FRAME_STATUS_DONE;
     }
 
-    describe(show_tree, highlight_frame) {
-        let s = this.label + ` (${this.children.length})`;
+    describe (show_tree, highlight_frame) {
+        let s = `${this.label } (${this.children.length})`;
         if ( this.tags.length ) {
-            s += ' ' + this.tags.join(' ');
+            s += ` ${ this.tags.join(' ')}`;
         }
         if ( this.attributes ) {
-            s += ' ' + JSON.stringify(this.attributes);
+            s += ` ${ JSON.stringify(this.attributes)}`;
         }
 
         if ( this.children.length == 0 ) return s;
@@ -206,9 +206,9 @@ class OperationFrame {
             for ( let i = 0; i < children.length; i++ ) {
                 const child = children[i];
                 const is_last = i == children.length - 1;
-                if ( child === highlight_frame ) s += `\x1B[36;1m`;
-                s += '\n' + prefix + (is_last ? prefix_last : prefix_child) + child.describe();
-                if ( child === highlight_frame ) s += `\x1B[0m`;
+                if ( child === highlight_frame ) s += '\x1B[36;1m';
+                s += `\n${ prefix }${is_last ? prefix_last : prefix_child }${child.describe()}`;
+                if ( child === highlight_frame ) s += '\x1B[0m';
                 recurse(child, prefix + (is_last ? prefix_deep_end : prefix_deep));
             }
         };
@@ -227,7 +227,7 @@ class OperationFrame {
 class OperationTraceService {
     static CONCERN = 'filesystem';
 
-    constructor({ services }) {
+    constructor ({ services }) {
         this.log = services.get('log-service').create('operation-trace', {
             concern: this.constructor.CONCERN,
         });
@@ -248,14 +248,14 @@ class OperationTraceService {
     * @param {?Object} [x] - The context for the operation frame.
     * @returns {OperationFrame} The new operation frame.
     */
-    async add_frame(label) {
+    async add_frame (label) {
         return this.add_frame_sync(label);
     }
 
-    add_frame_sync(label, x) {
+    add_frame_sync (label, x) {
         if ( x ) {
-            this.log.debug('add_frame_sync() called with explicit context: ' +
-                x.describe());
+            this.log.debug(`add_frame_sync() called with explicit context: ${
+                x.describe()}`);
         }
         let parent = (x ?? Context).get(this.ckey('frame'));
         const frame = new OperationFrame({
@@ -264,7 +264,7 @@ class OperationTraceService {
             x,
         });
         parent && parent.push_child(frame);
-        this.log.debug(`FRAME START ` + frame.describe());
+        this.log.debug(`FRAME START ${ frame.describe()}`);
         if ( ! parent ) {
             // NOTE: only uncomment in local testing for now;
             //   this will cause a memory leak until frame
@@ -274,8 +274,8 @@ class OperationTraceService {
         return frame;
     }
 
-    ckey(key) {
-        return CONTEXT_KEY + ':' + key;
+    ckey (key) {
+        return `${CONTEXT_KEY }:${ key}`;
     }
 }
 
@@ -307,7 +307,7 @@ class BaseOperation extends AdvancedBase {
     * @returns {Promise<*>} - The result of the operation.
     * @throws {Error} - If the frame is missing or any other error occurs during the operation.
     */
-    async run(firstArg, ...rest) {
+    async run (firstArg, ...rest) {
         this.values = firstArg;
 
         firstArg.user = firstArg.user ??
@@ -364,11 +364,11 @@ class BaseOperation extends AdvancedBase {
         }
     }
 
-    checkpoint(name) {
+    checkpoint (name) {
         this.frame.checkpoint = name;
     }
 
-    field(key, value) {
+    field (key, value) {
         this.frame.attributes[key] = value;
     }
 
@@ -379,7 +379,7 @@ class BaseOperation extends AdvancedBase {
      * all child frames at least reach working state before the parent operation
      * completes.
      */
-    _post_run() {
+    _post_run () {
         let any_async = false;
         for ( const child of this.frame.children ) {
             if ( child.status === OperationFrame.FRAME_STATUS_PENDING ) {

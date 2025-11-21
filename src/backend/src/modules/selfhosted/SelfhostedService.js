@@ -16,20 +16,20 @@
  * You should have received a copy of the GNU Affero General Public License
  * along with this program.  If not, see <https://www.gnu.org/licenses/>.
  */
-const { Actor } = require("../../services/auth/Actor");
-const BaseService = require("../../services/BaseService");
-const { DB_WRITE } = require("../../services/database/consts");
-const { Context } = require("../../util/context");
+const { Actor } = require('../../services/auth/Actor');
+const BaseService = require('../../services/BaseService');
+const { DB_WRITE } = require('../../services/database/consts');
+const { Context } = require('../../util/context');
 
 class SelfhostedService extends BaseService {
     static description = `
         Registers drivers for self-hosted Puter instances.
-    `
+    `;
 
     async _init () {
         this._register_commands(this.services.get('commands'));
     }
- 
+
     _register_commands (commands) {
         const db = this.services.get('database').get(DB_WRITE, 'selfhosted');
         commands.registerCommands('app', [
@@ -47,8 +47,8 @@ class SelfhostedService extends BaseService {
                         }
                         await db.write('UPDATE apps SET godmode = 1 WHERE uid = ?', [app_uid]);
                     });
-                }
-            }
+                },
+            },
         ]);
         commands.registerCommands('app', [
             {
@@ -65,8 +65,8 @@ class SelfhostedService extends BaseService {
                         }
                         await db.write('UPDATE apps SET godmode = 0 WHERE uid = ?', [app_uid]);
                     });
-                }
-            }
+                },
+            },
         ]);
     }
 }

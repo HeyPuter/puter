@@ -74,7 +74,7 @@ const OPENAI_TTS_MODELS = [
  */
 class OpenAITTSService extends BaseService {
     /** @type {import('../../services/MeteringService/MeteringService').MeteringService} */
-    get meteringService() {
+    get meteringService () {
         return this.services.get('meteringService').meteringService;
     }
 
@@ -82,12 +82,12 @@ class OpenAITTSService extends BaseService {
         openai: require('openai'),
     };
 
-    async _init() {
+    async _init () {
         let apiKey =
             this.config?.services?.openai?.apiKey ??
             this.global_config?.services?.openai?.apiKey;
 
-        if ( !apiKey ) {
+        if ( ! apiKey ) {
             apiKey =
                 this.config?.openai?.secret_key ??
                 this.global_config.openai?.secret_key;
@@ -98,7 +98,7 @@ class OpenAITTSService extends BaseService {
             }
         }
 
-        if ( !apiKey ) {
+        if ( ! apiKey ) {
             throw new Error('OpenAI API key not configured');
         }
 
@@ -107,12 +107,12 @@ class OpenAITTSService extends BaseService {
 
     static IMPLEMENTS = {
         ['driver-capabilities']: {
-            supports_test_mode(iface, method_name) {
+            supports_test_mode (iface, method_name) {
                 return iface === 'puter-tts' && method_name === 'synthesize';
             },
         },
         ['puter-tts']: {
-            async list_voices({ provider } = {}) {
+            async list_voices ({ provider } = {}) {
                 if ( provider && provider !== 'openai' ) {
                     return [];
                 }
@@ -128,7 +128,7 @@ class OpenAITTSService extends BaseService {
                     supported_models: OPENAI_TTS_MODELS.map(model => model.id),
                 }));
             },
-            async list_engines({ provider } = {}) {
+            async list_engines ({ provider } = {}) {
                 if ( provider && provider !== 'openai' ) {
                     return [];
                 }
@@ -140,13 +140,13 @@ class OpenAITTSService extends BaseService {
                     provider: 'openai',
                 }));
             },
-            async synthesize(params) {
+            async synthesize (params) {
                 return this.synthesize(params);
             },
         },
     };
 
-    async synthesize({
+    async synthesize ({
         text,
         voice,
         model,
@@ -166,7 +166,7 @@ class OpenAITTSService extends BaseService {
         }
 
         model = model || DEFAULT_MODEL;
-        if ( !OPENAI_TTS_MODELS.find(({ id }) => id === model) ) {
+        if ( ! OPENAI_TTS_MODELS.find(({ id }) => id === model) ) {
             throw APIError.create('field_invalid', null, {
                 key: 'model',
                 expected: OPENAI_TTS_MODELS.map(({ id }) => id).join(', '),
@@ -175,7 +175,7 @@ class OpenAITTSService extends BaseService {
         }
 
         voice = voice || DEFAULT_VOICE;
-        if ( !OPENAI_TTS_VOICES.find(({ id }) => id === voice) ) {
+        if ( ! OPENAI_TTS_VOICES.find(({ id }) => id === voice) ) {
             throw APIError.create('field_invalid', null, {
                 key: 'voice',
                 expected: OPENAI_TTS_VOICES.map(({ id }) => id).join(', '),
@@ -190,7 +190,7 @@ class OpenAITTSService extends BaseService {
         const usageType = `openai:${model}:character`;
 
         const usageAllowed = await this.meteringService.hasEnoughCreditsFor(actor, usageType, text.length);
-        if ( !usageAllowed ) {
+        if ( ! usageAllowed ) {
             throw APIError.create('insufficient_funds');
         }
 

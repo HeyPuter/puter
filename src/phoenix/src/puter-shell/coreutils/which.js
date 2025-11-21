@@ -41,7 +41,7 @@ export default {
         let anyCommandsNotFound = false;
 
         const printPath = async ( commandName, command ) => {
-            if (command.path) {
+            if ( command.path ) {
                 await out.write(`${command.path}\n`);
             } else {
                 await out.write(`${commandName}: shell built-in command\n`);
@@ -71,5 +71,5 @@ export default {
         if ( anyCommandsNotFound ) {
             throw new Exit(1);
         }
-    }
+    },
 };

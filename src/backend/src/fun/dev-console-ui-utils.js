@@ -32,7 +32,7 @@ const surrounding_box = (col, lines, lengths) => {
     if ( ! lengths ) {
         lengths = lines.map(line => stringLength(line));
     }
-    
+
     const probably_docker = (() => {
         try {
             // I don't know what the value of this is in Docker,

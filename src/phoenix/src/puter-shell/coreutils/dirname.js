@@ -24,19 +24,19 @@ export default {
     description: 'Print PATH without its final segment.',
     args: {
         $: 'simple-parser',
-        allowPositionals: true
+        allowPositionals: true,
     },
     execute: async ctx => {
         let string = ctx.locals.positionals[0];
         const removeTrailingSlashes = (input) => {
             return input.replace(/\/+$/, '');
-        }
+        };
 
-        if (string === undefined) {
+        if ( string === undefined ) {
             await ctx.externs.err.write('dirname: Missing path argument\n');
             throw new Exit(1);
         }
-        if (ctx.locals.positionals.length > 1) {
+        if ( ctx.locals.positionals.length > 1 ) {
             await ctx.externs.err.write('dirname: Too many arguments, expected 1\n');
             throw new Exit(1);
         }
@@ -45,10 +45,10 @@ export default {
         let skipToAfterStep8 = false;
 
         // 1. If string is //, skip steps 2 to 5.
-        if (string !== '//') {
+        if ( string !== '//' ) {
             // 2. If string consists entirely of <slash> characters, string shall be set to a single <slash> character.
             //    In this case, skip steps 3 to 8.
-            if (string === '/'.repeat(string.length)) {
+            if ( string === '/'.repeat(string.length) ) {
                 string = '/';
                 skipToAfterStep8 = true;
             } else {
@@ -57,7 +57,7 @@ export default {
 
                 // 4. If there are no <slash> characters remaining in string, string shall be set to a single <period> character.
                 //    In this case, skip steps 5 to 8.
-                if (string.indexOf('/') === -1) {
+                if ( string.indexOf('/') === -1 ) {
                     string = '.';
                     skipToAfterStep8 = true;
                 }
@@ -65,7 +65,7 @@ export default {
                 // 5. If there are any trailing non- <slash> characters in string, they shall be removed.
                 else {
                     const lastSlashIndex = string.lastIndexOf('/');
-                    if (lastSlashIndex === -1) {
+                    if ( lastSlashIndex === -1 ) {
                         string = '';
                     } else {
                         string = string.substring(0, lastSlashIndex);
@@ -74,7 +74,7 @@ export default {
             }
         }
 
-        if (!skipToAfterStep8) {
+        if ( ! skipToAfterStep8 ) {
             // 6. If the remaining string is //, it is implementation-defined whether steps 7 and 8 are skipped or processed.
             // NOTE: We process it normally.
 
@@ -82,12 +82,12 @@ export default {
             string = removeTrailingSlashes(string);
 
             // 8. If the remaining string is empty, string shall be set to a single <slash> character.
-            if (string.length === 0) {
+            if ( string.length === 0 ) {
                 string = '/';
             }
         }
 
         // The resulting string shall be written to standard output.
-        await ctx.externs.out.write(string + '\n');
-    }
+        await ctx.externs.out.write(`${string }\n`);
+    },
 };

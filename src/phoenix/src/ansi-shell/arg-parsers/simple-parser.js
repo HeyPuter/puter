@@ -29,21 +29,22 @@ export default {
         try {
             result = parseArgs({ ...spec, args: ctx.locals.args });
         } catch (e) {
-            await ctx.externs.out.write(
-                '\x1B[31;1m' +
-                'error parsing arguments: ' +
-                e.message + '\x1B[0m\n');
+            await ctx.externs.out.write('\x1B[31;1m' +
+                `error parsing arguments: ${
+                    e.message }\x1B[0m\n`);
             ctx.cmdExecState.valid = false;
             return;
         }
 
-        if (result.values.help) {
+        if ( result.values.help ) {
             ctx.cmdExecState.printHelpAndExit = true;
         }
 
         ctx.locals.values = result.values;
         ctx.locals.positionals = result.positionals;
-        if (result.tokens)
+        if ( result.tokens )
+        {
             ctx.locals.tokens = result.tokens;
-    }
-}
+        }
+    },
+};

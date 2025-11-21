@@ -31,7 +31,7 @@ import StrUntilParserImpl from './parse_impls/StrUntilParserImpl.js';
 
 export {
     MergeWhitespacePStratumImpl,
-} from './strata_impls/MergeWhitespacePStratumImpl.js'
+} from './strata_impls/MergeWhitespacePStratumImpl.js';
 
 import {
     SequenceParserImpl,
@@ -47,7 +47,7 @@ export {
     ChoiceParserImpl,
     RepeatParserImpl,
     StrUntilParserImpl,
-}
+};
 
 export {
     PStratum,
@@ -57,7 +57,7 @@ export {
 
 export {
     BytesPStratumImpl,
-    StringPStratumImpl
+    StringPStratumImpl,
 } from './strata_impls/terminals.js';
 
 export {
@@ -71,7 +71,7 @@ export {
 export { ParserBuilder } from './dsl/ParserBuilder.js';
 
 export class StrataParseFacade {
-    static getDefaultParserRegistry() {
+    static getDefaultParserRegistry () {
         const r = new ParserRegistry();
         r.register('sequence', SequenceParserImpl);
         r.register('choice', ChoiceParserImpl);
@@ -111,7 +111,7 @@ export class StrataParser {
         for ( ;; ) {
             ({ done, value } =
                 this.strata[this.strata.length - 1].next());
-            if ( done ) break
+            if ( done ) break;
             result.push(value);
         }
         if ( value ) {

@@ -16,7 +16,7 @@
  * You should have received a copy of the GNU Affero General Public License
  * along with this program.  If not, see <https://www.gnu.org/licenses/>.
  */
-function highlight(text) {
+function highlight (text) {
     return `\x1B[92m${text}\x1B[0m`;
 }
 
@@ -63,5 +63,5 @@ export default {
         });
 
         await ctx.externs.out.write(result);
-    }
-}
+    },
+};

@@ -29,7 +29,7 @@ export class Literal extends Parser {
 
     _parse (stream) {
         const subStream = stream.fork();
-        for ( let i=0 ; i < this.value.length ; i++ ) {
+        for ( let i = 0 ; i < this.value.length ; i++ ) {
             let { done, value } = subStream.next();
             if ( done ) return UNRECOGNIZED;
             if ( this.value[i] !== value ) return UNRECOGNIZED;
@@ -53,7 +53,7 @@ export class StringOf extends Parser {
         const subStream = stream.fork();
         let text = '';
 
-        while (true) {
+        while ( true ) {
             let { done, value } = subStream.look();
             if ( done ) break;
             if ( ! this.test(value) ) break;
@@ -62,7 +62,7 @@ export class StringOf extends Parser {
             text += value;
         }
 
-        if (text.length === 0) {
+        if ( text.length === 0 ) {
             return UNRECOGNIZED;
         }
 
@@ -78,8 +78,8 @@ export class StringOf extends Parser {
  * @param escapeCharacter Character to use as the escape character. By default, is '\'.
  */
 export class StringUntil extends Parser {
-    _create(testOrCharacter, { escapeCharacter = '\\' } = {}) {
-        if (typeof testOrCharacter === 'string') {
+    _create (testOrCharacter, { escapeCharacter = '\\' } = {}) {
+        if ( typeof testOrCharacter === 'string' ) {
             this.test = (c => c === testOrCharacter);
         } else {
             this.test = testOrCharacter;
@@ -87,19 +87,21 @@ export class StringUntil extends Parser {
         this.escapeCharacter = escapeCharacter;
     }
 
-    _parse(stream) {
+    _parse (stream) {
         const subStream = stream.fork();
         let text = '';
         let lastWasEscape = false;
 
-        while (true) {
+        while ( true ) {
             let { done, value } = subStream.look();
             if ( done ) break;
             if ( !lastWasEscape && this.test(value) )
+            {
                 break;
+            }
 
             subStream.next();
-            if (value === this.escapeCharacter) {
+            if ( value === this.escapeCharacter ) {
                 lastWasEscape = true;
                 continue;
             }
@@ -107,11 +109,15 @@ export class StringUntil extends Parser {
             text += value;
         }
 
-        if (lastWasEscape)
+        if ( lastWasEscape )
+        {
             return INVALID;
+        }
 
-        if (text.length === 0)
+        if ( text.length === 0 )
+        {
             return UNRECOGNIZED;
+        }
 
         stream.join(subStream);
         return { status: VALUE, $: 'stringUntil', value: text };
@@ -123,7 +129,7 @@ export class StringUntil extends Parser {
  * @param symbolName The name of the symbol to parse.
  */
 export class Symbol extends Parser {
-    _create(symbolName) {
+    _create (symbolName) {
         this.symbolName = symbolName;
     }
 
@@ -150,7 +156,8 @@ export class Symbol extends Parser {
  * Does no parsing and returns a discarded result.
  */
 export class None extends Parser {
-    _create () {}
+    _create () {
+    }
 
     _parse (stream) {
         return { status: VALUE, $: 'none', $discard: true };
@@ -161,7 +168,8 @@ export class None extends Parser {
  * Always fails parsing.
  */
 export class Fail extends Parser {
-    _create () {}
+    _create () {
+    }
 
     _parse (stream) {
         return UNRECOGNIZED;

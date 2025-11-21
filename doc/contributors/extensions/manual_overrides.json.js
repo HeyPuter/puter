@@ -12,7 +12,7 @@ export default [
                 summary: 'the email being validated',
                 notes: [
                     'The email may have already been cleaned.',
-                ]
+                ],
             },
             allow: {
                 type: 'boolean',
@@ -20,7 +20,7 @@ export default [
                 summary: 'whether the email is allowed',
                 notes: [
                     'If set to false, the email will be considered invalid.',
-                ]
+                ],
             },
         },
     },
@@ -44,8 +44,8 @@ export default [
                         measurements: data.measurements
                     });
                 });
-            `
-        }
+            `,
+        },
     },
     {
         id: 'core.fs.create.directory',
@@ -61,8 +61,8 @@ export default [
             context: {
                 type: 'Context',
                 mutability: 'no-effect',
-                summary: 'current context'
+                summary: 'current context',
             },
-        }
+        },
     },
 ];

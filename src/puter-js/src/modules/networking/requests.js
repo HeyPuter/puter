@@ -1,5 +1,5 @@
 // SO: https://stackoverflow.com/a/76332760/ under CC BY-SA 4.0
-function mergeUint8Arrays(...arrays) {
+function mergeUint8Arrays (...arrays) {
     const totalSize = arrays.reduce((acc, e) => acc + e.length, 0);
     const merged = new Uint8Array(totalSize);
 
@@ -11,18 +11,18 @@ function mergeUint8Arrays(...arrays) {
     return merged;
 }
 
-function parseHTTPHead(head) {
-    const lines = head.split("\r\n");
+function parseHTTPHead (head) {
+    const lines = head.split('\r\n');
 
-    const firstLine = lines.shift().split(" ");
+    const firstLine = lines.shift().split(' ');
     const status = Number(firstLine[1]);
-    const statusText = firstLine.slice(2).join(" ") || "";
+    const statusText = firstLine.slice(2).join(' ') || '';
 
     const headersArray = [];
-    for (const header of lines) {
-        const splitHeaders = header.split(": ");
+    for ( const header of lines ) {
+        const splitHeaders = header.split(': ');
         const key = splitHeaders[0];
-        const value = splitHeaders.slice(1).join(": ");
+        const value = splitHeaders.slice(1).join(': ');
         headersArray.push([key, value]);
     }
     new Headers(headersArray);
@@ -32,7 +32,7 @@ function parseHTTPHead(head) {
 // Trivial stream based HTTP 1.1 client
 // TODO optional redirect handling
 
-export function pFetch(...args) {
+export function pFetch (...args) {
     return new Promise(async (res, rej) => {
         try {
             const reqObj = new Request(...args);
@@ -41,68 +41,62 @@ export function pFetch(...args) {
 
             // Socket creation: regular for HTTP, TLS for https
             let socket;
-            if (parsedURL.protocol === "http:") {
-                socket = new puter.net.Socket(
-                    parsedURL.hostname,
-                    parsedURL.port || 80,
-                );
-            } else if (parsedURL.protocol === "https:") {
-                socket = new puter.net.tls.TLSSocket(
-                    parsedURL.hostname,
-                    parsedURL.port || 443,
-                );
+            if ( parsedURL.protocol === 'http:' ) {
+                socket = new puter.net.Socket(parsedURL.hostname,
+                                parsedURL.port || 80);
+            } else if ( parsedURL.protocol === 'https:' ) {
+                socket = new puter.net.tls.TLSSocket(parsedURL.hostname,
+                                parsedURL.port || 443);
             } else {
                 const errorMsg = `Failed to fetch. URL scheme "${parsedURL.protocol}" is not supported.`;
-                
+
                 // Log the error
-                if (globalThis.puter?.apiCallLogger?.isEnabled()) {
+                if ( globalThis.puter?.apiCallLogger?.isEnabled() ) {
                     globalThis.puter.apiCallLogger.logRequest({
                         service: 'network',
                         operation: 'pFetch',
                         params: { url: reqObj.url, method: reqObj.method },
-                        error: { message: errorMsg }
+                        error: { message: errorMsg },
                     });
                 }
-                
+
                 rej(errorMsg);
                 return;
             }
 
             // Sending default UA
-            if (!headers.get("user-agent")) {
-                headers.set("user-agent", navigator.userAgent);
+            if ( ! headers.get('user-agent') ) {
+                headers.set('user-agent', navigator.userAgent);
             }
 
             let reqHead = `${reqObj.method} ${parsedURL.pathname}${parsedURL.search} HTTP/1.1\r\nHost: ${parsedURL.host}\r\nConnection: close\r\n`;
-            for (const [key, value] of headers) {
+            for ( const [key, value] of headers ) {
                 reqHead += `${key}: ${value}\r\n`;
             }
             let requestBody;
-            if (reqObj.body) {
+            if ( reqObj.body ) {
                 requestBody = new Uint8Array(await reqObj.arrayBuffer());
                 // If we have a body, we need to set the content length
-                if (!headers.has("content-length")) {
-                    headers.set("content-length", requestBody.length);
+                if ( ! headers.has('content-length') ) {
+                    headers.set('content-length', requestBody.length);
                 } else if (
-                    headers.get("content-length") !== String(requestBody.length)
+                    headers.get('content-length') !== String(requestBody.length)
                 ) {
-                    return rej(
-                        "Content-Length header does not match the body length. Please check your request.",
-                    );
+                    return rej('Content-Length header does not match the body length. Please check your request.');
                 }
                 reqHead += `Content-Length: ${requestBody.length}\r\n`;
             }
 
-            reqHead += "\r\n";
+            reqHead += '\r\n';
 
-            socket.on("open", async () => {
+            socket.on('open', async () => {
                 socket.write(reqHead); // Send headers
-                if (requestBody) {
+                if ( requestBody ) {
                     socket.write(requestBody); // Send body if present
                 }
             });
             const decoder = new TextDecoder();
-            let responseHead = "";
+            let responseHead = '';
             let dataOffset = -1;
             const fullDataParts = [];
             let responseReturned = false;
@@ -113,9 +107,9 @@ export function pFetch(...args) {
             let buffer = new Uint8Array(0);
 
             const outStream = new ReadableStream({
-                start(controller) {
+                start (controller) {
                     // This is annoyingly long
-                    function parseIncomingChunk(data) {
+                    function parseIncomingChunk (data) {
                         // append new data to our rolling buffer
                         const tmp = new Uint8Array(buffer.length + data.length);
                         tmp.set(buffer, 0);
@@ -123,11 +117,11 @@ export function pFetch(...args) {
                         buffer = tmp;
 
                         // pull out as many complete chunks (or headers) as we can
-                        while (true) {
-                            if (currentChunkLeft > 0) {
+                        while ( true ) {
+                            if ( currentChunkLeft > 0 ) {
                                 // we’re in the middle of reading a chunk body
                                 // need size + 2 bytes (for trailing \r\n)
-                                if (buffer.length >= currentChunkLeft + 2) {
+                                if ( buffer.length >= currentChunkLeft + 2 ) {
                                     // full body + CRLF available
                                     const chunk = buffer.slice(0, currentChunkLeft);
                                     controller.enqueue(chunk);
@@ -146,7 +140,7 @@ export function pFetch(...args) {
                                 // we need to parse the next size line
                                 // find the first "\r\n"
                                 let idx = -1;
-                                for (let i = 0; i + 1 < buffer.length; i++) {
+                                for ( let i = 0; i + 1 < buffer.length; i++ ) {
                                     if (
                                         buffer[i] === 0x0d &&
                                         buffer[i + 1] === 0x0a
@@ -155,7 +149,7 @@ export function pFetch(...args) {
                                         break;
                                     }
                                 }
-                                if (idx < 0) {
+                                if ( idx < 0 ) {
                                     // we don’t yet have a full size line
                                     break;
                                 }
@@ -165,16 +159,14 @@ export function pFetch(...args) {
                                     .decode(buffer.slice(0, idx))
                                     .trim();
                                 currentChunkLeft = parseInt(sizeText, 16);
-                                if (isNaN(currentChunkLeft)) {
-                                    controller.error(
-                                        "Invalid chunk length from server",
-                                    );
+                                if ( isNaN(currentChunkLeft) ) {
+                                    controller.error('Invalid chunk length from server');
                                 }
                                 // strip off the size line + CRLF
                                 buffer = buffer.slice(idx + 2);
 
                                 // zero-length => end of stream
-                                if (currentChunkLeft === 0) {
+                                if ( currentChunkLeft === 0 ) {
                                     responseReturned = true;
                                     controller.close();
                                     return;
@@ -182,51 +174,47 @@ export function pFetch(...args) {
                             }
                         }
                     }
-                    socket.on("data", (data) => {
+                    socket.on('data', (data) => {
                         // Dataoffset is set to another value once head is returned, its safe to assume all remaining data is body
-                        if (dataOffset !== -1 && !chunkedTransfer) {
+                        if ( dataOffset !== -1 && !chunkedTransfer ) {
                             controller.enqueue(data);
                             ingestedContent += data.length;
                         }
 
                         // We dont have the full responseHead yet
-                        if (dataOffset === -1) {
+                        if ( dataOffset === -1 ) {
                             fullDataParts.push(data);
                             responseHead += decoder.decode(data, { stream: true });
                         }
-                        if (chunkedTransfer) {
+                        if ( chunkedTransfer ) {
                             parseIncomingChunk(data);
                         }
 
                         // See if we have the HEAD of an HTTP/1.1 yet
-                        if (responseHead.indexOf("\r\n\r\n") !== -1) {
-                            dataOffset = responseHead.indexOf("\r\n\r\n");
+                        if ( responseHead.indexOf('\r\n\r\n') !== -1 ) {
+                            dataOffset = responseHead.indexOf('\r\n\r\n');
                             responseHead = responseHead.slice(0, dataOffset);
                             const parsedHead = parseHTTPHead(responseHead);
-                            contentLength = Number(
-                                parsedHead.headers.get("content-length"),
-                            );
+                            contentLength = Number(parsedHead.headers.get('content-length'));
                             chunkedTransfer =
-                                parsedHead.headers.get("transfer-encoding") ===
-                                "chunked";
-                            
+                                parsedHead.headers.get('transfer-encoding') ===
+                                'chunked';
+
                             // Log the response
-                            if (globalThis.puter?.apiCallLogger?.isEnabled()) {
+                            if ( globalThis.puter?.apiCallLogger?.isEnabled() ) {
                                 globalThis.puter.apiCallLogger.logRequest({
                                     service: 'network',
                                     operation: 'pFetch',
                                     params: { url: reqObj.url, method: reqObj.method },
-                                    result: { status: parsedHead.status, statusText: parsedHead.statusText }
+                                    result: { status: parsedHead.status, statusText: parsedHead.statusText },
                                 });
                             }
-                            
+
                             // Return initial response object
                             res(new Response(outStream, parsedHead));
 
-                            const residualBody = mergeUint8Arrays(
-                                ...fullDataParts,
-                            ).slice(dataOffset + 4);
-                            if (!chunkedTransfer) {
+                            const residualBody = mergeUint8Arrays(...fullDataParts).slice(dataOffset + 4);
+                            if ( ! chunkedTransfer ) {
                                 // Add any content we have but isn't part of the head into the body stream
                                 ingestedContent += residualBody.length;
                                 controller.enqueue(residualBody);
@@ -241,42 +229,43 @@ export function pFetch(...args) {
                             !chunkedTransfer
                         ) {
                             // Work around for the close bug for compliant HTTP/1.1 servers
-                            if (!responseReturned) {
+                            if ( ! responseReturned ) {
                                 responseReturned = true;
                                 controller.close();
                             }
                         }
                     });
-                    socket.on("close", () => {
-                        if (!responseReturned) {
+                    socket.on('close', () => {
+                        if ( ! responseReturned ) {
                             responseReturned = true;
                             controller.close();
                         }
                     });
-                    socket.on("error", (reason) => {
+                    socket.on('error', (reason) => {
                         // Log the error
-                        if (globalThis.puter?.apiCallLogger?.isEnabled()) {
+                        if ( globalThis.puter?.apiCallLogger?.isEnabled() ) {
                             globalThis.puter.apiCallLogger.logRequest({
                                 service: 'network',
                                 operation: 'pFetch',
                                 params: { url: reqObj.url, method: reqObj.method },
-                                error: { message: "Socket errored with the following reason: " + reason }
+                                error: { message: `Socket errored with the following reason: ${ reason}` },
                             });
                         }
-                        rej("Socket errored with the following reason: " + reason);
+                        rej(`Socket errored with the following reason: ${ reason}`);
                     });
                 },
             });
         } catch (e) {
             // Log unexpected errors
-            if (globalThis.puter?.apiCallLogger?.isEnabled()) {
+            if ( globalThis.puter?.apiCallLogger?.isEnabled() ) {
                 globalThis.puter.apiCallLogger.logRequest({
                     service: 'network',
                     operation: 'pFetch',
                     params: { url: reqObj.url, method: reqObj.method },
-                    error: { message: e.message || e.toString(), stack: e.stack }
+                    error: { message: e.message || e.toString(), stack: e.stack },
                 });
             }
             rej(e);
-        }});
+        }
+    });
 }
