@@ -103,12 +103,12 @@ class HLMove extends HLFilesystemOperation {
 
         // 3. Verify cross-user size constraints
         const src_user_id = await source.get('user_id');
-        const par_user_id = await parent.get('user_id');
-        if ( src_user_id !== par_user_id ) {
+        const parent_user_id = await parent.get('user_id');
+        if ( src_user_id !== parent_user_id ) {
             source_user = await get_user({ id: src_user_id });
-            if ( source_user.id !== par_user_id )
+            if ( source_user.id !== parent_user_id )
             {
-                dest_user = await get_user({ id: par_user_id });
+                dest_user = await get_user({ id: parent_user_id });
             }
             else
             {
@@ -117,7 +117,7 @@ class HLMove extends HLFilesystemOperation {
             await source.fetchSize();
             const item_size = source.entry.size;
             const sizeService = svc.get('sizeService');
-            const capacity = await sizeService.get_storage_capacity(user.id);
+            const capacity = await sizeService.get_storage_capacity(dest_user.id);
             if ( capacity - await df(dest_user.id) - item_size < 0 ) {
                 throw APIError.create('storage_limit_reached');
             }
