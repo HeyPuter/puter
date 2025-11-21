@@ -44,7 +44,7 @@
     "start": "node ./tools/run-selfhosted.js",
     "prestart": "npm run build:ts",
     "dev": "npm run build:ts && DEVCONSOLE=1 node ./tools/run-selfhosted.js",
-    "build": "npm run build:ts; cd src/gui; node ./build.js",
+    "build": "npx eslint --quiet -c eslint/mandatory.eslint.config.js src/backend/src extensions && npm run build:ts && cd src/gui && node ./build.js",
     "check-translations": "node tools/check-translations.js",
     "prepare": "husky",
     "build:ts": "tsc",
