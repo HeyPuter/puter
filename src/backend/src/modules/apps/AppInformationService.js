@@ -779,6 +779,9 @@ class AppInformationService extends BaseService {
         const periods = [];
         let currentDate = new Date(startDate);
         
+        // ???: In local debugging, `currentDate` evaluates to `Invalid Date`.
+        //      Does this work in prod?
+        
         while (currentDate <= endDate) {
             let period;
             switch(grouping) {
@@ -792,6 +795,10 @@ class AppInformationService extends BaseService {
                     break;
                 case 'week':
                     // Get the ISO week number
+                    // TODO: Fix this use of `getWeekNumber`, which doesn't exist.
+                    //       I was not able to invoke this branch due to other
+                    //       blockers when testing locally so I'm leaving this as-is
+                    //       because I can't test for regressions.
                     const weekNum = String(getWeekNumber(currentDate)).padStart(2, '0');
                     period = `${currentDate.getFullYear()}-${weekNum}`;
                     currentDate.setDate(currentDate.getDate() + 7);
