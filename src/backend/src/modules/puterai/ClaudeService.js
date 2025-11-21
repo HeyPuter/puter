@@ -25,6 +25,7 @@ const Messages = require('./lib/Messages');
 const FSNodeParam = require('../../api/filesystem/FSNodeParam');
 const { LLRead } = require('../../filesystem/ll_operations/ll_read');
 const { Context } = require('../../util/context');
+const mime = require('mime-types');
 
 /**
 * ClaudeService class extends BaseService to provide integration with Anthropic's Claude AI models.
@@ -34,10 +35,6 @@ const { Context } = require('../../util/context');
 * @extends BaseService
 */
 class ClaudeService extends BaseService {
-    static MODULES = {
-        Anthropic: require('@anthropic-ai/sdk'),
-    };
-
     /**
      * @type {import('@anthropic-ai/sdk').Anthropic}
      */
@@ -53,7 +50,7 @@ class ClaudeService extends BaseService {
     /** @type {import('../../services/MeteringService/MeteringService').MeteringService} */
     #meteringService;
 
-    async _init() {
+    async _init () {
         this.anthropic = new Anthropic({
             apiKey: this.config.apiKey,
             // 10 minutes is the default; we need to override the timeout to
@@ -75,7 +72,7 @@ class ClaudeService extends BaseService {
     * Returns the default model identifier for Claude API interactions
     * @returns {string} The default model ID 'claude-3-5-sonnet-latest'
     */
-    get_default_model() {
+    get_default_model () {
         return 'claude-3-5-sonnet-latest';
     }
 
@@ -87,7 +84,7 @@ class ClaudeService extends BaseService {
              *
              * @returns Promise<Array<Object>> Array of model details
              */
-            async models() {
+            async models () {
                 return this.models_();
             },
 
@@ -97,7 +94,7 @@ class ClaudeService extends BaseService {
             * @description Retrieves all available model IDs and their aliases,
             * flattening them into a single array of strings that can be used for model selection
             */
-            async list() {
+            async list () {
                 const models = this.models_();
                 const model_names = [];
                 for ( const model of models ) {
@@ -118,10 +115,10 @@ class ClaudeService extends BaseService {
             * @returns {Object} Returns either a TypedValue with streaming response or a completion object
             * @this {ClaudeService}
             */
-            async complete({ messages, stream, model, tools, max_tokens, temperature }) {
+            async complete ({ messages, stream, model, tools, max_tokens, temperature }) {
                 tools = FunctionCalling.make_claude_tools(tools);
                 // console.log("here are the messages: ", messages)
-                
+
                 let system_prompts;
                 // unsure why system_prompts is an array but it always seems to only have exactly one element,
                 // and the real array of system_prompts seems to be the [0].content -- NS
@@ -140,12 +137,12 @@ class ClaudeService extends BaseService {
                 }
 
                 messages = messages.map(message => {
-                    if (message.cache_control) {
+                    if ( message.cache_control ) {
                         message.content[0].cache_control = message.cache_control;
                     }
                     delete message.cache_control;
-                    return message
-                })
+                    return message;
+                });
 
                 const sdk_params = {
                     model: model ?? this.get_default_model(),
@@ -153,19 +150,19 @@ class ClaudeService extends BaseService {
                         ((
                             model === 'claude-3-5-sonnet-20241022'
                             || model === 'claude-3-5-sonnet-20240620'
-                        ) ? 8192 : this.models_().filter(e=>e.name === model)[0].max_tokens || 4096), //required
+                        ) ? 8192 : this.models_().filter(e => e.name === model)[0].max_tokens || 4096), //required
                     temperature: temperature || 0, // required
                     ...( (system_prompts && system_prompts[0]?.content) ? {
-                        system: system_prompts[0]?.content
+                        system: system_prompts[0]?.content,
                     } : {}),
                     tool_choice: {
-                        type: "auto",
-                        disable_parallel_tool_use: true
+                        type: 'auto',
+                        disable_parallel_tool_use: true,
                     },
                     messages,
                     ...(tools ? { tools } : {}),
                 };
-                console.log(sdk_params.max_tokens)
+                console.log(sdk_params.max_tokens);
 
                 // console.log('\x1B[26;1m ===== SDK PARAMETERS', require('util').inspect(sdk_params, undefined, Infinity));
 
@@ -201,8 +198,6 @@ class ClaudeService extends BaseService {
                             fsNode: task.node,
                         });
 
-                        const require = this.require;
-                        const mime = require('mime-types');
                         const mimeType = mime.contentType(await task.node.get('name'));
 
                         beta_mode = true;
@@ -228,12 +223,6 @@ class ClaudeService extends BaseService {
                             return 'container_upload';
                         })();
 
-                        // {
-                        //     'application/pdf': 'document',
-                        //     'text/plain': 'document',
-                        //     'image/': 'image'
-                        // }[mimeType];
-
                         delete task.contentPart.puter_path,
                         task.contentPart.type = contentBlockTypeForFileBasedOnMime;
                         task.contentPart.source = {
@@ -251,7 +240,7 @@ class ClaudeService extends BaseService {
                             try {
                                 await this.anthropic.beta.files.delete(task.file_id,
                                                 { betas: ['files-api-2025-04-14'] });
-                            }  catch (e) {
+                            } catch (e) {
                                 this.errors.report('claude:file-delete-task', {
                                     source: e,
                                     trace: true,
@@ -328,26 +317,7 @@ class ClaudeService extends BaseService {
                         }
                         chatStream.end();
 
-                        this.billForUsage(actor, model || this.get_default_model(), usageSum);
-
-                        // Log token usage statistics
-                        const totalTokens = usageSum.input_tokens + usageSum.output_tokens;
-                        const cachedTokens = usageSum.ephemeral_5m_input_tokens + usageSum.ephemeral_1h_input_tokens;
-                        const cacheHits = usageSum.cache_read_input_tokens;
-                        const uncachedTokens = usageSum.input_tokens - cacheHits - cachedTokens;
-
-//                         console.log(`
-// ╔══════════════════════════════════════════════════════════════╗
-// ║           🎯 Token Usage Statistics 🎯                       ║
-// ╠══════════════════════════════════════════════════════════════╣
-// ║  📊 Total Tokens Used:     ${String(totalTokens).padStart(10)} 📊  ║
-// ║  💾 Cached Tokens:         ${String(cachedTokens).padStart(10)} 💾  ║
-// ║  ✅ Cache Hits:             ${String(cacheHits).padStart(10)} ✅  ║
-// ║  🔄 Uncached Tokens:        ${String(uncachedTokens).padStart(10)} 🔄  ║
-// ║  📥 Input Tokens:           ${String(usageSum.input_tokens).padStart(10)} 📥  ║
-// ║  📤 Output Tokens:          ${String(usageSum.output_tokens).padStart(10)} 📤  ║
-// ╚══════════════════════════════════════════════════════════════╝
-//                         `);
+                        this.#meteringService.utilRecordUsageObject(usageSum, actor, `claude:${this.models_().find(m => [m.id, ...(m.aliases || [])].includes(model || this.get_default_model())).id}`);
                     };
 
                     return {
@@ -361,26 +331,7 @@ class ClaudeService extends BaseService {
                 await cleanup_files();
 
                 const usage = this.usageFormatterUtil(msg.usage);
-                this.billForUsage(actor, model || this.get_default_model(), usage);
-
-                // Log token usage statistics
-                const totalTokens = usage.input_tokens + usage.output_tokens;
-                const cachedTokens = usage.ephemeral_5m_input_tokens + usage.ephemeral_1h_input_tokens;
-                const cacheHits = usage.cache_read_input_tokens;
-                const uncachedTokens = usage.input_tokens - cacheHits - cachedTokens;
-
-//                 console.log(`
-// ╔══════════════════════════════════════════════════════════════╗
-// ║           🎯 Token Usage Statistics 🎯                      ║
-// ╠══════════════════════════════════════════════════════════════╣
-// ║  📊 Total Tokens Used:     ${String(totalTokens).padStart(10)} 📊  ║
-// ║  💾 Cached Tokens:         ${String(cachedTokens).padStart(10)} 💾  ║
-// ║  ✅ Cache Hits:             ${String(cacheHits).padStart(10)} ✅  ║
-// ║  🔄 Uncached Tokens:        ${String(uncachedTokens).padStart(10)} 🔄  ║
-// ║  📥 Input Tokens:           ${String(usage.input_tokens).padStart(10)} 📥  ║
-// ║  📤 Output Tokens:          ${String(usage.output_tokens).padStart(10)} 📤  ║
-// ╚══════════════════════════════════════════════════════════════╝
-//                 `);
+                this.#meteringService.utilRecordUsageObject(usage, actor, `claude:${this.models_().find(m => [m.id, ...(m.aliases || [])].includes(model || this.get_default_model())).id}`);
 
                 // TODO DS: cleanup old usage tracking
                 return {
@@ -394,7 +345,7 @@ class ClaudeService extends BaseService {
 
     // TODO DS: get this inside the class as a private method once the methods aren't exported directly
     /** @type {(usage: import("@anthropic-ai/sdk/resources/messages.js").Usage | import("@anthropic-ai/sdk/resources/beta/messages/messages.js").BetaUsage) => {}}) */
-    usageFormatterUtil(usage) {
+    usageFormatterUtil (usage) {
         return {
             input_tokens: usage?.input_tokens || 0,
             ephemeral_5m_input_tokens: usage?.cache_creation?.ephemeral_5m_input_tokens || usage.cache_creation_input_tokens || 0, // this is because they're api is a bit inconsistent
@@ -402,11 +353,6 @@ class ClaudeService extends BaseService {
             cache_read_input_tokens: usage?.cache_read_input_tokens || 0,
             output_tokens: usage?.output_tokens || 0,
         };
-    };
-
-    // TODO DS: get this inside the class as a private method once the methods aren't exported directly
-    billForUsage(actor, model, usage) {
-        this.#meteringService.utilRecordUsageObject(usage, actor, `claude:${this.models_().find(m => [m.id, ...(m.aliases || [])].includes(model)).id}`);
     };
 
     /**
@@ -421,7 +367,7 @@ class ClaudeService extends BaseService {
     *   - max_output: Maximum output tokens
     *   - training_cutoff: Training data cutoff date
     */
-    models_() {
+    models_ () {
         return [
             {
                 id: 'claude-haiku-4-5-20251001',

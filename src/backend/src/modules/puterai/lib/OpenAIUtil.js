@@ -24,7 +24,7 @@ const process_input_messages = async (messages) => {
             const content_block = content[i];
 
             if ( content_block.type === 'tool_use' ) {
-                if ( !msg.tool_calls ) {
+                if ( ! msg.tool_calls ) {
                     msg.tool_calls = [];
                     is_tool_call = true;
                 }
@@ -108,12 +108,6 @@ const create_chat_stream_handler = ({
     let last_usage = null;
     for await ( let chunk of completion ) {
         chunk = deviations.chunk_but_like_actually(chunk);
-        if ( process.env.DEBUG ) {
-            const delta = chunk?.choices?.[0]?.delta;
-            console.log(`AI CHUNK`,
-                            chunk,
-                            delta && JSON.stringify(delta));
-        }
         const chunk_usage = deviations.index_usage_from_stream_chunk(chunk);
         if ( chunk_usage ) last_usage = chunk_usage;
         if ( chunk.choices.length < 1 ) continue;
@@ -127,7 +121,7 @@ const create_chat_stream_handler = ({
             // A: For now, reasoning_content and content never appear together, but I’m not sure if they’ll always be mutually exclusive.
         }
 
-        if ( choice.delta.content ){
+        if ( choice.delta.content ) {
             if ( mode === 'tool' ) {
                 toolblock.end();
                 mode = 'text';
@@ -205,7 +199,7 @@ const handle_completion_output = async ({
     if ( finally_fn ) await finally_fn();
 
     const is_empty = completion.choices?.[0]?.message?.content?.trim() === '';
-    if ( is_empty && ! completion.choices?.[0]?.message?.tool_calls ) {
+    if ( is_empty && !completion.choices?.[0]?.message?.tool_calls ) {
         // GPT refuses to generate an empty response if you ask it to,
         // so this will probably only happen on an error condition.
         throw new Error('an empty response was generated');

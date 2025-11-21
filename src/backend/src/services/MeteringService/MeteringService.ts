@@ -353,7 +353,7 @@ export class MeteringService {
     }
 
     async getActorCurrentMonthUsageDetails (actor: Actor) {
-        if ( !actor.type?.user?.uuid ) {
+        if ( ! actor.type?.user?.uuid ) {
             throw new Error('Actor must be a user to get usage details');
         }
         // batch get actor usage, per app usage, and actor app totals for the month
@@ -375,7 +375,7 @@ export class MeteringService {
                         filteredAppTotals[appKey] = appUsage;
                     } else {
                         Object.entries(appUsage).forEach(([usageKind, amount]) => {
-                            if ( !othersTotal[usageKind as keyof AppTotals] ) {
+                            if ( ! othersTotal[usageKind as keyof AppTotals] ) {
                                 othersTotal[usageKind as keyof AppTotals] = 0;
                             }
                             othersTotal[usageKind as keyof AppTotals] += amount;
@@ -398,7 +398,7 @@ export class MeteringService {
     }
 
     async getActorCurrentMonthAppUsageDetails (actor: Actor, appId?: string) {
-        if ( !actor.type?.user?.uuid ) {
+        if ( ! actor.type?.user?.uuid ) {
             throw new Error('Actor must be a user to get usage details');
         }
         appId = appId || actor.type?.app?.uid || GLOBAL_APP_KEY;
@@ -453,7 +453,7 @@ export class MeteringService {
 
     async getActorSubscription (actor: Actor): Promise<(typeof SUB_POLICIES)[number]> {
         // TODO DS: maybe allow non-user actors to have subscriptions eventually
-        if ( !actor.type?.user.uuid ) {
+        if ( ! actor.type?.user.uuid ) {
             throw new Error('Actor must be a user to get policy');
         }
 
@@ -476,7 +476,7 @@ export class MeteringService {
     }
 
     async getActorAddons (actor: Actor) {
-        if ( !actor.type?.user?.uuid ) {
+        if ( ! actor.type?.user?.uuid ) {
             throw new Error('Actor must be a user to get policy addons');
         }
         const key = `${POLICY_PREFIX}:actor:${actor.type.user?.uuid}:addons`;
@@ -487,7 +487,7 @@ export class MeteringService {
     }
 
     async getActorAppUsage (actor: Actor, appId: string) {
-        if ( !actor.type?.user?.uuid ) {
+        if ( ! actor.type?.user?.uuid ) {
             throw new Error('Actor must be a user to get app usage');
         }
 
@@ -522,7 +522,7 @@ export class MeteringService {
                 aggregatedUsage.total += total || 0;
 
                 Object.entries((usage || {}) as Record<string, UsageRecord>).forEach(([usageKind, record]) => {
-                    if ( !aggregatedUsage[usageKind] ) {
+                    if ( ! aggregatedUsage[usageKind] ) {
                         aggregatedUsage[usageKind] = { cost: 0, units: 0, count: 0 } as UsageRecord;
                     }
                     const aggregatedRecord = aggregatedUsage[usageKind] as UsageRecord;
@@ -535,8 +535,8 @@ export class MeteringService {
         });
     }
 
-    async updateAddonCredit (userId:string, tokenAmount: number) {
-        if ( !userId ) {
+    async updateAddonCredit (userId: string, tokenAmount: number) {
+        if ( ! userId ) {
             throw new Error('User needed to update extra credits');
         }
         const key = `${POLICY_PREFIX}:actor:${userId}:addons`;

@@ -26,7 +26,7 @@ export class OpenAICompletionServiceWrapper extends BaseService {
     /** @type {OpenAICompletionService} */
     openAICompletionService;
 
-    _init(){
+    _init () {
         this.openAICompletionService = new OpenAICompletionService({
             serviceName: this.service_name,
             config: this.config,
@@ -36,12 +36,12 @@ export class OpenAICompletionServiceWrapper extends BaseService {
         });
     }
 
-    async check_moderation(text) {
+    async check_moderation (text) {
         return await this.openAICompletionService.checkModeration(text);
     }
 
-    get_default_model() {
-        return  this.openAICompletionService.get_default_model();
+    get_default_model () {
+        return this.openAICompletionService.get_default_model();
     }
 
     static IMPLEMENTS = {
@@ -49,7 +49,7 @@ export class OpenAICompletionServiceWrapper extends BaseService {
             .filter(n => n !== 'constructor')
             .reduce((acc, fn) => ({
                 ...acc,
-                [fn]: async function(...a) {
+                [fn]: async function (...a) {
                     return await this.openAICompletionService[fn](...a);
                 },
             }), {}),

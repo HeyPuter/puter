@@ -18,11 +18,12 @@
  */
 
 // METADATA // {"ai-commented":{"service":"claude"}}
-const APIError = require('../../api/APIError');
 const BaseService = require('../../services/BaseService');
 const OpenAIUtil = require('./lib/OpenAIUtil');
 const { Context } = require('../../util/context');
-
+const openai = require('openai');
+const uuidv4 = require('uuid').v4;
+const axios = require('axios');
 /**
 * OllamaService class - Provides integration with Ollama's API for chat completions
 * Extends BaseService to implement the puter-chat-completion interface.
@@ -32,17 +33,14 @@ const { Context } = require('../../util/context');
 */
 class OllamaService extends BaseService {
     static MODULES = {
-        openai: require('openai'),
         kv: globalThis.kv,
-        uuidv4: require('uuid').v4,
-        axios: require('axios'),
     };
 
     /**
     * Gets the system prompt used for AI interactions
     * @returns {string} The base system prompt that identifies the AI as running on Puter
     */
-    adapt_model(model) {
+    adapt_model (model) {
         return model;
     }
 
@@ -51,16 +49,16 @@ class OllamaService extends BaseService {
     * @private
     * @returns {Promise<void>} Resolves when initialization is complete
     */
-    async _init() {
+    async _init () {
         // Ollama typically runs on HTTP, not HTTPS
         this.api_base_url = this.config?.api_base_url || 'http://localhost:11434';
 
         // OpenAI SDK is used to interact with the Ollama API
-        this.openai = new this.modules.openai.OpenAI({
-            apiKey: "ollama", // Ollama doesn't use an API key, it uses the "ollama" string
-            baseURL: this.api_base_url + '/v1',
+        this.openai = new openai.OpenAI({
+            apiKey: 'ollama', // Ollama doesn't use an API key, it uses the "ollama" string
+            baseURL: `${this.api_base_url }/v1`,
         });
-        this.kvkey = this.modules.uuidv4();
+        this.kvkey = uuidv4();
 
         const svc_aiChat = this.services.get('ai-chat');
         svc_aiChat.register_provider({
@@ -74,7 +72,7 @@ class OllamaService extends BaseService {
     * Returns the default model identifier for the Ollama service
     * @returns {string} The default model ID 'gpt-oss:20b'
     */
-    get_default_model() {
+    get_default_model () {
         return 'gpt-oss:20b';
     }
 
@@ -86,7 +84,7 @@ class OllamaService extends BaseService {
              *
              * @returns Promise<Array<Object>> Array of model details
              */
-            async models() {
+            async models () {
                 return await this.models_();
             },
             /**
@@ -95,7 +93,7 @@ class OllamaService extends BaseService {
             * @description Retrieves all available model IDs and their aliases,
             * flattening them into a single array of strings that can be used for model selection
             */
-            async list() {
+            async list () {
                 const models = await this.models_();
                 const model_names = [];
                 for ( const model of models ) {
@@ -108,7 +106,7 @@ class OllamaService extends BaseService {
              * AI Chat completion method.
              * See AIChatService for more details.
              */
-            async complete({ messages, stream, model, tools, max_tokens, temperature }) {
+            async complete ({ messages, stream, model, tools, max_tokens, temperature }) {
                 model = this.adapt_model(model);
 
                 if ( model.startsWith('ollama:') ) {
@@ -128,19 +126,23 @@ class OllamaService extends BaseService {
                     ...(stream ? {
                         stream_options: { include_usage: true },
                     } : {}),
-                }
+                };
 
                 const completion = await this.openai.chat.completions.create(sdk_params);
 
-                const modelDetails =  (await this.models_()).find(m => m.id === 'ollama:' + model);
+                const modelDetails =  (await this.models_()).find(m => m.id === `ollama:${model}`);
                 return OpenAIUtil.handle_completion_output({
                     usage_calculator: ({ usage }) => {
-                        // custom open router logic because its free
+
                         const trackedUsage = {
-                            prompt: 0,
-                            completion: 0,
-                            input_cache_read: 0,
+                            prompt: (usage.prompt_tokens ?? 1 ) - (usage.prompt_tokens_details?.cached_tokens ?? 0),
+                            completion: usage.completion_tokens ?? 1,
+                            input_cache_read: usage.prompt_tokens_details?.cached_tokens ?? 0,
                         };
+                        const costOverwrites = Object.fromEntries(Object.keys(trackedUsage).map((k) => {
+                            return [k, 0]; // override to 0 since local is free
+                        }));
+                        this.meteringService.utilRecordUsageObject(trackedUsage, actor, modelDetails.id, { costOverwrites });
                         const legacyCostCalculator = OpenAIUtil.create_usage_calculator({
                             model_details: modelDetails,
                         });
@@ -162,31 +164,30 @@ class OllamaService extends BaseService {
     *   - cost: Pricing information object with currency and rates
     * @private
     */
-    async models_(rawPriceKeys = false) {
-        const axios = this.require('axios');
+    async models_ (_rawPriceKeys = false) {
 
         let models = this.modules.kv.get(`${this.kvkey}:models`);
-        if ( !models ) {
+        if ( ! models ) {
             try {
                 const resp = await axios.request({
                     method: 'GET',
-                    url: this.api_base_url + '/api/tags',
+                    url: `${this.api_base_url}/api/tags`,
                 });
                 models = resp.data.models || [];
                 if ( models.length > 0 ) {
                     this.modules.kv.set(`${this.kvkey}:models`, models);
                 }
-            } catch (error) {
+            } catch ( error ) {
                 this.log.error('Failed to fetch models from Ollama:', error.message);
                 // Return empty array if Ollama is not available
                 return [];
             }
         }
-        
+
         if ( !models || models.length === 0 ) {
             return [];
         }
-        
+
         const coerced_models = [];
         for ( const model of models ) {
             // Ollama API returns models with 'name' property, not 'model'
@@ -196,8 +197,8 @@ class OllamaService extends BaseService {
                 output: 0,
             };
             coerced_models.push({
-                id: 'ollama:' + modelName,
-                name: modelName + ' (Ollama)',
+                id: `ollama:${ modelName}`,
+                name: `${modelName} (Ollama)`,
                 max_tokens: model.size || model.max_context || 8192,
                 cost: {
                     currency: 'usd-cents',
@@ -206,7 +207,7 @@ class OllamaService extends BaseService {
                 },
             });
         }
-        console.log("coerced_models", coerced_models);
+        console.log('coerced_models', coerced_models);
         return coerced_models;
     }
 }
