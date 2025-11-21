@@ -350,12 +350,23 @@ class SizeMeasuringStream extends Transform {
 
     _transform(chunk, encoding, callback) {
         this.loaded += chunk.length;
-        probe.amount = this.loaded;
+        this.probe.amount = this.loaded;
         this.push(chunk);
         callback();
     }
 }
 
+/**
+ * Pass in a source stream and a probe object. The source stream you pass
+ * will be the return value for chaining stream transforms/controllers.
+ * The probe object will have the property `probe.amount` set to a number
+ * of bytes consumed so far each time a chunk is read from the stream. When
+ * the stream is consumed fully `probe.amount` will contain the total number
+ * of bytes read.
+ * @param {*} source - source stream
+ * @param {*} probe - probe object with `amount` property (you make this)
+ * @returns source
+ */
 const size_measure_stream = (source, probe = {}) => {
     const stream = new SizeMeasuringStream({}, probe);
     source.pipe(stream);
@@ -530,6 +541,7 @@ module.exports = {
     offset_write_stream,
     progress_stream,
     size_limit_stream,
+    size_measure_stream,
     stuck_detector_stream,
     string_to_stream,
     chunk_stream,
