@@ -1,7 +1,7 @@
 const { pausing_tee } = require('../util/streamutil');
 const putility = require('@heyputer/putility');
 
-const _intercept_req = ({ data, req }) => {
+const _intercept_req = ({ data, req, next }) => {
     if ( ! req.readable ) {
         return next();
     }
@@ -31,7 +31,7 @@ const _intercept_req = ({ data, req }) => {
     }
 };
 
-const _intercept_res = ({ data, res }) => {
+const _intercept_res = ({ data, res, next }) => {
     if ( ! res.writable ) {
         return next();
     }
