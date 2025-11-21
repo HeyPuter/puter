@@ -232,6 +232,9 @@ const main = async () => {
             console.log(`\x1B[33;1m=== [ Service :: ${name} ] ===\x1B[0m`);
         });
 
+        // Switch service to test mode (enables __test_ method overrides)
+        ins.setServiceMode({ override_prefix: '__test_' });
+
         const testapi = {
             assert: (condition, name) => {
                 name = name || condition.toString();
@@ -261,6 +264,9 @@ const main = async () => {
         };
 
         await ins._test(testapi);
+
+        // Restore service to normal mode
+        ins.setServiceMode(null);
 
         total_passed += passed;
         total_failed += failed;

@@ -137,6 +137,82 @@ class BaseService extends concepts.Service {
             || this.constructor[`__on_${id}`]?.bind?.(this.constructor)
             || NOOP;
     }
+
+    /**
+    * Sets the service mode, enabling method overriding with prefixed methods.
+    * This allows services to be "modal" - switching between different behavior modes
+    * (e.g., test mode, debug mode, etc.) by overriding methods with prefixed versions.
+    * 
+    * @param {Object|null} mode - Mode configuration object or null to restore normal mode
+    * @param {string} [mode.override_prefix] - Prefix for methods that should override their unprefixed counterparts
+    *                                          (e.g., '__test_' will make __test_methodName override methodName)
+    * @returns {void}
+    * 
+    * @example
+    * // Enable test mode
+    * service.setServiceMode({ override_prefix: '__test_' });
+    * 
+    * // Restore normal mode
+    * service.setServiceMode(null);
+    */
+    setServiceMode (mode) {
+        // Restore previous mode if switching modes
+        if ( this._serviceModeState ) {
+            this._restoreServiceMode();
+        }
+
+        // If mode is null or empty, just restore and return
+        if ( ! mode || ! mode.override_prefix ) {
+            this._serviceModeState = null;
+            return;
+        }
+
+        // Store mode state
+        this._serviceModeState = {
+            override_prefix: mode.override_prefix,
+            methodOverrides: {},
+        };
+
+        // Discover and apply method overrides
+        const checkSources = [
+            Object.getPrototypeOf(this),
+            this
+        ];
+
+        for ( const source of checkSources ) {
+            for ( const key of Object.getOwnPropertyNames(source) ) {
+                if ( key.startsWith(mode.override_prefix) && typeof this[key] === 'function' ) {
+                    const originalMethodName = key.slice(mode.override_prefix.length);
+                    if ( typeof this[originalMethodName] === 'function' ) {
+                        // Store original method for restoration (only if not already stored)
+                        if ( ! this._serviceModeState.methodOverrides[originalMethodName] ) {
+                            this._serviceModeState.methodOverrides[originalMethodName] = this[originalMethodName];
+                        }
+                        // Override with prefixed method
+                        this[originalMethodName] = this[key].bind(this);
+                    }
+                }
+            }
+        }
+    }
+
+    /**
+    * Restores the service to normal mode by reverting all method overrides.
+    * @private
+    * @returns {void}
+    */
+    _restoreServiceMode () {
+        if ( ! this._serviceModeState || ! this._serviceModeState.methodOverrides ) {
+            return;
+        }
+
+        // Restore original methods
+        for ( const [methodName, originalMethod] of Object.entries(this._serviceModeState.methodOverrides) ) {
+            this[methodName] = originalMethod;
+        }
+
+        this._serviceModeState.methodOverrides = {};
+    }
 }
 
 module.exports = BaseService;

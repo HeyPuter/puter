@@ -67,6 +67,33 @@ class ExampleService extends BaseService {
 | `assert.equal` | `actual`, `expected`, `message` | `actual: any`, `expected: any`, `message: string` | Asserts that `actual === expected`. The final parameter is a short descriptive message for the test rule.                         |
 
 
+#### Overriding Service Methods
+
+When running under the test kernel, services have the mode
+`{ override_prefix: '__test_' }`. This means whenever `some_method` is called
+within the service, `__test_some_method` will be called instead if it is
+defined. For example, in the following service we
+
+```javascript
+class TestService extends BaseService {
+    normal_method () {
+        return 3;
+    }
+    method_to_mock () {
+        return 5;
+    }
+
+    __test_method_to_mock () {
+        return 7;
+    }
+
+    _test ({ assert }) {
+        // This assertion will pass
+        assert.equal(this.normal_method(), 3);
+        assert.equal(this.method_to_mock(), 7);
+    }
+}
+```
 
 ### Test Kernel Notes
 
