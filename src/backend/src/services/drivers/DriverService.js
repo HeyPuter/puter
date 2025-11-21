@@ -230,14 +230,6 @@ class DriverService extends BaseService {
         this.service_aliases[alias] = service_name;
     }
 
-    get_interface (interface_name) {
-        const o = {};
-        const col_interfaces = svc_registry.get('interfaces');
-        const keys = col_interfaces.keys();
-        for ( const k of keys ) o[k] = col_interfaces.get(k);
-        return col_interfaces.get(interface_name);
-    }
-
     get_default_implementation (interface_name) {
         // If there's a hardcoded implementation, use that
         // (^ temporary, until all are migrated)
