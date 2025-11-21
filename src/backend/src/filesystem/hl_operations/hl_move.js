@@ -16,23 +16,23 @@
  * You should have received a copy of the GNU Affero General Public License
  * along with this program.  If not, see <https://www.gnu.org/licenses/>.
  */
-const APIError = require("../../api/APIError");
-const { chkperm, validate_fsentry_name, is_ancestor_of, df, get_user } = require("../../helpers");
-const { LLMove } = require("../ll_operations/ll_move");
-const { RootNodeSelector } = require("../node/selectors");
-const { HLFilesystemOperation } = require("./definitions");
-const { MkTree } = require("./hl_mkdir");
-const { HLRemove } = require("./hl_remove");
-const { TYPE_DIRECTORY } = require("../FSNodeContext");
+const APIError = require('../../api/APIError');
+const { chkperm, validate_fsentry_name, is_ancestor_of, df, get_user } = require('../../helpers');
+const { LLMove } = require('../ll_operations/ll_move');
+const { RootNodeSelector } = require('../node/selectors');
+const { HLFilesystemOperation } = require('./definitions');
+const { MkTree } = require('./hl_mkdir');
+const { HLRemove } = require('./hl_remove');
+const { TYPE_DIRECTORY } = require('../FSNodeContext');
 
 class HLMove extends HLFilesystemOperation {
     static MODULES = {
         _path: require('path'),
-    }
+    };
 
     static PROPERTIES = {
         parent_directories_created: () => [],
-    }
+    };
 
     async _run () {
         const { _path } = this.modules;
@@ -70,13 +70,13 @@ class HLMove extends HLFilesystemOperation {
         }
 
         // If the "parent" is a file, then it's actually our destination; not the parent.
-        if ( ! values.new_name && await parent.exists() && await parent.get('type') !== TYPE_DIRECTORY ) {
+        if ( !values.new_name && await parent.exists() && await parent.get('type') !== TYPE_DIRECTORY ) {
             dest = parent;
             parent = await dest.getParent();
         }
 
         if ( ! await parent.exists() ) {
-            if ( ! parent.path || ! values.create_missing_parents ) {
+            if ( !parent.path || !values.create_missing_parents ) {
                 throw APIError.create('dest_does_not_exist');
             }
 
@@ -105,16 +105,20 @@ class HLMove extends HLFilesystemOperation {
         const src_user_id = await source.get('user_id');
         const par_user_id = await parent.get('user_id');
         if ( src_user_id !== par_user_id ) {
-            source_user = await get_user({id: src_user_id});
-            if(source_user.id !== par_user_id)
-                dest_user = await get_user({id: par_user_id});
+            source_user = await get_user({ id: src_user_id });
+            if ( source_user.id !== par_user_id )
+            {
+                dest_user = await get_user({ id: par_user_id });
+            }
             else
+            {
                 dest_user = source_user;
+            }
             await source.fetchSize();
             const item_size = source.entry.size;
             const sizeService = svc.get('sizeService');
             const capacity = await sizeService.get_storage_capacity(user.id);
-            if(capacity - await df(dest_user.id) - item_size < 0){
+            if ( capacity - await df(dest_user.id) - item_size < 0 ) {
                 throw APIError.create('storage_limit_reached');
             }
         }
@@ -145,7 +149,7 @@ class HLMove extends HLFilesystemOperation {
 
         let overwritten;
         if ( await dest.exists() ) {
-            if ( ! values.overwrite && ! values.dedupe_name ) {
+            if ( !values.overwrite && !values.dedupe_name ) {
                 throw APIError.create('item_with_same_name_exists', null, {
                     entry_name: await dest.get('name'),
                 });
@@ -154,7 +158,7 @@ class HLMove extends HLFilesystemOperation {
             if ( values.dedupe_name ) {
                 const target_ext = _path.extname(target_name);
                 const target_noext = _path.basename(target_name, target_ext);
-                for ( let i=1 ;; i++ ) {
+                for ( let i = 1 ;; i++ ) {
                     const try_new_name = `${target_noext} (${i})${target_ext}`;
                     const exists = await parent.hasChild(try_new_name);
                     if ( ! exists ) {
@@ -173,7 +177,9 @@ class HLMove extends HLFilesystemOperation {
                     user: values.user,
                 });
             }
-            else { throw new Error('unreachable'); }
+            else {
+                throw new Error('unreachable');
+            }
         }
 
         const old_path = await source.get('path');
@@ -195,7 +201,7 @@ class HLMove extends HLFilesystemOperation {
             moved: await source_new.getSafeEntry({ thumbnail: true }),
             overwritten,
             old_path,
-        }
+        };
 
         response.parent_dirs_created = [];
         for ( const node of this.parent_directories_created ) {
