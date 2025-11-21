@@ -34,6 +34,8 @@ const UserIDNotifSelector = user_id => async (self) => {
     return [user_id];
 };
 
+thisChangeShouldNotPassChecks();
+
 
 /**
 * @class NotificationService
