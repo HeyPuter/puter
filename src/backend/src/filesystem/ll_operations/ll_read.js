@@ -31,7 +31,7 @@ const checkACLForRead = async (aclService, actor, fsNode, skip = false) => {
     if ( skip ) {
         return;
     }
-    if ( !await aclService.check(actor, fsNode, 'read') ) {
+    if ( ! await aclService.check(actor, fsNode, 'read') ) {
         throw await aclService.get_safe_acl_error(actor, fsNode, 'read');
     }
 };
@@ -43,7 +43,7 @@ const typeCheckForRead = async (fsNode) => {
 
 class LLRead extends LLFilesystemOperation {
     static CONCERN = 'filesystem';
-    async _run({ fsNode, no_acl, actor, offset, length, range, version_id } = {}){
+    async _run ({ fsNode, no_acl, actor, offset, length, range, version_id } = {}) {
         // extract services from context
         const aclService = Context.get('services').get('acl');
         const db = Context.get('services')
@@ -51,7 +51,7 @@ class LLRead extends LLFilesystemOperation {
         const fileCacheService = Context.get('services').get('file-cache');
 
         // validate input
-        if ( !await fsNode.exists() ){
+        if ( ! await fsNode.exists() ) {
             throw APIError.create('subject_does_not_exist');
         }
         // validate initial node
@@ -86,7 +86,7 @@ class LLRead extends LLFilesystemOperation {
                         [Date.now() / 1000, await fsNode.get('mysql-id')]);
 
         const ownerId = await fsNode.get('user_id');
-        const chargedActor =  actor? actor: new Actor({
+        const chargedActor =  actor ? actor : new Actor({
             type: new UserActorType({
                 user: await get_user({ id: ownerId }),
             }),
@@ -141,7 +141,7 @@ class LLRead extends LLFilesystemOperation {
 
         // Meter ingress
         const size = await (async () => {
-            if ( range ){
+            if ( range ) {
                 const match = range.match(/bytes=(\d+)-(\d+)/);
                 if ( match ) {
                     const start = parseInt(match[1], 10);
@@ -157,7 +157,7 @@ class LLRead extends LLFilesystemOperation {
         meteringService.incrementUsage(chargedActor, 'filesystem:egress:bytes', size);
 
         // cache if whole file read
-        if ( !has_range ) {
+        if ( ! has_range ) {
             // only cache for non-memoryfs providers
             if ( ! (fsNode.provider instanceof MemoryFSProvider) ) {
                 const res = await fileCacheService.maybe_store(fsNode, stream);

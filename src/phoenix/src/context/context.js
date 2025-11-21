@@ -50,8 +50,8 @@ export class Context extends AbstractContext {
         for ( const k in this.spec.constants ) {
             Object.defineProperty(constants, k, {
                 value: this.spec.constants[k],
-                enumerable: true
-            })
+                enumerable: true,
+            });
         }
         this.instance_.constants = constants;
 

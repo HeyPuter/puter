@@ -23,9 +23,9 @@ import modeString from 'fs-mode-to-string';
 import { ErrorCodes, PosixError } from '@heyputer/putility/src/PosixError.js';
 
 // DRY: Almost the same as puter/filesystem.js
-function wrapAPIs(apis) {
-    for (const method in apis) {
-        if (typeof apis[method] !== 'function') {
+function wrapAPIs (apis) {
+    for ( const method in apis ) {
+        if ( typeof apis[method] !== 'function' ) {
             continue;
         }
         const original = apis[method];
@@ -109,8 +109,10 @@ export const CreateFilesystemProvider = () => {
                 owner: null,
                 type: null,
                 is_empty: await (async (stat) => {
-                    if (!stat.isDirectory())
+                    if ( ! stat.isDirectory() )
+                    {
                         return null;
+                    }
                     const children = await fs.promises.readdir(path);
                     return children.length === 0;
                 })(stat),
@@ -124,7 +126,7 @@ export const CreateFilesystemProvider = () => {
             return await fs.promises.readFile(path);
         },
         write: async (path, data) => {
-            if (data instanceof Blob) {
+            if ( data instanceof Blob ) {
                 return await fs.promises.writeFile(path, data.stream());
             }
             return await fs.promises.writeFile(path, data);
@@ -133,7 +135,7 @@ export const CreateFilesystemProvider = () => {
             const recursive = options['recursive'] || false;
             const stat = await fs.promises.stat(path);
 
-            if ( stat.isDirectory() && ! recursive ) {
+            if ( stat.isDirectory() && !recursive ) {
                 throw PosixError.IsDirectory({ path });
             }
 
@@ -142,7 +144,7 @@ export const CreateFilesystemProvider = () => {
         rmdir: async (path) => {
             const stat = await fs.promises.stat(path);
 
-            if ( !stat.isDirectory() ) {
+            if ( ! stat.isDirectory() ) {
                 throw PosixError.IsNotDirectory({ path });
             }
 
@@ -180,17 +182,17 @@ export const CreateFilesystemProvider = () => {
             // fs.promises.cp() is experimental, but does everything we want. Maybe implement this manually if needed.
 
             // `dir -> file`: invalid
-            if ( srcIsDir && destStat && ! destStat.isDirectory() ) {
+            if ( srcIsDir && destStat && !destStat.isDirectory() ) {
                 throw new PosixError(ErrorCodes.ENOTDIR, 'Cannot copy a directory into a file');
             }
 
             // `file -> dir`: fs.promises.cp() expects the new path to include the filename.
-            if ( ! srcIsDir && destIsDir ) {
+            if ( !srcIsDir && destIsDir ) {
                 if ( ! newPath.endsWith('/') ) newPath += '/';
                 newPath += path_.basename(oldPath);
             }
 
             return await fs.promises.cp(oldPath, newPath, { recursive: srcIsDir });
-        }
+        },
     });
 };

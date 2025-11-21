@@ -6,14 +6,14 @@
 
 // These annotated classes provide a solution to wrap plain objects.
 
-
 class AnnotatedObject {
     constructor (o) {
         for ( const k in o ) this[k] = o[k];
     }
 }
 
-class object_returned_by_get_app extends AnnotatedObject {};
+class object_returned_by_get_app extends AnnotatedObject {
+};
 
 module.exports = {
     object_returned_by_get_app,

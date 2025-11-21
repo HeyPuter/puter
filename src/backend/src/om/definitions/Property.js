@@ -16,13 +16,13 @@
  * You should have received a copy of the GNU Affero General Public License
  * along with this program.  If not, see <https://www.gnu.org/licenses/>.
  */
-const { AdvancedBase } = require("@heyputer/putility");
-const { WeakConstructorFeature } = require("../../traits/WeakConstructorFeature");
+const { AdvancedBase } = require('@heyputer/putility');
+const { WeakConstructorFeature } = require('../../traits/WeakConstructorFeature');
 
 class Property extends AdvancedBase {
     static FEATURES = [
         new WeakConstructorFeature(),
-    ]
+    ];
 
     static create (context, name, descriptor) {
         // Adapt descriptor
@@ -94,5 +94,5 @@ class Property extends AdvancedBase {
 }
 
 module.exports = {
-    Property
+    Property,
 };

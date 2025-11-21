@@ -16,10 +16,10 @@
  * You should have received a copy of the GNU Affero General Public License
  * along with this program.  If not, see <https://www.gnu.org/licenses/>.
  */
-import path_ from "path-browserify";
+import path_ from 'path-browserify';
 
 export const resolveRelativePath = (vars, relativePath) => {
-    if (!relativePath) {
+    if ( ! relativePath ) {
         // If relativePath is undefined, return home directory
         return vars.home;
     }
@@ -27,7 +27,7 @@ export const resolveRelativePath = (vars, relativePath) => {
         return relativePath;
     }
     if ( relativePath.startsWith('~') ) {
-        return path_.resolve(vars.home, '.' + relativePath.slice(1));
+        return path_.resolve(vars.home, `.${ relativePath.slice(1)}`);
     }
     return path_.resolve(vars.pwd, relativePath);
 };

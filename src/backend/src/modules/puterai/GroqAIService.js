@@ -45,7 +45,7 @@ class GroqAIService extends BaseService {
     * @returns {Promise<void>}
     * @private
     */
-    async _init() {
+    async _init () {
         const Groq = require('groq-sdk');
         this.client = new Groq({
             apiKey: this.config.apiKey,
@@ -63,7 +63,7 @@ class GroqAIService extends BaseService {
     * Returns the default model ID for the Groq AI service
     * @returns {string} The default model ID 'llama-3.1-8b-instant'
     */
-    get_default_model() {
+    get_default_model () {
         return 'llama-3.1-8b-instant';
     }
 
@@ -75,7 +75,7 @@ class GroqAIService extends BaseService {
              *
              * @returns Promise<Array<Object>> Array of model details
              */
-            async models() {
+            async models () {
                 return await this.models_();
             },
             /**
@@ -84,7 +84,7 @@ class GroqAIService extends BaseService {
             * @description Retrieves all available model IDs and their aliases,
             * flattening them into a single array of strings that can be used for model selection
             */
-            async list() {
+            async list () {
                 // They send: { "object": "list", data }
                 const funny_wrapper = await this.client.models.list();
                 return funny_wrapper.data;
@@ -97,7 +97,7 @@ class GroqAIService extends BaseService {
             * @param {boolean} [options.stream] - Whether to stream the response
             * @returns {TypedValue|Object} Returns either a TypedValue with streaming response or completion object with usage stats
             */
-            async complete({ messages, model, stream, tools, max_tokens, temperature }) {
+            async complete ({ messages, model, stream, tools, max_tokens, temperature }) {
                 model = model ?? this.get_default_model();
 
                 messages = await OpenAIUtil.process_input_messages(messages);
@@ -153,7 +153,7 @@ class GroqAIService extends BaseService {
     *
     * @returns {Array<Object>} Array of model specification objects
     */
-    models_() {
+    models_ () {
         return [
             {
                 id: 'gemma2-9b-it',

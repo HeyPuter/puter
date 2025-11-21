@@ -17,8 +17,7 @@
  * You should have received a copy of the GNU Affero General Public License
  * along with this program.  If not, see <https://www.gnu.org/licenses/>.
  */
-const BaseService = require("../../services/BaseService");
-
+const BaseService = require('../../services/BaseService');
 
 /**
 * **ErrorContext Class**
@@ -45,7 +44,6 @@ class ErrorContext {
     }
 }
 
-
 /**
 * The ErrorService class is responsible for handling and reporting errors within the system.
 * It provides methods to initialize the service, create error contexts, and report errors with detailed logging and alarm mechanisms.
@@ -67,22 +65,22 @@ class ErrorService extends BaseService {
         this.alarm = services.get('alarm');
         this.backupLogger = services.get('log-service').create('error-service');
     }
-    
+
     /**
      * Creates an ErrorContext instance with the provided logging context.
-     * 
+     *
      * @param {*} log_context The logging context to associate with the error reports.
      * @returns {ErrorContext} An ErrorContext instance.
      */
     create (log_context) {
         return new ErrorContext(this, log_context);
     }
-    
+
     /**
      * Reports an error with the specified location and details.
      * The "location" is a string up to the callers discretion to identify
      * the source of the error.
-     * 
+     *
      * @param {*} location The location where the error occurred.
      * @param {*} fields The error details to report.
      * @param {boolean} [alarm=true] Whether to raise an alarm for the error.
@@ -91,7 +89,7 @@ class ErrorService extends BaseService {
     report (location, { source, logger, trace, extra, message }, alarm = true) {
         message = message ?? source?.message;
         logger = logger ?? this.backupLogger;
-        logger.error(`Error @ ${location}: ${message}; ` + source?.stack);
+        logger.error(`Error @ ${location}: ${message}; ${ source?.stack}`);
 
         if ( alarm ) {
             const alarm_id = `${location}:${message}`;

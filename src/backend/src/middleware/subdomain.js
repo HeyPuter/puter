@@ -21,10 +21,10 @@
  * match it calls `next('route')` to skip the current route.
  * Be sure to use this before any middleware that might erroneously
  * block the request.
- * 
+ *
  * @param {string|string[]} allowedSubdomains - The subdomain to allow;
  *    if an array, any of the subdomains in the array will be allowed.
- * 
+ *
  * @returns {function} - An express middleware function
  */
 const subdomain = allowedSubdomains => {
@@ -43,6 +43,6 @@ const subdomain = allowedSubdomains => {
 
         next();
     };
-}
+};
 
 module.exports = subdomain;

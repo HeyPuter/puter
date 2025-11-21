@@ -17,12 +17,12 @@
  * You should have received a copy of the GNU Affero General Public License
  * along with this program.  If not, see <https://www.gnu.org/licenses/>.
  */
-const { Context } = require("../../util/context");
+const { Context } = require('../../util/context');
 const { asyncSafeSetInterval } = require('@heyputer/putility').libs.promise;
 const { quot } = require('@heyputer/putility').libs.string;
 
 const { MINUTE, HOUR } = require('@heyputer/putility').libs.time;
-const BaseService = require("../BaseService");
+const BaseService = require('../BaseService');
 
 /* INCREMENTAL CHANGES
     The first scopes are of the form 'name-of-endpoint', but later it was
@@ -30,17 +30,16 @@ const BaseService = require("../BaseService");
     follow the latter form.
 */
 
-
 /**
-* Class representing an edge rate limiting service that manages 
-* request limits for various scopes (e.g. login, signup) 
-* to prevent abuse. It keeps track of request timestamps 
+* Class representing an edge rate limiting service that manages
+* request limits for various scopes (e.g. login, signup)
+* to prevent abuse. It keeps track of request timestamps
 * and enforces limits based on a specified time window.
 */
 class EdgeRateLimitService extends BaseService {
     /**
-    * Initializes the EdgeRateLimitService by setting up the rate limit scopes 
-    * and creating a Map to store request timestamps. It also starts a periodic 
+    * Initializes the EdgeRateLimitService by setting up the rate limit scopes
+    * and creating a Map to store request timestamps. It also starts a periodic
     * cleanup process to remove old request logs.
     */
     _construct () {
@@ -120,12 +119,11 @@ class EdgeRateLimitService extends BaseService {
             ['enable-2fa']: {
                 limit: 10,
                 window: HOUR,
-            }
-            
+            },
+
         };
         this.requests = new Map();
     }
-
 
     /**
      * Initializes the EdgeRateLimitService by setting up a periodic cleanup interval.
@@ -137,7 +135,7 @@ class EdgeRateLimitService extends BaseService {
 
     check (scope) {
         if ( ! this.scopes.hasOwnProperty(scope) ) {
-            throw new Error(`unrecognized rate-limit scope: ${quot(scope)}`)
+            throw new Error(`unrecognized rate-limit scope: ${quot(scope)}`);
         }
         const { window, limit } = this.scopes[scope];
 
@@ -147,7 +145,7 @@ class EdgeRateLimitService extends BaseService {
         const now = Date.now();
         const windowStart = now - window;
 
-        if (!this.requests.has(key)) {
+        if ( ! this.requests.has(key) ) {
             this.requests.set(key, []);
         }
 
@@ -155,12 +153,12 @@ class EdgeRateLimitService extends BaseService {
         const timestamps = this.requests.get(key);
 
         // Remove timestamps that are outside the current window
-        while (timestamps.length > 0 && timestamps[0] < windowStart) {
+        while ( timestamps.length > 0 && timestamps[0] < windowStart ) {
             timestamps.shift();
         }
 
         // Check if the current request exceeds the rate limit
-        if (timestamps.length >= limit) {
+        if ( timestamps.length >= limit ) {
             return false;
         } else {
             // Add current timestamp and allow the request
@@ -169,16 +167,15 @@ class EdgeRateLimitService extends BaseService {
         }
     }
 
-
     /**
      * Cleans up the rate limit request records by removing entries
      * that have no associated timestamps. This method is intended
      * to be called periodically to free up memory.
      */
-    cleanup() {
+    cleanup () {
         this.log.tick('edge rate-limit cleanup task');
-        for (const [key, timestamps] of this.requests.entries()) {
-            if (timestamps.length === 0) {
+        for ( const [key, timestamps] of this.requests.entries() ) {
+            if ( timestamps.length === 0 ) {
                 this.requests.delete(key);
             }
         }

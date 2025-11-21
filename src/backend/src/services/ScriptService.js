@@ -17,8 +17,7 @@
  * You should have received a copy of the GNU Affero General Public License
  * along with this program.  If not, see <https://www.gnu.org/licenses/>.
  */
-const BaseService = require("./BaseService");
-
+const BaseService = require('./BaseService');
 
 /**
 * Class representing a service for managing and executing scripts.
@@ -31,10 +30,9 @@ class BackendScript {
         this.fn = fn;
     }
 
-
     /**
     * Executes the script function with the provided context and arguments.
-    * 
+    *
     * @async
     * @param {Object} ctx - The context in which the script is run.
     * @param {Array} args - The arguments to be passed to the script function.
@@ -46,7 +44,6 @@ class BackendScript {
 
 }
 
-
 /**
 * Class ScriptService extends BaseService to manage and execute scripts.
 * It provides functionality to register scripts and run them through defined commands.
@@ -54,11 +51,11 @@ class BackendScript {
 class ScriptService extends BaseService {
     /**
     * Initializes the service by registering script-related commands.
-    * 
-    * This method retrieves the command service and sets up the commands 
-    * related to script execution. It also defines a command handler that 
+    *
+    * This method retrieves the command service and sets up the commands
+    * related to script execution. It also defines a command handler that
     * looks up and executes a script based on user input arguments.
-    * 
+    *
     * @async
     * @function _init
     */
@@ -66,11 +63,10 @@ class ScriptService extends BaseService {
         this.scripts = [];
     }
 
-
     /**
      * Initializes the script service by registering command handlers
      * and setting up the environment for executing scripts.
-     * 
+     *
      * @async
      * @returns {Promise<void>} A promise that resolves when the initialization is complete.
      */
@@ -91,15 +87,17 @@ class ScriptService extends BaseService {
                 },
                 completer: (args) => {
                     // The script name is the first argument, so return no results if we're on the second or later.
-                    if (args.length > 1)
+                    if ( args.length > 1 )
+                    {
                         return;
+                    }
                     const scriptName = args[args.length - 1];
 
                     return this.scripts
                         .filter(script => scriptName.startsWith(scriptName))
                         .map(script => script.name);
-                }
-            }
+                },
+            },
         ]);
     }
 

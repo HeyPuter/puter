@@ -16,17 +16,17 @@
  * You should have received a copy of the GNU Affero General Public License
  * along with this program.  If not, see <https://www.gnu.org/licenses/>.
  */
-const APIError = require("../../../api/APIError");
-const eggspress = require("../../../api/eggspress");
-const config = require("../../../config");
-const { Context } = require("../../../util/context");
+const APIError = require('../../../api/APIError');
+const eggspress = require('../../../api/eggspress');
+const config = require('../../../config');
+const { Context } = require('../../../util/context');
 const Busboy = require('busboy');
-const { BatchExecutor } = require("../../../filesystem/batch/BatchExecutor");
+const { BatchExecutor } = require('../../../filesystem/batch/BatchExecutor');
 const { TeePromise } = require('@heyputer/putility').libs.promise;
-const { MovingMode } = require("../../../util/opmath");
+const { MovingMode } = require('../../../util/opmath');
 const { get_app } = require('../../../helpers');
-const { valid_file_size } = require("../../../util/validutil");
-const { OnlyOnceFn } = require("../../../util/fnutil.js");
+const { valid_file_size } = require('../../../util/validutil');
+const { OnlyOnceFn } = require('../../../util/fnutil.js');
 
 module.exports = eggspress('/batch', {
     subdomain: 'api',
@@ -46,7 +46,7 @@ module.exports = eggspress('/batch', {
 
     let app;
     if ( req.body.app_uid ) {
-        app = await get_app({uid: req.body.app_uid})
+        app = await get_app({ uid: req.body.app_uid });
     }
 
     const expected_metadata = {
@@ -68,7 +68,7 @@ module.exports = eggspress('/batch', {
                 ...expected_metadata,
                 user_id: req.user.id,
             })
-            ;
+        ;
         x.set(operationTraceSvc.ckey('frame'), frame);
 
         const svc_clientOperation = x.get('services').get('client-operation');
@@ -78,10 +78,10 @@ module.exports = eggspress('/batch', {
             frame,
             metadata: {
                 user_id: req.user.id,
-            }
+            },
         });
         x.set(svc_clientOperation.ckey('tracker'), tracker);
-    }
+    };
 
     // Make sure usage is cached
     const sizeService = x.get('services').get('sizeService');
@@ -106,12 +106,12 @@ module.exports = eggspress('/batch', {
             s += `; wc = ${this.wc}`;
             s += `; cz = ${globalThis.average_chunk_size.get()}`;
             return s;
-        }
+        },
     };
     if ( config.env == 'dev' ) {
         const svc_devConsole = x.get('services').get('dev-console');
         svc_devConsole.remove_widget('batch');
-        svc_devConsole.add_widget(batch_widget.output.bind(batch_widget), "batch");
+        svc_devConsole.add_widget(batch_widget.output.bind(batch_widget), 'batch');
         x.set('dev_batch-widget', batch_widget);
     }
 
@@ -122,12 +122,13 @@ module.exports = eggspress('/batch', {
     const operation_requires_file = op_spec => {
         if ( op_spec.op === 'write' ) return true;
         return false;
-    }
+    };
     if ( ! req.actor ) {
         throw new Error('Actor is missing here');
     }
     const batch_exe = new BatchExecutor(x, {
-        log, errors,
+        log,
+        errors,
         actor: req.actor,
     });
     // --- state
@@ -142,7 +143,7 @@ module.exports = eggspress('/batch', {
 
         const indexes_to_remove = [];
 
-        for ( let i=0 ; i < pending_operations.length ; i++ ) {
+        for ( let i = 0 ; i < pending_operations.length ; i++ ) {
             const op_spec = pending_operations[i];
             if ( ! operation_requires_file(op_spec) ) {
                 indexes_to_remove.push(i);
@@ -152,12 +153,11 @@ module.exports = eggspress('/batch', {
             }
         }
 
-        for ( let i=indexes_to_remove.length-1 ; i >= 0 ; i-- ) {
+        for ( let i = indexes_to_remove.length - 1 ; i >= 0 ; i-- ) {
             const index = indexes_to_remove[i];
             pending_operations.splice(index, 1)[0];
         }
     });
-
 
     //-------------------------------------------------------------
     // Multipart processing (using busboy)
@@ -211,7 +211,7 @@ module.exports = eggspress('/batch', {
         } catch (e) {
             request_error = e;
             req.unpipe(busboy);
-            res.set("Connection", "close");
+            res.set('Connection', 'close');
             res.sendStatus(400);
         }
     });
@@ -224,10 +224,9 @@ module.exports = eggspress('/batch', {
         }
 
         if ( fileinfos.length == 0 ) {
-            request_errors_.push(
-                new APIError('batch_too_many_files')
-            );
-            stream.on('data', () => {});
+            request_errors_.push(new APIError('batch_too_many_files'));
+            stream.on('data', () => {
+            });
             stream.on('end', () => {
                 stream.destroy();
             });
@@ -238,11 +237,10 @@ module.exports = eggspress('/batch', {
         file.stream = stream;
 
         if ( pending_operations.length == 0 ) {
-            request_errors_.push(
-                new APIError('batch_too_many_files')
-            );
+            request_errors_.push(new APIError('batch_too_many_files'));
             // Elimiate the stream
-            stream.on('data', () => {});
+            stream.on('data', () => {
+            });
             stream.on('end', () => {
                 stream.destroy();
             });
@@ -274,7 +272,7 @@ module.exports = eggspress('/batch', {
         return;
     }
 
-    log.debug('waiting for operations')
+    log.debug('waiting for operations');
     let responsePromises = response_promises;
     // let responsePromises = batch_exe.responsePromises;
     const results = await Promise.all(responsePromises);

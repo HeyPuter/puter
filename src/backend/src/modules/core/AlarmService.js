@@ -26,7 +26,6 @@ const fs = require('fs');
 
 const BaseService = require('../../services/BaseService.js');
 
-
 /**
  * AlarmService class is responsible for managing alarms.
  * It provides methods for creating, clearing, and handling alarms.
@@ -37,7 +36,7 @@ class AlarmService extends BaseService {
         identutil: 'core.util.identutil',
         stdioutil: 'core.util.stdioutil',
         Context: 'core.context',
-    }
+    };
     /**
     * This method initializes the AlarmService by setting up its internal data structures and initializing any required dependencies.
     *
@@ -72,17 +71,17 @@ class AlarmService extends BaseService {
                 const lines = [];
                 for ( const alarm of Object.values(this.alarms) ) {
                     const line =
-                        `\x1B[31;1m [alarm]\x1B[0m ` +
+                        '\x1B[31;1m [alarm]\x1B[0m ' +
                         `${alarm.id_string}: ${alarm.message} (${alarm.count})`;
                     const line_lines = this.stdioutil.split_lines(line);
                     lines.push(...line_lines);
                 }
 
                 return lines;
-            }
+            };
         }
     }
-    
+
     /**
      * AlarmService registers its commands at the consolidation phase because
      * the '_init' method of CommandService may not have been called yet.
@@ -106,7 +105,7 @@ class AlarmService extends BaseService {
      * Method to create an alarm with the given ID, message, and fields.
      * If the ID already exists, it will be updated with the new fields
      * and the occurrence count will be incremented.
-     * 
+     *
      * @param {string} id - Unique identifier for the alarm.
      * @param {string} message - Message associated with the alarm.
      * @param {object} fields - Additional information about the alarm.
@@ -156,7 +155,7 @@ class AlarmService extends BaseService {
                 */
                 get () {
                     return alarm.timestamps?.length ?? 0;
-                }
+                },
             });
 
             Object.defineProperty(alarm, 'id_string', {
@@ -173,10 +172,10 @@ class AlarmService extends BaseService {
                         return alarm.id;
                     }
 
-                    const truncatedLongId = alarm.id.slice(0, 20) + '...';
+                    const truncatedLongId = `${alarm.id.slice(0, 20) }...`;
 
                     return `${alarm.short_id} (${truncatedLongId})`;
-                }
+                },
             });
 
             return alarm;
@@ -223,7 +222,7 @@ class AlarmService extends BaseService {
      */
     clear (id) {
         const alarm = this.alarms[id];
-        if ( !alarm ) {
+        if ( ! alarm ) {
             return;
         }
         delete this.alarms[id];
@@ -241,7 +240,7 @@ class AlarmService extends BaseService {
                 }
             }
             return true;
-        }
+        };
 
         const rule_actions = {
             'no-alert': () => alarm.no_alert = true,
@@ -257,12 +256,9 @@ class AlarmService extends BaseService {
         }
     }
 
-
     handle_alarm_repeat_ (alarm) {
-        this.log.warn(
-            `REPEAT ${alarm.id_string} :: ${alarm.message} (${alarm.count})`,
-            alarm.fields,
-        );
+        this.log.warn(`REPEAT ${alarm.id_string} :: ${alarm.message} (${alarm.count})`,
+                        alarm.fields);
 
         this.apply_known_errors_(alarm);
 
@@ -276,27 +272,25 @@ class AlarmService extends BaseService {
         }
 
         this.pager.alert({
-            id: (alarm.id ?? 'something-bad') + '-r_${alarm.count}',
+            id: `${alarm.id ?? 'something-bad' }-r_\${alarm.count}`,
             message: alarm.message ?? alarm.id ?? 'something bad happened',
             source: 'alarm-service',
             severity,
             custom: {
                 fields: fields_clean,
                 trace: alarm.error?.stack,
-            }
+            },
         });
     }
 
     handle_alarm_on_ (alarm) {
-        this.log.error(
-            `ACTIVE ${alarm.id_string} :: ${alarm.message} (${alarm.count})`,
-            alarm.fields,
-        );
+        this.log.error(`ACTIVE ${alarm.id_string} :: ${alarm.message} (${alarm.count})`,
+                        alarm.fields);
 
         this.apply_known_errors_(alarm);
 
         // dev console
-        if ( this.global_config.env === 'dev' && ! this.attached_dev ) {
+        if ( this.global_config.env === 'dev' && !this.attached_dev ) {
             this.attached_dev = true;
             const svc_devConsole = this.services.get('dev-console');
             svc_devConsole.turn_on_the_warning_lights();
@@ -329,7 +323,7 @@ class AlarmService extends BaseService {
             custom: {
                 fields: fields_clean,
                 trace: alarm.error?.stack,
-            }
+            },
         });
 
         // Write a .log file for the alert that happened
@@ -347,7 +341,7 @@ class AlarmService extends BaseService {
 
             (async () => {
                 try {
-                    fs.appendFileSync(`alert_${alarm.id}.log`, alert_info + '\n');
+                    fs.appendFileSync(`alert_${alarm.id}.log`, `${alert_info }\n`);
                 } catch (e) {
                     this.log.error(`failed to write alert log: ${e.message}`);
                 }
@@ -358,17 +352,15 @@ class AlarmService extends BaseService {
     }
 
     handle_alarm_off_ (alarm) {
-        this.log.info(
-            `CLEAR ${alarm.id} :: ${alarm.message} (${alarm.count})`,
-            alarm.fields,
-        );
+        this.log.info(`CLEAR ${alarm.id} :: ${alarm.message} (${alarm.count})`,
+                        alarm.fields);
     }
 
     /**
      * Method to get an alarm by its ID.
-     * 
+     *
      * @param {*} id - The ID of the alarm to get.
-     * @returns 
+     * @returns
      */
     get_alarm (id) {
         return this.alarms[id] ?? this.alarm_aliases[id];
@@ -380,7 +372,7 @@ class AlarmService extends BaseService {
         // This function is responsible for processing specific events related to alarms.
         // It can be used for tasks such as updating alarm status, sending notifications, or triggering actions.
         // This function is called internally by the AlarmService class.
-        
+
         // /*
         //  * handleAlarmEvent - Handles a specific alarm event.
         //  *
@@ -392,8 +384,10 @@ class AlarmService extends BaseService {
         // }
         const completeAlarmID = (args) => {
             // The alarm ID is the first argument, so return no results if we're on the second or later.
-            if (args.length > 1)
+            if ( args.length > 1 )
+            {
                 return;
+            }
             const lastArg = args[args.length - 1];
 
             const results = [];
@@ -416,7 +410,7 @@ class AlarmService extends BaseService {
                     for ( const alarm of Object.values(this.alarms) ) {
                         log.log(`${alarm.id_string}: ${alarm.message} (${alarm.count})`);
                     }
-                }
+                },
             },
             {
                 id: 'info',
@@ -424,7 +418,7 @@ class AlarmService extends BaseService {
                 handler: async (args, log) => {
                     const [id] = args;
                     const alarm = this.get_alarm(id);
-                    if ( !alarm ) {
+                    if ( ! alarm ) {
                         log.log(`no alarm with id ${id}`);
                         return;
                     }
@@ -451,10 +445,8 @@ class AlarmService extends BaseService {
                     const [id] = args;
                     const alarm = this.get_alarm(id);
                     if ( ! alarm ) {
-                        log.log(
-                            `no alarm with id ${id}; ` +
-                            `but calling clear(${JSON.stringify(id)}) anyway.`
-                        );
+                        log.log(`no alarm with id ${id}; ` +
+                            `but calling clear(${JSON.stringify(id)}) anyway.`);
                     }
                     this.clear(id);
                 },
@@ -469,7 +461,7 @@ class AlarmService extends BaseService {
                     for ( const alarm of alarms ) {
                         this.handle_alarm_off_(alarm);
                     }
-                }
+                },
             },
             {
                 id: 'sound',
@@ -477,7 +469,7 @@ class AlarmService extends BaseService {
                 handler: async (args, log) => {
                     const [id, message] = args;
                     this.create(id ?? 'test', message, {});
-                }
+                },
             },
             {
                 id: 'inspect',
@@ -485,18 +477,18 @@ class AlarmService extends BaseService {
                 handler: async (args, log) => {
                     const [id, occurance_idx] = args;
                     const alarm = this.get_alarm(id);
-                    if ( !alarm ) {
+                    if ( ! alarm ) {
                         log.log(`no alarm with id ${id}`);
                         return;
                     }
                     const occurance = alarm.occurrences[occurance_idx];
-                    if ( !occurance ) {
+                    if ( ! occurance ) {
                         log.log(`no occurance with index ${occurance_idx}`);
                         return;
                     }
                     log.log(`┏━━ Logs before: ${alarm.id_string} ━━━━`);
                     for ( const lg of occurance.logs ) {
-                        log.log("┃ " + this.logutil.stringify_log_entry(lg));
+                        log.log(`┃ ${ this.logutil.stringify_log_entry(lg)}`);
                     }
                     log.log(`┗━━ Logs before: ${alarm.id_string} ━━━━`);
                 },

@@ -17,7 +17,7 @@
  * along with this program.  If not, see <https://www.gnu.org/licenses/>.
  */
 globalThis.__CONFIG__ = {
-    "origin": "https://puter.local:8080",
-    "shell.href": "https://puter.local:8081",
-    "sdk_url": "http://puter.localhost:4100/puter.js/v2",
+    'origin': 'https://puter.local:8080',
+    'shell.href': 'https://puter.local:8081',
+    'sdk_url': 'http://puter.localhost:4100/puter.js/v2',
 };

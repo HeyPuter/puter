@@ -90,7 +90,7 @@ let default_fn = () => {
             }
 
             const lastpart = parts[parts.length - 1];
-            
+
             if ( options.assign ) {
                 if ( ! obj[lastpart] ) {
                     obj[lastpart] = {};
@@ -98,7 +98,7 @@ let default_fn = () => {
                 Object.assign(obj[lastpart], value);
                 return;
             }
-            
+
             obj[lastpart] = value;
         },
         withuse: fn => {
@@ -112,7 +112,7 @@ let default_fn = () => {
                 use,
                 def: library.def,
             }, fn);
-        }
+        },
     };
 
     return library;

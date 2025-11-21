@@ -16,7 +16,7 @@
  * You should have received a copy of the GNU Affero General Public License
  * along with this program.  If not, see <https://www.gnu.org/licenses/>.
  */
-"use strict"
+'use strict';
 const config = require('../../config.js');
 const eggspress = require('../../api/eggspress.js');
 const { HLRemove } = require('../../filesystem/hl_operations/hl_remove.js');
@@ -32,20 +32,28 @@ module.exports = eggspress('/delete', {
     allowedMethods: ['POST'],
 }, async (req, res, next) => {
     // check if user is verified
-    if((config.strict_email_verification_required || req.user.requires_email_confirmation) && !req.user.email_confirmed)
-        return res.status(400).send({code: 'account_is_not_verified', message: 'Account is not verified'});
+    if ( (config.strict_email_verification_required || req.user.requires_email_confirmation) && !req.user.email_confirmed )
+    {
+        return res.status(400).send({ code: 'account_is_not_verified', message: 'Account is not verified' });
+    }
 
     const user       = req.user;
     const paths      = req.body.paths;
     const recursive  = req.body.recursive ?? false;
     const descendants_only      = req.body.descendants_only ?? false;
 
-    if(paths === undefined)
-        return res.status(400).send('paths is required')
-    else if(!Array.isArray(paths))
-        return res.status(400).send('paths must be an array')
-    else if(paths.length === 0)
-        return res.status(400).send('paths cannot be empty')
+    if ( paths === undefined )
+    {
+        return res.status(400).send('paths is required');
+    }
+    else if ( ! Array.isArray(paths) )
+    {
+        return res.status(400).send('paths must be an array');
+    }
+    else if ( paths.length === 0 )
+    {
+        return res.status(400).send('paths cannot be empty');
+    }
 
     // try to delete each path in the array one by one (if glob, resolve first)
     // TODO: remove this pseudo-batch

@@ -35,29 +35,29 @@ export default {
             bytes: {
                 description: 'Output the number of bytes in each file',
                 type: 'boolean',
-                short: 'c'
+                short: 'c',
             },
             chars: {
                 description: 'Output the number of characters in each file',
                 type: 'boolean',
-                short: 'm'
+                short: 'm',
             },
             lines: {
                 description: 'Output the number of newlines in each file',
                 type: 'boolean',
-                short: 'l'
+                short: 'l',
             },
             'max-line-length': {
                 description: 'Output the maximum line length in each file. Tabs are expanded to the nearest multiple of 8',
                 type: 'boolean',
-                short: 'L'
+                short: 'L',
             },
             words: {
                 description: 'Output the number of words in each file. A word is a sequence of non-whitespace characters',
                 type: 'boolean',
-                short: 'w'
+                short: 'w',
             },
-        }
+        },
     },
     execute: async ctx => {
         const { positionals, values } = ctx.locals;
@@ -68,14 +68,14 @@ export default {
         //  pathname shall be written."
         // For convenience, we add '-' to paths, but make a note not to output the filename.
         let emptyStdinPath = false;
-        if (paths.length < 1) {
+        if ( paths.length < 1 ) {
             emptyStdinPath = true;
             paths.push('-');
         }
 
         let { bytes: printBytes, chars: printChars, lines: printNewlines, 'max-line-length': printMaxLineLengths, words: printWords } = values;
         const anyOutputOptionsSpecified = printBytes || printChars || printNewlines || printMaxLineLengths || printWords;
-        if (!anyOutputOptionsSpecified) {
+        if ( ! anyOutputOptionsSpecified ) {
             printBytes = true;
             printNewlines = true;
             printWords = true;
@@ -88,7 +88,7 @@ export default {
         let bytesWidth = 1;
         let maxLineLengthWidth = 1;
 
-        for (const relPath of paths) {
+        for ( const relPath of paths ) {
             let counts = {
                 filename: relPath,
                 newlines: 0,
@@ -101,21 +101,21 @@ export default {
             let inWord = false;
             let currentLineLength = 0;
 
-            for await (const line of fileLines(ctx, relPath)) {
+            for await ( const line of fileLines(ctx, relPath) ) {
                 counts.chars += line.length;
-                if (printBytes) {
+                if ( printBytes ) {
                     const byteInput = new TextEncoder().encode(line);
                     counts.bytes += byteInput.length;
                 }
 
-                for (const char of line) {
+                for ( const char of line ) {
                     // "The wc utility shall consider a word to be a non-zero-length string of characters delimited by white space."
-                    if (/\s/.test(char)) {
-                        if (char === '\r' || char === '\n') {
+                    if ( /\s/.test(char) ) {
+                        if ( char === '\r' || char === '\n' ) {
                             counts.newlines++;
                             counts.maxLineLength = Math.max(counts.maxLineLength, currentLineLength);
                             currentLineLength = 0;
-                        } else if (char === '\t') {
+                        } else if ( char === '\t' ) {
                             currentLineLength = (Math.floor(currentLineLength / TAB_SIZE) + 1) * TAB_SIZE;
                         } else {
                             currentLineLength++;
@@ -124,7 +124,7 @@ export default {
                         continue;
                     }
                     currentLineLength++;
-                    if (!inWord) {
+                    if ( ! inWord ) {
                         counts.words++;
                         inWord = true;
                     }
@@ -144,21 +144,21 @@ export default {
         let printCounts = async (count) => {
             let output = '';
             const append = (string) => {
-                if (output.length !== 0) output += ' ';
+                if ( output.length !== 0 ) output += ' ';
                 output += string;
             };
 
-            if (printNewlines)       append(count.newlines.toString().padStart(newlinesWidth, ' '));
-            if (printWords)          append(count.words.toString().padStart(wordsWidth, ' '));
-            if (printChars)          append(count.chars.toString().padStart(charsWidth, ' '));
-            if (printBytes)          append(count.bytes.toString().padStart(bytesWidth, ' '));
-            if (printMaxLineLengths) append(count.maxLineLength.toString().padStart(maxLineLengthWidth, ' '));
+            if ( printNewlines ) append(count.newlines.toString().padStart(newlinesWidth, ' '));
+            if ( printWords ) append(count.words.toString().padStart(wordsWidth, ' '));
+            if ( printChars ) append(count.chars.toString().padStart(charsWidth, ' '));
+            if ( printBytes ) append(count.bytes.toString().padStart(bytesWidth, ' '));
+            if ( printMaxLineLengths ) append(count.maxLineLength.toString().padStart(maxLineLengthWidth, ' '));
             // The only time emptyStdinPath is true, is if we had no file paths given as arguments. That means only one
             // input (stdin), so this won't be called to print a "totals" line.
-            if (!emptyStdinPath) append(count.filename);
+            if ( ! emptyStdinPath ) append(count.filename);
             output += '\n';
             await ctx.externs.out.write(output);
-        }
+        };
 
         let totalCounts = {
             filename: 'total', // POSIX: This is locale-dependent
@@ -168,7 +168,7 @@ export default {
             bytes: 0,
             maxLineLength: 0,
         };
-        for (const count of perFile) {
+        for ( const count of perFile ) {
             totalCounts.newlines += count.newlines;
             totalCounts.words += count.words;
             totalCounts.chars += count.chars;
@@ -176,8 +176,8 @@ export default {
             totalCounts.maxLineLength = Math.max(totalCounts.maxLineLength, count.maxLineLength);
             await printCounts(count);
         }
-        if (perFile.length > 1) {
+        if ( perFile.length > 1 ) {
             await printCounts(totalCounts);
         }
-    }
+    },
 };

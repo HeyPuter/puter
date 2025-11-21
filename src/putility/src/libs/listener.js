@@ -2,8 +2,8 @@
  * Copyright (C) 2024-present Puter Technologies Inc.
  */
 
-const { FeatureBase } = require("../bases/FeatureBase");
-const { TDetachable } = require("../traits/traits");
+const { FeatureBase } = require('../bases/FeatureBase');
+const { TDetachable } = require('../traits/traits');
 
 // NOTE: copied from src/backend/src/util/listenerutil.js,
 //       which is now deprecated.
@@ -13,12 +13,12 @@ class MultiDetachable extends FeatureBase {
         require('../features/TraitsFeature'),
     ];
 
-    constructor() {
+    constructor () {
         super();
         this.delegates = [];
         this.detached_ = false;
     }
-    
+
     add (delegate) {
         if ( this.detached_ ) {
             delegate.detach();
@@ -27,7 +27,7 @@ class MultiDetachable extends FeatureBase {
 
         this.delegates.push(delegate);
     }
-    
+
     static IMPLEMENTS = {
         [TDetachable]: {
             detach () {
@@ -35,9 +35,9 @@ class MultiDetachable extends FeatureBase {
                 for ( const delegate of this.delegates ) {
                     delegate.detach();
                 }
-            }
-        }
-    }
+            },
+        },
+    };
 }
 
 class AlsoDetachable extends FeatureBase {
@@ -47,7 +47,8 @@ class AlsoDetachable extends FeatureBase {
 
     constructor () {
         super();
-        this.also = () => {};
+        this.also = () => {
+        };
     }
 
     also (also) {
@@ -60,9 +61,9 @@ class AlsoDetachable extends FeatureBase {
             detach () {
                 this.detach_();
                 this.also();
-            }
-        }
-    }
+            },
+        },
+    };
 }
 
 // TODO: this doesn't work, but I don't know why yet.
@@ -72,7 +73,7 @@ class RemoveFromArrayDetachable extends AlsoDetachable {
         this.array = new WeakRef(array);
         this.element = element;
     }
-    
+
     detach_ () {
         const array = this.array.deref();
         if ( ! array ) return;

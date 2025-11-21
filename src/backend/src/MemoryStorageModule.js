@@ -19,7 +19,7 @@
 class MemoryStorageModule {
     async install (context) {
         const services = context.get('services');
-        const MemoryStorageService = require("./services/MemoryStorageService");
+        const MemoryStorageService = require('./services/MemoryStorageService');
         services.registerService('memory-storage', MemoryStorageService);
     }
 }

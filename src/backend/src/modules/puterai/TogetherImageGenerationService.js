@@ -32,18 +32,18 @@ const { Together } = require('together-ai');
 */
 class TogetherImageGenerationService extends BaseService {
     /** @type {import('../../services/MeteringService/MeteringService').MeteringService} */
-    get meteringService() {
+    get meteringService () {
         return this.services.get('meteringService').meteringService;
     }
 
     static MODULES = {};
 
-    async _init() {
+    async _init () {
         const apiKey =
             this.config?.apiKey ??
             this.global_config?.services?.['together-ai']?.apiKey;
 
-        if ( !apiKey ) {
+        if ( ! apiKey ) {
             throw new Error('Together AI image generation requires an API key');
         }
 
@@ -52,7 +52,7 @@ class TogetherImageGenerationService extends BaseService {
 
     static IMPLEMENTS = {
         ['driver-capabilities']: {
-            supports_test_mode(iface, method_name) {
+            supports_test_mode (iface, method_name) {
                 return iface === 'puter-image-generation' &&
                     method_name === 'generate';
             },
@@ -77,7 +77,7 @@ class TogetherImageGenerationService extends BaseService {
             * @param {boolean} [params.test_mode] - Enable Puter test mode shortcut
             * @returns {Promise<TypedValue>} TypedValue containing the generated image URL or data URI
             */
-            async generate(params) {
+            async generate (params) {
                 const {
                     prompt,
                     test_mode,
@@ -146,7 +146,7 @@ class TogetherImageGenerationService extends BaseService {
     * Generates an image using Together AI client
     * @private
     */
-    async generate(prompt, options) {
+    async generate (prompt, options) {
         if ( typeof prompt !== 'string' || prompt.trim().length === 0 ) {
             throw new Error('`prompt` must be a non-empty string');
         }
@@ -154,18 +154,18 @@ class TogetherImageGenerationService extends BaseService {
         const request = this._buildRequest(prompt, options);
 
         const actor = Context.get('actor');
-        if ( !actor ) {
+        if ( ! actor ) {
             throw new Error('actor not found in context');
         }
 
         const usageType = `together-image:${request.model}`;
         const usageAllowed = await this.meteringService.hasEnoughCreditsFor(actor, usageType, 1);
-        if ( !usageAllowed ) {
+        if ( ! usageAllowed ) {
             throw APIError.create('insufficient_funds');
         }
 
         const response = await this.client.images.create(request);
-        if ( !response?.data?.length ) {
+        if ( ! response?.data?.length ) {
             throw new Error('Together AI response did not include image data');
         }
 
@@ -176,7 +176,7 @@ class TogetherImageGenerationService extends BaseService {
             return first.url;
         }
         if ( first.b64_json ) {
-            return 'data:image/png;base64,' + first.b64_json;
+            return `data:image/png;base64,${ first.b64_json}`;
         }
 
         throw new Error('Together AI response did not include an image URL');
@@ -186,7 +186,7 @@ class TogetherImageGenerationService extends BaseService {
     * Normalizes Together AI image generation request parameters
     * @private
     */
-    _buildRequest(prompt, options = {}) {
+    _buildRequest (prompt, options = {}) {
         const {
             ratio,
             model,
@@ -217,12 +217,8 @@ class TogetherImageGenerationService extends BaseService {
         const ratioWidth = (ratio && ratio.w !== undefined) ? Number(ratio.w) : undefined;
         const ratioHeight = (ratio && ratio.h !== undefined) ? Number(ratio.h) : undefined;
 
-        const normalizedWidth = this._normalizeDimension(
-            width !== undefined ? Number(width) : (ratioWidth ?? this.constructor.DEFAULT_RATIO.w)
-        );
-        const normalizedHeight = this._normalizeDimension(
-            height !== undefined ? Number(height) : (ratioHeight ?? this.constructor.DEFAULT_RATIO.h)
-        );
+        const normalizedWidth = this._normalizeDimension(width !== undefined ? Number(width) : (ratioWidth ?? this.constructor.DEFAULT_RATIO.w));
+        const normalizedHeight = this._normalizeDimension(height !== undefined ? Number(height) : (ratioHeight ?? this.constructor.DEFAULT_RATIO.h));
 
         if ( aspect_ratio ) {
             request.aspect_ratio = aspect_ratio;
@@ -260,7 +256,7 @@ class TogetherImageGenerationService extends BaseService {
                 ? resolvedImageBase64
                 : (typeof image_url === 'string' ? image_url : undefined);
 
-            if ( !conditionSource ) {
+            if ( ! conditionSource ) {
                 throw new Error(`Model ${request.model} requires an image_url or image_base64 input`);
             }
 
@@ -270,14 +266,14 @@ class TogetherImageGenerationService extends BaseService {
         return request;
     }
 
-    _normalizeDimension(value) {
+    _normalizeDimension (value) {
         if ( typeof value !== 'number' ) return undefined;
         const rounded = Math.max(64, Math.round(value));
         // Flux models expect multiples of 8. Snap to the nearest multiple without going below 64.
         return Math.max(64, Math.round(rounded / 8) * 8);
     }
 
-    static _modelRequiresConditionImage(model) {
+    static _modelRequiresConditionImage (model) {
         if ( typeof model !== 'string' || model.trim() === '' ) {
             return false;
         }

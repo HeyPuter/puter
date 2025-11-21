@@ -1,26 +1,25 @@
 /*
  * Copyright (C) 2024-present Puter Technologies Inc.
- * 
+ *
  * This file is part of Puter.
- * 
+ *
  * Puter is free software: you can redistribute it and/or modify
  * it under the terms of the GNU Affero General Public License as published
  * by the Free Software Foundation, either version 3 of the License, or
  * (at your option) any later version.
- * 
+ *
  * This program is distributed in the hope that it will be useful,
  * but WITHOUT ANY WARRANTY; without even the implied warranty of
  * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
  * GNU Affero General Public License for more details.
- * 
+ *
  * You should have received a copy of the GNU Affero General Public License
  * along with this program.  If not, see <https://www.gnu.org/licenses/>.
  */
 
 // METADATA // {"ai-commented":{"service":"mistral","model":"mistral-large-latest"}}
-const { Context } = require("../util/context");
-const BaseService = require("./BaseService");
-
+const { Context } = require('../util/context');
+const BaseService = require('./BaseService');
 
 /**
 * @class BootScriptService
@@ -32,7 +31,7 @@ const BaseService = require("./BaseService");
 class BootScriptService extends BaseService {
     static MODULES = {
         fs: require('fs'),
-    }
+    };
     /**
     * Loads and executes a boot script if specified in the arguments.
     *
@@ -55,7 +54,6 @@ class BootScriptService extends BaseService {
         await this.run_script(boot_json);
     }
 
-
     /**
     * Executes a series of commands defined in a JSON boot script.
     *
@@ -72,7 +70,7 @@ class BootScriptService extends BaseService {
             ['end-puter-process']: ({ args }) => {
                 const svc_shutdown = this.services.get('shutdown');
                 svc_shutdown.shutdown(args[0]);
-            }
+            },
         };
 
         for ( const statement of boot_json ) {
@@ -86,5 +84,5 @@ class BootScriptService extends BaseService {
 }
 
 module.exports = {
-    BootScriptService
+    BootScriptService,
 };

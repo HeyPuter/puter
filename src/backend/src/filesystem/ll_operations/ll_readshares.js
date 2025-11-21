@@ -16,13 +16,13 @@
  * You should have received a copy of the GNU Affero General Public License
  * along with this program.  If not, see <https://www.gnu.org/licenses/>.
  */
-const { get_user } = require("../../helpers");
-const { MANAGE_PERM_PREFIX } = require("../../services/auth/permissionConts.mjs");
-const { PermissionUtil } = require("../../services/auth/permissionUtils.mjs");
-const { DB_WRITE } = require("../../services/database/consts");
-const { NodeUIDSelector } = require("../node/selectors");
-const { LLFilesystemOperation } = require("./definitions");
-const { LLReadDir } = require("./ll_readdir");
+const { get_user } = require('../../helpers');
+const { MANAGE_PERM_PREFIX } = require('../../services/auth/permissionConts.mjs');
+const { PermissionUtil } = require('../../services/auth/permissionUtils.mjs');
+const { DB_WRITE } = require('../../services/database/consts');
+const { NodeUIDSelector } = require('../node/selectors');
+const { LLFilesystemOperation } = require('./definitions');
+const { LLReadDir } = require('./ll_readdir');
 
 class LLReadShares extends LLFilesystemOperation {
     static description = `
@@ -34,7 +34,7 @@ class LLReadShares extends LLFilesystemOperation {
         will not be traversed.
     `;
 
-    async _run() {
+    async _run () {
         const { subject, user, actor } = this.values;
 
         const svc = this.context.get('services');

@@ -17,7 +17,6 @@
  * along with this program.  If not, see <https://www.gnu.org/licenses/>.
  */
 
-
 const Component = use('util.Component');
 
 export default def(class CodeEntryView extends Component {
@@ -27,7 +26,7 @@ export default def(class CodeEntryView extends Component {
         value: {},
         error: {},
         is_checking_code: {},
-    }
+    };
 
     static RENDER_MODE = Component.NO_SHADOW;
 
@@ -69,7 +68,7 @@ export default def(class CodeEntryView extends Component {
             font-size: 40px;
             font-weight: 300;
         }
-    `
+    `;
 
     create_template ({ template }) {
         // TODO: static member for strings
@@ -112,7 +111,7 @@ export default def(class CodeEntryView extends Component {
                 $(this.dom_).find('.digit-input').val('');
                 return;
             }
-        })
+        });
 
         listen('is_checking_code', (is_checking_code, { old_value }) => {
             if ( old_value === is_checking_code ) return;
@@ -123,7 +122,7 @@ export default def(class CodeEntryView extends Component {
             if ( is_checking_code ) {
                 // set animation
                 $button.prop('disabled', true);
-                $button.html(`<svg style="width:20px; margin-top: 5px;" xmlns="http://www.w3.org/2000/svg" height="24" width="24" viewBox="0 0 24 24"><title>circle anim</title><g fill="#fff" class="nc-icon-wrapper"><g class="nc-loop-circle-24-icon-f"><path d="M12 24a12 12 0 1 1 12-12 12.013 12.013 0 0 1-12 12zm0-22a10 10 0 1 0 10 10A10.011 10.011 0 0 0 12 2z" fill="#eee" opacity=".4"></path><path d="M24 12h-2A10.011 10.011 0 0 0 12 2V0a12.013 12.013 0 0 1 12 12z" data-color="color-2"></path></g><style>.nc-loop-circle-24-icon-f{--animation-duration:0.5s;transform-origin:12px 12px;animation:nc-loop-circle-anim var(--animation-duration) infinite linear}@keyframes nc-loop-circle-anim{0%{transform:rotate(0)}100%{transform:rotate(360deg)}}</style></g></svg>`);
+                $button.html('<svg style="width:20px; margin-top: 5px;" xmlns="http://www.w3.org/2000/svg" height="24" width="24" viewBox="0 0 24 24"><title>circle anim</title><g fill="#fff" class="nc-icon-wrapper"><g class="nc-loop-circle-24-icon-f"><path d="M12 24a12 12 0 1 1 12-12 12.013 12.013 0 0 1-12 12zm0-22a10 10 0 1 0 10 10A10.011 10.011 0 0 0 12 2z" fill="#eee" opacity=".4"></path><path d="M24 12h-2A10.011 10.011 0 0 0 12 2V0a12.013 12.013 0 0 1 12 12z" data-color="color-2"></path></g><style>.nc-loop-circle-24-icon-f{--animation-duration:0.5s;transform-origin:12px 12px;animation:nc-loop-circle-anim var(--animation-duration) infinite linear}@keyframes nc-loop-circle-anim{0%{transform:rotate(0)}100%{transform:rotate(360deg)}}</style></g></svg>');
                 return;
             }
 
@@ -133,7 +132,7 @@ export default def(class CodeEntryView extends Component {
         });
 
         const that = this;
-        $(this.dom_).find('.code-confirm-btn').on('click submit', function(e){
+        $(this.dom_).find('.code-confirm-btn').on('click submit', function (e) {
             e.preventDefault();
             e.stopPropagation();
 
@@ -143,10 +142,10 @@ export default def(class CodeEntryView extends Component {
             $button.closest('.error').hide();
 
             that.set('is_checking_code', true);
-            
+
             // force update to trigger the listener
             that.set('value', that.get('value'));
-        })
+        });
 
         // Elements
         const numberCodeForm = this.dom_.querySelector('[data-number-code-form]');
@@ -156,17 +155,19 @@ export default def(class CodeEntryView extends Component {
         numberCodeForm.addEventListener('input', ({ target }) => {
             const inputLength = target.value.length || 0;
             let currentIndex = Number(target.dataset.numberCodeInput);
-            if(inputLength === 2){
+            if ( inputLength === 2 ) {
                 const inputValues = target.value.split('');
                 target.value = inputValues[0];
             }
-            else if (inputLength > 1) {
+            else if ( inputLength > 1 ) {
                 const inputValues = target.value.split('');
 
                 inputValues.forEach((value, valueIndex) => {
                     const nextValueIndex = currentIndex + valueIndex;
 
-                    if (nextValueIndex >= numberCodeInputs.length) { return; }
+                    if ( nextValueIndex >= numberCodeInputs.length ) {
+                        return;
+                    }
 
                     numberCodeInputs[nextValueIndex].value = value;
                 });
@@ -175,13 +176,13 @@ export default def(class CodeEntryView extends Component {
 
             const nextIndex = currentIndex + 1;
 
-            if (nextIndex < numberCodeInputs.length) {
+            if ( nextIndex < numberCodeInputs.length ) {
                 numberCodeInputs[nextIndex].focus();
             }
 
             // Concatenate all inputs into one string to create the final code
             let current_code = '';
-            for(let i=0; i< numberCodeInputs.length; i++){
+            for ( let i = 0; i < numberCodeInputs.length; i++ ) {
                 current_code += numberCodeInputs[i].value;
             }
 
@@ -189,7 +190,7 @@ export default def(class CodeEntryView extends Component {
             $(this.dom_).find('.code-confirm-btn').html(submit_btn_txt);
 
             // Automatically submit if 6 digits entered
-            if(current_code.length === 6){
+            if ( current_code.length === 6 ) {
                 $(this.dom_).find('.code-confirm-btn').prop('disabled', false);
                 this.set('value', current_code);
                 this.set('is_checking_code', true);
@@ -206,33 +207,33 @@ export default def(class CodeEntryView extends Component {
             const nextIndex = currentIndex + 1;
 
             const hasPreviousIndex = previousIndex >= 0;
-            const hasNextIndex = nextIndex <= numberCodeInputs.length - 1
+            const hasNextIndex = nextIndex <= numberCodeInputs.length - 1;
 
-            switch (code) {
-                case 'ArrowLeft':
-                case 'ArrowUp':
-                    if (hasPreviousIndex) {
-                        numberCodeInputs[previousIndex].focus();
-                    }
-                    e.preventDefault();
-                    break;
+            switch ( code ) {
+            case 'ArrowLeft':
+            case 'ArrowUp':
+                if ( hasPreviousIndex ) {
+                    numberCodeInputs[previousIndex].focus();
+                }
+                e.preventDefault();
+                break;
 
-                case 'ArrowRight':
-                case 'ArrowDown':
-                    if (hasNextIndex) {
-                        numberCodeInputs[nextIndex].focus();
-                    }
-                    e.preventDefault();
-                    break;
-                case 'Backspace':
-                    if (!e.target.value.length && hasPreviousIndex) {
-                        numberCodeInputs[previousIndex].value = null;
-                        numberCodeInputs[previousIndex].focus();
-                    }
-                    break;
-                default:
-                    break;
+            case 'ArrowRight':
+            case 'ArrowDown':
+                if ( hasNextIndex ) {
+                    numberCodeInputs[nextIndex].focus();
+                }
+                e.preventDefault();
+                break;
+            case 'Backspace':
+                if ( !e.target.value.length && hasPreviousIndex ) {
+                    numberCodeInputs[previousIndex].value = null;
+                    numberCodeInputs[previousIndex].focus();
+                }
+                break;
+            default:
+                break;
             }
         });
     }
-})
+});

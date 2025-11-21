@@ -44,7 +44,7 @@ module.exports = class StringParam {
         }
 
         if ( typeof value !== 'string' ) {
-            log.debug('tried string', { value })
+            log.debug('tried string', { value });
             throw APIError.create('field_invalid', null, {
                 key: this.srckey,
                 expected: 'string',
@@ -53,4 +53,4 @@ module.exports = class StringParam {
 
         return value;
     }
-}
+};

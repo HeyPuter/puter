@@ -19,7 +19,6 @@
  */
 const BaseService = require('../BaseService');
 
-
 /**
 * Service class for generating thumbnails using Node API (NAPI)
 * Extends BaseService to handle thumbnail generation for various image formats
@@ -32,13 +31,13 @@ const BaseService = require('../BaseService');
 class NAPIThumbnailService extends BaseService {
     static LIMIT = 400 * 1024 * 1024;
     static SUPPORTED_MIMETYPES = [
-        "image/jpeg",
-        "image/png",
-        "image/webp",
-        "image/gif",
-        "image/avif",
-        "image/tiff",
-        "image/svg+xml"
+        'image/jpeg',
+        'image/png',
+        'image/webp',
+        'image/gif',
+        'image/avif',
+        'image/tiff',
+        'image/svg+xml',
     ];
 
     static MODULES = {
@@ -63,7 +62,7 @@ class NAPIThumbnailService extends BaseService {
             .png();
         file.stream.pipe(transformer);
         const buffer = await transformer.toBuffer();
-            // .toBuffer();
+        // .toBuffer();
         const base64 = buffer.toString('base64');
         return `data:image/png;base64,${base64}`;
     }

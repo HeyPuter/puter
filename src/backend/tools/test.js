@@ -17,39 +17,31 @@
  * You should have received a copy of the GNU Affero General Public License
  * along with this program.  If not, see <https://www.gnu.org/licenses/>.
  */
-const { AdvancedBase } = require("@heyputer/putility");
-const useapi = require("useapi");
-const { BaseService, EssentialModules } = require("../exports");
-const CoreModule = require("../src/CoreModule");
-const { Context } = require("../src/util/context");
-const { Kernel } = require("../src/Kernel");
-const { HTTPThumbnailService } = require("../src/services/thumbnails/HTTPThumbnailService");
-const { RuntimeModuleRegistry } = require("../src/extension/RuntimeModuleRegistry");
-
+const { AdvancedBase } = require('@heyputer/putility');
+const useapi = require('useapi');
+const { BaseService, EssentialModules } = require('../exports');
+const CoreModule = require('../src/CoreModule');
+const { Context } = require('../src/util/context');
+const { Kernel } = require('../src/Kernel');
+const { HTTPThumbnailService } = require('../src/services/thumbnails/HTTPThumbnailService');
+const { RuntimeModuleRegistry } = require('../src/extension/RuntimeModuleRegistry');
 
 /**
  * A simple implementation of the log interface for the test kernel.
  */
 class TestLogger {
     constructor () {
-        console.log(
-            `\x1B[36;1mBoot logger started :)\x1B[0m`,
-        );
+        console.log('\x1B[36;1mBoot logger started :)\x1B[0m');
     }
     info (...args) {
-        console.log(
-            '\x1B[36;1m[TESTKERNEL/INFO]\x1B[0m',
-            ...args,
-        );
+        console.log('\x1B[36;1m[TESTKERNEL/INFO]\x1B[0m',
+                        ...args);
     }
     error (...args) {
-        console.log(
-            '\x1B[31;1m[TESTKERNEL/ERROR]\x1B[0m',
-            ...args,
-        );
+        console.log('\x1B[31;1m[TESTKERNEL/ERROR]\x1B[0m',
+                        ...args);
     }
 }
-
 
 /**
 * TestKernel class extends AdvancedBase to provide a testing environment for Puter services
@@ -67,26 +59,24 @@ class TestKernel extends AdvancedBase {
         this.modules = [];
         this.useapi = useapi();
 
-
         /**
         * Initializes the useapi instance for the test kernel.
         * Defines base Module and Service classes in the useapi context.
         * @returns {void}
         */
         this.useapi.withuse(() => {
-            def('Module', AdvancedBase)
-            def('Service', BaseService)
+            def('Module', AdvancedBase);
+            def('Service', BaseService);
         });
 
         this.logfn_ = (...a) => a;
-        
+
         this.runtimeModuleRegistry = new RuntimeModuleRegistry();
     }
 
     add_module (module) {
         this.modules.push(module);
     }
-
 
     /**
     * Adds a module to the test kernel's module list
@@ -102,7 +92,7 @@ class TestKernel extends AdvancedBase {
         });
 
         const { Container } = require('../src/services/Container');
-        
+
         this.testLogger = new TestLogger();
 
         const services = new Container({ logger: this.testLogger });
@@ -116,7 +106,6 @@ class TestKernel extends AdvancedBase {
         }, 'app');
         globalThis.root_context = root_context;
 
-
         root_context.arun(async () => {
             await this._install_modules();
             // await this._boot_services();
@@ -126,7 +115,6 @@ class TestKernel extends AdvancedBase {
         Error.stackTraceLimit = 200;
     }
 
-
     /**
     * Installs modules into the test kernel environment
     */
@@ -135,17 +123,14 @@ class TestKernel extends AdvancedBase {
 
         const mod_install_root_context = Context.get();
 
-
         for ( const module of this.modules ) {
-            console.log('module?"???', module)
-            const mod_context = this._create_mod_context(
-                mod_install_root_context,
-                {
-                    name: module.constructor.name,
-                    ['module']: module,
-                    external: false,
-                },
-            );
+            console.log('module?"???', module);
+            const mod_context = this._create_mod_context(mod_install_root_context,
+                            {
+                                name: module.constructor.name,
+                                ['module']: module,
+                                external: false,
+                            });
             await module.install(mod_context);
         }
 
@@ -174,12 +159,11 @@ k.add_module({
     install: async (context) => {
         const services = context.get('services');
         services.registerService('thumbs-http', HTTPThumbnailService);
-    }
+    },
 });
 k.boot();
 
 const do_after_tests_ = [];
-
 
 /**
 * Executes a function immediately and adds it to the list of functions to be executed after tests
@@ -197,7 +181,6 @@ const repeat_after = (fn) => {
 let total_passed = 0;
 let total_failed = 0;
 
-
 /**
 * Tracks test results across all services
 * @type {number} total_passed - Count of all passed assertions
@@ -212,7 +195,7 @@ const main = async () => {
         ? process.argv.slice(2)
         : Object.keys(k.services.instances_);
 
-    for ( const name of service_names) {
+    for ( const name of service_names ) {
         if ( ! k.services.instances_[name] ) {
             console.log(`\x1B[31;1mService not found: ${name}\x1B[0m`);
             process.exit(1);
@@ -220,13 +203,12 @@ const main = async () => {
 
         const ins = k.services.instances_[name];
         ins.construct();
-        if ( ! ins._test || typeof ins._test !== 'function' ) {
+        if ( !ins._test || typeof ins._test !== 'function' ) {
             continue;
         }
         ins.log = k.testLogger;
         let passed = 0;
         let failed = 0;
-
 
         repeat_after(() => {
             console.log(`\x1B[33;1m=== [ Service :: ${name} ] ===\x1B[0m`);
@@ -242,7 +224,7 @@ const main = async () => {
                     failed++;
                     repeat_after(() => console.log(`\x1B[31;1m  ✘ ${name}\x1B[0m`));
                 }
-            }
+            },
         };
 
         testapi.assert.equal = (a, b, name) => {
@@ -266,19 +248,19 @@ const main = async () => {
         total_failed += failed;
     }
 
-    console.log(`\x1B[36;1m<===\x1B[0m ` +
+    console.log('\x1B[36;1m<===\x1B[0m ' +
         'ASSERTION OUTPUTS ARE REPEATED BELOW' +
-        ` \x1B[36;1m===>\x1B[0m`);
+        ' \x1B[36;1m===>\x1B[0m');
 
     for ( const fn of do_after_tests_ ) {
         fn();
     }
 
-    console.log(`\x1B[36;1m=== [ Summary ] ===\x1B[0m`);
+    console.log('\x1B[36;1m=== [ Summary ] ===\x1B[0m');
     console.log(`Passed: ${total_passed}`);
     console.log(`Failed: ${total_failed}`);
 
     process.exit(total_failed ? 1 : 0);
-}
+};
 
 main();

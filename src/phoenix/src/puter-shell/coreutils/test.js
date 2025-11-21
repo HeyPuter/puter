@@ -26,7 +26,6 @@ export default {
         const { historyManager } = ctx.externs;
         const { chatHistory } = ctx.plugins;
 
-
         console.log('test????', chatHistory.get_messages());
-    }
-}
+    },
+};

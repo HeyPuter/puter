@@ -16,9 +16,9 @@
  * You should have received a copy of the GNU Affero General Public License
  * along with this program.  If not, see <https://www.gnu.org/licenses/>.
  */
-const APIError = require("../../api/APIError");
-const eggspress = require("../../api/eggspress");
-const { DB_READ } = require("../../services/database/consts");
+const APIError = require('../../api/APIError');
+const eggspress = require('../../api/eggspress');
+const { DB_READ } = require('../../services/database/consts');
 
 module.exports = eggspress('/listItems', {
     subdomain: 'api',
@@ -35,13 +35,11 @@ module.exports = eggspress('/listItems', {
     }
 
     const db = req.services.get('database').get(DB_READ, 'kv');
-    let rows = await db.read(
-        `SELECT kkey, value FROM kv WHERE user_id=? AND app=?`,
-        [
-            req.user.id,
-            app,
-        ]
-    );
+    let rows = await db.read('SELECT kkey, value FROM kv WHERE user_id=? AND app=?',
+                    [
+                        req.user.id,
+                        app,
+                    ]);
 
     rows = rows.map(row => ({
         key: row.kkey,

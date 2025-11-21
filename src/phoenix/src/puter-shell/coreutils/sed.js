@@ -27,7 +27,7 @@ export default {
         'Treats the first positional argument as the SCRIPT if no -e options are provided. ' +
         'If a FILE is `-`, read standard input.',
     input: {
-        syncLines: true
+        syncLines: true,
     },
     args: {
         $: 'simple-parser',
@@ -59,13 +59,13 @@ export default {
                 short: 'n',
                 default: false,
             },
-        }
+        },
     },
     execute: async ctx => {
         const { out, err } = ctx.externs;
         const { positionals, values, tokens } = ctx.locals;
 
-        if (positionals.length < 1) {
+        if ( positionals.length < 1 ) {
             await err.write('sed: No inputs given\n');
             throw new Exit(1);
         }
@@ -76,16 +76,16 @@ export default {
         // addition. The resulting script shall have the same properties as the script operand, described in the
         // OPERANDS section."
         let scriptString = '';
-        if (values.expression.length + values.file.length > 0) {
+        if ( values.expression.length + values.file.length > 0 ) {
             // These have to be in order, and -e and -f could be intermixed, so iterate the tokens
-            for (let token of tokens) {
-                if (token.kind !== 'option') continue;
-                if (token.name === 'expression') {
-                    scriptString += token.value + '\n';
+            for ( let token of tokens ) {
+                if ( token.kind !== 'option' ) continue;
+                if ( token.name === 'expression' ) {
+                    scriptString += `${token.value }\n`;
                     continue;
                 }
-                if (token.name === 'file') {
-                    for await (const line of fileLines(ctx, token.value)) {
+                if ( token.name === 'file' ) {
+                    for await ( const line of fileLines(ctx, token.value) ) {
                         scriptString += line;
                     }
                     continue;
@@ -97,12 +97,14 @@ export default {
 
         try {
             const script = parseScript(scriptString, values);
-            if (values.dump)
+            if ( values.dump )
+            {
                 await out.write(script.dump());
+            }
             await script.run(ctx);
         } catch (e) {
             console.error(e);
             await err.write(`sed: ${e.message}\n`);
         }
-    }
+    },
 };

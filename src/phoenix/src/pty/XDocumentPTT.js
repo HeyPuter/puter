@@ -16,7 +16,7 @@
  * You should have received a copy of the GNU Affero General Public License
  * along with this program.  If not, see <https://www.gnu.org/licenses/>.
  */
-import { BetterReader } from "dev-pty";
+import { BetterReader } from 'dev-pty';
 
 const encoder = new TextEncoder();
 
@@ -25,8 +25,8 @@ export class XDocumentPTT {
         TIOCGWINSZ: {
             id: 104,
         },
-    }
-    constructor(terminalConnection, opts = {}) {
+    };
+    constructor (terminalConnection, opts = {}) {
         for ( const k in XDocumentPTT.IOCTL ) {
             this[k] = async () => {
                 return await new Promise((resolve, reject) => {
@@ -47,10 +47,10 @@ export class XDocumentPTT {
                     $: 'chtermios',
                     termios: {
                         [k]: v,
-                    }
+                    },
                 });
                 return Reflect.set(target, k, v);
-            }
+            },
         });
 
         this.ioctl_listeners = {};
@@ -58,21 +58,21 @@ export class XDocumentPTT {
         this.readableStream = new ReadableStream({
             start: controller => {
                 this.readController = controller;
-            }
+            },
         });
         this.writableStream = new WritableStream({
             start: controller => {
                 this.writeController = controller;
             },
             write: chunk => {
-                if (typeof chunk === 'string') {
+                if ( typeof chunk === 'string' ) {
                     chunk = encoder.encode(chunk);
                 }
                 terminalConnection.postMessage({
                     $: 'stdout',
                     data: chunk,
                 });
-            }
+            },
         });
         this.out = this.writableStream.getWriter();
         if ( ! opts.disableReader ) {
@@ -81,11 +81,11 @@ export class XDocumentPTT {
         }
 
         terminalConnection.on('message', message => {
-            if (message.$ === 'ioctl.set') {
+            if ( message.$ === 'ioctl.set' ) {
                 this.emit('ioctl.set', message);
                 return;
             }
-            if (message.$ === 'stdin') {
+            if ( message.$ === 'stdin' ) {
                 this.readController.enqueue(message.data);
                 return;
             }
@@ -116,8 +116,6 @@ export class XDocumentPTT {
 
     off (name, listener) {
         if ( ! this.ioctl_listeners.hasOwnProperty(name) ) return;
-        this.ioctl_listeners[name] = this.ioctl_listeners[name].filter(
-            l => l !== listener
-        );
+        this.ioctl_listeners[name] = this.ioctl_listeners[name].filter(l => l !== listener);
     }
 }

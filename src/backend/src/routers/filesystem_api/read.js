@@ -16,7 +16,7 @@
  * You should have received a copy of the GNU Affero General Public License
  * along with this program.  If not, see <https://www.gnu.org/licenses/>.
  */
-"use strict"
+'use strict';
 const APIError = require('../../api/APIError.js');
 const eggspress = require('../../api/eggspress');
 const FSNodeParam = require('../../api/filesystem/FSNodeParam');
@@ -34,27 +34,27 @@ module.exports = eggspress('/read', {
         uid: 'file',
     },
     parameters: {
-        fsNode: new FSNodeParam('file')
-    }
+        fsNode: new FSNodeParam('file'),
+    },
 }, async (req, res, next) => {
     const line_count    = !req.query.line_count ? undefined : parseInt(req.query.line_count);
     const byte_count    = !req.query.byte_count ? undefined : parseInt(req.query.byte_count);
     const offset        = !req.query.offset ? undefined : parseInt(req.query.offset);
 
-    if (line_count && (!Number.isInteger(line_count) || line_count < 1)) {
+    if ( line_count && (!Number.isInteger(line_count) || line_count < 1) ) {
         throw new APIError(400, '`line_count` must be a positive integer');
     }
-    if (byte_count && (!Number.isInteger(byte_count) || byte_count < 1) ){
+    if ( byte_count && (!Number.isInteger(byte_count) || byte_count < 1) ) {
         throw new APIError(400, '`byte_count` must be a positive integer');
     }
-    if (offset && (!Number.isInteger(offset) || offset < 0)) {
+    if ( offset && (!Number.isInteger(offset) || offset < 0) ) {
         throw new APIError(400, '`offset` must be a positive integer');
     }
-    if (byte_count && line_count) {
+    if ( byte_count && line_count ) {
         throw new APIError(400, 'cannot use both line_count and byte_count');
     }
 
-    if (offset && !byte_count) {
+    if ( offset && !byte_count ) {
         throw APIError.create('field_only_valid_with_other_field', null, {
             key: 'offset',
             other_key: 'byte_count',
@@ -64,44 +64,44 @@ module.exports = eggspress('/read', {
     // Helper function to parse Range header
     const parseRangeHeader = (rangeHeader) => {
         // Check if this is a multipart range request
-        if (rangeHeader.includes(',')) {
+        if ( rangeHeader.includes(',') ) {
             // For now, we'll only serve the first range in multipart requests
             // as the underlying storage layer doesn't support multipart responses
             const firstRange = rangeHeader.split(',')[0].trim();
             const matches = firstRange.match(/bytes=(\d+)-(\d*)/);
-            if (!matches) return null;
-            
+            if ( ! matches ) return null;
+
             const start = parseInt(matches[1], 10);
             const end = matches[2] ? parseInt(matches[2], 10) : null;
-            
+
             return { start, end, isMultipart: true };
         }
-        
+
         // Single range request
         const matches = rangeHeader.match(/bytes=(\d+)-(\d*)/);
-        if (!matches) return null;
-        
+        if ( ! matches ) return null;
+
         const start = parseInt(matches[1], 10);
         const end = matches[2] ? parseInt(matches[2], 10) : null;
-        
+
         return { start, end, isMultipart: false };
     };
 
-    if (req.headers["range"]) {
+    if ( req.headers['range'] ) {
         res.status(206);
-        
+
         // Parse the Range header and set Content-Range
-        const rangeInfo = parseRangeHeader(req.headers["range"]);
-        if (rangeInfo) {
+        const rangeInfo = parseRangeHeader(req.headers['range']);
+        if ( rangeInfo ) {
             const { start, end, isMultipart } = rangeInfo;
-            
+
             // For open-ended ranges, we need to calculate the actual end byte
             let actualEnd = end;
             let fileSize = null;
-            
+
             try {
                 fileSize = await req.values.fsNode.get('size');
-                if (end === null) {
+                if ( end === null ) {
                     actualEnd = fileSize - 1; // File size is 1-based, end byte is 0-based
                 }
             } catch (e) {
@@ -110,29 +110,29 @@ module.exports = eggspress('/read', {
                 actualEnd = null;
                 fileSize = null;
             }
-            
-            if (actualEnd !== null) {
+
+            if ( actualEnd !== null ) {
                 const totalSize = fileSize !== null ? fileSize : '*';
                 const contentRange = `bytes ${start}-${actualEnd}/${totalSize}`;
-                res.set("Content-Range", contentRange);
+                res.set('Content-Range', contentRange);
             }
-            
+
             // If this was a multipart request, modify the range header to only include the first range
-            if (isMultipart) {
-                req.headers["range"] = end !== null 
+            if ( isMultipart ) {
+                req.headers['range'] = end !== null
                     ? `bytes=${start}-${end}`
                     : `bytes=${start}-`;
             }
         }
     }
-    res.set({"Accept-Ranges": "bytes"});
+    res.set({ 'Accept-Ranges': 'bytes' });
 
     const hl_read = new HLRead();
     const stream = await hl_read.run({
-        ...(req.headers["range"] ? { range: req.headers["range"] } : {
+        ...(req.headers['range'] ? { range: req.headers['range'] } : {
             line_count,
             byte_count,
-            offset
+            offset,
         }),
         fsNode: req.values.fsNode,
         user: req.user,

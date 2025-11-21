@@ -16,24 +16,24 @@
  * You should have received a copy of the GNU Affero General Public License
  * along with this program.  If not, see <https://www.gnu.org/licenses/>.
  */
-import { PTT } from "./PTT";
+import { PTT } from './PTT';
 
 const encoder = new TextEncoder();
 
 /**
  * PTY: pseudo-terminal
- * 
+ *
  * This implements the PTY device driver.
  */
 export class PTY {
     constructor () {
         this.outputModeflags = {
-            outputNLCR: true
+            outputNLCR: true,
         };
         this.readableStream = new ReadableStream({
             start: controller => {
                 this.readController = controller;
-            }
+            },
         });
         this.writableStream = new WritableStream({
             start: controller => {
@@ -46,7 +46,7 @@ export class PTY {
                 for ( const target of this.targets ) {
                     target.readController.enqueue(chunk);
                 }
-            }
+            },
         });
         this.out = this.writableStream.getWriter();
         this.in = this.readableStream.getReader();
@@ -61,8 +61,8 @@ export class PTY {
 
     LF_to_CRLF (input) {
         let lfCount = 0;
-        for (let i = 0; i < input.length; i++) {
-            if (input[i] === 0x0A) {
+        for ( let i = 0; i < input.length; i++ ) {
+            if ( input[i] === 0x0A ) {
                 lfCount++;
             }
         }
@@ -70,9 +70,9 @@ export class PTY {
         const output = new Uint8Array(input.length + lfCount);
 
         let outputIndex = 0;
-        for (let i = 0; i < input.length; i++) {
+        for ( let i = 0; i < input.length; i++ ) {
             // If LF is encountered, insert CR (0x0D) before LF (0x0A)
-            if (input[i] === 0x0A) {
+            if ( input[i] === 0x0A ) {
                 output[outputIndex++] = 0x0D;
             }
             output[outputIndex++] = input[i];

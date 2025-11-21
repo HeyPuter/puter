@@ -16,13 +16,13 @@
  * You should have received a copy of the GNU Affero General Public License
  * along with this program.  If not, see <https://www.gnu.org/licenses/>.
  */
-const BaseService = require("../../services/BaseService");
+const BaseService = require('../../services/BaseService');
 const {
     NodePathSelector,
     NodeUIDSelector,
     NodeInternalIDSelector,
     NodeChildSelector,
-} = require("../../filesystem/node/selectors");
+} = require('../../filesystem/node/selectors');
 
 const RESOURCE_STATUS_PENDING_CREATE = {};
 const RESOURCE_STATUS_PENDING_UPDATE = {};
@@ -62,7 +62,7 @@ class ResourceService extends BaseService {
             };
         });
         entry.onFree = entry.freePromise.then.bind(entry.freePromise);
-        this.log.debug(`registering resource`, { uid: entry.uid });
+        this.log.debug('registering resource', { uid: entry.uid });
         this.uidToEntry[entry.uid] = entry;
         if ( entry.path ) {
             this.uidToPath[entry.uid] = entry.path;
@@ -72,7 +72,7 @@ class ResourceService extends BaseService {
     }
 
     free (uid) {
-        this.log.debug(`freeing`, { uid });
+        this.log.debug('freeing', { uid });
         const entry = this.uidToEntry[uid];
         if ( ! entry ) return;
         delete this.uidToEntry[uid];
@@ -86,7 +86,7 @@ class ResourceService extends BaseService {
 
     async waitForResourceByPath (path) {
         const entry = this.pathToEntry[path];
-        if (!entry) {
+        if ( ! entry ) {
             return;
         }
         await entry.freePromise;
@@ -94,7 +94,7 @@ class ResourceService extends BaseService {
 
     async waitForResourceByUID (uid) {
         const entry = this.uidToEntry[uid];
-        if (!entry) {
+        if ( ! entry ) {
             return;
         }
         await entry.freePromise;
@@ -105,13 +105,13 @@ class ResourceService extends BaseService {
             await this.waitForResourceByPath(selector.value);
         }
         else
-        if ( selector instanceof NodeUIDSelector ) {
-            await this.waitForResourceByUID(selector.value);
-        }
-        else
-        if ( selector instanceof NodeInternalIDSelector ) {
-            // Can't wait intelligently for this
-        }
+            if ( selector instanceof NodeUIDSelector ) {
+                await this.waitForResourceByUID(selector.value);
+            }
+            else
+                if ( selector instanceof NodeInternalIDSelector ) {
+                    // Can't wait intelligently for this
+                }
         if ( selector instanceof NodeChildSelector ) {
             await this.waitForResource(selector.parent);
         }

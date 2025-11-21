@@ -17,17 +17,16 @@
  * You should have received a copy of the GNU Affero General Public License
  * along with this program.  If not, see <https://www.gnu.org/licenses/>.
  */
-var crypto = require('crypto')
-const BaseService = require("./BaseService");
-const { Context } = require("../util/context");
+var crypto = require('crypto');
+const BaseService = require('./BaseService');
+const { Context } = require('../util/context');
 const { DB_WRITE } = require('./database/consts');
 
 const hash = v => {
     const sum = crypto.createHash('sha1');
     sum.update(v);
     return sum.digest();
-}
-
+};
 
 /**
 * @class ConfigurableCountingService
@@ -45,7 +44,7 @@ class ConfigurableCountingService extends BaseService {
                 {
                     name: 'model',
                     type: 'string',
-                }
+                },
             ],
             values: [
                 {
@@ -55,8 +54,8 @@ class ConfigurableCountingService extends BaseService {
                 {
                     name: 'output_tokens',
                     type: 'uint',
-                }
-            ]
+                },
+            ],
         },
         dalle: {
             category: [
@@ -71,9 +70,9 @@ class ConfigurableCountingService extends BaseService {
                 {
                     name: 'resolution',
                     type: 'string',
-                }
+                },
             ],
-        }
+        },
     };
 
     static sql_columns = {
@@ -82,8 +81,7 @@ class ConfigurableCountingService extends BaseService {
             'value_uint_2',
             'value_uint_3',
         ],
-    }
-
+    };
 
     /**
     * Initializes the database accessor for the ConfigurableCountingService.
@@ -97,7 +95,6 @@ class ConfigurableCountingService extends BaseService {
     async _init () {
         this.db = this.services.get('database').get(DB_WRITE, 'counting');
     }
-
 
     /**
     * Increments the count for a given service based on the provided parameters.
@@ -113,7 +110,7 @@ class ConfigurableCountingService extends BaseService {
     * @returns {Promise<void>} A promise that resolves when the count is successfully incremented.
     */
     async increment ({ service_name, service_type, values }) {
-        values = values ? {...values} : {};
+        values = values ? { ...values } : {};
 
         const now = new Date();
         const year = now.getUTCFullYear();
@@ -162,8 +159,12 @@ class ConfigurableCountingService extends BaseService {
         const actor_key = actor.uid;
 
         const required_data = {
-            year, month, service_name, service_type,
-            actor_key, pricing_category_hash,
+            year,
+            month,
+            service_name,
+            service_type,
+            actor_key,
+            pricing_category_hash,
             pricing_category: JSON.stringify(pricing_category),
         };
 
@@ -175,11 +176,11 @@ class ConfigurableCountingService extends BaseService {
             }`;
 
         const identifying_keys = [
-            `year`, `month`,
-            `service_type`, `service_name`,
-            `actor_key`,
-            `pricing_category_hash`
-        ]
+            'year', 'month',
+            'service_type', 'service_name',
+            'actor_key',
+            'pricing_category_hash',
+        ];
 
         const sql =
             `INSERT INTO monthly_usage_counts (${
@@ -189,20 +190,20 @@ class ConfigurableCountingService extends BaseService {
             }) ` +
             `VALUES (${
                 Object.keys(required_data).map(() => '?').join(', ')
-            }, 1, ${custom_col_values.map(() => '?').join(', ')}) ` +
-            this.db.case({
-                mysql: 'ON DUPLICATE KEY UPDATE ' + duplicate_update_part,
-                sqlite: `ON CONFLICT(${
-                    identifying_keys.map(v => `\`${v}\``).join(', ')
-                }) DO UPDATE SET ${duplicate_update_part}`,
-            })
+            }, 1, ${custom_col_values.map(() => '?').join(', ')}) ${
+                this.db.case({
+                    mysql: `ON DUPLICATE KEY UPDATE ${ duplicate_update_part}`,
+                    sqlite: `ON CONFLICT(${
+                        identifying_keys.map(v => `\`${v}\``).join(', ')
+                    }) DO UPDATE SET ${duplicate_update_part}`,
+                })}`
             ;
 
         const value_array = [
             ...Object.values(required_data),
             ...custom_col_values,
             ...custom_col_values,
-        ]
+        ];
 
         console.log('SQL QUERY', sql, value_array);
 

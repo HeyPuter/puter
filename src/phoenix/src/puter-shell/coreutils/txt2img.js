@@ -54,5 +54,5 @@ export default {
         });
 
         await ctx.externs.out.write(result);
-    }
-}
+    },
+};

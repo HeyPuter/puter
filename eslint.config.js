@@ -10,15 +10,14 @@ import spaceUnaryOpsWithException from './eslint/space-unary-ops-with-exception.
 
 const rules = {
     'no-unused-vars': ['error', {
-        'vars': 'all',
-        'args': 'after-used',
-        'caughtErrors': 'all',
-        'ignoreRestSiblings': false,
-        'ignoreUsingDeclarations': false,
-        'reportUsedIgnorePattern': false,
-        'argsIgnorePattern': '^_',
-        'caughtErrorsIgnorePattern': '^_',
-        'destructuredArrayIgnorePattern': '^_',
+        vars: 'all',
+        args: 'after-used',
+        caughtErrors: 'none',
+        ignoreRestSiblings: false,
+        ignoreUsingDeclarations: false,
+        reportUsedIgnorePattern: false,
+        argsIgnorePattern: '^_',
+        destructuredArrayIgnorePattern: '^_',
 
     }],
     curly: ['error', 'multi-line'],
@@ -60,7 +59,7 @@ export default defineConfig([
     // TypeScript support block
     {
         files: ['**/*.ts'],
-        ignores: ['tests/**/*.ts', 'extensions'],
+        ignores: ['tests/**/*.ts', 'extensions/**/*.ts'],
         languageOptions: {
             parser: tseslintParser,
             parserOptions: {
@@ -75,7 +74,7 @@ export default defineConfig([
         rules: {
             // Recommended rules for TypeScript
             '@typescript-eslint/no-explicit-any': 'warn',
-            '@typescript-eslint/no-unused-vars': ['error', { argsIgnorePattern: '^_' }],
+            '@typescript-eslint/no-unused-vars': ['error', { argsIgnorePattern: '^_', caughtErrors: 'none' }],
             '@typescript-eslint/ban-ts-comment': 'warn',
             '@typescript-eslint/consistent-type-definitions': ['error', 'interface'],
         },
@@ -88,7 +87,7 @@ export default defineConfig([
             parserOptions: {
                 ecmaVersion: 'latest',
                 sourceType: 'module',
-                project: 'extensions/tsconfig.json',
+                project: './extensions/tsconfig.json',
             },
         },
         plugins: {
@@ -97,16 +96,18 @@ export default defineConfig([
         rules: {
             // Recommended rules for TypeScript
             '@typescript-eslint/no-explicit-any': 'warn',
-            '@typescript-eslint/no-unused-vars': ['error', { argsIgnorePattern: '^_' }],
+            '@typescript-eslint/no-unused-vars': ['error', { argsIgnorePattern: '^_', caughtErrors: 'none' }],
             '@typescript-eslint/ban-ts-comment': 'warn',
             '@typescript-eslint/consistent-type-definitions': ['error', 'interface'],
-        },
-    },
+        } },
     // TypeScript support for tests
     {
         files: ['tests/**/*.ts'],
+        ignores: ['tests/playwright/tests/**/*.ts'],
+
         languageOptions: {
             parser: tseslintParser,
+            globals: { ...globals.jest, ...globals.node },
             parserOptions: {
                 ecmaVersion: 'latest',
                 sourceType: 'module',
@@ -119,11 +120,10 @@ export default defineConfig([
         rules: {
             // Recommended rules for TypeScript
             '@typescript-eslint/no-explicit-any': 'warn',
-            '@typescript-eslint/no-unused-vars': ['error', { argsIgnorePattern: '^_' }],
+            '@typescript-eslint/no-unused-vars': ['error', { argsIgnorePattern: '^_', caughtErrors: 'none' }],
             '@typescript-eslint/ban-ts-comment': 'warn',
             '@typescript-eslint/consistent-type-definitions': ['error', 'interface'],
-        },
-    },
+        } },
     {
         plugins: {
             js,
@@ -136,10 +136,28 @@ export default defineConfig([
         },
     },
     {
-        files: ['src/backend/**/*.{js,mjs,cjs,ts}'],
+        files: [
+            'src/backend/**/*.{js,mjs,cjs,ts}',
+            'src/backend-core-0/**/*.{js,mjs,cjs,ts}',
+            'src/putility/**/*.{js,mjs,cjs,ts}',
+        ],
+        ignores: [
+            '**/*.test.js',
+        ],
         languageOptions: { globals: globals.node },
         rules,
         extends: ['js/recommended'],
+        plugins: {
+            js,
+            '@stylistic': stylistic,
+        },
+    },
+    {
+        files: [
+            '**/*.test.js',
+        ],
+        languageOptions: { globals: { ...globals.jest, ...globals.node } },
+        rules,
         plugins: {
             js,
             '@stylistic': stylistic,
@@ -163,28 +181,29 @@ export default defineConfig([
         },
     },
     {
-        files: ['**/*.{js,mjs,cjs,ts}'],
+        files: ['**/*.{js,mjs,cjs,ts}', 'src/gui/src/**/*.js'],
         ignores: [
             'src/backend/**/*.{js,mjs,cjs,ts}',
             'extensions/**/*.{js,mjs,cjs,ts}',
+            'src/backend-core-0/**/*.{js,mjs,cjs,ts}',
+            'submodules/**',
+            'tests/**',
+            'tools/**',
+            '**/*.min.js',
+            '**/*.min.cjs',
+            '**/*.min.mjs',
+            '**/socket.io.js',
+            '**/dist/*.js',
+            'src/phoenix/test/**',
+            'src/gui/src/lib/**',
+            'src/gui/dist/**',
         ],
         languageOptions: {
             globals: {
                 ...globals.browser,
                 ...globals.jquery,
                 i18n: 'readonly',
-            },
-        },
-        rules,
-    },
-    {
-        files: ['**/*.{js,mjs,cjs,ts}'],
-        ignores: ['src/backend/**/*.{js,mjs,cjs,ts}'],
-        languageOptions: {
-            globals: {
-                ...globals.browser,
-                ...globals.jquery,
-                i18n: 'readonly',
+                puter: 'readonly',
             },
         },
         rules,
@@ -192,7 +211,6 @@ export default defineConfig([
         plugins: {
             js,
             '@stylistic': stylistic,
-
         },
     },
 ]);

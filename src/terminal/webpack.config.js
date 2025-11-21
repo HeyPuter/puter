@@ -37,7 +37,7 @@ const configContext = { globalThis: { __CONFIG__: {} } };
 eval(configContent.replace(/globalThis\.__CONFIG__/g, 'configContext.globalThis.__CONFIG__'));
 
 // Capture config values at build time
-const sdkUrl = process.env.PUTER_JS_URL ?? 
+const sdkUrl = process.env.PUTER_JS_URL ??
     (configContext.globalThis.__CONFIG__?.sdk_url ?? '');
 
 export default {
@@ -74,4 +74,3 @@ export default {
         }),
     ],
 };
-

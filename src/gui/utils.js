@@ -50,13 +50,13 @@ const __dirname = path.dirname(fileURLToPath(import.meta.url));
  *   console.error('Build process failed:', error);
  * });
  */
-async function build(options){
+async function build (options) {
     const PUTER_ENV = process.env.PUTER_ENV || 'prod';
     // -----------------------------------------------
     // Delete ./dist/ directory if it exists and create a new one
     // -----------------------------------------------
-    if(fs.existsSync(path.join(__dirname, 'dist'))){
-        fs.rmSync(path.join(__dirname, 'dist'), {recursive: true});
+    if ( fs.existsSync(path.join(__dirname, 'dist')) ) {
+        fs.rmSync(path.join(__dirname, 'dist'), { recursive: true });
     }
     fs.mkdirSync(path.join(__dirname, 'dist'));
 
@@ -64,20 +64,24 @@ async function build(options){
     // Concat/merge the JS libraries and save them to ./dist/libs.js
     // -----------------------------------------------
     let js = '';
-    for(let i = 0; i < lib_paths.length; i++){
+    for ( let i = 0; i < lib_paths.length; i++ ) {
         const file = path.join(__dirname, 'src', lib_paths[i]);
         // js
-        if(file.endsWith('.js') && !file.endsWith('.min.js')){
-            let minified_code = await uglifyjs.minify(fs.readFileSync(file).toString(), {mangle: false});
-            if(minified_code && minified_code.code){
+        if ( file.endsWith('.js') && !file.endsWith('.min.js') ) {
+            let minified_code = await uglifyjs.minify(fs.readFileSync(file).toString(), { mangle: false });
+            if ( minified_code && minified_code.code ) {
                 js += minified_code.code;
-                if(options?.verbose)
+                if ( options?.verbose )
+                {
                     console.log('minified: ', file);
+                }
             }
-        }else{
+        } else {
             js += fs.readFileSync(file);
-            if(options?.verbose)
+            if ( options?.verbose )
+            {
                 console.log('skipped minification: ', file);
+            }
         }
 
         js += '\n\n\n';
@@ -89,33 +93,41 @@ async function build(options){
     let icons = 'window.icons = [];\n\n\n';
     fs.readdirSync(path.join(__dirname, 'src/icons')).forEach(file => {
         // skip dotfiles
-        if(file.startsWith('.'))
+        if ( file.startsWith('.') )
+        {
             return;
+        }
         // load image
-        let buff = new Buffer.from(fs.readFileSync(path.join(__dirname, 'src/icons') + '/' + file));
+        let buff = new Buffer.from(fs.readFileSync(`${path.join(__dirname, 'src/icons') }/${ file}`));
         // convert to base64
         let base64data = buff.toString('base64');
         // add to `window.icons`
-        if(file.endsWith('.png'))
+        if ( file.endsWith('.png') )
+        {
             icons += `window.icons['${file}'] = "data:image/png;base64,${base64data}";\n`;
-        else if(file.endsWith('.svg'))
+        }
+        else if ( file.endsWith('.svg') )
+        {
             icons += `window.icons['${file}'] = "data:image/svg+xml;base64,${base64data}";\n`;
+        }
     });
 
     // -----------------------------------------------
     // concat/merge the CSS files and save them to ./dist/bundle.min.css
     // -----------------------------------------------
     let css = '';
-    for(let i = 0; i < css_paths.length; i++){
+    for ( let i = 0; i < css_paths.length; i++ ) {
         let fullpath = path.join(__dirname, 'src', css_paths[i]);
         // minify CSS files if not already minified, then concatenate
-        if(css_paths[i].endsWith('.css') && !css_paths[i].endsWith('.min.css')){
+        if ( css_paths[i].endsWith('.css') && !css_paths[i].endsWith('.min.css') ) {
             const minified_css = new CleanCSS({}).minify(fs.readFileSync(fullpath).toString());
             css += minified_css.styles;
         }
         // otherwise, just concatenate the file
         else
+        {
             css += fs.readFileSync(path.join(__dirname, 'src', css_paths[i]));
+        }
 
         // add newlines between files
         css += '\n\n\n';
@@ -126,7 +138,7 @@ async function build(options){
     // Bundle GUI core and merge all files into a single JS file
     // -----------------------------------------------
     let main_array = [];
-    for(let i = 0; i < js_paths.length; i++){
+    for ( let i = 0; i < js_paths.length; i++ ) {
         main_array.push(path.join(__dirname, 'src', js_paths[i]));
     }
     const webpack_opts = {
@@ -138,16 +150,16 @@ async function build(options){
         optimization: {
             minimize: true,
         },
-    }
+    };
     console.log('webpack opts', webpack_opts);
     await webpack(webpack_opts, (err, stats) => {
-        if(err){
+        if ( err ) {
             throw err;
             // console.error(err);
             // return;
         }
         //if(options?.verbose)
-            console.log(stats.toString());
+        console.log(stats.toString());
         // write to ./dist/bundle.min.js
         // fs.writeFileSync(path.join(__dirname, 'dist', 'bundle.min.js'), fs.readFileSync(path.join(__dirname, 'dist', 'main.js')));
         // remove ./dist/main.js
@@ -156,10 +168,8 @@ async function build(options){
 
     // Copy index.js to dist/gui.js
     // Prepend `window.gui_env="prod";` to `./dist/gui.js`
-    fs.writeFileSync(
-        path.join(__dirname, 'dist', 'gui.js'),
-        `window.gui_env="${PUTER_ENV}"; \n\n` + fs.readFileSync(path.join(__dirname, 'src', 'index.js'))
-    );
+    fs.writeFileSync(path.join(__dirname, 'dist', 'gui.js'),
+                    `window.gui_env="${PUTER_ENV}"; \n\n${ fs.readFileSync(path.join(__dirname, 'src', 'index.js'))}`);
 
     const copy_these = [
         'images',
@@ -174,7 +184,7 @@ async function build(options){
     const recursive_copy = (src, dest) => {
         const stat = fs.statSync(src);
         if ( stat.isDirectory() ) {
-            if( ! fs.existsSync(dest) ) fs.mkdirSync(dest);
+            if ( ! fs.existsSync(dest) ) fs.mkdirSync(dest);
             const files = fs.readdirSync(src);
             for ( const file of files ) {
                 recursive_copy(path.join(src, file), path.join(dest, file));
@@ -209,60 +219,60 @@ async function build(options){
  * @returns {string} The HTML content for the GUI based on the specified configuration options.
  *
  */
-function generateDevHtml(options){
+function generateDevHtml (options) {
     let start_t = Date.now();
 
     // final html string
     let h = '';
 
-    h += `<!DOCTYPE html>`;
-    h += `<html lang="en">`;
+    h += '<!DOCTYPE html>';
+    h += '<html lang="en">';
 
-    h += `<head>`;
-        h += `<title>${encode((options.title))}</title>`
-        h += `<meta name="author" content="${encode(options.company)}">`
-        // description
-        let description = options.description;
-        // if app_description is set, use that instead
-        if(options.app_description){
-            description = options.app_description;
+    h += '<head>';
+    h += `<title>${encode((options.title))}</title>`;
+    h += `<meta name="author" content="${encode(options.company)}">`;
+    // description
+    let description = options.description;
+    // if app_description is set, use that instead
+    if ( options.app_description ) {
+        description = options.app_description;
+    }
+    // if no app_description is set, use short_description if set
+    else if ( options.short_description ) {
+        description = options.short_description;
+    }
+
+    // description
+    h += `<meta name="description" content="${encode((description).replace(/\n/g, ' '))}">`;
+    // facebook domain verification
+    h += '<meta name="facebook-domain-verification" content="e29w3hjbnnnypf4kzk2cewcdaxym1y" />';
+    // canonical url
+    h += `<link rel="canonical" href="${options.origin}">`;
+
+    // DEV: load every CSS file individually
+    if ( options.env === 'dev' ) {
+        for ( let i = 0; i < css_paths.length; i++ ) {
+            h += `<link rel="stylesheet" href="${css_paths[i]}">`;
         }
-        // if no app_description is set, use short_description if set
-        else if(options.short_description){
-            description = options.short_description;
-        }
+    }
 
-        // description
-        h += `<meta name="description" content="${encode((description).replace(/\n/g, " "))}">`
-        // facebook domain verification
-        h += `<meta name="facebook-domain-verification" content="e29w3hjbnnnypf4kzk2cewcdaxym1y" />`;
-        // canonical url
-        h += `<link rel="canonical" href="${options.origin}">`;
+    // Facebook meta tags
+    h += `<meta property="og:url" content="https://${options.domain}">`;
+    h += '<meta property="og:type" content="website">';
+    h += `<meta property="og:title" content="${encode(options.title)}">`;
+    h += `<meta property="og:description" content="${encode((options.short_description).replace(/\n/g, ' '))}">`;
+    h += `<meta property="og:image" content="${options.social_card}">`;
 
-        // DEV: load every CSS file individually
-        if(options.env === 'dev'){
-            for(let i = 0; i < css_paths.length; i++){
-                h += `<link rel="stylesheet" href="${css_paths[i]}">`;
-            }
-        }
+    // Twitter meta tags
+    h += '<meta name="twitter:card" content="summary_large_image">';
+    h += `<meta property="twitter:domain" content="${options.domain}">`;
+    h += `<meta property="twitter:url" content="https://${options.domain}">`;
+    h += `<meta name="twitter:title" content="${encode(options.title)}">`;
+    h += `<meta name="twitter:description" content="${encode((options.short_description).replace(/\n/g, ' '))}">`;
+    h += `<meta name="twitter:image" content="${options.social_card}">`;
 
-        // Facebook meta tags
-        h += `<meta property="og:url" content="https://${options.domain}">`;
-        h += `<meta property="og:type" content="website">`;
-        h += `<meta property="og:title" content="${encode(options.title)}">`;
-        h += `<meta property="og:description" content="${encode((options.short_description).replace(/\n/g, " "))}">`;
-        h += `<meta property="og:image" content="${options.social_card}">`;
-
-        // Twitter meta tags
-        h += `<meta name="twitter:card" content="summary_large_image">`;
-        h += `<meta property="twitter:domain" content="${options.domain}">`;
-        h += `<meta property="twitter:url" content="https://${options.domain}">`;
-        h += `<meta name="twitter:title" content="${encode(options.title)}">`;
-        h += `<meta name="twitter:description" content="${encode((options.short_description).replace(/\n/g, " "))}">`;
-        h += `<meta name="twitter:image" content="${options.social_card}">`;
-
-        // favicons
-        h += `
+    // favicons
+    h += `
         <link rel="apple-touch-icon" sizes="57x57" href="/favicons/apple-icon-57x57.png">
         <link rel="apple-touch-icon" sizes="60x60" href="/favicons/apple-icon-60x60.png">
         <link rel="apple-touch-icon" sizes="72x72" href="/favicons/apple-icon-72x72.png">
@@ -281,74 +291,79 @@ function generateDevHtml(options){
         <meta name="msapplication-TileImage" content="/favicons/ms-icon-144x144.png">
         <meta name="theme-color" content="#ffffff">`;
 
-        // preload images when applicable
-        h += `<link rel="preload" as="image" href="./images/wallpaper.webp">`;
-    h += `</head>`;
+    // preload images when applicable
+    h += '<link rel="preload" as="image" href="./images/wallpaper.webp">';
+    h += '</head>';
 
-    h += `<body>`;
+    h += '<body>';
 
-        // To indicate that the GUI is running to any 3rd-party scripts that may be running on the page
-        // specifically, the `puter.js` script
-        // This line is also present verbatim in `src/index.js` for production builds
-        h += `<script>window.puter_gui_enabled = true;</script>`;
+    // To indicate that the GUI is running to any 3rd-party scripts that may be running on the page
+    // specifically, the `puter.js` script
+    // This line is also present verbatim in `src/index.js` for production builds
+    h += '<script>window.puter_gui_enabled = true;</script>';
 
-        // DEV: load every JS library individually
-        if(options.env === 'dev'){
-            for(let i = 0; i < lib_paths.length; i++){
-                h += `<script src="${lib_paths[i]}"></script>`;
+    // DEV: load every JS library individually
+    if ( options.env === 'dev' ) {
+        for ( let i = 0; i < lib_paths.length; i++ ) {
+            h += `<script src="${lib_paths[i]}"></script>`;
+        }
+    }
+
+    // load images and icons as base64 for performance
+    if ( options.env === 'dev' ) {
+        h += '<script>';
+        h += 'window.icons = {};';
+        fs.readdirSync(path.join(__dirname, 'src/icons')).forEach(file => {
+            // skip dotfiles
+            if ( file.startsWith('.') )
+            {
+                return;
             }
-        }
-
-        // load images and icons as base64 for performance
-        if(options.env === 'dev'){
-            h += `<script>`;
-                h += `window.icons = {};`
-                fs.readdirSync(path.join(__dirname, 'src/icons')).forEach(file => {
-                    // skip dotfiles
-                    if(file.startsWith('.'))
-                        return;
-                    // load image
-                    let buff = new Buffer.from(fs.readFileSync(path.join(__dirname, 'src/icons') + '/' + file));
-                    // convert to base64
-                    let base64data = buff.toString('base64');
-                    // add to `window.icons`
-                    if(file.endsWith('.png'))
-                        h += `window.icons['${file}'] = "data:image/png;base64,${base64data}";\n`;
-                    else if(file.endsWith('.svg'))
-                        h += `window.icons['${file}'] = "data:image/svg+xml;base64,${base64data}";\n`;
-                });
-            h += `</script>`;
-        }
-
-
-        // PROD: gui.js
-        if(options.env === 'prod'){
-            h += `<script src="/dist/gui.js"></script>`;
-        }
-        // DEV: load every JS file individually
-        else{
-            for(let i = 0; i < js_paths.length; i++){
-                h += `<script type="module" src="${js_paths[i]}"></script>`;
+            // load image
+            let buff = new Buffer.from(fs.readFileSync(`${path.join(__dirname, 'src/icons') }/${ file}`));
+            // convert to base64
+            let base64data = buff.toString('base64');
+            // add to `window.icons`
+            if ( file.endsWith('.png') )
+            {
+                h += `window.icons['${file}'] = "data:image/png;base64,${base64data}";\n`;
             }
-            // load GUI
-            h += `<script type="module" src="/index.js"></script>`;
-        }
+            else if ( file.endsWith('.svg') )
+            {
+                h += `window.icons['${file}'] = "data:image/svg+xml;base64,${base64data}";\n`;
+            }
+        });
+        h += '</script>';
+    }
 
-        // ----------------------------------------
-        // Initialize GUI with config options
-        // ----------------------------------------
-        h += `
+    // PROD: gui.js
+    if ( options.env === 'prod' ) {
+        h += '<script src="/dist/gui.js"></script>';
+    }
+    // DEV: load every JS file individually
+    else {
+        for ( let i = 0; i < js_paths.length; i++ ) {
+            h += `<script type="module" src="${js_paths[i]}"></script>`;
+        }
+        // load GUI
+        h += '<script type="module" src="/index.js"></script>';
+    }
+
+    // ----------------------------------------
+    // Initialize GUI with config options
+    // ----------------------------------------
+    h += `
         <script type="text/javascript">
-        window.addEventListener('load', function() {`
-            h += `gui()`;
-        h += `});
+        window.addEventListener('load', function() {`;
+    h += 'gui()';
+    h += `});
         </script>`;
 
     h += `</body>
 
     </html>`;
 
-    console.log(`/index.js: ` + (Date.now() - start_t)/1000);
+    console.log(`/index.js: ${ (Date.now() - start_t) / 1000}`);
     return h;
 }
 

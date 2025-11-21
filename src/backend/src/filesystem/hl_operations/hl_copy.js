@@ -16,14 +16,14 @@
  * You should have received a copy of the GNU Affero General Public License
  * along with this program.  If not, see <https://www.gnu.org/licenses/>.
  */
-const APIError = require("../../api/APIError");
-const { chkperm, validate_fsentry_name, get_user, is_ancestor_of } = require("../../helpers");
-const { TYPE_DIRECTORY } = require("../FSNodeContext");
-const { NodePathSelector, RootNodeSelector } = require("../node/selectors");
-const { HLFilesystemOperation } = require("./definitions");
-const { MkTree } = require("./hl_mkdir");
-const { HLRemove } = require("./hl_remove");
-const { LLCopy } = require("../ll_operations/ll_copy");
+const APIError = require('../../api/APIError');
+const { chkperm, validate_fsentry_name, get_user, is_ancestor_of } = require('../../helpers');
+const { TYPE_DIRECTORY } = require('../FSNodeContext');
+const { NodePathSelector, RootNodeSelector } = require('../node/selectors');
+const { HLFilesystemOperation } = require('./definitions');
+const { MkTree } = require('./hl_mkdir');
+const { HLRemove } = require('./hl_remove');
+const { LLCopy } = require('../ll_operations/ll_copy');
 
 class HLCopy extends HLFilesystemOperation {
     static DESCRIPTION = `
@@ -34,11 +34,11 @@ class HLCopy extends HLFilesystemOperation {
         - create missing parent directories
         - overwrite existing files or directories
         - deduplicate files/directories with the same name
-    `
+    `;
 
     static MODULES = {
         _path: require('path'),
-    }
+    };
 
     static PARAMETERS = {
         source: {},
@@ -51,7 +51,7 @@ class HLCopy extends HLFilesystemOperation {
         create_missing_parents: {},
 
         user: {},
-    }
+    };
 
     async _run () {
         const { _path } = this.modules;
@@ -84,7 +84,7 @@ class HLCopy extends HLFilesystemOperation {
         // If parent exists and is a file, and a new name wasn't
         // specified, the intention must be to overwrite the file.
         if (
-            ! values.new_name &&
+            !values.new_name &&
             await parent.exists() &&
             await parent.get('type') !== TYPE_DIRECTORY
         ) {
@@ -130,20 +130,20 @@ class HLCopy extends HLFilesystemOperation {
 
         // NEXT: implement _verify_room with profiling
         const tracer = svc.get('traceService').tracer;
-        await tracer.startActiveSpan(`fs:cp:verify-size-constraints`, async span => {
+        await tracer.startActiveSpan('fs:cp:verify-size-constraints', async span => {
             const source_file = source.entry;
             const dest_fsentry = parent.entry;
 
-            let source_user = await get_user({id: source_file.user_id});
+            let source_user = await get_user({ id: source_file.user_id });
             let dest_user = source_user.id !== dest_fsentry.user_id
-                ? await get_user({id: dest_fsentry.user_id})
+                ? await get_user({ id: dest_fsentry.user_id })
                 : source_user ;
             const sizeService = svc.get('sizeService');
             let deset_usage = await sizeService.get_usage(dest_user.id);
 
             const size = await source.fetchSize();
             const capacity = await sizeService.get_storage_capacity(dest_user.id);
-            if(capacity - deset_usage - size < 0){
+            if ( capacity - deset_usage - size < 0 ) {
                 throw APIError.create('storage_limit_reached');
             }
             span.end();
@@ -166,16 +166,16 @@ class HLCopy extends HLFilesystemOperation {
         let overwritten;
         if ( await dest.exists() ) {
             // condition: no overwrite behaviour specified
-            if ( ! values.overwrite && ! values.dedupe_name ) {
+            if ( !values.overwrite && !values.dedupe_name ) {
                 throw APIError.create('item_with_same_name_exists', null, {
-                    entry_name: dest.entry.name
+                    entry_name: dest.entry.name,
                 });
             }
 
             if ( values.dedupe_name ) {
                 const target_ext = _path.extname(target_name);
                 const target_noext = _path.basename(target_name, target_ext);
-                for ( let i=1 ;; i++ ) {
+                for ( let i = 1 ;; i++ ) {
                     const try_new_name = `${target_noext} (${i})${target_ext}`;
                     const exists = await parent.hasChild(try_new_name);
                     if ( ! exists ) {
@@ -209,13 +209,13 @@ class HLCopy extends HLFilesystemOperation {
             parent,
             user: values.user,
             target_name,
-        })
+        });
 
         await this.copied.awaitStableEntry();
         const response = await this.copied.getSafeEntry({ thumbnail: true });
         return {
-            copied : response,
-            overwritten
+            copied: response,
+            overwritten,
         };
     }
 }

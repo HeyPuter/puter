@@ -37,10 +37,10 @@ export class BuiltinCommandProvider {
             .filter(commandName => commandName.startsWith(query));
     }
 
-    async list() {
+    async list () {
         return Object.entries(builtins).map(([name, command]) => ({
             name,
-            ...command
+            ...command,
         }));
     }
 

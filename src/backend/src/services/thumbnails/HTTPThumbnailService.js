@@ -23,10 +23,9 @@
 const axios = require('axios');
 
 const { TeePromise } = require('@heyputer/putility').libs.promise;
-const FormData = require("form-data");
+const FormData = require('form-data');
 const { stream_to_the_void, buffer_to_stream } = require('../../util/streamutil');
 const BaseService = require('../BaseService');
-
 
 class ThumbnailOperation extends TeePromise {
     // static MAX_RECYCLE_COUNT = 5*3;
@@ -37,13 +36,12 @@ class ThumbnailOperation extends TeePromise {
         this.recycle_count = 0;
     }
 
-
     /**
     * Recycles the ThumbnailOperation instance.
-    * 
+    *
     * Increments the recycle count and checks if the operation can be recycled again.
     * If the recycle count exceeds the maximum allowed, the operation is resolved with undefined.
-    * 
+    *
     * @returns {boolean} Returns true if the operation can be recycled, false otherwise.
     */
     recycle () {
@@ -57,7 +55,6 @@ class ThumbnailOperation extends TeePromise {
         return true;
     }
 }
-
 
 /**
 * @class HTTPThumbnailService
@@ -121,12 +118,12 @@ class HTTPThumbnailService extends BaseService {
         if ( my_config?.query_supported_types !== false ) {
             /**
             * Periodically queries the thumbnail service for supported MIME types.
-            * 
+            *
             * @memberof HTTPThumbnailService
             * @private
             * @method query_supported_mime_types_
             * @returns {Promise<void>} A promise that resolves when the query is complete.
-            * @notes 
+            * @notes
             *   - This method is called every minute if `query_supported_types` in the config is not set to false.
             *   - Updates the `SUPPORTED_MIMETYPES` static property of the class with the latest MIME types.
             */
@@ -136,11 +133,10 @@ class HTTPThumbnailService extends BaseService {
         }
     }
 
-
     /**
     * Sets up the HTTP routes for the thumbnail service.
     * This method is called during the installation process of the service.
-    * 
+    *
     * @param {Object} _ - Unused parameter, typically the context or request object.
     * @param {Object} options - An object containing the Express application instance.
     * @param {Object} options.app - The Express application object to mount the routes onto.
@@ -148,10 +144,10 @@ class HTTPThumbnailService extends BaseService {
     async ['__on_install.routes'] (_, { app }) {
         /**
         * Sets up the routes for the thumbnail service.
-        * 
+        *
         * This method is called when the service is installed to configure the Express application
         * with the necessary routes for handling thumbnail-related HTTP requests.
-        * 
+        *
         * @param {Object} _ - Unused parameter, part of the installation context.
         * @param {Object} context - The context object containing the Express application.
         * @param {Express.Application} context.app - The Express application to configure routes on.
@@ -172,14 +168,14 @@ class HTTPThumbnailService extends BaseService {
             */
             const status_as_string = (status) => {
                 switch ( status ) {
-                    case this.constructor.STATUS_IDLE:
-                        return 'idle';
-                    case this.constructor.STATUS_RUNNING:
-                        return 'running';
-                    default:
-                        return 'unknown';
+                case this.constructor.STATUS_IDLE:
+                    return 'idle';
+                case this.constructor.STATUS_RUNNING:
+                    return 'running';
+                default:
+                    return 'unknown';
                 }
-            }
+            };
             res.json({
                 status: status_as_string(this.status),
                 queue: this.queue.length,
@@ -187,7 +183,6 @@ class HTTPThumbnailService extends BaseService {
             });
         });
     }
-
 
     /**
     * Initializes the thumbnail service by setting up health checks.
@@ -201,7 +196,6 @@ class HTTPThumbnailService extends BaseService {
         const services = this.services;
         const svc_serverHealth = services.get('server-health');
 
-
         /**
         * Initializes the thumbnail service by setting up health checks.
         * @async
@@ -213,15 +207,12 @@ class HTTPThumbnailService extends BaseService {
         */
         svc_serverHealth.add_check('thumbnail-ping', async () => {
             this.log.noticeme('THUMBNAIL PING');
-            await axios.request(
-                {
-                    method: 'get',
-                    url: `${this.host_}/ping`,
-                }
-            );
+            await axios.request({
+                method: 'get',
+                url: `${this.host_}/ping`,
+            });
         });
     }
-
 
     get host_ () {
         return this.config.host || 'http://127.0.0.1:3101';
@@ -245,13 +236,12 @@ class HTTPThumbnailService extends BaseService {
      *                                       or `undefined` if thumbification fails or is not possible.
      * @throws Will log errors if thumbification process encounters issues.
      */
-    async thumbify(file) {
+    async thumbify (file) {
         const job = new ThumbnailOperation(file);
         this.queue.push(job);
         this.checkShouldExec_();
         return await job;
     }
-
 
     /**
     * Checks if the thumbnail generation process should start executing.
@@ -270,15 +260,14 @@ class HTTPThumbnailService extends BaseService {
         this.exec_();
     }
 
-
     /**
     * Executes thumbnail generation for queued files.
-    * 
+    *
     * This method is responsible for processing files in the queue for thumbnail generation.
     * It handles the transition of service status, manages file size limits, and initiates
     * the thumbnail generation process for files within the size limit. If errors occur,
     * it handles the resolution of jobs appropriately and logs errors.
-    * 
+    *
     * @private
     */
     async exec_ () {
@@ -315,7 +304,7 @@ class HTTPThumbnailService extends BaseService {
 
         try {
             return await this.exec_0(queue);
-        } catch (err) {
+        } catch ( err ) {
             await new Promise(resolve => setTimeout(resolve, 200));
 
             // const new_queue = queue.filter(job => job.recycle());
@@ -337,18 +326,17 @@ class HTTPThumbnailService extends BaseService {
         }
     }
 
-
     /**
     * Executes the thumbnail generation process for the given queue of jobs.
-    * 
+    *
     * This method attempts to process the provided queue, handling errors gracefully
     * by recycling jobs or resolving them as undefined if they exceed size limits or
     * if an error occurs during the request. After execution, it updates the service
     * status and checks for further executions if needed.
     *
-    * @param {Array<ThumbnailOperation>} queue - An array of ThumbnailOperation objects 
+    * @param {Array<ThumbnailOperation>} queue - An array of ThumbnailOperation objects
     * representing the jobs to be processed.
-    * @returns {Promise<any>} - A promise that resolves with the results of the thumbnail 
+    * @returns {Promise<any>} - A promise that resolves with the results of the thumbnail
     * generation or undefined if an error occurred.
     */
     async exec_0 (queue) {
@@ -376,18 +364,15 @@ class HTTPThumbnailService extends BaseService {
             const job = queue[i];
 
             this.log.noticeme('result?', { result });
-            job.resolve(
-                result.encoded
-                && `data:image/png;base64,${result.encoded}`
-            );
+            job.resolve(result.encoded
+                && `data:image/png;base64,${result.encoded}`);
         }
     }
-
 
     /**
     * Handles the thumbnail request process by sending queued files to the thumbnail service,
     * managing the response, and resolving the thumbnail operations accordingly.
-    * 
+    *
     * @param {ThumbnailOperation[]} queue - An array of ThumbnailOperation instances representing files to be thumbnailed.
     * @returns {Promise} A promise that resolves with the thumbnail service response or throws an error if the request fails.
     */
@@ -410,7 +395,7 @@ class HTTPThumbnailService extends BaseService {
                 status: 200,
                 data: results,
             };
-        } 
+        }
 
         const form = new FormData();
         let expected = 0;
@@ -419,7 +404,7 @@ class HTTPThumbnailService extends BaseService {
 
             /**
             * Prepares and sends a request to the thumbnail service for processing multiple files.
-            * 
+            *
             * @param {Object} options - Options object containing the queue of files.
             * @param {Array<ThumbnailOperation>} options.queue - An array of ThumbnailOperation objects to be processed.
             * @returns {Promise<Object>} A promise that resolves to the response from the thumbnail service.
@@ -437,20 +422,17 @@ class HTTPThumbnailService extends BaseService {
             });
         }
 
-        const resp = await axios.request(
-            {
-                method: 'post',
-                url: `${this.host_}/thumbify`,
-                data: form,
-                headers: {
-                    'Content-Type': 'multipart/form-data',
-                }
-            }
-        );
+        const resp = await axios.request({
+            method: 'post',
+            url: `${this.host_}/thumbify`,
+            data: form,
+            headers: {
+                'Content-Type': 'multipart/form-data',
+            },
+        });
 
         return resp;
     }
-
 
     /**
     * Queries the thumbnail services to check what mime types
@@ -458,13 +440,11 @@ class HTTPThumbnailService extends BaseService {
     * Updates internal state to reflect that.
     * @returns {Promise<void>} A promise that resolves when the MIME types are updated.
     */
-    async query_supported_mime_types_() {
-        const resp = await axios.request(
-            {
-                method: 'get',
-                url: `${this.host_}/supported`,
-            }
-        );
+    async query_supported_mime_types_ () {
+        const resp = await axios.request({
+            method: 'get',
+            url: `${this.host_}/supported`,
+        });
 
         const data = resp.data;
 
@@ -488,10 +468,10 @@ class HTTPThumbnailService extends BaseService {
     async _test ({ assert }) {
         /**
         * Runs unit tests for the HTTPThumbnailService.
-        * 
+        *
         * @param {Object} options - An object containing test options.
         * @param {assert} options.assert - An assertion function for making test assertions.
-        * 
+        *
         * @note This method sets up a testing environment by:
         *       - Disabling error reporting.
         *       - Muting logging operations.
@@ -499,14 +479,18 @@ class HTTPThumbnailService extends BaseService {
         *       - Testing the recycling behavior of ThumbnailOperation.
         *       - Executing thumbnailing jobs in various scenarios to ensure correct behavior.
         */
-        this.errors.report = () => {};
-        
+        this.errors.report = () => {
+        };
+
         // Pseudo-logger to prevent errors from being thrown when this service
         // is running under the test kernel.
         this.log = {
-            info: () => {},
-            error: () => {},
-            noticeme: () => {},
+            info: () => {
+            },
+            error: () => {
+            },
+            noticeme: () => {
+            },
         };
         // Thumbnail operation eventually recycles
         {
@@ -514,7 +498,7 @@ class HTTPThumbnailService extends BaseService {
             for ( let i = 0 ; i < ThumbnailOperation.MAX_RECYCLE_COUNT ; i++ ) {
                 /**
                 * Tests the recycling behavior of ThumbnailOperation.
-                * 
+                *
                 * @param {Object} test - An object containing assertion methods.
                 * @param {Function} test.assert - Assertion function to check conditions.
                 */
@@ -525,10 +509,10 @@ class HTTPThumbnailService extends BaseService {
 
         this.test_mode = true;
 
-        // Hunch: 
+        // Hunch:
 
         // Request and await the thumbnailing of a few files
-        for ( let i=0 ; i < 3 ; i++ ) {
+        for ( let i = 0 ; i < 3 ; i++ ) {
             const job = new ThumbnailOperation({ behavior: 'ok' });
             this.queue.push(job);
 
@@ -537,7 +521,6 @@ class HTTPThumbnailService extends BaseService {
         await this.exec_();
         assert.equal(this.queue.length, 0, 'queue emptied');
         assert.equal(this.test_checked_exec, true, 'checked exec');
-
 
         // test with failed job
         const job = new ThumbnailOperation({ behavior: 'fail' });

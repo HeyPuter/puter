@@ -17,7 +17,7 @@ const gui_cache_keys = [
     'taskbar_position',
     'has_seen_toolbar_animation',
 ];
-class KV{
+class KV {
     MAX_KEY_SIZE = 1024;
     MAX_VALUE_SIZE = 399 * 1024;
 
@@ -29,7 +29,7 @@ class KV{
      * @param {string} APIOrigin - Origin of the API server. Used to build the API endpoint URLs.
      * @param {string} appID - ID of the app to use.
      */
-    constructor(context) {
+    constructor (context) {
         this.authToken = context.authToken;
         this.APIOrigin = context.APIOrigin;
         this.appID = context.appID;
@@ -79,7 +79,7 @@ class KV{
      * @memberof [KV]
      * @returns {void}
      */
-    setAuthToken(authToken) {
+    setAuthToken (authToken) {
         this.authToken = authToken;
     }
 
@@ -90,7 +90,7 @@ class KV{
      * @memberof [KV]
      * @returns {void}
      */
-    setAPIOrigin(APIOrigin) {
+    setAPIOrigin (APIOrigin) {
         this.APIOrigin = APIOrigin;
     }
 
@@ -116,15 +116,15 @@ class KV{
          */
         preprocess: (args) => {
             // key cannot be undefined or null
-            if ( args.key === undefined || args.key === null ){
+            if ( args.key === undefined || args.key === null ) {
                 throw { message: 'Key cannot be undefined', code: 'key_undefined' };
             }
             // key size cannot be larger than MAX_KEY_SIZE
-            if ( args.key.length > this.MAX_KEY_SIZE ){
+            if ( args.key.length > this.MAX_KEY_SIZE ) {
                 throw { message: `Key size cannot be larger than ${this.MAX_KEY_SIZE}`, code: 'key_too_large' };
             }
             // value size cannot be larger than MAX_VALUE_SIZE
-            if ( args.value && args.value.length > this.MAX_VALUE_SIZE ){
+            if ( args.value && args.value.length > this.MAX_VALUE_SIZE ) {
                 throw { message: `Value size cannot be larger than ${this.MAX_VALUE_SIZE}`, code: 'value_too_large' };
             }
             return args;
@@ -134,7 +134,7 @@ class KV{
     /**
      * Resolves to the value if the key exists, or `undefined` if the key does not exist. Rejects with an error on failure.
      */
-    async get(...args) {
+    async get (...args) {
         // Condition for gui boot cache
         if (
             typeof args[0] === 'string' &&
@@ -153,7 +153,7 @@ class KV{
     get_ = utils.make_driver_method(['key'], 'puter-kvstore', undefined, 'get', {
         preprocess: (args) => {
             // key size cannot be larger than MAX_KEY_SIZE
-            if ( args.key.length > this.MAX_KEY_SIZE ){
+            if ( args.key.length > this.MAX_KEY_SIZE ) {
                 throw ({ message: `Key size cannot be larger than ${this.MAX_KEY_SIZE}`, code: 'key_too_large' });
             }
 
@@ -168,15 +168,15 @@ class KV{
         let options = {};
 
         // arguments are required
-        if ( !args || args.length === 0 ){
+        if ( !args || args.length === 0 ) {
             throw ({ message: 'Arguments are required', code: 'arguments_required' });
         }
 
         options.key = args[0];
-        options.pathAndAmountMap = !args[1] ?  { '': 1 } : typeof args[1] === 'number' ? { '': args[1] } : args[1];
+        options.pathAndAmountMap = !args[1] ? { '': 1 } : typeof args[1] === 'number' ? { '': args[1] } : args[1];
 
         // key size cannot be larger than MAX_KEY_SIZE
-        if ( options.key.length > this.MAX_KEY_SIZE ){
+        if ( options.key.length > this.MAX_KEY_SIZE ) {
             throw ({ message: `Key size cannot be larger than ${this.MAX_KEY_SIZE}`, code: 'key_too_large' });
         }
 
@@ -187,15 +187,15 @@ class KV{
         let options = {};
 
         // arguments are required
-        if ( !args || args.length === 0 ){
+        if ( !args || args.length === 0 ) {
             throw ({ message: 'Arguments are required', code: 'arguments_required' });
         }
 
         options.key = args[0];
-        options.pathAndAmountMap = !args[1] ?  { '': 1 } : typeof args[1] === 'number' ? { '': args[1] } : args[1];
+        options.pathAndAmountMap = !args[1] ? { '': 1 } : typeof args[1] === 'number' ? { '': args[1] } : args[1];
 
         // key size cannot be larger than MAX_KEY_SIZE
-        if ( options.key.length > this.MAX_KEY_SIZE ){
+        if ( options.key.length > this.MAX_KEY_SIZE ) {
             throw ({ message: `Key size cannot be larger than ${this.MAX_KEY_SIZE}`, code: 'key_too_large' });
         }
 
@@ -216,7 +216,7 @@ class KV{
         options.ttl = ttl;
 
         // key size cannot be larger than MAX_KEY_SIZE
-        if ( options.key.length > this.MAX_KEY_SIZE ){
+        if ( options.key.length > this.MAX_KEY_SIZE ) {
             throw ({ message: `Key size cannot be larger than ${this.MAX_KEY_SIZE}`, code: 'key_too_large' });
         }
 
@@ -237,7 +237,7 @@ class KV{
         options.key = key;
         options.timestamp = timestamp;
         // key size cannot be larger than MAX_KEY_SIZE
-        if ( options.key.length > this.MAX_KEY_SIZE ){
+        if ( options.key.length > this.MAX_KEY_SIZE ) {
             throw ({ message: `Key size cannot be larger than ${this.MAX_KEY_SIZE}`, code: 'key_too_large' });
         }
 
@@ -249,7 +249,7 @@ class KV{
     del = utils.make_driver_method(['key'], 'puter-kvstore', undefined, 'del', {
         preprocess: (args) => {
             // key size cannot be larger than this.MAX_KEY_SIZE
-            if ( args.key.length > this.MAX_KEY_SIZE ){
+            if ( args.key.length > this.MAX_KEY_SIZE ) {
                 throw ({ message: `Key size cannot be larger than ${this.MAX_KEY_SIZE}`, code: 'key_too_large' });
             }
 
@@ -263,7 +263,7 @@ class KV{
         let returnValues = false;
 
         // list(true) or list(pattern, true) will return the key-value pairs
-        if ( (args && args.length === 1 && args[0] === true) || (args && args.length === 2 && args[1] === true) ){
+        if ( (args && args.length === 1 && args[0] === true) || (args && args.length === 2 && args[1] === true) ) {
             options = {};
             returnValues = true;
         }
@@ -274,16 +274,16 @@ class KV{
 
         // list(pattern)
         // list(pattern, true)
-        if ( (args && args.length === 1 && typeof args[0] === 'string') || (args && args.length === 2 && typeof args[0] === 'string' && args[1] === true) ){
+        if ( (args && args.length === 1 && typeof args[0] === 'string') || (args && args.length === 2 && typeof args[0] === 'string' && args[1] === true) ) {
             pattern = args[0];
         }
 
         return utils.make_driver_method([], 'puter-kvstore', undefined, 'list', {
             transform: (res) => {
                 // glob pattern was provided
-                if ( pattern ){
+                if ( pattern ) {
                     // consider both the key and the value
-                    if ( !returnValues ) {
+                    if ( ! returnValues ) {
                         let keys = res.filter((key) => {
                             return globMatch(pattern, key);
                         });
@@ -309,7 +309,7 @@ class KV{
     clear = this.flush;
 }
 
-function globMatch(pattern, str) {
+function globMatch (pattern, str) {
     const escapeRegExp = (string) => string.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
 
     let regexPattern = escapeRegExp(pattern)

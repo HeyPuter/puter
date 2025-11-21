@@ -1,4 +1,4 @@
-import putility from "@heyputer/putility";
+import putility from '@heyputer/putility';
 
 /**
  * Runs commands on the special `globalThis.when_puter_happens` global, for
@@ -16,5 +16,5 @@ export class NoPuterYetService extends putility.concepts.Service {
         for ( const fn of globalThis.when_puter_happens ) {
             fn({ context: this._.context });
         }
-    }  
+    }
 }

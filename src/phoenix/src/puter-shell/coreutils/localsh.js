@@ -1,4 +1,4 @@
-import { TeePromise } from "@heyputer/putility/src/libs/promise.js";
+import { TeePromise } from '@heyputer/putility/src/libs/promise.js';
 
 export default {
     name: 'localsh',
@@ -16,12 +16,12 @@ export default {
             method: 'POST',
             headers: {
                 'Content-Type': 'application/json',
-                Authorization: `Bearer ${puterSDK.authToken}`
+                Authorization: `Bearer ${puterSDK.authToken}`,
             },
             body: JSON.stringify({
                 profile: ctx.locals.positionals[0],
                 args: ctx.locals.positionals.slice(1),
-            })
+            }),
         });
 
         const convert = atob;
@@ -30,12 +30,12 @@ export default {
         const fn_stdout = ({ term_uuid: term_uuid_, base64 }) => {
             if ( term_uuid !== term_uuid_ ) return;
             ctx.externs.err.write(convert(base64));
-        }
+        };
         puterSDK.fs.socket.on('local-terminal.stdout', fn_stdout);
         const fn_stderr = ({ term_uuid: term_uuid_, base64 }) => {
             if ( term_uuid !== term_uuid_ ) return;
             ctx.externs.err.write(convert(base64));
-        }
+        };
         puterSDK.fs.socket.on('local-terminal.stderr', fn_stderr);
 
         const p = new TeePromise();
@@ -51,5 +51,5 @@ export default {
         puterSDK.fs.socket.on('local-terminal.exit', fn_exit);
 
         await p;
-    }
-}
+    },
+};

@@ -18,8 +18,8 @@
  */
 
 // METADATA // {"ai-commented":{"service":"claude"}}
-const { AdvancedBase } = require("@heyputer/putility");
-const config = require("../../config");
+const { AdvancedBase } = require('@heyputer/putility');
+const config = require('../../config');
 
 /**
 * PuterAIModule class extends AdvancedBase to manage and register various AI services.
@@ -36,7 +36,7 @@ class PuterAIModule extends AdvancedBase {
     * Extends AdvancedBase to provide core functionality
     * Handles registration and configuration of various AI services like OpenAI, Claude, AWS services etc.
     */
-    async install(context) {
+    async install (context) {
         const services = context.get('services');
 
         const { AIInterfaceService } = require('./AIInterfaceService');
@@ -132,7 +132,7 @@ class PuterAIModule extends AdvancedBase {
         });
         // User can disable ollama in the config, but by default it should be enabled if discovery is successful
         if ( ollama_available || config?.services?.['ollama']?.enabled ) {
-            console.log("Local AI support detected! Registering Ollama");
+            console.log('Local AI support detected! Registering Ollama');
             const { OllamaService } = require('./OllamaService');
             services.registerService('ollama', OllamaService);
         }

@@ -43,7 +43,7 @@ class DeepSeekService extends BaseService {
     * Gets the system prompt used for AI interactions
     * @returns {string} The base system prompt that identifies the AI as running on Puter
     */
-    adapt_model(model) {
+    adapt_model (model) {
         return model;
     }
 
@@ -52,7 +52,7 @@ class DeepSeekService extends BaseService {
     * @private
     * @returns {Promise<void>} Resolves when initialization is complete
     */
-    async _init() {
+    async _init () {
         this.openai = new this.modules.openai.OpenAI({
             apiKey: this.global_config.services.deepseek.apiKey,
             baseURL: 'https://api.deepseek.com',
@@ -70,7 +70,7 @@ class DeepSeekService extends BaseService {
     * Returns the default model identifier for the DeepSeek service
     * @returns {string} The default model ID 'deepseek-chat'
     */
-    get_default_model() {
+    get_default_model () {
         return 'deepseek-chat';
     }
 
@@ -82,7 +82,7 @@ class DeepSeekService extends BaseService {
              *
              * @returns Promise<Array<Object>> Array of model details
              */
-            async models() {
+            async models () {
                 return await this.models_();
             },
             /**
@@ -91,7 +91,7 @@ class DeepSeekService extends BaseService {
             * @description Retrieves all available model IDs and their aliases,
             * flattening them into a single array of strings that can be used for model selection
             */
-            async list() {
+            async list () {
                 const models = await this.models_();
                 const model_names = [];
                 for ( const model of models ) {
@@ -107,7 +107,7 @@ class DeepSeekService extends BaseService {
              * AI Chat completion method.
              * See AIChatService for more details.
              */
-            async complete({ messages, stream, model, tools, max_tokens, temperature }) {
+            async complete ({ messages, stream, model, tools, max_tokens, temperature }) {
                 model = this.adapt_model(model);
 
                 messages = await OpenAIUtil.process_input_messages(messages);
@@ -189,7 +189,7 @@ class DeepSeekService extends BaseService {
     *   - cost: Pricing information object with currency and rates
     * @private
     */
-    async models_() {
+    async models_ () {
         return [
             {
                 id: 'deepseek-chat',

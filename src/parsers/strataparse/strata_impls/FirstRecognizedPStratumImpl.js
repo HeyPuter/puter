@@ -16,7 +16,7 @@
  * You should have received a copy of the GNU Affero General Public License
  * along with this program.  If not, see <https://www.gnu.org/licenses/>.
  */
-import { AcceptParserUtil, ParseResult, Parser } from "../parse.js";
+import { AcceptParserUtil, ParseResult, Parser } from '../parse.js';
 
 export default class FirstRecognizedPStratumImpl {
     static meta = {
@@ -25,8 +25,8 @@ export default class FirstRecognizedPStratumImpl {
             iterating over parsers for higher-level constructs
             and returning the first recognized value that was
             produced from lower-level constructs.
-        `
-    }
+        `,
+    };
     constructor ({ parsers }) {
         this.parsers = parsers.map(AcceptParserUtil.adapt);
         this.valid = true;

@@ -1,7 +1,7 @@
-import putility from "@heyputer/putility";
-import { RWLock } from "@heyputer/putility/src/libs/promise.js";
-import { ProxyFilesystem, TFilesystem } from "./definitions.js";
-import { uuidv4 } from "../utils.js";
+import putility from '@heyputer/putility';
+import { RWLock } from '@heyputer/putility/src/libs/promise.js';
+import { ProxyFilesystem, TFilesystem } from './definitions.js';
+import { uuidv4 } from '../utils.js';
 
 export const ROOT_UUID = '00000000-0000-0000-0000-000000000000';
 const TTL = 5 * 1000;
@@ -59,7 +59,7 @@ export class CacheFS extends putility.AdvancedBase {
         if ( uuid === internal_identifier ) return;
         this.assocs_uuid_[uuid] = internal_identifier;
     }
-    
+
 }
 
 export class CachedFilesystem extends ProxyFilesystem {
@@ -82,9 +82,9 @@ export class CachedFilesystem extends ProxyFilesystem {
 
                 let values_requested = {};
                 for ( const mod of modifiers ) {
-                    const optionsKey = 'return' +
-                        mod.charAt(0).toUpperCase() +
-                        mod.slice(1);
+                    const optionsKey = `return${
+                        mod.charAt(0).toUpperCase()
+                    }${mod.slice(1)}`;
                     if ( ! o[optionsKey] ) continue;
                     values_requested[mod] = true;
                 }
@@ -97,8 +97,8 @@ export class CachedFilesystem extends ProxyFilesystem {
                         }
                     }
                     return true;
-                }
-                
+                };
+
                 let cached_stat;
                 if ( cent && cent.stat && cent.stat_exp > Date.now() ) {
                     const l = await cent.locks.stat.rlock();
@@ -123,7 +123,7 @@ export class CachedFilesystem extends ProxyFilesystem {
                 const entry = await this.delegate.stat(o);
 
                 // We might have new information to identify a relevant cache entry
-                let cent_replaced = !! cent;
+                let cent_replaced = !!cent;
                 cent = this.cacheFS.get_entry_ei([entry.uid, entry.path]);
                 if ( cent ) {
                     if ( cent_replaced ) l.unlock();
@@ -134,7 +134,7 @@ export class CachedFilesystem extends ProxyFilesystem {
                     cent = this.cacheFS.add_entry({ id: entry.uid });
                     this.cacheFS.assoc_path(entry.path, cent.id);
                     this.cacheFS.assoc_uuid(entry.uid, cent.id);
-                    
+
                     l = await cent.locks.stat.wlock();
                 }
 
@@ -160,21 +160,21 @@ export class CachedFilesystem extends ProxyFilesystem {
 
                     for ( const id of cent.members ) {
                         const member = this.cacheFS.get_entry_ei(id);
-                        if ( ! member || ! member.stat || member.stat_exp <= Date.now() ) {
+                        if ( !member || !member.stat || member.stat_exp <= Date.now() ) {
                             console.log('NO MEMBER OR STAT', member);
                             stats = null;
                             break;
                         }
                         console.log('member', member);
-                        if ( ! o.no_assocs && ! member.stat_has.subdomains ) {
+                        if ( !o.no_assocs && !member.stat_has.subdomains ) {
                             stats = null;
                             break;
                         }
-                        if ( ! o.no_assocs && ! member.stat_has.apps ) {
+                        if ( !o.no_assocs && !member.stat_has.apps ) {
                             stats = null;
                             break;
                         }
-                        if ( ! o.no_thumbs && ! member.stat_has.thumbnail ) {
+                        if ( !o.no_thumbs && !member.stat_has.thumbnail ) {
                             stats = null;
                             break;
                         }
@@ -219,14 +219,14 @@ export class CachedFilesystem extends ProxyFilesystem {
                     // });
                     entry_cent.stat = entry;
                     entry_cent.stat_has = {
-                        subdomains: ! o.no_assocs,
-                        apps: ! o.no_assocs,
-                        thumbnail: ! o.no_thumbs,
-                    }
-                    entry_cent.stat_exp = Date.now() + 1000*3;
+                        subdomains: !o.no_assocs,
+                        apps: !o.no_assocs,
+                        thumbnail: !o.no_thumbs,
+                    };
+                    entry_cent.stat_exp = Date.now() + 1000 * 3;
                 }
 
-                cent.members = []
+                cent.members = [];
                 for ( const id of cent_ids ) {
                     cent.members.push(id);
                 }
@@ -237,7 +237,7 @@ export class CachedFilesystem extends ProxyFilesystem {
                 console.log('CACHE ENTRY?', cent);
 
                 return entries;
-            }
-        }
-    }
+            },
+        },
+    };
 }

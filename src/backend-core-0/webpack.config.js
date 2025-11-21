@@ -51,4 +51,3 @@ const cjsConfig = {
 };
 
 export default [esmConfig, cjsConfig];
-

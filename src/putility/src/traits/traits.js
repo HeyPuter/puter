@@ -12,5 +12,5 @@ module.exports = {
             return obj.as(trait);
         }
         return obj;
-    }
+    },
 };

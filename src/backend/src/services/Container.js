@@ -17,10 +17,10 @@
  * You should have received a copy of the GNU Affero General Public License
  * along with this program.  If not, see <https://www.gnu.org/licenses/>.
  */
-const { AdvancedBase } = require("@heyputer/putility");
-const config = require("../config");
-const { Context } = require("../util/context");
-const { CompositeError } = require("../util/errorutil");
+const { AdvancedBase } = require('@heyputer/putility');
+const config = require('../config');
+const { Context } = require('../util/context');
+const { CompositeError } = require('../util/errorutil');
 const { TeePromise } = require('@heyputer/putility').libs.promise;
 
 // 17 lines of code instead of an entire dependency-injection framework
@@ -39,23 +39,23 @@ class Container {
         this.instances_ = {};
         this.implementors_ = {};
         this.ready = new TeePromise();
-        
+
         this.modname_ = null;
-        this.modules_ = {}
+        this.modules_ = {};
     }
-    
+
     registerModule (name, module) {
         this.modules_[name] = {
             services_l: [],
             services_m: {},
-            module
+            module,
         };
         this.setModuleName(name);
     }
-    
+
     /**
      * Sets the name of the current module registering services.
-     * 
+     *
      * Note: this is an antipattern; it would be a bit better to
      * provide the module name while registering a service, but
      * this requires making an implementor of Container's interface
@@ -68,7 +68,7 @@ class Container {
 
     /**
      * registerService registers a service with the services container.
-     * 
+     *
      * @param {String} name - the name of the service
      * @param {BaseService.constructor} cls - an implementation of BaseService
      * @param {Array} args - arguments to pass to the service constructor
@@ -79,18 +79,22 @@ class Container {
             ? cls.getInstance({ services: this, config, my_config, name, args })
             : new cls({
                 context: Context.get(),
-                services: this, config, my_config, name, args
+                services: this,
+                config,
+                my_config,
+                name,
+                args,
             }) ;
         this.instances_[name] = instance;
-        
+
         if ( this.modname_ ) {
             const mod_entry = this.modules_[this.modname_];
             mod_entry.services_l.push(name);
             mod_entry.services_m[name] = true;
         }
-        
-        if ( !(instance instanceof AdvancedBase) ) return;
-        
+
+        if ( ! (instance instanceof AdvancedBase) ) return;
+
         const traits = instance.list_traits();
         for ( const trait of traits ) {
             if ( ! this.implementors_[trait] ) {
@@ -106,7 +110,7 @@ class Container {
     /**
      * patchService allows overriding methods on a service that is already
      * constructed and initialized.
-     * 
+     *
      * @param {String} name - the name of the service to patch
      * @param {ServicePatch.constructor} patch - the patch
      * @param {Array} args - arguments to pass to the patch
@@ -116,7 +120,7 @@ class Container {
         const patch_instance = new patch();
         patch_instance.patch({ original_service, args });
     }
-    
+
     // get_implementors returns a list of implementors for the specified
     // interface name.
     get_implementors (interface_name) {
@@ -124,8 +128,10 @@ class Container {
         const clone = [...internal_list];
         return clone;
     }
-    
-    set (name, instance) { this.instances_[name] = instance; }
+
+    set (name, instance) {
+        this.instances_[name] = instance;
+    }
     get (name, opts) {
         if ( this.instances_[name] ) {
             return this.instances_[name];
@@ -140,7 +146,9 @@ class Container {
     * @param {String} name - The name of the service to check.
     * @returns {Boolean} - Returns true if the service is registered, false otherwise.
     */
-    has (name) { return !! this.instances_[name]; }
+    has (name) {
+        return !!this.instances_[name];
+    }
     get values () {
         const values = {};
         for ( const k in this.instances_ ) {
@@ -159,7 +167,6 @@ class Container {
         }
         return this.instances_;
     }
-
 
     /**
     * Initializes all registered services in the container.
@@ -195,14 +202,11 @@ class Container {
 
         if ( init_failures.length ) {
             console.error('init failures', init_failures);
-            throw new CompositeError(
-                `failed to initialize these services: ` +
-                init_failures.map(({ k }) => k).join(', '),
-                init_failures.map(({ k, e }) => e)
-            );
+            throw new CompositeError(`failed to initialize these services: ${
+                init_failures.map(({ k }) => k).join(', ')}`,
+            init_failures.map(({ k, e }) => e));
         }
     }
-
 
     /**
     * Emits an event to all registered services.
@@ -228,7 +232,6 @@ class Container {
         await Promise.all(promises);
     }
 }
-
 
 /**
 * @class ProxyContainer

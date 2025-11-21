@@ -16,7 +16,7 @@
  * You should have received a copy of the GNU Affero General Public License
  * along with this program.  If not, see <https://www.gnu.org/licenses/>.
  */
-import { SingleParserFactory } from "../parse.js";
+import { SingleParserFactory } from '../parse.js';
 
 export class ParserConfigDSL extends SingleParserFactory {
     constructor (parserFactory, cls) {
@@ -40,9 +40,7 @@ export class ParserConfigDSL extends SingleParserFactory {
     }
 
     create () {
-        return this.parserFactory.create(
-            this.cls_, this.parseParams_, this.grammarParams_,
-        );
+        return this.parserFactory.create(this.cls_, this.parseParams_, this.grammarParams_);
     }
 }
 
@@ -74,12 +72,12 @@ export class ParserBuilder {
     createParserFunction (parserCls) {
         if ( parserCls.hasOwnProperty('createFunction') ) {
             return parserCls.createFunction({
-                parserFactory: this.parserFactory
+                parserFactory: this.parserFactory,
             });
         }
 
         return params => {
-            const configDSL = new ParserConfigDSL(parserCls)
+            const configDSL = new ParserConfigDSL(parserCls);
             configDSL.parseParams(params);
             return configDSL;
         };

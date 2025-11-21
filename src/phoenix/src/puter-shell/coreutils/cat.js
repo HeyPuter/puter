@@ -25,7 +25,7 @@ export default {
         'If no FILE is given, or a FILE is `-`, read the standard input.',
     args: {
         $: 'simple-parser',
-        allowPositionals: true
+        allowPositionals: true,
     },
     input: {
         syncLines: true,
@@ -44,8 +44,8 @@ export default {
                 const next_line = async () => {
                     ({ value: line, done } = await ctx.externs.in_.read());
                     console.log('CAT LOOP', { line, done });
-                }
-                for ( await next_line() ; ! done ; await next_line() ) {
+                };
+                for ( await next_line() ; !done ; await next_line() ) {
                     await ctx.externs.out.write(line);
                 }
                 continue;
@@ -56,5 +56,5 @@ export default {
 
             await ctx.externs.out.write(result);
         }
-    }
-}
+    },
+};

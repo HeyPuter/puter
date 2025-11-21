@@ -7,12 +7,12 @@
  * it under the terms of the GNU Affero General Public License as published
  * by the Free Software Foundation, either version 3 of the License, or
  * (at your option) any later version.
- * 
+ *
  * This program is distributed in the hope that it will be useful,
  * but WITHOUT ANY WARRANTY; without even the implied warranty of
  * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
  * GNU Affero General Public License for more details.
- * 
+ *
  * You should have received a copy of the GNU Affero General Public License
  * along with this program.  If not, see <https://www.gnu.org/licenses/>.
  */
@@ -43,66 +43,68 @@ window.mouseX = 0;
 window.mouseY = 0;
 
 // get all logged-in users
-try{
-    window.logged_in_users = JSON.parse(localStorage.getItem("logged_in_users"));
-}catch(e){
+try {
+    window.logged_in_users = JSON.parse(localStorage.getItem('logged_in_users'));
+} catch (e) {
     window.logged_in_users = [];
 }
-if(window.logged_in_users === null)
+if ( window.logged_in_users === null )
+{
     window.logged_in_users = [];
+}
 
 // this sessions's user
-window.auth_token = localStorage.getItem("auth_token");
-try{
-    window.user = JSON.parse(localStorage.getItem("user"));
-}catch(e){
+window.auth_token = localStorage.getItem('auth_token');
+try {
+    window.user = JSON.parse(localStorage.getItem('user'));
+} catch (e) {
     window.user = null;
 }
 
 // in case this is the first time user is visiting multi-user feature
-if(window.logged_in_users.length === 0 && window.user !== null){
+if ( window.logged_in_users.length === 0 && window.user !== null ) {
     let tuser = window.user;
-    tuser.auth_token = window.auth_token
+    tuser.auth_token = window.auth_token;
     window.logged_in_users.push(tuser);
-    localStorage.setItem("logged_in_users", window.logged_in_users);
+    localStorage.setItem('logged_in_users', window.logged_in_users);
 }
 
 window.last_window_zindex = 1;
 
 // first visit tracker
-window.first_visit_ever = localStorage.getItem("has_visited_before") === null ? true : false;
-localStorage.setItem("has_visited_before", true);
+window.first_visit_ever = localStorage.getItem('has_visited_before') === null ? true : false;
+localStorage.setItem('has_visited_before', true);
 
 // system paths
-if(window.user !== undefined && window.user !== null){
-    window.desktop_path = '/' + window.user.username + '/Desktop';
-    window.trash_path = '/' + window.user.username + '/Trash';
-    window.appdata_path = '/' + window.user.username + '/AppData';
-    window.documents_path = '/' + window.user.username + '/Documents';
-    window.pictures_path = '/' + window.user.username + '/Photos';
-    window.videos_path = '/' + window.user.username + '/Videos';
-    window.audio_path = '/' + window.user.username + '/Audio';
-    window.public_path = '/' + window.user.username + '/Public';
-    window.home_path = '/' + window.user.username;
+if ( window.user !== undefined && window.user !== null ) {
+    window.desktop_path = `/${ window.user.username }/Desktop`;
+    window.trash_path = `/${ window.user.username }/Trash`;
+    window.appdata_path = `/${ window.user.username }/AppData`;
+    window.documents_path = `/${ window.user.username }/Documents`;
+    window.pictures_path = `/${ window.user.username }/Photos`;
+    window.videos_path = `/${ window.user.username }/Videos`;
+    window.audio_path = `/${ window.user.username }/Audio`;
+    window.public_path = `/${ window.user.username }/Public`;
+    window.home_path = `/${ window.user.username}`;
 }
 window.root_dirname = 'Puter';
 
 // user preferences, persisted across sessions, cached in localStorage
 try {
-    window.user_preferences = JSON.parse(localStorage.getItem('user_preferences'))
-}catch(e){
+    window.user_preferences = JSON.parse(localStorage.getItem('user_preferences'));
+} catch (e) {
     window.user_preferences = null;
 }
 // default values
-if (window.user_preferences === null) {
+if ( window.user_preferences === null ) {
     window.user_preferences = {
         show_hidden_files: false,
-        language: navigator.language.split("-")[0] || navigator.userLanguage || 'en',
+        language: navigator.language.split('-')[0] || navigator.userLanguage || 'en',
         clock_visible: 'auto',
-    }
+    };
 }
 
-window.window_stack = []
+window.window_stack = [];
 window.toolbar_height = 0;
 window.default_taskbar_height = 50;
 window.taskbar_height = window.default_taskbar_height;
@@ -130,8 +132,8 @@ window.appCallbackFunctions = [];
 
 // Defines how much weight each operation has in the zipping progress
 window.zippingProgressConfig = {
-    TOTAL: 100
-}
+    TOTAL: 100,
+};
 //Assuming uInt8Array conversion a file takes betwneen 45% to 60% of the total progress
 window.zippingProgressConfig.SEQUENCING = Math.floor(Math.random() * (60 - 45 + 1)) + 45,
 //Assuming zipping up uInt8Arrays takes betwneen 20% to 23% of the total progress
@@ -141,14 +143,14 @@ window.zippingProgressConfig.WRITING = Math.floor(Math.random() * (14 - 10 + 1))
 
 // 'Launch' apps
 window.launch_apps = [];
-window.launch_apps.recent = []
-window.launch_apps.recommended = []
+window.launch_apps.recent = [];
+window.launch_apps.recommended = [];
 
 // Map of { child_instance_id -> { parent_instance_id, launch_msg_id } }
 window.child_launch_callbacks = {};
 
 // Is puter being loaded inside an iframe?
-if (window.location !== window.parent.location) {
+if ( window.location !== window.parent.location ) {
     window.is_embedded = true;
     // taskbar is not needed in embedded mode
     window.taskbar_height = 0;
@@ -166,10 +168,10 @@ window.a_window_is_resizing = false;
 window.a_window_sidebar_is_resizing = false;
 
 // recalculate desktop height and width on window resize
-$( window ).on( "resize", function() {
-    if(window.is_fullpage_mode) return;
-    if(window.a_window_is_resizing) return;
-    if(window.a_window_sidebar_is_resizing) return;
+$(window).on( 'resize', function () {
+    if ( window.is_fullpage_mode ) return;
+    if ( window.a_window_is_resizing ) return;
+    if ( window.a_window_sidebar_is_resizing ) return;
 
     const new_desktop_height = window.innerHeight - window.toolbar_height - window.taskbar_height;
     const new_desktop_width = window.innerWidth;
@@ -177,9 +179,9 @@ $( window ).on( "resize", function() {
     window.desktop_height = new_desktop_height;
     window.desktop_width = new_desktop_width;
 });
-  
+
 // for now `active_element` is basically the last element that was clicked,
-// later on though (todo) `active_element` will also be set by keyboard movements 
+// later on though (todo) `active_element` will also be set by keyboard movements
 // such as arrow keys, tab key, ... and when creating new windows...
 window.active_element = null;
 
@@ -190,7 +192,7 @@ window.launch_recent_apps_count = 10;
 // if yes, which one?
 window.current_active_snap_zone = undefined;
 
-// 
+//
 window.is_fullpage_mode = false;
 
 window.window_border_radius = 4;
@@ -204,13 +206,13 @@ window.feature_flags = {
     prompt_user_when_navigation_away_from_puter: false,
     // if true, the user will be able to zip and download directories
     download_directory: true,
-}
+};
 
 window.is_auto_arrange_enabled = true;
 window.desktop_item_positions = {};
 window.reset_item_positions = true; // The variable decides if the item positions should be reset when the user enabled auto arrange
 
-window.file_templates = []
+window.file_templates = [];
 
 // default language
 window.locale = 'en';
@@ -220,28 +222,28 @@ window.PANEL_WIDTH = 400;
 
 // the transaction class
 window.Transaction = class {
-    constructor(name) {
+    constructor (name) {
         this.name = name;
         this.id = uuidv4();
     }
 
-    start() {
+    start () {
         this.start_ts = Date.now();
     }
 
-    getDuration() {
+    getDuration () {
         return Date.now() - this.start_ts;
     }
 
-    end() {
+    end () {
         this.end_ts = Date.now();
         this.duration = this.end_ts - this.start_ts;
 
         // emit an event
         window.dispatchEvent(new CustomEvent('transaction-ended', {
             detail: {
-                transaction: this
-            }
+                transaction: this,
+            },
         }));
     }
-}
+};

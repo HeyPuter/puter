@@ -16,12 +16,12 @@
  * You should have received a copy of the GNU Affero General Public License
  * along with this program.  If not, see <https://www.gnu.org/licenses/>.
  */
-const { LLFilesystemOperation } = require("./definitions");
+const { LLFilesystemOperation } = require('./definitions');
 
 class LLMove extends LLFilesystemOperation {
     static MODULES = {
         _path: require('path'),
-    }
+    };
 
     async _run () {
         const { context } = this;

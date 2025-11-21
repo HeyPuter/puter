@@ -9,7 +9,7 @@ export const PUT = async ( req, res, filePath, fileNode, headerLockToken ) => {
     try {
         const servicesForLocks = [req.services.get('su'), req.services.get('puter-kvstore').as('puter-kvstore')];
         const hasDestinationWriteAccess = await hasWritePermissionInDAV(...servicesForLocks, filePath, headerLockToken);
-        if ( !hasDestinationWriteAccess ){
+        if ( ! hasDestinationWriteAccess ) {
             // DAV lock in place blocking write to this file
             res.status(423).end('Locked: No write access to destination');
             return;
@@ -43,7 +43,7 @@ export const PUT = async ( req, res, filePath, fileNode, headerLockToken ) => {
         // TODO: Allow partial uploads with Range header
         // TODO: Allow uploads with no Content-Length
         const contentLength = req.headers['content-length'] || req.headers['x-expected-entity-length']; // x-expected-entity-length is used by macOS Finder for some reason
-        if ( !contentLength ) {
+        if ( ! contentLength ) {
             res.status(400).end( 'Content-Length header required');
             return;
         }
@@ -91,7 +91,7 @@ export const PUT = async ( req, res, filePath, fileNode, headerLockToken ) => {
         } else {
             res.status(201).end(); // 201 Created for new file
         }
-    } catch( error ) {
+    } catch ( error ) {
     // Handle specific error types
         if ( error.code === 'item_with_same_name_exists' ) {
             res.status(409).end( 'Conflict: Item already exists');

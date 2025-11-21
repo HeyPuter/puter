@@ -32,5 +32,5 @@ export default {
         const result = await drivers.usage();
 
         await ctx.externs.out.write(JSON.stringify(result, undefined, 2));
-    }
-}
+    },
+};

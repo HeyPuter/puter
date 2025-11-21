@@ -32,7 +32,7 @@ const { Context } = require('../../util/context');
 */
 class OpenAIImageGenerationService extends BaseService {
     /** @type {import('../../services/MeteringService/MeteringService').MeteringService} */
-    get meteringService(){
+    get meteringService () {
         return this.services.get('meteringService').meteringService;
     }
 
@@ -40,7 +40,7 @@ class OpenAIImageGenerationService extends BaseService {
         openai: require('openai'),
     };
 
-    _construct() {
+    _construct () {
         this.models_ = {
             'gpt-image-1-mini': {
                 'low:1024x1024': 0.005,
@@ -86,12 +86,12 @@ class OpenAIImageGenerationService extends BaseService {
     * @async
     * @returns {Promise<void>}
     */
-    async _init() {
+    async _init () {
         let apiKey =
             this.config?.services?.openai?.apiKey ??
             this.global_config?.services?.openai?.apiKey;
 
-        if ( !apiKey ) {
+        if ( ! apiKey ) {
             apiKey =
                 this.config?.openai?.secret_key ??
                 this.global_config.openai?.secret_key;
@@ -108,7 +108,7 @@ class OpenAIImageGenerationService extends BaseService {
 
     static IMPLEMENTS = {
         ['driver-capabilities']: {
-            supports_test_mode(iface, method_name) {
+            supports_test_mode (iface, method_name) {
                 return iface === 'puter-image-generation' &&
                     method_name === 'generate';
             },
@@ -123,7 +123,7 @@ class OpenAIImageGenerationService extends BaseService {
             * @returns {Promise<string>} URL of the generated image
             * @throws {Error} If prompt is not a string or ratio is invalid
             */
-            async generate(params) {
+            async generate (params) {
                 const { prompt, quality, test_mode, model, ratio } = params;
 
                 if ( test_mode ) {
@@ -156,7 +156,7 @@ class OpenAIImageGenerationService extends BaseService {
     static RATIO_GPT_PORTRAIT = { w: 1024, h: 1536 };
     static RATIO_GPT_LANDSCAPE = { w: 1536, h: 1024 };
 
-    async generate(prompt, {
+    async generate (prompt, {
         ratio,
         model,
         quality,
@@ -165,8 +165,8 @@ class OpenAIImageGenerationService extends BaseService {
             throw new Error('`prompt` must be a string');
         }
 
-        if ( ! ratio || ! this._validate_ratio(ratio, model) ) {
-            throw new Error('`ratio` must be a valid ratio for model ' + model);
+        if ( !ratio || !this._validate_ratio(ratio, model) ) {
+            throw new Error(`\`ratio\` must be a valid ratio for model ${ model}`);
         }
 
         // Somewhat sane defaults
@@ -176,8 +176,8 @@ class OpenAIImageGenerationService extends BaseService {
         if ( ! this.models_[model] ) {
             throw APIError.create('field_invalid', null, {
                 key: 'model',
-                expected: 'one of: ' +
-                    Object.keys(this.models_).join(', '),
+                expected: `one of: ${
+                    Object.keys(this.models_).join(', ')}`,
                 got: model,
             });
         }
@@ -187,7 +187,7 @@ class OpenAIImageGenerationService extends BaseService {
         if ( quality !== undefined && !validQualities.includes(quality) ) {
             throw APIError.create('field_invalid', null, {
                 key: 'quality',
-                expected: 'one of: ' + validQualities.join(', ').replace(/^$/, 'none (no quality)'),
+                expected: `one of: ${ validQualities.join(', ').replace(/^$/, 'none (no quality)')}`,
                 got: quality,
             });
         }
@@ -198,7 +198,7 @@ class OpenAIImageGenerationService extends BaseService {
             const availableSizes = Object.keys(this.models_[model]);
             throw APIError.create('field_invalid', null, {
                 key: 'size/quality combination',
-                expected: 'one of: ' + availableSizes.join(', '),
+                expected: `one of: ${ availableSizes.join(', ')}`,
                 got: price_key,
             });
         }
@@ -239,12 +239,12 @@ class OpenAIImageGenerationService extends BaseService {
         };
 
         if ( quality ) {
-            spending_meta.size = quality + ':' + spending_meta.size;
+            spending_meta.size = `${quality }:${ spending_meta.size}`;
         }
 
-        const url = result.data?.[0]?.url || (result.data?.[0]?.b64_json ? 'data:image/png;base64,' + result.data[0].b64_json : null);
+        const url = result.data?.[0]?.url || (result.data?.[0]?.b64_json ? `data:image/png;base64,${ result.data[0].b64_json}` : null);
 
-        if ( !url ) {
+        if ( ! url ) {
             throw new Error('Failed to extract image URL from OpenAI response');
         }
 
@@ -257,7 +257,7 @@ class OpenAIImageGenerationService extends BaseService {
      * @returns {Array<string>} Array of valid quality levels
      * @private
      */
-    _getValidQualities(model) {
+    _getValidQualities (model) {
         if ( model === 'gpt-image-1-mini' ) {
             return ['low', 'medium', 'high'];
         }
@@ -282,7 +282,7 @@ class OpenAIImageGenerationService extends BaseService {
      * @returns {string} The price key
      * @private
      */
-    _buildPriceKey(model, quality, size) {
+    _buildPriceKey (model, quality, size) {
         if ( model === 'gpt-image-1' || model === 'gpt-image-1-mini' ) {
             // gpt-image-1 and gpt-image-1-mini use format: "quality:size" - default to low if not specified
             const qualityLevel = quality || 'low';
@@ -300,7 +300,7 @@ class OpenAIImageGenerationService extends BaseService {
      * @returns {Object} API parameters object
      * @private
      */
-    _buildApiParams(model, baseParams) {
+    _buildApiParams (model, baseParams) {
         const apiParams = {
             user: baseParams.user,
             prompt: baseParams.prompt,
@@ -329,7 +329,7 @@ class OpenAIImageGenerationService extends BaseService {
      * @returns {Array<Object>} Array of valid ratio objects
      * @private
      */
-    _getValidRatios(model) {
+    _getValidRatios (model) {
         const commonRatios = [this.constructor.RATIO_SQUARE];
 
         if ( model === 'gpt-image-1' || model === 'gpt-image-1-mini' ) {
@@ -348,7 +348,7 @@ class OpenAIImageGenerationService extends BaseService {
         }
     }
 
-    _validate_ratio(ratio, model) {
+    _validate_ratio (ratio, model) {
         const validRatios = this._getValidRatios(model);
         return validRatios.includes(ratio);
     }

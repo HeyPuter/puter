@@ -45,14 +45,14 @@ const hl_type_definitions = {
             }
 
             if ( v === 1 ) return true;
-            if ( v === 0 ) return false
+            if ( v === 0 ) return false;
             if ( typeof v === 'object' ) {
                 return v !== null;
             }
 
             throw new Error(`could not adapt value to boolean: ${quot(v)}`);
-        }
-    }
+        },
+    },
 };
 
 class HLTypeFacade {
@@ -62,7 +62,7 @@ class HLTypeFacade {
         const has_value = type_definition.required_check(value);
         if ( ! has_value ) {
             if ( opt_default === HLTypeFacade.REQUIRED ) {
-                throw new Error(`required value is missing`);
+                throw new Error('required value is missing');
             }
             return opt_default ?? type_definition.fallback;
         }

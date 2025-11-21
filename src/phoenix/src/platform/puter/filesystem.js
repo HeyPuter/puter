@@ -19,9 +19,9 @@
 import { PosixError } from '@heyputer/putility/src/PosixError.js';
 
 // DRY: Almost the same as node/filesystem.js
-function wrapAPIs(apis) {
-    for (const method in apis) {
-        if (typeof apis[method] !== 'function') {
+function wrapAPIs (apis) {
+    for ( const method in apis ) {
+        if ( typeof apis[method] !== 'function' ) {
             continue;
         }
         const original = apis[method];
@@ -51,12 +51,12 @@ export const CreateFilesystemProvider = ({
         mkdir: puterSDK.fs.mkdir.bind(puterSDK.fs),
         read: puterSDK.fs.read.bind(puterSDK.fs),
         write: puterSDK.fs.write.bind(puterSDK.fs),
-        
+
         // The `rm` method should fail if the destination is a directory
         rm: async (path, { recursive = false }) => {
             const stat = await puterSDK.fs.stat(path);
 
-            if ( stat.is_dir && ! recursive ) {
+            if ( stat.is_dir && !recursive ) {
                 throw PosixError.IsDirectory({ path });
             }
 

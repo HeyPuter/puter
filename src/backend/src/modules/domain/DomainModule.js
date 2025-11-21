@@ -1,4 +1,4 @@
-const { AdvancedBase } = require("@heyputer/putility");
+const { AdvancedBase } = require('@heyputer/putility');
 
 class DomainModule extends AdvancedBase {
     async install (context) {

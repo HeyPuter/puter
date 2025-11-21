@@ -16,14 +16,14 @@
  * You should have received a copy of the GNU Affero General Public License
  * along with this program.  If not, see <https://www.gnu.org/licenses/>.
  */
-const { LLFilesystemOperation } = require("./definitions");
-const APIError = require("../../api/APIError");
+const { LLFilesystemOperation } = require('./definitions');
+const APIError = require('../../api/APIError');
 
 /**
  * The "overwrite" write operation.
- * 
+ *
  * This operation is used to write a file to an existing path.
- * 
+ *
  * @extends LLFilesystemOperation
  */
 class LLOWrite extends LLFilesystemOperation {
@@ -59,9 +59,9 @@ class LLOWrite extends LLFilesystemOperation {
 
 /**
  * The "non-overwrite" write operation.
- * 
+ *
  * This operation is used to write a file to a non-existent path.
- * 
+ *
  * @extends LLFilesystemOperation
  */
 class LLCWrite extends LLFilesystemOperation {
@@ -69,7 +69,7 @@ class LLCWrite extends LLFilesystemOperation {
         _path: require('path'),
         uuidv4: require('uuid').v4,
         config: require('../../config.js'),
-    }
+    };
 
     /**
      * Executes the create operation by writing a new file to the parent directory.

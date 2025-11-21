@@ -32,7 +32,7 @@ module.exports = {
             path: 'puter-database.sqlite',
         },
         thumbnails: {
-            engine: 'purejs'
+            engine: 'purejs',
         },
         'file-cache': {
             disk_limit: 16384,
@@ -40,6 +40,6 @@ module.exports = {
             precache_size: 16384,
             path: './file-cache',
 
-        }
+        },
     },
 };

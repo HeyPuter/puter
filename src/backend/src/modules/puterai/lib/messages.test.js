@@ -14,10 +14,10 @@ describe('Messages', () => {
                         {
                             type: 'text',
                             text: 'Hello, world!',
-                        }
-                    ]
-                }
-            }
+                        },
+                    ],
+                },
+            },
         ];
         for ( const tc of cases ) {
             it(`should normalize ${tc.name}`, () => {
@@ -40,8 +40,8 @@ describe('Messages', () => {
                         {
                             type: 'text',
                             text: 'Hello, world!',
-                        }
-                    ]
+                        },
+                    ],
                 }],
                 output: 'Hello, world!',
             },
@@ -54,15 +54,15 @@ describe('Messages', () => {
                             {
                                 type: 'text',
                                 text: 'Second Part',
-                            }
-                        ]
+                            },
+                        ],
                     },
                     {
                         content: 'Third Part',
-                    }
+                    },
                 ],
                 output: 'First Part Second Part Third Part',
-            }
+            },
         ];
         for ( const tc of cases ) {
             it(`should extract text from ${tc.name}`, () => {
@@ -84,9 +84,9 @@ describe('Messages', () => {
                             function: {
                                 name: 'tool-1-function',
                                 arguments: {},
-                            }
-                        }
-                    ]
+                            },
+                        },
+                    ],
                 },
                 output: {
                     role: 'assistant',
@@ -96,10 +96,10 @@ describe('Messages', () => {
                             id: 'tool-1',
                             name: 'tool-1-function',
                             input: {},
-                        }
-                    ]
-                }
-            }
+                        },
+                    ],
+                },
+            },
         ];
         for ( const tc of cases ) {
             it(`should normalize ${tc.name}`, () => {
@@ -119,9 +119,9 @@ describe('Messages', () => {
                             type: 'tool_use',
                             id: 'tool-1',
                             name: 'tool-1-function',
-                            input: "{}",
-                        }
-                    ]
+                            input: '{}',
+                        },
+                    ],
                 },
                 output: {
                     role: 'assistant',
@@ -130,11 +130,11 @@ describe('Messages', () => {
                             type: 'tool_use',
                             id: 'tool-1',
                             name: 'tool-1-function',
-                            input: "{}",
-                        }
-                    ]
-                }
-            }
+                            input: '{}',
+                        },
+                    ],
+                },
+            },
         ];
         for ( const tc of cases ) {
             it(`should normalize ${tc.name}`, () => {
@@ -155,8 +155,8 @@ describe('Messages', () => {
                             id: 'tool-1',
                             name: 'tool-1-function',
                             input: {},
-                        }
-                    ]
+                        },
+                    ],
                 }],
                 output: [{
                     role: 'assistant',
@@ -168,11 +168,11 @@ describe('Messages', () => {
                             function: {
                                 name: 'tool-1-function',
                                 arguments: '{}',
-                            }
-                        }
-                    ]
-                }]
-            }
+                            },
+                        },
+                    ],
+                }],
+            },
         ];
         for ( const tc of cases ) {
             it(`should normalize ${tc.name}`, async () => {

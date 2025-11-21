@@ -18,8 +18,8 @@
  */
 
 // METADATA // {"ai-commented":{"service":"claude"}}
-const { default: dedent } = require("dedent");
-const BaseService = require("../../services/BaseService");
+const { default: dedent } = require('dedent');
+const BaseService = require('../../services/BaseService');
 /**
 * FakeChatService - A mock implementation of a chat service that extends BaseService.
 * Provides fake chat completion responses using Lorem Ipsum text generation.
@@ -32,7 +32,7 @@ class FakeChatService extends BaseService {
      * @private
      * @returns {Promise<void>}
      */
-    async _init() {
+    async _init () {
         const svc_aiChat = this.services.get('ai-chat');
         svc_aiChat.register_provider({
             service_name: this.service_name,
@@ -40,7 +40,7 @@ class FakeChatService extends BaseService {
         });
     }
 
-    get_default_model() {
+    get_default_model () {
         return 'fake';
     }
     static IMPLEMENTS = {
@@ -51,7 +51,7 @@ class FakeChatService extends BaseService {
             * @description Returns detailed information about available models including
             * their costs for input and output tokens
             */
-            async models() {
+            async models () {
                 return [
                     {
                         id: 'fake',
@@ -65,8 +65,8 @@ class FakeChatService extends BaseService {
                         id: 'costly',
                         aliases: [],
                         cost: {
-                            input: 1000,  // 1000 microcents per million tokens (0.001 cents per 1000 tokens)
-                            output: 2000,  // 2000 microcents per million tokens (0.002 cents per 1000 tokens)
+                            input: 1000, // 1000 microcents per million tokens (0.001 cents per 1000 tokens)
+                            output: 2000, // 2000 microcents per million tokens (0.002 cents per 1000 tokens)
                         },
                         max_tokens: 8192,
                     },
@@ -87,7 +87,7 @@ class FakeChatService extends BaseService {
             * @description Retrieves all available model IDs and their aliases,
             * flattening them into a single array of strings that can be used for model selection
             */
-            async list() {
+            async list () {
                 return ['fake', 'costly', 'abuse'];
             },
 
@@ -99,7 +99,7 @@ class FakeChatService extends BaseService {
             * @param {string} params.model - The model to use ('fake', 'costly', or 'abuse')
             * @returns {Object} A simulated chat completion response with Lorem Ipsum content
             */
-            async complete({ messages, stream, model, max_tokens, custom }) {
+            async complete ({ messages, stream, model, max_tokens, custom }) {
                 const { LoremIpsum } = require('lorem-ipsum');
                 const li = new LoremIpsum({
                     sentencesPerParagraph: {
@@ -123,10 +123,10 @@ class FakeChatService extends BaseService {
                         stream: true,
                         init_chat_stream: async ({ chatStream }) => {
                             await new Promise(rslv => setTimeout(rslv, 500));
-                            chatStream.stream.write(JSON.stringify({
+                            chatStream.stream.write(`${JSON.stringify({
                                 type: 'text',
                                 text: resp.message.content[0].text,
-                            }) + '\n');
+                            }) }\n`);
                             chatStream.end();
                         },
                     };
@@ -137,7 +137,7 @@ class FakeChatService extends BaseService {
         },
     };
 
-    get_response({ li, usedModel, messages, custom, max_tokens }) {
+    get_response ({ li, usedModel, messages, custom, max_tokens }) {
         let inputTokens = 0;
         let outputTokens = 0;
 
@@ -184,30 +184,30 @@ class FakeChatService extends BaseService {
 
         // Report usage based on model
         const usage = {
-            "input_tokens": usedModel === 'costly' ? inputTokens : 0,
-            "output_tokens": usedModel === 'costly' ? outputTokens : 1,
+            'input_tokens': usedModel === 'costly' ? inputTokens : 0,
+            'output_tokens': usedModel === 'costly' ? outputTokens : 1,
         };
 
         return {
-            "index": 0,
+            'index': 0,
             message: {
-                "id": "00000000-0000-0000-0000-000000000000",
-                "type": "message",
-                "role": "assistant",
-                "model": usedModel,
-                "content": [
+                'id': '00000000-0000-0000-0000-000000000000',
+                'type': 'message',
+                'role': 'assistant',
+                'model': usedModel,
+                'content': [
                     {
-                        "type": "text",
-                        "text": responseText,
+                        'type': 'text',
+                        'text': responseText,
                     },
                 ],
-                "stop_reason": "end_turn",
-                "stop_sequence": null,
-                "usage": usage,
+                'stop_reason': 'end_turn',
+                'stop_sequence': null,
+                'usage': usage,
             },
-            "usage": usage,
-            "logprobs": null,
-            "finish_reason": "stop",
+            'usage': usage,
+            'logprobs': null,
+            'finish_reason': 'stop',
         };
     }
 }

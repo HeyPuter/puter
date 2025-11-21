@@ -29,12 +29,12 @@ const lookup_app = async (id) => {
     // }
 
     const request = await fetch(`${puter.APIOrigin}/drivers/call`, {
-        "headers": {
-            "Content-Type": "application/json",
-            "Authorization": `Bearer ${puter.authToken}`,
+        'headers': {
+            'Content-Type': 'application/json',
+            'Authorization': `Bearer ${puter.authToken}`,
         },
-        "body": JSON.stringify({ interface: 'puter-apps', method: 'read', args: { id: { name: id } } }),
-        "method": "POST",
+        'body': JSON.stringify({ interface: 'puter-apps', method: 'read', args: { id: { name: id } } }),
+        'method': 'POST',
     });
 
     const { success, result } = await request.json();
@@ -45,26 +45,26 @@ export class PDECommandProvider {
 
     async lookup (id) {
         try {
-            await puter.fs.stat("/admin/Public/bin/" + id + ".pde")
+            await puter.fs.stat(`/admin/Public/bin/${ id }.pde`);
         } catch (e) {
             return false;
         }
-        const { success, path } = await lookup_app("pderunner");
+        const { success, path } = await lookup_app('pderunner');
 
         return {
             name: id,
             path: path ?? 'Built-in Puter app',
             // TODO: Let apps expose option/positional definitions like builtins do, and parse them here?
-            async execute(ctx) {
-                console.log(ctx)
+            async execute (ctx) {
+                console.log(ctx);
                 const args = {
                     command_line: {
-                        args: ["/admin/Public/bin/" + id + ".pde" , ...ctx.locals.args],
+                        args: [`/admin/Public/bin/${ id }.pde`, ...ctx.locals.args],
                     },
-                    env: {...ctx.env},
+                    env: { ...ctx.env },
                 };
-                console.log(args)
-                const child = await puter.ui.launchApp("pderunner", args);
+                console.log(args);
+                const child = await puter.ui.launchApp('pderunner', args);
 
                 const resize_listener = evt => {
                     child.postMessage({
@@ -72,7 +72,7 @@ export class PDECommandProvider {
                         windowSize: {
                             rows: evt.detail.rows,
                             cols: evt.detail.cols,
-                        }
+                        },
                     });
                 };
                 ctx.shell.addEventListener('signal.window-resize', resize_listener);
@@ -84,7 +84,7 @@ export class PDECommandProvider {
                 // });
                 const app_close_promise = new Promise((resolve, reject) => {
                     child.on('close', (data) => {
-                        if ((data.statusCode ?? 0) != 0) {
+                        if ( (data.statusCode ?? 0) != 0 ) {
                             reject(new Exit(data.statusCode));
                         } else {
                             resolve({ done: true });
@@ -95,7 +95,7 @@ export class PDECommandProvider {
                 // Wait for SIGINT
                 const sigint_promise = new Promise((resolve, reject) => {
                     ctx.externs.sig.on((signal) => {
-                        if (signal === signals.SIGINT) {
+                        if ( signal === signals.SIGINT ) {
                             child.close();
                             reject(new Exit(130));
                         }
@@ -103,13 +103,13 @@ export class PDECommandProvider {
                 });
 
                 // We don't connect stdio to non-SDK apps, because they won't make use of it.
-                if (child.usesSDK) {
+                if ( child.usesSDK ) {
                     const decoder = new TextDecoder();
                     child.on('message', message => {
-                        if (message.$ === 'stdout') {
+                        if ( message.$ === 'stdout' ) {
                             ctx.externs.out.write(decoder.decode(message.data));
                         }
-                        if (message.$ === 'chtermios') {
+                        if ( message.$ === 'chtermios' ) {
                             if ( message.termios.echo !== undefined ) {
                                 if ( message.termios.echo ) {
                                     ctx.externs.echo.on();
@@ -127,12 +127,12 @@ export class PDECommandProvider {
                         ({ value: data, done } = await Promise.race([
                             app_close_promise, sigint_promise, ctx.externs.in_.read(),
                         ]));
-                        if (data) {
+                        if ( data ) {
                             child.postMessage({
                                 $: 'stdin',
                                 data: data,
                             });
-                            if (!done) setTimeout(next_data, 0);
+                            if ( ! done ) setTimeout(next_data, 0);
                         }
                     };
                     setTimeout(next_data, 0);
@@ -142,7 +142,7 @@ export class PDECommandProvider {
                 const exit = await Promise.race([ app_close_promise, sigint_promise ]);
                 ctx.shell.removeEventListener('signal.window-resize', resize_listener);
                 return exit;
-            }
+            },
         };
     }
 
@@ -156,14 +156,14 @@ export class PDECommandProvider {
     }
 
     async complete (query, { ctx }) {
-        if (query === '') return [];
+        if ( query === '' ) return [];
 
-        const results = (await puter.fs.readdir("/admin/Public/bin/"))
+        const results = (await puter.fs.readdir('/admin/Public/bin/'))
             .map( (e) => {
-                if (e.name.endsWith(".pde")) {
-                    return e.name.slice(0, -4)
+                if ( e.name.endsWith('.pde') ) {
+                    return e.name.slice(0, -4);
                 } else {
-                    return e.name
+                    return e.name;
                 }
             })
             .filter( (e) => e.startsWith(query));

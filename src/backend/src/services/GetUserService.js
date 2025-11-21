@@ -38,7 +38,7 @@ class GetUserService extends BaseService {
     * Constructor for GetUserService.
     * Initializes the set of identifying properties used to retrieve user data.
     */
-    _construct() {
+    _construct () {
         this.id_properties = new Set();
 
         this.id_properties.add('username');
@@ -55,7 +55,7 @@ class GetUserService extends BaseService {
     *
     * @returns {Promise<void>} A promise that resolves when the initialization is complete.
     */
-    async _init() {
+    async _init () {
     }
 
     /**
@@ -71,7 +71,7 @@ class GetUserService extends BaseService {
      * @param {boolean} [options.force=false] - Forces a read from the database regardless of cache.
      * @returns {Promise<Object|null>} The user object if found, else null.
      */
-    async get_user(options) {
+    async get_user (options) {
         const user = await this.get_user_(options);
         if ( ! user ) return null;
 
@@ -80,7 +80,7 @@ class GetUserService extends BaseService {
         return user;
     }
 
-    async refresh_actor(actor) {
+    async refresh_actor (actor) {
         if ( actor.type.user ) {
             actor.type.user = await this.get_user({
                 username: actor.type.user.username,
@@ -90,7 +90,7 @@ class GetUserService extends BaseService {
         return actor;
     }
 
-    async get_user_(options) {
+    async get_user_ (options) {
         const services = this.services;
 
         /** @type BaseDatabaseAccessService */
@@ -98,7 +98,7 @@ class GetUserService extends BaseService {
 
         const cached = options.cached ?? true;
 
-        if ( cached && ! options.force ) {
+        if ( cached && !options.force ) {
             for ( const prop of this.id_properties ) {
                 if ( options.hasOwnProperty(prop) ) {
                     const user = kv.get(`users:${prop}:${options[prop]}`);
@@ -118,7 +118,7 @@ class GetUserService extends BaseService {
             }
         }
 
-        if ( ! user || ! user[0] ) {
+        if ( !user || !user[0] ) {
             for ( const prop of this.id_properties ) {
                 if ( options.hasOwnProperty(prop) ) {
                     [user] = await db.pread(`SELECT * FROM \`user\` WHERE \`${prop}\` = ? LIMIT 1`, [options[prop]]);
@@ -140,14 +140,14 @@ class GetUserService extends BaseService {
         }
         if ( user.metadata && typeof user.metadata === 'string' ) {
             user.metadata = JSON.parse(user.metadata);
-        } else if ( !user.metadata ) {
+        } else if ( ! user.metadata ) {
             user.metadata = {};
         }
 
         return user;
     }
 
-    register_id_property(prop) {
+    register_id_property (prop) {
         this.id_properties.add(prop);
     }
 }

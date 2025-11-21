@@ -18,21 +18,21 @@
  * along with this program.  If not, see <https://www.gnu.org/licenses/>.
  */
 
-const BaseService = require("../../services/BaseService");
+const BaseService = require('../../services/BaseService');
 
 /**
 * Service class that handles process-wide events and errors.
 * Provides centralized error handling for uncaught exceptions and unhandled promise rejections.
 * Sets up event listeners on the process object to capture and report critical errors
 * through the logging and error reporting services.
-* 
+*
 * @class ProcessEventService
 */
 class ProcessEventService extends BaseService {
     static USE = {
         Context: 'core.context',
     };
-    
+
     _init () {
         const services = this.services;
         const log = services.get('log-service').create('process-event-service');
@@ -44,7 +44,7 @@ class ProcessEventService extends BaseService {
             * Sets up an event listener that reports errors when uncaught exceptions occur
             * @param {Error} err - The uncaught exception error object
             * @param {string} origin - The origin of the uncaught exception
-            * @returns {Promise<void>} 
+            * @returns {Promise<void>}
             */
             await this.Context.allow_fallback(async () => {
                 errors.report('process:uncaughtException', {

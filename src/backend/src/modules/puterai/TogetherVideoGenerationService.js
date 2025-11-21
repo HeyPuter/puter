@@ -33,18 +33,18 @@ const DEFAULT_USAGE_KEY = 'together-video:default';
 
 class TogetherVideoGenerationService extends BaseService {
     /** @type {import('../../services/MeteringService/MeteringService').MeteringService} */
-    get meteringService() {
+    get meteringService () {
         return this.services.get('meteringService').meteringService;
     }
 
     static MODULES = {};
 
-    async _init() {
+    async _init () {
         const apiKey =
             this.config?.apiKey ??
             this.global_config?.services?.['together-ai']?.apiKey;
 
-        if ( !apiKey ) {
+        if ( ! apiKey ) {
             throw new Error('Together AI video generation requires an API key');
         }
 
@@ -53,19 +53,19 @@ class TogetherVideoGenerationService extends BaseService {
 
     static IMPLEMENTS = {
         ['driver-capabilities']: {
-            supports_test_mode(iface, method_name) {
+            supports_test_mode (iface, method_name) {
                 return iface === 'puter-video-generation' &&
                     method_name === 'generate';
             },
         },
         ['puter-video-generation']: {
-            async generate(params) {
+            async generate (params) {
                 return await this.generateVideo(params);
             },
         },
     };
 
-    async generateVideo(params) {
+    async generateVideo (params) {
         const {
             prompt,
             model: requestedModel,
@@ -106,7 +106,7 @@ class TogetherVideoGenerationService extends BaseService {
         const normalizedSeconds = this.#coercePositiveInteger(seconds ?? duration) ?? DEFAULT_DURATION_SECONDS;
 
         const actor = Context.get('actor');
-        if ( !actor ) {
+        if ( ! actor ) {
             throw new Error('actor not found in context');
         }
 
@@ -114,7 +114,7 @@ class TogetherVideoGenerationService extends BaseService {
         const usageKey = this.#determineUsageKey(model);
 
         const usageAllowed = await this.meteringService.hasEnoughCreditsFor(actor, usageKey, estimatedUsageUnits);
-        if ( !usageAllowed ) {
+        if ( ! usageAllowed ) {
             throw APIError.create('insufficient_funds');
         }
 
@@ -191,7 +191,7 @@ class TogetherVideoGenerationService extends BaseService {
         throw new Error('Together AI response did not include a video URL');
     }
 
-    async #pollUntilComplete(jobId) {
+    async #pollUntilComplete (jobId) {
         let job = await this.client.videos.retrieve(jobId);
         const start = Date.now();
 
@@ -207,18 +207,18 @@ class TogetherVideoGenerationService extends BaseService {
         return job;
     }
 
-    async #delay(ms) {
+    async #delay (ms) {
         return await new Promise(resolve => setTimeout(resolve, ms));
     }
 
-    #determineUsageKey(model) {
+    #determineUsageKey (model) {
         if ( typeof model === 'string' && model.trim() ) {
             return `together-video:${model}`;
         }
         return DEFAULT_USAGE_KEY;
     }
 
-    #coercePositiveInteger(value) {
+    #coercePositiveInteger (value) {
         if ( typeof value === 'number' && Number.isFinite(value) ) {
             const rounded = Math.round(value);
             return rounded > 0 ? rounded : undefined;
@@ -230,7 +230,7 @@ class TogetherVideoGenerationService extends BaseService {
         return undefined;
     }
 
-    #isFiniteNumber(value) {
+    #isFiniteNumber (value) {
         if ( typeof value === 'number' ) {
             return Number.isFinite(value);
         }

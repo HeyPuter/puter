@@ -44,7 +44,7 @@ export const getLocksIfValid = (suService, kvStoreService, ...lockTokens) => {
  * @returns {Promise<string>}
  */
 export const createLock = ( suService, kvStoreService, filePath, lockScope, lockType ) => {
-    return  suService.sudo(async () => {
+    return suService.sudo(async () => {
         const lockToken = `urn:uuid:${crypto.randomUUID()}`;
         const currentTokens = await getFileLocks(suService, kvStoreService, filePath);
         kvStoreService.set({
@@ -69,7 +69,7 @@ export const createLock = ( suService, kvStoreService, filePath, lockScope, lock
  * @returns {void}
  */
 export const deleteLock = ( suService, kvStoreService, lockToken, filePath ) => {
-    return  suService.sudo(async () => {
+    return suService.sudo(async () => {
         kvStoreService.del({ key: `${LOCK_PREFIX}${lockToken}` });
         kvStoreService.del({ key: `${LOCK_PREFIX}${filePath}` });
     });
@@ -126,21 +126,21 @@ export const hasWritePermissionInDAV = async ( suService, kvStoreService, filePa
 
     // if no lock on file, allow write
     const locksOnFile = await getFileLocks(suService, kvStoreService, filePath);
-    if ( !locksOnFile?.length ) {
+    if ( ! locksOnFile?.length ) {
         return true;
     }
 
-    if ( !headerLockToken ) {
+    if ( ! headerLockToken ) {
         return false;
     }
 
     const existingFileFromLock = (await getLocksIfValid(suService, kvStoreService, headerLockToken))?.pop();
-    if ( !filePath.startsWith(existingFileFromLock.path)  ) {
+    if ( ! filePath.startsWith(existingFileFromLock.path) ) {
         return false;
     }
 
     const lock = locksOnFile.find(( l ) => l.lockToken === headerLockToken);
-    if ( !lock ) {
+    if ( ! lock ) {
         return false;
     }
 

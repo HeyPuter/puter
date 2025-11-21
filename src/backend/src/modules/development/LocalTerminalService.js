@@ -17,18 +17,17 @@
  * along with this program.  If not, see <https://www.gnu.org/licenses/>.
  */
 
-const { spawn } = require("child_process");
-const APIError = require("../../api/APIError");
-const configurable_auth = require("../../middleware/configurable_auth");
-const { Endpoint } = require("../../util/expressutil");
-
+const { spawn } = require('child_process');
+const APIError = require('../../api/APIError');
+const configurable_auth = require('../../middleware/configurable_auth');
+const { Endpoint } = require('../../util/expressutil');
 
 const PERM_LOCAL_TERMINAL = 'local-terminal:access';
 
 const path_ = require('path');
-const { Actor } = require("../../services/auth/Actor");
-const BaseService = require("../../services/BaseService");
-const { Context } = require("../../util/context");
+const { Actor } = require('../../services/auth/Actor');
+const BaseService = require('../../services/BaseService');
+const { Context } = require('../../util/context');
 
 class LocalTerminalService extends BaseService {
     _construct () {
@@ -37,15 +36,13 @@ class LocalTerminalService extends BaseService {
     get_profiles () {
         return {
             ['api-test']: {
-                cwd: path_.join(
-                    __dirname,
-                    '../../../../../',
-                    'tools/api-tester',
-                ),
+                cwd: path_.join(__dirname,
+                                '../../../../../',
+                                'tools/api-tester'),
                 shell: [
                     '/usr/bin/env', 'node',
                     'apitest.js',
-                    '--config=config.yml'
+                    '--config=config.yml',
                 ],
                 allow_args: true,
             },
@@ -55,7 +52,7 @@ class LocalTerminalService extends BaseService {
         const r_group = (() => {
             const require = this.require;
             const express = require('express');
-            return express.Router()
+            return express.Router();
         })();
         app.use('/local-terminal', r_group);
 
@@ -70,7 +67,7 @@ class LocalTerminalService extends BaseService {
                 const actor = Context.get('actor');
                 const can_access = actor &&
                     await svc_permission.check(actor, PERM_LOCAL_TERMINAL);
-                
+
                 if ( ! can_access ) {
                     throw APIError.create('permission_denied', null, {
                         permission: PERM_LOCAL_TERMINAL,
@@ -107,41 +104,35 @@ class LocalTerminalService extends BaseService {
                     proc.stdout.on('data', data => {
                         const base64 = data.toString('base64');
                         console.log('---------------------- CHUNK?', base64);
-                        svc_socketio.send(
-                            { room: req.user.id },
-                            'local-terminal.stdout',
-                            {
-                                term_uuid,
-                                base64,
-                            },
-                        );
+                        svc_socketio.send({ room: req.user.id },
+                                        'local-terminal.stdout',
+                                        {
+                                            term_uuid,
+                                            base64,
+                                        });
                     });
                     proc.stderr.on('data', data => {
                         const base64 = data.toString('base64');
                         console.log('---------------------- CHUNK?', base64);
-                        svc_socketio.send(
-                            { room: req.user.id },
-                            'local-terminal.stderr',
-                            {
-                                term_uuid,
-                                base64,
-                            },
-                        );
+                        svc_socketio.send({ room: req.user.id },
+                                        'local-terminal.stderr',
+                                        {
+                                            term_uuid,
+                                            base64,
+                                        });
                     });
                 }
-                
+
                 proc.on('exit', () => {
                     this.log.noticeme(`[${term_uuid}] Process exited (${proc.exitCode})`);
                     delete this.sessions_[term_uuid];
 
                     const svc_socketio = req.services.get('socketio');
-                    svc_socketio.send(
-                        { room: req.user.id },
-                        'local-terminal.exit',
-                        {
-                            term_uuid,
-                        },
-                    );
+                    svc_socketio.send({ room: req.user.id },
+                                    'local-terminal.exit',
+                                    {
+                                        term_uuid,
+                                    });
                 });
 
                 this.sessions_[term_uuid] = {
@@ -178,7 +169,7 @@ class LocalTerminalService extends BaseService {
 
                 const base64 = Buffer.from(msg.data, 'base64');
                 session.proc.stdin.write(base64);
-            })
+            });
         });
     }
 }

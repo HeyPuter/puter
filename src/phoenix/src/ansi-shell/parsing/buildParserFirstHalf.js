@@ -22,10 +22,10 @@ const {
     ParserFactory,
     StrUntilParserImpl,
     StrataParseFacade,
-    WhitespaceParserImpl
+    WhitespaceParserImpl,
 } = strataparse;
 
-import { PARSE_CONSTANTS } from "./PARSE_CONSTANTS.js";
+import { PARSE_CONSTANTS } from './PARSE_CONSTANTS.js';
 const {
     ContextSwitchingPStratumImpl,
     MergeWhitespacePStratumImpl,
@@ -33,15 +33,15 @@ const {
 
 const parserConfigProfiles = {
     syntaxHighlighting: { cst: true },
-    interpreting: { cst: false }
+    interpreting: { cst: false },
 };
 
 const list_ws = [' ', '\n', '\t'];
-const list_quot = [`"`, `'`];
+const list_quot = ['"', '\''];
 const list_stoptoken = [
-    '|','>','<','&','\\','#',';','(',')',
+    '|', '>', '<', '&', '\\', '#', ';', '(', ')',
     ...list_ws,
-    ...list_quot
+    ...list_quot,
 ];
 
 export const buildParserFirstHalf = (sp, profile) => {
@@ -61,58 +61,43 @@ export const buildParserFirstHalf = (sp, profile) => {
         parserRegistry,
     });
 
-
     // TODO: unquoted tokens will actually need to be parsed in
     // segments to because `$(echo "la")h` works in sh
     const buildStringParserDef = quote => {
-        return a => a.sequence(
-            a.literal(quote),
-            a.repeat(a.choice(
-                // TODO: replace this with proper parser
-                parserFactory.create(StrUntilParserImpl, {
-                    stopChars: ['\\', quote],
-                }, { assign: { $: 'string.segment' } }),
-                a.sequence(
-                    a.literal('\\'),
-                    a.choice(
-                        a.literal(quote),
-                        ...Object.keys(
-                            PARSE_CONSTANTS.escapeSubstitutions
-                        ).map(chr => a.literal(chr))
-                        // TODO: \u[4],\x[2],\0[3]
-                    )
-                ).assign({ $: 'string.escape' })
-            )),
-            a.literal(quote),
-        ).assign({ $: 'string' })
+        return a => a.sequence(a.literal(quote),
+                        a.repeat(a.choice(
+                                        // TODO: replace this with proper parser
+                                        parserFactory.create(StrUntilParserImpl, {
+                                            stopChars: ['\\', quote],
+                                        }, { assign: { $: 'string.segment' } }),
+                                        a.sequence(a.literal('\\'),
+                                                        a.choice(a.literal(quote),
+                                                                        ...Object.keys(PARSE_CONSTANTS.escapeSubstitutions).map(chr => a.literal(chr)),
+                                                                        // TODO: \u[4],\x[2],\0[3]
+                                                        )).assign({ $: 'string.escape' }))),
+                        a.literal(quote)).assign({ $: 'string' });
     };
-
 
     const buildStringContext = quote => [
         parserFactory.create(StrUntilParserImpl, {
-            stopChars: ['\\', "$", quote],
+            stopChars: ['\\', '$', quote],
         }, { assign: { $: 'string.segment' } }),
-        parserBuilder.def(a => a.sequence(
-            a.literal('\\'),
-            a.choice(
-                a.literal(quote),
-                ...Object.keys(
-                    PARSE_CONSTANTS.escapeSubstitutions
-                ).map(chr => a.literal(chr))
-                // TODO: \u[4],\x[2],\0[3]
-            )
-        ).assign({ $: 'string.escape' })),
+        parserBuilder.def(a => a.sequence(a.literal('\\'),
+                        a.choice(a.literal(quote),
+                                        ...Object.keys(PARSE_CONSTANTS.escapeSubstitutions).map(chr => a.literal(chr)),
+                                        // TODO: \u[4],\x[2],\0[3]
+                        )).assign({ $: 'string.escape' })),
         {
             parser: parserBuilder.def(a => a.literal(quote).assign({ $: 'string.close' })),
-            transition: { pop: true }
+            transition: { pop: true },
         },
         {
             parser: parserBuilder.def(a => {
-                return a.literal('$(').assign({ $: 'op.cmd-subst' })
+                return a.literal('$(').assign({ $: 'op.cmd-subst' });
             }),
             transition: {
                 to: 'command',
-            }
+            },
         },
     ];
 
@@ -136,96 +121,90 @@ export const buildParserFirstHalf = (sp, profile) => {
     //     })
     // )
 
-    sp.add(
-        new ContextSwitchingPStratumImpl({
-            entry: 'command',
-            contexts: {
-                command: [
-                    parserBuilder.def(a => a.literal('\n').assign({ $: 'op.line-terminator' })),
-                    parserFactory.create(WhitespaceParserImpl),
-                    parserBuilder.def(a => a.literal('|').assign({ $: 'op.pipe' })),
-                    parserBuilder.def(a => a.literal('>').assign({ $: 'op.redirect', direction: 'out' })),
-                    parserBuilder.def(a => a.literal('<').assign({ $: 'op.redirect', direction: 'in' })),
-                    {
-                        parser: parserBuilder.def(a => a.literal(')').assign({ $: 'op.close' })),
-                        transition: {
-                            pop: true,
-                        }
+    sp.add(new ContextSwitchingPStratumImpl({
+        entry: 'command',
+        contexts: {
+            command: [
+                parserBuilder.def(a => a.literal('\n').assign({ $: 'op.line-terminator' })),
+                parserFactory.create(WhitespaceParserImpl),
+                parserBuilder.def(a => a.literal('|').assign({ $: 'op.pipe' })),
+                parserBuilder.def(a => a.literal('>').assign({ $: 'op.redirect', direction: 'out' })),
+                parserBuilder.def(a => a.literal('<').assign({ $: 'op.redirect', direction: 'in' })),
+                {
+                    parser: parserBuilder.def(a => a.literal(')').assign({ $: 'op.close' })),
+                    transition: {
+                        pop: true,
                     },
-                    {
-                        parser: parserBuilder.def(a => a.literal('"').assign({ $: 'string.dquote' })),
-                        transition: {
-                            to: 'string.dquote',
-                        }
+                },
+                {
+                    parser: parserBuilder.def(a => a.literal('"').assign({ $: 'string.dquote' })),
+                    transition: {
+                        to: 'string.dquote',
                     },
-                    {
-                        parser: parserBuilder.def(a => a.literal(`'`).assign({ $: 'string.squote' })),
-                        transition: {
-                            to: 'string.squote',
-                        }
+                },
+                {
+                    parser: parserBuilder.def(a => a.literal('\'').assign({ $: 'string.squote' })),
+                    transition: {
+                        to: 'string.squote',
                     },
-                    {
-                        parser: parserBuilder.def(a => a.none()),
-                        transition: {
-                            to: 'symbol',
-                        }
+                },
+                {
+                    parser: parserBuilder.def(a => a.none()),
+                    transition: {
+                        to: 'symbol',
                     },
-                ],
-                'string.dquote': buildStringContext('"'),
-                'string.squote': buildStringContext(`'`),
-                symbol: [
-                    parserFactory.create(StrUntilParserImpl, {
-                        stopChars: [...list_stoptoken, '$'],
-                    }, { assign: { $: 'symbol' } }),
-                    {
-                        // TODO: redundant definition to the one in 'command'
-                        parser: 
+                },
+            ],
+            'string.dquote': buildStringContext('"'),
+            'string.squote': buildStringContext('\''),
+            symbol: [
+                parserFactory.create(StrUntilParserImpl, {
+                    stopChars: [...list_stoptoken, '$'],
+                }, { assign: { $: 'symbol' } }),
+                {
+                    // TODO: redundant definition to the one in 'command'
+                    parser:
                             parserBuilder.def(a => a.literal('\n').assign({ $: 'op.line-terminator' })),
-                        transition: { pop: true }
-                    },
-                    {
-                        parser: parserFactory.create(WhitespaceParserImpl),
-                        transition: { pop: true }
-                    },
-                    {
-                        peek: true,
-                        parser:  parserBuilder.def(a => a.literal(')').assign({ $: 'op.close' })),
-                        transition: { pop: true }
-                    },
-                    {
-                        parser: parserBuilder.def(a => {
-                            return a.literal('$(').assign({ $: 'op.cmd-subst' })
-                        }),
-                        transition: {
-                            to: 'command',
-                        }
-                    },
-                    {
-                        parser: parserBuilder.def(a => a.none()),
-                        transition: { pop: true }
-                    },
-                    {
-                        parser: parserBuilder.def(a => a.choice(
-                            ...list_stoptoken.map(chr => a.literal(chr))
-                        )),
-                        transition: { pop: true }
-                    }
-                ],
-            },
-            wrappers: {
-                'string.dquote': {
-                    $: 'string',
-                    quote: '"',
+                    transition: { pop: true },
                 },
-                'string.squote': {
-                    $: 'string',
-                    quote: `'`,
+                {
+                    parser: parserFactory.create(WhitespaceParserImpl),
+                    transition: { pop: true },
                 },
+                {
+                    peek: true,
+                    parser: parserBuilder.def(a => a.literal(')').assign({ $: 'op.close' })),
+                    transition: { pop: true },
+                },
+                {
+                    parser: parserBuilder.def(a => {
+                        return a.literal('$(').assign({ $: 'op.cmd-subst' });
+                    }),
+                    transition: {
+                        to: 'command',
+                    },
+                },
+                {
+                    parser: parserBuilder.def(a => a.none()),
+                    transition: { pop: true },
+                },
+                {
+                    parser: parserBuilder.def(a => a.choice(...list_stoptoken.map(chr => a.literal(chr)))),
+                    transition: { pop: true },
+                },
+            ],
+        },
+        wrappers: {
+            'string.dquote': {
+                $: 'string',
+                quote: '"',
             },
-        })
-    )
+            'string.squote': {
+                $: 'string',
+                quote: '\'',
+            },
+        },
+    }));
 
-    sp.add(
-        new MergeWhitespacePStratumImpl()
-    )
+    sp.add(new MergeWhitespacePStratumImpl());
 };

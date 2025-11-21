@@ -17,47 +17,46 @@
  * along with this program.  If not, see <https://www.gnu.org/licenses/>.
  */
 export class HistoryManager {
-    constructor({ enableLogging = false } = {}) {
+    constructor ({ enableLogging = false } = {}) {
         this.items = [];
         this.index_ = 0;
         this.listeners_ = {};
         this.enableLogging_ = enableLogging;
     }
 
-    log(...a) {
+    log (...a) {
         // TODO: Command line option for configuring logging
         if ( this.enableLogging_ ) {
             console.log('[HistoryManager]', ...a);
         }
     }
 
-    get index() {
+    get index () {
         return this.index_;
     }
 
-    set index(v) {
+    set index (v) {
         this.log('setting index', v);
         this.index_ = v;
     }
 
-    get() {
+    get () {
         return this.items[this.index];
     }
 
     // Save, overwriting the current history item
-    save(data, { opt_debug } = {}) {
-        this.log('saving', data, 'at', this.index,
-            ...(opt_debug ? [ 'from', opt_debug ] : []));
+    save (data, { opt_debug } = {}) {
+        this.log('saving', data, 'at', this.index, ...(opt_debug ? [ 'from', opt_debug ] : []));
         this.items[this.index] = data;
 
-        if (this.listeners_.hasOwnProperty('add')) {
-            for (const listener of this.listeners_.add) {
+        if ( this.listeners_.hasOwnProperty('add') ) {
+            for ( const listener of this.listeners_.add ) {
                 listener(data);
             }
         }
     }
 
-    append(data) {
+    append (data) {
         if (
             this.items.length !== 0 &&
             this.index !== this.items.length
@@ -71,8 +70,8 @@ export class HistoryManager {
         this.index++;
     }
 
-    on(topic, listener) {
-        if (!this.listeners_.hasOwnProperty(topic)) {
+    on (topic, listener) {
+        if ( ! this.listeners_.hasOwnProperty(topic) ) {
             this.listeners_[topic] = [];
         }
         this.listeners_[topic].push(listener);

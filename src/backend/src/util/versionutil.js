@@ -2,13 +2,13 @@
  * Select the object with the highest version.
  * Objects are of the form:
  *   { version: '1.2.0' }
- * 
+ *
  * Semver is assumed.
- * 
- * @param {*} objects 
+ *
+ * @param {*} objects
  */
 const find_highest_version = (objects) => {
-    let highest = [0,0,0];
+    let highest = [0, 0, 0];
     let highest_obj = null;
 
     for ( const obj of objects ) {
@@ -21,7 +21,7 @@ const find_highest_version = (objects) => {
                 break;
             } else if ( part < highest[i] ) {
                 break;
-            }1
+            }1;
         }
     }
 

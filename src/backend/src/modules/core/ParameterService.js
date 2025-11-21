@@ -1,24 +1,24 @@
 // METADATA // {"ai-commented":{"service":"claude"}}
 /*
  * Copyright (C) 2024-present Puter Technologies Inc.
- * 
+ *
  * This file is part of Puter.
- * 
+ *
  * Puter is free software: you can redistribute it and/or modify
  * it under the terms of the GNU Affero General Public License as published
  * by the Free Software Foundation, either version 3 of the License, or
  * (at your option) any later version.
- * 
+ *
  * This program is distributed in the hope that it will be useful,
  * but WITHOUT ANY WARRANTY; without even the implied warranty of
  * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
  * GNU Affero General Public License for more details.
- * 
+ *
  * You should have received a copy of the GNU Affero General Public License
  * along with this program.  If not, see <https://www.gnu.org/licenses/>.
  */
 
-const BaseService = require("../../services/BaseService");
+const BaseService = require('../../services/BaseService');
 
 /**
 * @class ParameterService
@@ -33,7 +33,6 @@ class ParameterService extends BaseService {
         /** @type {Array<Parameter>} */
         this.parameters_ = [];
     }
-    
 
     /**
     * Initializes the service by registering commands with the command service.
@@ -45,23 +44,20 @@ class ParameterService extends BaseService {
         this._registerCommands(this.services.get('commands'));
     }
 
-    createParameters(serviceName, parameters, opt_instance) {
-        for (const parameter of parameters) {
+    createParameters (serviceName, parameters, opt_instance) {
+        for ( const parameter of parameters ) {
             this.log.debug(`registering parameter ${serviceName}:${parameter.id}`);
             this.parameters_.push(new Parameter({
                 ...parameter,
                 id: `${serviceName}:${parameter.id}`,
             }));
             if ( opt_instance ) {
-                this.bindToInstance(
-                    `${serviceName}:${parameter.id}`,
-                    opt_instance,
-                    parameter.id,
-                );
+                this.bindToInstance(`${serviceName}:${parameter.id}`,
+                                opt_instance,
+                                parameter.id);
             }
         }
     }
-
 
     /**
     * Gets the value of a parameter by its ID
@@ -69,7 +65,7 @@ class ParameterService extends BaseService {
     * @returns {Promise<*>} The current value of the parameter
     * @throws {Error} If parameter with given ID is not found
     */
-    async get(id) {
+    async get (id) {
         const parameter = this._get_param(id);
         return await parameter.get();
     }
@@ -84,7 +80,7 @@ class ParameterService extends BaseService {
         return parameter.subscribe(listener);
     }
 
-    _get_param(id) {
+    _get_param (id) {
         const parameter = this.parameters_.find(p => p.spec_.id === id);
         if ( ! parameter ) {
             throw new Error(`unknown parameter: ${id}`);
@@ -99,8 +95,10 @@ class ParameterService extends BaseService {
     _registerCommands (commands) {
         const completeParameterName = (args) => {
             // The parameter name is the first argument, so return no results if we're on the second or later.
-            if (args.length > 1)
+            if ( args.length > 1 )
+            {
                 return;
+            }
             const lastArg = args[args.length - 1];
 
             return this.parameters_
@@ -143,19 +141,18 @@ class ParameterService extends BaseService {
                     log.log(`available parameters${
                         prefix ? ` (starting with: ${prefix})` : ''
                     }:`);
-                    for (const parameter of parameters) {
+                    for ( const parameter of parameters ) {
                         // log.log(`- ${parameter.spec_.id}: ${parameter.spec_.description}`);
                         // Log parameter description and value
                         const value = await parameter.get();
                         log.log(`- ${parameter.spec_.id} = ${value}`);
                         log.log(`  ${parameter.spec_.description}`);
                     }
-                }
-            }
+                },
+            },
         ]);
     }
 }
-
 
 /**
 * @class Parameter
@@ -164,7 +161,7 @@ class ParameterService extends BaseService {
 * Supports validation through configurable constraints and maintains a list of value change listeners.
 */
 class Parameter {
-    constructor(spec) {
+    constructor (spec) {
         this.spec_ = spec;
         this.valueListeners_ = [];
 
@@ -172,7 +169,6 @@ class Parameter {
             this.value_ = spec.default;
         }
     }
-
 
     /**
     * Sets a new value for the parameter after validating against constraints
@@ -194,7 +190,6 @@ class Parameter {
             listener(value, { old });
         }
     }
-
 
     /**
     * Gets the current value of this parameter

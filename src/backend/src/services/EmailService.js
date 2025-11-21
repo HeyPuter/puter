@@ -22,7 +22,7 @@ const BaseService = require('./BaseService');
 
 const TEMPLATES = {
     'new-referral': {
-        subject: `You've made a referral!`,
+        subject: 'You\'ve made a referral!',
         html: `
             <p>Hi there,</p>
             <p>A new user has used your referral code. Enjoy an extra {{storage_increase}} of storage, on the house!</p>
@@ -82,25 +82,25 @@ If this was not you, please contact support@puter.com immediately.
         `,
     },
     'email_verification_code': {
-        subject: `{{code}} is your confirmation code`,
+        subject: '{{code}} is your confirmation code',
         html: /*html*/`
         <p>Hi there,</p>
         <p><strong>{{code}}</strong> is your email confirmation code.</p>
         <p>Sincerely,</p>
         <p>Puter</p>
-        `
+        `,
     },
     'email_verification_link': {
-        subject: `Please confirm your email`,
+        subject: 'Please confirm your email',
         html: /*html*/`
         <p>Hi there,</p>
         <p>Please confirm your email address using this link: <strong><a href="{{link}}">{{link}}</a></strong>.</p>
         <p>Sincerely,</p>
         <p>Puter</p>
-        `
+        `,
     },
     'email_password_recovery': {
-        subject: `Password Recovery`,
+        subject: 'Password Recovery',
         html: /*html*/`
         <p>Hi there,</p>
         <p>A password recovery request was issued for your account, please follow the link below to reset your password:</p>
@@ -119,7 +119,7 @@ If this was not you, please contact support@puter.com immediately.
         immediately</p>
         <p>Sincerely,</p>
         <p>Puter</p>
-        `
+        `,
     },
     'disabled_2fa': {
         subject: '2FA Disabled on your Account',
@@ -130,7 +130,7 @@ If this was not you, please contact support@puter.com immediately.
         immediately</p>
         <p>Sincerely,</p>
         <p>Puter</p>
-        `
+        `,
     },
     // TODO: revise email contents
     'share_by_username': {
@@ -145,7 +145,7 @@ If this was not you, please contact support@puter.com immediately.
         {{/if}}
         <p>Sincerely,</p>
         <p>Puter</p>
-        `
+        `,
     },
     'share_by_email': {
         subject: 'share by email',
@@ -159,10 +159,9 @@ If this was not you, please contact support@puter.com immediately.
         {{/if}}
         <p>Sincerely,</p>
         <p>Puter</p>
-        `
+        `,
     },
-}
-
+};
 
 /**
 * @class EmailService
@@ -178,7 +177,6 @@ class Emailservice extends BaseService {
         handlebars: require('handlebars'),
         dedent: require('dedent'),
     };
-
 
     /**
     * Initializes the EmailService by compiling email templates.
@@ -198,17 +196,15 @@ class Emailservice extends BaseService {
             this.template_fns[k] = values => {
                 const subject = this.modules.handlebars.compile(template.subject);
                 const html =
-                    this.modules.handlebars.compile(
-                        this.modules.dedent(template.html));
+                    this.modules.handlebars.compile(this.modules.dedent(template.html));
                 return {
                     ...template,
                     subject: subject(values),
                     html: html(values),
                 };
-            }
+            };
         }
     }
-
 
     /**
     * Initializes the email service.
@@ -219,7 +215,6 @@ class Emailservice extends BaseService {
     */
     _init () {
     }
-
 
     /**
     * Configures and initializes the email transport using Nodemailer.
@@ -239,7 +234,6 @@ class Emailservice extends BaseService {
 
         return transport;
     }
-
 
     /**
     * Sends an email using the configured transport and template.
@@ -262,7 +256,8 @@ class Emailservice extends BaseService {
         transporter.sendMail({
             from: '"Puter" no-reply@puter.com', // sender address
             to: email, // list of receivers
-            subject, html,
+            subject,
+            html,
         });
     }
 
@@ -274,5 +269,5 @@ class Emailservice extends BaseService {
 }
 
 module.exports = {
-    Emailservice
+    Emailservice,
 };

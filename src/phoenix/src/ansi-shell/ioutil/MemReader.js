@@ -31,14 +31,12 @@ export class MemReader {
             return { value: this.data, done: false };
         }
 
-        const toReturn = this.data.slice(
-            this.pos,
-            Math.min(this.pos + opt_buffer.length, this.data.length),
-        );
+        const toReturn = this.data.slice(this.pos,
+                        Math.min(this.pos + opt_buffer.length, this.data.length));
 
         return {
             value: opt_buffer,
-            size: toReturn.length
+            size: toReturn.length,
         };
     }
 }

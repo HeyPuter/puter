@@ -18,18 +18,20 @@
  */
 import { strataparse } from '@heyputer/parsers';
 const { StrataParser, StringPStratumImpl } = strataparse;
-import { buildParserFirstHalf } from "./buildParserFirstHalf.js";
-import { buildParserSecondHalf } from "./buildParserSecondHalf.js";
+import { buildParserFirstHalf } from './buildParserFirstHalf.js';
+import { buildParserSecondHalf } from './buildParserSecondHalf.js';
 
 export class PuterShellParser {
-    constructor () {}
-    parseLineForSyntax () {}
+    constructor () {
+    }
+    parseLineForSyntax () {
+    }
     parseLineForProcessing (input) {
         const sp = new StrataParser();
         sp.add(new StringPStratumImpl(input));
         // TODO: optimize by re-using this parser
         // buildParserFirstHalf(sp, "interpreting");
-        buildParserFirstHalf(sp, "syntaxHighlighting");
+        buildParserFirstHalf(sp, 'syntaxHighlighting');
         buildParserSecondHalf(sp);
         const result = sp.parse();
         if ( sp.error ) {
@@ -40,7 +42,7 @@ export class PuterShellParser {
     parseScript (input) {
         const sp = new StrataParser();
         sp.add(new StringPStratumImpl(input));
-        buildParserFirstHalf(sp, "syntaxHighlighting");
+        buildParserFirstHalf(sp, 'syntaxHighlighting');
         buildParserSecondHalf(sp, { multiline: true });
         const result = sp.parse();
         if ( sp.error ) {

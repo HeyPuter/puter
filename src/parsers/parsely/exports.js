@@ -33,14 +33,14 @@ class ParserWithAction {
     #parser;
     #action;
 
-    constructor(parser, action) {
+    constructor (parser, action) {
         this.#parser = adapt_parser(parser);
         this.#action = action;
     }
 
     parse (stream) {
         const parsed = this.#parser.parse(stream);
-        if (parsed.status === VALUE) {
+        if ( parsed.status === VALUE ) {
             parsed.value = this.#action(parsed.value);
         }
         return parsed;
@@ -54,7 +54,7 @@ export class GrammarContext {
     }
 
     sub (more_parsers) {
-        return new GrammarContext({...this.parsers, ...more_parsers});
+        return new GrammarContext({ ...this.parsers, ...more_parsers });
     }
 
     /**
@@ -67,7 +67,7 @@ export class GrammarContext {
         const symbol_registry = {};
         const api = {};
 
-        for (const [name, parserCls] of Object.entries(this.parsers)) {
+        for ( const [name, parserCls] of Object.entries(this.parsers) ) {
             api[name] = (...params) => {
                 const result = new parserCls();
                 result._create(...params);
@@ -76,8 +76,8 @@ export class GrammarContext {
             };
         }
 
-        for (const [name, builder] of Object.entries(grammar)) {
-            if (actions[name]) {
+        for ( const [name, builder] of Object.entries(grammar) ) {
+            if ( actions[name] ) {
                 symbol_registry[name] = new ParserWithAction(builder(api), actions[name]);
             } else {
                 symbol_registry[name] = builder(api);
@@ -86,17 +86,17 @@ export class GrammarContext {
 
         return (stream, entry_symbol, { must_consume_all_input = true } = {}) => {
             const entry_parser = symbol_registry[entry_symbol];
-            if (!entry_parser) {
+            if ( ! entry_parser ) {
                 throw new Error(`Entry symbol '${entry_symbol}' not found in grammar.`);
             }
             const result = entry_parser.parse(stream);
 
-            if (result.status !== VALUE) {
+            if ( result.status !== VALUE ) {
                 throw new Error('Failed to parse input against grammar.');
             }
 
             // Ensure the entire stream is consumed.
-            if (must_consume_all_input && !stream.is_eof()) {
+            if ( must_consume_all_input && !stream.is_eof() ) {
                 throw new Error('Parsing did not consume all input.');
             }
 
@@ -118,5 +118,5 @@ export const standard_parsers = () => {
         stringOf: StringOf,
         stringUntil: StringUntil,
         symbol: Symbol,
-    }
-}
+    };
+};

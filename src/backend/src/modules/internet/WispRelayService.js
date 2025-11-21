@@ -1,4 +1,4 @@
-const BaseService = require("../../services/BaseService");
+const BaseService = require('../../services/BaseService');
 
 class WispRelayService extends BaseService {
     _init () {

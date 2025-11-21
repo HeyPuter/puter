@@ -16,55 +16,57 @@
  * You should have received a copy of the GNU Affero General Public License
  * along with this program.  If not, see <https://www.gnu.org/licenses/>.
  */
-"use strict"
+'use strict';
 const express = require('express');
 const router = express.Router();
 const auth = require('../middleware/auth.js');
 const config = require('../config');
 
-// -----------------------------------------------------------------------// 
+// -----------------------------------------------------------------------//
 // POST /sites
 // -----------------------------------------------------------------------//
-router.post('/sites', auth, express.json(), async (req, res, next)=>{
+router.post('/sites', auth, express.json(), async (req, res, next) => {
     // check subdomain
-    if(require('../helpers').subdomain(req) !== 'api')
+    if ( require('../helpers').subdomain(req) !== 'api' )
+    {
         next();
+    }
 
     // check if user is verified
-    if((config.strict_email_verification_required || req.user.requires_email_confirmation) && !req.user.email_confirmed)
-        return res.status(400).send({code: 'account_is_not_verified', message: 'Account is not verified'});
+    if ( (config.strict_email_verification_required || req.user.requires_email_confirmation) && !req.user.email_confirmed )
+    {
+        return res.status(400).send({ code: 'account_is_not_verified', message: 'Account is not verified' });
+    }
 
     // modules
-    const {id2path} = require('../helpers');
-    let db = require('../db/mysql.js')
+    const { id2path } = require('../helpers');
+    let db = require('../db/mysql.js');
     let dbrr = db.readReplica ?? db;
 
-    const user    = req.user
+    const user    = req.user;
     const sites = [];
 
     let [subdomains] = await dbrr.promise().execute(
-        `SELECT * FROM subdomains WHERE user_id = ?`, 
-        [user.id]
-    );  
-    if(subdomains.length > 0){
-        for(let i=0; i< subdomains.length; i++){
+                    'SELECT * FROM subdomains WHERE user_id = ?',
+                    [user.id]);
+    if ( subdomains.length > 0 ) {
+        for ( let i = 0; i < subdomains.length; i++ ) {
             let site = {};
             // address
-            site.address = config.protocol + '://' + subdomains[i].subdomain + '.' + 'puter.site';
+            site.address = `${config.protocol }://${ subdomains[i].subdomain }.` + 'puter.site';
             // uuid
             site.uuid = subdomains[i].uuid;
             // dir
             let [dir] = await dbrr.promise().execute(
-                `SELECT * FROM fsentries WHERE id = ?`, 
-                [subdomains[i].root_dir_id]
-            );
+                            'SELECT * FROM fsentries WHERE id = ?',
+                            [subdomains[i].root_dir_id]);
 
-            if(dir.length > 0){
+            if ( dir.length > 0 ) {
                 site.has_dir = true;
                 site.dir_uid = dir[0].uuid;
                 site.dir_name = dir[0].name;
-                site.dir_path = await id2path(dir[0].id)
-            }else{
+                site.dir_path = await id2path(dir[0].id);
+            } else {
                 site.has_dir = false;
             }
 
@@ -72,6 +74,6 @@ router.post('/sites', auth, express.json(), async (req, res, next)=>{
         }
     }
     res.send(sites);
-})
+});
 
-module.exports = router
+module.exports = router;

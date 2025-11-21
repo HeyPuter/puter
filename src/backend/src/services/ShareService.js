@@ -17,16 +17,16 @@
  * You should have received a copy of the GNU Affero General Public License
  * along with this program.  If not, see <https://www.gnu.org/licenses/>.
  */
-const APIError = require("../api/APIError");
-const { get_user } = require("../helpers");
-const configurable_auth = require("../middleware/configurable_auth");
-const featureflag = require("../middleware/featureflag.js");
-const { Endpoint } = require("../util/expressutil");
-const { whatis } = require("../util/langutil");
-const { Actor, UserActorType } = require("./auth/Actor");
-const BaseService = require("./BaseService");
-const { DB_WRITE } = require("./database/consts");
-const { UsernameNotifSelector } = require("./NotificationService");
+const APIError = require('../api/APIError');
+const { get_user } = require('../helpers');
+const configurable_auth = require('../middleware/configurable_auth');
+const featureflag = require('../middleware/featureflag.js');
+const { Endpoint } = require('../util/expressutil');
+const { whatis } = require('../util/langutil');
+const { Actor, UserActorType } = require('./auth/Actor');
+const BaseService = require('./BaseService');
+const { DB_WRITE } = require('./database/consts');
+const { UsernameNotifSelector } = require('./NotificationService');
 
 class ShareService extends BaseService {
     static MODULES = {
@@ -34,7 +34,6 @@ class ShareService extends BaseService {
         validator: require('validator'),
         express: require('express'),
     };
-
 
     async _init () {
         this.db = await this.services.get('database').get(DB_WRITE, 'share');
@@ -49,17 +48,15 @@ class ShareService extends BaseService {
                 if ( ! user ) {
                     throw new Error('expected user');
                 }
-                return !! user.email_confirmed;
-            }
+                return !!user.email_confirmed;
+            },
         });
 
         const svc_event = this.services.get('event');
         svc_event.on('user.email-confirmed', async (_, { user_uid, email }) => {
             const user = await get_user({ uuid: user_uid });
-            const relevant_shares = await this.db.read(
-                'SELECT * FROM share WHERE recipient_email = ?',
-                [email],
-            );
+            const relevant_shares = await this.db.read('SELECT * FROM share WHERE recipient_email = ?',
+                            [email]);
 
             for ( const share of relevant_shares ) {
                 share.data = this.db.case({
@@ -83,16 +80,11 @@ class ShareService extends BaseService {
                 const svc_acl = this.services.get('acl');
 
                 for ( const permission of share.data.permissions ) {
-                    await svc_acl.set_user_user(
-                        issuer_actor, user.username, permission, undefined,
-                        { only_if_higher: true },
-                    );
+                    await svc_acl.set_user_user(issuer_actor, user.username, permission, undefined, { only_if_higher: true });
                 }
 
-                await this.db.write(
-                    'DELETE FROM share WHERE uid = ?',
-                    [share.uid],
-                );
+                await this.db.write('DELETE FROM share WHERE uid = ?',
+                                [share.uid]);
             }
         });
     }
@@ -101,7 +93,7 @@ class ShareService extends BaseService {
         this.install_sharelink_endpoints({ app });
         this.install_share_endpoint({ app });
     }
-    
+
     /**
     * This method is responsible for processing the share link application request.
     * It checks if the share token is valid and if the user making the request is the intended recipient.
@@ -118,12 +110,12 @@ class ShareService extends BaseService {
             const express = require('express');
             return express.Router();
         })();
-        
+
         app.use('/sharelink', router);
-        
+
         const svc_share = this.services.get('share');
         const svc_token = this.services.get('token');
-        
+
         Endpoint({
             route: '/check',
             methods: ['POST'],
@@ -136,29 +128,29 @@ class ShareService extends BaseService {
                 //   -> "share cookie token" lets the backend know it
                 //      should grant permissions when the correct user
                 //      is logged in.
-                
+
                 const share_token = req.body.token;
-                
+
                 if ( ! share_token ) {
                     throw APIError.create('field_missing', null, {
                         key: 'token',
                     });
                 }
-                
+
                 const decoded = await svc_token.verify('share', share_token);
                 console.log('decoded?', decoded);
                 if ( decoded.$ !== 'token:share' ) {
                     throw APIError.create('invalid_token');
                 }
-                
+
                 const share = await svc_share.get_share({
                     uid: decoded.uid,
                 });
-                
+
                 if ( ! share ) {
                     throw APIError.create('invalid_token');
                 }
-                
+
                 res.json({
                     $: 'api:share',
                     uid: share.uid,
@@ -166,74 +158,70 @@ class ShareService extends BaseService {
                 });
             },
         }).attach(router);
-        
+
         Endpoint({
             route: '/apply',
             methods: ['POST'],
             mw: [configurable_auth()],
             handler: async (req, res) => {
                 const share_uid = req.body.uid;
-                
+
                 const share = await svc_share.get_share({
                     uid: share_uid,
                 });
-                
+
                 if ( ! share ) {
                     throw APIError.create('share_expired');
                 }
-                
+
                 share.data = this.db.case({
                     mysql: () => share.data,
                     otherwise: () =>
                         JSON.parse(share.data ?? '{}'),
                 })();
-                
+
                 const actor = Actor.adapt(req.actor ?? req.user);
                 if ( ! actor ) {
                     // this shouldn't happen; auth should catch it
                     throw new Error('actor missing');
                 }
-                
+
                 if ( ! actor.type.user.email_confirmed ) {
                     throw APIError.create('email_must_be_confirmed');
                 }
-                
+
                 if ( actor.type.user.email !== share.recipient_email ) {
                     throw APIError.create('can_not_apply_to_this_user');
                 }
-                
+
                 const issuer_user = await get_user({
                     id: share.issuer_user_id,
                 });
-                
+
                 if ( ! issuer_user ) {
                     throw APIError.create('share_expired');
                 }
-                
+
                 const issuer_actor = await Actor.create(UserActorType, {
                     user: issuer_user,
                 });
-                
+
                 const svc_permission = this.services.get('permission');
-                
+
                 for ( const permission of share.data.permissions ) {
-                    await svc_permission.grant_user_user_permission(
-                        issuer_actor,
-                        actor.type.user.username,
-                        permission,
-                    );
+                    await svc_permission.grant_user_user_permission(issuer_actor,
+                                    actor.type.user.username,
+                                    permission);
                 }
 
-                await this.db.write(
-                    'DELETE FROM share WHERE uid = ?',
-                    [share.uid],
-                );
-                
+                await this.db.write('DELETE FROM share WHERE uid = ?',
+                                [share.uid]);
+
                 res.json({
                     $: 'api:status-report',
                     status: 'success',
                 });
-            }
+            },
         }).attach(router);
 
         Endpoint({
@@ -242,28 +230,28 @@ class ShareService extends BaseService {
             mw: [configurable_auth()],
             handler: async (req, res) => {
                 const share_uid = req.body.uid;
-                
+
                 const share = await svc_share.get_share({
                     uid: share_uid,
                 });
-                
+
                 // track: null check before processing
                 if ( ! share ) {
                     throw APIError.create('share_expired');
                 }
-                
+
                 share.data = this.db.case({
                     mysql: () => share.data,
                     otherwise: () =>
                         JSON.parse(share.data ?? '{}'),
                 })();
-                
+
                 const actor = Actor.adapt(req.actor ?? req.user);
                 if ( ! actor ) {
                     // this shouldn't happen; auth should catch it
                     throw new Error('actor missing');
                 }
-                
+
                 // track: opposite condition of sibling
                 // :: sibling: /apply endpoint
                 if (
@@ -272,7 +260,7 @@ class ShareService extends BaseService {
                 ) {
                     throw APIError.create('no_need_to_request');
                 }
-                
+
                 const issuer_user = await get_user({
                     id: share.issuer_user_id,
                 });
@@ -280,31 +268,29 @@ class ShareService extends BaseService {
                 if ( ! issuer_user ) {
                     throw APIError.create('share_expired');
                 }
-                
+
                 const svc_notification = this.services.get('notification');
-                svc_notification.notify(
-                    UsernameNotifSelector(issuer_user.username),
-                    {
-                        source: 'sharing',
-                        title: `User ${actor.type.user.username} is ` +
-                            `trying to open a share you sent to ` +
-                            share.recipient_email,
-                        template: 'user-requesting-share',
-                        fields: {
-                            username: actor.type.user.username,
-                            intended_recipient: share.recipient_email,
-                            permissions: share.data.permissions,
-                        },
-                    }
-                );
+                svc_notification.notify(UsernameNotifSelector(issuer_user.username),
+                                {
+                                    source: 'sharing',
+                                    title: `User ${actor.type.user.username} is ` +
+                                        `trying to open a share you sent to ${
+                                            share.recipient_email}`,
+                                    template: 'user-requesting-share',
+                                    fields: {
+                                        username: actor.type.user.username,
+                                        intended_recipient: share.recipient_email,
+                                        permissions: share.data.permissions,
+                                    },
+                                });
                 res.json({
                     $: 'api:status-report',
                     status: 'success',
                 });
-            }
+            },
         }).attach(router);
     }
-    
+
     install_share_endpoint ({ app }) {
         // track: scoping iife
         const router = (() => {
@@ -312,9 +298,9 @@ class ShareService extends BaseService {
             const express = require('express');
             return express.Router();
         })();
-        
+
         app.use('/share', router);
-        
+
         const share_sequence = require('../structured/sequence/share.js');
         Endpoint({
             route: '/',
@@ -343,19 +329,17 @@ class ShareService extends BaseService {
                 return await share_sequence.call(this, {
                     actor, req, res,
                 });
-            }
+            },
         }).attach(router);
     }
-    
+
     async get_share ({ uid }) {
-        const [share] = await this.db.read(
-            'SELECT * FROM share WHERE uid = ?',
-            [uid],
-        );
-        
+        const [share] = await this.db.read('SELECT * FROM share WHERE uid = ?',
+                        [uid]);
+
         return share;
     }
-    
+
     /**
     * Method to handle the creation of a new share
     *
@@ -375,7 +359,7 @@ class ShareService extends BaseService {
     }) {
         const require = this.require;
         const validator = require('validator');
-        
+
         // track: type check
         if ( typeof email !== 'string' ) {
             throw new Error('email must be a string');
@@ -391,25 +375,23 @@ class ShareService extends BaseService {
         if ( ! (issuer instanceof Actor) ) {
             throw new Error('expected issuer to be Actor');
         }
-        
+
         // track: actor type
         if ( ! (issuer.type instanceof UserActorType) ) {
             throw new Error('only users are allowed to create shares');
         }
-        
+
         if ( ! validator.isEmail(email) ) {
             throw new Error('invalid email');
         }
-        
+
         const uuid = this.modules.uuidv4();
-        
-        await this.db.write(
-            'INSERT INTO `share` ' +
+
+        await this.db.write('INSERT INTO `share` ' +
             '(`uid`, `issuer_user_id`, `recipient_email`, `data`) ' +
             'VALUES (?, ?, ?, ?)',
-            [uuid, issuer.type.user.id, email, JSON.stringify(data)]
-        );
-        
+        [uuid, issuer.type.user.id, email, JSON.stringify(data)]);
+
         return uuid;
     }
 }
@@ -417,4 +399,3 @@ class ShareService extends BaseService {
 module.exports = {
     ShareService,
 };
-

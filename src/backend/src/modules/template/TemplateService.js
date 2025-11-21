@@ -18,8 +18,8 @@
  */
 
 // TODO: import via `USE` static member
-const BaseService = require("../../services/BaseService");
-const { Endpoint } = require("../../util/expressutil");
+const BaseService = require('../../services/BaseService');
+const { Endpoint } = require('../../util/expressutil');
 
 /**
  * This is a template service that you can copy and paste to create new services.
@@ -29,60 +29,60 @@ class TemplateService extends BaseService {
     static USE = {
         // - Defined by lib/__lib__.js,
         // - Exposed to `useapi` by TemplateModule.js
-        workinprogress: 'workinprogress'
-    }
-    
+        workinprogress: 'workinprogress',
+    };
+
     _construct () {
         // Use this override to initialize instance variables.
     }
-    
+
     async _init () {
         // This is where you initialize the service and prepare
         // for the consolidation phase.
-        this.log.info("I am the template service.");
+        this.log.info('I am the template service.');
     }
-    
+
     /**
      * TemplateService listens to this event to provide an example endpoint
      */
     ['__on_install.routes'] (_, { app }) {
-        this.log.info("TemplateService get the event for installing endpoint.");
+        this.log.info('TemplateService get the event for installing endpoint.');
         Endpoint({
             route: '/example-endpoint',
             methods: ['GET'],
             handler: async (req, res) => {
                 res.send(this.workinprogress.hello_world());
-            }
+            },
         }).attach(app);
         // ^ Don't forget to attach the endpoint to the app!
         //   it's very easy to forget this step.
     }
-    
+
     /**
      * TemplateService listens to this event to provide an example event
      */
     ['__on_boot.consolidation'] () {
         // At this stage, all services have been initialized and it is
         // safe to start emitting events.
-        this.log.info("TemplateService sees consolidation boot phase.");
-        
+        this.log.info('TemplateService sees consolidation boot phase.');
+
         const svc_event = this.services.get('event');
-        
+
         svc_event.on('template-service.hello', (_eventid, event_data) => {
             this.log.info('template-service said hello to itself; this is expected', {
                 event_data,
             });
         });
-        
+
         svc_event.emit('template-service.hello', {
-            message: 'Hello all you other services! I am the template service.'
+            message: 'Hello all you other services! I am the template service.',
         });
     }
     /**
      * TemplateService listens to this event to show you that it's here
      */
     ['__on_boot.activation'] () {
-        this.log.info("TemplateService sees activation boot phase.");
+        this.log.info('TemplateService sees activation boot phase.');
     }
 
     /**
@@ -94,6 +94,5 @@ class TemplateService extends BaseService {
 }
 
 module.exports = {
-    TemplateService
+    TemplateService,
 };
-

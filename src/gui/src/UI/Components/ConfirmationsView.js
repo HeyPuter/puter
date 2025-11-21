@@ -17,7 +17,6 @@
  * along with this program.  If not, see <https://www.gnu.org/licenses/>.
  */
 
-
 const Component = use('util.Component');
 
 /**
@@ -33,7 +32,7 @@ export default def(class ConfirmationsView extends Component {
         confirmed: {
             description: 'True iff all confirmations are checked',
         },
-    }
+    };
 
     static CSS = /*css*/`
         .confirmations {
@@ -47,7 +46,7 @@ export default def(class ConfirmationsView extends Component {
             font-weight: 700;
             display: none;
         }
-    `
+    `;
 
     create_template ({ template }) {
         $(template).html(/*html*/`

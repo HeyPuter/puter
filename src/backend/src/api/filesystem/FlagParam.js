@@ -56,10 +56,10 @@ module.exports = class FlagParam {
             return value;
         }
 
-        log.debug('tried boolean', { value })
+        log.debug('tried boolean', { value });
         throw APIError.create('field_invalid', null, {
             key: this.srckey,
             expected: 'boolean',
         });
     }
-}
+};

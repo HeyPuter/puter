@@ -1,4 +1,4 @@
-import { RequestError } from "../lib/RequestError.js";
+import { RequestError } from '../lib/RequestError.js';
 
 export default class Threads {
     constructor (context) {
@@ -12,16 +12,14 @@ export default class Threads {
         this.APIOrigin = APIOrigin;
     }
     async req_ (method, route, body) {
-        const resp = await fetch(
-            this.APIOrigin + route, {
-                method,
-                headers: {
-                    Authorization: `Bearer ${this.authToken}`,
-                    ...(body ? { 'Content-Type': 'application/json' } : {}),
-                },
-                ...(body ? { body: JSON.stringify(body) } : {}),
-            }
-        );
+        const resp = await fetch(this.APIOrigin + route, {
+            method,
+            headers: {
+                Authorization: `Bearer ${this.authToken}`,
+                ...(body ? { 'Content-Type': 'application/json' } : {}),
+            },
+            ...(body ? { body: JSON.stringify(body) } : {}),
+        });
         if ( ! resp.ok ) {
             const resp_data = await resp.json();
             const err = new RequestError(resp_data.message);
@@ -30,7 +28,7 @@ export default class Threads {
         }
         return await resp.json();
     }
-    
+
     async create (spec, parent) {
         if ( typeof spec === 'string' ) spec = { text: spec };
         return await this.req_('POST', '/threads/create', {
@@ -38,23 +36,22 @@ export default class Threads {
             ...(parent ? { parent } : {}),
         });
     }
-    
+
     async edit (uid, spec = {}) {
         if ( typeof spec === 'string' ) spec = { text: spec };
-        await this.req_('PUT', '/threads/edit/' + encodeURIComponent(uid), {
+        await this.req_('PUT', `/threads/edit/${ encodeURIComponent(uid)}`, {
             ...spec,
         });
     }
-    
+
     async delete (uid) {
-        await this.req_('DELETE', '/threads/' + encodeURIComponent(uid));
+        await this.req_('DELETE', `/threads/${ encodeURIComponent(uid)}`);
     }
-    
+
     async list (uid, page, options) {
         return await this.req_('POST',
-            '/threads/list/' + encodeURIComponent(uid) + '/' + page,
-            options ?? {},
-        );
+                        `/threads/list/${ encodeURIComponent(uid) }/${ page}`,
+                        options ?? {});
     }
 
     async subscribe (uid, callback) {

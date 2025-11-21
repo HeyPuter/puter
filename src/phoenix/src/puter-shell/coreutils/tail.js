@@ -26,7 +26,7 @@ export default {
         'Defaults to 10 lines unless --lines is given. ' +
         'If no FILE is provided, or FILE is `-`, read standard input.',
     input: {
-        syncLines: true
+        syncLines: true,
     },
     args: {
         $: 'simple-parser',
@@ -37,14 +37,14 @@ export default {
                 type: 'string',
                 short: 'n',
                 valueName: 'COUNT',
-            }
-        }
+            },
+        },
     },
     execute: async ctx => {
         const { out, err } = ctx.externs;
         const { positionals, values } = ctx.locals;
 
-        if (positionals.length > 1) {
+        if ( positionals.length > 1 ) {
             // TODO: Support multiple files (this is an extension to POSIX, but available in the GNU tail)
             await err.write('tail: Only one FILE parameter is allowed\n');
             throw new Exit(1);
@@ -53,9 +53,9 @@ export default {
 
         let lineCount = 10;
 
-        if (values.lines) {
+        if ( values.lines ) {
             const parsedLineCount = Number.parseFloat(values.lines);
-            if (isNaN(parsedLineCount) || ! Number.isInteger(parsedLineCount) || parsedLineCount < 1) {
+            if ( isNaN(parsedLineCount) || !Number.isInteger(parsedLineCount) || parsedLineCount < 1 ) {
                 await err.write(`tail: Invalid number of lines '${values.lines}'\n`);
                 throw new Exit(1);
             }
@@ -63,16 +63,16 @@ export default {
         }
 
         let lines = [];
-        for await (const line of fileLines(ctx, relPath)) {
+        for await ( const line of fileLines(ctx, relPath) ) {
             lines.push(line);
             // We keep lineCount+1 lines, to account for a possible trailing blank line.
-            if (lines.length > lineCount + 1) {
+            if ( lines.length > lineCount + 1 ) {
                 lines.shift();
             }
         }
 
         // Ignore trailing blank line
-        if ( lines.length > 0 && lines[lines.length - 1] === '\n') {
+        if ( lines.length > 0 && lines[lines.length - 1] === '\n' ) {
             lines.pop();
         }
         // Now we remove the extra line if it's there.
@@ -83,5 +83,5 @@ export default {
         for ( const line of lines ) {
             await out.write(line);
         }
-    }
+    },
 };

@@ -17,25 +17,23 @@
  * You should have received a copy of the GNU Affero General Public License
  * along with this program.  If not, see <https://www.gnu.org/licenses/>.
  */
-const { BasicBase } = require("../../../../../putility/src/bases/BasicBase");
-const { TypeSpec } = require("./Construct");
-
+const { BasicBase } = require('../../../../../putility/src/bases/BasicBase');
+const { TypeSpec } = require('./Construct');
 
 /**
 * Represents an entity in the runtime environment that extends the BasicBase class.
-* This class serves as a foundational type for creating various runtime constructs 
-* within the drivers subsystem, enabling the implementation of specialized behaviors 
+* This class serves as a foundational type for creating various runtime constructs
+* within the drivers subsystem, enabling the implementation of specialized behaviors
 * and properties.
 */
 class RuntimeEntity extends BasicBase {
 }
 
-
 /**
-* Represents a base runtime entity that extends functionality 
-* from the BasicBase class. This entity can be used as a 
-* foundation for creating more specific runtime objects 
-* within the application, enabling consistent behavior across 
+* Represents a base runtime entity that extends functionality
+* from the BasicBase class. This entity can be used as a
+* foundation for creating more specific runtime objects
+* within the application, enabling consistent behavior across
 * derived entities.
 */
 class TypedValue extends RuntimeEntity {
@@ -48,5 +46,5 @@ class TypedValue extends RuntimeEntity {
 }
 
 module.exports = {
-    TypedValue
+    TypedValue,
 };

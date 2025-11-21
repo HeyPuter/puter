@@ -16,7 +16,7 @@
  * You should have received a copy of the GNU Affero General Public License
  * along with this program.  If not, see <https://www.gnu.org/licenses/>.
  */
-import { Service } from "../definitions.js";
+import { Service } from '../definitions.js';
 
 import AboutTab from '../UI/Settings/UITabAbout.js';
 import UsageTab from '../UI/Settings/UITabUsage.js';
@@ -24,7 +24,7 @@ import AccountTab from '../UI/Settings/UITabAccount.js';
 import SecurityTab from '../UI/Settings/UITabSecurity.js';
 import PersonalizationTab from '../UI/Settings/UITabPersonalization.js';
 import LanguageTag from '../UI/Settings/UITabLanguage.js';
-import UIElement from "../UI/UIElement.js";
+import UIElement from '../UI/UIElement.js';
 const TSettingsTab = use('ui.traits.TSettingsTab');
 
 export class SettingsService extends Service {

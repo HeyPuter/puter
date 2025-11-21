@@ -18,7 +18,6 @@
  */
 import { Exit } from './coreutil_lib/exit.js';
 
-
 export default {
     name: 'ai',
     usage: 'ai PROMPT',
@@ -42,43 +41,43 @@ export default {
             await ctx.externs.err.write('ai: prompt must be wrapped in quotes\n');
             throw new Exit(1);
         }
-        
+
         const tools = [];
-        
+
         const commands = await ctx.externs.commandProvider.list();
-        
-        for (const command of commands) {
-            if (command.args && command.args.options) {
+
+        for ( const command of commands ) {
+            if ( command.args && command.args.options ) {
                 const parameters = {
-                    type: "object",
+                    type: 'object',
                     properties: {},
-                    required: []
+                    required: [],
                 };
 
-                for (const [optName, opt] of Object.entries(command.args.options)) {
+                for ( const [optName, opt] of Object.entries(command.args.options) ) {
                     parameters.properties[optName] = {
                         type: opt.type === 'boolean' ? 'boolean' : 'string',
                         description: opt.description,
-                        default: opt.default
+                        default: opt.default,
                     };
                 }
 
-                if (command.args.allowPositionals) {
+                if ( command.args.allowPositionals ) {
                     parameters.properties.path = {
-                        type: "string",
-                        description: "Path or name to operate on"
+                        type: 'string',
+                        description: 'Path or name to operate on',
                     };
-                    parameters.required.push("path");
+                    parameters.required.push('path');
                 }
 
                 tools.push({
-                    type: "function",
+                    type: 'function',
                     function: {
                         name: command.name,
                         description: command.description,
                         parameters: parameters,
-                        strict: true
-                    }
+                        strict: true,
+                    },
                 });
             }
         }
@@ -94,15 +93,15 @@ export default {
                 ...chatHistory.get_messages(),
                 {
                     role: 'system',
-                    content: `You are a helpful AI assistant that helps users with shell commands. Use the provided tools to execute commands. `
+                    content: 'You are a helpful AI assistant that helps users with shell commands. Use the provided tools to execute commands. ',
                 },
                 {
                     role: 'user',
                     content: prompt,
-                }
+                },
             ],
             tools: tools,
-            stream: true
+            stream: true,
         };
 
         console.log('THESE ARE THE MESSAGES', a_args.messages);
@@ -115,34 +114,34 @@ export default {
 
         const responseText = await result.text();
         const lines = responseText.split('\n').filter(line => line.trim());
-        
+
         let fullMessage = '';
-        
-        for (const line of lines) {
+
+        for ( const line of lines ) {
             try {
                 const chunk = JSON.parse(line);
-                
-                if (chunk.type === 'text') {
+
+                if ( chunk.type === 'text' ) {
                     fullMessage += chunk.text;
                     await ctx.externs.out.write(chunk.text);
                 }
-               
-                else if (chunk.type === 'tool_use' && chunk.name) {
+
+                else if ( chunk.type === 'tool_use' && chunk.name ) {
                     const args = chunk.input;
                     const command = await ctx.externs.commandProvider.lookup(chunk.name);
 
-                    if (command) {
+                    if ( command ) {
                         let cmdString = chunk.name;
-                        
-                        if (command.args && command.args.options) {
-                            for (const [optName, value] of Object.entries(args)) {
-                                if (optName !== 'path' && value === true) {
+
+                        if ( command.args && command.args.options ) {
+                            for ( const [optName, value] of Object.entries(args) ) {
+                                if ( optName !== 'path' && value === true ) {
                                     cmdString += ` --${optName}`;
                                 }
                             }
                         }
 
-                        if (args.path) {
+                        if ( args.path ) {
                             cmdString += ` ${args.path}`;
                         }
 
@@ -152,10 +151,10 @@ export default {
                         let { value: line } = await ctx.externs.in_.read();
                         const inputString = new TextDecoder().decode(line);
                         const response = inputString.trim().toLowerCase();
-                        
+
                         await ctx.externs.out.write('\n');
 
-                        if (response.startsWith('y')) {
+                        if ( response.startsWith('y') ) {
                             try {
                                 await ctx.shell.runPipeline(cmdString);
 
@@ -166,16 +165,16 @@ export default {
                                         messages: [
                                             ...chatHistory.get_messages(),
                                             {
-                                                role: "tool",
+                                                role: 'tool',
                                                 tool_call_id: chunk.id,
-                                                content: `Command executed successfully: ${cmdString}`
-                                            }
-                                        ]
-                                    }
+                                                content: `Command executed successfully: ${cmdString}`,
+                                            },
+                                        ],
+                                    },
                                 });
-                                
+
                                 fullMessage += `Command executed successfully: ${cmdString}`;
-                            } catch(error) {
+                            } catch ( error ) {
                                 await ctx.externs.err.write(`Error executing command: ${error.message}\n`);
                                 fullMessage += `Failed to execute command: ${error.message}`;
                                 return;
@@ -186,7 +185,7 @@ export default {
                         }
                     }
                 }
-            } catch (error) {
+            } catch ( error ) {
                 await ctx.externs.err.write(`Error parsing chunk: ${error.message}\n`);
                 throw new Exit(1);
             }
@@ -194,16 +193,16 @@ export default {
 
         await ctx.externs.out.write('\n');
 
-        if (!fullMessage) {
+        if ( ! fullMessage ) {
             await ctx.externs.err.write('message not found in response\n');
             return;
         }
 
         chatHistory.add_message({
             role: 'assistant',
-            content: fullMessage
+            content: fullMessage,
         });
 
-    } 
-        
-}
+    },
+
+};

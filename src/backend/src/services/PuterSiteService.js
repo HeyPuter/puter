@@ -17,15 +17,14 @@
  * You should have received a copy of the GNU Affero General Public License
  * along with this program.  If not, see <https://www.gnu.org/licenses/>.
  */
-const { NodeInternalIDSelector, NodeUIDSelector } = require("../filesystem/node/selectors");
-const { SiteActorType } = require("./auth/Actor");
-const { PermissionUtil, PermissionRewriter, PermissionImplicator } = require("./auth/permissionUtils.mjs");
-const BaseService = require("./BaseService");
-const { DB_WRITE } = require("./database/consts");
-
+const { NodeInternalIDSelector, NodeUIDSelector } = require('../filesystem/node/selectors');
+const { SiteActorType } = require('./auth/Actor');
+const { PermissionUtil, PermissionRewriter, PermissionImplicator } = require('./auth/permissionUtils.mjs');
+const BaseService = require('./BaseService');
+const { DB_WRITE } = require('./database/consts');
 
 /**
-* The `PuterSiteService` class manages site-related operations within the Puter platform. 
+* The `PuterSiteService` class manages site-related operations within the Puter platform.
 * This service extends `BaseService` to provide functionalities like:
 * - Initializing database connections for site data.
 * - Handling subdomain permissions and rewriting them as necessary.
@@ -35,15 +34,15 @@ const { DB_WRITE } = require("./database/consts");
 */
 class PuterSiteService extends BaseService {
     /**
-    * Initializes the PuterSiteService by setting up database connections, 
+    * Initializes the PuterSiteService by setting up database connections,
     * registering permission rewriters and implicators, and preparing service dependencies.
-    * 
+    *
     * @returns {Promise<void>} A promise that resolves when initialization is complete.
     */
     async _init () {
         const services = this.services;
         this.db = services.get('database').get(DB_WRITE, 'sites');
-        
+
         const svc_fs = services.get('filesystem');
 
         // Rewrite site permissions specified by name
@@ -58,12 +57,10 @@ class PuterSiteService extends BaseService {
             rewriter: async permission => {
                 const [_1, name, ...rest] = PermissionUtil.split(permission);
                 const sd = await this.get_subdomain(name);
-                return PermissionUtil.join(
-                    _1, `uid#${sd.uuid}`, ...rest,
-                );
+                return PermissionUtil.join(_1, `uid#${sd.uuid}`, ...rest);
             },
         }));
-        
+
         // Imply that sites can read their own files
         svc_permission.register_implicator(PermissionImplicator.create({
             id: 'in-site',
@@ -71,28 +68,24 @@ class PuterSiteService extends BaseService {
                 return permission.startsWith('fs:');
             },
             checker: async ({ actor, permission }) => {
-                if ( !(actor.type instanceof SiteActorType) ) {
+                if ( ! (actor.type instanceof SiteActorType) ) {
                     return undefined;
                 }
 
                 const [_, uid, lvl] = PermissionUtil.split(permission);
                 const node = await svc_fs.node(new NodeUIDSelector(uid));
-                
-                if ( !['read','list','see'].includes(lvl) ) {
+
+                if ( ! ['read', 'list', 'see'].includes(lvl) ) {
                     return undefined;
                 }
 
                 if ( ! await node.exists() ) {
                     return undefined;
                 }
-                
-                const site_node = await svc_fs.node(
-                    new NodeInternalIDSelector(
-                        'mysql',
-                        actor.type.site.root_dir_id,
-                    )
-                );
-                
+
+                const site_node = await svc_fs.node(new NodeInternalIDSelector('mysql',
+                                actor.type.site.root_dir_id));
+
                 if ( await site_node.is(node) ) {
                     return {};
                 }
@@ -105,10 +98,9 @@ class PuterSiteService extends BaseService {
         }));
     }
 
-
     /**
     * Retrieves subdomain information by its name.
-    * 
+    *
     * @param {string} subdomain - The name of the subdomain to retrieve.
     * @returns {Promise<Object|null>} Returns an object with subdomain details or null if not found.
     * @note In development environment, 'devtest' subdomain returns hardcoded values.
@@ -121,28 +113,23 @@ class PuterSiteService extends BaseService {
             };
         }
         console.log('???', subdomain, options);
-        const rows = await this.db.read(
-            `SELECT * FROM subdomains WHERE ${
-                options.is_custom_domain ? 'domain' : 'subdomain'
-            } = ? LIMIT 1`,
-            [subdomain]
-        );
+        const rows = await this.db.read(`SELECT * FROM subdomains WHERE ${
+            options.is_custom_domain ? 'domain' : 'subdomain'
+        } = ? LIMIT 1`,
+        [subdomain]);
         if ( rows.length === 0 ) return null;
         return rows[0];
     }
 
-
     /**
     * Retrieves a subdomain by its unique identifier (UID).
-    * 
+    *
     * @param {string} uid - The unique identifier of the subdomain to fetch.
     * @returns {Promise<Object|null>} A promise that resolves to the subdomain object if found, or null if not found.
     */
     async get_subdomain_by_uid (uid) {
-        const rows = await this.db.read(
-            `SELECT * FROM subdomains WHERE uuid = ? LIMIT 1`,
-            [uid]
-        );
+        const rows = await this.db.read('SELECT * FROM subdomains WHERE uuid = ? LIMIT 1',
+                        [uid]);
         if ( rows.length === 0 ) return null;
         return rows[0];
     }

@@ -38,7 +38,7 @@ const configContext = { globalThis: { __CONFIG__: {} } };
 eval(configContent.replace(/globalThis\.__CONFIG__/g, 'configContext.globalThis.__CONFIG__'));
 
 // Capture config values at build time
-const sdkUrl = process.env.PUTER_JS_URL ?? 
+const sdkUrl = process.env.PUTER_JS_URL ??
     (configContext.globalThis.__CONFIG__?.sdk_url ?? '');
 
 export default {
@@ -56,26 +56,16 @@ export default {
     plugins: [
         new ResolveExtensionsPlugin(),
         // Replace Node.js built-ins with empty modules for browser builds
-        new webpack.NormalModuleReplacementPlugin(
-            /^node:path$/,
-            path.resolve(__dirname, 'src/platform/browser/node-stubs/path.js')
-        ),
-        new webpack.NormalModuleReplacementPlugin(
-            /^node:child_process$/,
-            path.resolve(__dirname, 'src/platform/browser/node-stubs/child_process.js')
-        ),
-        new webpack.NormalModuleReplacementPlugin(
-            /^node:stream$/,
-            path.resolve(__dirname, 'src/platform/browser/node-stubs/stream.js')
-        ),
-        new webpack.NormalModuleReplacementPlugin(
-            /^node:process$/,
-            path.resolve(__dirname, 'src/platform/browser/node-stubs/process.js')
-        ),
-        new webpack.NormalModuleReplacementPlugin(
-            /^node-pty$/,
-            path.resolve(__dirname, 'src/platform/browser/node-stubs/node-pty.js')
-        ),
+        new webpack.NormalModuleReplacementPlugin(/^node:path$/,
+                        path.resolve(__dirname, 'src/platform/browser/node-stubs/path.js')),
+        new webpack.NormalModuleReplacementPlugin(/^node:child_process$/,
+                        path.resolve(__dirname, 'src/platform/browser/node-stubs/child_process.js')),
+        new webpack.NormalModuleReplacementPlugin(/^node:stream$/,
+                        path.resolve(__dirname, 'src/platform/browser/node-stubs/stream.js')),
+        new webpack.NormalModuleReplacementPlugin(/^node:process$/,
+                        path.resolve(__dirname, 'src/platform/browser/node-stubs/process.js')),
+        new webpack.NormalModuleReplacementPlugin(/^node-pty$/,
+                        path.resolve(__dirname, 'src/platform/browser/node-stubs/node-pty.js')),
         new CopyWebpackPlugin({
             patterns: [
                 {
@@ -93,4 +83,3 @@ export default {
         }),
     ],
 };
-

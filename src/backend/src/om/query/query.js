@@ -16,13 +16,13 @@
  * You should have received a copy of the GNU Affero General Public License
  * along with this program.  If not, see <https://www.gnu.org/licenses/>.
  */
-const { AdvancedBase } = require("@heyputer/putility");
-const { WeakConstructorFeature } = require("../../traits/WeakConstructorFeature");
+const { AdvancedBase } = require('@heyputer/putility');
+const { WeakConstructorFeature } = require('../../traits/WeakConstructorFeature');
 
 class Predicate extends AdvancedBase {
     static FEATURES = [
         new WeakConstructorFeature(),
-    ]
+    ];
 }
 
 class Null extends Predicate {
@@ -51,7 +51,7 @@ class Eq extends Predicate {
 }
 
 class StartsWith extends Predicate {
-    async check(entity) {
+    async check (entity) {
         return (await entity.get(this.key)).startsWith(this.value);
     }
 }
@@ -73,7 +73,7 @@ class Like extends Predicate {
 
 Predicate.prototype.and = function (other) {
     return new And({ children: [this, other] });
-}
+};
 
 class PredicateUtil {
     static simplify (predicate) {
@@ -128,5 +128,5 @@ module.exports = {
     Eq,
     IsNotNull,
     Like,
-    StartsWith
+    StartsWith,
 };

@@ -40,7 +40,7 @@ class Extension extends AdvancedBase {
         }),
     ];
 
-    randomBrightColor() {
+    randomBrightColor () {
         // Bright colors in ANSI (foreground codes 90–97)
         const brightColors = [
             // 91, // Bright Red
@@ -54,7 +54,7 @@ class Extension extends AdvancedBase {
         return brightColors[Math.floor(Math.random() * brightColors.length)];
     }
 
-    constructor(...a) {
+    constructor (...a) {
         super(...a);
         this.service = null;
         this.log = null;
@@ -97,18 +97,18 @@ class Extension extends AdvancedBase {
         };
     }
 
-    example() {
+    example () {
         console.log('Example method called by an extension.');
     }
 
     // === [START] RuntimeModule aliases ===
-    set exports(value) {
+    set exports (value) {
         this.runtime.exports = value;
     }
-    get exports() {
+    get exports () {
         return this.runtime.exports;
     }
-    import(name) {
+    import (name) {
         return this.runtime.import(name);
     }
     // === [END] RuntimeModule aliases ===
@@ -116,7 +116,7 @@ class Extension extends AdvancedBase {
     /**
      * This will get a database instance from the default service.
      */
-    get db() {
+    get db () {
         const db = this.service.values.get('db');
         if ( ! db ) {
             throw new Error('extension tried to access database before it was ' +
@@ -125,7 +125,7 @@ class Extension extends AdvancedBase {
         return db;
     }
 
-    get services() {
+    get services () {
         const services = this.service.values.get('services');
         if ( ! services ) {
             throw new Error('extension tried to access "services" before it was ' +
@@ -134,7 +134,7 @@ class Extension extends AdvancedBase {
         return services;
     }
 
-    get log_context() {
+    get log_context () {
         const log_context = this.service.values.get('log_context');
         if ( ! log_context ) {
             throw new Error('extension tried to access "log_context" before it was ' +
@@ -142,7 +142,7 @@ class Extension extends AdvancedBase {
         }
         return log_context;
     }
-    
+
     get errors () {
         return memoized_errors ?? (() => {
             return this.services.get('error-service').create(this.log_context);
@@ -155,7 +155,7 @@ class Extension extends AdvancedBase {
      * @param {string} [key] Key of data being registered
      * @param {any} data The data to be registered
      */
-    register(typeKey, keyOrData, data) {
+    register (typeKey, keyOrData, data) {
         if ( ! this.registry_[typeKey] ) {
             this.registry_[typeKey] = {
                 named: {},
@@ -191,7 +191,7 @@ class Extension extends AdvancedBase {
      * @param {string} [key] Key of data being registered
      * @param {any} data The data to be registered
      */
-    reg(...a) {
+    reg (...a) {
         this.register(...a);
     }
 
@@ -201,7 +201,7 @@ class Extension extends AdvancedBase {
      * @param {*} handler - function to handle the endpoint
      * @param {*} options - options like noauth (bool) and mw (array)
      */
-    get(path, handler, options) {
+    get (path, handler, options) {
         // this extension will have a default service
         this.ensure_service_();
 
@@ -223,7 +223,7 @@ class Extension extends AdvancedBase {
      * @param {*} handler - function to handle the endpoint
      * @param {*} options - options like noauth (bool) and mw (array)
      */
-    post(path, handler, options) {
+    post (path, handler, options) {
         // this extension will have a default service
         this.ensure_service_();
 
@@ -245,7 +245,7 @@ class Extension extends AdvancedBase {
      * @param {*} handler - function to handle the endpoint
      * @param {*} options - options like noauth (bool) and mw (array)
      */
-    put(path, handler, options) {
+    put (path, handler, options) {
         // this extension will have a default service
         this.ensure_service_();
 
@@ -267,7 +267,7 @@ class Extension extends AdvancedBase {
      * @param {*} options - options like noauth (bool) and mw (array)
      */
 
-    delete(path, handler, options) {
+    delete (path, handler, options) {
         // this extension will have a default service
         this.ensure_service_();
 
@@ -283,7 +283,7 @@ class Extension extends AdvancedBase {
         });
     }
 
-    use(...args) {
+    use (...args) {
         this.ensure_service_();
         this.service.expressThings_.push({
             type: 'router',
@@ -291,12 +291,12 @@ class Extension extends AdvancedBase {
         });
     }
 
-    get preinit() {
-        return (function(callback) {
+    get preinit () {
+        return (function (callback) {
             this.on('preinit', callback);
         }).bind(this);
     }
-    set preinit(callback) {
+    set preinit (callback) {
         if ( this.only_one_preinit_fn === null ) {
             this.on('preinit', (...a) => {
                 this.only_one_preinit_fn(...a);
@@ -309,12 +309,12 @@ class Extension extends AdvancedBase {
         this.only_one_preinit_fn = callback;
     }
 
-    get init() {
-        return (function(callback) {
+    get init () {
+        return (function (callback) {
             this.on('init', callback);
         }).bind(this);
     }
-    set init(callback) {
+    set init (callback) {
         if ( this.only_one_init_fn === null ) {
             this.on('init', (...a) => {
                 this.only_one_init_fn(...a);
@@ -327,7 +327,7 @@ class Extension extends AdvancedBase {
         this.only_one_init_fn = callback;
     }
 
-    get console() {
+    get console () {
         const extensionConsole = Object.create(console);
         const logfn = level => (...a) => {
             let svc_log;
@@ -368,7 +368,7 @@ class Extension extends AdvancedBase {
      *
      * @returns {void}
      */
-    ensure_service_() {
+    ensure_service_ () {
         if ( this.service ) {
             return;
         }

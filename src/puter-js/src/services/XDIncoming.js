@@ -1,4 +1,4 @@
-import putility from "@heyputer/putility";
+import putility from '@heyputer/putility';
 
 const TeePromise = putility.libs.promise.TeePromise;
 

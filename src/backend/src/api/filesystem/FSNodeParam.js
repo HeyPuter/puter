@@ -16,11 +16,11 @@
  * You should have received a copy of the GNU Affero General Public License
  * along with this program.  If not, see <https://www.gnu.org/licenses/>.
  */
-const { is_valid_path } = require("../../filesystem/validation");
-const { is_valid_uuid4 } = require("../../helpers");
-const { Context } = require("../../util/context");
-const { PathBuilder } = require("../../util/pathutil");
-const APIError = require("../APIError");
+const { is_valid_path } = require('../../filesystem/validation');
+const { is_valid_uuid4 } = require('../../helpers');
+const { Context } = require('../../util/context');
+const { PathBuilder } = require('../../util/pathutil');
+const APIError = require('../APIError');
 const _path = require('path');
 
 module.exports = class FSNodeParam {
@@ -49,12 +49,12 @@ module.exports = class FSNodeParam {
             });
         }
 
-        if ( ! ['/','.','~'].includes(uidOrPath[0]) ) {
+        if ( ! ['/', '.', '~'].includes(uidOrPath[0]) ) {
             if ( is_valid_uuid4(uidOrPath) ) {
                 return await fs.node({ uid: uidOrPath });
             }
 
-            log.debug('tried uuid', { uidOrPath })
+            log.debug('tried uuid', { uidOrPath });
             throw APIError.create('field_invalid', null, {
                 key: this.srckey,
                 expected: 'unix-style path or uuid4',
@@ -67,7 +67,7 @@ module.exports = class FSNodeParam {
         }
 
         if ( ! is_valid_path(uidOrPath) ) {
-            log.debug('tried path', { uidOrPath })
+            log.debug('tried path', { uidOrPath });
             throw APIError.create('field_invalid', null, {
                 key: this.srckey,
                 expected: 'unix-style path or uuid4',
@@ -77,4 +77,4 @@ module.exports = class FSNodeParam {
         const resolved_path = PathBuilder.resolve(uidOrPath, { puterfs: true });
         return await fs.node({ path: resolved_path });
     }
-}
+};

@@ -7,31 +7,31 @@
  * it under the terms of the GNU Affero General Public License as published
  * by the Free Software Foundation, either version 3 of the License, or
  * (at your option) any later version.
- * 
+ *
  * This program is distributed in the hope that it will be useful,
  * but WITHOUT ANY WARRANTY; without even the implied warranty of
  * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
  * GNU Affero General Public License for more details.
- * 
+ *
  * You should have received a copy of the GNU Affero General Public License
  * along with this program.  If not, see <https://www.gnu.org/licenses/>.
  */
 
-import path from "../lib/path.js"
-import { PROCESS_IPC_ATTACHED, PROCESS_RUNNING, PortalProcess, PseudoProcess } from "../definitions.js";
-import UIWindow from "../UI/UIWindow.js";
+import path from '../lib/path.js';
+import { PROCESS_IPC_ATTACHED, PROCESS_RUNNING, PortalProcess, PseudoProcess } from '../definitions.js';
+import UIWindow from '../UI/UIWindow.js';
 
 /**
- * Launches an app. 
- * 
+ * Launches an app.
+ *
  * @param {*} options.name - The name of the app to launch.
  */
-const launch_app = async (options)=>{
+const launch_app = async (options) => {
     let transaction;
-    // A transaction to trace the time it takes to launch an app and 
+    // A transaction to trace the time it takes to launch an app and
     // for it to be ready.
     // Explorer is a special case, it's not an app per se, so it doesn't need a transaction.
-    if(options?.name !== 'explorer'){
+    if ( options?.name !== 'explorer' ) {
         transaction = new window.Transaction('app-is-ready');
         transaction.start();
     }
@@ -40,21 +40,25 @@ const launch_app = async (options)=>{
     let icon, title, file_signature;
     const window_options = options.window_options ?? {};
 
-    if (options.parent_instance_id) {
+    if ( options.parent_instance_id ) {
         window_options.parent_instance_id = options.parent_instance_id;
     }
 
     // If the app object is not provided, get it from the server
     let app_info;
-    
+
     // explorer is a special case
-    if(options.name === 'explorer'){
+    if ( options.name === 'explorer' ) {
         app_info = [];
     }
-    else if(options.app_obj)
+    else if ( options.app_obj )
+    {
         app_info = options.app_obj;
+    }
     else
-        app_info = await puter.apps.get(options.name, {icon_size: 64});
+    {
+        app_info = await puter.apps.get(options.name, { icon_size: 64 });
+    }
 
     // For backward compatibility reasons we need to make sure that both `uuid` and `uid` are set
     app_info.uuid = app_info.uuid ?? app_info.uid;
@@ -66,36 +70,50 @@ const launch_app = async (options)=>{
     //-----------------------------------
     // icon
     //-----------------------------------
-    if(app_info.icon)
+    if ( app_info.icon )
+    {
         icon = app_info.icon;
-    else if(options.name === 'explorer')
+    }
+    else if ( options.name === 'explorer' )
+    {
         icon = window.icons['folder.svg'];
+    }
     else
-        icon = window.icons['app-icon-'+options.name+'.svg']
+    {
+        icon = window.icons[`app-icon-${options.name}.svg`];
+    }
 
     //-----------------------------------
     // title
     //-----------------------------------
-    if(app_info.title)
+    if ( app_info.title )
+    {
         title = app_info.title;
-    else if(options.window_title)
+    }
+    else if ( options.window_title )
+    {
         title = options.window_title;
-    else if(options.name)
+    }
+    else if ( options.name )
+    {
         title = options.name;
+    }
 
     //-----------------------------------
     // maximize on start
     //-----------------------------------
-    if(app_info.maximize_on_start){
+    if ( app_info.maximize_on_start ) {
         options.maximized = 1;
     }
     //-----------------------------------
     // if opened a file, sign it
     //-----------------------------------
-    if(options.file_signature)
+    if ( options.file_signature )
+    {
         file_signature = options.file_signature;
-    else if(options.file_uid){
-        file_signature = await puter.fs.sign(app_info.uuid, {uid: options.file_uid, action: 'write'});
+    }
+    else if ( options.file_uid ) {
+        file_signature = await puter.fs.sign(app_info.uuid, { uid: options.file_uid, action: 'write' });
         // add token to options
         options.token = file_signature.token;
         // add file_signature to options
@@ -113,7 +131,7 @@ const launch_app = async (options)=>{
     //------------------------------------
     // Explorer
     //------------------------------------
-    if(options.name === 'explorer' || options.name === 'trash'){
+    if ( options.name === 'explorer' || options.name === 'trash' ) {
         process = new PseudoProcess({
             uuid,
             name: 'explorer',
@@ -121,43 +139,53 @@ const launch_app = async (options)=>{
             meta: {
                 launch_options: options,
                 app_info: app_info,
-            }
+            },
         });
         const svc_process = globalThis.services.get('process');
         svc_process.register(process);
-        if(options.path === window.home_path){
+        if ( options.path === window.home_path ) {
             title = i18n('home');
             icon = window.icons['folder-home.svg'];
         }
-        else if(options.path === window.trash_path){
+        else if ( options.path === window.trash_path ) {
             title = 'Trash';
             icon = window.icons['trash.svg'];
         }
-        else if(!options.path)
+        else if ( ! options.path )
+        {
             title = window.root_dirname;
+        }
         else
+        {
             title = path.dirname(options.path);
+        }
 
         // if options.args.path is provided, use it as the path
-        if(options.args?.path){
+        if ( options.args?.path ) {
             // if args.path is provided, enforce the directory
-            let fsentry = await puter.fs.stat({path: options.args.path, consistency: 'eventual'});
-            if(!fsentry.is_dir){
+            let fsentry = await puter.fs.stat({ path: options.args.path, consistency: 'eventual' });
+            if ( ! fsentry.is_dir ) {
                 let parent = path.dirname(options.args.path);
-                if(parent === options.args.path)
+                if ( parent === options.args.path )
+                {
                     parent = window.home_path;
+                }
                 options.path = parent;
-            }else{
+            } else {
                 options.path = options.args.path;
-            }  
+            }
         }
 
         // if path starts with ~, replace it with home_path
-        if(options.path && options.path.startsWith('~/'))
+        if ( options.path && options.path.startsWith('~/') )
+        {
             options.path = window.home_path + options.path.slice(1);
+        }
         // if path is ~, replace it with home_path
-        else if(options.path === '~')
+        else if ( options.path === '~' )
+        {
             options.path = window.home_path;
+        }
 
         // open window
         el_win = UIWindow({
@@ -175,7 +203,7 @@ const launch_app = async (options)=>{
     //------------------------------------
     // All other apps
     //------------------------------------
-    else{
+    else {
         process = new PortalProcess({
             uuid,
             name: app_info.name,
@@ -183,7 +211,7 @@ const launch_app = async (options)=>{
             meta: {
                 launch_options: options,
                 app_info: app_info,
-            }
+            },
         });
         const svc_process = globalThis.services.get('process');
         svc_process.register(process);
@@ -196,8 +224,8 @@ const launch_app = async (options)=>{
         // This can be any trusted URL that won't be used for other apps
         const BUILTIN_PREFIX = 'https://builtins.namespaces.puter.com/';
 
-        if(!app_info.index_url){
-            iframe_url = new URL('https://'+options.name+'.' + window.app_domain + `/index.html`);
+        if ( ! app_info.index_url ) {
+            iframe_url = new URL(`https://${options.name}.${ window.app_domain }/index.html`);
         } else if ( app_info.index_url.startsWith(BUILTIN_PREFIX) ) {
             const name = app_info.index_url.slice(BUILTIN_PREFIX.length);
             iframe_url = new URL(`${window.gui_origin}/builtin/${name}`);
@@ -213,25 +241,25 @@ const launch_app = async (options)=>{
         iframe_url.searchParams.append('puter.app.name', app_info.name);
 
         // add parent_app_instance_id to URL
-        if (options.parent_instance_id) {
+        if ( options.parent_instance_id ) {
             iframe_url.searchParams.append('puter.parent_instance_id', options.parent_pseudo_id);
         }
 
         // add source app metadata to URL
-        if (options.source_app_title) {
+        if ( options.source_app_title ) {
             iframe_url.searchParams.append('puter.source_app.title', options.source_app_title);
         }
-        if (options.source_app_id) {
+        if ( options.source_app_id ) {
             iframe_url.searchParams.append('puter.source_app.id', options.source_app_id);
         }
-        if (options.source_app_icon) {
+        if ( options.source_app_icon ) {
             iframe_url.searchParams.append('puter.source_app.icon', options.source_app_icon);
         }
-        if (options.source_app_name) {
+        if ( options.source_app_name ) {
             iframe_url.searchParams.append('puter.source_app.name', options.source_app_name);
         }
 
-        if(file_signature){
+        if ( file_signature ) {
             iframe_url.searchParams.append('puter.item.uid', file_signature.uid);
             iframe_url.searchParams.append('puter.item.path', options.file_path ? privacy_aware_path(options.file_path) : file_signature.path);
             iframe_url.searchParams.append('puter.item.name', file_signature.fsentry_name);
@@ -243,7 +271,7 @@ const launch_app = async (options)=>{
             iframe_url.searchParams.append('puter.item.modified', file_signature.fsentry_modified);
             iframe_url.searchParams.append('puter.item.created', file_signature.fsentry_created);
         }
-        else if(options.readURL){
+        else if ( options.readURL ) {
             iframe_url.searchParams.append('puter.item.name', options.filename);
             iframe_url.searchParams.append('puter.item.path', privacy_aware_path(options.file_path));
             iframe_url.searchParams.append('puter.item.read_url', options.readURL);
@@ -251,27 +279,27 @@ const launch_app = async (options)=>{
 
         // In godmode, we add the super token to the iframe URL
         // so that the app can access everything.
-        if (app_info.godmode && (app_info.godmode === true || app_info.godmode === 1)){
+        if ( app_info.godmode && (app_info.godmode === true || app_info.godmode === 1) ) {
             iframe_url.searchParams.append('puter.auth.token', window.auth_token);
             iframe_url.searchParams.append('puter.auth.username', window.user.username);
-        } 
+        }
         // App token. Only add token if it's not a GODMODE app since GODMODE apps already have the super token
         // that has access to everything.
-        else if (options.token){
+        else if ( options.token ) {
             iframe_url.searchParams.append('puter.auth.token', options.token);
         } else {
             // Try to acquire app token from the server
 
-            let response = await fetch(window.api_origin + "/auth/get-user-app-token", {
-                "headers": {
-                    "Content-Type": "application/json",
-                    "Authorization": "Bearer "+ window.auth_token,
+            let response = await fetch(`${window.api_origin }/auth/get-user-app-token`, {
+                'headers': {
+                    'Content-Type': 'application/json',
+                    'Authorization': `Bearer ${ window.auth_token}`,
                 },
-                "body": JSON.stringify({app_uid: app_info.uid ?? app_info.uuid}),
-                "method": "POST",
-                });
+                'body': JSON.stringify({ app_uid: app_info.uid ?? app_info.uuid }),
+                'method': 'POST',
+            });
             let res = await response.json();
-            if(res.token){
+            if ( res.token ) {
                 iframe_url.searchParams.append('puter.auth.token', res.token);
             }
         }
@@ -280,18 +308,20 @@ const launch_app = async (options)=>{
 
         // get URL parts
         const url = new URL(window.location.href);
-  
+
         iframe_url.searchParams.append('puter.origin', url.origin);
         iframe_url.searchParams.append('puter.hostname', url.hostname);
         iframe_url.searchParams.append('puter.port', url.port);
         iframe_url.searchParams.append('puter.protocol', url.protocol.slice(0, -1));
-      
-        if(window.api_origin)
+
+        if ( window.api_origin )
+        {
             iframe_url.searchParams.append('puter.api_origin', window.api_origin);
+        }
 
         // Add options.params to URL
-        if(options.params){
-            for (const property in options.params) {
+        if ( options.params ) {
+            for ( const property in options.params ) {
                 iframe_url.searchParams.append(property, options.params[property]);
             }
         }
@@ -310,72 +340,104 @@ const launch_app = async (options)=>{
 
         // width
         let window_width;
-        if(app_info.metadata?.window_size?.width !== undefined && app_info.metadata?.window_size?.width !== '')
+        if ( app_info.metadata?.window_size?.width !== undefined && app_info.metadata?.window_size?.width !== '' )
+        {
             window_width = parseFloat(app_info.metadata.window_size.width);
-        if(options.maximized)
+        }
+        if ( options.maximized )
+        {
             window_width = '100%';
+        }
 
         // height
         let window_height;
-        if(app_info.metadata?.window_size?.height !== undefined && app_info.metadata?.window_size?.height !== ''){
+        if ( app_info.metadata?.window_size?.height !== undefined && app_info.metadata?.window_size?.height !== '' ) {
             window_height = parseFloat(app_info.metadata.window_size.height);
-        }if(options.maximized)
+        } if ( options.maximized )
+        {
             window_height = `calc(100% - ${window.taskbar_height + window.toolbar_height + 1}px)`;
+        }
 
         // top
         let top;
-        if(app_info.metadata?.window_position?.top !== undefined && app_info.metadata?.window_position?.top !== '')
+        if ( app_info.metadata?.window_position?.top !== undefined && app_info.metadata?.window_position?.top !== '' )
+        {
             top = parseFloat(app_info.metadata.window_position.top) + window.toolbar_height + 1;
-        if(options.maximized)
+        }
+        if ( options.maximized )
+        {
             top = 0;
+        }
 
         // left
         let left;
-        if(app_info.metadata?.window_position?.left !== undefined && app_info.metadata?.window_position?.left !== '')
+        if ( app_info.metadata?.window_position?.left !== undefined && app_info.metadata?.window_position?.left !== '' )
+        {
             left = parseFloat(app_info.metadata.window_position.left);
-        if(options.maximized)
+        }
+        if ( options.maximized )
+        {
             left = 0;
+        }
 
         // window_resizable
         let window_resizable = true;
-        if(app_info.metadata?.window_resizable !== undefined && typeof app_info.metadata.window_resizable === 'boolean')
+        if ( app_info.metadata?.window_resizable !== undefined && typeof app_info.metadata.window_resizable === 'boolean' )
+        {
             window_resizable = app_info.metadata.window_resizable;
+        }
 
         // hide_titlebar
         let hide_titlebar = false;
-        if(app_info.metadata?.hide_titlebar !== undefined && typeof app_info.metadata.hide_titlebar === 'boolean')
+        if ( app_info.metadata?.hide_titlebar !== undefined && typeof app_info.metadata.hide_titlebar === 'boolean' )
+        {
             hide_titlebar = app_info.metadata.hide_titlebar;
+        }
 
         // credentialless
         let credentialless = true;
-        if(app_info.metadata?.credentialless !== undefined && typeof app_info.metadata.credentialless === 'boolean')
+        if ( app_info.metadata?.credentialless !== undefined && typeof app_info.metadata.credentialless === 'boolean' )
+        {
             credentialless = app_info.metadata.credentialless;
+        }
 
         // set_title_to_opened_file
         // if set_title_to_opened_file is true, set the title to the opened file's name
-        if(app_info.metadata?.set_title_to_opened_file !== undefined && typeof app_info.metadata.set_title_to_opened_file === 'boolean' && app_info.metadata.set_title_to_opened_file === true)
+        if ( app_info.metadata?.set_title_to_opened_file !== undefined && typeof app_info.metadata.set_title_to_opened_file === 'boolean' && app_info.metadata.set_title_to_opened_file === true )
+        {
             title = options.file_path ? path.basename(options.file_path) : title;
+        }
 
         // show_in_taskbar
         let show_in_taskbar = app_info.background ? false : window_options?.show_in_taskbar;
-        if(window_options?.show_in_taskbar !== undefined)
+        if ( window_options?.show_in_taskbar !== undefined )
+        {
             show_in_taskbar = window_options.show_in_taskbar;
+        }
 
         // has_head
         let has_head = app_info.metadata?.has_head !== undefined ? app_info.metadata.has_head : window_options?.has_head;
-        if(app_info.metadata?.hide_titlebar !== undefined && typeof app_info.metadata.hide_titlebar === 'boolean' && app_info.metadata.hide_titlebar === true)
+        if ( app_info.metadata?.hide_titlebar !== undefined && typeof app_info.metadata.hide_titlebar === 'boolean' && app_info.metadata.hide_titlebar === true )
+        {
             has_head = false;
-        if(window_options?.has_head !== undefined)
+        }
+        if ( window_options?.has_head !== undefined )
+        {
             has_head = window_options.has_head;
+        }
 
         // update_window_url
         let update_window_url = true;
-        if (options.update_window_url !== undefined && typeof options.update_window_url === 'boolean')
+        if ( options.update_window_url !== undefined && typeof options.update_window_url === 'boolean' )
+        {
             update_window_url = options.update_window_url;
+        }
 
         let custom_path;
-        if(options.custom_path !== undefined)
+        if ( options.custom_path !== undefined )
+        {
             custom_path = options.custom_path;
+        }
 
         // open window
         el_win = UIWindow({
@@ -393,10 +455,10 @@ const launch_app = async (options)=>{
             width: window_width,
             app: options.name,
             iframe_credentialless: credentialless,
-            is_visible: ! app_info.background,
+            is_visible: !app_info.background,
             is_maximized: options.maximized,
             is_fullpage: options.is_fullpage,
-            ...(options.pseudonym ? {pseudonym: options.pseudonym} : {}),
+            ...(options.pseudonym ? { pseudonym: options.pseudonym } : {}),
             ...window_options,
             is_resizable: window_resizable,
             has_head: has_head,
@@ -411,7 +473,7 @@ const launch_app = async (options)=>{
         }
 
         // send post request to /rao to record app open
-        if(options.name !== 'explorer'){
+        if ( options.name !== 'explorer' ) {
             // add the app to the beginning of the array
             window.launch_apps.recent.unshift(app_info);
 
@@ -423,18 +485,18 @@ const launch_app = async (options)=>{
 
             // send post request to /rao to record app open
             $.ajax({
-                url: window.api_origin + "/rao",
+                url: `${window.api_origin }/rao`,
                 type: 'POST',
-                data: JSON.stringify({ 
+                data: JSON.stringify({
                     original_client_socket_id: window.socket?.id,
                     app_uid: app_info.uid ?? app_info.uuid,
                 }),
                 async: true,
-                contentType: "application/json",
+                contentType: 'application/json',
                 headers: {
-                    "Authorization": "Bearer "+window.auth_token
+                    'Authorization': `Bearer ${window.auth_token}`,
                 },
-            })
+            });
         }
     }
 
@@ -452,7 +514,7 @@ const launch_app = async (options)=>{
 
             // If `window-active` is set (meaning the window is focused), focus the window one more time
             // this is to ensure that the iframe is `definitely` focused and can receive keyboard events (e.g. keydown)
-            if($(process.references.el_win).hasClass('window-active')){
+            if ( $(process.references.el_win).hasClass('window-active') ) {
                 $(process.references.el_win).focusWindow();
             }
         });
@@ -466,11 +528,12 @@ const launch_app = async (options)=>{
     });
 
     // end the transaction
-    if(transaction)
+    if ( transaction )
+    {
         transaction.end();
-
+    }
 
     return process;
-}
+};
 
 export default launch_app;

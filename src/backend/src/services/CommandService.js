@@ -17,9 +17,8 @@
  * You should have received a copy of the GNU Affero General Public License
  * along with this program.  If not, see <https://www.gnu.org/licenses/>.
  */
-const { Context } = require("../util/context");
-const BaseService = require("./BaseService");
-
+const { Context } = require('../util/context');
+const BaseService = require('./BaseService');
 
 /**
 * Represents a Command class that encapsulates command execution functionality.
@@ -29,19 +28,17 @@ const BaseService = require("./BaseService");
 * argument completion.
 */
 class Command {
-    constructor(spec) {
+    constructor (spec) {
         this.spec_ = spec;
     }
-
 
     /**
     * Gets the unique identifier for this command
     * @returns {string} The command's ID as specified in the constructor
     */
-    get id() {
+    get id () {
         return this.spec_.id;
     }
-
 
     /**
     * Executes the command with given arguments and logging
@@ -50,25 +47,26 @@ class Command {
     * @returns {Promise<void>}
     * @throws {Error} Logs any errors that occur during command execution
     */
-    async execute(args, log) {
+    async execute (args, log) {
         log = log ?? console;
         const { id, name, description, handler } = this.spec_;
         try {
             await handler(args, log);
-        } catch (err) {
+        } catch ( err ) {
             log.error(`command ${name ?? id} failed: ${err.message}`);
             log.error(err.stack);
         }
     }
 
-    completeArgument(args) {
+    completeArgument (args) {
         const completer = this.spec_.completer;
         if ( completer )
+        {
             return completer(args);
+        }
         return [];
     }
 }
-
 
 /**
 * CommandService class manages the registration, execution, and handling of commands in the Puter system.
@@ -85,7 +83,7 @@ class CommandService extends BaseService {
     async _construct () {
         this.commands_ = [];
     }
-    
+
     /**
      * Add the help command to the list of commands on init
      */
@@ -94,14 +92,14 @@ class CommandService extends BaseService {
             id: 'help',
             description: 'show this help',
             handler: (args, log) => {
-                log.log(`available commands:`);
-                for (const command of this.commands_) {
+                log.log('available commands:');
+                for ( const command of this.commands_ ) {
                     log.log(`- ${command.spec_.id}: ${command.spec_.description}`);
                 }
-            }
+            },
         }));
     }
-    
+
     async ['__on_boot.consolidation'] () {
         const svc_event = this.services.get('event');
         const svc_command = this;
@@ -126,7 +124,7 @@ class CommandService extends BaseService {
         svc_event.emit('create.commands', event);
     }
 
-    registerCommands(serviceName, commands) {
+    registerCommands (serviceName, commands) {
         if ( ! this.log ) {
             /* eslint-disable */
             console.error(
@@ -139,7 +137,7 @@ class CommandService extends BaseService {
             /* eslint-enable */
             process.exit(1);
         }
-        for (const command of commands) {
+        for ( const command of commands ) {
             this.log.debug(`registering command ${serviceName}:${command.id}`);
             this.commands_.push(new Command({
                 ...command,
@@ -148,7 +146,6 @@ class CommandService extends BaseService {
         }
     }
 
-
     /**
     * Executes a command with the given arguments and logging context
     * @param {string[]} args - Array of command arguments where first element is command name
@@ -156,7 +153,7 @@ class CommandService extends BaseService {
     * @returns {Promise<void>}
     * @throws {Error} If command execution fails
     */
-    async executeCommand(args, log) {
+    async executeCommand (args, log) {
         const [commandName, ...commandArgs] = args;
         const command = this.commands_.find(c => c.spec_.id === commandName);
         if ( ! command ) {
@@ -177,7 +174,6 @@ class CommandService extends BaseService {
         });
     }
 
-
     /**
     * Executes a raw command string by splitting it into arguments and executing the command
     * @param {string} text - Raw command string to execute
@@ -185,26 +181,25 @@ class CommandService extends BaseService {
     * @returns {Promise<void>}
     * @todo Replace basic whitespace splitting with proper tokenizer (obvious-json)
     */
-    async executeRawCommand(text, log) {
+    async executeRawCommand (text, log) {
         // TODO: add obvious-json as a tokenizer
         const args = text.split(/\s+/);
         await this.executeCommand(args, log);
     }
 
-
     /**
     * Gets a list of all registered command names/IDs
     * @returns {string[]} Array of command identifier strings
     */
-    get commandNames() {
+    get commandNames () {
         return this.commands_.map(command => command.id);
     }
 
-    getCommand(id) {
+    getCommand (id) {
         return this.commands_.find(command => command.id === id);
     }
 }
 
 module.exports = {
-    CommandService
+    CommandService,
 };

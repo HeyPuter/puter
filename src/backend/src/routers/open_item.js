@@ -16,7 +16,7 @@
  * You should have received a copy of the GNU Affero General Public License
  * along with this program.  If not, see <https://www.gnu.org/licenses/>.
  */
-"use strict"
+'use strict';
 const eggspress = require('../api/eggspress.js');
 const FSNodeParam = require('../api/filesystem/FSNodeParam.js');
 const { Context } = require('../util/context.js');
@@ -36,7 +36,7 @@ module.exports = eggspress('/open_item', {
     alias: { uid: 'path' },
     parameters: {
         subject: new FSNodeParam('path'),
-    }
+    },
 }, async (req, res, next) => {
     const subject = req.values.subject;
 
@@ -53,7 +53,7 @@ module.exports = eggspress('/open_item', {
     if ( ! await svc_acl.check(actor, subject, 'read') ) {
         throw await svc_acl.get_safe_acl_error(actor, subject, 'read');
     }
-    
+
     let action = 'write';
     if ( ! await svc_acl.check(actor, subject, 'write') ) {
         action = 'read';
@@ -61,16 +61,14 @@ module.exports = eggspress('/open_item', {
 
     const signature = await sign_file(subject.entry, action);
     const suggested_apps = await suggest_app_for_fsentry(subject.entry);
-    const apps_only_one = suggested_apps.slice(0,1);
+    const apps_only_one = suggested_apps.slice(0, 1);
     const _app = apps_only_one[0];
     if ( ! _app ) {
         throw APIError.create('no_suitable_app', null, { entry_name: subject.entry.name });
     }
-    const app = await get_app(
-        _app.hasOwnProperty('id')
-            ? { id: _app.id }
-            : { uid: _app.uid }
-    ) ?? apps_only_one[0];
+    const app = await get_app(_app.hasOwnProperty('id')
+        ? { id: _app.id }
+        : { uid: _app.uid }) ?? apps_only_one[0];
 
     if ( ! app ) {
         throw APIError.create('no_suitable_app', null, { entry_name: subject.entry.name });
@@ -84,9 +82,7 @@ module.exports = eggspress('/open_item', {
     for ( const perm of PERMS ) {
         const permission = `fs:${subject.uid}:${perm}`;
         const svc_permission = Context.get('services').get('permission');
-        await svc_permission.grant_user_app_permission(
-            actor, app.uid, permission, {}, { reason: 'open_item' }
-        );
+        await svc_permission.grant_user_app_permission(actor, app.uid, permission, {}, { reason: 'open_item' });
     }
 
     // Generate user-app token

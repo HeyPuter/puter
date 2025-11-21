@@ -21,6 +21,10 @@ export class ProxyWriter {
         this.delegate = delegate;
     }
 
-    write (...a) { return this.delegate.write(...a); }
-    close (...a) { return this.delegate.close(...a); }
+    write (...a) {
+        return this.delegate.write(...a);
+    }
+    close (...a) {
+        return this.delegate.close(...a);
+    }
 }

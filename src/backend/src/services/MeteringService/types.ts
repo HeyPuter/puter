@@ -20,7 +20,7 @@ export interface UsageRecord {
     units: number
 }
 
-export type UsageByType = { [k:string]: number | UsageRecord } & { total: number };
+export type UsageByType = { [k: string]: number | UsageRecord } & { total: number };
 
 export interface AppTotals {
     total: number,

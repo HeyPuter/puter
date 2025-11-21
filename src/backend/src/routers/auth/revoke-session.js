@@ -16,10 +16,10 @@
  * You should have received a copy of the GNU Affero General Public License
  * along with this program.  If not, see <https://www.gnu.org/licenses/>.
  */
-const APIError = require("../../api/APIError");
-const eggspress = require("../../api/eggspress");
-const { UserActorType } = require("../../services/auth/Actor");
-const { Context } = require("../../util/context");
+const APIError = require('../../api/APIError');
+const eggspress = require('../../api/eggspress');
+const { UserActorType } = require('../../services/auth/Actor');
+const { Context } = require('../../util/context');
 
 module.exports = eggspress('/auth/revoke-session', {
     subdomain: 'api',
@@ -42,15 +42,14 @@ module.exports = eggspress('/auth/revoke-session', {
     }
 
     // Ensure valid UUID
-    if ( ! req.body.uuid || typeof req.body.uuid !== 'string' ) {
+    if ( !req.body.uuid || typeof req.body.uuid !== 'string' ) {
         throw APIError.create('field_invalid', null, {
             key: 'uuid',
-            expected: 'string'
+            expected: 'string',
         });
     }
 
-    const sessions = await svc_auth.revoke_session(
-        actor, req.body.uuid);
+    const sessions = await svc_auth.revoke_session(actor, req.body.uuid);
 
     res.json({ sessions });
 });

@@ -5,35 +5,37 @@ let search_query;
 
 window.create_worker = async (name, filePath = null) => {
     let worker;
-    
+
     // show spinner
     puter.ui.showSpinner();
 
     // Use provided file path or default to the default worker file
     const workerFile = filePath;
-    
+
     try {
         worker = await puter.workers.create(name, workerFile);
-    } catch (err) {
+    } catch ( err ) {
         puter.ui.alert(`Error creating worker: ${err.error?.message}`);
     }
 
     return worker;
-}
+};
 
 window.refresh_worker_list = async (show_loading = false) => {
-    if (show_loading)
+    if ( show_loading )
+    {
         puter.ui.showSpinner();
+    }
 
     // puter.workers.list() returns an array of worker objects
     try {
         window.workers = await puter.workers.list();
-    } catch (err) {
+    } catch ( err ) {
         console.error('Error refreshing worker list:', err);
     }
 
     // Get workers
-    if (window.activeTab === 'workers' && window.workers.length > 0) {
+    if ( window.activeTab === 'workers' && window.workers.length > 0 ) {
         $('.worker-card').remove();
         $('#no-workers-notice').hide();
         $('#worker-list').show();
@@ -49,21 +51,22 @@ window.refresh_worker_list = async (show_loading = false) => {
     count_workers();
 
     puter.ui.hideSpinner();
-}
+};
 
-
-async function init_workers() {
+async function init_workers () {
     window.workers = await puter.workers.list();
     count_workers();
 }
 
 $(document).on('click', '.create-a-worker-btn', async function (e) {
     // if user doesn't have an email, request it
-    if(!window.user?.email || !window.user?.email_confirmed){
+    if ( !window.user?.email || !window.user?.email_confirmed ) {
         const email_confirm_resp = await puter.ui.requestEmailConfirmation();
-        if(!email_confirm_resp)
+        if ( ! email_confirm_resp )
+        {
             UIAlert('Email confirmation required to create a worker.');
-            return;
+        }
+        return;
     }
 
     // refresh user data
@@ -73,20 +76,20 @@ $(document).on('click', '.create-a-worker-btn', async function (e) {
     let selectedFile;
     try {
         selectedFile = await puter.ui.showOpenFilePicker({
-            accept: ".js",
+            accept: '.js',
         });
-    } catch (err) {
+    } catch ( err ) {
         // User cancelled file picker or there was an error
         console.log('File picker cancelled or error:', err);
         return;
     }
 
     // Step 2: Ask for worker name
-    if (selectedFile && selectedFile.path) {
+    if ( selectedFile && selectedFile.path ) {
         let name = await puter.ui.prompt('Please enter a name for your worker:', 'my-awesome-worker');
 
         // Step 3: Create worker with selected file
-        if (name) {
+        if ( name ) {
             await create_worker(name, selectedFile.path);
             // Refresh the worker list to show the new worker
             await refresh_worker_list();
@@ -95,34 +98,38 @@ $(document).on('click', '.create-a-worker-btn', async function (e) {
             puter.ui.hideSpinner();
         }
     }
-})
+});
 
 $(document).on('click', '.worker-checkbox', function (e) {
     // was shift key pressed?
-    if (e.originalEvent && e.originalEvent.shiftKey) {
+    if ( e.originalEvent && e.originalEvent.shiftKey ) {
         // select all checkboxes in range
         const currentIndex = $('.worker-checkbox').index(this);
         const startIndex = Math.min(window.last_clicked_worker_checkbox_index, currentIndex);
         const endIndex = Math.max(window.last_clicked_worker_checkbox_index, currentIndex);
 
         // set all checkboxes in range to the same state as current checkbox
-        for (let i = startIndex; i <= endIndex; i++) {
+        for ( let i = startIndex; i <= endIndex; i++ ) {
             const checkbox = $('.worker-checkbox').eq(i);
             checkbox.prop('checked', $(this).is(':checked'));
 
             // activate row
-            if ($(checkbox).is(':checked'))
+            if ( $(checkbox).is(':checked') )
+            {
                 $(checkbox).closest('tr').addClass('active');
+            }
             else
+            {
                 $(checkbox).closest('tr').removeClass('active');
+            }
         }
     }
 
     // determine if select-all checkbox should be checked, indeterminate, or unchecked
-    if ($('.worker-checkbox:checked').length === $('.worker-checkbox').length) {
+    if ( $('.worker-checkbox:checked').length === $('.worker-checkbox').length ) {
         $('.select-all-workers').prop('indeterminate', false);
         $('.select-all-workers').prop('checked', true);
-    } else if ($('.worker-checkbox:checked').length > 0) {
+    } else if ( $('.worker-checkbox:checked').length > 0 ) {
         $('.select-all-workers').prop('indeterminate', true);
         $('.select-all-workers').prop('checked', false);
     }
@@ -132,23 +139,31 @@ $(document).on('click', '.worker-checkbox', function (e) {
     }
 
     // activate row
-    if ($(this).is(':checked'))
+    if ( $(this).is(':checked') )
+    {
         $(this).closest('tr').addClass('active');
+    }
     else
+    {
         $(this).closest('tr').removeClass('active');
+    }
 
     // enable delete button if at least one checkbox is checked
-    if ($('.worker-checkbox:checked').length > 0)
+    if ( $('.worker-checkbox:checked').length > 0 )
+    {
         $('.delete-workers-btn').removeClass('disabled');
+    }
     else
+    {
         $('.delete-workers-btn').addClass('disabled');
+    }
 
     // store the index of the last clicked checkbox
     window.last_clicked_worker_checkbox_index = $('.worker-checkbox').index(this);
-})
+});
 
 $(document).on('change', '.select-all-workers', function (e) {
-    if ($(this).is(':checked')) {
+    if ( $(this).is(':checked') ) {
         $('.worker-checkbox').prop('checked', true);
         $('.worker-card').addClass('active');
         $('.delete-workers-btn').removeClass('disabled');
@@ -157,25 +172,29 @@ $(document).on('change', '.select-all-workers', function (e) {
         $('.worker-card').removeClass('active');
         $('.delete-workers-btn').addClass('disabled');
     }
-})
+});
 
 $('.refresh-worker-list').on('click', function (e) {
     puter.ui.showSpinner();
     refresh_worker_list();
 
     puter.ui.hideSpinner();
-})
+});
 
 $('th.sort').on('click', function (e) {
     // determine what column to sort by
     const sortByColumn = $(this).attr('data-column');
 
     // toggle sort direction
-    if (sortByColumn === sortBy) {
-        if (sortDirection === 'asc')
+    if ( sortByColumn === sortBy ) {
+        if ( sortDirection === 'asc' )
+        {
             sortDirection = 'desc';
+        }
         else
+        {
             sortDirection = 'asc';
+        }
     }
     else {
         sortBy = sortByColumn;
@@ -185,39 +204,39 @@ $('th.sort').on('click', function (e) {
     // update arrow
     $('.sort-arrow').css('display', 'none');
     $('#worker-list-table').find('th').removeClass('sorted');
-    $(this).find('.sort-arrow-' + sortDirection).css('display', 'inline');
+    $(this).find(`.sort-arrow-${ sortDirection}`).css('display', 'inline');
     $(this).addClass('sorted');
 
     sort_workers();
 });
 
-function sort_workers() {
+function sort_workers () {
     let sorted_workers;
 
     // sort
-    if (sortDirection === 'asc'){
+    if ( sortDirection === 'asc' ) {
         sorted_workers = workers.sort((a, b) => {
-            if(sortBy === 'name'){
+            if ( sortBy === 'name' ) {
                 return a[sortBy].localeCompare(b[sortBy]);
-            }else if(sortBy === 'created_at'){
+            } else if ( sortBy === 'created_at' ) {
                 return new Date(a[sortBy]) - new Date(b[sortBy]);
-            }else if(sortBy === 'file_path'){
+            } else if ( sortBy === 'file_path' ) {
                 return a[sortBy].localeCompare(b[sortBy]);
             }
-            else{
-                a[sortBy] > b[sortBy] ? 1 : -1
+            else {
+                a[sortBy] > b[sortBy] ? 1 : -1;
             }
         });
-    }else{
+    } else {
         sorted_workers = workers.sort((a, b) => {
-            if(sortBy === 'name'){
+            if ( sortBy === 'name' ) {
                 return b[sortBy].localeCompare(a[sortBy]);
-            }else if(sortBy === 'created_at'){
+            } else if ( sortBy === 'created_at' ) {
                 return new Date(b[sortBy]) - new Date(a[sortBy]);
-            }else if(sortBy === 'file_path'){
+            } else if ( sortBy === 'file_path' ) {
                 return b[sortBy].localeCompare(a[sortBy]);
-            } else{
-                b[sortBy] > a[sortBy] ? 1 : -1
+            } else {
+                b[sortBy] > a[sortBy] ? 1 : -1;
             }
         });
     }
@@ -230,25 +249,25 @@ function sort_workers() {
     count_workers();
 
     // show workers that match search_query and hide workers that don't
-    if (search_query) {
+    if ( search_query ) {
         // show workers that match search_query and hide workers that don't
         workers.forEach((worker) => {
-            if (worker.name.toLowerCase().includes(search_query.toLowerCase())) {
+            if ( worker.name.toLowerCase().includes(search_query.toLowerCase()) ) {
                 $(`.worker-card[data-name="${html_encode(worker.name)}"]`).show();
             } else {
                 $(`.worker-card[data-name="${html_encode(worker.name)}"]`).hide();
             }
-        })
+        });
     }
 }
 
-function count_workers() {
+function count_workers () {
     let count = window.workers.length;
     $('.worker-count').html(count ? count : '');
     return count;
 }
 
-function generate_worker_card(worker) {
+function generate_worker_card (worker) {
     return `
         <tr class="worker-card" data-name="${html_encode(worker.name)}">
             <td style="width:50px; vertical-align: middle; line-height: 1;">
@@ -264,16 +283,16 @@ function generate_worker_card(worker) {
 
 $(document).on('input change keyup keypress keydown paste cut', '.search-workers', function (e) {
     search_workers();
-})
+});
 
-window.search_workers = function() {
+window.search_workers = function () {
     // search workers for query
     search_query = $('.search-workers').val().toLowerCase();
-    if (search_query === '') {
+    if ( search_query === '' ) {
         // hide 'clear search' button
         $('.search-clear-workers').hide();
         // show all workers again
-        $(`.worker-card`).show();
+        $('.worker-card').show();
         // remove 'has-value' class from search input
         $('.search-workers').removeClass('has-value');
     } else {
@@ -289,11 +308,11 @@ window.search_workers = function() {
             } else {
                 $(`.worker-card[data-name="${worker.name}"]`).hide();
             }
-        })
+        });
         // add 'has-value' class to search input
         $('.search-workers').addClass('has-value');
-    }    
-}
+    }
+};
 
 $(document).on('click', '.search-clear-workers', function (e) {
     $('.search-workers').val('');
@@ -302,16 +321,16 @@ $(document).on('click', '.search-clear-workers', function (e) {
     search_query = '';
     // remove 'has-value' class from search input
     $('.search-workers').removeClass('has-value');
-})
+});
 
-function remove_worker_card(worker_name, callback = null) {
-    $(`.worker-card[data-name="${worker_name}"]`).fadeOut(200, function() {
+function remove_worker_card (worker_name, callback = null) {
+    $(`.worker-card[data-name="${worker_name}"]`).fadeOut(200, function () {
         $(this).remove();
 
         // Update the global workers array to remove the deleted worker
         window.workers = window.workers.filter(worker => worker.name !== worker_name);
 
-        if ($(`.worker-card`).length === 0) {
+        if ( $('.worker-card').length === 0 ) {
             $('section:not(.sidebar)').hide();
             $('#no-workers-notice').show();
         } else {
@@ -320,26 +339,26 @@ function remove_worker_card(worker_name, callback = null) {
         }
 
         // update select-all-workers checkbox's state
-        if($('.worker-checkbox:checked').length === 0){
+        if ( $('.worker-checkbox:checked').length === 0 ) {
             $('.select-all-workers').prop('indeterminate', false);
             $('.select-all-workers').prop('checked', false);
         }
-        else if($('.worker-checkbox:checked').length === $('.worker-card').length){
+        else if ( $('.worker-checkbox:checked').length === $('.worker-card').length ) {
             $('.select-all-workers').prop('indeterminate', false);
             $('.select-all-workers').prop('checked', true);
         }
-        else{
+        else {
             $('.select-all-workers').prop('indeterminate', true);
         }
 
         count_workers();
-        if (callback) callback();
+        if ( callback ) callback();
     });
 }
 
 $(document).on('click', '.delete-workers-btn', async function (e) {
     // show confirmation alert
-    let resp = await puter.ui.alert(`Are you sure you want to delete the selected workers?`, [
+    let resp = await puter.ui.alert('Are you sure you want to delete the selected workers?', [
         {
             label: 'Delete',
             type: 'danger',
@@ -352,7 +371,7 @@ $(document).on('click', '.delete-workers-btn', async function (e) {
         type: 'warning',
     });
 
-    if (resp === 'delete') {
+    if ( resp === 'delete' ) {
         // disable delete button
         $('.delete-workers-btn').addClass('disabled');
 
@@ -363,17 +382,17 @@ $(document).on('click', '.delete-workers-btn', async function (e) {
         const workers = $('.worker-checkbox:checked').toArray();
 
         // delete all checked workers
-        for (let worker of workers) {
+        for ( let worker of workers ) {
             let worker_name = $(worker).attr('data-worker-name');
             // delete worker
-            await puter.workers.delete(worker_name)
+            await puter.workers.delete(worker_name);
 
             // remove worker card
             remove_worker_card(worker_name);
 
-            try{
+            try {
                 count_workers();
-            } catch(err) {
+            } catch ( err ) {
                 console.log(err);
             }
         }
@@ -381,7 +400,7 @@ $(document).on('click', '.delete-workers-btn', async function (e) {
         // close 'deleting' modal
         setTimeout(() => {
             puter.ui.hideSpinner();
-            if($('.worker-checkbox:checked').length === 0){
+            if ( $('.worker-checkbox:checked').length === 0 ) {
                 // disable delete button
                 $('.delete-workers-btn').addClass('disabled');
                 // reset the 'select all' checkbox
@@ -390,7 +409,7 @@ $(document).on('click', '.delete-workers-btn', async function (e) {
             }
         }, (start_ts - Date.now()) > 500 ? 0 : 500);
     }
-})
+});
 
 $(document).on('click', '.options-icon-worker', function (e) {
     e.preventDefault();
@@ -407,24 +426,23 @@ $(document).on('click', '.options-icon-worker', function (e) {
             },
         ],
     });
-})
+});
 
-async function attempt_worker_deletion(worker_name) {
+async function attempt_worker_deletion (worker_name) {
     // confirm delete
     const alert_resp = await puter.ui.alert(`Are you sure you want to premanently delete <strong>${html_encode(worker_name)}</strong>?`,
-        [
-            {
-                label: 'Yes, delete permanently',
-                value: 'delete',
-                type: 'danger',
-            },
-            {
-                label: 'Cancel'
-            },
-        ]
-    );
+                    [
+                        {
+                            label: 'Yes, delete permanently',
+                            value: 'delete',
+                            type: 'danger',
+                        },
+                        {
+                            label: 'Cancel',
+                        },
+                    ]);
 
-    if (alert_resp === 'delete') {
+    if ( alert_resp === 'delete' ) {
         // remove worker card and update worker count
         remove_worker_card(worker_name);
 
@@ -435,7 +453,7 @@ async function attempt_worker_deletion(worker_name) {
                     label: 'Ok',
                 },
             ]);
-        })
+        });
     }
 }
 
@@ -443,15 +461,15 @@ $(document).on('click', '.worker-file-path', function (e) {
     e.preventDefault();
     e.stopPropagation();
     e.stopImmediatePropagation();
-    
+
     const file_path = $(this).attr('data-worker-file-path');
 
-    if(file_path){
+    if ( file_path ) {
         puter.ui.launchApp({
             name: 'editor',
             file_paths: [file_path],
         });
     }
-})
+});
 
 export default init_workers;

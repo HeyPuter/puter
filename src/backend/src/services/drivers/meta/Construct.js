@@ -17,10 +17,9 @@
  * You should have received a copy of the GNU Affero General Public License
  * along with this program.  If not, see <https://www.gnu.org/licenses/>.
  */
-const { BasicBase } = require("../../../../../putility/src/bases/BasicBase");
-const types = require("../types");
-const { hash_serializable_object, stringify_serializable_object } = require("../../../util/datautil");
-
+const { BasicBase } = require('../../../../../putility/src/bases/BasicBase');
+const types = require('../types');
+const { hash_serializable_object, stringify_serializable_object } = require('../../../util/datautil');
 
 /**
 * @class Construct
@@ -38,7 +37,6 @@ class Construct extends BasicBase {
         this.__process();
     }
 
-
     /**
     * Processes the raw JSON data to initialize the object's properties.
     * If a process function is defined, it will be executed with the raw JSON data.
@@ -46,7 +44,6 @@ class Construct extends BasicBase {
     __process () {
         if ( this._process ) this._process(this.raw);
     }
-
 
     /**
     * Serializes the properties of the object into a JSON-compatible format.
@@ -78,7 +75,6 @@ class Construct extends BasicBase {
     }
 }
 
-
 /**
 * @class Parameter
 * @extends Construct
@@ -97,7 +93,6 @@ class Parameter extends Construct {
         this.type = types[raw.type];
     }
 }
-
 
 /**
 * @class Method
@@ -118,8 +113,7 @@ class Method extends Construct {
 
         for ( const parameter_name in raw.parameters ) {
             const parameter = raw.parameters[parameter_name];
-            this.parameters[parameter_name] = new Parameter(
-                parameter, { name: parameter_name });
+            this.parameters[parameter_name] = new Parameter(parameter, { name: parameter_name });
         }
 
         if ( raw.result ) {
@@ -127,7 +121,6 @@ class Method extends Construct {
         }
     }
 }
-
 
 /**
 * @class Interface
@@ -149,12 +142,10 @@ class Interface extends Construct {
 
         for ( const method_name in raw.methods ) {
             const method = raw.methods[method_name];
-            this.methods[method_name] = new Method(
-                method, { name: method_name });
+            this.methods[method_name] = new Method(method, { name: method_name });
         }
     }
 }
-
 
 /**
 * @class TypeSpec
@@ -177,7 +168,6 @@ class TypeSpec extends BasicBase {
         return this.raw.$ === other.raw.$;
     }
 
-
     /**
     * Converts the TypeSpec object to its string representation.
     *
@@ -186,7 +176,6 @@ class TypeSpec extends BasicBase {
     toString () {
         return stringify_serializable_object(this.raw);
     }
-
 
     /**
     * Generates a hash value for the serialized object.
@@ -209,4 +198,4 @@ module.exports = {
     Method,
     Interface,
     TypeSpec,
-}
+};

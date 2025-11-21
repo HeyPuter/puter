@@ -151,7 +151,7 @@ export const PROPFIND = async ( req, res, filePath, fileNode, _headerLockToken )
         }
 
         // Check if file exists
-        if ( !exists ) {
+        if ( ! exists ) {
             res.status(404).end( 'Not Found');
             return;
         }
@@ -169,7 +169,7 @@ export const PROPFIND = async ( req, res, filePath, fileNode, _headerLockToken )
             res.status(207);
             res.end(convertToWebDAVPropfindXML(stat));
         }
-    } catch( error ) {
+    } catch ( error ) {
 
         console.error('PROPFIND error:', error);
         res.status(500).end( 'Internal Server Error');

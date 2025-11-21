@@ -40,7 +40,7 @@ class SUService extends BaseService {
     * and system actor. This method does not take any parameters and does
     * not return a value.
     */
-    _construct() {
+    _construct () {
         this.sys_user_ = new TeePromise();
         this.sys_actor_ = new TeePromise();
     }
@@ -55,7 +55,7 @@ class SUService extends BaseService {
      * @returns {Promise<void>} A promise that resolves when both the
      *                          system user and actor have been set.
      */
-    async ['__on_boot.consolidation']() {
+    async ['__on_boot.consolidation'] () {
         const sys_user = await get_user({ username: 'system' });
         this.sys_user_.resolve(sys_user);
         const sys_actor = new Actor({
@@ -74,7 +74,7 @@ class SUService extends BaseService {
      *
      * @returns {Promise<TeePromise>} A promise that resolves to the system actor.
      */
-    async get_system_actor() {
+    async get_system_actor () {
         return this.sys_actor_;
     }
 
@@ -100,7 +100,7 @@ class SUService extends BaseService {
     * @param {(() => Promise<T>)} [callback] - The callback function to execute as the specified actor.
     * @returns {Promise<T>} A promise that resolves to the result of the callback function executed as the specified actor.
     */
-    async sudo(actor, callback) {
+    async sudo (actor, callback) {
         if ( ! callback ) {
             callback = actor;
             actor = await this.sys_actor_;

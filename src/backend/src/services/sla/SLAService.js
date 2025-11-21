@@ -17,7 +17,7 @@
  * You should have received a copy of the GNU Affero General Public License
  * along with this program.  If not, see <https://www.gnu.org/licenses/>.
  */
-const BaseService = require("../BaseService");
+const BaseService = require('../BaseService');
 
 /**
  * SLAService is responsible for getting the appropriate SLA for a given
@@ -121,7 +121,7 @@ class SLAService extends BaseService {
                         period: 30000,
                     },
                 },
-            }
+            },
         };
     }
 

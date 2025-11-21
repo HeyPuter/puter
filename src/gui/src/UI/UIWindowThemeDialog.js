@@ -70,7 +70,7 @@ const UIWindowThemeDialog = async function UIWindowThemeDialog (options) {
             'backdrop-filter': 'blur(3px)',
         },
         ...options.window_options,
-        onAppend: function(window) {
+        onAppend: function (window) {
             // Initialize the color picker widget
             const colorPickerWidget = UIColorPickerWidget($(window).find('.picker'), {
                 default: initialColor,
@@ -98,7 +98,7 @@ const UIWindowThemeDialog = async function UIWindowThemeDialog (options) {
         svc_theme.reset();
         // Update color picker to reflect reset values
         const colorPickerWidget = $(el_window).data('colorPickerWidget');
-        if (colorPickerWidget) {
+        if ( colorPickerWidget ) {
             const resetHue = svc_theme.get('hue');
             const resetSat = svc_theme.get('sat');
             const resetLig = svc_theme.get('lig');

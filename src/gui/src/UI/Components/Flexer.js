@@ -17,7 +17,6 @@
  * along with this program.  If not, see <https://www.gnu.org/licenses/>.
  */
 
-
 const Component = use('util.Component');
 
 /**
@@ -30,7 +29,7 @@ export default def(class Flexer extends Component {
     static PROPERTIES = {
         children: {},
         gap: { value: '20pt' },
-    }
+    };
 
     static CSS = `
         :host > div {

@@ -23,7 +23,7 @@ export const CreateEnvProvider = () => {
         getEnv: () => {
             let env = process.env;
             if ( ! env.PS1 ) {
-                env.PS1 = `[\\u@\\h \\w]\\$ `;
+                env.PS1 = '[\\u@\\h \\w]\\$ ';
             }
             if ( ! env.HOSTNAME ) {
                 env.HOSTNAME = os.hostname();
@@ -33,6 +33,6 @@ export const CreateEnvProvider = () => {
 
         get (k) {
             return this.getEnv()[k];
-        }
-    }
-}
+        },
+    };
+};

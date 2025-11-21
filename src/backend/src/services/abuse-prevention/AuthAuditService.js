@@ -17,9 +17,8 @@
  * You should have received a copy of the GNU Affero General Public License
  * along with this program.  If not, see <https://www.gnu.org/licenses/>.
  */
-const BaseService = require("../BaseService");
-const { DB_WRITE } = require("../database/consts");
-
+const BaseService = require('../BaseService');
+const { DB_WRITE } = require('../database/consts');
 
 /**
 * AuthAuditService Class
@@ -33,12 +32,11 @@ const { DB_WRITE } = require("../database/consts");
 class AuthAuditService extends BaseService {
     static MODULES = {
         uuidv4: require('uuid').v4,
-    }
+    };
 
     async _init () {
         this.db = this.services.get('database').get(DB_WRITE, 'auth:audit');
     }
-
 
     /**
     * Records an audit entry for authentication actions.
@@ -57,7 +55,7 @@ class AuthAuditService extends BaseService {
     async record (parameters) {
         try {
             await this._record(parameters);
-        } catch (err) {
+        } catch ( err ) {
             this.errors.report('auth-audit-service.record', {
                 source: err,
                 trace: true,
@@ -65,7 +63,6 @@ class AuthAuditService extends BaseService {
             });
         }
     }
-
 
     /**
     * Records an authentication audit event.
@@ -85,7 +82,7 @@ class AuthAuditService extends BaseService {
     * @returns {Promise<void>} - A promise that resolves when the event is recorded.
     */
     async _record ({ requester, action, body, extra }) {
-        const uid = 'aas-' + this.modules.uuidv4();
+        const uid = `aas-${ this.modules.uuidv4()}`;
 
         const json_values = {
             requester: requester.serialize(),
@@ -99,33 +96,31 @@ class AuthAuditService extends BaseService {
             let value = json_values[k];
             try {
                 value = JSON.stringify(value);
-            } catch (err) {
+            } catch ( err ) {
                 has_parse_error = 1;
                 value = { parse_error: err.message };
             }
             json_values[k] = value;
         }
 
-        await this.db.write(
-            `INSERT INTO auth_audit (` +
-            `uid, ip_address, ua_string, action, ` +
-            `requester, body, extra, ` +
-            `has_parse_error` +
-            `) VALUES ( ?, ?, ?, ?, ?, ?, ?, ? )`,
-            [
-                uid,
-                requester.ip,
-                requester.ua,
-                action,
-                JSON.stringify(requester.serialize()),
-                JSON.stringify(body),
-                JSON.stringify(extra ?? {}),
-                has_parse_error,
-            ]
-        );
+        await this.db.write('INSERT INTO auth_audit (' +
+            'uid, ip_address, ua_string, action, ' +
+            'requester, body, extra, ' +
+            'has_parse_error' +
+            ') VALUES ( ?, ?, ?, ?, ?, ?, ?, ? )',
+        [
+            uid,
+            requester.ip,
+            requester.ua,
+            action,
+            JSON.stringify(requester.serialize()),
+            JSON.stringify(body),
+            JSON.stringify(extra ?? {}),
+            has_parse_error,
+        ]);
     }
 }
 
 module.exports = {
-    AuthAuditService
+    AuthAuditService,
 };

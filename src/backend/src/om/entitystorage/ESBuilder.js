@@ -23,7 +23,7 @@ class ESBuilder {
         const apply_next = () => {
             const args = [];
             let last_was_cons = false;
-            while ( ! last_was_cons ) {
+            while ( !last_was_cons ) {
                 const item = stack.pop();
                 if ( typeof item === 'function' ) {
                     last_was_cons = true;
@@ -36,7 +36,7 @@ class ESBuilder {
                 ...(args[0] ?? {}),
                 ...(head ? { upstream: head } : {}),
             });
-        }
+        };
         for ( const item of list ) {
             const is_cons = typeof item === 'function';
 

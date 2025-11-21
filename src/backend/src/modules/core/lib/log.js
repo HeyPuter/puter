@@ -26,7 +26,6 @@ const config = require('../../../config.js');
 // (next month) log("tick");  // → "11-01 00:00:01 tick"
 // (next year) log("tick");   // → "2026-01-01 00:00:01 tick"
 
-
 /**
 * Stringifies a log entry into a formatted string for console output.
 * @param {Object} logEntry - The log entry object containing:
@@ -48,7 +47,7 @@ const stringify_log_entry = ({ prefix, log_lvl, crumbs, message, fields, objects
         lines.push(m);
         m = '';
     };
-    
+
     m = '';
 
     if ( ! config.show_relative_time ) {
@@ -57,7 +56,7 @@ const stringify_log_entry = ({ prefix, log_lvl, crumbs, message, fields, objects
 
     m += prefix ? `${prefix} ` : '';
     let levelLabelShown = false;
-    if ( log_lvl.label !== 'INFO' || ! config.log_hide_info_label ) {
+    if ( log_lvl.label !== 'INFO' || !config.log_hide_info_label ) {
         levelLabelShown = true;
         m += `\x1B[${log_lvl.esc}m[${log_lvl.label}\x1B[0m`;
     } else {
@@ -98,7 +97,7 @@ const stringify_log_entry = ({ prefix, log_lvl, crumbs, message, fields, objects
         let v; try {
             v = colorize(JSON.stringify(fields[k]));
         } catch (e) {
-            v = '' + fields[k];
+            v = `${ fields[k]}`;
         }
         m += ` \x1B[1m${k}:\x1B[0m ${v}`;
         lf();

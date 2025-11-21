@@ -1,13 +1,13 @@
-import putility from "@heyputer/putility";
-import { TFilesystem } from "./definitions.js";
+import putility from '@heyputer/putility';
+import { TFilesystem } from './definitions.js';
 
 const example =     {
-        "id": "f485f1ba-de07-422c-8c4b-c2da057d4a44",
-        "uid": "f485f1ba-de07-422c-8c4b-c2da057d4a44",
-        "is_dir": true,
-        "immutable": true,
-        "name": "Test",
-    };
+    'id': 'f485f1ba-de07-422c-8c4b-c2da057d4a44',
+    'uid': 'f485f1ba-de07-422c-8c4b-c2da057d4a44',
+    'is_dir': true,
+    'immutable': true,
+    'name': 'Test',
+};
 
 export class PostMessageFilesystem extends putility.AdvancedBase {
     constructor ({ rpc, messageTarget }) {
@@ -34,7 +34,7 @@ export class PostMessageFilesystem extends putility.AdvancedBase {
                 }, '*');
 
                 return await tp;
-            }
-        }
-    }
+            },
+        },
+    };
 }

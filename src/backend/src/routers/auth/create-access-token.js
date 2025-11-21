@@ -16,9 +16,9 @@
  * You should have received a copy of the GNU Affero General Public License
  * along with this program.  If not, see <https://www.gnu.org/licenses/>.
  */
-const APIError = require("../../api/APIError");
-const eggspress = require("../../api/eggspress");
-const { Context } = require("../../util/context");
+const APIError = require('../../api/APIError');
+const eggspress = require('../../api/eggspress');
+const { Context } = require('../../util/context');
 
 module.exports = eggspress('/auth/create-access-token', {
     subdomain: 'api',
@@ -34,7 +34,7 @@ module.exports = eggspress('/auth/create-access-token', {
         throw APIError.create('field_missing', null, { key: 'permissions' });
     }
 
-    for ( let i=0 ; i < permissions.length ; i++ ) {
+    for ( let i = 0 ; i < permissions.length ; i++ ) {
         let perm = permissions[i];
         if ( typeof perm === 'string' ) {
             perm = permissions[i] = [perm];
@@ -54,14 +54,12 @@ module.exports = eggspress('/auth/create-access-token', {
     }
 
     const actor = Context.get('actor');
-    
+
     const options = {
-        ...(req.body.expiresIn ? { expiresIn: '' + req.body.expiresIn } : {}),
+        ...(req.body.expiresIn ? { expiresIn: `${ req.body.expiresIn}` } : {}),
     };
 
-    const token = await svc_auth.create_access_token(
-        actor, permissions, options
-    );
+    const token = await svc_auth.create_access_token(actor, permissions, options);
 
     res.json({ token });
 });

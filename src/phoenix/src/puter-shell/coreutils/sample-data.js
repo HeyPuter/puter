@@ -38,5 +38,5 @@ export default {
         console.log('before writing');
         await ctx.externs.out.write('Hello, World!\n');
         console.log('after writing');
-    }
-}
+    },
+};

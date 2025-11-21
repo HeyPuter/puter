@@ -16,12 +16,12 @@
  * You should have received a copy of the GNU Affero General Public License
  * along with this program.  If not, see <https://www.gnu.org/licenses/>.
  */
-import columnify from "columnify";
-import cli_columns from "cli-columns";
+import columnify from 'columnify';
+import cli_columns from 'cli-columns';
 import { resolveRelativePath } from '../../util/path.js';
 
 // formatLsTimestamp(): written by AI
-function formatLsTimestamp(unixTimestamp) {
+function formatLsTimestamp (unixTimestamp) {
     const date = new Date(unixTimestamp * 1000); // Convert Unix timestamp to JavaScript Date
     const now = new Date();
 
@@ -29,7 +29,7 @@ function formatLsTimestamp(unixTimestamp) {
     const optionsPreviousYear = { month: 'short', day: 'numeric', year: 'numeric' };
 
     // Check if the year of the date is the same as the current year
-    if (date.getFullYear() === now.getFullYear()) {
+    if ( date.getFullYear() === now.getFullYear() ) {
         // Format for current year
         return date.toLocaleString('en-US', optionsCurrentYear)
             .replace(',', ''); // Remove comma from time);
@@ -54,7 +54,7 @@ const B_to_human_readable = B => {
     } else {
         return `${KiB.toFixed(3)} KiB`;
     }
-}
+};
 
 export default {
     name: 'ls',
@@ -67,21 +67,21 @@ export default {
             all: {
                 description: 'List all entries, including those starting with `.`',
                 type: 'boolean',
-                short: 'a'
+                short: 'a',
             },
             long: {
                 description: 'List entries in long format, as a table',
                 type: 'boolean',
-                short: 'l'
+                short: 'l',
             },
             'human-readable': {
                 description: 'Print sizes in a human readable format (eg 12MiB, 3GiB), instead of byte counts',
                 type: 'boolean',
-                short: 'h'
+                short: 'h',
             },
             time: {
                 description: 'Specify which time to display, one of atime (access time), ctime (creation time), or mtime (modification time)',
-                type: 'string'
+                type: 'string',
             },
             S: {
                 description: 'Sort the results',
@@ -96,7 +96,7 @@ export default {
                 type: 'boolean',
                 short: 'r',
             },
-        }
+        },
     },
     execute: async ctx => {
         console.log('ls context', ctx);
@@ -111,10 +111,11 @@ export default {
 
         const showHeadings = paths.length > 1 ? async ({ i, path }) => {
             if ( i !== 0 ) await ctx.externs.out.write('\n');
-            await ctx.externs.out.write(path + ':\n');
-        } : () => {};
-        
-        for ( let i=0 ; i < paths.length ; i++ ) {
+            await ctx.externs.out.write(`${path }:\n`);
+        } : () => {
+        };
+
+        for ( let i = 0 ; i < paths.length ; i++ ) {
             let path = paths[i];
             await showHeadings({ i, path });
             path = resolveRelativePath(ctx.vars, path);
@@ -123,7 +124,7 @@ export default {
 
             if ( ! values.all ) {
                 result = result.filter(item => !item.name.startsWith('.'));
-            } 
+            }
 
             const reverse_sort = values.reverse;
             const decsort = (delegate) => {
@@ -163,7 +164,7 @@ export default {
             //         return line;
             //     }
             //     : item => item.name
-            //     
+            //
             const icons = {
                 // d: '📁',
                 // l: '🔗',
@@ -185,8 +186,7 @@ export default {
             const col = (type, text) => {
                 if ( ! colors[type] ) return text;
                 return `\x1b[${col_to_ansi[colors[type]]};1m${text}\x1b[0m`;
-            }
-
+            };
 
             const POSIX = filesystem.capabilities['readdir.posix-mode'];
 
@@ -199,14 +199,14 @@ export default {
                 const time = values.time || 'mtime';
                 const items = result.map(item => {
                     const ts = item[time_properties[time]];
-                    const www = 
+                    const www =
                         (!item.subdomains) ? 'N/A' :
-                        (!item.subdomains.length) ? '---' :
-                        item.subdomains[0].address + (
-                            item.subdomains.length > 1
-                                ? ` +${item.subdomains.length - 1}`
-                                : ''
-                        )
+                            (!item.subdomains.length) ? '---' :
+                                item.subdomains[0].address + (
+                                    item.subdomains.length > 1
+                                        ? ` +${item.subdomains.length - 1}`
+                                        : ''
+                                );
                     const type = simpleTypeForItem(item);
                     const mode = POSIX ? item.mode_human_readable : null;
 
@@ -214,7 +214,7 @@ export default {
                     if ( values['human-readable'] ) {
                         size = B_to_human_readable(size);
                     }
-                    if ( item.is_dir && ! POSIX ) size = 'N/A';
+                    if ( item.is_dir && !POSIX ) size = 'N/A';
                     return {
                         ...item,
                         user: item.uid,
@@ -240,11 +240,11 @@ export default {
                         // json: {
                         //     maxWidth: 20,
                         // }
-                    }
+                    },
                 });
                 const lines = text.split('\n');
                 for ( const line of lines ) {
-                    await ctx.externs.out.write(line + '\n');
+                    await ctx.externs.out.write(`${line }\n`);
                 }
                 continue;
             }
@@ -256,13 +256,13 @@ export default {
             });
             const text = cli_columns(names, {
                 width: ctx.env.COLS,
-            })
+            });
 
             const lines = text.split('\n');
 
             for ( const line of lines ) {
-                await ctx.externs.out.write(line + '\n');
+                await ctx.externs.out.write(`${line }\n`);
             }
         }
-    }
+    },
 };

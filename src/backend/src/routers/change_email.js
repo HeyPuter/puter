@@ -16,7 +16,7 @@
  * You should have received a copy of the GNU Affero General Public License
  * along with this program.  If not, see <https://www.gnu.org/licenses/>.
  */
-"use strict"
+'use strict';
 const eggspress = require('../api/eggspress.js');
 const APIError = require('../api/APIError.js');
 const { DB_WRITE } = require('../services/database/consts.js');
@@ -43,10 +43,8 @@ const CHANGE_EMAIL_CONFIRM = eggspress('/change_email/confirm', {
     const { token, user_id } = jwt.verify(jwt_token, config.jwt_secret);
 
     const db = req.services.get('database').get(DB_WRITE, 'auth');
-    const rows = await db.read(
-        'SELECT `unconfirmed_change_email` FROM `user` WHERE `id` = ? AND `change_email_confirm_token` = ?',
-        [user_id, token]
-    );
+    const rows = await db.read('SELECT `unconfirmed_change_email` FROM `user` WHERE `id` = ? AND `change_email_confirm_token` = ?',
+                    [user_id, token]);
     if ( rows.length === 0 ) {
         throw APIError.create('token_invalid');
     }
@@ -55,27 +53,21 @@ const CHANGE_EMAIL_CONFIRM = eggspress('/change_email/confirm', {
     const clean_email = svc_cleanEmail.clean(rows[0].unconfirmed_change_email);
 
     // Scenario: email was confirmed on another account already
-    const rows2 = await db.read(
-        'SELECT `id` FROM `user` WHERE `email` = ? OR `clean_email` = ?',
-        [rows[0].unconfirmed_change_email, clean_email]
-    );
+    const rows2 = await db.read('SELECT `id` FROM `user` WHERE `email` = ? OR `clean_email` = ?',
+                    [rows[0].unconfirmed_change_email, clean_email]);
     if ( rows2.length > 0 ) {
         throw APIError.create('email_already_in_use');
     }
 
     // If other users have the same unconfirmed email, revoke it
-    await db.write(
-        'UPDATE `user` SET `unconfirmed_change_email` = NULL, `email_confirmed`=1, `change_email_confirm_token` = NULL WHERE `id` = ?',
-        [user_id]
-    );
+    await db.write('UPDATE `user` SET `unconfirmed_change_email` = NULL, `email_confirmed`=1, `change_email_confirm_token` = NULL WHERE `id` = ?',
+                    [user_id]);
 
     const new_email = rows[0].unconfirmed_change_email;
 
-    await db.write(
-        'UPDATE `user` SET `email` = ?, `clean_email` = ?, `unconfirmed_change_email` = NULL, `change_email_confirm_token` = NULL, `pass_recovery_token` = NULL WHERE `id` = ?',
-        [new_email, clean_email, user_id]
-    );
-    
+    await db.write('UPDATE `user` SET `email` = ?, `clean_email` = ?, `unconfirmed_change_email` = NULL, `change_email_confirm_token` = NULL, `pass_recovery_token` = NULL WHERE `id` = ?',
+                    [new_email, clean_email, user_id]);
+
     const svc_event = req.services.get('event');
     svc_event.emit('user.email-changed', {
         user_id: user_id,
@@ -86,10 +78,10 @@ const CHANGE_EMAIL_CONFIRM = eggspress('/change_email/confirm', {
     const svc_socketio = req.services.get('socketio');
     svc_socketio.send({ room: user_id }, 'user.email_changed', {});
 
-    const h = `<p style="text-align:center; color:green;">Your email has been successfully confirmed.</p>`;
+    const h = '<p style="text-align:center; color:green;">Your email has been successfully confirmed.</p>';
     return res.send(h);
 });
 
 module.exports = app => {
     app.use(CHANGE_EMAIL_CONFIRM);
-}
+};

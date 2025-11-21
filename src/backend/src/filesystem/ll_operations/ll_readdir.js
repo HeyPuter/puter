@@ -16,17 +16,17 @@
  * You should have received a copy of the GNU Affero General Public License
  * along with this program.  If not, see <https://www.gnu.org/licenses/>.
  */
-const APIError = require("../../api/APIError");
-const fsCapabilities = require("../definitions/capabilities");
-const { ECMAP } = require("../ECMAP");
-const { TYPE_SYMLINK } = require("../FSNodeContext");
-const { RootNodeSelector } = require("../node/selectors");
-const { NodeUIDSelector, NodeChildSelector } = require("../node/selectors");
-const { LLFilesystemOperation } = require("./definitions");
+const APIError = require('../../api/APIError');
+const fsCapabilities = require('../definitions/capabilities');
+const { ECMAP } = require('../ECMAP');
+const { TYPE_SYMLINK } = require('../FSNodeContext');
+const { RootNodeSelector } = require('../node/selectors');
+const { NodeUIDSelector, NodeChildSelector } = require('../node/selectors');
+const { LLFilesystemOperation } = require('./definitions');
 
 class LLReadDir extends LLFilesystemOperation {
     static CONCERN = 'filesystem';
-    async _run() {
+    async _run () {
         return ECMAP.arun(async () => {
             return await this.__run();
         });
@@ -65,10 +65,8 @@ class LLReadDir extends LLFilesystemOperation {
         if ( subject.isRoot ) {
             if ( ! actor.type.user ) return [];
             return [
-                await svc_fs.node(new NodeChildSelector(
-                    new RootNodeSelector(),
-                    actor.type.user.username,
-                ))
+                await svc_fs.node(new NodeChildSelector(new RootNodeSelector(),
+                                actor.type.user.username)),
             ];
         }
 
@@ -76,12 +74,12 @@ class LLReadDir extends LLFilesystemOperation {
 
         // UUID Mode
         if ( capabilities.has(fsCapabilities.READDIR_UUID_MODE) ) {
-            this.checkpoint('readdir uuid mode')
+            this.checkpoint('readdir uuid mode');
             const child_uuids = await subject.provider.readdir({
                 context,
                 node: subject,
             });
-            this.checkpoint('after get direct descendants')
+            this.checkpoint('after get direct descendants');
             const children = await Promise.all(child_uuids.map(async uuid => {
                 return await svc_fs.node(new NodeUIDSelector(uuid));
             }));

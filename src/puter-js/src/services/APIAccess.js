@@ -1,4 +1,4 @@
-import putility from "@heyputer/putility";
+import putility from '@heyputer/putility';
 
 const { TTopics } = putility.traits;
 
@@ -13,12 +13,12 @@ export class APIAccessService extends putility.concepts.Service {
         auth_token: {
             post_set (v) {
                 this.as(TTopics).pub('update');
-            }
+            },
         },
         api_origin: {
             post_set () {
                 this.as(TTopics).pub('update');
-            }
+            },
         },
     };
 
@@ -27,18 +27,18 @@ export class APIAccessService extends putility.concepts.Service {
         const self = this;
         const o = {};
         [
-            ['auth_token','auth_token'],
-            ['authToken','auth_token'],
-            ['APIOrigin','api_origin'],
-            ['api_origin','api_origin'],
-        ].forEach(([k1,k2]) => {
+            ['auth_token', 'auth_token'],
+            ['authToken', 'auth_token'],
+            ['APIOrigin', 'api_origin'],
+            ['api_origin', 'api_origin'],
+        ].forEach(([k1, k2]) => {
             Object.defineProperty(o, k1, {
                 get () {
                     return self[k2];
                 },
                 set (v) {
                     return self;
-                }
+                },
             });
         });
         return o;

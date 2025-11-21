@@ -1,4 +1,4 @@
-const BaseService = require("../../services/BaseService");
+const BaseService = require('../../services/BaseService');
 
 class ProxyLogger {
     constructor (log) {
@@ -9,7 +9,7 @@ class ProxyLogger {
         stream.on('data', (chunk) => {
             buffer += chunk.toString();
             let lineEndIndex = buffer.indexOf('\n');
-            while (lineEndIndex !== -1) {
+            while ( lineEndIndex !== -1 ) {
                 const line = buffer.substring(0, lineEndIndex);
                 this.log(line);
                 buffer = buffer.substring(lineEndIndex + 1);
@@ -18,7 +18,7 @@ class ProxyLogger {
         });
 
         stream.on('end', () => {
-            if (buffer.length) {
+            if ( buffer.length ) {
                 this.log(buffer);
             }
         });
@@ -42,15 +42,15 @@ class ProcessService extends BaseService {
 
         process.on('exit', () => {
             this.exit_all_();
-        })
+        });
     }
 
     log_ (name, isErr, line) {
         let txt = `[${name}:`;
         txt += isErr
-            ? `\x1B[34;1m2\x1B[0m`
-            : `\x1B[32;1m1\x1B[0m`;
-        txt += '] ' + line;
+            ? '\x1B[34;1m2\x1B[0m'
+            : '\x1B[32;1m1\x1B[0m';
+        txt += `] ${ line}`;
         this.log.info(txt);
     }
 
@@ -66,13 +66,11 @@ class ProcessService extends BaseService {
         for ( const k in env_processed ) {
             if ( typeof env_processed[k] !== 'function' ) continue;
             env_processed[k] = env_processed[k]({
-                global_config: this.global_config
+                global_config: this.global_config,
             });
         }
-        this.log.debug(
-            'command',
-            { command, args },
-        );
+        this.log.debug('command',
+                        { command, args });
         const proc = this.modules.spawn(command, args, {
             shell: true,
             env: {
@@ -91,7 +89,7 @@ class ProcessService extends BaseService {
         proc.on('exit', () => {
             this.log.info(`[${name}:exit] Process exited (${proc.exitCode})`);
             this.instances = this.instances.filter((inst) => inst.proc !== proc);
-        })
+        });
     }
 }
 

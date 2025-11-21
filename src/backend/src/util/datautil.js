@@ -38,7 +38,7 @@ const stringify_serializable_object = obj => {
         return outer_json.slice(1, -1);
     });
 
-    return '{' + pairs.join(',') + '}';
+    return `{${ pairs.join(',') }}`;
 };
 
 const hash_serializable_object = obj => {

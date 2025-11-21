@@ -16,13 +16,13 @@
  * You should have received a copy of the GNU Affero General Public License
  * along with this program.  If not, see <https://www.gnu.org/licenses/>.
  */
-const APIError = require("../../api/APIError");
-const { DB_WRITE } = require("../../services/database/consts");
+const APIError = require('../../api/APIError');
+const { DB_WRITE } = require('../../services/database/consts');
 const jwt = require('jsonwebtoken');
 const validator = require('validator');
 const crypto = require('crypto');
-const config = require("../../config");
-const { Context } = require("../../util/context");
+const config = require('../../config');
+const { Context } = require('../../util/context');
 const { v4: uuidv4 } = require('uuid');
 
 module.exports = {
@@ -36,7 +36,7 @@ module.exports = {
 
         // TODO: DRY: signup.js
         // validation
-        if( ! new_email ) {
+        if ( ! new_email ) {
             throw APIError.create('field_missing', null, { key: 'new_email' });
         }
         if ( typeof new_email !== 'string' ) {
@@ -50,38 +50,34 @@ module.exports = {
 
         const svc_cleanEmail = req.services.get('clean-email');
         const clean_email = svc_cleanEmail.clean(new_email);
-        
+
         if ( ! await svc_cleanEmail.validate(clean_email) ) {
             throw APIError.create('email_not_allowed', undefined, {
                 email: clean_email,
             });
         }
-        
+
         // check if email is already in use
         const db = req.services.get('database').get(DB_WRITE, 'auth');
-        const rows = await db.read(
-            'SELECT COUNT(*) AS `count` FROM `user` WHERE (`email` = ? OR `clean_email` = ?) AND `email_confirmed` = 1',
-            [new_email, clean_email]
-        );
+        const rows = await db.read('SELECT COUNT(*) AS `count` FROM `user` WHERE (`email` = ? OR `clean_email` = ?) AND `email_confirmed` = 1',
+                        [new_email, clean_email]);
 
         // TODO: DRY: signup.js, save_account.js
         if ( rows[0].count > 0 ) {
             throw APIError.create('email_already_in_use', null, { email: new_email });
         }
-        
+
         // If user does not have a confirmed email, then update `email` directly
         // and send a new confirmation email for their account instead.
         if ( ! user.email_confirmed ) {
             const email_confirm_token = uuidv4();
-            await db.write(
-                'UPDATE `user` SET `email` = ?, `email_confirm_token` = ? WHERE `id` = ?',
-                [new_email, email_confirm_token, user.id],
-            );
+            await db.write('UPDATE `user` SET `email` = ?, `email_confirm_token` = ? WHERE `id` = ?',
+                            [new_email, email_confirm_token, user.id]);
 
             const svc_email = Context.get('services').get('email');
             const link = `${config.origin}/confirm-email-by-token?user_uuid=${user.uuid}&token=${email_confirm_token}`;
             svc_email.send_email({ email: new_email }, 'email_verification_link', { link });
-            
+
             res.send({ success: true });
             return;
         }
@@ -106,23 +102,19 @@ module.exports = {
         });
 
         // update user
-        await db.write(
-            'UPDATE `user` SET `unconfirmed_change_email` = ?, `change_email_confirm_token` = ? WHERE `id` = ?',
-            [new_email, token, user.id]
-        );
+        await db.write('UPDATE `user` SET `unconfirmed_change_email` = ?, `change_email_confirm_token` = ? WHERE `id` = ?',
+                        [new_email, token, user.id]);
 
         // Update email change audit table
-        await db.write(
-            'INSERT INTO `user_update_audit` ' +
+        await db.write('INSERT INTO `user_update_audit` ' +
             '(`user_id`, `user_id_keep`, `old_email`, `new_email`, `reason`) ' +
             'VALUES (?, ?, ?, ?, ?)',
-            [
-                req.user.id, req.user.id,
-                old_email, new_email,
-                'change_username'
-            ]
-        );
+        [
+            req.user.id, req.user.id,
+            old_email, new_email,
+            'change_username',
+        ]);
 
         res.send({ success: true });
-    }
+    },
 };

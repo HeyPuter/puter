@@ -34,19 +34,19 @@ export default {
             dir: {
                 description: 'Remove empty directories',
                 type: 'boolean',
-                short: 'd'
+                short: 'd',
             },
             recursive: {
                 description: 'Recursively remove directories and their contents',
                 type: 'boolean',
-                short: 'r'
+                short: 'r',
             },
             force: {
                 description: 'Ignore non-existent paths, and never prompt',
                 type: 'boolean',
-                short: 'f'
-            }
-        }
+                short: 'f',
+            },
+        },
     },
     execute: async ctx => {
         // ctx.params to access processed args
@@ -57,8 +57,6 @@ export default {
         let [ target ] = positionals;
         target = resolveRelativePath(ctx.vars, target);
 
-        await filesystem.rm(target, { recursive: values.recursive })
-    }
+        await filesystem.rm(target, { recursive: values.recursive });
+    },
 };
-
-

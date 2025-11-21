@@ -17,18 +17,18 @@
  * You should have received a copy of the GNU Affero General Public License
  * along with this program.  If not, see <https://www.gnu.org/licenses/>.
  */
-const BaseService = require("./BaseService");
-const { Context } = require("../util/context");
+const BaseService = require('./BaseService');
+const { Context } = require('../util/context');
 class WSPushService extends BaseService {
     static LOG_DEBUG = true;
 
     /**
     * Initializes the WSPushService by setting up event listeners for various file system operations.
-    * 
+    *
     * @param {Object} options - The configuration options for the service.
     * @param {Object} options.services - An object containing service dependencies.
     */
-    async _init() {
+    async _init () {
         this.svc_event = this.services.get('event');
 
         this.svc_event.on('fs.create.*', this._on_fs_create.bind(this));
@@ -36,106 +36,104 @@ class WSPushService extends BaseService {
         this.svc_event.on('fs.move.*', this._on_fs_move.bind(this));
         this.svc_event.on('fs.pending.*', this._on_fs_pending.bind(this));
         this.svc_event.on('fs.storage.upload-progress',
-            this._on_upload_progress.bind(this));
+                        this._on_upload_progress.bind(this));
         this.svc_event.on('fs.storage.progress.*',
-            this._on_upload_progress.bind(this));
+                        this._on_upload_progress.bind(this));
         this.svc_event.on('puter-exec.submission.done',
-            this._on_submission_done.bind(this));
+                        this._on_submission_done.bind(this));
         this.svc_event.on('outer.gui.*',
-            this._on_outer_gui.bind(this));
+                        this._on_outer_gui.bind(this));
     }
 
-
-    async _on_fs_create(key, data) {
+    async _on_fs_create (key, data) {
         const { node, context } = data;
-    
+
         const metadata = {
             from_new_service: true,
         };
-    
+
         {
             const svc_operationTrace = context.get('services').get('operationTrace');
             const frame = context.get(svc_operationTrace.ckey('frame'));
             const gui_metadata = frame.get_attr('gui_metadata') || {};
             Object.assign(metadata, gui_metadata);
         }
-    
+
         const response = await node.getSafeEntry({ thumbnail: true });
-    
+
         const user_id_list = await (async () => {
             const user_id_set = new Set();
-            if (metadata.user_id) user_id_set.add(metadata.user_id);
+            if ( metadata.user_id ) user_id_set.add(metadata.user_id);
             else user_id_set.add(await node.get('user_id'));
             return Array.from(user_id_set);
         })();
-    
+
         Object.assign(response, metadata);
-    
+
         this.svc_event.emit('outer.gui.item.added', {
             user_id_list,
             response,
         });
-    
+
         const ts = Date.now();
         await this._update_user_ts(user_id_list, ts, metadata); // Pass metadata
     }
-    
 
     /**
     * Handles file system update events.
-    * 
+    *
     * @param {string} key - The event key.
     * @param {Object} data - The event data containing node and context information.
     * @returns {Promise<void>} A promise that resolves when the update has been processed.
-    * 
+    *
     * @description
     * This method is triggered when a file or directory is updated. It retrieves
     * metadata from the context, fetches the updated node's entry, determines the
     * relevant user IDs, and emits an event to notify the GUI of the update.
-    * 
+    *
     * @note
     * - The method uses a set for user IDs to prepare for future multi-user dispatch.
     * - If no specific user ID is provided in the metadata, it falls back to the node's user ID.
     */
-    async _on_fs_update(key, data) {
+    async _on_fs_update (key, data) {
         const { node, context } = data;
-    
+
         const metadata = {
             from_new_service: true,
         };
-    
+
         {
             const svc_operationTrace = context.get('services').get('operationTrace');
             const frame = context.get(svc_operationTrace.ckey('frame'));
             const gui_metadata = frame?.get_attr?.('gui_metadata') || {};
             Object.assign(metadata, gui_metadata);
         }
-    
+
         const response = await node.getSafeEntry({ debug: 'hi', thumbnail: true });
-    
+
         const user_id_list = await (async () => {
             const user_id_set = new Set();
-            if (metadata.user_id) user_id_set.add(metadata.user_id);
+            if ( metadata.user_id ) user_id_set.add(metadata.user_id);
             else user_id_set.add(await node.get('user_id'));
             return Array.from(user_id_set);
         })();
-    
+
         Object.assign(response, metadata);
-    
+
         this.svc_event.emit('outer.gui.item.updated', {
             user_id_list,
             response,
         });
-    
+
         const ts = Date.now();
         await this._update_user_ts(user_id_list, ts, metadata); // Pass metadata
-    }    
+    }
 
     /**
     * Handles file system move events by emitting appropriate GUI update events.
-    * 
+    *
     * This method is triggered when a file or directory is moved within the file system.
-    * It collects necessary metadata, updates the response with the old path, and 
+    * It collects necessary metadata, updates the response with the old path, and
     * broadcasts the event to update the GUI for the affected users.
     *
     * @param {string} key - The event key triggering this method.
@@ -145,97 +143,97 @@ class WSPushService extends BaseService {
     *   - {Context} context - The context in which the move operation occurred.
     * @returns {Promise<void>} A promise that resolves when the event has been emitted.
     */
-    async _on_fs_move(key, data) {
+    async _on_fs_move (key, data) {
         const { moved, old_path, context } = data;
-    
+
         const metadata = {
             from_new_service: true,
         };
-    
+
         {
             const svc_operationTrace = context.get('services').get('operationTrace');
             const frame = context.get(svc_operationTrace.ckey('frame'));
             const gui_metadata = frame.get_attr('gui_metadata') || {};
             Object.assign(metadata, gui_metadata);
         }
-    
+
         const response = await moved.getSafeEntry();
-    
+
         const user_id_list = await (async () => {
             const user_id_set = new Set();
-            if (metadata.user_id) user_id_set.add(metadata.user_id);
+            if ( metadata.user_id ) user_id_set.add(metadata.user_id);
             else user_id_set.add(await moved.get('user_id'));
             return Array.from(user_id_set);
         })();
-    
+
         response.old_path = old_path;
         Object.assign(response, metadata);
-    
+
         this.svc_event.emit('outer.gui.item.moved', {
             user_id_list,
             response,
         });
-    
+
         const ts = Date.now();
         await this._update_user_ts(user_id_list, ts, metadata); // Pass metadata
-    }    
+    }
 
     /**
     * Handles the 'fs.pending' event, preparing and emitting data for items that are pending processing.
-    * 
+    *
     * @param {string} key - The event key, typically starting with 'fs.pending.'.
     * @param {Object} data - An object containing the fsentry and context of the pending file system operation.
     * @param {Object} data.fsentry - The file system entry that is pending.
     * @param {Object} data.context - The operation context providing additional metadata.
     * @fires svc_event#outer.gui.item.pending - Emitted with user ID list and entry details.
-    * 
+    *
     * @returns {Promise<void>} Emits an event to update the GUI about the pending item.
     */
-    async _on_fs_pending(key, data) {
+    async _on_fs_pending (key, data) {
         const { fsentry, context } = data;
-    
+
         const metadata = {
             from_new_service: true,
         };
-    
+
         const response = { ...fsentry };
-    
+
         {
             const svc_operationTrace = context.get('services').get('operationTrace');
             const frame = context.get(svc_operationTrace.ckey('frame'));
             const gui_metadata = frame.get_attr('gui_metadata') || {};
             Object.assign(metadata, gui_metadata);
         }
-    
+
         const user_id_list = await (async () => {
             const user_id_set = new Set();
-            if (metadata.user_id) user_id_set.add(metadata.user_id);
+            if ( metadata.user_id ) user_id_set.add(metadata.user_id);
             return Array.from(user_id_set);
         })();
-    
+
         Object.assign(response, metadata);
-    
+
         this.svc_event.emit('outer.gui.item.pending', {
             user_id_list,
             response,
         });
-    
+
         const ts = Date.now();
         await this._update_user_ts(user_id_list, ts, metadata); // Pass metadata
     }
-    
+
     /**
     * Emits an upload or download progress event to the relevant socket.
-    * 
+    *
     * @param {string} key - The event key that triggered this method.
     * @param {Object} data - Contains upload_tracker, context, and meta information.
     * @param {Object} data.upload_tracker - Tracker for the upload/download progress.
     * @param {Object} data.context - Context of the operation.
     * @param {Object} data.meta - Additional metadata for the event.
-    * 
+    *
     * It emits a progress event to the socket if it exists, otherwise, it does nothing.
     */
-    async _on_upload_progress(key, data) {
+    async _on_upload_progress (key, data) {
         this.log.info('got upload progress event');
         const { upload_tracker, context, meta } = data;
 
@@ -253,14 +251,14 @@ class WSPushService extends BaseService {
 
         const { socket_id } = metadata;
 
-        if (!socket_id) {
+        if ( ! socket_id ) {
             this.log.warn('missing socket id', { metadata });
         }
 
-        this.log.info('socket id: ' + socket_id);
+        this.log.info(`socket id: ${ socket_id}`);
 
         const svc_socketio = context.get('services').get('socketio');
-        if (!svc_socketio.has({ socket: socket_id })) {
+        if ( ! svc_socketio.has({ socket: socket_id }) ) {
             return;
         }
 
@@ -275,10 +273,10 @@ class WSPushService extends BaseService {
                 loaded: upload_tracker.progress_,
                 loaded_diff: delta,
             });
-        })
+        });
     }
 
-    async _on_submission_done(key, data) {
+    async _on_submission_done (key, data) {
         const { actor } = data;
         const { id, output, summary, measures, aux_outputs } = data;
         const user_id = actor.type.user.id;
@@ -299,22 +297,22 @@ class WSPushService extends BaseService {
 
     /**
     * Handles the 'outer.gui.*' event to emit GUI-related updates to specific users.
-    * 
+    *
     * @param {string} key - The event key with 'outer.gui.' prefix removed.
     * @param {Object} data - Contains user_id_list and response to emit.
     * @param {Object} meta - Additional metadata for the event.
-    * 
+    *
     * @note This method iterates over each user ID provided in the event data,
     *       checks if the user's socket room exists and has clients, then emits
     *       the event to the appropriate room.
     */
-    async _on_outer_gui(key, { user_id_list, response }, meta) {
+    async _on_outer_gui (key, { user_id_list, response }, meta) {
         key = key.slice('outer.gui.'.length);
 
         const svc_socketio = this.services.get('socketio');
 
-        for (const user_id of user_id_list) {
-            if (!svc_socketio.has({ room: user_id })) {
+        for ( const user_id of user_id_list ) {
+            if ( ! svc_socketio.has({ room: user_id }) ) {
                 continue;
             }
             svc_socketio.send({ room: user_id }, key, response);
@@ -328,38 +326,38 @@ class WSPushService extends BaseService {
 
     /**
      * Updates the timestamp for a list of users in the puter-kvstore. Emits an event to notify the GUI of the update.
-     * 
+     *
      * @param {string[]} user_id_list - The list of user IDs to update the timestamp for.
      * @param {number} timestamp - The timestamp to update the users with.
      * @returns {Promise<void>} A promise that resolves when the timestamp has been updated.
      */
-    async _update_user_ts(user_id_list, timestamp, metadata = {}) {
-        for (const user_id of user_id_list) {
+    async _update_user_ts (user_id_list, timestamp, metadata = {}) {
+        for ( const user_id of user_id_list ) {
             const ts = timestamp;
             const key = `last_change_timestamp:${user_id}`;
-    
+
             try {
                 const svc_driver = Context.get('services').get('driver');
                 await svc_driver.call({
                     iface: 'puter-kvstore',
                     method: 'set',
-                    args: { key, value: ts }
+                    args: { key, value: ts },
                 });
-            } catch (error) {
+            } catch ( error ) {
                 this.log.error('Failed to update user timestamp in kvstore', { user_id, error: error.message });
             }
         }
-    
+
         this.svc_event.emit('outer.gui.cache.updated', {
             user_id_list,
             response: {
                 timestamp,
-                original_client_socket_id: metadata.original_client_socket_id 
+                original_client_socket_id: metadata.original_client_socket_id,
             },
         });
     }
 }
 
 module.exports = {
-    WSPushService
+    WSPushService,
 };

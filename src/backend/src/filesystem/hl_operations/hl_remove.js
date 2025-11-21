@@ -16,12 +16,12 @@
  * You should have received a copy of the GNU Affero General Public License
  * along with this program.  If not, see <https://www.gnu.org/licenses/>.
  */
-const APIError = require("../../api/APIError");
-const { chkperm } = require("../../helpers");
-const { TYPE_DIRECTORY } = require("../FSNodeContext");
-const { LLRmDir } = require("../ll_operations/ll_rmdir");
-const { LLRmNode } = require("../ll_operations/ll_rmnode");
-const { HLFilesystemOperation } = require("./definitions");
+const APIError = require('../../api/APIError');
+const { chkperm } = require('../../helpers');
+const { TYPE_DIRECTORY } = require('../FSNodeContext');
+const { LLRmDir } = require('../ll_operations/ll_rmdir');
+const { LLRmNode } = require('../ll_operations/ll_rmnode');
+const { HLFilesystemOperation } = require('./definitions');
 
 class HLRemove extends HLFilesystemOperation {
     static PARAMETERS = {
@@ -29,7 +29,7 @@ class HLRemove extends HLFilesystemOperation {
         user: {},
         recursive: {},
         descendants_only: {},
-    }
+    };
 
     async _run () {
         const { target, user } = this.values;

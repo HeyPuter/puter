@@ -34,15 +34,15 @@ export default {
 
         // list of languages
         const available_languages = window.listSupportedLanguages();
-        h += `<div class="language-list">`;
-            for (let lang of available_languages) {
-                h += `<div class="language-item ${window.locale === lang.code ? 'active': ''}" data-lang="${lang.code}" data-english-name="${html_encode(lang.english_name)}">${html_encode(lang.name)}<img class="checkmark" src="${window.icons['checkmark.svg']}"></div>`;
-            }
-        h += `</div>`;
+        h += '<div class="language-list">';
+        for ( let lang of available_languages ) {
+            h += `<div class="language-item ${window.locale === lang.code ? 'active' : ''}" data-lang="${lang.code}" data-english-name="${html_encode(lang.english_name)}">${html_encode(lang.name)}<img class="checkmark" src="${window.icons['checkmark.svg']}"></div>`;
+        }
+        h += '</div>';
         return h;
     },
     init: ($el_window) => {
-        $el_window.on('click', '.language-item', function(){
+        $el_window.on('click', '.language-item', function () {
             const $this = $(this);
             const lang = $this.attr('data-lang');
             changeLanguage(lang);
@@ -52,24 +52,24 @@ export default {
             $this.closest('.language-list').find('.language-item').show();
         });
 
-        $el_window.on('input', '.search-language', function(){
+        $el_window.on('input', '.search-language', function () {
             const $this = $(this);
             const search = $this.val().toLowerCase();
             const $container = $this.closest('.settings').find('.settings-content-container');
             const $content = $container.find('.settings-content.active');
             const $list = $content.find('.language-list');
             const $items = $list.find('.language-item');
-            $items.each(function(){
+            $items.each(function () {
                 const $item = $(this);
                 const lang = $item.attr('data-lang');
                 const name = $item.text().toLowerCase();
                 const english_name = $item.attr('data-english-name').toLowerCase();
-                if(name.includes(search) || lang.includes(search) || english_name.includes(search)){
+                if ( name.includes(search) || lang.includes(search) || english_name.includes(search) ) {
                     $item.show();
-                }else{
+                } else {
                     $item.hide();
                 }
-            })
+            });
         });
     },
     on_show: ($content) => {

@@ -16,11 +16,11 @@
  * You should have received a copy of the GNU Affero General Public License
  * along with this program.  If not, see <https://www.gnu.org/licenses/>.
  */
-const { AdvancedBase } = require("@heyputer/putility");
-const { WeakConstructorFeature } = require("../../traits/WeakConstructorFeature");
-const { Property } = require("./Property");
-const { Entity } = require("../entitystorage/Entity");
-const FSNodeContext = require("../../filesystem/FSNodeContext");
+const { AdvancedBase } = require('@heyputer/putility');
+const { WeakConstructorFeature } = require('../../traits/WeakConstructorFeature');
+const { Property } = require('./Property');
+const { Entity } = require('../entitystorage/Entity');
+const FSNodeContext = require('../../filesystem/FSNodeContext');
 
 /**
  * An instance of Mapping wraps every definition in ../mappings before
@@ -35,7 +35,7 @@ class Mapping extends AdvancedBase {
         // examples where this is typically not possible.
         // However, javascript is magic, and we do what we want.
         new WeakConstructorFeature(),
-    ]
+    ];
 
     static create (context, data) {
         const properties = {};
@@ -86,7 +86,7 @@ class Mapping extends AdvancedBase {
             // This is for reference properties to remove sensitive
             // information in case a decorator added the real object.
             if (
-                ( ! sanitized ) &&
+                ( !sanitized ) &&
                 typeof value === 'object' && value !== null &&
                 prop.descriptor.permissible_subproperties
             ) {
@@ -109,5 +109,5 @@ class Mapping extends AdvancedBase {
 }
 
 module.exports = {
-    Mapping
+    Mapping,
 };

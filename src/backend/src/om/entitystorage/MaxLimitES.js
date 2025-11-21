@@ -16,7 +16,7 @@
  * You should have received a copy of the GNU Affero General Public License
  * along with this program.  If not, see <https://www.gnu.org/licenses/>.
  */
-const { BaseES } = require("./BaseES");
+const { BaseES } = require('./BaseES');
 
 class MaxLimitES extends BaseES {
     static METHODS = {
@@ -36,7 +36,7 @@ class MaxLimitES extends BaseES {
             options.limit = limit;
 
             return await this.upstream.select(options);
-        }
+        },
     };
 }
 

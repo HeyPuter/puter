@@ -21,11 +21,21 @@
  * Defines which methods are expected for any stream implementations.
  */
 export class ParserStream {
-    value_at (index) { throw new Error(`${this.constructor.name}.value_at() not implemented`); }
-    look () { throw new Error(`${this.constructor.name}.look() not implemented`); }
-    next () { throw new Error(`${this.constructor.name}.next() not implemented`); }
-    fork () { throw new Error(`${this.constructor.name}.fork() not implemented`); }
-    join () { throw new Error(`${this.constructor.name}.join() not implemented`); }
+    value_at (index) {
+        throw new Error(`${this.constructor.name}.value_at() not implemented`);
+    }
+    look () {
+        throw new Error(`${this.constructor.name}.look() not implemented`);
+    }
+    next () {
+        throw new Error(`${this.constructor.name}.next() not implemented`);
+    }
+    fork () {
+        throw new Error(`${this.constructor.name}.fork() not implemented`);
+    }
+    join () {
+        throw new Error(`${this.constructor.name}.join() not implemented`);
+    }
 
     is_eof () {
         return this.look().done;

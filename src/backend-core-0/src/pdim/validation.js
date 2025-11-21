@@ -1,25 +1,25 @@
 export const is_valid_uuid = ( uuid ) => {
-    let s = "" + uuid;
+    let s = `${ uuid}`;
     s = s.match(/^[0-9a-f]{8}-[0-9a-f]{4}-[0-5][0-9a-f]{3}-[089ab][0-9a-f]{3}-[0-9a-f]{12}$/i);
-    return !! s;
-}
+    return !!s;
+};
 
 export const is_valid_uuid4 = ( uuid ) => {
     return is_valid_uuid(uuid);
-}
+};
 
 export const is_specifically_uuidv4 = ( uuid ) => {
-    let s = "" + uuid;
+    let s = `${ uuid}`;
 
     s = s.match(/^[0-9A-F]{8}-[0-9A-F]{4}-[4][0-9A-F]{3}-[89AB][0-9A-F]{3}-[0-9A-F]{12}$/i);
-    if (!s) {
-      return false;
+    if ( ! s ) {
+        return false;
     }
     return true;
-}
+};
 
 export const is_valid_url = ( url ) => {
-    let s = "" + url;
+    let s = `${ url}`;
 
     try {
         new URL(s);
@@ -27,7 +27,7 @@ export const is_valid_url = ( url ) => {
     } catch (e) {
         return false;
     }
-}
+};
 
 const path_excludes = () => /[\x00-\x1F]/g;
 
@@ -40,8 +40,8 @@ const safety_excludes = [
     /[\u2066-\u2069]/, // RTL and LTR isolate
     /[\u2028-\u2029]/, // line and paragraph separator
     /[\uFF01-\uFF5E]/, // fullwidth ASCII
-    /[\u2060]/,        // word joiner
-    /[\uFEFF]/,        // zero width no-break space
+    /[\u2060]/, // word joiner
+    /[\uFEFF]/, // zero width no-break space
     /[\uFFFE-\uFFFF]/, // non-characters
 ];
 
@@ -56,8 +56,10 @@ export const is_valid_path = (path, {
         if ( exclude.test(path) ) return false;
     }
 
-    if ( ! allow_path_fragment ) if ( path[0] !== '/' && path[0] !== '.' ) {
-        return false;
+    if ( ! allow_path_fragment ) {
+        if ( path[0] !== '/' && path[0] !== '.' ) {
+            return false;
+        }
     }
 
     if ( no_relative_components ) {
@@ -70,4 +72,4 @@ export const is_valid_path = (path, {
     }
 
     return true;
-}
+};

@@ -16,12 +16,12 @@
  * You should have received a copy of the GNU Affero General Public License
  * along with this program.  If not, see <https://www.gnu.org/licenses/>.
  */
-const APIError = require("../../api/APIError");
-const { Sequence } = require("../../codex/Sequence");
-const config = require("../../config");
-const { WorkList } = require("../../util/workutil");
+const APIError = require('../../api/APIError');
+const { Sequence } = require('../../codex/Sequence');
+const config = require('../../config');
+const { WorkList } = require('../../util/workutil');
 
-const { UsernameNotifSelector } = require("../../services/NotificationService");
+const { UsernameNotifSelector } = require('../../services/NotificationService');
 const { quot } = require('@heyputer/putility').libs.string;
 
 /*
@@ -38,7 +38,7 @@ const { quot } = require('@heyputer/putility').libs.string;
 
 module.exports = new Sequence([
     require('./share/validate.js'),
-    function initialize_result_object(a) {
+    function initialize_result_object (a) {
         a.set('result', {
             $: 'api:share',
             $version: 'v0.0.0',
@@ -47,7 +47,7 @@ module.exports = new Sequence([
                 Array(a.get('req_recipients').length).fill(null),
             shares:
                 Array(a.get('req_shares').length).fill(null),
-            serialize() {
+            serialize () {
                 const result = this;
                 for ( let i = 0 ; i < result.recipients.length ; i++ ) {
                     if ( ! result.recipients[i] ) continue;
@@ -68,7 +68,7 @@ module.exports = new Sequence([
             },
         });
     },
-    function initialize_worklists(a) {
+    function initialize_worklists (a) {
         const recipients_work = new WorkList();
         const shares_work = new WorkList();
 
@@ -93,7 +93,7 @@ module.exports = new Sequence([
     },
     require('./share/process_recipients.js'),
     require('./share/process_shares.js'),
-    function abort_on_error_if_mode_is_strict(a) {
+    function abort_on_error_if_mode_is_strict (a) {
         const strict_mode = a.get('strict_mode');
         if ( ! strict_mode ) return;
 
@@ -109,7 +109,7 @@ module.exports = new Sequence([
             a.stop();
         }
     },
-    function early_return_on_dry_run(a) {
+    function early_return_on_dry_run (a) {
         if ( ! a.get('req').body.dry_run ) return;
 
         const { res, result, recipients_work } = a.values();
@@ -124,7 +124,7 @@ module.exports = new Sequence([
         res.send(result);
         a.stop();
     },
-    async function grant_permissions_to_existing_users(a) {
+    async function grant_permissions_to_existing_users (a) {
         const {
             req, result, recipients_work, shares_work,
         } = a.values();
@@ -144,7 +144,7 @@ module.exports = new Sequence([
             for ( const share_item of shares_work.list() ) {
                 const permissions = share_item.share_intent.permissions;
                 for ( const perm of permissions ) {
-                    if ( perm.startsWith('fs:') || perm.startsWith('manage:fs:') )  {
+                    if ( perm.startsWith('fs:') || perm.startsWith('manage:fs:') ) {
                         await svc_acl.set_user_user(actor,
                                         username,
                                         perm,
@@ -178,9 +178,9 @@ module.exports = new Sequence([
                     files,
                 },
                 text: `The user ${quot(req.user.username)} shared ` +
-                    `${files.length} ` +
-                    (files.length === 1 ? 'file' : 'files') + ' ' +
-                    'with you.',
+                    `${files.length} ${
+                        files.length === 1 ? 'file' : 'files' } ` +
+                        'with you.',
             });
 
             // Working on notifications
@@ -201,7 +201,7 @@ module.exports = new Sequence([
                 { $: 'api:status-report', status: 'success' };
         }
     },
-    async function email_the_email_recipients(a) {
+    async function email_the_email_recipients (a) {
         const { actor, recipients_work, shares_work } = a.values();
 
         const svc_share = a.iget('services').get('share');
@@ -253,7 +253,7 @@ module.exports = new Sequence([
             });
         }
     },
-    function send_result(a) {
+    function send_result (a) {
         const { res, result } = a.values();
         result.serialize();
         res.send(result);

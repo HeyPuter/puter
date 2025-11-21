@@ -22,15 +22,15 @@ const request_examples = [
         fetch: async (args) => {
             return await fetch(`${window.api_origin}/drivers/call`, {
                 headers: {
-                    "Content-Type": "application/json",
-                    "Authorization": `Bearer ${puter.authToken}`,
+                    'Content-Type': 'application/json',
+                    'Authorization': `Bearer ${puter.authToken}`,
                 },
                 body: JSON.stringify({
                     interface: 'puter-apps',
                     method: 'read',
                     args,
                 }),
-                method: "POST",
+                method: 'POST',
             });
         },
         out: async (resp) => {
@@ -48,15 +48,15 @@ const request_examples = [
         fetch: async () => {
             return await fetch(`${window.api_origin}/drivers/call`, {
                 headers: {
-                    "Content-Type": "application/json",
-                    "Authorization": `Bearer ${puter.authToken}`,
+                    'Content-Type': 'application/json',
+                    'Authorization': `Bearer ${puter.authToken}`,
                 },
                 body: JSON.stringify({
                     interface: 'puter-apps',
                     method: 'select',
                     args: { predicate: [] },
                 }),
-                method: "POST",
+                method: 'POST',
             });
         },
         out: async (resp) => {
@@ -73,15 +73,15 @@ const request_examples = [
         name: 'grant permission from a user to a user',
         fetch: async (user, perm) => {
             return await fetch(`${window.api_origin}/auth/grant-user-user`, {
-            "headers": {
-                "Content-Type": "application/json",
-                "Authorization": `Bearer ${puter.authToken}`,
-            },
-            "body": JSON.stringify({
-                target_username: user,
-                permission: perm,
-            }),
-            "method": "POST",
+                'headers': {
+                    'Content-Type': 'application/json',
+                    'Authorization': `Bearer ${puter.authToken}`,
+                },
+                'body': JSON.stringify({
+                    target_username: user,
+                    permission: perm,
+                }),
+                'method': 'POST',
             });
         },
         out: async (resp) => {
@@ -98,7 +98,7 @@ const request_examples = [
         fetch: async (path, str) => {
             const endpoint = `${window.api_origin}/write`;
             const token = puter.authToken;
-        
+
             const blob = new Blob([str], { type: 'text/plain' });
             const formData = new FormData();
             formData.append('create_missing_ancestors', true);
@@ -106,15 +106,15 @@ const request_examples = [
             formData.append('size', 8);
             formData.append('overwrite', true);
             formData.append('file', blob, 'something.txt');
-        
+
             const response = await fetch(endpoint, {
                 method: 'POST',
                 headers: { 'Authorization': `Bearer ${token}` },
-                body: formData
+                body: formData,
             });
             return await response.json();
         },
-    }
+    },
 ];
 
 globalThis.reqex = request_examples;

@@ -12,9 +12,9 @@ declare class Puter {
     env: 'app' | 'web' | 'gui' | 'nodejs' | 'service-worker';
 
     // Utility methods
-    print(text: string, options?: { code?: boolean }): void;
-    randName(separator?: string): string;
-    exit(statusCode?: number): void;
+    print (text: string, options?: { code?: boolean }): void;
+    randName (separator?: string): string;
+    exit (statusCode?: number): void;
 
     // Sub-modules
     ai: AI;
@@ -70,8 +70,8 @@ interface AI {
     speech2txt(source: Speech2TxtOptions, testMode?: boolean): Promise<string | Speech2TxtResult>;
 }
 
-type StreamingChatOptions = Omit<ChatOptions, "stream"> & { stream: true };
-type NonStreamingChatOptions = Omit<ChatOptions, "stream"> & { stream?: false | undefined };
+type StreamingChatOptions = Omit<ChatOptions, 'stream'> & { stream: true };
+type NonStreamingChatOptions = Omit<ChatOptions, 'stream'> & { stream?: false | undefined };
 
 interface ChatOptions {
     model?: string;
@@ -446,17 +446,17 @@ interface Networking {
 }
 
 declare class Socket {
-    constructor(hostname: string, port: number);
-    write(data: ArrayBuffer | Uint8Array | string): void;
-    close(): void;
-    on(event: 'open', callback: () => void): void;
-    on(event: 'data', callback: (buffer: Uint8Array) => void): void;
-    on(event: 'error', callback: (reason: string) => void): void;
-    on(event: 'close', callback: (hadError: boolean) => void): void;
+    constructor (hostname: string, port: number);
+    write (data: ArrayBuffer | Uint8Array | string): void;
+    close (): void;
+    on (event: 'open', callback: () => void): void;
+    on (event: 'data', callback: (buffer: Uint8Array) => void): void;
+    on (event: 'error', callback: (reason: string) => void): void;
+    on (event: 'close', callback: (hadError: boolean) => void): void;
 }
 
 declare class TLSSocket extends Socket {
-    constructor(hostname: string, port: number);
+    constructor (hostname: string, port: number);
 }
 
 // Permissions Module
@@ -634,5 +634,5 @@ export {
     Permissions, Puter, ReaddirOptions, ReadOptions, SpaceInfo, StatsPeriod, Subdomain, ThemeData, ToolCall, ToolDefinition, Txt2ImgOptions,
     Txt2SpeechOptions, UI, UpdateAppAttributes, User, WindowOptions, WorkerDeployment,
     WorkerExecOptions,
-    WorkerInfo, Workers, WriteOptions
+    WorkerInfo, Workers, WriteOptions,
 };

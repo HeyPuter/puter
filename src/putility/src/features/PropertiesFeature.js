@@ -71,5 +71,5 @@ module.exports = {
                 instance[k] = parameters[k_cons];
             }
         }
-    }
-}
+    },
+};

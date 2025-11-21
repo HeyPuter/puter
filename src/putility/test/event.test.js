@@ -1,4 +1,4 @@
-const { Emitter } = require("../src/libs/event");
+const { Emitter } = require('../src/libs/event');
 const { expect } = require('chai');
 
 describe('Emitter', () => {
@@ -10,5 +10,5 @@ describe('Emitter', () => {
         });
         await em.emit('test');
         expect(value).to.equal(true);
-    })
-})
+    });
+});

@@ -35,10 +35,10 @@ import { XDIncomingService } from './services/XDIncoming.js';
 //       (using defaultGUIOrigin breaks locally-hosted apps)
 const PROD_ORIGIN = 'https://puter.com';
 
-const puterInit = (function() {
+const puterInit = (function () {
     'use strict';
 
-    class Puter{
+    class Puter {
         // The environment that the SDK is running in. Can be 'gui', 'app' or 'web'.
         // 'gui' means the SDK is running in the Puter GUI, i.e. Puter.com.
         // 'app' means the SDK is running as a Puter app, i.e. within an iframe in the Puter GUI.
@@ -48,17 +48,17 @@ const puterInit = (function() {
         #defaultAPIOrigin = 'https://api.puter.com';
         #defaultGUIOrigin = 'https://puter.com';
 
-        get defaultAPIOrigin() {
+        get defaultAPIOrigin () {
             return globalThis.PUTER_API_ORIGIN || globalThis.PUTER_API_ORIGIN_ENV || this.#defaultAPIOrigin;
         }
-        set defaultAPIOrigin(v) {
+        set defaultAPIOrigin (v) {
             this.#defaultAPIOrigin = v;
         }
 
-        get defaultGUIOrigin() {
+        get defaultGUIOrigin () {
             return globalThis.PUTER_ORIGIN || globalThis.PUTER_ORIGIN_ENV || this.#defaultGUIOrigin;
         }
-        set defaultGUIOrigin(v) {
+        set defaultGUIOrigin (v) {
             this.#defaultGUIOrigin = v;
         }
 
@@ -100,7 +100,7 @@ const puterInit = (function() {
          *
          * initSubmodules is called from the constructor of this class.
          */
-        initSubmodules = function(){
+        initSubmodules = function () {
             // Util
             this.util = new Util();
 
@@ -127,10 +127,10 @@ const puterInit = (function() {
         // --------------------------------------------
         // Constructor
         // --------------------------------------------
-        constructor() {
+        constructor () {
 
             // Initialize the cache using kv.js
-            this._cache = new kvjs({dbName: 'puter_cache'});
+            this._cache = new kvjs({ dbName: 'puter_cache' });
             this._opscache = new kvjs();
 
             // "modules" in puter.js are external interfaces for the developer
@@ -158,31 +158,31 @@ const puterInit = (function() {
             else if ( globalThis.WorkerGlobalScope ) {
                 if ( globalThis.ServiceWorkerGlobalScope ) {
                     this.env = 'service-worker';
-                    if ( !globalThis.XMLHttpRequest ) {
+                    if ( ! globalThis.XMLHttpRequest ) {
                         globalThis.XMLHttpRequest = xhrshim;
                     }
-                    if ( !globalThis.location ) {
+                    if ( ! globalThis.location ) {
                         globalThis.location = new URL('https://puter.site/');
                     }
                     // XHRShimGlobalize here
                 } else {
                     this.env = 'web-worker';
                 }
-                if ( !globalThis.localStorage ) {
+                if ( ! globalThis.localStorage ) {
                     globalThis.localStorage = localStorageMemory;
                 }
             } else if ( globalThis.process ) {
                 this.env = 'nodejs';
-                if ( !globalThis.localStorage ) {
+                if ( ! globalThis.localStorage ) {
                     globalThis.localStorage = localStorageMemory;
                 }
-                if ( !globalThis.XMLHttpRequest ) {
+                if ( ! globalThis.XMLHttpRequest ) {
                     globalThis.XMLHttpRequest = xhrshim;
                 }
-                if ( !globalThis.location ) {
+                if ( ! globalThis.location ) {
                     globalThis.location = new URL('https://nodejs.puter.site/');
                 }
-                if ( !globalThis.addEventListener ) {
+                if ( ! globalThis.addEventListener ) {
                     globalThis.addEventListener = () => {
                     }; // API Stub
                 }
@@ -193,7 +193,7 @@ const puterInit = (function() {
             // There are some specific situations where puter is definitely loaded in GUI mode
             // we're going to check for those situations here so that we don't break anything unintentionally
             // if navigator URL's hostname is 'puter.com'
-            if ( this.env !== 'gui' ){
+            if ( this.env !== 'gui' ) {
                 // Retrieve the hostname from the URL: Remove the trailing dot if it exists. This is to handle the case where the URL is, for example, `https://puter.com.` (note the trailing dot).
                 // This is necessary because the trailing dot can cause the hostname to not match the expected value.
                 let hostname = location.hostname.replace(/\.$/, '');
@@ -205,13 +205,13 @@ const puterInit = (function() {
                 const gui_hostname = url.hostname;
 
                 // If the hostname matches the GUI hostname, then the SDK is running in the GUI environment
-                if ( hostname === gui_hostname ){
+                if ( hostname === gui_hostname ) {
                     this.env = 'gui';
                 }
             }
 
             // Get the 'args' from the URL. This is used to pass arguments to the app.
-            if ( URLParams.has('puter.args') ){
+            if ( URLParams.has('puter.args') ) {
                 this.args = JSON.parse(decodeURIComponent(URLParams.get('puter.args')));
             } else {
                 this.args = {};
@@ -220,30 +220,30 @@ const puterInit = (function() {
             // Try to extract appInstanceID from the URL. appInstanceID is included in every messaage
             // sent to the host environment. This is used to help host environment identify the app
             // instance that sent the message and communicate back to it.
-            if ( URLParams.has('puter.app_instance_id') ){
+            if ( URLParams.has('puter.app_instance_id') ) {
                 this.appInstanceID = decodeURIComponent(URLParams.get('puter.app_instance_id'));
             }
 
             // Try to extract parentInstanceID from the URL. If another app launched this app instance, parentInstanceID
             // holds its instance ID, and is used to communicate with that parent app.
-            if ( URLParams.has('puter.parent_instance_id') ){
+            if ( URLParams.has('puter.parent_instance_id') ) {
                 this.parentInstanceID = decodeURIComponent(URLParams.get('puter.parent_instance_id'));
             }
 
             // Try to extract `puter.app.id` from the URL. `puter.app.id` is the unique ID of the app.
             // App ID is useful for identifying the app when communicating with the Puter API, among other things.
-            if ( URLParams.has('puter.app.id') ){
+            if ( URLParams.has('puter.app.id') ) {
                 this.appID = decodeURIComponent(URLParams.get('puter.app.id'));
             }
 
             // Extract app name (added later)
-            if ( URLParams.has('puter.app.name') ){
+            if ( URLParams.has('puter.app.name') ) {
                 this.appName = decodeURIComponent(URLParams.get('puter.app.name'));
             }
 
             // Construct this App's AppData path based on the appID. AppData path is used to store files that are specific to this app.
             // The default AppData path is `~/AppData/<appID>`.
-            if ( this.appID ){
+            if ( this.appID ) {
                 this.appDataPath = `~/AppData/${this.appID}`;
             }
 
@@ -253,10 +253,10 @@ const puterInit = (function() {
             // is constructed as `https://api.<puter.domain>`.
             // This should only be done when the SDK is running in 'app' mode.
             this.APIOrigin = this.defaultAPIOrigin;
-            if ( URLParams.has('puter.api_origin') && this.env === 'app' ){
+            if ( URLParams.has('puter.api_origin') && this.env === 'app' ) {
                 this.APIOrigin = decodeURIComponent(URLParams.get('puter.api_origin'));
-            } else if ( URLParams.has('puter.domain') && this.env === 'app' ){
-                this.APIOrigin = 'https://api.' + URLParams.get('puter.domain');
+            } else if ( URLParams.has('puter.domain') && this.env === 'app' ) {
+                this.APIOrigin = `https://api.${ URLParams.get('puter.domain')}`;
             }
 
             // === START :: Logger ===
@@ -302,10 +302,10 @@ const puterInit = (function() {
                     ['APIOrigin', 'api_origin'],
                 ].forEach(([k1, k2]) => {
                     Object.defineProperty(this, k1, {
-                        get() {
+                        get () {
                             return svc_apiAccess[k2];
                         },
-                        set(v) {
+                        set (v) {
                             svc_apiAccess[k2] = v;
                         },
                     });
@@ -315,7 +315,7 @@ const puterInit = (function() {
             // === Start :: Modules === //
 
             // The SDK is running in the Puter GUI (i.e. 'gui')
-            if ( this.env === 'gui' ){
+            if ( this.env === 'gui' ) {
                 this.authToken = window.auth_token;
                 // initialize submodules
                 this.initSubmodules();
@@ -328,14 +328,14 @@ const puterInit = (function() {
                 this.initSubmodules();
                 // If the authToken is already set in localStorage, then we don't need to show the dialog
                 try {
-                    if ( localStorage.getItem('puter.auth.token') ){
+                    if ( localStorage.getItem('puter.auth.token') ) {
                         this.setAuthToken(localStorage.getItem('puter.auth.token'));
                     }
                     // if appID is already set in localStorage, then we don't need to show the dialog
-                    if ( localStorage.getItem('puter.app.id') ){
+                    if ( localStorage.getItem('puter.app.id') ) {
                         this.setAppID(localStorage.getItem('puter.app.id'));
                     }
-                } catch( error ) {
+                } catch ( error ) {
                     // Handle the error here
                     console.error('Error accessing localStorage:', error);
                 }
@@ -348,14 +348,14 @@ const puterInit = (function() {
                 this.initSubmodules();
                 try {
                     // If the authToken is already set in localStorage, then we don't need to show the dialog
-                    if ( localStorage.getItem('puter.auth.token') ){
+                    if ( localStorage.getItem('puter.auth.token') ) {
                         this.setAuthToken(localStorage.getItem('puter.auth.token'));
                     }
                     // if appID is already set in localStorage, then we don't need to show the dialog
-                    if ( localStorage.getItem('puter.app.id') ){
+                    if ( localStorage.getItem('puter.app.id') ) {
                         this.setAppID(localStorage.getItem('puter.app.id'));
                     }
-                } catch( error ) {
+                } catch ( error ) {
                     // Handle the error here
                     console.error('Error accessing localStorage:', error);
                 }
@@ -369,9 +369,9 @@ const puterInit = (function() {
                 const whoami = await this.auth.whoami();
                 logger = new putility.libs.log.PrefixLogger({
                     delegate: logger,
-                    prefix: '[' +
-                        (whoami?.app_name ?? this.appInstanceID ?? 'HOST') +
-                        '] ',
+                    prefix: `[${
+                        whoami?.app_name ?? this.appInstanceID ?? 'HOST'
+                    }] `,
                 });
 
                 this.logger.impl = logger;
@@ -392,7 +392,7 @@ const puterInit = (function() {
 
             this.net = {
                 generateWispV1URL: async () => {
-                    const { token: wispToken, server: wispServer } = (await (await fetch(this.APIOrigin + '/wisp/relay-token/create', {
+                    const { token: wispToken, server: wispServer } = (await (await fetch(`${this.APIOrigin }/wisp/relay-token/create`, {
                         method: 'POST',
                         headers: {
                             Authorization: `Bearer ${this.authToken}`,
@@ -420,7 +420,7 @@ const puterInit = (function() {
          * Makes a request to `/rao`. This method aquires a lock to prevent
          * multiple requests, and is effectively idempotent.
          */
-        async request_rao_() {
+        async request_rao_ () {
             await this.p_can_request_rao_;
 
             if ( this.env === 'gui' ) {
@@ -437,7 +437,7 @@ const puterInit = (function() {
 
             let had_error = false;
             try {
-                const resp = await fetch(this.APIOrigin + '/rao', {
+                const resp = await fetch(`${this.APIOrigin }/rao`, {
                     method: 'POST',
                     headers: {
                         Authorization: `Bearer ${this.authToken}`,
@@ -445,7 +445,7 @@ const puterInit = (function() {
                     },
                 });
                 return await resp.json();
-            } catch( e ) {
+            } catch ( e ) {
                 had_error = true;
                 console.error(e);
             } finally {
@@ -456,14 +456,14 @@ const puterInit = (function() {
             }
         }
 
-        registerModule(name, cls, parameters = {}) {
+        registerModule (name, cls, parameters = {}) {
             const instance = new cls(this.context, parameters);
             this.modules_.push(name);
             this[name] = instance;
             if ( instance._init ) instance._init({ puter: this });
         }
 
-        updateSubmodules() {
+        updateSubmodules () {
             // Update submodules with new auth token and API origin
             for ( const name of this.modules_ ) {
                 if ( ! this[name] ) continue;
@@ -472,30 +472,30 @@ const puterInit = (function() {
             }
         }
 
-        setAppID = function(appID) {
+        setAppID = function (appID) {
             // save to localStorage
             try {
                 localStorage.setItem('puter.app.id', appID);
-            } catch( error ) {
+            } catch ( error ) {
                 // Handle the error here
                 console.error('Error accessing localStorage:', error);
             }
             this.appID = appID;
         };
 
-        setAuthToken = function(authToken) {
+        setAuthToken = function (authToken) {
             this.authToken = authToken;
             // If the SDK is running on a 3rd-party site or an app, then save the authToken in localStorage
-            if ( this.env === 'web' || this.env === 'app' ){
+            if ( this.env === 'web' || this.env === 'app' ) {
                 try {
                     localStorage.setItem('puter.auth.token', authToken);
-                } catch( error ) {
+                } catch ( error ) {
                     // Handle the error here
                     console.error('Error accessing localStorage:', error);
                 }
             }
             // initialize loop for updating caches for major directories
-            if(this.env === 'gui'){
+            if ( this.env === 'gui' ) {
                 // check and update gui fs cache regularly
                 setInterval(puter.checkAndUpdateGUIFScache, 10000);
             }
@@ -511,19 +511,19 @@ const puterInit = (function() {
             });
         };
 
-        setAPIOrigin = function(APIOrigin) {
+        setAPIOrigin = function (APIOrigin) {
             this.APIOrigin = APIOrigin;
             // reinitialize submodules
             this.updateSubmodules();
         };
 
-        resetAuthToken = function() {
+        resetAuthToken = function () {
             this.authToken = null;
             // If the SDK is running on a 3rd-party site or an app, then save the authToken in localStorage
-            if ( this.env === 'web' || this.env === 'app' ){
+            if ( this.env === 'web' || this.env === 'app' ) {
                 try {
                     localStorage.removeItem('puter.auth.token');
-                } catch( error ) {
+                } catch ( error ) {
                     // Handle the error here
                     console.error('Error accessing localStorage:', error);
                 }
@@ -532,7 +532,7 @@ const puterInit = (function() {
             this.updateSubmodules();
         };
 
-        exit = function(statusCode = 0) {
+        exit = function (statusCode = 0) {
             if ( statusCode && (typeof statusCode !== 'number') ) {
                 console.warn('puter.exit() requires status code to be a number. Treating it as 1');
                 statusCode = 1;
@@ -554,7 +554,7 @@ const puterInit = (function() {
          * @returns {string} A unique, hyphen-separated string comprising of an adjective, a noun, and a number.
          *
          */
-        randName = function(separateWith = '-'){
+        randName = function (separateWith = '-') {
             const first_adj = ['helpful', 'sensible', 'loyal', 'honest', 'clever', 'capable', 'calm', 'smart', 'genius', 'bright', 'charming', 'creative', 'diligent', 'elegant', 'fancy',
                 'colorful', 'avid', 'active', 'gentle', 'happy', 'intelligent', 'jolly', 'kind', 'lively', 'merry', 'nice', 'optimistic', 'polite',
                 'quiet', 'relaxed', 'silly', 'victorious', 'witty', 'young', 'zealous', 'strong', 'brave', 'agile', 'bold'];
@@ -573,7 +573,7 @@ const puterInit = (function() {
             return first_adj[Math.floor(Math.random() * first_adj.length)] + separateWith + nouns[Math.floor(Math.random() * nouns.length)] + separateWith + Math.floor(Math.random() * 10000);
         };
 
-        getUser = function(...args){
+        getUser = function (...args) {
             let options;
 
             // If first argument is an object, it's the options
@@ -596,7 +596,7 @@ const puterInit = (function() {
             });
         };
 
-        print = function(...args){
+        print = function (...args) {
             // Check if the last argument is an options object with escapeHTML or code property
             let options = {};
             if ( args.length > 0 && typeof args[args.length - 1] === 'object' && args[args.length - 1] !== null &&
@@ -604,7 +604,7 @@ const puterInit = (function() {
                 options = args.pop();
             }
 
-            for ( let arg of args ){
+            for ( let arg of args ) {
                 // Escape HTML if the option is set to true or if code option is true
                 if ( (options.escapeHTML === true || options.code === true) && typeof arg === 'string' ) {
                     arg = arg.replace(/&/g, '&amp;')
@@ -629,7 +629,7 @@ const puterInit = (function() {
          * @param {boolean} config.enabled - Enable/disable API call logging
           * @param {boolean} config.enabled - Enable/disable API call logging
          */
-        configureAPILogging = function(config = {}){
+        configureAPILogging = function (config = {}) {
             if ( this.apiCallLogger ) {
                 this.apiCallLogger.updateConfig(config);
             }
@@ -640,7 +640,7 @@ const puterInit = (function() {
          * Enables API call logging with optional configuration
          * @param {Object} config - Optional configuration to apply when enabling
          */
-        enableAPILogging = function(config = {}) {
+        enableAPILogging = function (config = {}) {
             if ( this.apiCallLogger ) {
                 this.apiCallLogger.updateConfig({ ...config, enabled: true });
             }
@@ -650,7 +650,7 @@ const puterInit = (function() {
         /**
          * Disables API call logging
          */
-        disableAPILogging = function() {
+        disableAPILogging = function () {
             if ( this.apiCallLogger ) {
                 this.apiCallLogger.disable();
             }
@@ -661,7 +661,7 @@ const puterInit = (function() {
          * Initializes network connectivity monitoring to purge cache when connection is lost
          * @private
          */
-        initNetworkMonitoring = function() {
+        initNetworkMonitoring = function () {
             // Only initialize in environments that support navigator.onLine and window events
             if ( typeof globalThis.navigator === 'undefined' ||
                 typeof globalThis.addEventListener !== 'function' ) {
@@ -681,7 +681,7 @@ const puterInit = (function() {
                     try {
                         this._cache.flushall();
                         console.log('Cache purged successfully');
-                    } catch( error ) {
+                    } catch ( error ) {
                         console.error('Error purging cache:', error);
                     }
                 }
@@ -708,11 +708,11 @@ const puterInit = (function() {
          * Checks and updates the GUI FS cache for most-commonly used paths
          * @private
          */
-        checkAndUpdateGUIFScache = function(){
+        checkAndUpdateGUIFScache = function () {
             // only run in gui environment
-            if(puter.env !== 'gui') return;
+            if ( puter.env !== 'gui' ) return;
             // only run if user is authenticated
-            if(!puter.whoami) return;
+            if ( ! puter.whoami ) return;
 
             let username = puter.whoami.username;
 
@@ -723,55 +723,55 @@ const puterInit = (function() {
             let public_path = `/${username}/Public`;
 
             // item:Home
-            if(!puter._cache.get('item:' + home_path)){
+            if ( ! puter._cache.get(`item:${ home_path}`) ) {
                 console.log(`/${username} item is not cached, refetching cache`);
                 // fetch home
                 puter.fs.stat(home_path);
             }
             // item:Desktop
-            if(!puter._cache.get('item:' + desktop_path)){
+            if ( ! puter._cache.get(`item:${ desktop_path}`) ) {
                 console.log(`/${username}/Desktop item is not cached, refetching cache`);
                 // fetch desktop
                 puter.fs.stat(desktop_path);
             }
             // item:Documents
-            if(!puter._cache.get('item:' + documents_path)){
+            if ( ! puter._cache.get(`item:${ documents_path}`) ) {
                 console.log(`/${username}/Documents item is not cached, refetching cache`);
                 // fetch documents
                 puter.fs.stat(documents_path);
             }
             // item:Public
-            if(!puter._cache.get('item:' + public_path)){
+            if ( ! puter._cache.get(`item:${ public_path}`) ) {
                 console.log(`/${username}/Public item is not cached, refetching cache`);
                 // fetch public
                 puter.fs.stat(public_path);
             }
 
             // readdir:Home
-            if(!puter._cache.get('readdir:' + home_path)){
+            if ( ! puter._cache.get(`readdir:${ home_path}`) ) {
                 console.log(`/${username} is not cached, refetching cache`);
                 // fetch home
                 puter.fs.readdir(home_path);
             }
             // readdir:Desktop
-            if(!puter._cache.get('readdir:' + desktop_path)){
+            if ( ! puter._cache.get(`readdir:${ desktop_path}`) ) {
                 console.log(`/${username}/Desktop is not cached, refetching cache`);
                 // fetch desktop
                 puter.fs.readdir(desktop_path);
             }
             // readdir:Documents
-            if(!puter._cache.get('readdir:' + documents_path)){
+            if ( ! puter._cache.get(`readdir:${ documents_path}`) ) {
                 console.log(`/${username}/Documents is not cached, refetching cache`);
                 // fetch documents
                 puter.fs.readdir(documents_path);
             }
             // readdir:Public
-            if(!puter._cache.get('readdir:' + public_path)){
+            if ( ! puter._cache.get(`readdir:${ public_path}`) ) {
                 console.log(`/${username}/Public is not cached, refetching cache`);
                 // fetch public
                 puter.fs.readdir(public_path);
             }
-        }
+        };
     }
 
     // Create a new Puter object and return it
@@ -791,42 +791,42 @@ puter.tools = [];
  */
 const puterParent = puter.ui.parentApp();
 globalThis.puterParent = puterParent;
-if (puterParent) {
-    console.log("I have a parent, registering tools")
+if ( puterParent ) {
+    console.log('I have a parent, registering tools');
     puterParent.on('message', async (event) => {
-        console.log("Got tool req ", event)
-        if (event.$ === "requestTools") {
-            console.log("Responding with tools")
+        console.log('Got tool req ', event);
+        if ( event.$ === 'requestTools' ) {
+            console.log('Responding with tools');
             puterParent.postMessage({
-                $: "providedTools",
-                tools: JSON.parse(JSON.stringify(puter.tools))
+                $: 'providedTools',
+                tools: JSON.parse(JSON.stringify(puter.tools)),
             });
         }
 
-        if (event.$ === "executeTool") {
-            console.log("xecuting tools")
+        if ( event.$ === 'executeTool' ) {
+            console.log('xecuting tools');
             /**
              * Puter tools format
              * @type {[{exec: Function, function: {description: string, name: string, parameters: {properties: any, required: Array<string>}, type: string}}]}
              */
-            const [tool] = puter.tools.filter(e=>e.function.name === event.toolName);
+            const [tool] = puter.tools.filter(e => e.function.name === event.toolName);
 
             const response = await tool.exec(event.parameters);
             puterParent.postMessage({
-                $: "toolResponse",
+                $: 'toolResponse',
                 response,
                 tag: event.tag,
             });
         }
     });
-    puterParent.postMessage({$: "ready"});
+    puterParent.postMessage({ $: 'ready' });
 }
 
 globalThis.addEventListener && globalThis.addEventListener('message', async (event) => {
     // if the message is not from Puter, then ignore it
     if ( event.origin !== puter.defaultGUIOrigin ) return;
 
-    if ( event.data.msg && event.data.msg === 'requestOrigin' ){
+    if ( event.data.msg && event.data.msg === 'requestOrigin' ) {
         event.source.postMessage({
             msg: 'originResponse',
         }, '*');
@@ -845,7 +845,7 @@ globalThis.addEventListener && globalThis.addEventListener('message', async (eve
         // resolve();
 
         // Call onAuth callback
-        if ( puter.onAuth && typeof puter.onAuth === 'function' ){
+        if ( puter.onAuth && typeof puter.onAuth === 'function' ) {
             puter.getUser().then((user) => {
                 puter.onAuth(user);
             });

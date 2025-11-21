@@ -17,7 +17,7 @@
  * along with this program.  If not, see <https://www.gnu.org/licenses/>.
  */
 class WeakConstructorFeature {
-    install_in_instance(instance, { parameters }) {
+    install_in_instance (instance, { parameters }) {
         for ( const key in parameters ) {
             instance[key] = parameters[key];
         }

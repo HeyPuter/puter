@@ -16,15 +16,15 @@
  * You should have received a copy of the GNU Affero General Public License
  * along with this program.  If not, see <https://www.gnu.org/licenses/>.
  */
-import { END_HARD, END_SOFT } from "../definitions.js";
-import UIAlert from "./UIAlert.js";
-import UIContextMenu from "./UIContextMenu.js";
+import { END_HARD, END_SOFT } from '../definitions.js';
+import UIAlert from './UIAlert.js';
+import UIContextMenu from './UIContextMenu.js';
 import UIWindow from './UIWindow.js';
 
 const end_process = async (uuid, force) => {
     const svc_process = globalThis.services.get('process');
     const process = svc_process.get_by_uuid(uuid);
-    if (!process) {
+    if ( ! process ) {
         console.warn(`Can't end process with uuid='${uuid}': does not exist`);
         return;
     }
@@ -43,7 +43,7 @@ const end_process = async (uuid, force) => {
     if ( confirmation ) {
         const alert_resp = await UIAlert({
             message: confirmation,
-            buttons:[
+            buttons: [
                 {
                     label: i18n('yes'),
                     value: true,
@@ -53,8 +53,8 @@ const end_process = async (uuid, force) => {
                     label: i18n('no'),
                     value: false,
                 },
-            ]
-        })
+            ],
+        });
         if ( ! alert_resp ) return;
     }
 
@@ -65,17 +65,17 @@ const calculate_indent_string = (indent_level, is_last_item_stack, is_last_item)
     // Returns a string of '| ├└'
     let result = '';
 
-    for ( let i=0; i < indent_level; i++ ) {
+    for ( let i = 0; i < indent_level; i++ ) {
         const last_cell = i === indent_level - 1;
-        const has_trunk = (last_cell && ( ! is_last_item )) ||
-                (!last_cell && !is_last_item_stack[i+1]);
+        const has_trunk = (last_cell && ( !is_last_item )) ||
+            (!last_cell && !is_last_item_stack[i + 1]);
         const has_branch = last_cell;
 
-        if (has_trunk && has_branch) {
+        if ( has_trunk && has_branch ) {
             result += '├';
-        } else if (has_trunk) {
+        } else if ( has_trunk ) {
             result += '|';
-        } else if (has_branch) {
+        } else if ( has_branch ) {
             result += '└';
         } else {
             result += ' ';
@@ -88,31 +88,31 @@ const calculate_indent_string = (indent_level, is_last_item_stack, is_last_item)
 const generate_task_rows = (items, { indent_level, is_last_item_stack }) => {
     const svc_process = globalThis.services.get('process');
     let rows_html = '';
-    
-    for (let i = 0; i < items.length; i++) {
+
+    for ( let i = 0; i < items.length; i++ ) {
         const item = items[i];
         const is_last_item = i === items.length - 1;
         const indentation = calculate_indent_string(indent_level, is_last_item_stack, is_last_item);
-        
+
         // Generate indentation HTML
         let indentation_html = '';
-        for (const c of indentation) {
-            indentation_html += `<div class="indentcell">`;
+        for ( const c of indentation ) {
+            indentation_html += '<div class="indentcell">';
             switch (c) {
-                case ' ':
-                    break;
-                case '|':
-                    indentation_html += `<div class="indentcell-trunk"></div>`;
-                    break;
-                case '└':
-                    indentation_html += `<div class="indentcell-branch"></div>`;
-                    break;
-                case '├':
-                    indentation_html += `<div class="indentcell-trunk"></div>`;
-                    indentation_html += `<div class="indentcell-branch"></div>`;
-                    break;
+            case ' ':
+                break;
+            case '|':
+                indentation_html += '<div class="indentcell-trunk"></div>';
+                break;
+            case '└':
+                indentation_html += '<div class="indentcell-branch"></div>';
+                break;
+            case '├':
+                indentation_html += '<div class="indentcell-trunk"></div>';
+                indentation_html += '<div class="indentcell-branch"></div>';
+                break;
             }
-            indentation_html += `</div>`;
+            indentation_html += '</div>';
         }
 
         rows_html += `
@@ -123,20 +123,20 @@ const generate_task_rows = (items, { indent_level, is_last_item_stack }) => {
                         <div class="task-name">${item.name}</div>
                     </div>
                 </td>
-                <td><span class="process-type">${i18n('process_type_' + item.type)}</span></td>
-                <td><span class="process-status">${i18n('process_status_' + item.status.i18n_key)}</span></td>
+                <td><span class="process-type">${i18n(`process_type_${ item.type}`)}</span></td>
+                <td><span class="process-status">${i18n(`process_status_${ item.status.i18n_key}`)}</span></td>
             </tr>
         `;
 
         const children = svc_process.get_children_of(item.uuid);
-        if (children) {
+        if ( children ) {
             rows_html += generate_task_rows(children, {
                 indent_level: indent_level + 1,
                 is_last_item_stack: [ ...is_last_item_stack, is_last_item ],
             });
         }
     }
-    
+
     return rows_html;
 };
 
@@ -145,19 +145,19 @@ const UIWindowTaskManager = async function UIWindowTaskManager () {
 
     let h = '';
 
-    h += `<div class="task-manager-container">`;
-        h += `<table>`;
-            h += `<thead>`;
-                h += `<tr>`;
-                    h += `<th>${i18n('taskmgr_header_name')}</th>`;
-                    h += `<th>${i18n('taskmgr_header_type')}</th>`;
-                    h += `<th>${i18n('taskmgr_header_status')}</th>`;
-                h += `</tr>`;
-            h += `</thead>`;
-            h += `<tbody class="taskmgr-taskarea">`;
-            h += `</tbody>`;
-        h += `</table>`;
-    h += `</div>`;
+    h += '<div class="task-manager-container">';
+    h += '<table>';
+    h += '<thead>';
+    h += '<tr>';
+    h += `<th>${i18n('taskmgr_header_name')}</th>`;
+    h += `<th>${i18n('taskmgr_header_type')}</th>`;
+    h += `<th>${i18n('taskmgr_header_status')}</th>`;
+    h += '</tr>';
+    h += '</thead>';
+    h += '<tbody class="taskmgr-taskarea">';
+    h += '</tbody>';
+    h += '</table>';
+    h += '</div>';
 
     const el_window = await UIWindow({
         title: i18n('task_manager'),
@@ -177,7 +177,7 @@ const UIWindowTaskManager = async function UIWindowTaskManager () {
         body_content: h,
         width: 350,
         window_class: 'window-task-manager',
-        window_css:{
+        window_css: {
             height: 'initial',
         },
         body_css: {
@@ -206,7 +206,7 @@ const UIWindowTaskManager = async function UIWindowTaskManager () {
     };
 
     // Set up context menu for task rows
-    $(el_window).on('contextmenu', '.task-row', function(e) {
+    $(el_window).on('contextmenu', '.task-row', function (e) {
         e.preventDefault();
         const uuid = $(this).data('uuid');
         UIContextMenu({
@@ -239,6 +239,6 @@ const UIWindowTaskManager = async function UIWindowTaskManager () {
     });
 
     return el_window;
-}
+};
 
 export default UIWindowTaskManager;

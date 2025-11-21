@@ -75,7 +75,7 @@ class NodeUIDSelector extends NodeSelector {
 
 class NodeInternalIDSelector extends NodeSelector {
     constructor (service, id, debugInfo) {
-    super();
+        super();
         this.service = service;
         this.id = id;
         this.debugInfo = debugInfo;
@@ -91,9 +91,9 @@ class NodeInternalIDSelector extends NodeSelector {
         if ( showDebug ) {
             return `[db:${this.id}] (${
                 JSON.stringify(this.debugInfo, null, 2)
-            })`
+            })`;
         }
-        return `[db:${this.id}]`
+        return `[db:${this.id}]`;
     }
 }
 
@@ -114,7 +114,7 @@ class NodeChildSelector extends NodeSelector {
     }
 
     describe () {
-        return this.parent.describe() + '/' + this.name;
+        return `${this.parent.describe() }/${ this.name}`;
     }
 }
 
@@ -144,7 +144,7 @@ class NodeRawEntrySelector extends NodeSelector {
     constructor (entry) {
         super();
         // Fix entries from get_descendants
-        if ( ! entry.uuid && entry.uid ) {
+        if ( !entry.uuid && entry.uid ) {
             entry.uuid = entry.uid;
             if ( entry._id ) {
                 entry.id = entry._id;
@@ -206,7 +206,7 @@ const relativeSelector = (parent, path) => {
     }
 
     return selector;
-}
+};
 
 module.exports = {
     NodeSelector,

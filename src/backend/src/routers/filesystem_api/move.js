@@ -16,7 +16,7 @@
  * You should have received a copy of the GNU Affero General Public License
  * along with this program.  If not, see <https://www.gnu.org/licenses/>.
  */
-"use strict"
+'use strict';
 const eggspress = require('../../api/eggspress.js');
 const FSNodeParam = require('../../api/filesystem/FSNodeParam.js');
 const { HLMove } = require('../../filesystem/hl_operations/hl_move.js');
@@ -35,7 +35,7 @@ module.exports = eggspress('/move', {
     parameters: {
         source: new FSNodeParam('source'),
         destination: new FSNodeParam('destination'),
-    }
+    },
 }, async (req, res, next) => {
     const dedupe_name    =
         req.body.dedupe_name ??
@@ -53,7 +53,7 @@ module.exports = eggspress('/move', {
                 user_id: req.user.id,
                 item_upload_id: req.body.item_upload_id,
             })
-            ;
+        ;
         x.set(operationTraceSvc.ckey('frame'), frame);
     }
 
@@ -75,4 +75,4 @@ module.exports = eggspress('/move', {
         frame.done();
         res.send(response);
     });
-})
+});

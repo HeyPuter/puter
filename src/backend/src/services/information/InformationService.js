@@ -1,24 +1,24 @@
 // METADATA // {"ai-commented":{"service":"mistral","model":"mistral-large-latest"}}
 /*
  * Copyright (C) 2024-present Puter Technologies Inc.
- * 
+ *
  * This file is part of Puter.
- * 
+ *
  * Puter is free software: you can redistribute it and/or modify
  * it under the terms of the GNU Affero General Public License as published
  * by the Free Software Foundation, either version 3 of the License, or
  * (at your option) any later version.
- * 
+ *
  * This program is distributed in the hope that it will be useful,
  * but WITHOUT ANY WARRANTY; without even the implied warranty of
  * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
  * GNU Affero General Public License for more details.
- * 
+ *
  * You should have received a copy of the GNU Affero General Public License
  * along with this program.  If not, see <https://www.gnu.org/licenses/>.
  */
 
-const BaseService = require("../BaseService");
+const BaseService = require('../BaseService');
 
 /**
 * @class InformationProvider
@@ -36,13 +36,10 @@ class InformationProvider {
     }
 
     addStrategy (id, provider) {
-        this.informationService.register_provider_(
-            this.output, this.input, { id, fn: provider });
+        this.informationService.register_provider_(this.output, this.input, { id, fn: provider });
         return this;
     }
 }
-
-
 
 /**
 * Class InformationObtainer
@@ -62,7 +59,6 @@ class InformationObtainer {
         this.output = output;
         return this;
     }
-
 
     /**
     * Executes the information obtaining process asynchronously.
@@ -90,8 +86,7 @@ class InformationObtainer {
         * @returns {Promise<*>} - A promise that resolves to the obtained information.
         */
         return await traces.spanify(`OBTAIN ${this.output} FROM ${this.input}`, async () => {
-            return (await this.informationService.obtain_(
-                this.output, this.input, ...args)).result;
+            return (await this.informationService.obtain_(this.output, this.input, ...args)).result;
         });
     }
 }
@@ -101,16 +96,16 @@ class InformationObtainer {
  * and other services to obtain that information. Also optimizes
  * obtaining information by determining which methods are the
  * most efficient for obtaining the information.
- * 
+ *
  * @example Obtain an fsentry given a path:
- * 
+ *
  *    const infosvc = services.get('information');
  *    const fsentry = await infosvc
  *      .with('fs.fsentry:path').obtain('fs.fsentry')
  *      .exec(path);
- * 
+ *
  * @example Register a method for obtaining an fsentry given a path:
- * 
+ *
  *    const infosvc = services.get('information');
  *    infosvc.given('fs.fsentry:path').provide('fs.fsentry')
  *      .addStrategy(async path => {
@@ -128,7 +123,6 @@ class InformationService extends BaseService {
     _construct () {
         this.providers_ = {};
     }
-
 
     /**
     * Initializes the service by registering commands.
@@ -155,7 +149,6 @@ class InformationService extends BaseService {
         this.providers_[output][input] = this.providers_[output][input] || [];
         this.providers_[output][input].push(provider);
     }
-
 
     /**
     * Asynchronously obtains information based on the provided output and input parameters.
@@ -210,14 +203,14 @@ class InformationService extends BaseService {
                             }
                         }
                     }
-                }
+                },
             },
             {
                 id: 'get',
                 description: 'List information providers',
                 handler: async (args, log) => {
                     if ( args.length < 1 ) {
-                        log.log(`usage: info:get <want> <have> <value>`);
+                        log.log('usage: info:get <want> <have> <value>');
                         return;
                     }
                     const [want, have, value] = args;
@@ -227,15 +220,15 @@ class InformationService extends BaseService {
                     try {
                         result_str = JSON.stringify(result.result);
                     } catch (e) {
-                        result_str = '' + result.result;
+                        result_str = `${ result.result}`;
                     }
                     log.log(`${want} <- ${have} (${value}) = ${result_str} (via ${result.provider})`);
-                }
-            }
+                },
+            },
         ]);
     }
 }
 
 module.exports = {
-    InformationService
+    InformationService,
 };

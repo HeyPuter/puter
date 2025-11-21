@@ -5,7 +5,7 @@
 // This doesn't go in ./bases because it logically depends on
 // both ./bases and ./traits, and ./traits depends on ./bases.
 
-const { FeatureBase } = require("./bases/FeatureBase");
+const { FeatureBase } = require('./bases/FeatureBase');
 
 class AdvancedBase extends FeatureBase {
     static FEATURES = [
@@ -14,7 +14,7 @@ class AdvancedBase extends FeatureBase {
         require('./features/TraitsFeature'),
         require('./features/NariMethodsFeature'),
         require('./features/TopicsFeature'),
-    ]
+    ];
 }
 
 module.exports = {

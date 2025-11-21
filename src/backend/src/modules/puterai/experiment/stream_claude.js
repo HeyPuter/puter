@@ -6,14 +6,14 @@ const claude_sample = require('../samples/claude-tools-1');
 const echo_stream = {
     write: data => {
         console.log(data);
-    }
+    },
 };
 
 const chatStream = new Streaming.AIChatStream({ stream: echo_stream });
 
 let message;
 let contentBlock;
-for (const event of claude_sample) {
+for ( const event of claude_sample ) {
     if ( event.type === 'message_start' ) {
         message = chatStream.message();
         continue;

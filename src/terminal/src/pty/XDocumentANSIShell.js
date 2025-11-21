@@ -29,30 +29,28 @@ export class XDocumentANSIShell {
 
         shell.on('message', message => {
             // When the shell reports it's ready, send configuration
-            if (message.$ === 'ioctl.request') {
-                if (message.requestCode === 104) {
+            if ( message.$ === 'ioctl.request' ) {
+                if ( message.requestCode === 104 ) {
                     shell.postMessage({
                         $: 'ioctl.set',
                         windowSize: this.internal_.windowSize,
                     });
                 }
             }
-            if (message.$ === 'ready') {
-                const params = Object.fromEntries(
-                    new URLSearchParams(window.location.search)
-                        .entries()
-                );
+            if ( message.$ === 'ready' ) {
+                const params = Object.fromEntries(new URLSearchParams(window.location.search)
+                    .entries());
                 shell.postMessage({
                     $: 'config',
                     source: params['puter.api_origin'] ??
                         ( params['puter.domain']
                             ? `https://api.${params['puter.domain']}/`
                             : 'https://api.puter.com/' ),
-                    ...params
+                    ...params,
                 });
 
                 const savedSize = this.internal_.windowSize;
-                if (savedSize) {
+                if ( savedSize ) {
                     shell.postMessage({
                         $: 'ioctl.set',
                         windowSize: savedSize,
@@ -61,7 +59,7 @@ export class XDocumentANSIShell {
                 return;
             }
 
-            if (message.$ === 'stdout') {
+            if ( message.$ === 'stdout' ) {
                 ptt.out.write(message.data);
                 return;
             }

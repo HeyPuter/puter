@@ -40,7 +40,7 @@ const module_epoch_d = new Date();
  * @param {*} now - current time as Date object
  */
 const display_time = (now) => {
-    const pad2 = n => String(n).padStart(2, "0");
+    const pad2 = n => String(n).padStart(2, '0');
 
     const yyyy = now.getFullYear();
     const mm   = pad2(now.getMonth() + 1);
@@ -54,12 +54,11 @@ const display_time = (now) => {
     const needMonth = needYear || (now.getMonth() !== module_epoch_d.getMonth());
     const needDay   = needMonth || (now.getDate() !== module_epoch_d.getDate());
 
-    if ( needYear  ) return `${yyyy}-${mm}-${dd} ${time}`;
+    if ( needYear ) return `${yyyy}-${mm}-${dd} ${time}`;
     if ( needMonth ) return `${mm}-${dd} ${time}`;
-    if ( needDay   ) return `${dd} ${time}`;
+    if ( needDay ) return `${dd} ${time}`;
     return time; // same calendar day as first log
 };
-
 
 module.exports = {
     MILLISECOND,
@@ -71,4 +70,3 @@ module.exports = {
     module_epoch_d,
     display_time,
 };
-

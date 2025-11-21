@@ -17,8 +17,8 @@
  * You should have received a copy of the GNU Affero General Public License
  * along with this program.  If not, see <https://www.gnu.org/licenses/>.
  */
-const { Context } = require("../util/context");
-const BaseService = require("./BaseService");
+const { Context } = require('../util/context');
+const BaseService = require('./BaseService');
 
 /**
  * This service registers a middleware that will apply the value of
@@ -30,10 +30,10 @@ const BaseService = require("./BaseService");
 class MakeProdDebuggingLessAwfulService extends BaseService {
     static USE = {
         logutil: 'core.util.logutil',
-    }
+    };
     static MODULES = {
         fs: require('fs'),
-    }
+    };
     /**
     * Inner class that defines the modules required by the MakeProdDebuggingLessAwfulService.
     * Currently includes the file system (fs) module for writing debug logs to files.
@@ -44,7 +44,7 @@ class MakeProdDebuggingLessAwfulService extends BaseService {
         /**
         * Middleware class that handles production debugging functionality
         * by capturing and processing the X-PUTER-DEBUG header value.
-        * 
+        *
         * This middleware extracts the debug header value and makes it
         * available through the Context for logging and debugging purposes.
         */
@@ -56,7 +56,7 @@ class MakeProdDebuggingLessAwfulService extends BaseService {
         }
         /**
         * Installs the middleware into the Express application
-        * 
+        *
         * @param {Object} req - Express request object containing headers
         * @param {Object} res - Express response object
         * @param {Function} next - Express next middleware function
@@ -67,8 +67,8 @@ class MakeProdDebuggingLessAwfulService extends BaseService {
             x.set('prod-debug', req.headers[this.header_name_]);
             next();
         }
-    }
-    
+    };
+
     async _init () {
         // Initialize express middleware
         this.mw = new this.constructor.ProdDebuggingMiddleware();
@@ -89,10 +89,8 @@ class MakeProdDebuggingLessAwfulService extends BaseService {
             const outfile = svc_log.get_log_file(`debug-${maybe_debug_token}.log`);
 
             try {
-                await this.modules.fs.promises.appendFile(
-                    outfile,
-                    this.logutil.stringify_log_entry(log_details) + '\n',
-                );
+                await this.modules.fs.promises.appendFile(outfile,
+                                `${this.logutil.stringify_log_entry(log_details) }\n`);
             } catch ( e ) {
                 console.error(e);
             }
@@ -102,7 +100,7 @@ class MakeProdDebuggingLessAwfulService extends BaseService {
                 fields: {
                     ...fields,
                     prod_debug: maybe_debug_token,
-                }
+                },
             };
         });
     }

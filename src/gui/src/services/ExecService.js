@@ -1,29 +1,29 @@
 /*
  * Copyright (C) 2024-present Puter Technologies Inc.
- * 
+ *
  * This file is part of Puter.
- * 
+ *
  * Puter is free software: you can redistribute it and/or modify
  * it under the terms of the GNU Affero General Public License as published
  * by the Free Software Foundation, either version 3 of the License, or
  * (at your option) any later version.
- * 
+ *
  * This program is distributed in the hope that it will be useful,
  * but WITHOUT ANY WARRANTY; without even the implied warranty of
  * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
  * GNU Affero General Public License for more details.
- * 
+ *
  * You should have received a copy of the GNU Affero General Public License
  * along with this program.  If not, see <https://www.gnu.org/licenses/>.
  */
 
-import { PROCESS_IPC_ATTACHED, Service } from "../definitions.js";
-import launch_app from "../helpers/launch_app.js";
+import { PROCESS_IPC_ATTACHED, Service } from '../definitions.js';
+import launch_app from '../helpers/launch_app.js';
 
 export class ExecService extends Service {
     static description = `
         Manages instances of apps on the Puter desktop.
-    `
+    `;
 
     _construct () {
         this.param_providers = [];
@@ -32,7 +32,7 @@ export class ExecService extends Service {
     register_param_provider (param_provider) {
         this.param_providers.push(param_provider);
     }
-    
+
     async _init ({ services }) {
         const svc_ipc = services.get('ipc');
         svc_ipc.register_ipc_handler('launchApp', {
@@ -43,10 +43,10 @@ export class ExecService extends Service {
         });
 
         this.log = puter.logger.fields({
-            category: 'ipc'
+            category: 'ipc',
         });
     }
-    
+
     // This method is exposed to apps via IPCService.
     async launchApp ({ app_name, args, pseudonym, file_paths, items }, { ipc_context, msg_id } = {}) {
         const app = ipc_context?.caller?.app;
@@ -54,7 +54,7 @@ export class ExecService extends Service {
 
         // This mechanism will be replated with xdrpc soon
         const child_instance_id = window.uuidv4();
-        
+
         const svc_ipc = this.services.get('ipc');
         const connection = ipc_context ? svc_ipc.add_connection({
             source: process.uuid,
@@ -70,18 +70,18 @@ export class ExecService extends Service {
 
         // Collect source app metadata if available
         let source_app_metadata = {};
-        if (app) {
+        if ( app ) {
             // Get the source app information
             try {
                 const source_app_info = await window.get_apps(process?.name);
-                if (source_app_info && !Array.isArray(source_app_info)) {
+                if ( source_app_info && !Array.isArray(source_app_info) ) {
                     source_app_metadata = {
                         source_app_title: source_app_info.title || process?.name,
                         source_app_id: source_app_info.uuid || source_app_info.uid,
                         source_app_name: source_app_info?.name || process?.name,
                     };
                 }
-            } catch (error) {
+            } catch ( error ) {
                 // If we can't get app info, use basic process info
                 source_app_metadata = {
                     source_app_title: process?.name,
@@ -105,7 +105,7 @@ export class ExecService extends Service {
                 parent_pseudo_id: connection.backward.uuid,
             } : {}),
         };
-        
+
         if ( items && items.length ) {
             if ( items.length > 1 ) {
                 console.warn('launchApp does not support launch with multiple items (yet)');
@@ -114,58 +114,59 @@ export class ExecService extends Service {
         }
 
         // Check if file_paths are provided and caller has godmode permissions
-        if (file_paths && Array.isArray(file_paths) && file_paths.length > 0 && process) {
+        if ( file_paths && Array.isArray(file_paths) && file_paths.length > 0 && process ) {
             try {
                 console.log('file_paths', file_paths);
                 // Get caller app info to check godmode status
                 const caller_app_name = process.name;
                 const caller_app_info = await window.get_apps(caller_app_name);
-                
+
                 // Check if caller is in godmode
-                if (caller_app_info && caller_app_info.godmode === 1) {
+                if ( caller_app_info && caller_app_info.godmode === 1 ) {
                     this.log.info(`⚠️ GODMODE app ${caller_app_name} launching ${app_name} with files:`, file_paths);
-                    
+
                     // Get target app info to create file signatures
                     const target_app_info = await puter.apps.get(app_name);
-                    
+
                     // For the first file, create a file signature and set it up like opening a file
-                    if (file_paths.length > 0) {
+                    if ( file_paths.length > 0 ) {
                         let first_file_path = file_paths[0];
 
                         // resolve tilde to home path (i.e. ~/Desktop/file.txt -> /[username]/Desktop/file.txt)
-                        if(first_file_path.startsWith('~/'))
+                        if ( first_file_path.startsWith('~/') )
+                        {
                             first_file_path = window.home_path + first_file_path.slice(1);
-
+                        }
 
                         try {
                             // Get file stats to verify it exists
-                            const file_stat = await puter.fs.stat({path: first_file_path, consistency: 'eventual'});
-                            
+                            const file_stat = await puter.fs.stat({ path: first_file_path, consistency: 'eventual' });
+
                             // Create file signature for the target app
                             const file_signature_result = await puter.fs.sign(target_app_info.uuid, {
                                 path: first_file_path,
-                                action: 'write'
+                                action: 'write',
                             });
-                            
+
                             // Set up launch options with file information
                             launch_options.file_signature = file_signature_result.items;
                             launch_options.file_path = first_file_path;
                             launch_options.token = file_signature_result.token;
-                            
+
                             // Add all file paths to args for the target app
                             launch_options.args.file_paths = file_paths;
-                            
-                        } catch (file_error) {
+
+                        } catch ( file_error ) {
                             this.log.warn(`Failed to process file ${first_file_path}:`, file_error);
                             // Continue with launch but without file signature
                         }
                     }
-                    
+
                 } else {
                     console.log(`⚠️ App ${caller_app_name} attempted to launch ${app_name} with files but does not have godmode permissions`);
                     // Continue with normal launch, ignoring file_paths
                 }
-            } catch (error) {
+            } catch ( error ) {
                 console.log('Error checking godmode permissions:', error);
                 // Continue with normal launch
             }
@@ -184,7 +185,7 @@ export class ExecService extends Service {
                 child_instance_id,
                 ...a,
             }, '*');
-        }
+        };
 
         child_process.onchange('ipc_status', value => {
             if ( value !== PROCESS_IPC_ATTACHED ) return;
@@ -198,14 +199,14 @@ export class ExecService extends Service {
 
             // If `window-active` is set (meanign the window is focused), focus the window one more time
             // this is to ensure that the iframe is `definitely` focused and can receive keyboard events (e.g. keydown)
-            if($(child_process.references.el_win).hasClass('window-active')){
+            if ( $(child_process.references.el_win).hasClass('window-active') ) {
                 $(child_process.references.el_win).focusWindow();
             }
         });
 
-        $(child_process.references.el_win).on('remove', () =>{
+        $(child_process.references.el_win).on('remove', () => {
             const parent_iframe = process?.references?.iframe;
-            if ($(parent_iframe).attr('data-appUsesSdk') !== 'true') {
+            if ( $(parent_iframe).attr('data-appUsesSdk') !== 'true' ) {
                 send_child_launched_msg({ uses_sdk: false });
                 // We also have to report an extra close event because the real one was sent already
                 window.report_app_closed(child_process.uuid);
@@ -219,7 +220,7 @@ export class ExecService extends Service {
         });
 
         return {
-            appInstanceID: connection ? 
+            appInstanceID: connection ?
                 connection.forward.uuid : child_instance_id,
             usesSDK: true,
         };
@@ -253,9 +254,8 @@ export class ExecService extends Service {
             target: process.uuid,
         });
 
-        const response = await process.handle_connection(
-            connection.backward, args);
-        
+        const response = await process.handle_connection(connection.backward, args);
+
         return {
             appInstanceID: connection.forward.uuid,
             usesSDK: true,
