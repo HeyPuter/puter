@@ -237,7 +237,7 @@ const nn = {
         error_unknown_cause: 'Ein ukjent feil oppstod.', // In English: "An unknown error occurred."
         error_uploading_files: 'Klarte ikkje å laste opp filer.', // In English: "Failed to upload files"
         favorites: 'Favorittar', // In English: "Favorites"
-        fit: 'Fit',
+        fit: 'Tilpass',
         folder: 'Mappe', // In English: "Folder"
         force_quit: 'Tving avslutt',
         // In English: "Force Quit"
@@ -257,7 +257,7 @@ const nn = {
         modified: 'Endra',
         new_email: 'Ny e-post',
         no: 'Nei',
-        original_name: 'Orgininalt namn',
+        original_name: 'Originalt namn',
         original_path: 'Original sti',
         oss_code_and_content: 'Programvare med open kjeldekode og innhald',
         password_recovery_rate_limit:
@@ -280,7 +280,7 @@ const nn = {
         process_status_running: 'Køyrer',
         process_type_app: 'App',
         process_type_init: 'Init',
-        process_type_ui: 'Brukargrensesn',
+        process_type_ui: 'Brukargrensesnitt',
         public: 'Offentleg',
         puter_description:
       'Puter er ein personleg skyteknologi med fokus på personvern, der du kan lagre alle filene, appane og spela dine på ein sikker stad, tilgjengeleg frå overalt til ei kvar tid.',
@@ -321,7 +321,7 @@ const nn = {
         two_factor_disabled: '2FA deaktivert',
         two_factor_enabled: '2FA aktivert',
         type_confirm_to_delete_account: "Skriv inn 'konfirmer' for å slette kontoen din.",
-        ui_colors: 'Fargar på brukargrensesn',
+        ui_colors: 'Fargar på brukargrensesnitt',
         ui_manage_sessions: 'Øktbehandler',
         ui_revoke: 'Trekk tilbake',
         unlimited: 'Ubegrensa',
@@ -376,7 +376,7 @@ const nn = {
         'billing.payment_history': 'Betalinghistorikk',
         'billing.refunded': 'Refundert',
         'billing.paid': 'Betalt',
-        'billing.ok': 'oK',
+        'billing.ok': 'OK',
         'billing.resume_subscription': 'Gjenoppta abonnement',
         'billing.subscription_cancelled': 'Abonnementet ditt er kansellert.',
         'billing.subscription_cancelled_description':
@@ -392,7 +392,7 @@ const nn = {
         'billing.upgrade_to_pro': 'Oppgrader til %strong%',
         'billing.switch_to': 'Bytt til %strong%',
         'billing.payment_setup': 'Oppsett av betaling',
-        'billing.back': 'ack',
+        'billing.back': 'Tilbake',
         'billing.you_are_now_subscribed_to': 'Du er no abonnent på %strong%-nivået.',
         'billing.you_are_now_subscribed_to_without_tier': 'Du er no abonnent',
         'billing.subscription_cancellation_confirmation':
