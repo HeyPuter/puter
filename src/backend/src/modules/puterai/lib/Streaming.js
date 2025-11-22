@@ -29,9 +29,10 @@ class AIChatConstructStream {
 }
 
 class AIChatTextStream extends AIChatConstructStream {
-    addText (text) {
+    addText (text, extra_content) {
         const json = JSON.stringify({
             type: 'text', text,
+            ...(extra_content?{extra_content}:{})
         });
         this.chatStream.stream.write(`${json }\n`);
     }
@@ -39,6 +40,14 @@ class AIChatTextStream extends AIChatConstructStream {
     addReasoning (reasoning) {
         const json = JSON.stringify({
             type: 'reasoning', reasoning,
+        });
+        this.chatStream.stream.write(`${json }\n`);
+    }
+
+    addExtraContent(extra_content) {
+        const json = JSON.stringify({
+            type: 'extra_content',
+            extra_content
         });
         this.chatStream.stream.write(`${json }\n`);
     }
