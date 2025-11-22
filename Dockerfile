@@ -24,6 +24,7 @@ COPY package*.json ./
 COPY . .
 
 # Install mocha
+RUN npm i -g npm@latest
 RUN npm install -g mocha
 
 # Install node modules
