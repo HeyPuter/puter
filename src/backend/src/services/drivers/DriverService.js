@@ -287,6 +287,7 @@ class DriverService extends BaseService {
         const iface_to_driver = {
             ['puter-ocr']: 'aws-textract',
             ['puter-tts']: 'aws-polly',
+            ['puter-speech2speech']: 'elevenlabs-voice-changer',
             ['puter-speech2txt']: 'openai-speech2txt',
             ['puter-chat-completion']: 'openai-completion',
             ['puter-image-generation']: 'openai-image-generation',

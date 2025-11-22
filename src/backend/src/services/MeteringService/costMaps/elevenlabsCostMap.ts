@@ -10,4 +10,6 @@ export const ELEVENLABS_COST_MAP = {
     'elevenlabs:eleven_turbo_v2_5:character': 11,
     'elevenlabs:eleven_flash_v2_5:character': 5.5,
     'elevenlabs:eleven_v3:character': 11,
+    'elevenlabs:eleven_multilingual_sts_v2:second': 11,
+    'elevenlabs:eleven_english_sts_v2:second': 11,
 };

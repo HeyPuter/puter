@@ -58,6 +58,9 @@ class PuterAIModule extends AdvancedBase {
         if ( config?.services?.['elevenlabs'] || config?.elevenlabs ) {
             const { ElevenLabsTTSService } = require('./ElevenLabsTTSService');
             services.registerService('elevenlabs-tts', ElevenLabsTTSService);
+
+            const { ElevenLabsVoiceChangerService } = require('./ElevenLabsVoiceChangerService');
+            services.registerService('elevenlabs-voice-changer', ElevenLabsVoiceChangerService);
         }
 
         if ( config?.services?.openai || config?.openai ) {

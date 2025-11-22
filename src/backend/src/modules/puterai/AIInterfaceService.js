@@ -260,6 +260,37 @@ class AIInterfaceService extends BaseService {
             },
         });
 
+        col_interfaces.set('puter-speech2speech', {
+            description: 'Speech to speech voice conversion (voice changer).',
+            methods: {
+                convert: {
+                    description: 'Convert input audio to a target voice.',
+                    parameters: {
+                        audio: { type: 'file' },
+                        voice: { type: 'string', optional: true },
+                        voice_id: { type: 'string', optional: true },
+                        model: { type: 'string', optional: true },
+                        output_format: { type: 'string', optional: true },
+                        voice_settings: { type: 'json', optional: true },
+                        seed: { type: 'number', optional: true },
+                        remove_background_noise: { type: 'flag', optional: true },
+                        file_format: { type: 'string', optional: true },
+                        optimize_streaming_latency: { type: 'number', optional: true },
+                        enable_logging: { type: 'flag', optional: true },
+                    },
+                    result_choices: [
+                        {
+                            names: ['audio'],
+                            type: {
+                                $: 'stream',
+                                content_type: 'audio',
+                            },
+                        },
+                    ],
+                },
+            },
+        });
+
         col_interfaces.set('puter-speech2txt', {
             description: 'Speech to text transcription and translation.',
             methods: {
