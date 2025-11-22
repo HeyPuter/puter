@@ -386,6 +386,118 @@ class AI {
         }).call(this, options);
     };
 
+    speech2speech = async (...args) => {
+        const MAX_INPUT_SIZE = 25 * 1024 * 1024;
+        if ( !args || !args.length ) {
+            throw ({ message: 'Arguments are required', code: 'arguments_required' });
+        }
+
+        const normalizeSource = async (value) => {
+            if ( value instanceof Blob ) {
+                return await utils.blobToDataUri(value);
+            }
+            return value;
+        };
+
+        const normalizeOptions = (opts = {}) => {
+            const normalized = { ...opts };
+            if ( normalized.voiceId && !normalized.voice && !normalized.voice_id ) normalized.voice = normalized.voiceId;
+            if ( normalized.modelId && !normalized.model && !normalized.model_id ) normalized.model = normalized.modelId;
+            if ( normalized.outputFormat && !normalized.output_format ) normalized.output_format = normalized.outputFormat;
+            if ( normalized.voiceSettings && !normalized.voice_settings ) normalized.voice_settings = normalized.voiceSettings;
+            if ( normalized.fileFormat && !normalized.file_format ) normalized.file_format = normalized.fileFormat;
+            if ( normalized.removeBackgroundNoise !== undefined && normalized.remove_background_noise === undefined ) {
+                normalized.remove_background_noise = normalized.removeBackgroundNoise;
+            }
+            if ( normalized.optimizeStreamingLatency !== undefined && normalized.optimize_streaming_latency === undefined ) {
+                normalized.optimize_streaming_latency = normalized.optimizeStreamingLatency;
+            }
+            if ( normalized.enableLogging !== undefined && normalized.enable_logging === undefined ) {
+                normalized.enable_logging = normalized.enableLogging;
+            }
+            delete normalized.voiceId;
+            delete normalized.modelId;
+            delete normalized.outputFormat;
+            delete normalized.voiceSettings;
+            delete normalized.fileFormat;
+            delete normalized.removeBackgroundNoise;
+            delete normalized.optimizeStreamingLatency;
+            delete normalized.enableLogging;
+            return normalized;
+        };
+
+        let options = {};
+        let testMode = false;
+
+        const primary = args[0];
+        if ( primary && typeof primary === 'object' && !Array.isArray(primary) && !(primary instanceof Blob) ) {
+            options = { ...primary };
+        } else {
+            options.audio = await normalizeSource(primary);
+        }
+
+        if ( args[1] && typeof args[1] === 'object' && !Array.isArray(args[1]) && !(args[1] instanceof Blob) ) {
+            options = { ...options, ...args[1] };
+        } else if ( typeof args[1] === 'boolean' ) {
+            testMode = args[1];
+        }
+
+        if ( typeof args[2] === 'boolean' ) {
+            testMode = args[2];
+        }
+
+        if ( options.file ) {
+            options.audio = await normalizeSource(options.file);
+            delete options.file;
+        }
+
+        if ( options.audio instanceof Blob ) {
+            options.audio = await normalizeSource(options.audio);
+        }
+
+        if ( ! options.audio ) {
+            throw { message: 'Audio input is required', code: 'audio_required' };
+        }
+
+        if ( typeof options.audio === 'string' && options.audio.startsWith('data:') ) {
+            const base64 = options.audio.split(',')[1] || '';
+            const padding = base64.endsWith('==') ? 2 : (base64.endsWith('=') ? 1 : 0);
+            const byteLength = Math.floor((base64.length * 3) / 4) - padding;
+            if ( byteLength > MAX_INPUT_SIZE ) {
+                throw { message: 'Input size cannot be larger than 25 MB', code: 'input_too_large' };
+            }
+        }
+
+        const driverArgs = normalizeOptions({ ...options });
+        delete driverArgs.provider;
+
+        return await utils.make_driver_method(['audio'], 'puter-speech2speech', 'elevenlabs-voice-changer', 'convert', {
+            responseType: 'blob',
+            test_mode: testMode,
+            transform: async (result) => {
+                let url;
+                if ( typeof result === 'string' ) {
+                    url = result;
+                } else if ( result instanceof Blob ) {
+                    url = await utils.blob_to_url(result);
+                } else if ( result instanceof ArrayBuffer ) {
+                    const blob = new Blob([result]);
+                    url = await utils.blob_to_url(blob);
+                } else if ( result && typeof result === 'object' && typeof result.arrayBuffer === 'function' ) {
+                    const arrayBuffer = await result.arrayBuffer();
+                    const blob = new Blob([arrayBuffer], { type: result.type || undefined });
+                    url = await utils.blob_to_url(blob);
+                } else {
+                    throw { message: 'Unexpected audio response format', code: 'invalid_audio_response' };
+                }
+                const audio = new Audio(url);
+                audio.toString = () => url;
+                audio.valueOf = () => url;
+                return audio;
+            },
+        }).call(this, driverArgs);
+    };
+
     speech2txt = async (...args) => {
         const MAX_INPUT_SIZE = 25 * 1024 * 1024;
         if ( !args || !args.length ) {
