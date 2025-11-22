@@ -55,6 +55,11 @@ class PuterAIModule extends AdvancedBase {
             services.registerService('aws-polly', AWSPollyService);
         }
 
+        if ( config?.services?.['elevenlabs'] || config?.elevenlabs ) {
+            const { ElevenLabsTTSService } = require('./ElevenLabsTTSService');
+            services.registerService('elevenlabs-tts', ElevenLabsTTSService);
+        }
+
         if ( config?.services?.openai || config?.openai ) {
             const { OpenAICompletionServiceWrapper } = require('./OpenAiCompletionService/index.mjs');
             services.registerService('openai-completion', OpenAICompletionServiceWrapper);
