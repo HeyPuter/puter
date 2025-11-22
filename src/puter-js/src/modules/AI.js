@@ -21,6 +21,13 @@ const TOGETHER_IMAGE_MODEL_PREFIXES = [
     'sg161222/',
     'wavymulder/',
     'prompthero/',
+    'bytedance-seed/',
+    'hidream-ai/',
+    'lykon/',
+    'qwen/',
+    'rundiffusion/',
+    'google/',
+    'ideogram/',
 ];
 
 const TOGETHER_IMAGE_MODEL_KEYWORDS = [
