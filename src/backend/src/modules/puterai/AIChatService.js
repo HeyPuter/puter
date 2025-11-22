@@ -733,7 +733,7 @@ class AIChatService extends BaseService {
             if ( target_model.id.startsWith('openrouter:') || target_model.id.startsWith('togetherai:') ) {
                 [aiProvider, modelToSearch] = target_model.id.replace('openrouter:', '').replace('togetherai:', '').toLowerCase().split('/');
             } else {
-                [aiProvider, modelToSearch] = target_model.provider.toLowerCase(), target_model.id.toLowerCase();
+                [aiProvider, modelToSearch] = target_model.provider.toLowerCase().replace('gemini', 'google').replace('openai-completion', 'openai'), target_model.id.toLowerCase();
             }
 
             const potentialMatches = models.filter(model => {
@@ -741,7 +741,7 @@ class AIChatService extends BaseService {
                     `togetherai:${aiProvider}/${modelToSearch}`, ...(target_model.aliases?.map((alias) => [`openrouter:${aiProvider}/${alias}`,
                         `togetherai:${aiProvider}/${alias}`])?.flat() ?? [])];
 
-                return !possibleModelNames.find(possibleName => model.id.toLowerCase() === possibleName);
+                return !!possibleModelNames.find(possibleName => model.id.toLowerCase() === possibleName);
             }).slice(0, MAX_FALLBACKS);
 
             this.modules.kv.set(`${this.kvkey}:fallbacks:${model}`, potentialMatches);

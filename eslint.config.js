@@ -194,7 +194,7 @@ export default defineConfig([
             '**/*.min.mjs',
             '**/socket.io.js',
             '**/dist/*.js',
-            'src/phoenix/test/**',
+            'src/phoenix/**',
             'src/gui/src/lib/**',
             'src/gui/dist/**',
         ],
