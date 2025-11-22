@@ -13,12 +13,14 @@ import { OPENROUTER_COST_MAP } from './openrouterCostMap';
 import { OPENAI_VIDEO_COST_MAP } from './openaiVideoCostMap';
 import { TOGETHER_COST_MAP } from './togetherCostMap';
 import { XAI_COST_MAP } from './xaiCostMap';
+import { ELEVENLABS_COST_MAP } from './elevenlabsCostMap';
 
 export const COST_MAPS = {
     ...AWS_POLLY_COST_MAP,
     ...AWS_TEXTRACT_COST_MAP,
     ...CLAUDE_COST_MAP,
     ...DEEPSEEK_COST_MAP,
+    ...ELEVENLABS_COST_MAP,
     ...GEMINI_COST_MAP,
     ...GROQ_COST_MAP,
     ...KV_COST_MAP,

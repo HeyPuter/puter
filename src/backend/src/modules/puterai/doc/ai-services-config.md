@@ -9,6 +9,10 @@ AI services are configured under the `services` block in the configuration file.
     "openai": {
       "apiKey": "sk-abcdefg..."
     },
+    "elevenlabs": {
+      "apiKey": "eleven-api-key",
+      "defaultVoiceId": "optional-voice-id"
+    },
     "deepseek": {
       "apiKey": "sk-xyz123..."
     },

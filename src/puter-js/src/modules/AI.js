@@ -6,6 +6,7 @@ const normalizeTTSProvider = (value) => {
     }
     const lower = value.toLowerCase();
     if ( lower === 'openai' ) return 'openai';
+    if ( ['elevenlabs', 'eleven', '11labs', '11-labs', 'eleven-labs', 'elevenlabs-tts'].includes(lower) ) return 'elevenlabs';
     if ( lower === 'aws' || lower === 'polly' || lower === 'aws-polly' ) return 'aws-polly';
     return value;
 };
@@ -281,6 +282,10 @@ class AI {
             provider = 'openai';
         }
 
+        if ( options.engine && normalizeTTSProvider(options.engine) === 'elevenlabs' && !options.provider ) {
+            provider = 'elevenlabs';
+        }
+
         if ( provider === 'openai' ) {
             if ( !options.model && typeof options.engine === 'string' ) {
                 options.model = options.engine;
@@ -293,6 +298,23 @@ class AI {
             }
             if ( ! options.response_format ) {
                 options.response_format = 'mp3';
+            }
+            delete options.engine;
+        } else if ( provider === 'elevenlabs' ) {
+            if ( ! options.voice ) {
+                options.voice = '21m00Tcm4TlvDq8ikWAM';
+            }
+            if ( ! options.model && typeof options.engine === 'string' ) {
+                options.model = options.engine;
+            }
+            if ( ! options.model ) {
+                options.model = 'eleven_multilingual_v2';
+            }
+            if ( ! options.output_format && !options.response_format ) {
+                options.output_format = 'mp3_44100_128';
+            }
+            if ( options.response_format && !options.output_format ) {
+                options.output_format = options.response_format;
             }
             delete options.engine;
         } else {
@@ -326,7 +348,9 @@ class AI {
             }
         }
 
-        const driverName = provider === 'openai' ? 'openai-tts' : 'aws-polly';
+        const driverName = provider === 'openai'
+            ? 'openai-tts'
+            : (provider === 'elevenlabs' ? 'elevenlabs-tts' : 'aws-polly');
 
         return await utils.make_driver_method(['source'], 'puter-tts', driverName, 'synthesize', {
             responseType: 'blob',
@@ -449,7 +473,13 @@ class AI {
                 params.provider = 'openai';
             }
 
-            const driverName = provider === 'openai' ? 'openai-tts' : 'aws-polly';
+            if ( provider === 'elevenlabs' ) {
+                params.provider = 'elevenlabs';
+            }
+
+            const driverName = provider === 'openai'
+                ? 'openai-tts'
+                : (provider === 'elevenlabs' ? 'elevenlabs-tts' : 'aws-polly');
 
             return await utils.make_driver_method(['source'], 'puter-tts', driverName, 'list_engines', {
                 responseType: 'text',
@@ -478,7 +508,13 @@ class AI {
                 delete params.engine;
             }
 
-            const driverName = provider === 'openai' ? 'openai-tts' : 'aws-polly';
+            if ( provider === 'elevenlabs' ) {
+                params.provider = 'elevenlabs';
+            }
+
+            const driverName = provider === 'openai'
+                ? 'openai-tts'
+                : (provider === 'elevenlabs' ? 'elevenlabs-tts' : 'aws-polly');
 
             return utils.make_driver_method(['source'], 'puter-tts', driverName, 'list_voices', {
                 responseType: 'text',
