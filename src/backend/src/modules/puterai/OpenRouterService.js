@@ -138,6 +138,7 @@ class OpenRouterService extends BaseService {
             ...(stream ? {
                 stream_options: { include_usage: true },
             } : {}),
+            usage: { include: true },
         });
 
         const modelDetails =  (await this.models()).find(m => m.id === `openrouter:${ model}`);
