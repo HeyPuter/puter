@@ -27,7 +27,7 @@
 
 ## Puter
 
-Puter is an advanced, open-source internet operating system designed to be feature-rich, exceptionally fast, and highly extensible. Puter can be used as:
+Puter is an advanced, open-source internet operating system designed to be feature-rich, fast, and highly extensible. Puter can be used as:
 
 - A privacy-first personal cloud to keep all your files, apps, and games in one secure place, accessible from anywhere at any time.
 - A platform for building and publishing websites, web apps, and games.
