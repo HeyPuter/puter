@@ -21,6 +21,12 @@ const { CLink } = require("./connection/CLink");
 const { SLink } = require("./connection/SLink");
 const { Context } = require("../../util/context");
 
+// BroadcastService connects configured peer Puter instances and forwards
+// events between them. The protocol used here can be versioned and
+// supports configurable encryption strategies, which are passed to the
+// underlying connection links.
+
+
 class BroadcastService extends BaseService {
     static MODULES = {
         express: require('express'),
@@ -31,17 +37,31 @@ class BroadcastService extends BaseService {
         this.peers_ = [];
         this.connections_ = [];
         this.trustedPublicKeys_ = {};
+
+        // Protocol versioning and encryption configuration.
+        // These defaults can be overridden via this.config.protocolVersion
+        // and this.config.encryptionStrategies.
+        this.protocolVersion_ = 1;
+        this.encryptionStrategies_ = [ 'none' ];
     }
     
-    async _init () {
+        async _init () {
+        // Allow configuration to override default protocol/encryption settings.
+        this.protocolVersion_ = this.config.protocolVersion ?? this.protocolVersion_;
+        this.encryptionStrategies_ = this.config.encryptionStrategies ?? this.encryptionStrategies_;
+
         const peers = this.config.peers ?? [];
         for ( const peer_config of peers ) {
+
             this.trustedPublicKeys_[peer_config.key] = true;
-            const peer = new CLink({
+                        const peer = new CLink({
                 keys: this.config.keys,
                 config: peer_config,
                 log: this.log,
+                protocolVersion: this.protocolVersion_,
+                encryptionStrategies: this.encryptionStrategies_,
             });
+
             this.peers_.push(peer);
             peer.connect();
         }
@@ -76,11 +96,14 @@ class BroadcastService extends BaseService {
         });
         
         io.on('connection', async socket => {
-            const conn = new SLink({
+                        const conn = new SLink({
                 keys: this.config.keys,
                 trustedKeys: this.trustedPublicKeys_,
                 socket,
+                protocolVersion: this.protocolVersion_,
+                encryptionStrategies: this.encryptionStrategies_,
             });
+
             this.connections_.push(conn);
             
             conn.channels.message.on(({ key, data, meta }) => {
