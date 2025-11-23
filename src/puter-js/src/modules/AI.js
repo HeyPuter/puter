@@ -804,12 +804,24 @@ class AI{
             options = args[0]
         }
 
-        let AIService = "openai-image-generation"
+                let AIService = "openai-image-generation";
+
+        // Backwards compat: old alias
         if (options.model === "nano-banana") 
             options.model = "gemini-2.5-flash-image-preview";
 
-        if (options.model === "gemini-2.5-flash-image-preview")
+        // New alias for Gemini 3 Pro image
+        if (options.model === "nano-banana-pro")
+            options.model = "gemini-3-pro-image-preview";
+
+        // Use Gemini image generation driver for both Gemini image models
+        if (
+            options.model === "gemini-2.5-flash-image-preview" ||
+            options.model === "gemini-3-pro-image-preview"
+        ) {
             AIService = "gemini-image-generation";
+        }
+
         // Call the original chat.complete method
         return await utils.make_driver_method(['prompt'], 'puter-image-generation', AIService, 'generate', {
             responseType: 'blob',
