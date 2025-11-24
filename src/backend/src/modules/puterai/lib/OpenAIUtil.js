@@ -35,6 +35,7 @@ const process_input_messages = async (messages) => {
                         name: content_block.name,
                         arguments: JSON.stringify(content_block.input),
                     },
+                    ...(content_block.extra_content?{extra_content: content_block.extra_content}:{})
                 });
                 content.splice(i, 1);
             }
@@ -131,6 +132,14 @@ const create_chat_stream_handler = ({
             continue;
         }
 
+        if (choice.delta.extra_content) {
+            // Gemini specific thing for metadata, we will basically be appending onto the current message by abusing .addText a little
+            // Apps have to choose to handle extra_content themselves, it doesn't seem like theres a way we can do it in a backwards 
+            // compatible fashion since most streaming apps will handle chat history by continuously updating content themselves
+            // This doesn't present us a chance to add in an extra object for gemini's chat continuing features
+            textblock.addExtraContent(choice.delta.extra_content);
+        }
+
         const tool_calls = deviations.index_tool_calls_from_stream_choice(choice);
         if ( tool_calls ) {
             if ( mode === 'text' ) {
@@ -143,6 +152,7 @@ const create_chat_stream_handler = ({
                         type: 'tool_use',
                         id: tool_call.id,
                         name: tool_call.function.name,
+                        ...(tool_call.extra_content ? {extra_content: tool_call.extra_content}: {})
                     });
                     tool_call_blocks[tool_call.index] = toolblock;
                 } else {
