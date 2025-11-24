@@ -16,35 +16,35 @@
  * You should have received a copy of the GNU Affero General Public License
  * along with this program.  If not, see <https://www.gnu.org/licenses/>.
  */
+import ReadlineLib from '../ansi-shell/readline/readline.js';
 import builtins from './coreutils/__exports__.js';
-import ReadlineLib from "../ansi-shell/readline/readline.js";
 
 // TODO: auto-gen argument parser registry from files
-import SimpleArgParser from "../ansi-shell/arg-parsers/simple-parser.js";
-import ErrorsDecorator from "../ansi-shell/decorators/errors.js";
-import { ANSIShell } from "../ansi-shell/ANSIShell.js";
 import { libs } from '@heyputer/putility';
-const { Context } = libs.context;
-import { SHELL_VERSIONS } from "../meta/versions.js";
-import { PuterShellParser } from "../ansi-shell/parsing/PuterShellParser.js";
-import { BuiltinCommandProvider } from "./providers/BuiltinCommandProvider.js";
-import { CreateChatHistoryPlugin } from './plugins/ChatHistoryPlugin.js';
-import { Pipe } from '../ansi-shell/pipeline/Pipe.js';
-import { Coupler } from '../ansi-shell/pipeline/Coupler.js';
 import { BetterReader } from 'dev-pty';
+import { ANSIShell } from '../ansi-shell/ANSIShell.js';
+import SimpleArgParser from '../ansi-shell/arg-parsers/simple-parser.js';
+import ErrorsDecorator from '../ansi-shell/decorators/errors.js';
 import { MultiWriter } from '../ansi-shell/ioutil/MultiWriter.js';
+import { PuterShellParser } from '../ansi-shell/parsing/PuterShellParser.js';
+import { Coupler } from '../ansi-shell/pipeline/Coupler.js';
+import { Pipe } from '../ansi-shell/pipeline/Pipe.js';
+import { SHELL_VERSIONS } from '../meta/versions.js';
+import { CreateChatHistoryPlugin } from './plugins/ChatHistoryPlugin.js';
+import { BuiltinCommandProvider } from './providers/BuiltinCommandProvider.js';
 import { CompositeCommandProvider } from './providers/CompositeCommandProvider.js';
-import { ScriptCommandProvider } from './providers/ScriptCommandProvider.js';
-import { PuterAppCommandProvider } from './providers/PuterAppCommandProvider.js';
 import { EmuCommandProvider } from './providers/EmuCommandProvider.js';
 import { PDECommandProvider } from './providers/PDECommandProvider.js';
+import { PuterAppCommandProvider } from './providers/PuterAppCommandProvider.js';
+import { ScriptCommandProvider } from './providers/ScriptCommandProvider.js';
+const { Context } = libs.context;
 
 const argparser_registry = {
-    [SimpleArgParser.name]: SimpleArgParser
+    [SimpleArgParser.name]: SimpleArgParser,
 };
 
 const decorator_registry = {
-    [ErrorsDecorator.name]: ErrorsDecorator
+    [ErrorsDecorator.name]: ErrorsDecorator,
 };
 
 export const launchPuterShell = async (ctx) => {
@@ -59,8 +59,8 @@ export const launchPuterShell = async (ctx) => {
         delegates: [
             echo_pipe.in,
             real_pipe.in,
-        ]
-    })
+        ],
+    });
     new Coupler(ptt.in, out_writer);
     const echo = new Coupler(echo_pipe.out, ptt.out);
     const stdin = new BetterReader({ delegate: real_pipe.out });
@@ -68,7 +68,7 @@ export const launchPuterShell = async (ctx) => {
 
     const readline = ReadlineLib.create({
         in: stdin,
-        out: ptt.out
+        out: ptt.out,
     });
 
     const sdkv2 = globalThis.puter;
@@ -78,7 +78,7 @@ export const launchPuterShell = async (ctx) => {
     }
 
     // PathCommandProvider is only compatible with node.js for now
-    // HACK: The import path is split to fool rollup into not including it.
+    // HACK: The import path is split to fool webpack into not including it.
     const { PathCommandProvider } = (ctx.platform.name === 'node')
         ? await import('./providers/' + 'PathCommandProvider.js')
         : { PathCommandProvider: null };
@@ -96,7 +96,8 @@ export const launchPuterShell = async (ctx) => {
 
     ctx = ctx.sub({
         externs: new Context({
-            config, puterShell,
+            config,
+            puterShell,
             readline: readline.readline.bind(readline),
             in: stdin,
             out: ptt.out,
@@ -119,7 +120,7 @@ export const launchPuterShell = async (ctx) => {
     });
 
     {
-        const name = "chatHistory";
+        const name = 'chatHistory';
         const p = CreateChatHistoryPlugin(ctx);
         ctx.plugins[name] = new Context(p.expose);
         p.init();
@@ -131,8 +132,8 @@ export const launchPuterShell = async (ctx) => {
     ptt.on('ioctl.set', evt => {
         ansiShell.dispatchEvent(new CustomEvent('signal.window-resize', {
             detail: {
-                ...evt.windowSize
-            }
+                ...evt.windowSize,
+            },
         }));
     });
 
@@ -156,39 +157,36 @@ export const launchPuterShell = async (ctx) => {
         }).join('');
 
         return fireText;
-    }
+    };
 
     const blue = (text) => {
         return `\x1b[38:5:27;1m${text}\x1b[0m`;
-    }
-
-    const mklink = (url, text) => {
-        return `\x1b]8;;${url}\x07${text || url}\x1b]8;;\x07`
     };
 
-    ctx.externs.out.write(
-        `${fire('Phoenix Shell')} [v${SHELL_VERSIONS[0].v}]\n` +
-        (! ctx.init_arguments.c ?
-            `⛷  try typing \x1B[34;1mhelp\x1B[0m or ` +
-            `\x1B[34;1mchangelog\x1B[0m to get started.\n`
-            : `'-c' was passed; running: \x1B[36;1m${ctx.init_arguments.c}\x1B[0m\n`) +
+    const mklink = (url, text) => {
+        return `\x1b]8;;${url}\x07${text || url}\x1b]8;;\x07`;
+    };
+
+    ctx.externs.out.write(`${fire('Phoenix Shell')} [v${SHELL_VERSIONS[0].v}]\n${
+        !ctx.init_arguments.c ?
+            '⛷  try typing \x1B[34;1mhelp\x1B[0m or ' +
+            '\x1B[34;1mchangelog\x1B[0m to get started.\n'
+            : `'-c' was passed; running: \x1B[36;1m${ctx.init_arguments.c}\x1B[0m\n`
         // '\n' +
         // `🔗  ${mklink('https://puter.com', 'puter.com')} ` +
-        ''
-        // `🔗  ${mklink('https://puter.com', 'puter.com')} ` +
+    }`,
+                    // `🔗  ${mklink('https://puter.com', 'puter.com')} ` +
     );
 
     if ( ! config.hasOwnProperty('puter.auth.token') ) {
         ctx.externs.out.write('\n');
-        ctx.externs.out.write(
-            `\x1B[33;1m⚠\x1B[0m` +
-            `\x1B[31;1m` +
+        ctx.externs.out.write('\x1B[33;1m⚠\x1B[0m' +
+            '\x1B[31;1m' +
             ' You are not running this terminal or shell within puter.com\n' +
-            `\x1B[0m` +
+            '\x1B[0m' +
             'Use of the shell outside of puter.com is still experimental.\n' +
             'You must enter the command \x1B[34;1m`login`\x1B[0m to access most functionality.\n' +
-            ''
-        );
+            '');
     }
 
     ctx.externs.out.write('\n');

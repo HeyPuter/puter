@@ -16,10 +16,10 @@
  * You should have received a copy of the GNU Affero General Public License
  * along with this program.  If not, see <https://www.gnu.org/licenses/>.
  */
-import { strataparse } from '@heyputer/parsers'
+import { strataparse } from '@heyputer/parsers';
 const { ParserBuilder, ParserFactory, StrataParseFacade } = strataparse;
 
-import { PARSE_CONSTANTS } from "./PARSE_CONSTANTS.js";
+import { PARSE_CONSTANTS } from './PARSE_CONSTANTS.js';
 const escapeSubstitutions = PARSE_CONSTANTS.escapeSubstitutions;
 
 const splitTokens = (items, delimPredicate) => {
@@ -27,7 +27,7 @@ const splitTokens = (items, delimPredicate) => {
     {
         let buffer = [];
         // single pass to split by pipe token
-        for ( let i=0 ; i < items.length ; i++ ) {
+        for ( let i = 0 ; i < items.length ; i++ ) {
             if ( delimPredicate(items[i]) ) {
                 result.push(buffer);
                 buffer = [];
@@ -110,7 +110,7 @@ class ShellConstructsPStratumImpl {
                     lexer.next();
                 }
                 this.push('command');
-            }
+            },
         },
         {
             name: 'command',
@@ -146,7 +146,7 @@ class ShellConstructsPStratumImpl {
             },
             exit ({ node }) {
                 this.stack_top.node.commands.push(node);
-            }
+            },
         },
         {
             name: 'redirect',
@@ -174,7 +174,7 @@ class ShellConstructsPStratumImpl {
                     throw new Error('unexpected close');
                 }
                 this.push('token');
-            }
+            },
         },
         {
             name: 'token',
@@ -208,7 +208,7 @@ class ShellConstructsPStratumImpl {
                     return;
                 }
                 this.push('string', { quote: null });
-            }
+            },
         },
         {
             name: 'string',
@@ -235,8 +235,8 @@ class ShellConstructsPStratumImpl {
                         value.$ === 'op.close'
                     )
                 ) {
-                        this.pop();
-                        return;
+                    this.pop();
+                    return;
                 }
                 if ( value.$ === 'op.cmd-subst' ) {
                     this.push('pipeline');
@@ -245,7 +245,7 @@ class ShellConstructsPStratumImpl {
                 }
                 node.components.push(value);
                 lexer.next();
-            }
+            },
         },
     ];
 
@@ -289,7 +289,7 @@ class ShellConstructsPStratumImpl {
 
         // return { done: true, value: { $: 'test' } };
 
-        for ( let i=0 ; i < 500 ; i++ ) {
+        for ( let i = 0 ; i < 500 ; i++ ) {
             const { done, value } = lexer.look();
 
             if ( done ) {
@@ -306,7 +306,6 @@ class ShellConstructsPStratumImpl {
             // if ( done ) break;
         }
 
-
         this.done_ = true;
         return { done: false, value: this.stack[0].node };
     }
@@ -322,11 +321,11 @@ class ShellConstructsPStratumImpl {
         if ( types.includes('op.pipe') ) {
             const components =
                 splitTokens(tokens, t => t.$ === 'op.pipe')
-                .map(tokens => this.consolidateTokens(tokens));
-            
+                    .map(tokens => this.consolidateTokens(tokens));
+
             return { $: 'pipeline', components };
         }
-    
+
         // const command = tokens.shift();
         const args = [];
         const outputRedirects = [];
@@ -335,7 +334,7 @@ class ShellConstructsPStratumImpl {
         const states = {
             STATE_NORMAL: {},
             STATE_REDIRECT: {
-                direction: null
+                direction: null,
             },
         };
         const stack = [];
@@ -348,7 +347,7 @@ class ShellConstructsPStratumImpl {
                 arry.push({
                     // TODO: get string value only
                     path: token,
-                })
+                });
                 state = states.STATE_NORMAL;
                 continue;
             }
@@ -368,7 +367,7 @@ class ShellConstructsPStratumImpl {
             }
             if ( token.$ === 'op.close' ) {
                 const sub = stack.pop();
-                dest = stack.length === 0 ? args : stack[stack.length-1].tokens;
+                dest = stack.length === 0 ? args : stack[stack.length - 1].tokens;
                 const cmd_node = this.consolidateTokens(sub.tokens);
                 dest.push(cmd_node);
                 continue;
@@ -403,7 +402,7 @@ class MultilinePStratumImpl extends ShellConstructsPStratumImpl {
                 }
 
                 this.push('pipeline');
-            }
+            },
         },
         ...ShellConstructsPStratumImpl.states,
     ];
@@ -417,10 +416,8 @@ export const buildParserSecondHalf = (sp, { multiline } = {}) => {
     const parserFactory = new ParserFactory();
     const parserRegistry = StrataParseFacade.getDefaultParserRegistry();
 
-    const parserBuilder = new ParserBuilder(
-        parserFactory,
-        parserRegistry,
-    );
+    const parserBuilder = new ParserBuilder(parserFactory,
+                    parserRegistry);
 
     // sp.add(new ReducePrimitivesPStratumImpl());
     if ( multiline ) {
@@ -428,4 +425,4 @@ export const buildParserSecondHalf = (sp, { multiline } = {}) => {
     } else {
         sp.add(new ShellConstructsPStratumImpl());
     }
-}
+};

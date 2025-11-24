@@ -7,17 +7,17 @@
  * it under the terms of the GNU Affero General Public License as published
  * by the Free Software Foundation, either version 3 of the License, or
  * (at your option) any later version.
- * 
+ *
  * This program is distributed in the hope that it will be useful,
  * but WITHOUT ANY WARRANTY; without even the implied warranty of
  * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
  * GNU Affero General Public License for more details.
- * 
+ *
  * You should have received a copy of the GNU Affero General Public License
  * along with this program.  If not, see <https://www.gnu.org/licenses/>.
  */
 
-import UIWindow from './UIWindow.js'
+import UIWindow from './UIWindow.js';
 import Placeholder from '../util/Placeholder.js';
 import Button from './Components/Button.js';
 
@@ -30,54 +30,54 @@ import Button from './Components/Button.js';
  * @constructor
  * TODO: Debouncing logic (show only after a delay, then hide only after a delay)
  */
-async function UIWindowProgress({
+async function UIWindowProgress ({
     operation_id = null,
     show_progress = false,
     on_cancel = null,
-} = {}){
+} = {}) {
     const placeholder_cancel_btn = Placeholder();
     const placeholder_ok_btn = Placeholder();
 
     let h = '';
     h += `<div ${operation_id ? `data-operation-id="${operation_id}"` : ''}>`;
-        h += `<div class="progress-running">`;
-            h += `<div style="display: flex; align-items: center; gap: 7px;">`;
-                // spinner
-                h += `<svg style="overflow: visible;" xmlns="http://www.w3.org/2000/svg" height="24" width="24" viewBox="0 0 24 24"><title>circle anim</title><g fill="#212121" class="nc-icon-wrapper"><g class="nc-loop-circle-24-icon-f"><path d="M12 24a12 12 0 1 1 12-12 12.013 12.013 0 0 1-12 12zm0-22a10 10 0 1 0 10 10A10.011 10.011 0 0 0 12 2z" fill="#212121" opacity=".4"></path><path d="M24 12h-2A10.011 10.011 0 0 0 12 2V0a12.013 12.013 0 0 1 12 12z" data-color="color-2"></path></g><style>.nc-loop-circle-24-icon-f{--animation-duration:0.5s;transform-origin:12px 12px;animation:nc-loop-circle-anim var(--animation-duration) infinite linear}@keyframes nc-loop-circle-anim{0%{transform:rotate(0)}100%{transform:rotate(360deg)}}</style></g></svg>`;
-                // Progress report
-                h += `<div class="progress-report">
+    h += '<div class="progress-running">';
+    h += '<div style="display: flex; align-items: center; gap: 7px;">';
+    // spinner
+    h += '<svg style="overflow: visible;" xmlns="http://www.w3.org/2000/svg" height="24" width="24" viewBox="0 0 24 24"><title>circle anim</title><g fill="#212121" class="nc-icon-wrapper"><g class="nc-loop-circle-24-icon-f"><path d="M12 24a12 12 0 1 1 12-12 12.013 12.013 0 0 1-12 12zm0-22a10 10 0 1 0 10 10A10.011 10.011 0 0 0 12 2z" fill="#212121" opacity=".4"></path><path d="M24 12h-2A10.011 10.011 0 0 0 12 2V0a12.013 12.013 0 0 1 12 12z" data-color="color-2"></path></g><style>.nc-loop-circle-24-icon-f{--animation-duration:0.5s;transform-origin:12px 12px;animation:nc-loop-circle-anim var(--animation-duration) infinite linear}@keyframes nc-loop-circle-anim{0%{transform:rotate(0)}100%{transform:rotate(360deg)}}</style></g></svg>';
+    // Progress report
+    h += `<div class="progress-report">
                     <span class="progress-msg">${i18n('preparing')}</span>`;
-                if (show_progress) {
-                    h += ` (<span class="progress-percent">0%</span>)`;
-                }
-                h += `</div>`;
-            h +=`</div>`;
-            if (show_progress) {
-                h += `<div class="progress-bar-container" style="margin-top:20px;">`;
-                    h += `<div class="progress-bar"></div>`;
-                h += `</div>`;
-            }
-            if (on_cancel) {
-                h += `<div style="display: flex; justify-content: flex-end;">`;
-                    h += placeholder_cancel_btn.html;
-                h += `</div>`;
-            }
-        h += `</div>`;
-        h += `<div class="progress-error" style="display: none">`;
-            h += `<div style="display: flex; align-items: center; gap: 7px;">`;
-                // Alert icon
-                h += `<img style="width:24px; height:24px;" src="${html_encode(window.icons['warning-sign.svg'])}" />`;
-                // Progress report
-                h += `<div class="progress-report">
+    if ( show_progress ) {
+        h += ' (<span class="progress-percent">0%</span>)';
+    }
+    h += '</div>';
+    h += '</div>';
+    if ( show_progress ) {
+        h += '<div class="progress-bar-container" style="margin-top:20px;">';
+        h += '<div class="progress-bar"></div>';
+        h += '</div>';
+    }
+    if ( on_cancel ) {
+        h += '<div style="display: flex; justify-content: flex-end;">';
+        h += placeholder_cancel_btn.html;
+        h += '</div>';
+    }
+    h += '</div>';
+    h += '<div class="progress-error" style="display: none">';
+    h += '<div style="display: flex; align-items: center; gap: 7px;">';
+    // Alert icon
+    h += `<img style="width:24px; height:24px;" src="${html_encode(window.icons['warning-sign.svg'])}" />`;
+    // Progress report
+    h += `<div class="progress-report">
                     <span class="progress-error-title"></span>`;
-                h += `</div>`;
-            h += `</div>`;
-            h += `<p class="progress-error-message"></p>`;
-            h += `<div style="display: flex; justify-content: flex-end;">`;
-                h += placeholder_ok_btn.html;
-            h += `</div>`;
-        h += `</div>`;
-    h += `</div>`;
+    h += '</div>';
+    h += '</div>';
+    h += '<p class="progress-error-message"></p>';
+    h += '<div style="display: flex; justify-content: flex-end;">';
+    h += placeholder_ok_btn.html;
+    h += '</div>';
+    h += '</div>';
+    h += '</div>';
 
     const el_window = await UIWindow({
         uid: null,
@@ -95,7 +95,7 @@ async function UIWindowProgress({
         window_class: 'window-progress',
         width: 450,
         dominant: true,
-        window_css:{
+        window_css: {
             height: 'initial',
         },
         body_css: {
@@ -107,10 +107,10 @@ async function UIWindowProgress({
                 var(--primary-lightness),
                 var(--primary-alpha))`,
             'backdrop-filter': 'blur(3px)',
-        }    
+        },
     });
 
-    if (on_cancel) {
+    if ( on_cancel ) {
         const cancel_btn = new Button({
             label: i18n('cancel'),
             style: 'small',

@@ -33,9 +33,8 @@ const parse_meminfo = text => {
     }
 
     return meminfo;
-}
+};
 
 module.exports = {
     parse_meminfo,
 };
-

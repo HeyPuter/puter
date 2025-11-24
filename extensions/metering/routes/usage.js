@@ -5,7 +5,7 @@ extension.get('/metering/usage', { subdomain: 'api' }, async (req, res) => {
     const meteringService = meteringServiceWrapper.meteringService;
 
     const actor = req.actor;
-    if ( !actor ) {
+    if ( ! actor ) {
         throw Error('actor not found in context');
     }
     const actorUsagePromise = meteringService.getActorCurrentMonthUsageDetails(actor);
@@ -20,11 +20,11 @@ extension.get('/metering/usage/:appId', { subdomain: 'api' }, async (req, res) =
     const meteringService = meteringServiceWrapper.meteringService;
 
     const actor = req.actor;
-    if ( !actor ) {
+    if ( ! actor ) {
         throw Error('actor not found in context');
     }
     const appId = req.params.appId;
-    if ( !appId ) {
+    if ( ! appId ) {
         res.status(400).json({ error: 'appId parameter is required' });
         return;
     }
@@ -37,13 +37,13 @@ extension.get('/metering/usage/:appId', { subdomain: 'api' }, async (req, res) =
 extension.get('/metering/globalUsage', { subdomain: 'api' }, async (req, res) => {
     const meteringService = meteringServiceWrapper.meteringService;
     const actor = req.actor;
-    if ( !actor ) {
+    if ( ! actor ) {
         throw Error('actor not found in context');
     }
 
     // check if actor is allowed to view global usage
     const allowedUsers = extension.config.allowedGlobalUsageUsers || [];
-    if ( !allowedUsers.includes(actor.type?.user.uuid) ) {
+    if ( ! allowedUsers.includes(actor.type?.user.uuid) ) {
         res.status(403).json({ error: 'You are not authorized to view global usage' });
         return;
     }

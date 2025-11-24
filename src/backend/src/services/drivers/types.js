@@ -17,12 +17,11 @@
  * You should have received a copy of the GNU Affero General Public License
  * along with this program.  If not, see <https://www.gnu.org/licenses/>.
  */
-const { AdvancedBase } = require("../../../../putility");
-const { is_valid_path } = require("../../filesystem/validation");
-const { is_valid_url, is_valid_uuid4 } = require("../../helpers");
-const { FileFacade } = require("./FileFacade");
-const APIError = require("../../api/APIError");
-
+const { AdvancedBase } = require('../../../../putility');
+const { is_valid_path } = require('../../filesystem/validation');
+const { is_valid_url, is_valid_uuid4 } = require('../../helpers');
+const { FileFacade } = require('./FileFacade');
+const APIError = require('../../api/APIError');
 
 /**
 * @class BaseType
@@ -33,8 +32,8 @@ const APIError = require("../../api/APIError");
 * Each type has a consolidate method that takes an input value and
 * returns a sanitized or coerced value appropriate for that input.
 */
-class BaseType extends AdvancedBase {}
-
+class BaseType extends AdvancedBase {
+}
 
 /**
 * @class String
@@ -54,22 +53,22 @@ class String extends BaseType {
         return (
             input === undefined ||
             input === null
-        ) ? undefined : '' + input;
+        ) ? undefined : `${ input}`;
     }
-
 
     /**
     * Serializes the type to a string representation
     * @returns {string} Always returns 'string' to identify this as a string type
     */
-    serialize () { return 'string'; }
+    serialize () {
+        return 'string';
+    }
 }
-
 
 /**
 * @class Flag
-* @description A class that handles boolean flag values in the type system. 
-* Converts any input value to a boolean using double negation, 
+* @description A class that handles boolean flag values in the type system.
+* Converts any input value to a boolean using double negation,
 * making it useful for command line flags and boolean parameters.
 * Extends BaseType to integrate with the type validation system.
 */
@@ -81,17 +80,17 @@ class Flag extends BaseType {
     * @returns {boolean} The consolidated boolean value, using double negation to coerce to boolean
     */
     async consolidate (ctx, input) {
-        return !! input;
+        return !!input;
     }
-
 
     /**
     * Serializes the Flag type to a string representation
     * @returns {string} Returns 'flag' as the type identifier
     */
-    serialize () { return 'flag'; }
+    serialize () {
+        return 'flag';
+    }
 }
-
 
 /**
 * @class NumberType
@@ -133,7 +132,6 @@ class NumberType extends BaseType {
         return input;
     }
 
-
     /**
     * Validates and consolidates a number input value
     * @param {Object} ctx - The context object
@@ -144,9 +142,10 @@ class NumberType extends BaseType {
     * @returns {number|undefined} The validated number or undefined if input was undefined
     * @throws {APIError} If input is not a valid number or violates unsigned constraint
     */
-    serialize () { return 'number'; }
+    serialize () {
+        return 'number';
+    }
 }
-
 
 /**
 * @class URL
@@ -175,14 +174,14 @@ class URL extends BaseType {
         return input;
     }
 
-
     /**
     * Serializes the URL type identifier
     * @returns {string} Returns 'url' as the type identifier for URL validation
     */
-    serialize () { return 'url'; }
+    serialize () {
+        return 'url';
+    }
 }
-
 
 /**
 * @class File
@@ -201,23 +200,22 @@ class File extends BaseType {
         'A puter filesystem UUID, like 12345678-1234-1234-1234-123456789abc',
         'A URL, like https://example.com/file.txt',
         'A base64-encoded string, like data:image/png;base64,iVBORw0K...',
-    ]
-    static DOC_INTERNAL_TYPE = 'An instance of FileFacade'
+    ];
+    static DOC_INTERNAL_TYPE = 'An instance of FileFacade';
 
     static MODULES = {
         _path: require('path'),
-    }
-
+    };
 
     /**
     * Validates and consolidates file input into a FileFacade instance.
     * Handles multiple input formats including:
     * - Puter filepaths
-    * - Filesystem UUIDs 
+    * - Filesystem UUIDs
     * - URLs (web and data URLs)
     * - Existing FileFacade instances
     * Resolves home directory (~) references for authenticated users.
-    * 
+    *
     * @param {Object} ctx - Context object containing user info
     * @param {string|FileFacade} input - The file input to consolidate
     * @param {Object} options - Options object
@@ -236,7 +234,7 @@ class File extends BaseType {
         // DRY: Part of this is duplicating FSNodeParam, but FSNodeParam is
         //      subject to change in PR #647, so this should be updated later.
 
-        if ( ! ['/','.','~'].includes(input[0]) ) {
+        if ( ! ['/', '.', '~'].includes(input[0]) ) {
             if ( is_valid_uuid4(input) ) {
                 result.set('uid', input);
                 return result;
@@ -273,14 +271,14 @@ class File extends BaseType {
         return result;
     }
 
-
     /**
     * Serializes the File type identifier
     * @returns {string} Returns 'file' as the type identifier for File parameters
     */
-    serialize () { return 'file'; }
+    serialize () {
+        return 'file';
+    }
 }
-
 
 /**
 * @class JSONType
@@ -308,8 +306,8 @@ class JSONType extends BaseType {
         if ( arg_descriptor.subtype ) {
             const input_json_type =
                 Array.isArray(input) ? 'array' :
-                input === null ? 'null' :
-                typeof input;
+                    input === null ? 'null' :
+                        typeof input;
 
             if ( input_json_type === 'null' || input_json_type === 'undefined' ) {
                 return input;
@@ -326,14 +324,14 @@ class JSONType extends BaseType {
         return input;
     }
 
-
     /**
     * Serializes the type identifier for JSON type parameters
     * @returns {string} Returns 'json' as the type identifier
     */
-    serialize () { return 'json'; }
+    serialize () {
+        return 'json';
+    }
 }
-
 
 /**
 * @class WebURLString

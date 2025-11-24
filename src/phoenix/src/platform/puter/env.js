@@ -21,13 +21,13 @@ export const CreateEnvProvider = ({ config }) => {
         getEnv: () => {
             return {
                 USER: config['puter.auth.username'],
-                HOME: '/' + config['puter.auth.username'],
+                HOME: `/${ config['puter.auth.username']}`,
                 HOSTNAME: config['puter.domain'] ?? 'puter.com',
-            }
+            };
         },
 
         get (k) {
             return this.getEnv()[k];
-        }
-    }
-}
+        },
+    };
+};

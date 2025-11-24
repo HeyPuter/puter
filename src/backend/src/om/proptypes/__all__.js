@@ -16,15 +16,15 @@
  * You should have received a copy of the GNU Affero General Public License
  * along with this program.  If not, see <https://www.gnu.org/licenses/>.
  */
-const APIError = require("../../api/APIError");
-const { NodeUIDSelector, NodeInternalIDSelector, NodePathSelector } = require("../../filesystem/node/selectors");
-const { is_valid_uuid4, is_valid_uuid } = require("../../helpers");
-const validator = require("validator");
-const { Context } = require("../../util/context");
-const { is_valid_path } = require("../../filesystem/validation");
-const FSNodeContext = require("../../filesystem/FSNodeContext");
-const { Entity } = require("../entitystorage/Entity");
-const NULL = Symbol("NULL")
+const APIError = require('../../api/APIError');
+const { NodeUIDSelector, NodeInternalIDSelector, NodePathSelector } = require('../../filesystem/node/selectors');
+const { is_valid_uuid4, is_valid_uuid } = require('../../helpers');
+const validator = require('validator');
+const { Context } = require('../../util/context');
+const { is_valid_path } = require('../../filesystem/validation');
+const FSNodeContext = require('../../filesystem/FSNodeContext');
+const { Entity } = require('../entitystorage/Entity');
+const NULL = Symbol('NULL');
 
 class OMTypeError extends Error {
     constructor ({ expected, got }) {
@@ -37,7 +37,7 @@ class OMTypeError extends Error {
 module.exports = {
     base: {
         is_set (value) {
-            return !! value;
+            return !!value;
         },
     },
     json: {
@@ -45,7 +45,7 @@ module.exports = {
     },
     string: {
         is_set (value) {
-            return (!!value) || value === null 
+            return (!!value) || value === null;
         },
         async adapt (value) {
             if ( value === undefined ) return '';
@@ -54,7 +54,7 @@ module.exports = {
             // then this should become an sql-to-entity adapt only.
             if ( value === null ) return '';
 
-            if (value === NULL) {
+            if ( value === NULL ) {
                 return null;
             }
 
@@ -73,11 +73,11 @@ module.exports = {
             if ( descriptor.hasOwnProperty('minlen') && value.length > descriptor.minlen ) {
                 throw APIError.create('field_too_short', null, { key: name, min_length: descriptor.maxlen });
             }
-            if ( descriptor.hasOwnProperty('regex') && ! value.match(descriptor.regex) ) {
+            if ( descriptor.hasOwnProperty('regex') && !value.match(descriptor.regex) ) {
                 return new Error(`string does not match regex ${descriptor.regex}`);
             }
             return true;
-        }
+        },
     },
     array: {
         from: 'base',
@@ -95,7 +95,7 @@ module.exports = {
                 throw APIError.create('field_invalid', null, { key: name, mod: descriptor.mod });
             }
             return true;
-        }
+        },
     },
     flag: {
         adapt: value => {
@@ -108,7 +108,7 @@ module.exports = {
                 throw new OMTypeError({ expected: 'boolean', got: typeof value });
             }
             return value;
-        }
+        },
     },
     uuid: {
         from: 'string',
@@ -119,14 +119,14 @@ module.exports = {
     ['puter-uuid']: {
         from: 'string',
         validate (value, { descriptor }) {
-            const prefix = descriptor.prefix + '-';
+            const prefix = `${descriptor.prefix }-`;
             if ( ! value.startsWith(prefix) ) {
                 return new Error(`UUID does not start with prefix ${prefix}`);
             }
             return is_valid_uuid(value.slice(prefix.length));
         },
         factory ({ descriptor }) {
-            const prefix = descriptor.prefix + '-';
+            const prefix = `${descriptor.prefix }-`;
             const uuid = require('uuid').v4();
             return prefix + uuid;
         },
@@ -142,7 +142,7 @@ module.exports = {
             if ( chars.some(char => value.includes(char)) ) {
                 return new Error('icon is not an image');
             }
-        }
+        },
     },
     url: {
         from: 'string',
@@ -152,7 +152,7 @@ module.exports = {
                 valid = validator.isURL(value, { host_whitelist: ['localhost'] });
             }
             return valid;
-        }
+        },
     },
     reference: {
         from: 'base',
@@ -181,7 +181,7 @@ module.exports = {
             const svc = Context.get().get('services').get(descriptor.service);
             const entity = await svc.read(value);
             return entity;
-        }
+        },
     },
     datetime: {
         from: 'base',
@@ -197,19 +197,15 @@ module.exports = {
             return value.mysql_id ?? null;
         },
         async is_set (value) {
-            return ( !! value ) || value === null;
+            return ( !!value ) || value === null;
         },
         async sql_dereference (value) {
             if ( value === null ) return null;
             if ( typeof value !== 'number' ) {
-                throw new Error(
-                    `Cannot dereference non-number: ${value}`
-                );
+                throw new Error(`Cannot dereference non-number: ${value}`);
             }
             const svc_fs = Context.get().get('services').get('filesystem');
-            return svc_fs.node(
-                new NodeInternalIDSelector('mysql', value)
-            );
+            return svc_fs.node(new NodeInternalIDSelector('mysql', value));
         },
         async adapt (value, { name }) {
             if ( value === null ) return null;
@@ -222,7 +218,7 @@ module.exports = {
             if ( typeof value !== 'string' ) return;
 
             let selector;
-            if ( ! ['/','.','~'].includes(value[0]) ) {
+            if ( ! ['/', '.', '~'].includes(value[0]) ) {
                 if ( is_valid_uuid4(value) ) {
                     selector = new NodeUIDSelector(value);
                 }
@@ -262,7 +258,7 @@ module.exports = {
             if ( ! await svc_acl.check(actor, value, permission) ) {
                 return await svc_acl.get_safe_acl_error(actor, value, permission);
             }
-        }
+        },
     },
-    NULL
+    NULL,
 };

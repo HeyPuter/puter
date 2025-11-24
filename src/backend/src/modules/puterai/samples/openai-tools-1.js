@@ -10,31 +10,31 @@ module.exports = [
             {
                 index: 0,
                 delta: {
-                    role: "assistant",
+                    role: 'assistant',
                     content: null,
                     tool_calls: [
                         {
                             index: 0,
-                            id: "call_ULl8cRKFQbYeJSIZ3giLAg6r",
-                            type: "function",
+                            id: 'call_ULl8cRKFQbYeJSIZ3giLAg6r',
+                            type: 'function',
                             function: {
-                                name: "get_weather",
-                                arguments: ""
-                            }
-                        }
+                                name: 'get_weather',
+                                arguments: '',
+                            },
+                        },
                     ],
-                    refusal: null
+                    refusal: null,
                 },
                 logprobs: null,
-                finish_reason: null
-            }
+                finish_reason: null,
+            },
         ],
-        usage: null
+        usage: null,
     },
     ...[
-        `{"`, `location`, `":"`,
-        `V`, `ancouver`,
-        `"}`
+        '{"', 'location', '":"',
+        'V', 'ancouver',
+        '"}',
     ].map(str => ({
         id: 'chatcmpl-Avqr6AwmQoEFLXuwf1llkKknIR4Ry',
         object: 'chat.completion.chunk',
@@ -51,15 +51,15 @@ module.exports = [
                             index: 0,
                             function: {
                                 arguments: str,
-                            }
-                        }
-                    ]
+                            },
+                        },
+                    ],
                 },
                 logprobs: null,
-                finish_reason: null
-            }
+                finish_reason: null,
+            },
         ],
-        usage: null
+        usage: null,
     })),
     {
         id: 'chatcmpl-Avqr6AwmQoEFLXuwf1llkKknIR4Ry',
@@ -73,10 +73,10 @@ module.exports = [
                 index: 0,
                 delta: {},
                 logprobs: null,
-                finish_reason: 'tool_calls'
-            }
+                finish_reason: 'tool_calls',
+            },
         ],
-        usage: null
+        usage: null,
     },
     {
         id: 'chatcmpl-Avqr6AwmQoEFLXuwf1llkKknIR4Ry',
@@ -95,8 +95,8 @@ module.exports = [
                 reasoning_tokens: 0,
                 audio_tokens: 0,
                 accepted_prediction_tokens: 0,
-                rejected_prediction_tokens: 0
-            }
-        }
-    }
+                rejected_prediction_tokens: 0,
+            },
+        },
+    },
 ];

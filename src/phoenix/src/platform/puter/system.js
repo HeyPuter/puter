@@ -21,5 +21,5 @@ export const CreateSystemProvider = ({ puterSDK }) => {
         exit: (code) => {
             puterSDK.exit(code);
         },
-    }
-}
+    };
+};

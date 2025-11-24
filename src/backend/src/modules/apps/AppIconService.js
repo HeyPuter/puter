@@ -1,43 +1,43 @@
 /*
  * Copyright (C) 2024-present Puter Technologies Inc.
- * 
+ *
  * This file is part of Puter.
- * 
+ *
  * Puter is free software: you can redistribute it and/or modify
  * it under the terms of the GNU Affero General Public License as published
  * by the Free Software Foundation, either version 3 of the License, or
  * (at your option) any later version.
- * 
+ *
  * This program is distributed in the hope that it will be useful,
  * but WITHOUT ANY WARRANTY; without even the implied warranty of
  * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
  * GNU Affero General Public License for more details.
- * 
+ *
  * You should have received a copy of the GNU Affero General Public License
  * along with this program.  If not, see <https://www.gnu.org/licenses/>.
  */
 
-const { HLWrite } = require("../../filesystem/hl_operations/hl_write");
-const { LLMkdir } = require("../../filesystem/ll_operations/ll_mkdir");
-const { LLRead } = require("../../filesystem/ll_operations/ll_read");
-const { NodePathSelector } = require("../../filesystem/node/selectors");
-const { get_app } = require("../../helpers");
-const { Endpoint } = require("../../util/expressutil");
-const { buffer_to_stream, stream_to_buffer } = require("../../util/streamutil");
-const BaseService = require("../../services/BaseService.js");
+const { HLWrite } = require('../../filesystem/hl_operations/hl_write');
+const { LLMkdir } = require('../../filesystem/ll_operations/ll_mkdir');
+const { LLRead } = require('../../filesystem/ll_operations/ll_read');
+const { NodePathSelector } = require('../../filesystem/node/selectors');
+const { get_app } = require('../../helpers');
+const { Endpoint } = require('../../util/expressutil');
+const { buffer_to_stream, stream_to_buffer } = require('../../util/streamutil');
+const BaseService = require('../../services/BaseService.js');
 
-const ICON_SIZES = [16,32,64,128,256,512];
+const ICON_SIZES = [16, 32, 64, 128, 256, 512];
 
 const DEFAULT_APP_ICON = require('./default-app-icon.js');
-const IconResult = require("./lib/IconResult.js");
+const IconResult = require('./lib/IconResult.js');
 
 /**
  * AppIconService handles icon generation and serving for apps.
- * 
+ *
  * This is done by listening to the `app.new-icon` event which is
  * dispatched by AppES. `sharp` is used to resize the images to
  * pre-selected sizees in the `ICON_SIZES` constant defined above.
- * 
+ *
  * Icons are stored in and served from the `/system/app_icons`
  * directory. If the system user does not have this directory,
  * it will be created in the consolidation boot phase after
@@ -49,8 +49,8 @@ class AppIconService extends BaseService {
         sharp: require('sharp'),
         bmp: require('sharp-bmp'),
         ico: require('sharp-ico'),
-    }
-    
+    };
+
     static ICON_SIZES = ICON_SIZES;
 
     /**
@@ -76,18 +76,18 @@ class AppIconService extends BaseService {
                 const {
                     stream,
                     mime,
-                } = await this.get_icon_stream({ app_uid, size, })
+                } = await this.get_icon_stream({ app_uid, size });
 
                 res.set('Content-Type', mime);
                 stream.pipe(res);
             },
         }).attach(app);
     }
-    
+
     get_sizes () {
         return this.constructor.ICON_SIZES;
     }
-    
+
     async iconify_apps ({ apps, size }) {
         return await Promise.all(apps.map(async app => {
             const icon_result = await this.get_icon_stream({
@@ -104,7 +104,7 @@ class AppIconService extends BaseService {
             try {
                 const buffer = await stream_to_buffer(icon_result.stream);
                 const resp_data_url = `data:${icon_result.mime};base64,${buffer.toString('base64')}`;
-                
+
                 app.icon = resp_data_url;
             } catch (e) {
                 this.errors.report('get-launch-apps:icon-stream', {
@@ -127,14 +127,14 @@ class AppIconService extends BaseService {
             const input_mime = metadata.split(';')[0].split(':')[1];
 
             // svg icons will be sent as-is
-            if (input_mime === 'image/svg+xml') {
+            if ( input_mime === 'image/svg+xml' ) {
                 return {
                     mime: 'image/svg+xml',
                     get stream () {
                         return buffer_to_stream(Buffer.from(data, 'base64'));
                     },
                     data_url: app_icon,
-                }
+                };
             }
         }
 
@@ -147,7 +147,7 @@ class AppIconService extends BaseService {
             app_icon = app_icon || await (async () => {
                 const app = await get_app({ uid: app_uid });
                 return app.icon || DEFAULT_APP_ICON;
-            })()
+            })();
             const [metadata, base64] = app_icon.split(',');
             const mime = metadata.split(';')[0].split(':')[1];
             const img = Buffer.from(base64, 'base64');
@@ -155,7 +155,7 @@ class AppIconService extends BaseService {
                 mime,
                 stream: buffer_to_stream(img),
             };
-        }
+        };
 
         if ( ! await node.exists() ) {
             return await get_fallback_icon();
@@ -169,7 +169,7 @@ class AppIconService extends BaseService {
                 stream: await ll_read.run({
                     fsNode: node,
                     actor: await svc_su.get_system_actor(),
-                })
+                }),
             };
         } catch (e) {
             this.errors.report('AppIconService.get_icon_stream', {
@@ -187,7 +187,7 @@ class AppIconService extends BaseService {
                 // let second_size = size > 16 ? size / 2 : 32;
 
                 return await this.get_icon_stream({
-                    app_uid, size: second_size, tries: tries + 1
+                    app_uid, size: second_size, tries: tries + 1,
                 });
             }
             return await get_fallback_icon();
@@ -204,9 +204,7 @@ class AppIconService extends BaseService {
         }
 
         const svc_fs = this.services.get('filesystem');
-        const dir_app_icons = await svc_fs.node(
-            new NodePathSelector('/system/app_icons')
-        );
+        const dir_app_icons = await svc_fs.node(new NodePathSelector('/system/app_icons'));
 
         return this.dir_app_icons = dir_app_icons;
     }
@@ -226,7 +224,7 @@ class AppIconService extends BaseService {
 
         return this.modules.sharp(input);
     }
-    
+
     /**
      * AppIconService listens to this event to create the
      * `/system/app_icons` directory if it does not exist,
@@ -240,9 +238,7 @@ class AppIconService extends BaseService {
         const dir_system = await svc_user.get_system_dir();
 
         // Ensure app icons directory exists
-        const dir_app_icons = await svc_fs.node(
-            new NodePathSelector('/system/app_icons')
-        );
+        const dir_app_icons = await svc_fs.node(new NodePathSelector('/system/app_icons'));
         if ( ! await dir_app_icons.exists() ) {
             const ll_mkdir = new LLMkdir();
             await ll_mkdir.run({
@@ -278,7 +274,7 @@ class AppIconService extends BaseService {
                         metadata,
                         input,
                     });
-                    
+
                     // NOTE: A stream would be more ideal than a buffer here
                     //       but we have no way of knowing the output size
                     //       before we finish processing the image.
@@ -286,7 +282,7 @@ class AppIconService extends BaseService {
                         .resize(size)
                         .png()
                         .toBuffer();
-                    
+
                     const sys_actor = await svc_su.get_system_actor();
                     const hl_write = new HLWrite();
                     await hl_write.run({
@@ -304,7 +300,7 @@ class AppIconService extends BaseService {
                             stream: buffer_to_stream(output),
                         },
                     });
-                })
+                });
             })());
         }
         await Promise.all(icon_jobs);

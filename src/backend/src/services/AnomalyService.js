@@ -17,11 +17,10 @@
  * You should have received a copy of the GNU Affero General Public License
  * along with this program.  If not, see <https://www.gnu.org/licenses/>.
  */
-const BaseService = require("./BaseService");
+const BaseService = require('./BaseService');
 
 // Symbol used to indicate a denial of service instruction in anomaly handling.
 const DENY_SERVICE_INSTRUCTION = Symbol('DENY_SERVICE_INSTRUCTION');
-
 
 /**
 * @class AnomalyService
@@ -33,10 +32,10 @@ class AnomalyService extends BaseService {
     /**
     * AnomalyService class that extends BaseService and provides methods
     * for registering anomaly types and handling incoming data for those anomalies.
-    * 
-    * The register method allows the registration of different anomaly types 
-    * and their respective configurations, including custom handlers for data 
-    * evaluation. It supports two modes of operation: a direct handler or 
+    *
+    * The register method allows the registration of different anomaly types
+    * and their respective configurations, including custom handlers for data
+    * evaluation. It supports two modes of operation: a direct handler or
     * a threshold-based evaluation.
     */
     _construct () {
@@ -44,18 +43,18 @@ class AnomalyService extends BaseService {
     }
     /**
      * Registers a new type with the service, including its configuration and handler.
-     * 
+     *
      * @param {string} type - The name of the type to register.
      * @param {Object} config - The configuration object for the type.
      * @param {Function} [config.handler] - An optional handler function for the type.
      * @param {number} [config.high] - An optional threshold value; triggers the handler if exceeded.
-     * 
+     *
      * @returns {void}
      */
     register (type, config) {
         const type_instance = {
             config,
-        }
+        };
         if ( config.handler ) {
             type_instance.handler = config.handler;
         } else if ( config.high ) {
@@ -63,22 +62,22 @@ class AnomalyService extends BaseService {
                 if ( data.value > config.high ) {
                     return new Set([DENY_SERVICE_INSTRUCTION]);
                 }
-            }
+            };
         }
         this.types[type] = type_instance;
     }
     /**
      * Creates a note of the specified type with the provided data.
      * See `groups_user_hour` in GroupService for an example.
-     * 
+     *
      * @param {*} id - The identifier of the type to create a note for.
      * @param {*} data - The data to process with the type's handler.
-     * @returns 
+     * @returns
      */
     async note (id, data) {
         const type = this.types[id];
         if ( ! type ) return;
-        
+
         return type.handler(data);
     }
 }

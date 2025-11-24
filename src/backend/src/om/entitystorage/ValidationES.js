@@ -16,11 +16,11 @@
  * You should have received a copy of the GNU Affero General Public License
  * along with this program.  If not, see <https://www.gnu.org/licenses/>.
  */
-const { BaseES } = require("./BaseES");
+const { BaseES } = require('./BaseES');
 
-const APIError = require("../../api/APIError");
-const { Context } = require("../../util/context");
-const { SKIP_ES_VALIDATION } = require("./consts");
+const APIError = require('../../api/APIError');
+const { Context } = require('../../util/context');
+const { SKIP_ES_VALIDATION } = require('./consts');
 
 class ValidationES extends BaseES {
     async _on_context_provided () {
@@ -52,10 +52,8 @@ class ValidationES extends BaseES {
                 ? await (await extra.old_entity.clone()).apply(entity)
                 : entity
                 ;
-            await this.validate_(
-                valid_entity,
-                extra.old_entity ? entity : undefined
-            );
+            await this.validate_(valid_entity,
+                            extra.old_entity ? entity : undefined);
             const { entity: out_entity } = await this.upstream.upsert(entity, extra);
             return await out_entity.get_client_safe();
         },
@@ -100,4 +98,3 @@ class ValidationES extends BaseES {
 }
 
 module.exports = ValidationES;
-

@@ -55,7 +55,7 @@ export class TeePromise {
     /**
      * @deprecated use then() instead
      */
-    onComplete(fn) {
+    onComplete (fn) {
         return this.then(fn);
     }
 }
@@ -64,12 +64,12 @@ export class TeePromise {
  * raceCase is like Promise.race except it takes an object instead of
  * an array, and returns the key of the promise that resolves first
  * as well as the value that it resolved to.
- * 
- * @param {Object.<string, Promise>} promise_map 
- * 
+ *
+ * @param {Object.<string, Promise>} promise_map
+ *
  * @returns {Promise.<[string, any]>}
  */
 export const raceCase = async (promise_map) => {
     return Promise.race(Object.entries(promise_map).map(
-        ([key, promise]) => promise.then(value => [key, value])));
+                    ([key, promise]) => promise.then(value => [key, value])));
 };

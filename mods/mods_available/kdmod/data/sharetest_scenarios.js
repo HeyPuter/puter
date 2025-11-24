@@ -26,17 +26,17 @@ module.exports = [
                 with: {
                     name: 'example.txt',
                     contents: 'secret file',
-                }
+                },
             },
             {
                 title: 'Eric tries to access it',
                 call: 'assert-no-access',
                 as: 'testuser_eric',
                 with: {
-                    path: '/testuser_kyle/Desktop/example.txt'
-                }
+                    path: '/testuser_kyle/Desktop/example.txt',
+                },
             },
-        ]
+        ],
     },
     {
         sequence: [
@@ -47,7 +47,7 @@ module.exports = [
                 with: {
                     name: 'example.txt',
                     contents: 'secret file',
-                }
+                },
             },
             {
                 title: 'Stan grants permission to Eric',
@@ -55,8 +55,8 @@ module.exports = [
                 as: 'testuser_stan',
                 with: {
                     to: 'testuser_eric',
-                    permission: 'fs:/testuser_stan/Desktop/example.txt:read'
-                }
+                    permission: 'fs:/testuser_stan/Desktop/example.txt:read',
+                },
             },
             {
                 title: 'Eric tries to access it',
@@ -64,10 +64,10 @@ module.exports = [
                 as: 'testuser_eric',
                 with: {
                     path: '/testuser_stan/Desktop/example.txt',
-                    level: 'read'
-                }
+                    level: 'read',
+                },
             },
-        ]
+        ],
     },
     {
         sequence: [
@@ -77,8 +77,8 @@ module.exports = [
                 as: 'testuser_stan',
                 with: {
                     to: 'testuser_eric',
-                    permission: 'fs:/testuser_kyle/Desktop/example.txt:read'
-                }
+                    permission: 'fs:/testuser_kyle/Desktop/example.txt:read',
+                },
             },
             {
                 title: 'Eric tries to access it',
@@ -86,8 +86,8 @@ module.exports = [
                 as: 'testuser_eric',
                 with: {
                     path: '/testuser_kyle/Desktop/example.txt',
-                }
+                },
             },
-        ]
+        ],
     },
 ];

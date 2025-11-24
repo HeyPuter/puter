@@ -30,7 +30,7 @@ const get_common_template_vars = () => {
     };
 
     return memoized_common_template_vars_;
-}
+};
 
 module.exports = {
     get_common_template_vars,

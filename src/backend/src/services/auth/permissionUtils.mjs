@@ -1,4 +1,4 @@
-import { MANAGE_PERM_PREFIX } from "./permissionConts.mjs";
+import { MANAGE_PERM_PREFIX } from './permissionConts.mjs';
 
 /**
 * The PermissionUtil class provides utility methods for handling
@@ -6,13 +6,13 @@ import { MANAGE_PERM_PREFIX } from "./permissionConts.mjs";
 * escaping, and unescaping permission components. It also includes
 * functionality to convert permission reading structures into options.
 */
-export  const PermissionUtil =  {
+export const PermissionUtil =  {
     /**
      * Unescapes a permission component string, converting escape sequences to their literal characters.
      * @param {string} component - The escaped permission component string.
      * @returns {string} The unescaped permission component.
      */
-    unescape_permission_component(component) {
+    unescape_permission_component (component) {
         let unescaped_str = '';
         // Constant for unescaped permission component string
         const STATE_NORMAL = {};
@@ -42,7 +42,7 @@ export  const PermissionUtil =  {
      * @param {string} component - The permission component string to escape.
      * @returns {string} The escaped permission component.
      */
-    escape_permission_component(component) {
+    escape_permission_component (component) {
         let escaped_str = '';
         for ( let i = 0 ; i < component.length ; i++ ) {
             const c = component[i];
@@ -60,7 +60,7 @@ export  const PermissionUtil =  {
      * @param {string} permission - The permission string to split.
      * @returns {string[]} Array of unescaped permission components.
      */
-    split(permission) {
+    split (permission) {
         return permission
             .split(':')
             .map(PermissionUtil.unescape_permission_component)
@@ -72,7 +72,7 @@ export  const PermissionUtil =  {
      * @param {...string} components - The permission components to join.
      * @returns {string} The escaped, joined permission string.
      */
-    join(...components) {
+    join (...components) {
         return components
             .map(PermissionUtil.escape_permission_component)
             .join(':')
@@ -89,7 +89,7 @@ export  const PermissionUtil =  {
      * @param {Array<Object>} [path=[]] - Current path in the reading tree (used internally for recursion).
      * @returns {Array<Object>} Array of option objects with path and data.
      */
-    reading_to_options(
+    reading_to_options (
         // actual arguments
         reading, parameters = {},
         // recursion state
@@ -125,8 +125,8 @@ export  const PermissionUtil =  {
         return options;
     },
     /** @type {(permission:string)=>boolean} */
-    isManage(permission ){
-        return permission.startsWith(MANAGE_PERM_PREFIX + ':');
+    isManage (permission ) {
+        return permission.startsWith(`${MANAGE_PERM_PREFIX }:`);
     },
 };
 
@@ -142,17 +142,17 @@ export  const PermissionUtil =  {
  * The rewriter is a function that takes a permission string and returns the rewritten permission string.
  */
 export class PermissionRewriter {
-    static create({ id, matcher, rewriter }) {
+    static create ({ id, matcher, rewriter }) {
         return new PermissionRewriter({ id, matcher, rewriter });
     }
 
-    constructor({ id, matcher, rewriter }) {
+    constructor ({ id, matcher, rewriter }) {
         this.id = id;
         this.matcher = matcher;
         this.rewriter = rewriter;
     }
 
-    matches(permission) {
+    matches (permission) {
         return this.matcher(permission);
     }
 
@@ -162,7 +162,7 @@ export class PermissionRewriter {
     * @param {string} permission - The permission string to check.
     * @returns {boolean} - True if the permission matches, false otherwise.
     */
-    async rewrite(permission) {
+    async rewrite (permission) {
         return await this.rewriter(permission);
     }
 }
@@ -180,18 +180,18 @@ export class PermissionRewriter {
  * The actor and permission are passed to checker({ actor, permission }) as an object.
  */
 export class PermissionImplicator {
-    static create({ id, matcher, checker, ...options }) {
+    static create ({ id, matcher, checker, ...options }) {
         return new PermissionImplicator({ id, matcher, checker, options });
     }
 
-    constructor({ id, matcher, checker, options }) {
+    constructor ({ id, matcher, checker, options }) {
         this.id = id;
         this.matcher = matcher;
         this.checker = checker;
         this.options = options;
     }
 
-    matches(permission) {
+    matches (permission) {
         return this.matcher(permission);
     }
 
@@ -206,7 +206,7 @@ export class PermissionImplicator {
     * @param {string} permission - The permission string to potentially rewrite.
     * @returns {Promise<string>} The possibly rewritten permission string.
     */
-    async check({ actor, permission, recurse }) {
+    async check ({ actor, permission, recurse }) {
         return await this.checker({ actor, permission, recurse });
     }
 }
@@ -224,17 +224,17 @@ export class PermissionImplicator {
  * The actor and permission are passed to explode({ actor, permission }) as an object.
  */
 export class PermissionExploder {
-    static create({ id, matcher, exploder }) {
+    static create ({ id, matcher, exploder }) {
         return new PermissionExploder({ id, matcher, exploder });
     }
 
-    constructor({ id, matcher, exploder }) {
+    constructor ({ id, matcher, exploder }) {
         this.id = id;
         this.matcher = matcher;
         this.exploder = exploder;
     }
 
-    matches(permission) {
+    matches (permission) {
         return this.matcher(permission);
     }
 
@@ -250,7 +250,7 @@ export class PermissionExploder {
     * @param {string} options.permission - The base permission to be exploded.
     * @returns {Promise<Array<string>>} A promise resolving to an array of implied permissions.
     */
-    async explode({ actor, permission }) {
+    async explode ({ actor, permission }) {
         return await this.exploder({ actor, permission });
     }
 }

@@ -16,9 +16,9 @@
  * You should have received a copy of the GNU Affero General Public License
  * along with this program.  If not, see <https://www.gnu.org/licenses/>.
  */
-const config = require("../config")
+const config = require('../config');
 
-const verified = async (req, res, next)=>{
+const verified = async (req, res, next) => {
     if ( ! config.strict_email_verification_required ) {
         next();
         return;
@@ -36,8 +36,8 @@ const verified = async (req, res, next)=>{
 
     res.status(400).send({
         code: 'account_is_not_verified',
-        message: 'Account is not verified'
+        message: 'Account is not verified',
     });
-}
+};
 
-module.exports = verified
+module.exports = verified;

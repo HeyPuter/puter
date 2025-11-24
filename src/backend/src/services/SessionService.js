@@ -17,11 +17,11 @@
  * You should have received a copy of the GNU Affero General Public License
  * along with this program.  If not, see <https://www.gnu.org/licenses/>.
  */
-const { get_user } = require("../helpers");
+const { get_user } = require('../helpers');
 const { asyncSafeSetInterval } = require('@heyputer/putility').libs.promise;
-const { MINUTE, SECOND } = require("@heyputer/putility").libs.time;
-const BaseService = require("./BaseService");
-const { DB_WRITE } = require("./database/consts");
+const { MINUTE, SECOND } = require('@heyputer/putility').libs.time;
+const BaseService = require('./BaseService');
+const { DB_WRITE } = require('./database/consts');
 
 /**
  * This service is responsible for updating session activity
@@ -42,18 +42,16 @@ class SessionService extends BaseService {
     static MODULES = {
         // uuidv5: require('uuid').v5,
         uuidv4: require('uuid').v4,
-    }
-
+    };
 
     _construct () {
         this.sessions = {};
     }
 
-
     /**
     * Initializes the session storage by setting up the database connection
     * and starting a periodic session update interval.
-    * 
+    *
     * @async
     * @memberof SessionService
     * @method _init
@@ -65,9 +63,9 @@ class SessionService extends BaseService {
             // TODO: change to 5 minutes or configured value
             /**
             * Initializes periodic session updates.
-            * 
+            *
             * This method sets up an interval to call `_update_sessions` every 2 minutes.
-            * 
+            *
             * @memberof SessionService
             * @private
             * @async
@@ -80,11 +78,10 @@ class SessionService extends BaseService {
         })();
     }
 
-
     /**
     * Creates a new session for the specified user and records metadata about
     * the requestor.
-    * 
+    *
     * @async
     * @returns {Promise<Session>} A new session object
     */
@@ -98,12 +95,10 @@ class SessionService extends BaseService {
         meta.created = new Date().toISOString();
         meta.created_unix = unix_ts;
         const uuid = this.modules.uuidv4();
-        await this.db.write(
-            'INSERT INTO `sessions` ' +
+        await this.db.write('INSERT INTO `sessions` ' +
             '(`uuid`, `user_id`, `meta`, `last_activity`, `created_at`) ' +
             'VALUES (?, ?, ?, ?, ?)',
-            [uuid, user.id, JSON.stringify(meta), unix_ts, unix_ts],
-        );
+        [uuid, user.id, JSON.stringify(meta), unix_ts, unix_ts]);
         const session = {
             last_touch: Date.now(),
             last_store: Date.now(),
@@ -117,11 +112,10 @@ class SessionService extends BaseService {
         return session;
     }
 
-
     /**
-    * Retrieves a session by its UUID, updates the session's last touch timestamp, 
+    * Retrieves a session by its UUID, updates the session's last touch timestamp,
     * and prepares the session data for external use by removing internal values.
-    * 
+    *
     * @param {string} uuid - The UUID of the session to retrieve.
     * @returns {Object|undefined} The session object with internal values removed, or undefined if the session does not exist.
     */
@@ -131,10 +125,8 @@ class SessionService extends BaseService {
             session.last_touch = Date.now();
             return session;
         }
-        ;[session] = await this.db.read(
-            "SELECT * FROM `sessions` WHERE `uuid` = ? LIMIT 1",
-            [uuid],
-        );
+        ;[session] = await this.db.read('SELECT * FROM `sessions` WHERE `uuid` = ? LIMIT 1',
+                        [uuid]);
         if ( ! session ) return;
         session.last_store = Date.now();
         session.meta = this.db.case({
@@ -144,7 +136,7 @@ class SessionService extends BaseService {
             * @param {Object} session - The session object from the database.
             * @returns {Object} The parsed session metadata.
             */
-            otherwise: () => JSON.parse(session.meta ?? "{}")
+            otherwise: () => JSON.parse(session.meta ?? '{}'),
         })();
         const user = await get_user(session.user_id);
         session.user_uid = user?.uuid;
@@ -189,18 +181,15 @@ class SessionService extends BaseService {
 
     /**
     * Removes a session from the in-memory cache and the database.
-    * 
+    *
     * @param {string} uuid - The UUID of the session to remove.
     * @returns {Promise} A promise that resolves to the result of the database write operation.
     */
     remove_session (uuid) {
         delete this.sessions[uuid];
-        return this.db.write(
-            'DELETE FROM `sessions` WHERE `uuid` = ?',
-            [uuid],
-        );
+        return this.db.write('DELETE FROM `sessions` WHERE `uuid` = ?',
+                        [uuid]);
     }
-
 
     async _update_sessions () {
         this.log.tick('UPDATING SESSIONS');
@@ -212,14 +201,12 @@ class SessionService extends BaseService {
         for ( const key of keys ) {
             const session = this.sessions[key];
             if ( now - session.last_store > 5 * MINUTE ) {
-                this.log.debug('storing session meta: ' + session.uuid);
+                this.log.debug(`storing session meta: ${ session.uuid}`);
                 const unix_ts = Math.floor(now / 1000);
-                const { anyRowsAffected } = await this.db.write(
-                    'UPDATE `sessions` ' +
+                const { anyRowsAffected } = await this.db.write('UPDATE `sessions` ' +
                     'SET `meta` = ?, `last_activity` = ? ' +
                     'WHERE `uuid` = ?',
-                    [JSON.stringify(session.meta), unix_ts, session.uuid],
-                );
+                [JSON.stringify(session.meta), unix_ts, session.uuid]);
 
                 if ( ! anyRowsAffected ) {
                     delete this.sessions[key];
@@ -228,7 +215,7 @@ class SessionService extends BaseService {
 
                 session.last_store = now;
                 if (
-                    ! user_updates[session.user_id] ||
+                    !user_updates[session.user_id] ||
                     user_updates[session.user_id][1] < session.last_touch
                 ) {
                     user_updates[session.user_id] = [session.user_id, session.last_touch];
@@ -238,17 +225,15 @@ class SessionService extends BaseService {
 
         for ( const [user_id, last_touch] of Object.values(user_updates) ) {
             const sql_ts = (date =>
-                date.toISOString().split('T')[0] + ' '
-                + date.toTimeString().split(' ')[0]
+                `${date.toISOString().split('T')[0] } ${
+                    date.toTimeString().split(' ')[0]}`
             )(new Date(last_touch));
 
-            await this.db.write(
-                'UPDATE `user` ' +
+            await this.db.write('UPDATE `user` ' +
                 'SET `last_activity_ts` = ? ' +
                 'WHERE `id` = ? LIMIT 1',
-                [sql_ts, user_id],
-            );
-            const user = kv.get('users:id:' + user_id);
+            [sql_ts, user_id]);
+            const user = kv.get(`users:id:${ user_id}`);
             if ( user ) {
                 user.last_activity_ts = sql_ts;
             }

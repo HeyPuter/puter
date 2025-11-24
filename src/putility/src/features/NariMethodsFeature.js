@@ -73,7 +73,7 @@ module.exports = {
                 for ( const [index, arg] of posArgs.entries() ) {
                     parameters[spec.positional[index]] = arg;
                 }
-                
+
                 if ( typeof endArgs[0] === 'object' ) {
                     Object.assign(options, endArgs[0]);
                     endArgs.shift();
@@ -117,5 +117,5 @@ module.exports = {
                 return retval;
             };
         }
-    }
+    },
 };

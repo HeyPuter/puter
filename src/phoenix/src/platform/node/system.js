@@ -23,5 +23,5 @@ export const CreateSystemProvider = () => {
         exit: (code) => {
             process.exit(code);
         },
-    }
-}
+    };
+};

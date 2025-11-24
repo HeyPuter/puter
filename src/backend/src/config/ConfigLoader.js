@@ -16,14 +16,14 @@
  * You should have received a copy of the GNU Affero General Public License
  * along with this program.  If not, see <https://www.gnu.org/licenses/>.
  */
-const { AdvancedBase } = require("@heyputer/putility");
+const { AdvancedBase } = require('@heyputer/putility');
 const { quot } = require('@heyputer/putility').libs.string;
 
 class ConfigLoader extends AdvancedBase {
     static MODULES = {
-        path_: require("path"),
-        fs: require("fs"),
-    }
+        path_: require('path'),
+        fs: require('fs'),
+    };
 
     constructor (logger, path, config) {
         super();
@@ -47,10 +47,8 @@ class ConfigLoader extends AdvancedBase {
             delete config_values.$requires;
             this.apply_requires(this.path, config_list, { by: name });
         }
-        this.logger.debug(
-            `Applying config: ${path_.relative(this.path, config_path)}` +
-            (meta.by ? ` (required by ${meta.by})` : '')
-        );
+        this.logger.debug(`Applying config: ${path_.relative(this.path, config_path)}${
+            meta.by ? ` (required by ${meta.by})` : ''}`);
         this.config.load_config(config_values);
 
     }

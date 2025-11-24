@@ -16,9 +16,9 @@
  * You should have received a copy of the GNU Affero General Public License
  * along with this program.  If not, see <https://www.gnu.org/licenses/>.
  */
-import { SHELL_VERSIONS } from "../../meta/versions.js";
+import { SHELL_VERSIONS } from '../../meta/versions.js';
 
-async function printVersion(ctx, version) {
+async function printVersion (ctx, version) {
     await ctx.externs.out.write(`\x1B[35;1m[v${version.v}]\x1B[0m\n`);
     for ( const change of version.changes ) {
         await ctx.externs.out.write(`\x1B[32;1m+\x1B[0m ${change}\n`);
@@ -34,12 +34,12 @@ export default {
         options: {
             latest: {
                 description: 'Print only the changes for the most recent version',
-                type: 'boolean'
-            }
-        }
+                type: 'boolean',
+            },
+        },
     },
     execute: async ctx => {
-        if (ctx.locals.values.latest) {
+        if ( ctx.locals.values.latest ) {
             await printVersion(ctx, SHELL_VERSIONS[0]);
             return;
         }
@@ -47,6 +47,5 @@ export default {
         for ( const version of SHELL_VERSIONS.toReversed() ) {
             await printVersion(ctx, version);
         }
-    }
+    },
 };
-

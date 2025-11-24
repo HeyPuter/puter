@@ -16,15 +16,15 @@
  * You should have received a copy of the GNU Affero General Public License
  * along with this program.  If not, see <https://www.gnu.org/licenses/>.
  */
-const opentelemetry = require("@opentelemetry/api");
+const opentelemetry = require('@opentelemetry/api');
 const { NodeSDK } = require('@opentelemetry/sdk-node');
 const { getNodeAutoInstrumentations } = require('@opentelemetry/auto-instrumentations-node');
 const { PeriodicExportingMetricReader, ConsoleMetricExporter } = require('@opentelemetry/sdk-metrics');
 
-const { Resource } = require("@opentelemetry/resources");
-const { SemanticResourceAttributes } = require("@opentelemetry/semantic-conventions");
-const { NodeTracerProvider } = require("@opentelemetry/sdk-trace-node");
-const { ConsoleSpanExporter, BatchSpanProcessor } = require("@opentelemetry/sdk-trace-base");
+const { Resource } = require('@opentelemetry/resources');
+const { SemanticResourceAttributes } = require('@opentelemetry/semantic-conventions');
+const { NodeTracerProvider } = require('@opentelemetry/sdk-trace-node');
+const { ConsoleSpanExporter, BatchSpanProcessor } = require('@opentelemetry/sdk-trace-base');
 const config = require('../../config');
 const { OTLPTraceExporter } = require('@opentelemetry/exporter-trace-otlp-grpc');
 
@@ -33,13 +33,12 @@ const BaseService = require('../../services/BaseService');
 class TelemetryService extends BaseService {
     _construct () {
         const resource = Resource.default().merge(
-            new Resource({
-                [SemanticResourceAttributes.SERVICE_NAME]: "puter-backend",
-                [SemanticResourceAttributes.SERVICE_VERSION]: "0.1.0"
-            }),
-        );
+                        new Resource({
+                            [SemanticResourceAttributes.SERVICE_NAME]: 'puter-backend',
+                            [SemanticResourceAttributes.SERVICE_VERSION]: '0.1.0',
+                        }));
 
-        const provider = new NodeTracerProvider({ resource })
+        const provider = new NodeTracerProvider({ resource });
         const exporter = this.getConfiguredExporter_();
         this.exporter = exporter;
 
@@ -51,20 +50,18 @@ class TelemetryService extends BaseService {
         const sdk = new NodeSDK({
             traceExporter: new ConsoleSpanExporter(),
             metricReader: new PeriodicExportingMetricReader({
-                exporter: new ConsoleMetricExporter()
+                exporter: new ConsoleMetricExporter(),
             }),
-            instrumentations: [getNodeAutoInstrumentations()]
+            instrumentations: [getNodeAutoInstrumentations()],
         });
 
         this.sdk = sdk;
 
         this.sdk.start();
 
-        this.tracer_ = opentelemetry.trace.getTracer(
-            'puter-tracer'
-        );
+        this.tracer_ = opentelemetry.trace.getTracer('puter-tracer');
     }
-    
+
     _init () {
         const svc_context = this.services.get('context');
         svc_context.register_context_hook('pre_arun', ({ hints, trace_name, callback, replace_callback }) => {
@@ -75,7 +72,7 @@ class TelemetryService extends BaseService {
                 return await this.tracer_.startActiveSpan(trace_name, async span => {
                     try {
                         return await callback();
-                    } catch (error) {
+                    } catch ( error ) {
                         span.setStatus({ code: opentelemetry.SpanStatusCode.ERROR, message: error.message });
                         throw error;
                     } finally {
@@ -86,7 +83,7 @@ class TelemetryService extends BaseService {
         });
     }
 
-    getConfiguredExporter_() {
+    getConfiguredExporter_ () {
         if ( config.jaeger ?? this.config.jaeger ) {
             return new OTLPTraceExporter(config.jaeger ?? this.config.jaeger);
         }

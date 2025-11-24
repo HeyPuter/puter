@@ -28,7 +28,7 @@ class Context {
         const values = {};
         for ( const k of keys ) {
             Object.defineProperty(values, k, {
-                get: () => source[k]
+                get: () => source[k],
             });
         }
         return this.sub(values);
@@ -55,7 +55,7 @@ class Context {
         }
 
         const descs = Object.getOwnPropertyDescriptors(newValues);
-        for ( const k in descs ){
+        for ( const k in descs ) {
             if ( alreadyApplied[k] ) continue;
             Object.defineProperty(sub, k, descs[k]);
         }

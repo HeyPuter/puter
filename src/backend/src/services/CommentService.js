@@ -1,31 +1,30 @@
 /*
  * Copyright (C) 2024-present Puter Technologies Inc.
- * 
+ *
  * This file is part of Puter.
- * 
+ *
  * Puter is free software: you can redistribute it and/or modify
  * it under the terms of the GNU Affero General Public License as published
  * by the Free Software Foundation, either version 3 of the License, or
  * (at your option) any later version.
- * 
+ *
  * This program is distributed in the hope that it will be useful,
  * but WITHOUT ANY WARRANTY; without even the implied warranty of
  * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
  * GNU Affero General Public License for more details.
- * 
+ *
  * You should have received a copy of the GNU Affero General Public License
  * along with this program.  If not, see <https://www.gnu.org/licenses/>.
  */
 
 // METADATA // {"ai-commented":{"service":"claude"}}
-const APIError = require("../api/APIError");
-const FSNodeParam = require("../api/filesystem/FSNodeParam");
-const { get_user } = require("../helpers");
-const configurable_auth = require("../middleware/configurable_auth");
-const { Endpoint } = require("../util/expressutil");
-const BaseService = require("./BaseService");
-const { DB_WRITE } = require("./database/consts");
-
+const APIError = require('../api/APIError');
+const FSNodeParam = require('../api/filesystem/FSNodeParam');
+const { get_user } = require('../helpers');
+const configurable_auth = require('../middleware/configurable_auth');
+const { Endpoint } = require('../util/expressutil');
+const BaseService = require('./BaseService');
+const { DB_WRITE } = require('./database/consts');
 
 /**
 * CommentService class handles all comment-related functionality in the system.
@@ -42,7 +41,7 @@ class CommentService extends BaseService {
     */
     static MODULES = {
         uuidv4: require('uuid').v4,
-    }
+    };
     _init () {
         const svc_database = this.services.get('database');
         this.db = svc_database.get(DB_WRITE, 'notification');
@@ -51,7 +50,7 @@ class CommentService extends BaseService {
         /**
         * Installs route handlers for comment-related endpoints
         * Sets up POST routes for creating and listing comments on filesystem entries
-        * 
+        *
         * @param {*} _ Unused parameter
         * @param {Object} options Installation options
         * @param {Express} options.app Express application instance
@@ -60,7 +59,7 @@ class CommentService extends BaseService {
         const r_comment = (() => {
             const require = this.require;
             const express = require('express');
-            return express.Router()
+            return express.Router();
         })();
 
         app.use('/comment', r_comment);
@@ -97,7 +96,7 @@ class CommentService extends BaseService {
                 res.json({
                     uid: comment.uid,
                 });
-            }
+            },
         }).attach(app);
 
         Endpoint({
@@ -144,15 +143,14 @@ class CommentService extends BaseService {
                 res.json({
                     comments: client_safe_comments,
                 });
-            }
+            },
         }).attach(app);
 
     }
 
-
     /**
     * Creates a new comment with the given text
-    * 
+    *
     * @param {Object} params - The parameters object
     * @param {Object} params.req - Express request object containing user and body data
     * @param {Object} params.res - Express response object
@@ -168,12 +166,10 @@ class CommentService extends BaseService {
 
         const uuid = this.modules.uuidv4();
 
-        const result = await this.db.write(
-            'INSERT INTO `user_comments` ' +
+        const result = await this.db.write('INSERT INTO `user_comments` ' +
             '(`uid`, `user_id`, `metadata`, `text`) ' +
             'VALUES (?, ?, ?, ?)',
-            [uuid, req.user.id, '{}', text],
-        );
+        [uuid, req.user.id, '{}', text]);
 
         return {
             id: result.insertId,
@@ -181,40 +177,34 @@ class CommentService extends BaseService {
         };
     }
 
-
     /**
     * Attaches a comment to a filesystem entry
-    * 
+    *
     * @param {Object} params - The parameters object
     * @param {Object} params.node - The filesystem node to attach the comment to
     * @param {Object} params.comment - The comment object containing id and other details
     * @returns {Promise<void>} Resolves when comment is successfully attached
     */
-    async attach_comment_to_fsentry ({ node, comment })  {
-        await this.db.write(
-            'INSERT INTO `user_fsentry_comments` ' +
+    async attach_comment_to_fsentry ({ node, comment }) {
+        await this.db.write('INSERT INTO `user_fsentry_comments` ' +
             '(`user_comment_id`, `fsentry_id`) ' +
             'VALUES (?, ?)',
-            [comment.id, await node.get('mysql-id')],
-        );
+        [comment.id, await node.get('mysql-id')]);
     }
-
 
     /**
     * Retrieves all comments associated with a filesystem entry
-    * 
+    *
     * @param {Object} params - The parameters object
     * @param {Object} params.node - The filesystem node to get comments for
     * @returns {Promise<Array>} Array of comment objects with user info attached
     */
     async get_comments_for_fsentry ({ node }) {
-        const comments = await this.db.read(
-            'SELECT * FROM `user_comments` ' +
+        const comments = await this.db.read('SELECT * FROM `user_comments` ' +
             'JOIN `user_fsentry_comments` ' +
             'ON `user_comments`.`id` = `user_fsentry_comments`.`user_comment_id` ' +
             'WHERE `fsentry_id` = ?',
-            [await node.get('mysql-id')],
-        );
+        [await node.get('mysql-id')]);
 
         for ( const comment of comments ) {
             const user_id = comment.user_id;

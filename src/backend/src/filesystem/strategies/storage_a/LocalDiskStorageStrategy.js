@@ -16,7 +16,7 @@
  * You should have received a copy of the GNU Affero General Public License
  * along with this program.  If not, see <https://www.gnu.org/licenses/>.
  */
-const { BaseOperation } = require("../../../services/OperationTraceService");
+const { BaseOperation } = require('../../../services/OperationTraceService');
 
 /**
  * Handles file upload operations to local disk storage.
@@ -58,7 +58,7 @@ class LocalDiskUploadStrategy extends BaseOperation {
                 on_progress: evt => {
                     progress_tracker.set_total(file.size);
                     progress_tracker.set(evt.uploaded);
-                }
+                },
             });
         }
     }
@@ -66,7 +66,8 @@ class LocalDiskUploadStrategy extends BaseOperation {
     /**
      * Hook called after the operation is inserted into the trace.
      */
-    post_insert () {}
+    post_insert () {
+    }
 }
 
 /**
@@ -105,7 +106,8 @@ class LocalDiskCopyStrategy extends BaseOperation {
     /**
      * Hook called after the operation is inserted into the trace.
      */
-    post_insert () {}
+    post_insert () {
+    }
 }
 
 /**

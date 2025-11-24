@@ -27,10 +27,10 @@ export class CallbackManager {
     attach_to_source (source) {
         source.addEventListener('message', event => {
             const { data } = event;
-            if (data && typeof data === 'object' && data.$SCOPE === $SCOPE) {
+            if ( data && typeof data === 'object' && data.$SCOPE === $SCOPE ) {
                 const { id, args } = data;
                 const callback = this.callbacks.get(id);
-                if (callback) {
+                if ( callback ) {
                     callback(...args);
                 }
             }
@@ -52,14 +52,14 @@ export class Dehydrator {
         return this.dehydrate_value_(value);
     }
     dehydrate_value_ (value) {
-        if (typeof value === 'function') {
+        if ( typeof value === 'function' ) {
             const id = this.callbackManager.register_callback(value);
             return { $SCOPE, id };
-        } else if (Array.isArray(value)) {
+        } else if ( Array.isArray(value) ) {
             return value.map(this.dehydrate_value_.bind(this));
-        } else if (typeof value === 'object' && value !== null) {
+        } else if ( typeof value === 'object' && value !== null ) {
             const result = {};
-            for (const key in value) {
+            for ( const key in value ) {
                 result[key] = this.dehydrate_value_(value[key]);
             }
             return result;
@@ -90,11 +90,11 @@ export class Hydrator {
             return (...args) => {
                 this.target.postMessage({ $SCOPE, id, args }, '*');
             };
-        } else if (Array.isArray(value)) {
+        } else if ( Array.isArray(value) ) {
             return value.map(this.hydrate_value_.bind(this));
-        } else if (typeof value === 'object' && value !== null) {
+        } else if ( typeof value === 'object' && value !== null ) {
             const result = {};
-            for (const key in value) {
+            for ( const key in value ) {
                 result[key] = this.hydrate_value_(value[key]);
             }
             return result;

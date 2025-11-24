@@ -32,7 +32,7 @@ class Channel {
 
         globalThis.chnl = this;
 
-        const events = ['write','consume','change'];
+        const events = ['write', 'consume', 'change'];
         for ( const event of events ) {
             this[`on_${event}_`] = [];
             this[`emit_${event}_`] = () => {
@@ -42,8 +42,12 @@ class Channel {
             };
         }
 
-        this.on('write', () => { this.emit_change_(); });
-        this.on('consume', () => { this.emit_change_(); });
+        this.on('write', () => {
+            this.emit_change_();
+        });
+        this.on('consume', () => {
+            this.emit_change_();
+        });
     }
 
     on (event, listener) {
@@ -71,7 +75,7 @@ class Channel {
                 }
                 called++;
                 const chunk = this.chunks_.shift();
-                ( chunk === DONE ? done : data ).resolve(chunk);
+                (chunk === DONE ? done : data ).resolve(chunk);
                 this.off('write', on_data);
                 this.emit_consume_();
             }
@@ -144,7 +148,6 @@ export class BetterReader {
         this.channel_.write(value);
     }
 
-
     _create_cancel_response () {
         return {
             chunk: null,
@@ -173,7 +176,8 @@ export class BetterReader {
         }
 
         const final_promise = new TeePromise();
-        let current_cancel_ = () => {};
+        let current_cancel_ = () => {
+        };
 
         (async () => {
             let n_read = 0;
@@ -188,7 +192,7 @@ export class BetterReader {
                 }
                 if ( which === 'cancel' ) {
                     this.channel_.pushback(...chunks);
-                    return
+                    return;
                 }
                 if ( n_read + chunk.length > opt_buffer.length ) {
                     const diff = opt_buffer.length - n_read;
@@ -229,7 +233,7 @@ export class BetterReader {
         return opt_buffer ? n_read : chunk;
     }
 
-    async getChunk_() {
+    async getChunk_ () {
         if ( this.chunks_.length === 0 ) {
             // Wait for either a delegate read to happen, or for a chunk to be added to the buffer from a cancelled read.
             const delegate_read = this.delegate.read();
@@ -237,7 +241,7 @@ export class BetterReader {
                 delegate: delegate_read,
                 buffer_not_empty: this.waitUntilDataAvailable(),
             });
-            if (which === 'delegate') {
+            if ( which === 'delegate' ) {
                 return result;
             }
 
@@ -261,15 +265,15 @@ export class BetterReader {
 
     getTotalBytesReady_ () {
         return this.chunks_.reduce((sum, chunk) => {
-            return sum + chunk.value.length
+            return sum + chunk.value.length;
         }, 0);
     }
 
-    canRead() {
+    canRead () {
         return this.getTotalBytesReady_() > 0;
     }
 
-    async waitUntilDataAvailable() {
+    async waitUntilDataAvailable () {
         let resolve_promise;
         let reject_promise;
         const promise = new Promise((resolve, reject) => {
@@ -278,7 +282,7 @@ export class BetterReader {
         });
 
         const check = () => {
-            if (this.canRead()) {
+            if ( this.canRead() ) {
                 resolve_promise();
             } else {
                 setTimeout(check, 0);
@@ -294,25 +298,25 @@ export class BetterReader {
  * PTT: pseudo-terminal target; called "slave" in POSIX
  */
 export class PTT {
-    constructor(pty) {
+    constructor (pty) {
         this.readableStream = new ReadableStream({
             start: controller => {
                 this.readController = controller;
-            }
+            },
         });
         this.writableStream = new WritableStream({
             start: controller => {
                 this.writeController = controller;
             },
             write: chunk => {
-                if (typeof chunk === 'string') {
+                if ( typeof chunk === 'string' ) {
                     chunk = encoder.encode(chunk);
                 }
                 if ( pty.outputModeflags?.outputNLCR ) {
                     chunk = pty.LF_to_CRLF(chunk);
                 }
                 pty.readController.enqueue(chunk);
-            }
+            },
         });
         this.out = this.writableStream.getWriter();
         this.in = this.readableStream.getReader();
@@ -327,12 +331,12 @@ export class PTT {
 export class PTY {
     constructor () {
         this.outputModeflags = {
-            outputNLCR: true
+            outputNLCR: true,
         };
         this.readableStream = new ReadableStream({
             start: controller => {
                 this.readController = controller;
-            }
+            },
         });
         this.writableStream = new WritableStream({
             start: controller => {
@@ -345,7 +349,7 @@ export class PTY {
                 for ( const target of this.targets ) {
                     target.readController.enqueue(chunk);
                 }
-            }
+            },
         });
         this.out = this.writableStream.getWriter();
         this.in = this.readableStream.getReader();
@@ -360,8 +364,8 @@ export class PTY {
 
     LF_to_CRLF (input) {
         let lfCount = 0;
-        for (let i = 0; i < input.length; i++) {
-            if (input[i] === 0x0A) {
+        for ( let i = 0; i < input.length; i++ ) {
+            if ( input[i] === 0x0A ) {
                 lfCount++;
             }
         }
@@ -369,9 +373,9 @@ export class PTY {
         const output = new Uint8Array(input.length + lfCount);
 
         let outputIndex = 0;
-        for (let i = 0; i < input.length; i++) {
+        for ( let i = 0; i < input.length; i++ ) {
             // If LF is encountered, insert CR (0x0D) before LF (0x0A)
-            if (input[i] === 0x0A) {
+            if ( input[i] === 0x0A ) {
                 output[outputIndex++] = 0x0D;
             }
             output[outputIndex++] = input[i];

@@ -17,11 +17,11 @@
  * You should have received a copy of the GNU Affero General Public License
  * along with this program.  If not, see <https://www.gnu.org/licenses/>.
  */
-const { APIError } = require("openai");
-const configurable_auth = require("../middleware/configurable_auth");
-const { Endpoint } = require("../util/expressutil");
-const { whatis } = require("../util/langutil");
-const BaseService = require("./BaseService");
+const { APIError } = require('openai');
+const configurable_auth = require('../middleware/configurable_auth');
+const { Endpoint } = require('../util/expressutil');
+const { whatis } = require('../util/langutil');
+const BaseService = require('./BaseService');
 
 /**
 * @class PermissionAPIService
@@ -43,7 +43,7 @@ class PermissionAPIService extends BaseService {
     * @param {Express} options.app Express application instance to install routes on
     * @returns {Promise<void>}
     */
-    async ['__on_install.routes'](_, { app }) {
+    async ['__on_install.routes'] (_, { app }) {
         app.use(require('../routers/auth/get-user-app-token'));
         app.use(require('../routers/auth/grant-user-app'));
         app.use(require('../routers/auth/revoke-user-app'));
@@ -76,7 +76,7 @@ class PermissionAPIService extends BaseService {
         app.use('/group', r_group);
     }
 
-    install_group_endpoints_({ router }) {
+    install_group_endpoints_ ({ router }) {
         Endpoint({
             route: '/create',
             methods: ['POST'],

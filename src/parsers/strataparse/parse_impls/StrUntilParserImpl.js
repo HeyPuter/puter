@@ -29,8 +29,10 @@ export default class StrUntilParserImpl {
 
             // TODO: doing this strictly one byte at a time
             //       doesn't allow multi-byte stop characters
-            if ( typeof value === 'number' ) value =
-                String.fromCharCode(value);
+            if ( typeof value === 'number' ) {
+                value =
+                    String.fromCharCode(value);
+            }
 
             if ( this.stopChars.includes(value) ) break;
 

@@ -16,7 +16,7 @@
  * You should have received a copy of the GNU Affero General Public License
  * along with this program.  If not, see <https://www.gnu.org/licenses/>.
  */
-"use strict"
+'use strict';
 const eggspress = require('../../api/eggspress');
 const FSNodeParam = require('../../api/filesystem/FSNodeParam');
 const { HLMkdir } = require('../../filesystem/hl_operations/hl_mkdir');
@@ -36,17 +36,25 @@ module.exports = eggspress('/mkdir', {
     parameters: {
         parent: new FSNodeParam('parent', { optional: true }),
         shortcut_to: new FSNodeParam('shortcut_to', { optional: true }),
-    }
+    },
 }, async (req, res, next) => {
     // validation
-    if(req.body.path === undefined)
-        return res.status(400).send({message: 'path is required'})
-    else if(req.body.path === '')
-        return res.status(400).send({message: 'path cannot be empty'})
-    else if(req.body.path === null)
-        return res.status(400).send({message: 'path cannot be null'})
-    else if(typeof req.body.path !== 'string')
-        return res.status(400).send({message: 'path must be a string'})
+    if ( req.body.path === undefined )
+    {
+        return res.status(400).send({ message: 'path is required' });
+    }
+    else if ( req.body.path === '' )
+    {
+        return res.status(400).send({ message: 'path cannot be empty' });
+    }
+    else if ( req.body.path === null )
+    {
+        return res.status(400).send({ message: 'path cannot be null' });
+    }
+    else if ( typeof req.body.path !== 'string' )
+    {
+        return res.status(400).send({ message: 'path must be a string' });
+    }
 
     const overwrite         = req.body.overwrite ?? false;
 
@@ -61,7 +69,7 @@ module.exports = eggspress('/mkdir', {
                 operation_id: req.body.operation_id,
                 user_id: req.user.id,
             })
-            ;
+        ;
         x.set(operationTraceSvc.ckey('frame'), frame);
     }
 
@@ -75,10 +83,8 @@ module.exports = eggspress('/mkdir', {
         path: req.body.path,
         overwrite: overwrite,
         dedupe_name: req.body.dedupe_name ?? false,
-        create_missing_parents: boolify(
-            req.body.create_missing_ancestors ??
-            req.body.create_missing_parents
-        ),
+        create_missing_parents: boolify(req.body.create_missing_ancestors ??
+            req.body.create_missing_parents),
         actor: req.actor,
         shortcut_to: req.values.shortcut_to,
     });
@@ -88,4 +94,4 @@ module.exports = eggspress('/mkdir', {
     frame.done();
 
     return res.send(response);
-})
+});

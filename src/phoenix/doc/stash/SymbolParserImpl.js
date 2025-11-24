@@ -22,12 +22,12 @@
 export class SymbolParserImpl {
     static meta = {
         inputs: 'bytes',
-        outputs: 'node'
-    }
+        outputs: 'node',
+    };
     static data = {
         rexp0: /[A-Za-z_]/,
         rexpN: /[A-Za-z0-9_]/,
-    }
+    };
     parse (lexer) {
         let { done, value } = lexer.look();
         if ( done ) return;
@@ -37,7 +37,7 @@ export class SymbolParserImpl {
         value = String.fromCharCode(value);
         if ( ! rexp0.test(value) ) return;
 
-        let text = '' + value;
+        let text = `${ value}`;
         lexer.next();
 
         for ( ;; ) {
@@ -48,7 +48,7 @@ export class SymbolParserImpl {
             text += value;
             lexer.next();
         }
-        
+
         return { $: 'symbol', text };
     }
 }

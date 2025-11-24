@@ -17,14 +17,14 @@
  * along with this program.  If not, see <https://www.gnu.org/licenses/>.
  */
 
-const APIError = require("../../../api/APIError");
-const { Sequence } = require("../../../codex/Sequence");
-const config = require("../../../config");
-const { get_user, get_app } = require("../../../helpers");
-const { PermissionUtil } = require("../../../services/auth/permissionUtils.mjs");
-const FSNodeParam = require("../../../api/filesystem/FSNodeParam");
-const { TYPE_DIRECTORY } = require("../../../filesystem/FSNodeContext");
-const { MANAGE_PERM_PREFIX } = require("../../../services/auth/permissionConts.mjs");
+const APIError = require('../../../api/APIError');
+const { Sequence } = require('../../../codex/Sequence');
+const config = require('../../../config');
+const { get_user, get_app } = require('../../../helpers');
+const { PermissionUtil } = require('../../../services/auth/permissionUtils.mjs');
+const FSNodeParam = require('../../../api/filesystem/FSNodeParam');
+const { TYPE_DIRECTORY } = require('../../../filesystem/FSNodeContext');
+const { MANAGE_PERM_PREFIX } = require('../../../services/auth/permissionConts.mjs');
 
 /*
     This code is optimized for editors supporting folding.
@@ -40,12 +40,12 @@ const { MANAGE_PERM_PREFIX } = require("../../../services/auth/permissionConts.m
 
 module.exports = new Sequence({
     name: 'process shares',
-    beforeEach(a) {
+    beforeEach (a) {
         const { shares_work } = a.values();
         shares_work.clear_invalid();
     },
 }, [
-    function validate_share_types(a) {
+    function validate_share_types (a) {
         const { result, shares_work } = a.values();
 
         const lib_typeTagged = a.iget('services').get('lib-type-tagged');
@@ -78,7 +78,7 @@ module.exports = new Sequence({
             item.thing = thing;
         }
     },
-    function create_file_share_intents(a) {
+    function create_file_share_intents (a) {
         const { result, shares_work } = a.values();
         for ( const item of shares_work.list() ) {
             const { thing } = item;
@@ -113,7 +113,7 @@ module.exports = new Sequence({
             };
         }
     },
-    function create_app_share_intents(a) {
+    function create_app_share_intents (a) {
         const { result, shares_work } = a.values();
         for ( const item of shares_work.list() ) {
             const { thing } = item;
@@ -121,7 +121,7 @@ module.exports = new Sequence({
 
             item.type = 'app';
             const errors = [];
-            if ( ! thing.uid && ! thing.name ) {
+            if ( !thing.uid && !thing.name ) {
                 errors.push('`uid` or `name` is required');
             }
 
@@ -147,7 +147,7 @@ module.exports = new Sequence({
             continue;
         }
     },
-    async function fetch_nodes_for_file_shares(a) {
+    async function fetch_nodes_for_file_shares (a) {
         const { req, result, shares_work } = a.values();
         for ( const item of shares_work.list() ) {
             if ( item.type !== 'fs' ) continue;
@@ -178,7 +178,7 @@ module.exports = new Sequence({
             item.email_link = email_link;
         }
     },
-    async function fetch_apps_for_app_shares(a) {
+    async function fetch_apps_for_app_shares (a) {
         const { result, shares_work } = a.values();
         const db = a.iget('db');
 
@@ -209,15 +209,15 @@ module.exports = new Sequence({
             item.app = app;
         }
     },
-    async function add_subdomain_permissions(a) {
+    async function add_subdomain_permissions (a) {
         const { shares_work } = a.values();
         const actor = a.get('actor');
         const db = a.iget('db');
 
         for ( const item of shares_work.list() ) {
             if ( item.type !== 'app' ) continue;
-            const [subdomain] = await db.read(`SELECT * FROM subdomains WHERE associated_app_id = ? ` +
-                `AND user_id = ? LIMIT 1`,
+            const [subdomain] = await db.read('SELECT * FROM subdomains WHERE associated_app_id = ? ' +
+                'AND user_id = ? LIMIT 1',
             [item.app.id, actor.type.user.id]);
             if ( ! subdomain ) continue;
 
@@ -228,7 +228,7 @@ module.exports = new Sequence({
             item.share_intent.permissions.push(PermissionUtil.join('site', site_selector, 'access'));
         }
     },
-    async function add_appdata_permissions(a) {
+    async function add_appdata_permissions (a) {
         const { shares_work } = a.values();
         for ( const item of shares_work.list() ) {
             if ( item.type !== 'app' ) continue;
@@ -244,7 +244,7 @@ module.exports = new Sequence({
             item.share_intent.permissions.push(appdatadir_perm);
         }
     },
-    function apply_success_status_to_shares(a) {
+    function apply_success_status_to_shares (a) {
         const { result, shares_work } = a.values();
         for ( const item of shares_work.list() ) {
             result.shares[item.i] =
@@ -257,7 +257,7 @@ module.exports = new Sequence({
                 };
         }
     },
-    function return_state(a) {
+    function return_state (a) {
         return a;
     },
 ]);

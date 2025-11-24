@@ -17,9 +17,9 @@
  * along with this program.  If not, see <https://www.gnu.org/licenses/>.
  */
 
-const APIError = require("../../../api/APIError");
-const { Sequence } = require("../../../codex/Sequence");
-const { whatis } = require("../../../util/langutil");
+const APIError = require('../../../api/APIError');
+const { Sequence } = require('../../../codex/Sequence');
+const { whatis } = require('../../../util/langutil');
 
 /*
     This code is optimized for editors supporting folding.
@@ -36,7 +36,7 @@ const { whatis } = require("../../../util/langutil");
 module.exports = new Sequence({
     name: 'validate request',
 }, [
-    function validate_metadata(a) {
+    function validate_metadata (a) {
         const req = a.get('req');
         const metadata = req.body.metadata;
 
@@ -97,7 +97,7 @@ module.exports = new Sequence({
             }
         }
     },
-    function validate_mode(a) {
+    function validate_mode (a) {
         const req = a.get('req');
         const mode = req.body.mode;
 
@@ -105,7 +105,7 @@ module.exports = new Sequence({
             a.set('strict_mode', true);
             return;
         }
-        if ( ! mode || mode === 'best-effort' ) {
+        if ( !mode || mode === 'best-effort' ) {
             a.set('strict_mode', false);
             return;
         }
@@ -114,7 +114,7 @@ module.exports = new Sequence({
             expected: '`strict`, `best-effort`, or undefined',
         });
     },
-    function validate_recipients(a) {
+    function validate_recipients (a) {
         const req = a.get('req');
         let recipients = req.body.recipients;
 
@@ -140,7 +140,7 @@ module.exports = new Sequence({
         }
         a.set('req_recipients', recipients);
     },
-    function validate_shares(a) {
+    function validate_shares (a) {
         const req = a.get('req');
         let shares = req.body.shares;
 
@@ -159,7 +159,7 @@ module.exports = new Sequence({
 
         a.set('req_shares', shares);
     },
-    function return_state(a) {
+    function return_state (a) {
         return a;
     },
 ]);

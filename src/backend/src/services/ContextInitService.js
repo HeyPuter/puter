@@ -17,8 +17,8 @@
  * You should have received a copy of the GNU Affero General Public License
  * along with this program.  If not, see <https://www.gnu.org/licenses/>.
  */
-const { Context } = require("../util/context");
-const BaseService = require("./BaseService");
+const { Context } = require('../util/context');
+const BaseService = require('./BaseService');
 
 // DRY: (2/3) - src/util/context.js; move install() to base class
 /**
@@ -32,7 +32,7 @@ const BaseService = require("./BaseService");
 class ContextInitExpressMiddleware {
     /**
     * Express middleware class that initializes context values for requests
-    * 
+    *
     * Manages a list of value initializers that populate the Context with
     * either static values or async-generated values when handling requests.
     * Part of DRY pattern with src/util/context.js.
@@ -64,7 +64,6 @@ class ContextInitExpressMiddleware {
     }
 }
 
-
 /**
 * @class ContextInitService
 * @extends BaseService
@@ -78,7 +77,7 @@ class ContextInitService extends BaseService {
     * Service for initializing request context with values and async factories.
     * Extends BaseService to provide middleware for Express that populates the Context
     * with registered values and async-generated values at the start of each request.
-    * 
+    *
     * @extends BaseService
     */
     _construct () {
@@ -106,5 +105,5 @@ class ContextInitService extends BaseService {
 }
 
 module.exports = {
-    ContextInitService
+    ContextInitService,
 };

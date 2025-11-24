@@ -25,25 +25,24 @@ export class MemWriter {
     async write (item) {
         this.items.push(item);
     }
-    async close () {}
+    async close () {
+    }
 
-    getAsUint8Array() {
+    getAsUint8Array () {
         const uint8arrays = [];
         for ( let item of this.items ) {
             if ( typeof item === 'string' ) {
                 item = encoder.encode(item);
             }
 
-            if ( ! ( item instanceof Uint8Array ) )  {
+            if ( ! ( item instanceof Uint8Array ) ) {
                 throw new Error('could not convert to Uint8Array');
             }
 
             uint8arrays.push(item);
         }
 
-        const outputUint8Array = new Uint8Array(
-            uint8arrays.reduce((sum, item) => sum + item.length, 0)
-        );
+        const outputUint8Array = new Uint8Array(uint8arrays.reduce((sum, item) => sum + item.length, 0));
 
         let pos = 0;
         for ( const item of uint8arrays ) {

@@ -20,30 +20,30 @@ import { describe, it, expect, beforeEach, vi } from 'vitest';
 
 // Mock the Context and services
 const Context = {
-    get: vi.fn()
+    get: vi.fn(),
 };
 
 // Mock the extension service
 class ExtensionService {
-    constructor() {
+    constructor () {
         this.extensions = new Map();
         this.eventHandlers = new Map();
     }
-    
-    registerExtension(name, extension) {
+
+    registerExtension (name, extension) {
         this.extensions.set(name, extension);
     }
-    
-    on(event, handler) {
-        if (!this.eventHandlers.has(event)) {
+
+    on (event, handler) {
+        if ( ! this.eventHandlers.has(event) ) {
             this.eventHandlers.set(event, []);
         }
         this.eventHandlers.get(event).push(handler);
     }
-    
-    async emit(event, data) {
+
+    async emit (event, data) {
         const handlers = this.eventHandlers.get(event) || [];
-        for (const handler of handlers) {
+        for ( const handler of handlers ) {
             await handler(data);
         }
     }
@@ -51,130 +51,130 @@ class ExtensionService {
 
 describe('Extension Integration with Captcha', () => {
     let extensionService, captchaService, services;
-    
+
     beforeEach(() => {
         // Reset mocks
         vi.clearAllMocks();
-        
+
         // Create fresh instances
         extensionService = new ExtensionService();
         captchaService = {
             enabled: true,
-            verifyCaptcha: vi.fn()
+            verifyCaptcha: vi.fn(),
         };
-        
+
         services = {
-            get: vi.fn()
+            get: vi.fn(),
         };
-        
+
         // Configure service mocks
         services.get.mockImplementation((serviceName) => {
-            if (serviceName === 'extension') return extensionService;
-            if (serviceName === 'captcha') return captchaService;
+            if ( serviceName === 'extension' ) return extensionService;
+            if ( serviceName === 'captcha' ) return captchaService;
         });
-        
+
         // Configure Context mock
         Context.get.mockImplementation((key) => {
-            if (key === 'services') return services;
+            if ( key === 'services' ) return services;
         });
     });
-    
+
     describe('Extension Event Handling', () => {
         it('should allow extensions to require captcha via event handler', async () => {
             // Setup - create a test extension that requires captcha
             const testExtension = {
                 name: 'test-extension',
                 onCaptchaValidate: async (event) => {
-                    if (event.type === 'login' && event.ip === '1.2.3.4') {
+                    if ( event.type === 'login' && event.ip === '1.2.3.4' ) {
                         event.require = true;
                     }
-                }
+                },
             };
-            
+
             // Register extension and event handler
             extensionService.registerExtension(testExtension.name, testExtension);
             extensionService.on('captcha.validate', testExtension.onCaptchaValidate);
-            
+
             // Test event emission
             const eventData = {
                 type: 'login',
                 ip: '1.2.3.4',
-                require: false
+                require: false,
             };
-            
+
             await extensionService.emit('captcha.validate', eventData);
-            
+
             // Assert
             expect(eventData.require).toBe(true);
         });
-        
+
         it('should allow extensions to disable captcha requirement', async () => {
             // Setup - create a test extension that disables captcha
             const testExtension = {
                 name: 'test-extension',
                 onCaptchaValidate: async (event) => {
-                    if (event.type === 'login' && event.ip === 'trusted-ip') {
+                    if ( event.type === 'login' && event.ip === 'trusted-ip' ) {
                         event.require = false;
                     }
-                }
+                },
             };
-            
+
             // Register extension and event handler
             extensionService.registerExtension(testExtension.name, testExtension);
             extensionService.on('captcha.validate', testExtension.onCaptchaValidate);
-            
+
             // Test event emission
             const eventData = {
                 type: 'login',
                 ip: 'trusted-ip',
-                require: true
+                require: true,
             };
-            
+
             await extensionService.emit('captcha.validate', eventData);
-            
+
             // Assert
             expect(eventData.require).toBe(false);
         });
-        
+
         it('should handle multiple extensions modifying captcha requirement', async () => {
             // Setup - create two test extensions with different rules
             const extension1 = {
                 name: 'extension-1',
                 onCaptchaValidate: async (event) => {
-                    if (event.type === 'login') {
+                    if ( event.type === 'login' ) {
                         event.require = true;
                     }
-                }
+                },
             };
-            
+
             const extension2 = {
                 name: 'extension-2',
                 onCaptchaValidate: async (event) => {
-                    if (event.ip === 'trusted-ip') {
+                    if ( event.ip === 'trusted-ip' ) {
                         event.require = false;
                     }
-                }
+                },
             };
-            
+
             // Register extensions and event handlers
             extensionService.registerExtension(extension1.name, extension1);
             extensionService.registerExtension(extension2.name, extension2);
             extensionService.on('captcha.validate', extension1.onCaptchaValidate);
             extensionService.on('captcha.validate', extension2.onCaptchaValidate);
-            
+
             // Test event emission - extension2 should override extension1
             const eventData = {
                 type: 'login',
                 ip: 'trusted-ip',
-                require: false
+                require: false,
             };
-            
+
             await extensionService.emit('captcha.validate', eventData);
-            
+
             // Assert
             expect(eventData.require).toBe(false);
         });
-        
+
         // TODO: Why was this behavior changed?
         // it('should handle extension errors gracefully', async () => {
         //     // Setup - create a test extension that throws an error
@@ -184,26 +184,26 @@ describe('Extension Integration with Captcha', () => {
         //             throw new Error('Extension error');
         //         }
         //     };
-            
+
         //     // Register extension and event handler
         //     extensionService.registerExtension(testExtension.name, testExtension);
         //     extensionService.on('captcha.validate', testExtension.onCaptchaValidate);
-            
+
         //     // Test event emission
         //     const eventData = {
         //         type: 'login',
         //         ip: '1.2.3.4',
         //         require: false
         //     };
-            
+
         //     // The emit should not throw
         //     await extensionService.emit('captcha.validate', eventData);
-            
+
         //     // Assert - the original value should be preserved
         //     expect(eventData.require).toBe(false);
         // });
     });
-    
+
     describe('Backward Compatibility', () => {
         it('should maintain backward compatibility with older extension APIs', async () => {
             // Setup - create a test extension using the old API format
@@ -211,28 +211,28 @@ describe('Extension Integration with Captcha', () => {
                 name: 'legacy-extension',
                 handleCaptcha: async (event) => {
                     event.require = true;
-                }
+                },
             };
-            
+
             // Register legacy extension with old event name
             extensionService.registerExtension(legacyExtension.name, legacyExtension);
             extensionService.on('captcha.check', legacyExtension.handleCaptcha);
-            
+
             // Test both old and new event names
             const eventData = {
                 type: 'login',
                 ip: '1.2.3.4',
-                require: false
+                require: false,
             };
-            
+
             // Should work with both old and new event names
             await extensionService.emit('captcha.check', eventData);
             await extensionService.emit('captcha.validate', eventData);
-            
+
             // Assert - the requirement should be set by the legacy extension
             expect(eventData.require).toBe(true);
         });
-        
+
         it('should support legacy extension configuration formats', async () => {
             // Setup - create a test extension with legacy configuration
             const legacyExtension = {
@@ -240,31 +240,31 @@ describe('Extension Integration with Captcha', () => {
                 config: {
                     captcha: {
                         always: true,
-                        types: ['login', 'signup']
-                    }
+                        types: ['login', 'signup'],
+                    },
                 },
                 onCaptchaValidate: async (event) => {
-                    if (legacyExtension.config.captcha.types.includes(event.type)) {
+                    if ( legacyExtension.config.captcha.types.includes(event.type) ) {
                         event.require = legacyExtension.config.captcha.always;
                     }
-                }
+                },
             };
-            
+
             // Register extension and event handler
             extensionService.registerExtension(legacyExtension.name, legacyExtension);
             extensionService.on('captcha.validate', legacyExtension.onCaptchaValidate);
-            
+
             // Test event emission
             const eventData = {
                 type: 'login',
                 ip: '1.2.3.4',
-                require: false
+                require: false,
             };
-            
+
             await extensionService.emit('captcha.validate', eventData);
-            
+
             // Assert
             expect(eventData.require).toBe(true);
         });
     });
-}); 
+});

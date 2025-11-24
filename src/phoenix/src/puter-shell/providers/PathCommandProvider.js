@@ -16,14 +16,14 @@
  * You should have received a copy of the GNU Affero General Public License
  * along with this program.  If not, see <https://www.gnu.org/licenses/>.
  */
-import path_ from "node:path";
-import child_process from "node:child_process";
-import stream from "node:stream";
+import path_ from 'node:path';
+import child_process from 'node:child_process';
+import stream from 'node:stream';
 import { signals } from '../../ansi-shell/signals.js';
 import { Exit } from '../coreutils/coreutil_lib/exit.js';
 import pty from 'node-pty';
 
-function spawn_process(ctx, executablePath) {
+function spawn_process (ctx, executablePath) {
     console.log(`Spawning ${executablePath} as a child process`);
     const child = child_process.spawn(executablePath, ctx.locals.args, {
         stdio: ['pipe', 'pipe', 'pipe'],
@@ -72,7 +72,7 @@ function spawn_process(ctx, executablePath) {
     const exit_promise = new Promise((resolve, reject) => {
         child.on('exit', (code) => {
             ctx.externs.out.write(`Exited with code ${code}\n`);
-            if (code === 0) {
+            if ( code === 0 ) {
                 resolve({ done: true });
             } else {
                 reject(new Exit(code));
@@ -90,20 +90,20 @@ function spawn_process(ctx, executablePath) {
             in_.write(data);
             if ( ! done ) setTimeout(next_data, 0);
         }
-    }
+    };
     setTimeout(next_data, 0);
 
     return Promise.race([ exit_promise, sigint_promise ]);
 }
 
-function spawn_pty(ctx, executablePath) {
+function spawn_pty (ctx, executablePath) {
     console.log(`Spawning ${executablePath} as a pty`);
     const child = pty.spawn(executablePath, ctx.locals.args, {
         name: 'xterm-color',
         rows: ctx.env.ROWS,
         cols: ctx.env.COLS,
         cwd: ctx.vars.pwd,
-        env: ctx.env
+        env: ctx.env,
     });
     child.onData(chunk => {
         ctx.externs.out.write(chunk);
@@ -119,7 +119,7 @@ function spawn_pty(ctx, executablePath) {
     });
 
     const exit_promise = new Promise((resolve, reject) => {
-        child.onExit(({code, signal}) => {
+        child.onExit(({ code, signal }) => {
             ctx.externs.out.write(`Exited with code ${code || 0} and signal ${signal || 0}\n`);
             if ( signal ) {
                 reject(new Exit(1));
@@ -141,37 +141,39 @@ function spawn_pty(ctx, executablePath) {
             child.write(data);
             if ( ! done ) setTimeout(next_data, 0);
         }
-    }
+    };
     setTimeout(next_data, 0);
 
     return Promise.race([ exit_promise, sigint_promise ]);
 }
 
-function makeCommand(id, executablePath) {
+function makeCommand (id, executablePath) {
     return {
         name: id,
         path: executablePath,
-        async execute(ctx) {
+        async execute (ctx) {
             // TODO: spawn_pty() does a lot of things better than spawn_process(), but can't handle output redirection.
             //       At some point, we'll need to implement more ioctls within spawn_process() and then remove spawn_pty(),
             //       but for now, the best experience is to use spawn_pty() unless we need the redirection.
-            if (ctx.locals.outputIsRedirected) {
+            if ( ctx.locals.outputIsRedirected ) {
                 return spawn_process(ctx, executablePath);
             }
             return spawn_pty(ctx, executablePath);
-        }
+        },
     };
 }
 
-async function findCommandsInPath(id, ctx, firstOnly) {
+async function findCommandsInPath (id, ctx, firstOnly) {
     const PATH = ctx.env['PATH'];
-    if (!PATH || id.includes(path_.sep))
+    if ( !PATH || id.includes(path_.sep) )
+    {
         return;
+    }
     const pathDirectories = PATH.split(path_.delimiter);
 
     const results = [];
 
-    for (const dir of pathDirectories) {
+    for ( const dir of pathDirectories ) {
         const executablePath = path_.resolve(dir, id);
         let stat;
         try {
@@ -195,24 +197,26 @@ export class PathCommandProvider {
         return findCommandsInPath(id, ctx, true);
     }
 
-    async lookupAll(id, { ctx }) {
+    async lookupAll (id, { ctx }) {
         return findCommandsInPath(id, ctx, false);
     }
 
-    async complete(query, { ctx }) {
-        if (query === '') return [];
+    async complete (query, { ctx }) {
+        if ( query === '' ) return [];
 
         const PATH = ctx.env['PATH'];
-        if (!PATH)
+        if ( ! PATH )
+        {
             return [];
+        }
         const path_directories = PATH.split(path_.delimiter);
 
         const results = [];
 
-        for (const dir of path_directories) {
+        for ( const dir of path_directories ) {
             const dir_entries = await ctx.platform.filesystem.readdir(dir);
-            for (const dir_entry of dir_entries) {
-                if (dir_entry.name.startsWith(query)) {
+            for ( const dir_entry of dir_entries ) {
+                if ( dir_entry.name.startsWith(query) ) {
                     results.push(dir_entry.name);
                 }
             }

@@ -16,7 +16,7 @@
  * You should have received a copy of the GNU Affero General Public License
  * along with this program.  If not, see <https://www.gnu.org/licenses/>.
  */
-"use strict"
+'use strict';
 const { get_app } = require('../helpers.js');
 const { DB_READ } = require('../services/database/consts.js');
 
@@ -32,7 +32,7 @@ const iconify_apps = async (context, { apps, size }) => {
         app.icon = await icon_result.get_data_url();
         return app;
     }));
-}
+};
 
 // -----------------------------------------------------------------------//
 // GET /get-launch-apps
@@ -43,7 +43,7 @@ module.exports = async (req, res) => {
     // Verify query params
     if ( req.query.icon_size ) {
         const ALLOWED_SIZES = ['16', '32', '64', '128', '256', '512'];
-    
+
         if ( ! ALLOWED_SIZES.includes(req.query.icon_size) ) {
             res.status(400).send({ error: 'Invalid icon_size' });
         }
@@ -54,7 +54,7 @@ module.exports = async (req, res) => {
     // -----------------------------------------------------------------------//
     const svc_recommendedApps = req.services.get('recommended-apps');
     result.recommended = await svc_recommendedApps.get_recommended_apps({
-        icon_size: req.query.icon_size
+        icon_size: req.query.icon_size,
     });
 
     // -----------------------------------------------------------------------//
@@ -65,16 +65,15 @@ module.exports = async (req, res) => {
     const db = req.services.get('database').get(DB_READ, 'apps');
 
     // First try the cache to see if we have recent apps
-    apps = kv.get('app_opens:user:' + req.user.id);
+    apps = kv.get(`app_opens:user:${ req.user.id}`);
 
     // If cache is empty, query the db and update the cache
-    if(!apps || !Array.isArray(apps) || apps.length === 0){
-        apps = await db.read(
-            'SELECT DISTINCT app_uid FROM app_opens WHERE user_id = ? GROUP BY app_uid ORDER BY MAX(_id) DESC LIMIT 10',
-            [req.user.id]);
+    if ( !apps || !Array.isArray(apps) || apps.length === 0 ) {
+        apps = await db.read('SELECT DISTINCT app_uid FROM app_opens WHERE user_id = ? GROUP BY app_uid ORDER BY MAX(_id) DESC LIMIT 10',
+                        [req.user.id]);
         // Update cache with the results from the db (if any results were returned)
-        if(apps && Array.isArray(apps) && apps.length > 0) {
-            kv.set('app_opens:user:' + req.user.id, apps);
+        if ( apps && Array.isArray(apps) && apps.length > 0 ) {
+            kv.set(`app_opens:user:${ req.user.id}`, apps);
         }
     }
 
@@ -83,7 +82,7 @@ module.exports = async (req, res) => {
     result.recent = [];
     for ( const { app_uid: uid } of apps ) {
         const app = await get_app({ uid });
-        if ( ! app ) continue
+        if ( ! app ) continue;
 
         result.recent.push({
             uuid: app.uid,

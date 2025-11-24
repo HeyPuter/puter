@@ -20,11 +20,11 @@
 
 const list_ws = [' ', '\n', '\t'];
 const list_recorded_tokens = [
-    '|','>','<','&',';','(',')',
+    '|', '>', '<', '&', ';', '(', ')',
 ];
 const list_stoptoken = [
-    '|','>','<','&','\\','#',';','(',')',
-    ...list_ws
+    '|', '>', '<', '&', '\\', '#', ';', '(', ')',
+    ...list_ws,
 ];
 
 export const TOKENS = {};
@@ -42,9 +42,9 @@ export const readtoken = str => {
         endToken: () => {
             tokens.push(buffer);
             buffer = '';
-        }
+        },
     };
-    
+
     const states = {
         start: i => {
             if ( list_ws.includes(str[i]) ) {
@@ -93,12 +93,12 @@ export const readtoken = str => {
             }
             buffer += str[i];
             state = states.quote;
-        }
+        },
     };
     state = states.start;
-    for ( let i=0 ; i < str.length ; ) {
+    for ( let i = 0 ; i < str.length ; ) {
         let newI = state(i);
-        i = newI !== undefined ? newI : i+1;
+        i = newI !== undefined ? newI : i + 1;
     }
 
     if ( buffer !== '' ) actions.endToken();

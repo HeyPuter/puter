@@ -39,15 +39,13 @@ const deep_proto_merge = (replacement, delegate, options) => {
     for ( const key in replacement ) {
         if ( ! is_object(replacement[key]) ) continue;
 
-        if ( options?.preserve_flag && ! replacement[key].$preserve ) {
+        if ( options?.preserve_flag && !replacement[key].$preserve ) {
             continue;
         }
         if ( ! is_object(delegate[key]) ) {
             continue;
         }
-        replacement[key] = deep_proto_merge(
-            replacement[key], delegate[key], options,
-        );
+        replacement[key] = deep_proto_merge(replacement[key], delegate[key], options);
     }
 
     // use a Proxy object to ensure all keys are present
@@ -62,10 +60,10 @@ const deep_proto_merge = (replacement, delegate, options) => {
             // Combine and deduplicate properties using a Set, then convert back to an array
             const s = new Set([
                 ...protoProps,
-                ...ownProps
+                ...ownProps,
             ]);
 
-            if (options?.preserve_flag) {
+            if ( options?.preserve_flag ) {
                 // remove $preserve if it exists
                 s.delete('$preserve');
             }
@@ -76,16 +74,16 @@ const deep_proto_merge = (replacement, delegate, options) => {
             // Real descriptor
             let descriptor = Object.getOwnPropertyDescriptor(target, prop);
 
-            if (descriptor) return descriptor;
+            if ( descriptor ) return descriptor;
 
             // Immediate prototype descriptor
             const proto = Object.getPrototypeOf(target);
             descriptor = Object.getOwnPropertyDescriptor(proto, prop);
 
-            if (descriptor) return descriptor;
+            if ( descriptor ) return descriptor;
 
             return undefined;
-        }
+        },
 
     });
 

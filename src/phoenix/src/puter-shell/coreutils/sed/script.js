@@ -26,56 +26,56 @@ const CycleResult = {
 };
 
 export class Script {
-    constructor(commands) {
+    constructor (commands) {
         this.commands = commands;
     }
 
-    async runCycle(context) {
+    async runCycle (context) {
         let i = 0;
-        while (i < this.commands.length) {
+        while ( i < this.commands.length ) {
             const command = this.commands[i];
             command.updateMatchState(context);
             const result = await command.runCommand(context);
-            switch (result) {
-                case JumpLocation.Label: {
-                    const label = context.jumpParameter;
-                    context.jumpParameter = null;
-                    const foundIndex = this.commands.findIndex(c => c instanceof LabelCommand && c.label === label);
-                    if (foundIndex === -1) {
-                        // TODO: Check for existence of labels during parsing too.
-                        throw new Error(`Label ':${label}' not found.`);
-                    }
-                    i = foundIndex;
-                    break;
+            switch ( result ) {
+            case JumpLocation.Label: {
+                const label = context.jumpParameter;
+                context.jumpParameter = null;
+                const foundIndex = this.commands.findIndex(c => c instanceof LabelCommand && c.label === label);
+                if ( foundIndex === -1 ) {
+                    // TODO: Check for existence of labels during parsing too.
+                    throw new Error(`Label ':${label}' not found.`);
                 }
-                case JumpLocation.GroupEnd: {
-                    const groupId = context.jumpParameter;
-                    context.jumpParameter = null;
-                    const foundIndex = this.commands.findIndex(c => c instanceof GroupEndCommand && c.id === groupId);
-                    if (foundIndex === -1) {
-                        // TODO: Check for matching groups during parsing too.
-                        throw new Error(`Matching } for group #${groupId} not found.`);
-                    }
-                    i = foundIndex;
-                    break;
+                i = foundIndex;
+                break;
+            }
+            case JumpLocation.GroupEnd: {
+                const groupId = context.jumpParameter;
+                context.jumpParameter = null;
+                const foundIndex = this.commands.findIndex(c => c instanceof GroupEndCommand && c.id === groupId);
+                if ( foundIndex === -1 ) {
+                    // TODO: Check for matching groups during parsing too.
+                    throw new Error(`Matching } for group #${groupId} not found.`);
                 }
-                case JumpLocation.Quit:
-                    return CycleResult.Quit;
-                case JumpLocation.QuitSilent:
-                    return CycleResult.QuitSilent;
-                case JumpLocation.StartOfCycle:
-                    i = 0;
-                    continue;
-                case JumpLocation.EndOfCycle:
-                    return CycleResult.Continue;
-                case JumpLocation.None:
-                    i++;
-                    break;
+                i = foundIndex;
+                break;
+            }
+            case JumpLocation.Quit:
+                return CycleResult.Quit;
+            case JumpLocation.QuitSilent:
+                return CycleResult.QuitSilent;
+            case JumpLocation.StartOfCycle:
+                i = 0;
+                continue;
+            case JumpLocation.EndOfCycle:
+                return CycleResult.Continue;
+            case JumpLocation.None:
+                i++;
+                break;
             }
         }
     }
 
-    async run(ctx) {
+    async run (ctx) {
         const { out, err } = ctx.externs;
         const { positionals, values } = ctx.locals;
 
@@ -88,27 +88,27 @@ export class Script {
         };
 
         // All remaining positionals are file paths to process.
-        for (const relPath of positionals) {
+        for ( const relPath of positionals ) {
             context.lineNumber = 1;
-            for await (const line of fileLines(ctx, relPath)) {
+            for await ( const line of fileLines(ctx, relPath) ) {
                 context.patternSpace = line.replace(/\n$/, '');
                 const result = await this.runCycle(context);
-                switch (result) {
-                    case CycleResult.Quit: {
-                        if (!values.quiet) {
-                            await out.write(context.patternSpace + '\n');
-                        }
-                        return;
+                switch ( result ) {
+                case CycleResult.Quit: {
+                    if ( ! values.quiet ) {
+                        await out.write(`${context.patternSpace }\n`);
                     }
-                    case CycleResult.QuitSilent: {
-                        return;
-                    }
+                    return;
                 }
-                if (!values.quiet) {
-                    await out.write(context.patternSpace + '\n');
+                case CycleResult.QuitSilent: {
+                    return;
                 }
-                if (context.queuedOutput) {
-                    await out.write(context.queuedOutput + '\n');
+                }
+                if ( ! values.quiet ) {
+                    await out.write(`${context.patternSpace }\n`);
+                }
+                if ( context.queuedOutput ) {
+                    await out.write(`${context.queuedOutput }\n`);
                     context.queuedOutput = '';
                 }
                 context.lineNumber++;
@@ -116,8 +116,8 @@ export class Script {
         }
     }
 
-    dump() {
-        return `SCRIPT:\n`
-            + this.commands.map(command => command.dump(1)).join('');
+    dump () {
+        return `SCRIPT:\n${
+            this.commands.map(command => command.dump(1)).join('')}`;
     }
 }

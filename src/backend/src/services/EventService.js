@@ -17,9 +17,8 @@
  * You should have received a copy of the GNU Affero General Public License
  * along with this program.  If not, see <https://www.gnu.org/licenses/>.
  */
-const { Context } = require("../util/context");
-const BaseService = require("./BaseService");
-
+const { Context } = require('../util/context');
+const BaseService = require('./BaseService');
 
 /**
  * A proxy to EventService or another scoped event bus, allowing for
@@ -33,27 +32,26 @@ class ScopedEventBus {
     }
 
     async emit (key, data) {
-        await this.event_bus.emit(this.scope + '.' + key, data);
+        await this.event_bus.emit(`${this.scope }.${ key}`, data);
     }
 
     on (key, callback) {
-        return this.event_bus.on(this.scope + '.' + key, callback);
+        return this.event_bus.on(`${this.scope }.${ key}`, callback);
     }
 }
 
-
 /**
 * Class representing the EventService, which extends the BaseService.
-* This service is responsible for managing event listeners and emitting 
-* events within a scoped context, allowing for flexible event handling 
+* This service is responsible for managing event listeners and emitting
+* events within a scoped context, allowing for flexible event handling
 * and decoupled communication between different parts of the application.
 */
 class EventService extends BaseService {
     /**
      * Initializes listeners and global listeners for the EventService.
-     * This method is called to set up the internal data structures needed 
+     * This method is called to set up the internal data structures needed
      * for managing event listeners upon construction of the service.
-     * 
+     *
      * @async
      * @returns {Promise} A promise that resolves when the initialization is complete.
      */
@@ -61,7 +59,7 @@ class EventService extends BaseService {
         this.listeners_ = {};
         this.global_listeners_ = [];
     }
-    
+
     async ['__on_boot.ready'] () {
         this.emit('ready', {}, {});
     }
@@ -72,7 +70,7 @@ class EventService extends BaseService {
         for ( let i = 0; i < parts.length; i++ ) {
             const part = i === parts.length - 1
                 ? parts.join('.')
-                : parts.slice(0, i + 1).join('.') + '.*';
+                : `${parts.slice(0, i + 1).join('.') }.*`;
 
             // actual emit
             const listeners = this.listeners_[part];
@@ -93,13 +91,13 @@ class EventService extends BaseService {
                 });
             }
         }
-        
+
         for ( const callback of this.global_listeners_ ) {
             // IIAFE wrapper to catch errors without blocking
             // event dispatch.
             /**
             * Invokes all registered global listeners for an event with the provided key, data, and meta
-            * information. Each callback is executed within a context that handles errors gracefully, 
+            * information. Each callback is executed within a context that handles errors gracefully,
             * ensuring that one failing listener does not disrupt subsequent invocations.
             *
             * @param {string} key - The event key to emit.
@@ -124,7 +122,7 @@ class EventService extends BaseService {
 
     /**
     * Registers a callback function for the specified event selector.
-    * 
+    *
     * This method will push the provided callback onto the list of listeners
     * for the event specified by the selector. It returns an object containing
     * a detach method, which can be used to remove the listener.
@@ -136,7 +134,7 @@ class EventService extends BaseService {
     on (selector, callback) {
         const listeners = this.listeners_[selector] ||
             (this.listeners_[selector] = []);
-        
+
         listeners.push(callback);
 
         const det = {
@@ -145,12 +143,12 @@ class EventService extends BaseService {
                 if ( idx !== -1 ) {
                     listeners.splice(idx, 1);
                 }
-            }
+            },
         };
 
         return det;
     }
-    
+
     on_all (callback) {
         this.global_listeners_.push(callback);
     }
@@ -161,5 +159,5 @@ class EventService extends BaseService {
 }
 
 module.exports = {
-    EventService
+    EventService,
 };

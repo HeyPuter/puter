@@ -29,7 +29,7 @@ export const PROPPATCH = async ( req, res, filePath, _fileNode, headerLockToken 
         const servicesForLocks = [req.services.get('su'), req.services.get('puter-kvstore').as('puter-kvstore')];
         const hasDestinationWriteAccess = await hasWritePermissionInDAV(...servicesForLocks, filePath, headerLockToken);
 
-        if ( !hasDestinationWriteAccess ) {
+        if ( ! hasDestinationWriteAccess ) {
             // DAV lock in place blocking write to this file
             res.status(423).end( 'Locked: No write access to destination');
             return;
@@ -44,7 +44,7 @@ export const PROPPATCH = async ( req, res, filePath, _fileNode, headerLockToken 
 
         res.status(207);
         res.end(stubResponse);
-    } catch( error ) {
+    } catch ( error ) {
     // Log error to console (can be replaced with service logger if needed)
         console.error('PROPPATCH error:', error);
         res.status(500).end( 'Internal Server Error');

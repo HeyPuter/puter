@@ -24,21 +24,21 @@ export default {
     description: 'Pause for at least TIME seconds, where TIME is a positive number.',
     args: {
         $: 'simple-parser',
-        allowPositionals: true
+        allowPositionals: true,
     },
     execute: async ctx => {
         const { positionals } = ctx.locals;
-        if (positionals.length !== 1) {
+        if ( positionals.length !== 1 ) {
             await ctx.externs.err.write('sleep: Exactly one TIME parameter is required');
             throw new Exit(1);
         }
 
         let time = Number.parseFloat(positionals[0]);
-        if (isNaN(time) || time < 0) {
+        if ( isNaN(time) || time < 0 ) {
             await ctx.externs.err.write('sleep: Invalid TIME parameter; must be a positive number');
             throw new Exit(1);
         }
 
         await new Promise(r => setTimeout(r, time * 1000));
-    }
+    },
 };

@@ -105,7 +105,7 @@
  * Supports conditional steps, deferred steps, and can be used as a runnable implementation for classes.
  * @class @extends Function
  */
-class Sequence  {
+class Sequence {
     /**
      * SequenceState represents the state of a Sequence execution.
      * Provides access to the sequence scope, step control, and utility methods for step functions.
@@ -116,7 +116,7 @@ class Sequence  {
          * @param {Sequence|function} sequence - The Sequence instance or its callable function.
          * @param {Object} [thisArg] - The instance to bind as `this` for step functions.
          */
-        constructor(sequence, thisArg) {
+        constructor (sequence, thisArg) {
             if ( typeof sequence === 'function' ) {
                 sequence = sequence.sequence;
             }
@@ -138,7 +138,7 @@ class Sequence  {
          * Get the current steps array for this sequence execution.
          * @returns {Array<function|Object>} The steps to execute.
          */
-        get steps() {
+        get steps () {
             return this.steps_ ?? this.sequence_?.steps_;
         }
 
@@ -147,7 +147,7 @@ class Sequence  {
          * @param {Object} [values] - Initial values for the sequence scope.
          * @returns {Promise<void>}
          */
-        async run(values) {
+        async run (values) {
             // Initialize scope
             values = values || this.thisArg?.values || {};
             Object.setPrototypeOf(this.scope_, values);
@@ -162,7 +162,7 @@ class Sequence  {
                     };
                 }
 
-                if ( step.condition && ! await step.condition(this) ) {
+                if ( step.condition && !await step.condition(this) ) {
                     continue;
                 }
 
@@ -203,7 +203,7 @@ class Sequence  {
          * The first time defer is called, clones the steps and sets up for deferred insertion.
          * @param {function(Sequence.SequenceState): Promise<any>} fn - The function to defer.
          */
-        static defer_0 = function(fn) {
+        static defer_0 = function (fn) {
             this.steps_ = [...this.sequence_.steps_];
             this.defer = this.constructor.defer_1;
             this.defer_ptr_ = this.steps_.length;
@@ -213,7 +213,7 @@ class Sequence  {
          * Subsequent calls to defer insert the function before the deferred pointer.
          * @param {function(Sequence.SequenceState): Promise<any>} fn - The function to defer.
          */
-        static defer_1 = function(fn) {
+        static defer_1 = function (fn) {
             // Deferred functions don't affect the return value
             const real_fn = fn;
             fn = async () => {
@@ -230,7 +230,7 @@ class Sequence  {
          * @param {string} k - The key to retrieve.
          * @returns {any} The value associated with the key.
          */
-        get(k) {
+        get (k) {
             // TODO: record read1
             return this.scope_[k];
         }
@@ -240,7 +240,7 @@ class Sequence  {
          * @param {string} k - The key to set.
          * @param {any} v - The value to assign.
          */
-        set(k, v) {
+        set (k, v) {
             // TODO: record mutation
             this.scope_[k] = v;
         }
@@ -250,7 +250,7 @@ class Sequence  {
          * @param {Object} [opt_itemsToSet] - Optional object of key-value pairs to set.
          * @returns {Object} Proxy to the current scope for value access.
          */
-        values(opt_itemsToSet) {
+        values (opt_itemsToSet) {
             if ( opt_itemsToSet ) {
                 for ( const k in opt_itemsToSet ) {
                     this.set(k, opt_itemsToSet[k]);
@@ -273,7 +273,7 @@ class Sequence  {
          * @param {string} [k] - The property name to retrieve. If omitted, returns the instance.
          * @returns {any} The value from the instance or the instance itself.
          */
-        iget(k) {
+        iget (k) {
             if ( k === undefined ) return this.thisArg;
             return this.thisArg?.[k];
         }
@@ -285,7 +285,7 @@ class Sequence  {
          * @param {...any} args - Arguments to pass to the method.
          * @returns {any} The result of the method call.
          */
-        icall(k, ...args) {
+        icall (k, ...args) {
             return this.thisArg?.[k]?.call(this.thisArg, ...args);
         }
 
@@ -297,7 +297,7 @@ class Sequence  {
          * @param {...any} args - Arguments to pass after the sequence state.
          * @returns {any} The result of the method call.
          */
-        idcall(k, ...args) {
+        idcall (k, ...args) {
             return this.thisArg?.[k]?.call(this.thisArg, this, ...args);
         }
 
@@ -305,7 +305,7 @@ class Sequence  {
          * Get the logger from the instance, if available.
          * @returns {Object|undefined} The logger object.
          */
-        get log() {
+        get log () {
             return this.iget('log');
         }
 
@@ -314,7 +314,7 @@ class Sequence  {
          * @param {any} [return_value] - Value to return from the sequence.
          * @returns {any} The provided return value.
          */
-        stop(return_value) {
+        stop (return_value) {
             this.stopped_ = true;
             return return_value;
         }
@@ -333,7 +333,7 @@ class Sequence  {
      *   - Options object may include `name`, `record_history`, `before_each`, `after_each`.
      * @returns {SequenceCallable} A callable function that runs the sequence.
      */
-    constructor(...args) {
+    constructor (...args) {
         const sequence = this;
 
         const steps = [];
@@ -356,7 +356,7 @@ class Sequence  {
          * @param {Object|Sequence.SequenceState} [opt_values] - Initial values or a SequenceState.
          * @returns {Promise<any>} The return value of the last step.
          */
-        const fn = async function(opt_values) {
+        const fn = async function (opt_values) {
             if ( opt_values && opt_values instanceof Sequence.SequenceState ) {
                 opt_values = opt_values.scope_;
             }

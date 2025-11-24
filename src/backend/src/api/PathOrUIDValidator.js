@@ -23,7 +23,7 @@ const _path = require('path');
  * PathOrUIDValidator validates that either `path` or `uid` is present
  * in the request and requires a valid value for the parameter that was
  * used. Additionally, resolves the path if a path was provided.
- * 
+ *
  * @class PathOrUIDValidator
  * @static
  * @throws {APIError} if `path` and `uid` are both missing
@@ -37,20 +37,30 @@ module.exports = class PathOrUIDValidator {
         const params = req.method === 'GET'
             ? req.query : req.body ;
 
-        if(!params.path && !params.uid)
+        if ( !params.path && !params.uid )
+        {
             throw new APIError(400, '`path` or `uid` must be provided.');
+        }
         // `path` must be a string
-        else if (params.path && !params.uid && typeof params.path !== 'string')
+        else if ( params.path && !params.uid && typeof params.path !== 'string' )
+        {
             throw new APIError(400, '`path` must be a string.');
+        }
         // `path` cannot be empty
-        else if(params.path && !params.uid && params.path.trim() === '')
+        else if ( params.path && !params.uid && params.path.trim() === '' )
+        {
             throw new APIError(400, '`path` cannot be empty');
+        }
         // `uid` must be a valid uuid
-        else if(params.uid && !params.path && !require('uuid').validate(params.uid))
+        else if ( params.uid && !params.path && !require('uuid').validate(params.uid) )
+        {
             throw new APIError(400, '`uid` must be a valid uuid');
+        }
 
         // resolve path if provided
-        if(params.path)
+        if ( params.path )
+        {
             params.path = _path.resolve('/', params.path);
+        }
     }
 };

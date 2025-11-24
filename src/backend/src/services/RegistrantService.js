@@ -17,11 +17,10 @@
  * You should have received a copy of the GNU Affero General Public License
  * along with this program.  If not, see <https://www.gnu.org/licenses/>.
  */
-const { Mapping } = require("../om/definitions/Mapping");
-const { PropType } = require("../om/definitions/PropType");
-const { Context } = require("../util/context");
-const BaseService = require("./BaseService");
-
+const { Mapping } = require('../om/definitions/Mapping');
+const { PropType } = require('../om/definitions/PropType');
+const { Context } = require('../util/context');
+const BaseService = require('./BaseService');
 
 /**
 * RegistrantService class handles the registration and initialization of property types and object mappings
@@ -38,10 +37,8 @@ class RegistrantService extends BaseService {
         try {
             await this._populate_registry();
         } catch ( e ) {
-            svc_systemValidation.mark_invalid(
-                'Failed to populate registry',
-                e,
-            );
+            svc_systemValidation.mark_invalid('Failed to populate registry',
+                            e);
         }
     }
     /**
@@ -61,7 +58,7 @@ class RegistrantService extends BaseService {
         * Loads property type definitions and mappings from configuration files,
         * validates them for duplicates and dependencies, and registers them
         * in the registry service.
-        * 
+        *
         * @throws {Error} If duplicate property types are found or if a property type
         *                 references an undefined super type
         * @private
@@ -80,7 +77,7 @@ class RegistrantService extends BaseService {
                 if ( seen.has(k) ) {
                     throw new Error(`Duplicate property type "${k}"`);
                 }
-                if ( data[k].from && ! seen.has(data[k].from) ) {
+                if ( data[k].from && !seen.has(data[k].from) ) {
                     throw new Error(`Super type "${data[k].from}" not found for property type "${k}"`);
                 }
                 collection.set(k, PropType.create(ctx, data[k], k));

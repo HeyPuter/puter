@@ -31,26 +31,27 @@ const { values } = parseArgs({
     options: {
         'log': {
             type: 'string',
-        }
+        },
     },
     args: process.argv.slice(2),
 });
 const logFile = await (async () => {
-    if (!values.log)
+    if ( ! values.log )
+    {
         return;
+    }
     return await fs.promises.open(values.log, 'w');
 })();
 
-
 // Capture console.foo() output and either send it to the log file, or to nowhere.
-for (const [name, oldMethod] of Object.entries(console)) {
+for ( const [name, oldMethod] of Object.entries(console) ) {
     console[name] = async (...args) => {
         let result;
         const stdio = capcon.interceptStdio(() => {
             result = oldMethod(...args);
         });
 
-        if (logFile) {
+        if ( logFile ) {
             await logFile.write(stdio.stdout);
             await logFile.write(stdio.stderr);
         }

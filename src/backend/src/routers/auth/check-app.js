@@ -16,12 +16,12 @@
  * You should have received a copy of the GNU Affero General Public License
  * along with this program.  If not, see <https://www.gnu.org/licenses/>.
  */
-const APIError = require("../../api/APIError");
-const eggspress = require("../../api/eggspress");
-const { get_app } = require("../../helpers");
-const { UserActorType, Actor, AppUnderUserActorType } = require("../../services/auth/Actor");
-const { PermissionUtil } = require("../../services/auth/permissionUtils.mjs");
-const { Context } = require("../../util/context");
+const APIError = require('../../api/APIError');
+const eggspress = require('../../api/eggspress');
+const { get_app } = require('../../helpers');
+const { UserActorType, Actor, AppUnderUserActorType } = require('../../services/auth/Actor');
+const { PermissionUtil } = require('../../services/auth/permissionUtils.mjs');
+const { Context } = require('../../util/context');
 
 module.exports = eggspress('/auth/check-app', {
     subdomain: 'api',
@@ -80,4 +80,3 @@ module.exports = eggspress('/auth/check-app', {
         authenticated,
     });
 });
-

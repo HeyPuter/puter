@@ -29,7 +29,7 @@ SOFTWARE.
             enter: $.noop,
             leave: $.noop,
             over: $.noop,
-            drop: $.noop
+            drop: $.noop,
         }, options);
 
         return this.each(function () {
@@ -39,7 +39,7 @@ SOFTWARE.
 
             $this.on({
                 dragenter: function (event) {
-                    if (first) {
+                    if ( first ) {
                         second = true;
                         return;
                     } else {
@@ -49,12 +49,12 @@ SOFTWARE.
                     event.preventDefault();
                 },
                 dragleave: function (event) {
-                    if (second) {
+                    if ( second ) {
                         second = false;
-                    } else if (first) {
+                    } else if ( first ) {
                         first = false;
                     }
-                    if (!first && !second) {
+                    if ( !first && !second ) {
                         $this.trigger('dragster:leave', event);
                     }
                     event.preventDefault();
@@ -64,12 +64,12 @@ SOFTWARE.
                     event.preventDefault();
                 },
                 drop: function (event) {
-                    if (second) {
+                    if ( second ) {
                         second = false;
-                    } else if (first) {
+                    } else if ( first ) {
                         first = false;
                     }
-                    if (!first && !second) {
+                    if ( !first && !second ) {
                         $this.trigger('dragster:drop', event);
                     }
                     event.preventDefault();
@@ -77,7 +77,7 @@ SOFTWARE.
                 'dragster:enter': settings.enter,
                 'dragster:leave': settings.leave,
                 'dragster:over': settings.over,
-                'dragster:drop': settings.drop
+                'dragster:drop': settings.drop,
             });
         });
     };

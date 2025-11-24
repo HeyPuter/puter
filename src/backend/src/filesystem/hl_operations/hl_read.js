@@ -16,22 +16,22 @@
  * You should have received a copy of the GNU Affero General Public License
  * along with this program.  If not, see <https://www.gnu.org/licenses/>.
  */
-const APIError = require("../../api/APIError");
-const { LLRead } = require("../ll_operations/ll_read");
-const { HLFilesystemOperation } = require("./definitions");
+const APIError = require('../../api/APIError');
+const { LLRead } = require('../ll_operations/ll_read');
+const { HLFilesystemOperation } = require('./definitions');
 
 class HLRead extends HLFilesystemOperation {
     static CONCERN = 'filesystem';
     static MODULES = {
         'stream': require('stream'),
-    }
+    };
 
     async _run () {
         const {
             fsNode, actor,
             line_count, byte_count,
             offset,
-            version_id, range
+            version_id, range,
         } = this.values;
 
         if ( ! await fsNode.exists() ) {
@@ -40,12 +40,13 @@ class HLRead extends HLFilesystemOperation {
 
         const ll_read = new LLRead();
         let stream = await ll_read.run({
-            fsNode, actor,
+            fsNode,
+            actor,
             version_id,
             range,
             ...(byte_count !== undefined ? {
                 offset: offset ?? 0,
-                length: byte_count
+                length: byte_count,
             } : {}),
         });
 
@@ -64,8 +65,8 @@ class HLRead extends HLFilesystemOperation {
     _wrap_stream_line_count (stream, line_count) {
         const readline = require('readline');
         const rl = readline.createInterface({
-          input: stream,
-          terminal: false
+            input: stream,
+            terminal: false,
         });
 
         const { PassThrough } = this.modules.stream;
@@ -75,11 +76,11 @@ class HLRead extends HLFilesystemOperation {
         let lines_read = 0;
         new Promise((resolve, reject) => {
             rl.on('line', (line) => {
-                if(lines_read++ >= line_count){
+                if ( lines_read++ >= line_count ) {
                     return rl.close();
                 }
 
-                output_stream.write(lines_read > 1 ? '\r\n' + line : line);
+                output_stream.write(lines_read > 1 ? `\r\n${ line}` : line);
             });
             rl.on('error', () => {
                 console.log('error');
@@ -94,5 +95,5 @@ class HLRead extends HLFilesystemOperation {
 }
 
 module.exports = {
-    HLRead
+    HLRead,
 };

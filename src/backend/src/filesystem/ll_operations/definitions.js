@@ -16,10 +16,11 @@
  * You should have received a copy of the GNU Affero General Public License
  * along with this program.  If not, see <https://www.gnu.org/licenses/>.
  */
-const { BaseOperation } = require("../../services/OperationTraceService");
+const { BaseOperation } = require('../../services/OperationTraceService');
 
-class LLFilesystemOperation extends BaseOperation {}
+class LLFilesystemOperation extends BaseOperation {
+}
 
 module.exports = {
-    LLFilesystemOperation
+    LLFilesystemOperation,
 };

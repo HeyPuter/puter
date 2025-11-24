@@ -26,7 +26,7 @@ export default {
         'Defaults to 10 lines unless --lines is given. ' +
         'If no FILE is provided, or FILE is `-`, read standard input.',
     input: {
-        syncLines: true
+        syncLines: true,
     },
     args: {
         $: 'simple-parser',
@@ -37,14 +37,14 @@ export default {
                 type: 'string',
                 short: 'n',
                 valueName: 'COUNT',
-            }
-        }
+            },
+        },
     },
     execute: async ctx => {
         const { out, err } = ctx.externs;
         const { positionals, values } = ctx.locals;
 
-        if (positionals.length > 1) {
+        if ( positionals.length > 1 ) {
             // TODO: Support multiple files (this is POSIX)
             await err.write('head: Only one FILE parameter is allowed\n');
             throw new Exit(1);
@@ -53,9 +53,9 @@ export default {
 
         let lineCount = 10;
 
-        if (values.lines) {
+        if ( values.lines ) {
             const parsedLineCount = Number.parseFloat(values.lines);
-            if (isNaN(parsedLineCount) || ! Number.isInteger(parsedLineCount) || parsedLineCount < 1) {
+            if ( isNaN(parsedLineCount) || !Number.isInteger(parsedLineCount) || parsedLineCount < 1 ) {
                 await err.write(`head: Invalid number of lines '${values.lines}'\n`);
                 throw new Exit(1);
             }
@@ -63,11 +63,13 @@ export default {
         }
 
         let processedLineCount = 0;
-        for await (const line of fileLines(ctx, relPath)) {
+        for await ( const line of fileLines(ctx, relPath) ) {
             await out.write(line);
             processedLineCount++;
-            if (processedLineCount >= lineCount)
+            if ( processedLineCount >= lineCount )
+            {
                 break;
+            }
         }
-    }
+    },
 };

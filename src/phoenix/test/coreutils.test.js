@@ -16,20 +16,20 @@
  * You should have received a copy of the GNU Affero General Public License
  * along with this program.  If not, see <https://www.gnu.org/licenses/>.
  */
-import { runBasenameTests } from "./coreutils/basename.js";
-import { runDateTests } from "./coreutils/date.js";
-import { runDirnameTests } from "./coreutils/dirname.js";
-import { runEchoTests } from "./coreutils/echo.js";
-import { runEnvTests } from "./coreutils/env.js";
+import { runBasenameTests } from './coreutils/basename.js';
+import { runDateTests } from './coreutils/date.js';
+import { runDirnameTests } from './coreutils/dirname.js';
+import { runEchoTests } from './coreutils/echo.js';
+import { runEnvTests } from './coreutils/env.js';
 import { runErrnoTests } from './coreutils/errno.js';
-import { runFalseTests } from "./coreutils/false.js";
-import { runHeadTests } from "./coreutils/head.js";
+import { runFalseTests } from './coreutils/false.js';
+import { runHeadTests } from './coreutils/head.js';
 import { runPrintfTests } from './coreutils/printf.js';
-import { runSleepTests } from "./coreutils/sleep.js";
-import { runSortTests } from "./coreutils/sort.js";
-import { runTailTests } from "./coreutils/tail.js";
-import { runTrueTests } from "./coreutils/true.js";
-import { runWcTests } from "./coreutils/wc.js";
+import { runSleepTests } from './coreutils/sleep.js';
+import { runSortTests } from './coreutils/sort.js';
+import { runTailTests } from './coreutils/tail.js';
+import { runTrueTests } from './coreutils/true.js';
+import { runWcTests } from './coreutils/wc.js';
 
 describe('coreutils', function () {
     runBasenameTests();

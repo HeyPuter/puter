@@ -1,25 +1,24 @@
 /*
  * Copyright (C) 2024-present Puter Technologies Inc.
- * 
+ *
  * This file is part of Puter.
- * 
+ *
  * Puter is free software: you can redistribute it and/or modify
  * it under the terms of the GNU Affero General Public License as published
  * by the Free Software Foundation, either version 3 of the License, or
  * (at your option) any later version.
- * 
+ *
  * This program is distributed in the hope that it will be useful,
  * but WITHOUT ANY WARRANTY; without even the implied warranty of
  * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
  * GNU Affero General Public License for more details.
- * 
+ *
  * You should have received a copy of the GNU Affero General Public License
  * along with this program.  If not, see <https://www.gnu.org/licenses/>.
  */
 
 // METADATA // {"ai-commented":{"service":"claude"}}
-const BaseService = require("../../services/BaseService");
-
+const BaseService = require('../../services/BaseService');
 
 /**
 * Service class that manages AI interface registrations and configurations.
@@ -37,7 +36,7 @@ class AIInterfaceService extends BaseService {
     async ['__on_driver.register.interfaces'] () {
         const svc_registry = this.services.get('registry');
         const col_interfaces = svc_registry.get('interfaces');
-        
+
         col_interfaces.set('puter-ocr', {
             description: 'Optical character recognition',
             methods: {
@@ -47,15 +46,44 @@ class AIInterfaceService extends BaseService {
                         source: {
                             type: 'file',
                         },
+                        model: {
+                            type: 'string',
+                            optional: true,
+                        },
+                        pages: {
+                            type: 'json',
+                            subtype: 'array',
+                            optional: true,
+                        },
+                        includeImageBase64: {
+                            type: 'flag',
+                            optional: true,
+                        },
+                        imageLimit: {
+                            type: 'number',
+                            optional: true,
+                        },
+                        imageMinSize: {
+                            type: 'number',
+                            optional: true,
+                        },
+                        bboxAnnotationFormat: {
+                            type: 'json',
+                            optional: true,
+                        },
+                        documentAnnotationFormat: {
+                            type: 'json',
+                            optional: true,
+                        },
                     },
                     result: {
                         type: {
                             $: 'stream',
                             content_type: 'image',
-                        }
+                        },
                     },
                 },
-            }
+            },
         });
 
         col_interfaces.set('puter-chat-completion', {
@@ -84,8 +112,8 @@ class AIInterfaceService extends BaseService {
                         max_tokens: { type: 'number' },
                     },
                     result: { type: 'json' },
-                }
-            }
+                },
+            },
         });
 
         col_interfaces.set('puter-image-generation', {
@@ -98,8 +126,22 @@ class AIInterfaceService extends BaseService {
                         quality: { type: 'string' },
                         model: { type: 'string' },
                         ratio: { type: 'json' },
+                        width: { type: 'number', optional: true },
+                        height: { type: 'number', optional: true },
+                        aspect_ratio: { type: 'string', optional: true },
+                        steps: { type: 'number', optional: true },
+                        seed: { type: 'number', optional: true },
+                        negative_prompt: { type: 'string', optional: true },
+                        n: { type: 'number', optional: true },
                         input_image: { type: 'string', optional: true },
                         input_image_mime_type: { type: 'string', optional: true },
+                        image_url: { type: 'string', optional: true },
+                        image_base64: { type: 'string', optional: true },
+                        mask_image_url: { type: 'string', optional: true },
+                        mask_image_base64: { type: 'string', optional: true },
+                        prompt_strength: { type: 'number', optional: true },
+                        disable_safety_checker: { type: 'flag', optional: true },
+                        response_format: { type: 'string', optional: true },
                     },
                     result_choices: [
                         {
@@ -107,22 +149,22 @@ class AIInterfaceService extends BaseService {
                             type: {
                                 $: 'stream',
                                 content_type: 'image',
-                            }
+                            },
                         },
                         {
                             names: ['url'],
                             type: {
                                 $: 'string:url:web',
                                 content_type: 'image',
-                            }
+                            },
                         },
                     ],
                     result: {
                         description: 'URL of the generated image.',
-                        type: 'string'
-                    }
-                }
-            }
+                        type: 'string',
+                    },
+                },
+            },
         });
 
         col_interfaces.set('puter-video-generation', {
@@ -137,6 +179,18 @@ class AIInterfaceService extends BaseService {
                         duration: { type: 'number', optional: true },
                         size: { type: 'string', optional: true },
                         resolution: { type: 'string', optional: true },
+                        width: { type: 'number', optional: true },
+                        height: { type: 'number', optional: true },
+                        fps: { type: 'number', optional: true },
+                        steps: { type: 'number', optional: true },
+                        guidance_scale: { type: 'number', optional: true },
+                        seed: { type: 'number', optional: true },
+                        output_format: { type: 'string', optional: true },
+                        output_quality: { type: 'number', optional: true },
+                        negative_prompt: { type: 'string', optional: true },
+                        reference_images: { type: 'json', optional: true },
+                        frame_images: { type: 'json', optional: true },
+                        metadata: { type: 'json', optional: true },
                         input_reference: { type: 'file', optional: true },
                     },
                     result_choices: [
@@ -145,22 +199,22 @@ class AIInterfaceService extends BaseService {
                             type: {
                                 $: 'string:url:web',
                                 content_type: 'video',
-                            }
+                            },
                         },
                         {
                             names: ['video'],
                             type: {
                                 $: 'stream',
                                 content_type: 'video',
-                            }
+                            },
                         },
                     ],
                     result: {
                         description: 'Video asset descriptor or URL for the generated video.',
-                        type: 'json'
-                    }
-                }
-            }
+                        type: 'json',
+                    },
+                },
+            },
         });
 
         col_interfaces.set('puter-tts', {
@@ -199,12 +253,43 @@ class AIInterfaceService extends BaseService {
                             type: {
                                 $: 'stream',
                                 content_type: 'audio',
-                            }
+                            },
                         },
-                    ]
+                    ],
                 },
-            }
-        })
+            },
+        });
+
+        col_interfaces.set('puter-speech2speech', {
+            description: 'Speech to speech voice conversion (voice changer).',
+            methods: {
+                convert: {
+                    description: 'Convert input audio to a target voice.',
+                    parameters: {
+                        audio: { type: 'file' },
+                        voice: { type: 'string', optional: true },
+                        voice_id: { type: 'string', optional: true },
+                        model: { type: 'string', optional: true },
+                        output_format: { type: 'string', optional: true },
+                        voice_settings: { type: 'json', optional: true },
+                        seed: { type: 'number', optional: true },
+                        remove_background_noise: { type: 'flag', optional: true },
+                        file_format: { type: 'string', optional: true },
+                        optimize_streaming_latency: { type: 'number', optional: true },
+                        enable_logging: { type: 'flag', optional: true },
+                    },
+                    result_choices: [
+                        {
+                            names: ['audio'],
+                            type: {
+                                $: 'stream',
+                                content_type: 'audio',
+                            },
+                        },
+                    ],
+                },
+            },
+        });
 
         col_interfaces.set('puter-speech2txt', {
             description: 'Speech to text transcription and translation.',
@@ -253,5 +338,5 @@ class AIInterfaceService extends BaseService {
 }
 
 module.exports = {
-    AIInterfaceService
+    AIInterfaceService,
 };

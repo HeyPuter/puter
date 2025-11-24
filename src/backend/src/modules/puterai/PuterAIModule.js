@@ -18,8 +18,8 @@
  */
 
 // METADATA // {"ai-commented":{"service":"claude"}}
-const { AdvancedBase } = require("@heyputer/putility");
-const config = require("../../config");
+const { AdvancedBase } = require('@heyputer/putility');
+const config = require('../../config');
 
 /**
 * PuterAIModule class extends AdvancedBase to manage and register various AI services.
@@ -36,7 +36,7 @@ class PuterAIModule extends AdvancedBase {
     * Extends AdvancedBase to provide core functionality
     * Handles registration and configuration of various AI services like OpenAI, Claude, AWS services etc.
     */
-    async install(context) {
+    async install (context) {
         const services = context.get('services');
 
         const { AIInterfaceService } = require('./AIInterfaceService');
@@ -53,6 +53,14 @@ class PuterAIModule extends AdvancedBase {
         if ( config?.services?.['aws-polly']?.aws ) {
             const { AWSPollyService } = require('./AWSPollyService');
             services.registerService('aws-polly', AWSPollyService);
+        }
+
+        if ( config?.services?.['elevenlabs'] || config?.elevenlabs ) {
+            const { ElevenLabsTTSService } = require('./ElevenLabsTTSService');
+            services.registerService('elevenlabs-tts', ElevenLabsTTSService);
+
+            const { ElevenLabsVoiceChangerService } = require('./ElevenLabsVoiceChangerService');
+            services.registerService('elevenlabs-voice-changer', ElevenLabsVoiceChangerService);
         }
 
         if ( config?.services?.openai || config?.openai ) {
@@ -80,6 +88,12 @@ class PuterAIModule extends AdvancedBase {
         if ( config?.services?.['together-ai'] ) {
             const { TogetherAIService } = require('./TogetherAIService');
             services.registerService('together-ai', TogetherAIService);
+
+            const { TogetherImageGenerationService } = require('./TogetherImageGenerationService');
+            services.registerService('together-image-generation', TogetherImageGenerationService);
+
+            const { TogetherVideoGenerationService } = require('./TogetherVideoGenerationService');
+            services.registerService('together-video-generation', TogetherVideoGenerationService);
         }
 
         if ( config?.services?.['mistral'] ) {
@@ -102,7 +116,7 @@ class PuterAIModule extends AdvancedBase {
             services.registerService('deepseek', DeepSeekService);
         }
         if ( config?.services?.['gemini'] ) {
-            const { GeminiService } = require('./GeminiService');
+            const { GeminiService } =  require('./GeminiService/GeminiService.mjs');
             const { GeminiImageGenerationService } = require('./GeminiImageGenerationService');
 
             services.registerService('gemini', GeminiService);
@@ -111,6 +125,24 @@ class PuterAIModule extends AdvancedBase {
         if ( config?.services?.['openrouter'] ) {
             const { OpenRouterService } = require('./OpenRouterService');
             services.registerService('openrouter', OpenRouterService);
+        }
+
+        // Autodiscover Ollama service and then check if its disabled in the config
+        // if config.services.ollama.enabled is undefined, it means the user hasn't set it, so we should default to true
+        const ollama_available = await fetch('http://localhost:11434/api/tags').then(resp => resp.json()).then(_data => {
+            const ollama_enabled = config?.services?.['ollama']?.enabled;
+            if ( ollama_enabled === undefined ) {
+                return true;
+            }
+            return ollama_enabled;
+        }).catch(_err => {
+            return false;
+        });
+        // User can disable ollama in the config, but by default it should be enabled if discovery is successful
+        if ( ollama_available || config?.services?.['ollama']?.enabled ) {
+            console.log('Local AI support detected! Registering Ollama');
+            const { OllamaService } = require('./OllamaService');
+            services.registerService('ollama', OllamaService);
         }
 
         const { AIChatService } = require('./AIChatService');

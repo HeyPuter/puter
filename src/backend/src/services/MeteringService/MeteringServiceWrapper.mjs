@@ -5,7 +5,7 @@ export class MeteringServiceWrapper extends BaseService {
 
     /** @type {import('./MeteringService.js').MeteringService} */
     meteringService = undefined;
-    _init() {
+    _init () {
         this.meteringService = new MeteringService({
             kvStore: this.services.get('puter-kvstore').as('puter-kvstore'),
             superUserService: this.services.get('su'),
@@ -16,7 +16,7 @@ export class MeteringServiceWrapper extends BaseService {
         // for now this is util so you don't have to extract this.meteringService
         Object.getOwnPropertyNames(MeteringService.prototype).forEach(fn => {
             if ( fn === 'constructor' ) return;
-            this[fn] = (...args) => this.meteringService[fn](args);
+            this[fn] = (...args) => this.meteringService[fn](...args);
         });
     }
 }

@@ -16,7 +16,7 @@
  * You should have received a copy of the GNU Affero General Public License
  * along with this program.  If not, see <https://www.gnu.org/licenses/>.
  */
-import { AcceptParserUtil, ParseResult, Parser } from "../parse.js";
+import { AcceptParserUtil, ParseResult, Parser } from '../parse.js';
 
 export default class ContextSwitchingPStratumImpl {
     constructor ({ contexts, entry }) {
@@ -28,7 +28,7 @@ export default class ContextSwitchingPStratumImpl {
                     new_array.push({
                         ...parser,
                         parser: AcceptParserUtil.adapt(parser.parser),
-                    })
+                    });
                 } else {
                     new_array.push(AcceptParserUtil.adapt(parser));
                 }
@@ -83,9 +83,11 @@ export default class ContextSwitchingPStratumImpl {
 
             if ( transition ) {
                 if ( transition.pop ) this.stack.pop();
-                if ( transition.to ) this.stack.push({
-                    context_name: transition.to,
-                });
+                if ( transition.to ) {
+                    this.stack.push({
+                        context_name: transition.to,
+                    });
+                }
             }
 
             if ( result.value.$discard || peek ) return this.next(api);

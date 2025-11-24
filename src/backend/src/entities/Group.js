@@ -16,7 +16,7 @@
  * You should have received a copy of the GNU Affero General Public License
  * along with this program.  If not, see <https://www.gnu.org/licenses/>.
  */
-const SimpleEntity = require("../definitions/SimpleEntity");
+const SimpleEntity = require('../definitions/SimpleEntity');
 
 module.exports = SimpleEntity({
     name: 'group',
@@ -25,7 +25,7 @@ module.exports = SimpleEntity({
             const svc_group = this.services.get('group');
             const members = await svc_group.list_members({ uid: this.values.uid });
             return members;
-        }
+        },
     },
     methods: {
         async get_client_value (options = {}) {
@@ -38,6 +38,6 @@ module.exports = SimpleEntity({
                 ...(options.members ? { members: this.values.members } : {}),
             };
             return group;
-        }
-    }
+        },
+    },
 });

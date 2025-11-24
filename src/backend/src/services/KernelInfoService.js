@@ -1,34 +1,33 @@
 /*
  * Copyright (C) 2024-present Puter Technologies Inc.
- * 
+ *
  * This file is part of Puter.
- * 
+ *
  * Puter is free software: you can redistribute it and/or modify
  * it under the terms of the GNU Affero General Public License as published
  * by the Free Software Foundation, either version 3 of the License, or
  * (at your option) any later version.
- * 
+ *
  * This program is distributed in the hope that it will be useful,
  * but WITHOUT ANY WARRANTY; without even the implied warranty of
  * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
  * GNU Affero General Public License for more details.
- * 
+ *
  * You should have received a copy of the GNU Affero General Public License
  * along with this program.  If not, see <https://www.gnu.org/licenses/>.
  */
 
 // METADATA // {"ai-commented":{"service":"claude"}}
-const configurable_auth = require("../middleware/configurable_auth");
-const { Context } = require("../util/context");
-const { Endpoint } = require("../util/expressutil");
-const BaseService = require("./BaseService");
-const { Interface } = require("./drivers/meta/Construct");
+const configurable_auth = require('../middleware/configurable_auth');
+const { Context } = require('../util/context');
+const { Endpoint } = require('../util/expressutil');
+const BaseService = require('./BaseService');
+const { Interface } = require('./drivers/meta/Construct');
 
 // Permission flag that grants access to view all services in the kernel info system
 const PERM_SEE_ALL = 'kernel-info:see-all-services';
 // Permission flag that grants access to view all services in the kernel info system
 const PERM_SEE_DRIVERS = 'kernel-info:see-all-drivers';
-
 
 /**
 * KernelInfoService class provides information about the kernel's services, modules, and interfaces.
@@ -38,7 +37,8 @@ const PERM_SEE_DRIVERS = 'kernel-info:see-all-drivers';
 * @extends BaseService
 */
 class KernelInfoService extends BaseService {
-    async _init () {}
+    async _init () {
+    }
 
     /**
     * Installs routes for the kernel info service
@@ -53,9 +53,9 @@ class KernelInfoService extends BaseService {
             const express = require('express');
             return express.Router();
         })();
-        
+
         app.use('/', router);
-        
+
         Endpoint({
             route: '/lsmod',
             methods: ['GET', 'POST'],
@@ -64,13 +64,13 @@ class KernelInfoService extends BaseService {
             ],
             handler: async (req, res) => {
                 const svc_permission = this.services.get('permission');
-                
+
                 const actor = Context.get('actor');
                 const can_see_all = actor &&
                     await svc_permission.check(actor, PERM_SEE_ALL);
                 const can_see_drivers = actor &&
                     await svc_permission.check(actor, PERM_SEE_DRIVERS);
-                
+
                 const interfaces = {};
                 const svc_registry = this.services.get('registry');
                 const col_interfaces = svc_registry.get('interfaces');
@@ -80,28 +80,26 @@ class KernelInfoService extends BaseService {
                     if ( iface === undefined ) continue;
                     if ( iface.no_sdk ) continue;
                     interfaces[interface_name] = {
-                        spec: (new Interface(
-                            iface,
-                            { name: interface_name }
-                        )).serialize(),
-                        implementors: {}
-                    }
+                        spec: (new Interface(iface,
+                                        { name: interface_name })).serialize(),
+                        implementors: {},
+                    };
                 }
 
                 const services = [];
                 for ( const k in this.services.modules_ ) {
                     const module_info = {
                         name: k,
-                        services: []
+                        services: [],
                     };
-                    
+
                     for ( const s_k of this.services.modules_[k].services_l ) {
                         const service_info = {
                             name: s_k,
-                            traits: []
+                            traits: [],
                         };
                         services.push(service_info);
-                        
+
                         const service = this.services.get(s_k);
                         if ( service.list_traits ) {
                             const traits = service.list_traits();
@@ -114,10 +112,10 @@ class KernelInfoService extends BaseService {
                         }
                     }
                 }
-                
+
                 // If actor doesn't have permission to see all drivers,
                 // (granted by either "can_see_all" or "can_see_drivers")
-                if ( ! can_see_all && ! can_see_drivers ) {
+                if ( !can_see_all && !can_see_drivers ) {
                     // only show interfaces with at least one implementation
                     // that the actor has permission to use
                     for ( const iface_name in interfaces ) {
@@ -134,12 +132,12 @@ class KernelInfoService extends BaseService {
                         }
                     }
                 }
-                
+
                 res.json({
                     interfaces,
-                    ...(can_see_all ? { services } : {})
+                    ...(can_see_all ? { services } : {}),
                 });
-            }
+            },
         }).attach(router);
     }
 }

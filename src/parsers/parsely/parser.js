@@ -30,7 +30,7 @@ export const VALUE = Symbol('value');
  */
 export class Parser {
     result (o) {
-        if (o.value && o.value.$discard) {
+        if ( o.value && o.value.$discard ) {
             delete o.value;
         }
         return o;
@@ -48,6 +48,10 @@ export class Parser {
         this.symbol_registry = symbol_registry;
     }
 
-    _create () { throw new Error(`${this.constructor.name}._create() not implemented`); }
-    _parse (stream) { throw new Error(`${this.constructor.name}._parse() not implemented`); }
+    _create () {
+        throw new Error(`${this.constructor.name}._create() not implemented`);
+    }
+    _parse (stream) {
+        throw new Error(`${this.constructor.name}._parse() not implemented`);
+    }
 }

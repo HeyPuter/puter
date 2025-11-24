@@ -16,9 +16,9 @@
  * You should have received a copy of the GNU Affero General Public License
  * along with this program.  If not, see <https://www.gnu.org/licenses/>.
  */
-const eggspress = require("../../api/eggspress");
-const { UserActorType } = require("../../services/auth/Actor");
-const { Context } = require("../../util/context");
+const eggspress = require('../../api/eggspress');
+const { UserActorType } = require('../../services/auth/Actor');
+const { Context } = require('../../util/context');
 const APIError = require('../../api/APIError');
 
 module.exports = eggspress('/auth/revoke-user-app', {
@@ -45,17 +45,10 @@ module.exports = eggspress('/auth/revoke-user-app', {
     }
 
     if ( req.body.permission === '*' ) {
-        await svc_permission.revoke_user_app_all(
-            actor, req.body.app_uid, req.body.meta || {},
-        );
+        await svc_permission.revoke_user_app_all(actor, req.body.app_uid, req.body.meta || {});
     }
 
-    await svc_permission.revoke_user_app_permission(
-        actor, req.body.app_uid, req.body.permission,
-        req.body.meta || {},
-    );
+    await svc_permission.revoke_user_app_permission(actor, req.body.app_uid, req.body.permission, req.body.meta || {});
 
     res.json({});
 });
-
-

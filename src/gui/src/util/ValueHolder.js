@@ -29,13 +29,13 @@ export default class ValueHolder {
             get: this.get_.bind(this),
         });
 
-        if (initial_value !== undefined) {
+        if ( initial_value !== undefined ) {
             this.set(initial_value);
         }
     }
 
     static adapt (value) {
-        if (value instanceof ValueHolder) {
+        if ( value instanceof ValueHolder ) {
             return value;
         } else {
             return new ValueHolder(value);

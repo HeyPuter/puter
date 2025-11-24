@@ -18,8 +18,7 @@
  */
 // TODO: database access can be a service
 const { RESOURCE_STATUS_PENDING_CREATE } = require('../modules/puterfs/ResourceService.js');
-const { TraceService } = require('../services/TraceService.js');
-const { NodePathSelector, NodeUIDSelector, NodeInternalIDSelector } = require('./node/selectors.js');
+const { NodePathSelector, NodeUIDSelector, NodeInternalIDSelector, NodeSelector } = require('./node/selectors.js');
 const FSNodeContext = require('./FSNodeContext.js');
 const { Context } = require('../util/context.js');
 const APIError = require('../api/APIError.js');
@@ -29,6 +28,8 @@ const { UserActorType } = require('../services/auth/Actor');
 const { get_user } = require('../helpers');
 const BaseService = require('../services/BaseService');
 const { MANAGE_PERM_PREFIX } = require('../services/auth/permissionConts.mjs');
+const { quot } = require('@heyputer/putility/src/libs/string.js');
+const fsCapabilities = require('./definitions/capabilities.js');
 
 class FilesystemService extends BaseService {
     static MODULES = {
@@ -37,10 +38,8 @@ class FilesystemService extends BaseService {
         config: require('../config.js'),
     };
 
-    old_constructor(args) {
+    old_constructor (args) {
         const { services } = args;
-
-        services.registerService('traceService', TraceService);
 
         // The new fs entry service
         this.log = services.get('log-service').create('filesystem-service');
@@ -59,7 +58,7 @@ class FilesystemService extends BaseService {
             });
     }
 
-    async _init() {
+    async _init () {
         this.old_constructor({ services: this.services });
         const svc_permission = this.services.get('permission');
         svc_permission.register_rewriter(PermissionRewriter.create({
@@ -96,7 +95,7 @@ class FilesystemService extends BaseService {
                     || permission.startsWith(`${MANAGE_PERM_PREFIX}:${MANAGE_PERM_PREFIX}:fs:`); // owner has implicit rule to give others manage access;
             },
             checker: async ({ actor, permission }) => {
-                if ( !(actor.type instanceof UserActorType) ) {
+                if ( ! (actor.type instanceof UserActorType) ) {
                     return undefined;
                 }
 
@@ -110,7 +109,7 @@ class FilesystemService extends BaseService {
                 const owner_id = await node.get('user_id');
 
                 // These conditions should never happen
-                if ( ! owner_id || ! actor.type.user.id ) {
+                if ( !owner_id || !actor.type.user.id ) {
                     throw new Error('something unexpected happened');
                 }
 
@@ -148,7 +147,7 @@ class FilesystemService extends BaseService {
         }));
     }
 
-    async mkshortcut({ parent, name, user, target }) {
+    async mkshortcut ({ parent, name, user, target }) {
 
         // Access Control
         {
@@ -167,62 +166,21 @@ class FilesystemService extends BaseService {
             throw APIError.create('shortcut_to_does_not_exist');
         }
 
-        await target.fetchEntry({ thumbnail: true });
+        if ( ! parent.provider.get_capabilities().has(fsCapabilities.PUTER_SHORTCUT) ) {
+            throw APIError.create('missing_filesystem_capability', null, {
+                action: 'make shortcut',
+                subjectName: parent.path ?? parent.uid,
+                providerName: parent.provider.name,
+                capability: 'PUTER_SHORTCUT',
+            });
+        }
 
-        const { _path, uuidv4 } = this.modules;
-        const svc_fsEntry = this.services.get('fsEntryService');
-        const resourceService = this.services.get('resourceService');
-
-        const ts = Math.round(Date.now() / 1000);
-        const uid = uuidv4();
-
-        resourceService.register({
-            uid,
-            status: RESOURCE_STATUS_PENDING_CREATE,
+        return await parent.provider.puter_shortcut({
+            parent, name, user, target,
         });
-
-        console.log('registered entry');
-
-        const raw_fsentry = {
-            is_shortcut: 1,
-            shortcut_to: target.mysql_id,
-            is_dir: target.entry.is_dir,
-            thumbnail: target.entry.thumbnail,
-            uuid: uid,
-            parent_uid: await parent.get('uid'),
-            path: _path.join(await parent.get('path'), name),
-            user_id: user.id,
-            name,
-            created: ts,
-            updated: ts,
-            modified: ts,
-            immutable: false,
-        };
-
-        this.log.debug('creating fsentry', { fsentry: raw_fsentry });
-
-        const entryOp = await svc_fsEntry.insert(raw_fsentry);
-
-        console.log('entry op', entryOp);
-
-        (async () => {
-            await entryOp.awaitDone();
-            this.log.debug('finished creating fsentry', { uid });
-            resourceService.free(uid);
-        })();
-
-        const node = await this.node(new NodeUIDSelector(uid));
-
-        const svc_event = this.services.get('event');
-        svc_event.emit('fs.create.shortcut', {
-            node,
-            context: Context.get(),
-        });
-
-        return node;
     }
 
-    async mklink({ parent, name, user, target }) {
+    async mklink ({ parent, name, user, target }) {
 
         // Access Control
         {
@@ -284,7 +242,7 @@ class FilesystemService extends BaseService {
         return node;
     }
 
-    async update_child_paths(old_path, new_path, user_id) {
+    async update_child_paths (old_path, new_path, user_id) {
         const svc_performanceMonitor = this.services.get('performance-monitor');
         const monitor = svc_performanceMonitor.createContext('update_child_paths');
 
@@ -309,7 +267,7 @@ class FilesystemService extends BaseService {
      * @param {*} location - path, uid, or id associated with a filesystem node
      * @returns
      */
-    async node(selector) {
+    async node (selector) {
         if ( typeof selector === 'string' ) {
             if ( selector.startsWith('/') ) {
                 selector = new NodePathSelector(selector);
@@ -328,6 +286,12 @@ class FilesystemService extends BaseService {
             } else {
                 selector = new NodeInternalIDSelector('mysql', selector.mysql_id);
             }
+        }
+
+        if ( ! (selector instanceof NodeSelector) ) {
+            throw new Error(`FileSystemService could not resolve the specified node value ${
+                quot(`${ selector}`) } (type: ${typeof selector}) ` +
+                'to a filesystem node selector');
         }
 
         system_dir_check: {
@@ -387,7 +351,7 @@ class FilesystemService extends BaseService {
      * @param {*} param0.id please use mysql_id instead
      * @param {*} param0.mysql_id
      */
-    async get_entry({ path, uid, id, mysql_id, ...options }) {
+    async get_entry ({ path, uid, id, mysql_id, ...options }) {
         let fsNode = await this.node({ path, uid, id, mysql_id });
         await fsNode.fetchEntry(options);
         return fsNode.entry;

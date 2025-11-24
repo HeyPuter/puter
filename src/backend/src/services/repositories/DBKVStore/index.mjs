@@ -4,7 +4,7 @@ import { DBKVStore } from './DBKVStore.js';
 
 export class DBKVServiceWrapper extends BaseService {
     kvStore = undefined;
-    _init() {
+    _init () {
         /** @type {DBKVStore} */
         this.kvStore = new DBKVStore({
             sqlClient: this.services.get('database').get(DB_READ, 'kvstore'),
@@ -21,7 +21,7 @@ export class DBKVServiceWrapper extends BaseService {
             .filter(n => n !== 'constructor')
             .reduce((acc, fn) => ({
                 ...acc,
-                [fn]: async function(...a) {
+                [fn]: async function (...a) {
                     return await this.kvStore[fn](...a);
                 },
             }), {}),

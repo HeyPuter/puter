@@ -8,9 +8,9 @@ module.exports = {
         filename: 'webpackPreamplePart.js',
         library: {
             type: 'var',
-            name: 'WorkerPreamble'
+            name: 'WorkerPreamble',
         },
-        globalObject: 'this'
+        globalObject: 'this',
     },
     mode: 'production',
     target: 'webworker',
@@ -18,7 +18,7 @@ module.exports = {
         extensions: ['.js'],
     },
     externals: {
-        'https://puter-net.b-cdn.net/rustls.js': 'undefined'
+        'https://puter-net.b-cdn.net/rustls.js': 'undefined',
     },
     optimization: {
         minimize: true,
@@ -27,14 +27,14 @@ module.exports = {
                 terserOptions: {
                     keep_fnames: true,
                     mangle: {
-                        keep_fnames: true
+                        keep_fnames: true,
                     },
                     compress: {
-                        keep_fnames: true
-                    }
-                }
-            })
-        ]
+                        keep_fnames: true,
+                    },
+                },
+            }),
+        ],
     },
     module: {
         rules: [
@@ -42,16 +42,16 @@ module.exports = {
                 test: /\.js$/,
                 exclude: /puter\.js$/,
                 parser: {
-                    dynamicImports: false
-                }
-            }
-        ]
+                    dynamicImports: false,
+                },
+            },
+        ],
     },
     plugins: [
         new webpack.BannerPlugin({
             banner: '// This file is pasted before user code',
             raw: false,
-            entryOnly: false
-        })
-    ]
-}; 
+            entryOnly: false,
+        }),
+    ],
+};

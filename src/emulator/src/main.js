@@ -1,39 +1,39 @@
 /*
  * Copyright (C) 2024-present Puter Technologies Inc.
- * 
+ *
  * This file is part of Puter.
- * 
+ *
  * Puter is free software: you can redistribute it and/or modify
  * it under the terms of the GNU Affero General Public License as published
  * by the Free Software Foundation, either version 3 of the License, or
  * (at your option) any later version.
- * 
+ *
  * This program is distributed in the hope that it will be useful,
  * but WITHOUT ANY WARRANTY; without even the implied warranty of
  * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
  * GNU Affero General Public License for more details.
- * 
+ *
  * You should have received a copy of the GNU Affero General Public License
  * along with this program.  If not, see <https://www.gnu.org/licenses/>.
  */
 
-"use strict";
+'use strict';
 
-console.log(`emulator running in mode: ${MODE}`)
+console.log(`emulator running in mode: ${MODE}`);
 
 // Set this to true when testing progress messages
 const GRACE_PERIOD_ENABLED = false;
 
 const PATH_V86 = MODE === 'dev' ? '/vendor/v86' : './vendor/v86';
 
-const { XDocumentPTT } = require("../../phoenix/src/pty/XDocumentPTT");
+const { XDocumentPTT } = require('../../phoenix/src/pty/XDocumentPTT');
 const {
     NewWispPacketStream,
     WispPacket,
     NewCallbackByteStream,
     NewVirtioFrameStream,
     DataBuilder,
-} = require("../../puter-wisp/src/exports");
+} = require('../../puter-wisp/src/exports');
 
 const brotliCJS = require('brotli-dec-wasm');
 
@@ -112,7 +112,7 @@ const setup_pty = (ptt, pty) => {
     // data from PTY
     pty.on_payload = data => {
         ptt.out.write(data);
-    }
+    };
 
     // data to PTY
     (async () => {
@@ -131,8 +131,8 @@ const setup_pty = (ptt, pty) => {
             console.log('sending to pty', chunk);
             pty.send(chunk);
         }
-    })()
-}
+    })();
+};
 
 let TUX_SIXEL; (async () => {
     const resp = await fetch('./static/tux.sixel');
@@ -169,14 +169,14 @@ puter.ui.on('connection', event => {
             conn.postMessage({
                 $: 'pty.close',
             });
-        }
+        };
         console.log('setting up ptt with...', conn);
         const ptt = new XDocumentPTT(conn, {
             disableReader: true,
         });
         ptt.termios.echo = false;
         setup_pty(ptt, pty);
-    }
+    };
     conn.on('message', pty_on_first_message);
 });
 
@@ -187,33 +187,40 @@ const bench = async ({ modules }) => {
     const ts_end = performance.now();
     // console.log('benchmark took', ts_end - ts_start);
     return ts_end - ts_start;
-}
+};
 
 const bench_20ms = async (ctx) => {
     let ts = 0, count = 0;
-    for (;;) {
+    for ( ;; ) {
         ts += await bench(ctx);
         count++;
         if ( ts > 20 ) {
             return count;
         }
     }
-}
+};
 
-window.onload = async function()
+window.onload = async function ()
 {
+    try {
+        await puter.fs.mkdir(puter.appDataPath);
+    } catch {
+    }
+
     const modules = {};
-    modules.bench = (await WebAssembly.instantiateStreaming(
-        fetch('./static/bench.wasm'))).instance.exports;
+    modules.bench = (await WebAssembly.instantiateStreaming(fetch('./static/bench.wasm'))).instance.exports;
 
     const bench_factor = await bench_20ms({ modules });
     console.log('result', bench_factor);
     let emu_config; try {
         emu_config = await puter.fs.read('config.json');
-    } catch (e) {}
+    } catch (e) {
+    }
 
     if ( ! emu_config ) {
+        console.log('writing emu config');
         await puter.fs.write('config.json', JSON.stringify({}));
+        console.log('writing emu config1');
         emu_config = {};
     }
 
@@ -238,9 +245,8 @@ window.onload = async function()
     status.ts_phase_end = undefined;
     status.phase_progress = 0;
     status.phase = 'rootfs-download';
-    const resp = await fetch(
-        './image/build/rootfs.bin.br',
-        // 'https://puter-rootfs.b-cdn.net/rootfs.bin.br',
+    const resp = await fetch('./image/build/rootfs.bin.br',
+                    // 'https://puter-rootfs.b-cdn.net/rootfs.bin.br',
     );
     const contentLength = resp.headers.get('content-length');
     const total = parseInt(contentLength, 10);
@@ -253,7 +259,7 @@ window.onload = async function()
 
     const uint8arrays = [];
     const CAP = 2 * 1024 * 1024;
-    for (;;) {
+    for ( ;; ) {
         const { done, value } = await reader.read();
         if ( done ) break;
 
@@ -280,7 +286,7 @@ window.onload = async function()
         status.phase_progress = downloadedForProgress / total;
     }
     // const arrayBuffer = await resp.arrayBuffer();
-    
+
     let sizeSoFar = 0;
     const arrayBuffer = uint8arrays.reduce((acc, value) => {
         acc.set(value, sizeSoFar);
@@ -305,33 +311,33 @@ window.onload = async function()
     const boot_progress_tick = setInterval(() => {
         status.phase_progress = UPDATE_ONLY;
     }, 200);
-        
-    console.log("starting v86")
+
+    console.log('starting v86');
     var emulator = window.emulator = new V86({
-        wasm_path: PATH_V86 + "/v86.wasm",
+        wasm_path: `${PATH_V86 }/v86.wasm`,
         memory_size: 512 * 1024 * 1024,
         filesystem: { fs: puter.fs },
         vga_memory_size: 2 * 1024 * 1024,
-        screen_container: document.getElementById("screen_container"),
+        screen_container: document.getElementById('screen_container'),
         bios: {
-            url: PATH_V86 + "/bios/seabios.bin",
+            url: `${PATH_V86 }/bios/seabios.bin`,
         },
         vga_bios: {
-            url: PATH_V86 + "/bios/vgabios.bin",
+            url: `${PATH_V86 }/bios/vgabios.bin`,
         },
-        
+
         initrd: {
             url: './image/build/boot/initramfs-virt',
         },
         bzimage: {
             url: './image/build/boot/vmlinuz-virt',
-            async: false
+            async: false,
         },
-        cmdline: 'rw root=/dev/sda init=/sbin/init rootfstype=ext4 puterusername=' + (await puter.getUser()).username,
+        cmdline: `rw root=/dev/sda init=/sbin/init rootfstype=ext4 puterusername=${ (await puter.getUser()).username}`,
         // cmdline: 'rw root=/dev/sda init=/bin/bash rootfstype=ext4',
         // cmdline: "rw init=/sbin/init root=/dev/sda rootfstype=ext4",
         // cmdline: "rw init=/sbin/init root=/dev/sda rootfstype=ext4 random.trust_cpu=on 8250.nr_uarts=10 spectre_v2=off pti=off mitigations=off",
-        
+
         // cdrom: {
         //     // url: "../images/al32-2024.07.10.iso",
         //     url: "./image/build/rootfs.bin",
@@ -346,21 +352,21 @@ window.onload = async function()
         // bzimage_initrd_from_filesystem: true,
         autostart: true,
         net_device: {
-            relay_url: emu_config.network_relay ?? "wisp://127.0.0.1:4000",
-            type: "virtio"
+            relay_url: emu_config.network_relay ?? 'wisp://127.0.0.1:4000',
+            type: 'virtio',
         },
         virtio_console: true,
     });
 
-    emulator.add_listener('download-error', function(e) {
+    emulator.add_listener('download-error', function (e) {
         status.missing_files || (status.missing_files = []);
         status.missing_files.push(e.file_name);
     });
-    
+
     const decoder = new TextDecoder();
     const byteStream = NewCallbackByteStream();
     emulator.add_listener('virtio-console0-output-bytes',
-        byteStream.listener);
+                    byteStream.listener);
     const virtioStream = NewVirtioFrameStream(byteStream);
     const wispStream = NewWispPacketStream(virtioStream);
 
@@ -372,7 +378,7 @@ window.onload = async function()
 
     ptt.termios.echo = false;
     */
-    
+
     class PTYManager {
         static STATE_INIT = {
             name: 'init',
@@ -380,8 +386,8 @@ window.onload = async function()
                 [WispPacket.INFO.id]: function ({ packet }) {
                     this.client.send(packet.reflect());
                     this.state = this.constructor.STATE_READY;
-                }
-            }
+                },
+            },
         };
         static STATE_READY = {
             name: 'ready',
@@ -394,10 +400,10 @@ window.onload = async function()
                 [WispPacket.CLOSE.id]: function ({ packet }) {
                     const pty = this.stream_listeners_[packet.streamId];
                     pty.on_close();
-                }
+                },
             },
             on: function () {
-                console.log('ready.on called')
+                console.log('ready.on called');
                 clearInterval(boot_progress_tick);
                 status.ts_end = Date.now();
                 console.log(`Emulator boot time: ${status.ts_emu_start - status.ts_start}s`);
@@ -418,7 +424,7 @@ window.onload = async function()
                 // data from PTY
                 pty.on_payload = data => {
                     ptt.out.write(data);
-                }
+                };
 
                 // data to PTY
                 (async () => {
@@ -436,18 +442,20 @@ window.onload = async function()
                         }
                         pty.send(chunk);
                     }
-                })()
+                })();
             },
-        }
+        };
 
         set state (value) {
             console.log('[PTYManager] State updated: ', value.name);
             this.state_ = value;
             if ( this.state_.on ) {
-                this.state_.on.call(this)
+                this.state_.on.call(this);
             }
         }
-        get state () { return this.state_ }
+        get state () {
+            return this.state_;
+        }
 
         constructor ({ client }) {
             this.streamId = 0;
@@ -481,8 +489,7 @@ window.onload = async function()
                 .utf8(command)
                 // .utf8('/usr/bin/htop')
                 .build();
-            const packet = new WispPacket(
-                { data, direction: WispPacket.SEND });
+            const packet = new WispPacket({ data, direction: WispPacket.SEND });
             this.client.send(packet);
             const pty = new PTY({ client: this.client, streamId });
             console.log('setting to stream id', streamId);
@@ -504,15 +511,14 @@ window.onload = async function()
         send (data) {
             // convert text into buffers
             if ( typeof data === 'string' ) {
-                data = (new TextEncoder()).encode(data, 'utf-8')
+                data = (new TextEncoder()).encode(data, 'utf-8');
             }
             data = new DataBuilder({ leb: true })
                 .uint8(0x02)
                 .uint32(this.streamId)
                 .cat(data)
                 .build();
-            const packet = new WispPacket(
-                { data, direction: WispPacket.SEND });
+            const packet = new WispPacket({ data, direction: WispPacket.SEND });
             this.client.send(packet);
         }
 
@@ -524,25 +530,22 @@ window.onload = async function()
                 .uint16(rows)
                 .uint16(cols)
                 .build();
-            const packet = new WispPacket(
-                { data, direction: WispPacket.SEND });
+            const packet = new WispPacket({ data, direction: WispPacket.SEND });
             this.client.send(packet);
         }
     }
-    
+
     ptyMgr = new PTYManager({
         client: new WispClient({
             packetStream: wispStream,
             sendFn: packet => {
                 const virtioframe = packet.toVirtioFrame();
                 console.log('virtio frame', virtioframe);
-                emulator.bus.send(
-                    "virtio-console0-input-bytes",
-                    virtioframe,
-                );
-            }
-        })
+                emulator.bus.send('virtio-console0-input-bytes',
+                                virtioframe);
+            },
+        }),
     });
     ptyMgr.init();
 
-}
+};

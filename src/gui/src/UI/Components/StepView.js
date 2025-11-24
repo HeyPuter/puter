@@ -17,7 +17,6 @@
  * along with this program.  If not, see <https://www.gnu.org/licenses/>.
  */
 
-
 const Component = use('util.Component');
 
 export default def(class StepView extends Component {
@@ -27,7 +26,7 @@ export default def(class StepView extends Component {
         children: {},
         done: { value: false },
         position: { value: 0 },
-    }
+    };
 
     static CSS = `
         #wrapper {
@@ -74,17 +73,17 @@ export default def(class StepView extends Component {
         // now that we're ready, show the wrapper
         $(this.dom_).find('#wrapper').show();
     }
-    
+
     add_child (child) {
         const children = this.get('children');
         let pos = children.length;
         child.setAttribute('slot', 'inside');
         $(child).hide();
         child.attach(this);
-        
+
         return pos;
     }
-    
+
     display (child) {
         const pos = this.add_child(child);
         this.goto(pos);
@@ -102,7 +101,7 @@ export default def(class StepView extends Component {
         }
         this.set('position', this.get('position') + 1);
     }
-    
+
     goto (pos) {
         this.set('position', pos);
     }

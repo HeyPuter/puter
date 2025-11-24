@@ -23,7 +23,7 @@ export default {
     args: {
         // TODO: add 'none-parser'
         $: 'simple-parser',
-        allowPositionals: false
+        allowPositionals: false,
     },
     execute: async ctx => {
         const env = ctx.env;
@@ -32,5 +32,5 @@ export default {
         for ( const k in env ) {
             await out.write(`${k}=${env[k]}\n`);
         }
-    }
+    },
 };

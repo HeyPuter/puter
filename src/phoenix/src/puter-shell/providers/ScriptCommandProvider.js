@@ -16,7 +16,7 @@
  * You should have received a copy of the GNU Affero General Public License
  * along with this program.  If not, see <https://www.gnu.org/licenses/>.
  */
-import { Pipeline } from "../../ansi-shell/pipeline/Pipeline.js";
+import { Pipeline } from '../../ansi-shell/pipeline/Pipeline.js';
 import { resolveRelativePath } from '../../util/path.js';
 
 export class ScriptCommandProvider {
@@ -47,11 +47,11 @@ export class ScriptCommandProvider {
                 const ast = ctx.externs.parser.parseScript(script_text);
                 const statements = ast[0].statements;
 
-                for (const stmt of statements) {
+                for ( const stmt of statements ) {
                     const pipeline = await Pipeline.createFromAST(ctx, stmt);
                     await pipeline.execute(ctx);
                 }
-            }
+            },
         };
     }
 

@@ -36,7 +36,7 @@ class XAIService extends BaseService {
     /** @type {import('../../services/MeteringService/MeteringService').MeteringService} */
     meteringService;
 
-    adapt_model(model) {
+    adapt_model (model) {
         return model;
     }
 
@@ -45,7 +45,7 @@ class XAIService extends BaseService {
     * @private
     * @returns {Promise<void>} Resolves when initialization is complete
     */
-    async _init() {
+    async _init () {
         this.openai = new this.modules.openai.OpenAI({
             apiKey: this.global_config.services.xai.apiKey,
             baseURL: 'https://api.x.ai/v1',
@@ -63,7 +63,7 @@ class XAIService extends BaseService {
     * Returns the default model identifier for the XAI service
     * @returns {string} The default model ID 'grok-beta'
     */
-    get_default_model() {
+    get_default_model () {
         return 'grok-beta';
     }
 
@@ -75,7 +75,7 @@ class XAIService extends BaseService {
              *
              * @returns Array<Object> Array of model details
              */
-            models() {
+            models () {
                 return this.models_();
             },
             /**
@@ -84,7 +84,7 @@ class XAIService extends BaseService {
             * @description Retrieves all available model IDs and their aliases,
             * flattening them into a single array of strings that can be used for model selection
             */
-            async list() {
+            async list () {
                 const models = await this.models_();
                 const model_names = [];
                 for ( const model of models ) {
@@ -100,7 +100,7 @@ class XAIService extends BaseService {
              * AI Chat completion method.
              * See AIChatService for more details.
              */
-            async complete({ messages, stream, model, tools }) {
+            async complete ({ messages, stream, model, tools }) {
                 model = this.adapt_model(model);
 
                 messages = await OpenAIUtil.process_input_messages(messages);
@@ -151,7 +151,7 @@ class XAIService extends BaseService {
     *   - cost: Pricing information object with currency and rates
     * @private
     */
-    models_() {
+    models_ () {
         return [
             {
                 id: 'grok-beta',

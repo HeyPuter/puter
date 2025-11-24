@@ -1,6 +1,6 @@
 // kv.test.ts - Tests for Puter KV module (set, get, del, incr, decr, list, flush)
 import { describe, expect, it } from 'vitest';
-import { puter } from './testUtils';
+import { puter } from './testUtils.js';
 describe('Puter KV Module', () => {
 
     const TEST_KEY = 'test-key';
@@ -26,7 +26,7 @@ describe('Puter KV Module', () => {
     });
 
     it('should decrement a key success', async () => {
-        const getRes = await puter.kv.set(TEST_KEY, 0);
+        await puter.kv.set(TEST_KEY, 0);
         const decrRes = await puter.kv.decr(TEST_KEY, { '': 3 });
         expect(decrRes).toBe(-3);
         const finalGet = await puter.kv.get(TEST_KEY);

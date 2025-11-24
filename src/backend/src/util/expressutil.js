@@ -16,7 +16,7 @@
  * You should have received a copy of the GNU Affero General Public License
  * along with this program.  If not, see <https://www.gnu.org/licenses/>.
  */
-const eggspress = require("../api/eggspress");
+const eggspress = require('../api/eggspress');
 
 const Endpoint = function Endpoint (spec, handler) {
     return {
@@ -27,12 +27,11 @@ const Endpoint = function Endpoint (spec, handler) {
                 ...(spec.parameters ? { parameters: spec.parameters } : {}),
                 ...(spec.alias ? { alias: spec.alias } : {}),
                 ...(spec.mw ? { mw: spec.mw } : {}),
+                ...spec.otherOpts,
             };
-            const eggspress_router = eggspress(
-                spec.route,
-                eggspress_options,
-                handler ?? spec.handler,
-            );
+            const eggspress_router = eggspress(spec.route,
+                            eggspress_options,
+                            handler ?? spec.handler);
             route.use(eggspress_router);
         },
         but (newSpec) {
@@ -41,9 +40,9 @@ const Endpoint = function Endpoint (spec, handler) {
                 ...spec,
                 ...newSpec,
             });
-        }
+        },
     };
-}
+};
 
 module.exports = {
     Endpoint,

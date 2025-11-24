@@ -14,14 +14,14 @@ export const MOVE = async ( req, res, filePath, fileNode, headerLockToken ) => {
         const svc_fs = req.services.get('filesystem');
         const exists = await fileNode?.exists();
         // Check if the resource exists
-        if ( !exists ) {
+        if ( ! exists ) {
             res.status(404).end( 'Not Found');
             return;
         }
 
         // Parse Destination header (required for MOVE)
         const destinationHeader = req.headers.destination;
-        if ( !destinationHeader ) {
+        if ( ! destinationHeader ) {
             res.status(400).end( 'Bad Request: Destination header required');
             return;
         }
@@ -30,15 +30,15 @@ export const MOVE = async ( req, res, filePath, fileNode, headerLockToken ) => {
         let destinationPath;
         try {
             const destUrl = new URL(destinationHeader, `http://${req.headers.host}`);
-            if ( !destUrl.pathname.startsWith('/dav/') ) {
+            if ( ! destUrl.pathname.startsWith('/dav/') ) {
                 res.status(400).end( 'Bad Request: Destination must be within WebDAV namespace');
                 return;
             }
             destinationPath = destUrl.pathname.slice(4); // Remove '/dav' prefix
-            if ( !destinationPath.startsWith('/') ) {
+            if ( ! destinationPath.startsWith('/') ) {
                 destinationPath = `/${destinationPath}`;
             }
-        } catch  {
+        } catch {
             res.status(400).end( 'Bad Request: Invalid destination URI');
             return;
         }
@@ -67,14 +67,14 @@ export const MOVE = async ( req, res, filePath, fileNode, headerLockToken ) => {
         const destParentNode = await svc_fs.node(new NodePathSelector(destParentPath));
         const destParentExists = await destParentNode.exists();
 
-        if ( !destParentExists ) {
+        if ( ! destParentExists ) {
             res.status(409).end( 'Conflict: Destination parent does not exist');
             return;
         }
 
         // Verify destination parent is a directory
         const destParentStat = await fsOperations.stat(destParentNode);
-        if ( !destParentStat.is_dir ) {
+        if ( ! destParentStat.is_dir ) {
             res.status(409).end( 'Conflict: Destination parent is not a directory');
             return;
         }
@@ -100,7 +100,7 @@ export const MOVE = async ( req, res, filePath, fileNode, headerLockToken ) => {
         } else {
             res.status(201).end(); // 201 Created for new resource
         }
-    } catch( error ) {
+    } catch ( error ) {
     // Handle specific error types
         if ( error.code === 'permission_denied' ) {
             res.status(403).end( 'Forbidden');

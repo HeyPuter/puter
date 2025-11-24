@@ -16,11 +16,11 @@
  * You should have received a copy of the GNU Affero General Public License
  * along with this program.  If not, see <https://www.gnu.org/licenses/>.
  */
-const { AppUnderUserActorType } = require("../../services/auth/Actor");
-const { Context } = require("../../util/context");
-const { Eq, Or } = require("../query/query");
-const { BaseES } = require("./BaseES");
-const { Entity } = require("./Entity");
+const { AppUnderUserActorType } = require('../../services/auth/Actor');
+const { Context } = require('../../util/context');
+const { Eq, Or } = require('../query/query');
+const { BaseES } = require('./BaseES');
+const { Entity } = require('./Entity');
 
 class AppLimitedES extends BaseES {
 
@@ -75,7 +75,7 @@ class AppLimitedES extends BaseES {
             if ( app_owner instanceof Entity ) {
                 app_owner_id = app_owner.private_meta.mysql_id;
             }
-            if ( ( ! app_owner ) || app_owner_id !== app.id ) {
+            if ( ( !app_owner ) || app_owner_id !== app.id ) {
                 return null;
             }
         }

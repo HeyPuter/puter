@@ -22,12 +22,12 @@ import translations from './translations/translations.js';
 window.listSupportedLanguages = () => Object.keys(translations).map(lang => translations[lang]);
 
 const variables = {
-    docs: "https://docs.puter.com/",
-    terms: "https://puter.com/terms",
-    privacy: "https://puter.com/privacy"
+    docs: 'https://docs.puter.com/',
+    terms: 'https://puter.com/terms',
+    privacy: 'https://puter.com/privacy',
 };
 
-function ReplacePlaceholders(str, arg_variables = {}) {
+function ReplacePlaceholders (str, arg_variables = {}) {
     const all_variables = { ...variables, ...arg_variables };
     str = str.replace(/{{link=(.*?)}}(.*?){{\/link}}/g, (_, key, text) => `<a href="${all_variables[key]}" target="_blank">${text}</a>`);
     str = str.replace(/{{(.*?)}}/g, (_, key) => all_variables[key]);
@@ -36,7 +36,7 @@ function ReplacePlaceholders(str, arg_variables = {}) {
 
 window.i18n = function (key, replacements = [], encode_html = true) {
     let arg_variables = {};
-    if(Array.isArray(replacements) === false){
+    if ( Array.isArray(replacements) === false ) {
         if ( typeof replacements === 'object' ) {
             arg_variables = replacements;
             replacements = [];
@@ -47,8 +47,8 @@ window.i18n = function (key, replacements = [], encode_html = true) {
 
     let language = translations[window.locale] ?? translations['en'];
     let str = language.dictionary[key] ?? translations['en'].dictionary[key];
-    
-    if (!str) {
+
+    if ( ! str ) {
         str = key;
     }
     str = ReplacePlaceholders(str, arg_variables);
@@ -63,7 +63,7 @@ window.i18n = function (key, replacements = [], encode_html = true) {
     // e.g. "Hello, %strong%" => "Hello, <strong>World</strong>"
     // e.g. "Hello, %%" => "Hello, World"
     // e.g. "Hello, %strong%, %%!" => "Hello, <strong>World</strong>, Universe!"
-    for (let i = 0; i < replacements.length; i++) {
+    for ( let i = 0; i < replacements.length; i++ ) {
         // sanitize the replacement
         replacements[i] = encode_html ? html_encode(replacements[i]) : replacements[i];
         // find first occurrence of %strong%
@@ -71,19 +71,19 @@ window.i18n = function (key, replacements = [], encode_html = true) {
         // find first occurrence of %%
         let index2 = str.indexOf('%%');
         // decide which one to replace
-        if (index === -1 && index2 === -1) {
+        if ( index === -1 && index2 === -1 ) {
             break;
-        } else if (index === -1) {
+        } else if ( index === -1 ) {
             str = str.replace('%%', replacements[i]);
-        } else if (index2 === -1) {
-            str = str.replace('%strong%', '<strong>' + replacements[i] + '</strong>');
-        } else if (index < index2) {
-            str = str.replace('%strong%', '<strong>' + replacements[i] + '</strong>');
+        } else if ( index2 === -1 ) {
+            str = str.replace('%strong%', `<strong>${ replacements[i] }</strong>`);
+        } else if ( index < index2 ) {
+            str = str.replace('%strong%', `<strong>${ replacements[i] }</strong>`);
         } else {
             str = str.replace('%%', replacements[i]);
         }
     }
     return str;
-}
+};
 
 export default {};

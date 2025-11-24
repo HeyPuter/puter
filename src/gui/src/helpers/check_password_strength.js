@@ -7,12 +7,12 @@
  * it under the terms of the GNU Affero General Public License as published
  * by the Free Software Foundation, either version 3 of the License, or
  * (at your option) any later version.
- * 
+ *
  * This program is distributed in the hope that it will be useful,
  * but WITHOUT ANY WARRANTY; without even the implied warranty of
  * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
  * GNU Affero General Public License for more details.
- * 
+ *
  * You should have received a copy of the GNU Affero General Public License
  * along with this program.  If not, see <https://www.gnu.org/licenses/>.
  */
@@ -24,7 +24,7 @@ const check_password_strength = (password) => {
         hasUpperCase: /[A-Z]/.test(password),
         hasLowerCase: /[a-z]/.test(password),
         hasNumber: /\d/.test(password),
-        hasSpecialChar: /[!@#$%^&*()_+\-=[\]{};':"\\|,.<>/?]/.test(password)
+        hasSpecialChar: /[!@#$%^&*()_+\-=[\]{};':"\\|,.<>/?]/.test(password),
     };
 
     let overallPass = true;
@@ -54,8 +54,8 @@ const check_password_strength = (password) => {
     };
 
     // Check overall pass status and add messages
-    for (let criterion in criteria) {
-        if (!criteria_report[criterion].pass) {
+    for ( let criterion in criteria ) {
+        if ( ! criteria_report[criterion].pass ) {
             overallPass = false;
             break;
         }
@@ -65,7 +65,6 @@ const check_password_strength = (password) => {
         overallPass: overallPass,
         report: criteria_report,
     };
-}
+};
 
 export default check_password_strength;
-

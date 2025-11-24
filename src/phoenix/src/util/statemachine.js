@@ -16,7 +16,7 @@
  * You should have received a copy of the GNU Affero General Public License
  * along with this program.  If not, see <https://www.gnu.org/licenses/>.
  */
-import { disallowAccessToUndefined } from "./lang.js";
+import { disallowAccessToUndefined } from './lang.js';
 import putility from '@heyputer/putility';
 const { Context } = putility.libs.context;
 
@@ -31,7 +31,7 @@ export class StatefulProcessor {
         imports = imports ?? {};
         const externals = {};
         for ( const k in this.externals ) {
-            if ( this.externals[k].required && ! imports[k] ) {
+            if ( this.externals[k].required && !imports[k] ) {
                 throw new Error(`missing required external: ${k}`);
             }
             if ( ! imports[k] ) continue;
@@ -42,7 +42,7 @@ export class StatefulProcessor {
             consts: disallowAccessToUndefined(this.constants),
             externs: externals,
             vars: this.createVariables_(),
-            setState: this.setState_.bind(this)
+            setState: this.setState_.bind(this),
         });
 
         for ( ;; ) {
@@ -58,12 +58,12 @@ export class StatefulProcessor {
     }
     async iter_ (runContext) {
         const ctx = runContext.sub({
-            locals: {}
+            locals: {},
         });
 
         ctx.trigger = name => {
             return this.actions[name](ctx);
-        }
+        };
         if ( this.state !== this.lastState ) {
             this.lastState = this.state;
             if ( this.transitions.hasOwnProperty(this.state) ) {
@@ -72,7 +72,7 @@ export class StatefulProcessor {
                 }
             }
         }
-        
+
         for ( const beforeAll of this.beforeAlls ) {
             await beforeAll.handler(ctx);
         }
@@ -92,8 +92,8 @@ export class StatefulProcessor {
 
 export class StatefulProcessorBuilder {
     static COMMON_1 = [
-        'variable', 'external', 'state', 'action'
-    ]
+        'variable', 'external', 'state', 'action',
+    ];
 
     constructor () {
         this.constants = {};
@@ -101,11 +101,11 @@ export class StatefulProcessorBuilder {
         this.transitions = {};
 
         for ( const facet of this.constructor.COMMON_1 ) {
-            this[facet + 's'] = {};
+            this[`${facet }s`] = {};
             this[facet] = function (name, value) {
-                this[facet + 's'][name] = value;
+                this[`${facet }s`][name] = value;
                 return this;
-            }
+            };
         }
     }
 
@@ -118,14 +118,14 @@ export class StatefulProcessorBuilder {
 
     constant (name, value) {
         Object.defineProperty(this.constants, name, {
-            value
+            value,
         });
         return this;
     }
 
     beforeAll (name, handler) {
         this.beforeAlls.push({
-            name, handler
+            name, handler,
         });
         return this;
     }
@@ -141,7 +141,7 @@ export class StatefulProcessorBuilder {
     build () {
         const params = {};
         for ( const facet of this.constructor.COMMON_1 ) {
-            params[facet + 's'] = this[facet + 's'];
+            params[`${facet }s`] = this[`${facet }s`];
         }
         return new StatefulProcessor({
             ...params,

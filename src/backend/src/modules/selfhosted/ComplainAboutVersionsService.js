@@ -17,7 +17,7 @@
  * along with this program.  If not, see <https://www.gnu.org/licenses/>.
  */
 const BaseService = require('../../services/BaseService');
-const { surrounding_box } = require("../../fun/dev-console-ui-utils");
+const { surrounding_box } = require('../../fun/dev-console-ui-utils');
 
 class ComplainAboutVersionsService extends BaseService {
     static DESCRIPTION = `
@@ -33,20 +33,16 @@ class ComplainAboutVersionsService extends BaseService {
 
     static MODULES = {
         axios: require('axios'),
-    }
+    };
 
     async _init () {
         const eol_data = await this.get_eol_data_();
 
         const [major] = process.versions.node.split('.');
-        const current_version_data = eol_data.find(
-            ({ cycle }) => cycle === major
-        );
+        const current_version_data = eol_data.find(({ cycle }) => cycle === major);
 
         if ( ! current_version_data ) {
-            this.log.warn(
-                `failed to check ${major} in the EOL database`
-            );
+            this.log.warn(`failed to check ${major} in the EOL database`);
             return;
         }
 
@@ -61,7 +57,7 @@ class ComplainAboutVersionsService extends BaseService {
         let timeago = (() => {
             let years = cur_date_obj.getFullYear() - eol_date.getFullYear();
             let months = cur_date_obj.getMonth() - eol_date.getMonth();
-            
+
             let str = '';
             while ( years > 0 ) {
                 years -= 1;
@@ -70,7 +66,7 @@ class ComplainAboutVersionsService extends BaseService {
             if ( months > 0 ) {
                 str += `at least ${months} month${months > 1 ? 's' : ''}`;
             } else {
-                str += `a few days`;
+                str += 'a few days';
             }
             return str;
         })();

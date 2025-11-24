@@ -17,8 +17,8 @@
  * You should have received a copy of the GNU Affero General Public License
  * along with this program.  If not, see <https://www.gnu.org/licenses/>.
  */
-const opentelemetry = require("@opentelemetry/api");
-
+const opentelemetry = require('@opentelemetry/api');
+const BaseService = require('./BaseService');
 
 /**
 * @class TraceService
@@ -27,24 +27,20 @@ const opentelemetry = require("@opentelemetry/api");
 * It provides methods to start spans, which are used for tracking
 * operations and measuring performance within the application.
 */
-class TraceService {
-    constructor () {
-        this.tracer_ = opentelemetry.trace.getTracer(
-            'puter-filesystem-tracer'
-        );
+class TraceService extends BaseService {
+    _construct () {
+        this.tracer_ = opentelemetry.trace.getTracer('puter-filesystem-tracer');
     }
-
 
     /**
      * Retrieves the tracer instance used for creating spans.
      * This method is a getter that returns the current tracer object.
-     * 
+     *
      * @returns {import("@opentelemetry/api").Tracer} The tracer instance for this service.
      */
     get tracer () {
         return this.tracer_;
     }
-
 
     /**
      * Starts an active span for executing a function with tracing.
@@ -64,14 +60,16 @@ class TraceService {
         args.push(async span => {
             try {
                 return await fn({ span });
-            } catch (error) {
+            } catch ( error ) {
                 span.setStatus({ code: opentelemetry.SpanStatusCode.ERROR, message: error.message });
                 throw error;
             } finally {
                 span.end();
             }
         });
-        this.tracer.startActiveSpan('name', {  }, () => {})
+        this.tracer.startActiveSpan('name', { }, () => {
+            // This block intentionally left blank
+        });
         return await this.tracer.startActiveSpan(...args);
     }
 }

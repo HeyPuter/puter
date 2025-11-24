@@ -3,12 +3,11 @@ class PuterDialog extends (globalThis.HTMLElement || Object) { // It will fall b
      * Detects if the current page is loaded using the file:// protocol.
      * @returns {boolean} True if using file:// protocol, false otherwise.
      */
-    isUsingFileProtocol = ()=>{
+    isUsingFileProtocol = () => {
         return window.location.protocol === 'file:';
-    }
-    
-    
-    constructor(resolve, reject) {
+    };
+
+    constructor (resolve, reject) {
         super();
         this.reject = reject;
         this.resolve = resolve;
@@ -20,15 +19,15 @@ class PuterDialog extends (globalThis.HTMLElement || Object) { // It will fall b
          */
         this.hasUserActivation = () => {
             // Modern browsers support navigator.userActivation
-            if (navigator.userActivation) {
+            if ( navigator.userActivation ) {
                 return navigator.userActivation.hasBeenActive && navigator.userActivation.isActive;
             }
-            
+
             // Fallback: try to detect user activation by attempting to open a popup
             // This is a bit hacky but works as a fallback
             try {
                 const testPopup = window.open('', '_blank', 'width=1,height=1,left=-1000,top=-1000');
-                if (testPopup) {
+                if ( testPopup ) {
                     testPopup.close();
                     return true;
                 }
@@ -36,7 +35,7 @@ class PuterDialog extends (globalThis.HTMLElement || Object) { // It will fall b
             } catch (e) {
                 return false;
             }
-        }
+        };
 
         /**
          * Launches the authentication popup window
@@ -47,19 +46,17 @@ class PuterDialog extends (globalThis.HTMLElement || Object) { // It will fall b
                 let w = 600;
                 let h = 400;
                 let title = 'Puter';
-                var left = (screen.width/2)-(w/2);
-                var top = (screen.height/2)-(h/2);
-                const popup = window.open(
-                    puter.defaultGUIOrigin + '/?embedded_in_popup=true&request_auth=true' + (window.crossOriginIsolated ? '&cross_origin_isolated=true' : ''), 
-                    title, 
-                    'toolbar=no, location=no, directories=no, status=no, menubar=no, scrollbars=no, resizable=no, copyhistory=no, width='+w+', height='+h+', top='+top+', left='+left
-                );
+                var left = (screen.width / 2) - (w / 2);
+                var top = (screen.height / 2) - (h / 2);
+                const popup = window.open(`${puter.defaultGUIOrigin }/?embedded_in_popup=true&request_auth=true${ window.crossOriginIsolated ? '&cross_origin_isolated=true' : ''}`,
+                                title,
+                                `toolbar=no, location=no, directories=no, status=no, menubar=no, scrollbars=no, resizable=no, copyhistory=no, width=${ w }, height=${ h }, top=${ top }, left=${ left}`);
                 return popup;
             } catch (e) {
                 console.error('Failed to open popup:', e);
                 return null;
             }
-        }
+        };
 
         this.attachShadow({ mode: 'open' });
 
@@ -338,7 +335,7 @@ class PuterDialog extends (globalThis.HTMLElement || Object) { // It will fall b
         }
         </style>`;
         // Error message for unsupported protocol
-        if(window.location.protocol === 'file:'){
+        if ( window.location.protocol === 'file:' ) {
             h += `<dialog>
                     <div class="puter-dialog-content" style="padding: 20px 40px; background:white !important; font-size: 15px;">
                         <span class="close-btn">&#x2715</span>
@@ -360,7 +357,7 @@ class PuterDialog extends (globalThis.HTMLElement || Object) { // It will fall b
                         </p>
                     </div>
                 </dialog>`;
-        }else{
+        } else {
             h += `<dialog>
                 <div class="puter-dialog-content">
                     <span class="close-btn">&#x2715</span>
@@ -376,12 +373,11 @@ class PuterDialog extends (globalThis.HTMLElement || Object) { // It will fall b
             </dialog>`;
         }
 
-
         this.shadowRoot.innerHTML = h;
 
         // Event listener for the 'message' event
         this.messageListener = async (event) => {
-            if (event.data.msg === 'puter.token') {
+            if ( event.data.msg === 'puter.token' ) {
                 this.close();
                 // Set the authToken property
                 puter.setAuthToken(event.data.token);
@@ -395,16 +391,16 @@ class PuterDialog extends (globalThis.HTMLElement || Object) { // It will fall b
                 this.resolve();
 
                 // Call onAuth callback
-                if(puter.onAuth && typeof puter.onAuth === 'function'){
+                if ( puter.onAuth && typeof puter.onAuth === 'function' ) {
                     puter.getUser().then((user) => {
-                        puter.onAuth(user)
+                        puter.onAuth(user);
                     });
                 }
 
                 puter.puterAuthState.isPromptOpen = false;
                 // Resolve or reject any waiting promises.
-                if (puter.puterAuthState.resolver) {
-                    if (puter.puterAuthState.authGranted) {
+                if ( puter.puterAuthState.resolver ) {
+                    if ( puter.puterAuthState.authGranted ) {
                         puter.puterAuthState.resolver.resolve();
                     } else {
                         puter.puterAuthState.resolver.reject();
@@ -422,60 +418,62 @@ class PuterDialog extends (globalThis.HTMLElement || Object) { // It will fall b
         window.removeEventListener('message', this.messageListener);
         puter.puterAuthState.authGranted = false;
         puter.puterAuthState.isPromptOpen = false;
-    
+
         // Reject the promise with an error message indicating user cancellation.
         // This ensures that the calling code's catch block will be triggered.
         this.reject(new Error('User cancelled the authentication'));
-    
+
         // If there's a resolver set, use it to reject the waiting promise as well.
-        if (puter.puterAuthState.resolver) {
+        if ( puter.puterAuthState.resolver ) {
             puter.puterAuthState.resolver.reject(new Error('User cancelled the authentication'));
             puter.puterAuthState.resolver = null;
         }
     };
 
-    connectedCallback() {
+    connectedCallback () {
         // Add event listener to the button
-        this.shadowRoot.querySelector('#launch-auth-popup')?.addEventListener('click', ()=>{
+        this.shadowRoot.querySelector('#launch-auth-popup')?.addEventListener('click', () => {
             let w = 600;
             let h = 400;
             let title = 'Puter';
-            var left = (screen.width/2)-(w/2);
-            var top = (screen.height/2)-(h/2);
-            window.open(puter.defaultGUIOrigin + '/?embedded_in_popup=true&request_auth=true' + (window.crossOriginIsolated ? '&cross_origin_isolated=true' : ''), 
-            title, 
-            'toolbar=no, location=no, directories=no, status=no, menubar=no, scrollbars=no, resizable=no, copyhistory=no, width='+w+', height='+h+', top='+top+', left='+left);
-        })
+            var left = (screen.width / 2) - (w / 2);
+            var top = (screen.height / 2) - (h / 2);
+            window.open(`${puter.defaultGUIOrigin }/?embedded_in_popup=true&request_auth=true${ window.crossOriginIsolated ? '&cross_origin_isolated=true' : ''}`,
+                            title,
+                            `toolbar=no, location=no, directories=no, status=no, menubar=no, scrollbars=no, resizable=no, copyhistory=no, width=${ w }, height=${ h }, top=${ top }, left=${ left}`);
+        });
 
         // Add the event listener to the window object
-        window.addEventListener('message', this.messageListener);    
+        window.addEventListener('message', this.messageListener);
 
         // Add event listeners for cancel and close buttons
         this.shadowRoot.querySelector('#launch-auth-popup-cancel')?.addEventListener('click', this.cancelListener);
-        this.shadowRoot.querySelector('.close-btn')?.addEventListener('click',this.cancelListener);
+        this.shadowRoot.querySelector('.close-btn')?.addEventListener('click', this.cancelListener);
     }
 
-    open() {
-        if(this.hasUserActivation()){
+    open () {
+        if ( this.hasUserActivation() ) {
             let w = 600;
             let h = 400;
             let title = 'Puter';
-            var left = (screen.width/2)-(w/2);
-            var top = (screen.height/2)-(h/2);
-            window.open(puter.defaultGUIOrigin + '/?embedded_in_popup=true&request_auth=true' + (window.crossOriginIsolated ? '&cross_origin_isolated=true' : ''), 
-            title, 
-            'toolbar=no, location=no, directories=no, status=no, menubar=no, scrollbars=no, resizable=no, copyhistory=no, width='+w+', height='+h+', top='+top+', left='+left);
+            var left = (screen.width / 2) - (w / 2);
+            var top = (screen.height / 2) - (h / 2);
+            window.open(`${puter.defaultGUIOrigin }/?embedded_in_popup=true&request_auth=true${ window.crossOriginIsolated ? '&cross_origin_isolated=true' : ''}`,
+                            title,
+                            `toolbar=no, location=no, directories=no, status=no, menubar=no, scrollbars=no, resizable=no, copyhistory=no, width=${ w }, height=${ h }, top=${ top }, left=${ left}`);
         }
-        else{
+        else {
             this.shadowRoot.querySelector('dialog').showModal();
         }
     }
 
-    close() {
+    close () {
         this.shadowRoot.querySelector('dialog').close();
     }
 }
-if (PuterDialog.__proto__  === globalThis.HTMLElement)
+if ( PuterDialog.__proto__ === globalThis.HTMLElement )
+{
     customElements.define('puter-dialog', PuterDialog);
+}
 
 export default PuterDialog;

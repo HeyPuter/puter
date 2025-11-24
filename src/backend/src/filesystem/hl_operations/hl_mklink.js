@@ -16,22 +16,22 @@
  * You should have received a copy of the GNU Affero General Public License
  * along with this program.  If not, see <https://www.gnu.org/licenses/>.
  */
-const FSNodeParam = require("../../api/filesystem/FSNodeParam");
-const StringParam = require("../../api/filesystem/StringParam");
-const { HLFilesystemOperation } = require("./definitions");
-const APIError = require("../../api/APIError");
-const { TYPE_DIRECTORY } = require("../FSNodeContext");
+const FSNodeParam = require('../../api/filesystem/FSNodeParam');
+const StringParam = require('../../api/filesystem/StringParam');
+const { HLFilesystemOperation } = require('./definitions');
+const APIError = require('../../api/APIError');
+const { TYPE_DIRECTORY } = require('../FSNodeContext');
 
 class HLMkLink extends HLFilesystemOperation {
     static PARAMETERS = {
         parent: new FSNodeParam('symlink'),
         name: new StringParam('name'),
         target: new StringParam('target'),
-    }
+    };
 
     static MODULES = {
         path: require('node:path'),
-    }
+    };
 
     async _run () {
         const { context, values } = this;

@@ -26,6 +26,6 @@ export default {
         allowPositionals: false,
     },
     execute: async ctx => {
-        await ctx.externs.out.write(ctx.vars.pwd + '\n');
-    }
-}
+        await ctx.externs.out.write(`${ctx.vars.pwd }\n`);
+    },
+};

@@ -1,25 +1,25 @@
 /*
  * Copyright (C) 2024-present Puter Technologies Inc.
- * 
+ *
  * This file is part of Puter.
- * 
+ *
  * Puter is free software: you can redistribute it and/or modify
  * it under the terms of the GNU Affero General Public License as published
  * by the Free Software Foundation, either version 3 of the License, or
  * (at your option) any later version.
- * 
+ *
  * This program is distributed in the hope that it will be useful,
  * but WITHOUT ANY WARRANTY; without even the implied warranty of
  * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
  * GNU Affero General Public License for more details.
- * 
+ *
  * You should have received a copy of the GNU Affero General Public License
  * along with this program.  If not, see <https://www.gnu.org/licenses/>.
  */
 
 const { expect } = require('chai');
-const { AdvancedBase } = require("../src/AdvancedBase");
-const { TTopics, TDetachable } = require("../src/traits/traits");
+const { AdvancedBase } = require('../src/AdvancedBase');
+const { TTopics, TDetachable } = require('../src/traits/traits');
 
 describe('topics', () => {
     it ('works', () => {
@@ -28,7 +28,7 @@ describe('topics', () => {
 
         class SomeClassWithTopics extends AdvancedBase {
             // We can "listen on punched"
-            static TOPICS = ['punched']
+            static TOPICS = ['punched'];
 
             // Punchable trait implementation
             static IMPLEMENTS = {
@@ -38,13 +38,13 @@ describe('topics', () => {
                             information: 'about the punch',
                             in_whatever: 'format you desire',
                         });
-                    }
-                }
-            }
+                    },
+                },
+            };
         }
 
         const thingy = new SomeClassWithTopics();
-        
+
         // Register the first listener, which we expect to be called both times
         let first_listener_called = false;
         thingy.as(TTopics).sub('punched', () => {
@@ -64,5 +64,5 @@ describe('topics', () => {
 
         expect(first_listener_called).to.equal(true);
         expect(second_listener_call_count).to.equal(1);
-    })
+    });
 });

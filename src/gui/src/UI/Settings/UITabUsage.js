@@ -7,12 +7,12 @@
  * it under the terms of the GNU Affero General Public License as published
  * by the Free Software Foundation, either version 3 of the License, or
  * (at your option) any later version.
- * 
+ *
  * This program is distributed in the hope that it will be useful,
  * but WITHOUT ANY WARRANTY; without even the implied warranty of
  * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
  * GNU Affero General Public License for more details.
- * 
+ *
  * You should have received a copy of the GNU Affero General Public License
  * along with this program.  If not, see <https://www.gnu.org/licenses/>.
  */
@@ -65,29 +65,29 @@ export default {
     },
     init: ($el_window) => {
         update_usage_details($el_window);
-        $($el_window).find('.update-usage-details').on('click', function() {
+        $($el_window).find('.update-usage-details').on('click', function () {
             update_usage_details($el_window);
         });
     },
 };
 
-$(document).on('click', '.driver-usage-details', function() {
+$(document).on('click', '.driver-usage-details', function () {
     $('.driver-usage-details-content').toggleClass('active');
     $('.driver-usage-details').toggleClass('active');
 
     // change the text of the driver-usage-details-text depending on the class
-    if($('.driver-usage-details').hasClass('active')){
+    if ( $('.driver-usage-details').hasClass('active') ) {
         $('.driver-usage-details-text').text('Hide usage details');
-    }else{
+    } else {
         $('.driver-usage-details-text').text('View usage details');
     }
 });
 
-async function update_usage_details($el_window){
+async function update_usage_details ($el_window) {
     // Add spinning animation and record start time
     const startTime = Date.now();
     $($el_window).find('.update-usage-details-icon').css('animation', 'spin 1s linear infinite');
-    
+
     const monthlyUsagePromise = puter.auth.getMonthlyUsage().then(res => {
         let monthlyAllowance = res.allowanceInfo?.monthUsageAllowance;
         let remaining = res.allowanceInfo?.remaining;
@@ -96,9 +96,9 @@ async function update_usage_details($el_window){
 
         $('#total-usage').html(window.number_format(totalUsage / 100_000_000, { decimals: 2, prefix: '$' }));
         $('#total-capacity').html(window.number_format(monthlyAllowance / 100_000_000, { decimals: 2, prefix: '$' }));
-        $('.usage-progbar-percent').html(totalUsagePercentage + '%');
-        $('.usage-progbar').css('width', totalUsagePercentage + '%');
-        
+        $('.usage-progbar-percent').html(`${totalUsagePercentage }%`);
+        $('.usage-progbar').css('width', `${totalUsagePercentage }%`);
+
         // build the table for the usage details
         let h = '<table class="driver-usage-details-content-table">';
 
@@ -110,22 +110,24 @@ async function update_usage_details($el_window){
             </tr>
         </thead>`;
 
-        h += `<tbody>`;
-        for(let key in res.usage){
+        h += '<tbody>';
+        for ( let key in res.usage ) {
             // value must be object
-            if(typeof res.usage[key] !== 'object')
+            if ( typeof res.usage[key] !== 'object' )
+            {
                 continue;
+            }
 
             // get the units
             let units = res.usage[key].units;
 
             // Bytes should be formatted as human readable
-            if(key.startsWith('filesystem:') && key.endsWith(':bytes')){
+            if ( key.startsWith('filesystem:') && key.endsWith(':bytes') ) {
                 units = window.byte_format(units);
             }
             // Everything else should be formatted as a number
-            else{
-                units = window.number_format(units, {decimals: 0, thousandSeparator: ','});
+            else {
+                units = window.number_format(units, { decimals: 0, thousandSeparator: ',' });
             }
 
             h += `
@@ -135,7 +137,7 @@ async function update_usage_details($el_window){
                 <td>${window.number_format(res.usage[key].cost / 100_000_000, { decimals: 2, prefix: '$' })}</td>
             </tr>`;
         }
-        h += `</tbody>`;
+        h += '</tbody>';
         h += '</table>';
 
         $('.driver-usage-details-content').html(h);
@@ -159,13 +161,12 @@ async function update_usage_details($el_window){
         $('#storage-used').html(window.byte_format(general_used));
         $('#storage-capacity').html(window.byte_format(res.capacity));
         $('#storage-used-percent').html(
-            usage_percentage + '%' +
-            (host_usage_percentage > 0
-                ? ' / ' + host_usage_percentage + '%' : '')
-        );
-        $('#storage-bar').css('width', usage_percentage + '%');
-        $('#storage-bar-host').css('width', host_usage_percentage + '%');
-        if (usage_percentage >= 100) {
+                        `${usage_percentage }%${
+                            host_usage_percentage > 0
+                                ? ` / ${ host_usage_percentage }%` : ''}`);
+        $('#storage-bar').css('width', `${usage_percentage }%`);
+        $('#storage-bar-host').css('width', `${host_usage_percentage }%`);
+        if ( usage_percentage >= 100 ) {
             $('#storage-bar').css({
                 'border-top-right-radius': '3px',
                 'border-bottom-right-radius': '3px',
@@ -175,14 +176,14 @@ async function update_usage_details($el_window){
 
     // Wait for both promises to complete
     await Promise.all([monthlyUsagePromise, spacePromise]);
-    
+
     // Ensure spinning continues for at least 1 second
     const elapsed = Date.now() - startTime;
     const minDuration = 1000; // 1 second
-    if (elapsed < minDuration) {
+    if ( elapsed < minDuration ) {
         await new Promise(resolve => setTimeout(resolve, minDuration - elapsed));
     }
-    
+
     // Remove spinning animation
     $($el_window).find('.update-usage-details-icon').css('animation', '');
 }

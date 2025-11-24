@@ -16,7 +16,7 @@
  * You should have received a copy of the GNU Affero General Public License
  * along with this program.  If not, see <https://www.gnu.org/licenses/>.
  */
-const { Context } = require("../util/context");
+const { Context } = require('../util/context');
 
 class OtelFeature {
     constructor (method_include_list) {
@@ -39,7 +39,7 @@ class OtelFeature {
                     span.end();
                 });
                 return result;
-            }
+            };
         }
     }
 }
@@ -66,11 +66,11 @@ class SyncOtelFeature {
                     span.end();
                 });
                 return result;
-            }
+            };
         }
     }
 }
 
 module.exports = {
-    OtelFeature
+    OtelFeature,
 };

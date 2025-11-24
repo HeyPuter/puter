@@ -22,7 +22,7 @@ export class MergeWhitespacePStratumImpl {
     static meta = {
         inputs: 'node',
         outputs: 'node',
-    }
+    };
     constructor (tabWidth) {
         this.tabWidth = tabWidth ?? 1;
         this.line = 0;
@@ -47,7 +47,7 @@ export class MergeWhitespacePStratumImpl {
         for ( ;; ) {
             const { value, done } = lexer.next();
             if ( done ) return { value, done };
-            
+
             if ( value.$ === 'whitespace' ) {
                 for ( const c of value.text ) {
                     this.countChar(c);
@@ -61,7 +61,7 @@ export class MergeWhitespacePStratumImpl {
                 line: this.line,
                 col: this.col,
             };
-            
+
             if ( value.hasOwnProperty('$source') ) {
                 let source = value.$source;
                 if ( source instanceof Uint8Array ) {

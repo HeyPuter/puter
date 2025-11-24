@@ -20,10 +20,10 @@ const _path = require('path');
 
 /**
  * Puter paths look like any of the following:
- * 
+ *
  * Absolute path: /user/dir1/dir2/file
  * From UID: AAAA-BBBB-CCCC-DDDD/../a/b/c
- * 
+ *
  * The difference between an absolute path and a UID-relative path
  * is the leading forward-slash character.
  */
@@ -44,9 +44,11 @@ class PuterPath {
         this.normUnix = _path.normalize(text);
         this.normFlat =
             (this.normUnix.endsWith('/') && this.normUnix.length > 1)
-            ? this.normUnix.slice(0, -1) : this.normUnix;
+                ? this.normUnix.slice(0, -1) : this.normUnix;
     }
-    get text () { return this.text_; }
+    get text () {
+        return this.text_;
+    }
 
     isRoot () {
         if ( this.normFlat === '/' ) return true;
@@ -61,7 +63,7 @@ class PuterPath {
     }
 
     isFromUID () {
-        return ! this.isAbsolute();
+        return !this.isAbsolute();
     }
 
     get reference () {

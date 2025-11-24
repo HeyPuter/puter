@@ -17,7 +17,7 @@
  * along with this program.  If not, see <https://www.gnu.org/licenses/>.
  */
 import { ReadableStream, WritableStream } from 'stream/web';
-import { signals } from "../ansi-shell/signals.js";
+import { signals } from '../ansi-shell/signals.js';
 
 const writestream_node_to_web = node_stream => {
     return node_stream;
@@ -29,7 +29,7 @@ const writestream_node_to_web = node_stream => {
 };
 
 export class NodeStdioPTT {
-    constructor() {
+    constructor () {
         // this.in = process.stdin;
         // this.out = process.stdout;
         // this.err = process.stderr;
@@ -40,7 +40,7 @@ export class NodeStdioPTT {
         const readableStream = new ReadableStream({
             start: controller => {
                 readController = controller;
-            }
+            },
         });
         this.in = readableStream.getReader();
         process.stdin.setRawMode(true);
@@ -60,8 +60,8 @@ export class NodeStdioPTT {
                     windowSize: {
                         rows: process.stdout.rows,
                         cols: process.stdout.columns,
-                    }
-                }
+                    },
+                },
             });
         });
 
@@ -78,7 +78,7 @@ export class NodeStdioPTT {
         this.ioctl_listeners[name].push(listener);
 
         // Hack: Pretend the window got resized, so that listeners get notified of the current size.
-        if (name === 'ioctl.set') {
+        if ( name === 'ioctl.set' ) {
             process.stdout.emit('resize');
         }
     }

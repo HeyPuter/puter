@@ -108,45 +108,57 @@ export class Repeat extends Parser {
         // Parse first value
         const result = this.value_parser.parse(subStream);
         if ( result.status === INVALID )
+        {
             return { status: INVALID, value: result };
+        }
 
         if ( result.status === VALUE ) {
             stream.join(subStream);
-            if (!result.$discard) results.push(result);
+            if ( ! result.$discard ) results.push(result);
 
             // Repeatedly parse <separator> <value>
-            for (;;) {
+            for ( ;; ) {
                 // Separator
                 let parsed_separator = false;
-                if (this.separator_parser) {
+                if ( this.separator_parser ) {
                     const separatorResult = this.separator_parser.parse(subStream);
-                    if (separatorResult.status === UNRECOGNIZED)
+                    if ( separatorResult.status === UNRECOGNIZED )
+                    {
                         break;
-                    if (separatorResult.status === INVALID)
+                    }
+                    if ( separatorResult.status === INVALID )
+                    {
                         return { status: INVALID, value: separatorResult };
+                    }
                     stream.join(subStream);
-                    if (!separatorResult.$discard) results.push(separatorResult);
+                    if ( ! separatorResult.$discard ) results.push(separatorResult);
                     parsed_separator = true;
                 }
 
                 // Value
                 const result = this.value_parser.parse(subStream);
-                if (result.status === UNRECOGNIZED) {
+                if ( result.status === UNRECOGNIZED ) {
                     // If we failed to parse a value, we have a trailing separator
-                    if (parsed_separator && this.trailing === false)
+                    if ( parsed_separator && this.trailing === false )
+                    {
                         return { status: INVALID, value: result };
+                    }
                     break;
                 }
-                if (result.status === INVALID)
+                if ( result.status === INVALID )
+                {
                     return { status: INVALID, value: result };
+                }
 
                 stream.join(subStream);
-                if (!result.$discard) results.push(result);
+                if ( ! result.$discard ) results.push(result);
             }
         }
 
         if ( results.length === 0 )
+        {
             return UNRECOGNIZED;
+        }
 
         return { status: VALUE, value: results };
     }

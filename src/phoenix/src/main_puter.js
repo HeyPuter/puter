@@ -27,10 +27,8 @@ import { CreateSystemProvider } from './platform/puter/system.js';
 import { parseArgs } from '@pkgjs/parseargs';
 
 window.main_shell = async () => {
-    const config = Object.fromEntries(
-        new URLSearchParams(window.location.search)
-            .entries()
-    );
+    const config = Object.fromEntries(new URLSearchParams(window.location.search)
+        .entries());
 
     // let resolveConfigured = null;
     // const configured_ = new Promise(rslv => {
@@ -39,13 +37,13 @@ window.main_shell = async () => {
     const puterSDK = globalThis.puter;
 
     const terminal = puter.ui.parentApp();
-    if (!terminal) {
+    if ( ! terminal ) {
         console.error('Phoenix cannot run without a parent Terminal. Exiting...');
         puter.exit();
         return;
     }
     terminal.on('message', message => {
-        if (message.$ === 'config') {
+        if ( message.$ === 'config' ) {
             const configValues = { ...message };
             // Only copy the config that we actually need
             // config['puter.auth.username'] = configValues['puter.auth.username'];
@@ -84,15 +82,16 @@ window.main_shell = async () => {
     const { values } = parseArgs({
         options: {
             c: {
-                type: 'string'
-            }
+                type: 'string',
+            },
         },
-        args: puter.args.command_line.args
+        args: puter.args.command_line.args,
     });
 
     await launchPuterShell(new Context({
         ptt,
-        config, puterSDK,
+        config,
+        puterSDK,
         init_arguments: values,
         externs: new Context({ puterSDK }),
         platform: new Context({
@@ -100,7 +99,7 @@ window.main_shell = async () => {
             filesystem: CreateFilesystemProvider({ puterSDK }),
             drivers: CreateDriversProvider({ puterSDK }),
             env: CreateEnvProvider({ config }),
-            system: CreateSystemProvider({ puterSDK })
+            system: CreateSystemProvider({ puterSDK }),
         }),
     }));
 };

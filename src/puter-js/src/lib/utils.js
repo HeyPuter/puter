@@ -12,7 +12,7 @@
  * // returns "Invalid JSON"
  * parseResponse('Invalid JSON');
  */
-async function parseResponse(target) {
+async function parseResponse (target) {
     if ( target.responseType === 'blob' ) {
         // Get content type of the blob
         const contentType = target.getResponseHeader('content-type');
@@ -21,10 +21,10 @@ async function parseResponse(target) {
             const text = await target.response.text();
             try {
                 return JSON.parse(text);
-            } catch (error) {
+            } catch ( error ) {
                 return text;
             }
-        }else if ( contentType.startsWith('application/octet-stream') ) {
+        } else if ( contentType.startsWith('application/octet-stream') ) {
             // If the blob is an octet stream, return the blob
             return target.response;
         }
@@ -38,32 +38,30 @@ async function parseResponse(target) {
     const responseText = target.responseText;
     try {
         return JSON.parse(responseText);
-    } catch (error) {
+    } catch ( error ) {
         return responseText;
     }
 }
 
 /**
- * A function that generates a UUID (Universally Unique Identifier) using the version 4 format, 
+ * A function that generates a UUID (Universally Unique Identifier) using the version 4 format,
  * which are random UUIDs. It uses the cryptographic number generator available in modern browsers.
  *
- * The generated UUID is a 36 character string (32 alphanumeric characters separated by 4 hyphens). 
- * It follows the pattern: xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx, where x is any hexadecimal digit 
+ * The generated UUID is a 36 character string (32 alphanumeric characters separated by 4 hyphens).
+ * It follows the pattern: xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx, where x is any hexadecimal digit
  * and y is one of 8, 9, A, or B.
  *
  * @returns {string} Returns a new UUID v4 string.
  *
  * @example
- * 
+ *
  * let id = this.#uuidv4(); // Generate a new UUID
- * 
+ *
  */
-function uuidv4(){
+function uuidv4 () {
     return ([1e7] + -1e3 + -4e3 + -8e3 + -1e11).replace(/[018]/g, c =>
-        (c ^ crypto.getRandomValues(new Uint8Array(1))[0] & 15 >> c / 4).toString(16)
-    );
+        (c ^ crypto.getRandomValues(new Uint8Array(1))[0] & 15 >> c / 4).toString(16));
 }
-
 
 /**
  * Initializes and returns an XMLHttpRequest object configured for a specific API endpoint, method, and headers.
@@ -77,30 +75,32 @@ function uuidv4(){
  *
  * @returns {XMLHttpRequest} The initialized XMLHttpRequest object.
  */
-function initXhr(endpoint, APIOrigin, authToken, method= "post", contentType = "text/plain;actually=json", responseType = undefined) {
+function initXhr (endpoint, APIOrigin, authToken, method = 'post', contentType = 'text/plain;actually=json', responseType = undefined) {
     const xhr = new XMLHttpRequest();
     xhr.open(method, APIOrigin + endpoint, true);
-    if (authToken)
-        xhr.setRequestHeader("Authorization", "Bearer " + authToken);
-    xhr.setRequestHeader("Content-Type", contentType);
+    if ( authToken )
+    {
+        xhr.setRequestHeader('Authorization', `Bearer ${ authToken}`);
+    }
+    xhr.setRequestHeader('Content-Type', contentType);
     xhr.responseType = responseType ?? '';
-    
+
     // Add API call logging if available
-    if (globalThis.puter?.apiCallLogger?.isEnabled()) {
+    if ( globalThis.puter?.apiCallLogger?.isEnabled() ) {
         xhr._puterRequestId = {
             method,
             service: 'xhr',
             operation: endpoint.replace(/^\//, ''),
-            params: { endpoint, contentType, responseType }
+            params: { endpoint, contentType, responseType },
         };
     }
-    
+
     return xhr;
 }
 
 /**
  * Handles an HTTP response by invoking appropriate callback functions and resolving or rejecting a promise.
- * 
+ *
  * @param {Function} success_cb - An optional callback function for successful responses. It should take a response object
  *                                as its only argument.
  * @param {Function} error_cb - An optional callback function for error handling. It should take an error object
@@ -111,41 +111,47 @@ function initXhr(endpoint, APIOrigin, authToken, method= "post", contentType = "
  *                                 as its only argument.
  * @param {Object} response - The HTTP response object from the request. Expected to have 'status' and 'responseText'
  *                            properties.
- * 
+ *
  * @returns {void} The function does not return a value but will either resolve or reject a promise based on the
  *                 response status.
  */
-async function handle_resp(success_cb, error_cb, resolve_func, reject_func, response){
+async function handle_resp (success_cb, error_cb, resolve_func, reject_func, response) {
     const resp = await parseResponse(response);
     // error - unauthorized
-    if(response.status === 401){
+    if ( response.status === 401 ) {
         // if error callback is provided, call it
-        if(error_cb && typeof error_cb === 'function')
-            error_cb({status: 401, message: 'Unauthorized'})
+        if ( error_cb && typeof error_cb === 'function' )
+        {
+            error_cb({ status: 401, message: 'Unauthorized' });
+        }
         // reject promise
-        return reject_func({status: 401, message: 'Unauthorized'})
+        return reject_func({ status: 401, message: 'Unauthorized' });
     }
     // error - other
-    else if(response.status !== 200){
+    else if ( response.status !== 200 ) {
         // if error callback is provided, call it
-        if(error_cb && typeof error_cb === 'function')
-            error_cb(resp)
+        if ( error_cb && typeof error_cb === 'function' )
+        {
+            error_cb(resp);
+        }
         // reject promise
-        return reject_func(resp)
+        return reject_func(resp);
     }
     // success
-    else{
+    else {
         // This is a driver error
-        if(resp.success === false && resp.error?.code === 'permission_denied'){
-            let perm = await puter.ui.requestPermission({permission: 'driver:puter-image-generation:generate'});
+        if ( resp.success === false && resp.error?.code === 'permission_denied' ) {
+            let perm = await puter.ui.requestPermission({ permission: 'driver:puter-image-generation:generate' });
             // try sending again if permission was granted
-            if(perm.granted){
+            if ( perm.granted ) {
                 // todo repeat request
             }
         }
         // if success callback is provided, call it
-        if(success_cb && typeof success_cb === 'function')
+        if ( success_cb && typeof success_cb === 'function' )
+        {
             success_cb(resp);
+        }
         // resolve with success
         return resolve_func(resp);
     }
@@ -153,59 +159,62 @@ async function handle_resp(success_cb, error_cb, resolve_func, reject_func, resp
 
 /**
  * Handles an error by invoking a specified error callback and then rejecting a promise.
- * 
+ *
  * @param {Function} error_cb - An optional callback function that is called if it's provided.
  *                              This function should take an error object as its only argument.
  * @param {Function} reject_func - A function used to reject a promise. It should take an error object
  *                                 as its only argument.
  * @param {Object} error - The error object that is passed to both the error callback and the reject function.
- * 
+ *
  * @returns {void} The function does not return a value but will call the reject function with the error.
  */
-function handle_error(error_cb, reject_func, error){
+function handle_error (error_cb, reject_func, error) {
     // if error callback is provided, call it
-    if(error_cb && typeof error_cb === 'function')
-        error_cb(error)
+    if ( error_cb && typeof error_cb === 'function' )
+    {
+        error_cb(error);
+    }
     // reject promise
-    return reject_func(error)
+    return reject_func(error);
 }
 
-function setupXhrEventHandlers(xhr, success_cb, error_cb, resolve_func, reject_func) {
+function setupXhrEventHandlers (xhr, success_cb, error_cb, resolve_func, reject_func) {
     // load: success or error
-    xhr.addEventListener('load', async function(e){
+    xhr.addEventListener('load', async function (e) {
         // Log the response if API logging is enabled
-        if (globalThis.puter?.apiCallLogger?.isEnabled() && this._puterRequestId) {
+        if ( globalThis.puter?.apiCallLogger?.isEnabled() && this._puterRequestId ) {
             const response = await parseResponse(this).catch(() => null);
             globalThis.puter.apiCallLogger.logRequest({
                 service: this._puterRequestId.service,
                 operation: this._puterRequestId.operation,
                 params: this._puterRequestId.params,
                 result: this.status >= 400 ? null : response,
-                error: this.status >= 400 ? { message: this.statusText, status: this.status } : null
+                error: this.status >= 400 ? { message: this.statusText, status: this.status } : null,
             });
         }
         return handle_resp(success_cb, error_cb, resolve_func, reject_func, this, xhr);
     });
 
     // error
-    xhr.addEventListener('error', function(e){
+    xhr.addEventListener('error', function (e) {
         // Log the error if API logging is enabled
-        if (globalThis.puter?.apiCallLogger?.isEnabled() && this._puterRequestId) {
+        if ( globalThis.puter?.apiCallLogger?.isEnabled() && this._puterRequestId ) {
             globalThis.puter.apiCallLogger.logRequest({
                 service: this._puterRequestId.service,
                 operation: this._puterRequestId.operation,
                 params: this._puterRequestId.params,
                 error: {
                     message: 'Network error occurred',
-                    event: e.type
-                }
+                    event: e.type,
+                },
             });
         }
         return handle_error(error_cb, reject_func, this);
-    })
+    });
 }
 
-const NOOP = () => {};
+const NOOP = () => {
+};
 class Valid {
     static callback (cb) {
         return (cb && typeof cb === 'function') ? cb : undefined;
@@ -219,13 +228,13 @@ class Valid {
  * @param {string} driverName - name of the driver
  * @param {string} driverMethod - name of the method
  */
-function make_driver_method(arg_defs, driverInterface, driverName, driverMethod, settings = {}) {
+function make_driver_method (arg_defs, driverInterface, driverName, driverMethod, settings = {}) {
     return async function (...args) {
         let driverArgs = {};
         let options = {};
 
         // Check if the first argument is an object and use it as named parameters
-        if (args.length === 1 && typeof args[0] === 'object' && !Array.isArray(args[0])) {
+        if ( args.length === 1 && typeof args[0] === 'object' && !Array.isArray(args[0]) ) {
             driverArgs = { ...args[0] };
             options = {
                 success: driverArgs.success,
@@ -246,7 +255,7 @@ function make_driver_method(arg_defs, driverInterface, driverName, driverMethod,
         }
 
         // preprocess
-        if(settings.preprocess && typeof settings.preprocess === 'function'){
+        if ( settings.preprocess && typeof settings.preprocess === 'function' ) {
             driverArgs = settings.preprocess(driverArgs);
         }
 
@@ -257,24 +266,22 @@ function make_driver_method(arg_defs, driverInterface, driverName, driverMethod,
 async function driverCall (options, driverInterface, driverName, driverMethod, driverArgs, settings) {
     const tp = new TeePromise();
 
-    driverCall_(
-        options,
-        tp.resolve.bind(tp),
-        tp.reject.bind(tp),
-        driverInterface,
-        driverName,
-        driverMethod,
-        driverArgs,
-        undefined,
-        undefined,
-        settings,
-    );
+    driverCall_(options,
+                    tp.resolve.bind(tp),
+                    tp.reject.bind(tp),
+                    driverInterface,
+                    driverName,
+                    driverMethod,
+                    driverArgs,
+                    undefined,
+                    undefined,
+                    settings);
 
     return await tp;
 }
 
 // This function encapsulates the logic for sending a driver call request
-async function driverCall_(
+async function driverCall_ (
     options = {},
     resolve_func, reject_func,
     driverInterface, driverName, driverMethod, driverArgs,
@@ -285,34 +292,34 @@ async function driverCall_(
     // Generate request ID for logging
     // Store request info for logging
     let requestInfo = null;
-    if (globalThis.puter?.apiCallLogger?.isEnabled()) {
+    if ( globalThis.puter?.apiCallLogger?.isEnabled() ) {
         requestInfo = {
             interface: driverInterface,
             driver: driverName,
             method: driverMethod,
-            args: driverArgs
+            args: driverArgs,
         };
     }
 
     // If there is no authToken and the environment is web, try authenticating with Puter
-    if(!puter.authToken && puter.env === 'web'){
-        try{
+    if ( !puter.authToken && puter.env === 'web' ) {
+        try {
             await puter.ui.authenticateWithPuter();
-        }catch(e){
+        } catch (e) {
             // Log authentication error
-            if (requestInfo && globalThis.puter?.apiCallLogger?.isEnabled()) {
+            if ( requestInfo && globalThis.puter?.apiCallLogger?.isEnabled() ) {
                 globalThis.puter.apiCallLogger.logRequest({
                     service: 'drivers',
                     operation: `${driverInterface}::${driverMethod}`,
                     params: { interface: driverInterface, driver: driverName, method: driverMethod, args: driverArgs },
-                    error: { code: 'auth_canceled', message: 'Authentication canceled' }
+                    error: { code: 'auth_canceled', message: 'Authentication canceled' },
                 });
             }
             return reject_func({
                 error: {
-                    code: 'auth_canceled', message: 'Authentication canceled'
-                }
-            })
+                    code: 'auth_canceled', message: 'Authentication canceled',
+                },
+            });
         }
     }
 
@@ -322,14 +329,14 @@ async function driverCall_(
     const xhr = initXhr('/drivers/call', puter.APIOrigin, undefined, 'POST', contentType);
 
     // Store request info for later logging
-    if (requestInfo) {
+    if ( requestInfo ) {
         xhr._puterDriverRequestInfo = requestInfo;
     }
 
     if ( settings.responseType ) {
         xhr.responseType = settings.responseType;
     }
-    
+
     // ===============================================
     // TO UNDERSTAND THIS CODE, YOU MUST FIRST
     // UNDERSTAND THE FOLLOWING TEXT:
@@ -338,14 +345,14 @@ async function driverCall_(
     // "=== END OF STREAMING ===" is ONLY for handling
     // requests with content type "application/x-ndjson"
     // ===============================================
-    
+
     let is_stream = false;
     let signal_stream_update = null;
     let lastLength = 0;
     let response_complete = false;
-    
+
     let buffer = '';
-    
+
     // NOTE: linked-list technically would perform better,
     //       but in practice there are at most 2-3 lines
     //       buffered so this does not matter.
@@ -353,12 +360,12 @@ async function driverCall_(
 
     xhr.onreadystatechange = () => {
         if ( xhr.readyState === 2 ) {
-            if ( xhr.getResponseHeader("Content-Type") !==
+            if ( xhr.getResponseHeader('Content-Type') !==
                 'application/x-ndjson'
             ) return;
             is_stream = true;
             const Stream = async function* Stream () {
-                while ( ! response_complete ) {
+                while ( !response_complete ) {
                     const tp = new TeePromise();
                     signal_stream_update = tp.resolve.bind(tp);
                     await tp;
@@ -367,7 +374,7 @@ async function driverCall_(
                         const line = lines_received.shift();
                         if ( line.trim() === '' ) continue;
                         const lineObject = (JSON.parse(line));
-                        if (typeof (lineObject.text) === 'string') {
+                        if ( typeof (lineObject.text) === 'string' ) {
                             Object.defineProperty(lineObject, 'toString', {
                                 enumerable: false,
                                 value: () => lineObject.text,
@@ -376,20 +383,20 @@ async function driverCall_(
                         yield lineObject;
                     }
                 }
-            }
+            };
 
             const startedStream = Stream();
             Object.defineProperty(startedStream, 'start', {
                 enumerable: false,
-                value: async(controller) => {
+                value: async (controller) => {
                     const texten = new TextEncoder();
-                    for await (const part of startedStream) {
-                        controller.enqueue(texten.encode(part))
+                    for await ( const part of startedStream ) {
+                        controller.enqueue(texten.encode(part));
                     }
                     controller.close();
-                }
-            })
-        
+                },
+            });
+
             return resolve_func(startedStream);
         }
         if ( xhr.readyState === 4 ) {
@@ -400,12 +407,12 @@ async function driverCall_(
         }
     };
 
-    xhr.onprogress = function() {
+    xhr.onprogress = function () {
         if ( ! signal_stream_update ) return;
 
         const newText = xhr.responseText.slice(lastLength);
         lastLength = xhr.responseText.length; // Update lastLength to the current length
-        
+
         let hasUpdates = false;
         for ( let i = 0; i < newText.length; i++ ) {
             buffer += newText[i];
@@ -415,83 +422,85 @@ async function driverCall_(
                 buffer = '';
             }
         }
-        
+
         if ( hasUpdates ) {
             signal_stream_update();
         }
     };
-    
+
     // ========================
     // === END OF STREAMING ===
     // ========================
 
     // load: success or error
-    xhr.addEventListener('load', async function(response){
+    xhr.addEventListener('load', async function (response) {
         if ( is_stream ) {
             return;
         }
         const resp = await parseResponse(response.target);
-        
+
         // Log driver call response
-        if (this._puterDriverRequestInfo && globalThis.puter?.apiCallLogger?.isEnabled()) {
+        if ( this._puterDriverRequestInfo && globalThis.puter?.apiCallLogger?.isEnabled() ) {
             globalThis.puter.apiCallLogger.logRequest({
                 service: 'drivers',
                 operation: `${this._puterDriverRequestInfo.interface}::${this._puterDriverRequestInfo.method}`,
                 params: { interface: this._puterDriverRequestInfo.interface, driver: this._puterDriverRequestInfo.driver, method: this._puterDriverRequestInfo.method, args: this._puterDriverRequestInfo.args },
                 result: response.status >= 400 || resp?.success === false ? null : resp,
-                error: response.status >= 400 || resp?.success === false ? resp : null
+                error: response.status >= 400 || resp?.success === false ? resp : null,
             });
         }
-        
+
         // HTTP Error - unauthorized
-        if(response.status === 401 || resp?.code === "token_auth_failed"){
-            if(resp?.code === "token_auth_failed" && puter.env === 'web'){
-                try{
+        if ( response.status === 401 || resp?.code === 'token_auth_failed' ) {
+            if ( resp?.code === 'token_auth_failed' && puter.env === 'web' ) {
+                try {
                     puter.resetAuthToken();
                     await puter.ui.authenticateWithPuter();
-                }catch(e){
+                } catch (e) {
                     return reject_func({
                         error: {
-                            code: 'auth_canceled', message: 'Authentication canceled'
-                        }
-                    })
+                            code: 'auth_canceled', message: 'Authentication canceled',
+                        },
+                    });
                 }
             }
             // if error callback is provided, call it
-            if(error_cb && typeof error_cb === 'function')
-                error_cb({status: 401, message: 'Unauthorized'})
+            if ( error_cb && typeof error_cb === 'function' )
+            {
+                error_cb({ status: 401, message: 'Unauthorized' });
+            }
             // reject promise
-            return reject_func({status: 401, message: 'Unauthorized'})
+            return reject_func({ status: 401, message: 'Unauthorized' });
         }
         // HTTP Error - other
-        else if(response.status && response.status !== 200){
+        else if ( response.status && response.status !== 200 ) {
             // if error callback is provided, call it
-            error_cb(resp)
+            error_cb(resp);
             // reject promise
-            return reject_func(resp)
+            return reject_func(resp);
         }
         // HTTP Success
-        else{
+        else {
             // Driver Error: permission denied
-            if(resp.success === false && resp.error?.code === 'permission_denied'){
-                let perm = await puter.ui.requestPermission({permission: 'driver:' + driverInterface + ':' + driverMethod});
+            if ( resp.success === false && resp.error?.code === 'permission_denied' ) {
+                let perm = await puter.ui.requestPermission({ permission: `driver:${ driverInterface }:${ driverMethod}` });
                 // try sending again if permission was granted
-                if(perm.granted){
+                if ( perm.granted ) {
                     // repeat request with permission granted
                     return driverCall_(options, resolve_func, reject_func, driverInterface, driverMethod, driverArgs, method, contentType, settings);
-                }else{
+                } else {
                     // if error callback is provided, call it
-                    error_cb(resp)
+                    error_cb(resp);
                     // reject promise
-                    return reject_func(resp)
+                    return reject_func(resp);
                 }
             }
             // Driver Error: other
-            else if(resp.success === false){
+            else if ( resp.success === false ) {
                 // if error callback is provided, call it
-                error_cb(resp)
+                error_cb(resp);
                 // reject promise
-                return reject_func(resp)
+                return reject_func(resp);
             }
 
             let result = resp.result !== undefined ? resp.result : resp;
@@ -500,35 +509,37 @@ async function driverCall_(
             }
 
             // Success: if callback is provided, call it
-            if(resolve_func.success)
+            if ( resolve_func.success )
+            {
                 success_cb(result);
+            }
             // Success: resolve with the result
             return resolve_func(result);
         }
     });
 
     // error
-    xhr.addEventListener('error', function(e){
+    xhr.addEventListener('error', function (e) {
         // Log driver call error
-        if (this._puterDriverRequestInfo && globalThis.puter?.apiCallLogger?.isEnabled()) {
+        if ( this._puterDriverRequestInfo && globalThis.puter?.apiCallLogger?.isEnabled() ) {
             globalThis.puter.apiCallLogger.logRequest({
                 service: 'drivers',
                 operation: `${this._puterDriverRequestInfo.interface}::${this._puterDriverRequestInfo.method}`,
                 params: { interface: this._puterDriverRequestInfo.interface, driver: this._puterDriverRequestInfo.driver, method: this._puterDriverRequestInfo.method, args: this._puterDriverRequestInfo.args },
-                error: { message: 'Network error occurred', event: e.type }
+                error: { message: 'Network error occurred', event: e.type },
             });
         }
         return handle_error(error_cb, reject_func, this);
-    })
+    });
 
     // send request
     xhr.send(JSON.stringify({
         interface: driverInterface,
         driver: driverName,
-        test_mode: settings?.test_mode, 
+        test_mode: settings?.test_mode,
         method: driverMethod,
         args: driverArgs,
-        auth_token: puter.authToken
+        auth_token: puter.authToken,
     }));
 }
 
@@ -567,11 +578,11 @@ class TeePromise {
         this.status_ = this.constructor.STATUS_DONE;
         this.doneReject(err);
     }
-    
+
     /**
      * @deprecated use then() instead
      */
-    onComplete(fn) {
+    onComplete (fn) {
         return this.then(fn);
     }
 }
@@ -584,34 +595,34 @@ async function blob_to_url (blob) {
     return await tp;
 }
 
-function blobToDataUri(blob) {
+function blobToDataUri (blob) {
     return new Promise((resolve, reject) => {
         const reader = new FileReader();
-        reader.onload = function(event) {
+        reader.onload = function (event) {
             resolve(event.target.result);
         };
-        reader.onerror = function(error) {
+        reader.onerror = function (error) {
             reject(error);
         };
         reader.readAsDataURL(blob);
     });
 }
 
-function arrayBufferToDataUri(arrayBuffer) {
+function arrayBufferToDataUri (arrayBuffer) {
     return new Promise((resolve, reject) => {
         const blob = new Blob([arrayBuffer]);
         const reader = new FileReader();
-        reader.onload = function(event) {
+        reader.onload = function (event) {
             resolve(event.target.result);
         };
-        reader.onerror = function(error) {
+        reader.onerror = function (error) {
             reject(error);
         };
         reader.readAsDataURL(blob);
     });
 }
 
-export {parseResponse, uuidv4, handle_resp, handle_error, initXhr, setupXhrEventHandlers, driverCall,
+export { parseResponse, uuidv4, handle_resp, handle_error, initXhr, setupXhrEventHandlers, driverCall,
     TeePromise,
     make_driver_method,
     blob_to_url,

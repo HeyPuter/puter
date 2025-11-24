@@ -1,5 +1,6 @@
 <!DOCTYPE html>
 <html lang="en">
+
 <head>
     <meta charset="UTF-8">
     <meta http-equiv="X-UA-Compatible" content="IE=edge">
@@ -13,10 +14,23 @@
     <script src="bundle.js"></script>
     <script>
         document.addEventListener('DOMContentLoaded', async () => {
+            // Wait for the SDK to load (with timeout)
+            let attempts = 0;
+            const maxAttempts = 100; // 5 seconds max
+            while (typeof puter === 'undefined' && attempts < maxAttempts) {
+                await new Promise(resolve => setTimeout(resolve, 50));
+                attempts++;
+            }
+            if (typeof puter === 'undefined') {
+                console.error('Puter SDK failed to load');
+                return;
+            }
             main_term();
         });
     </script>
 </head>
+
 <body>
 </body>
+
 </html>

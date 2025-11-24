@@ -24,7 +24,7 @@ const process_input_messages = async (messages) => {
             const content_block = content[i];
 
             if ( content_block.type === 'tool_use' ) {
-                if ( !msg.tool_calls ) {
+                if ( ! msg.tool_calls ) {
                     msg.tool_calls = [];
                     is_tool_call = true;
                 }
@@ -35,6 +35,7 @@ const process_input_messages = async (messages) => {
                         name: content_block.name,
                         arguments: JSON.stringify(content_block.input),
                     },
+                    ...(content_block.extra_content?{extra_content: content_block.extra_content}:{})
                 });
                 content.splice(i, 1);
             }
@@ -91,8 +92,6 @@ const create_chat_stream_handler = ({
     completion,
     usage_calculator,
 }) => async ({ chatStream }) => {
-    // Streaming chunks now include a running usage object ({ prompt_tokens, completion_tokens, total_tokens })
-    // so downstream consumers can surface live token counts without changing existing fields.
     deviations = Object.assign({
         // affected by: Groq
         index_usage_from_stream_chunk: chunk => chunk.usage,
@@ -108,80 +107,37 @@ const create_chat_stream_handler = ({
     const tool_call_blocks = [];
 
     let last_usage = null;
-    const usage_totals = {
-        prompt_tokens: 0,
-        completion_tokens: 0,
-        total_tokens: 0,
-    };
-
-    const getUsage = () => ({
-        prompt_tokens: usage_totals.prompt_tokens,
-        completion_tokens: usage_totals.completion_tokens,
-        total_tokens: usage_totals.total_tokens,
-    });
-
-    const enhanceTextBlock = (block) => {
-        block.addText = (text) => {
-            const payload = {
-                type: 'text',
-                text,
-                usage: getUsage(),
-            };
-            block.chatStream.stream.write(JSON.stringify(payload) + '\n');
-        };
-        return block;
-    };
-
-    const enhanceToolBlock = (block) => {
-        const originalAddPartialJSON = block.addPartialJSON?.bind(block);
-        if ( originalAddPartialJSON ) {
-            block.addPartialJSON = (partial_json) => originalAddPartialJSON(partial_json);
-        }
-        block.end = () => {
-            const buffer = (block.buffer || '').trim() === '' ? '{}' : block.buffer;
-            const payload = {
-                ...block.contentBlock,
-                input: JSON.parse(buffer),
-                ...(block.contentBlock?.text ? {} : { text: '' }),
-                type: 'tool_use',
-                usage: getUsage(),
-            };
-            block.chatStream.stream.write(JSON.stringify(payload) + '\n');
-        };
-        return block;
-    };
-
-    textblock = enhanceTextBlock(textblock);
     for await ( let chunk of completion ) {
         chunk = deviations.chunk_but_like_actually(chunk);
-        if ( process.env.DEBUG ) {
-            const delta = chunk?.choices?.[0]?.delta;
-            console.log(`AI CHUNK`,
-                            chunk,
-                            delta && JSON.stringify(delta));
-        }
         const chunk_usage = deviations.index_usage_from_stream_chunk(chunk);
-        if ( chunk_usage ) {
-            usage_totals.prompt_tokens += chunk_usage.prompt_tokens ?? 0;
-            usage_totals.completion_tokens += chunk_usage.completion_tokens ?? 0;
-            usage_totals.total_tokens = usage_totals.prompt_tokens + usage_totals.completion_tokens;
-            last_usage = {
-                ...chunk_usage,
-                ...getUsage(),
-            };
-        }
+        if ( chunk_usage ) last_usage = chunk_usage;
         if ( chunk.choices.length < 1 ) continue;
 
         const choice = chunk.choices[0];
 
-        if ( choice.delta.content ){
+        // Deepseek returns choice.delta.reasoning_content, openrouter returns choice.delta.reasoning.
+        if ( choice.delta.reasoning_content || choice.delta.reasoning ) {
+            textblock.addReasoning(choice.delta.reasoning_content || choice.delta.reasoning);
+            // Q: Why don't "continue" to next chunk here?
+            // A: For now, reasoning_content and content never appear together, but I’m not sure if they’ll always be mutually exclusive.
+        }
+
+        if ( choice.delta.content ) {
             if ( mode === 'tool' ) {
                 toolblock.end();
                 mode = 'text';
-                textblock = enhanceTextBlock(message.contentBlock({ type: 'text' }));
+                textblock = message.contentBlock({ type: 'text' });
             }
             textblock.addText(choice.delta.content);
             continue;
+        }
+
+        if (choice.delta.extra_content) {
+            // Gemini specific thing for metadata, we will basically be appending onto the current message by abusing .addText a little
+            // Apps have to choose to handle extra_content themselves, it doesn't seem like theres a way we can do it in a backwards 
+            // compatible fashion since most streaming apps will handle chat history by continuously updating content themselves
+            // This doesn't present us a chance to add in an extra object for gemini's chat continuing features
+            textblock.addExtraContent(choice.delta.extra_content);
         }
 
         const tool_calls = deviations.index_tool_calls_from_stream_choice(choice);
@@ -192,11 +148,12 @@ const create_chat_stream_handler = ({
             }
             for ( const tool_call of tool_calls ) {
                 if ( ! tool_call_blocks[tool_call.index] ) {
-                    toolblock = enhanceToolBlock(message.contentBlock({
+                    toolblock = message.contentBlock({
                         type: 'tool_use',
                         id: tool_call.id,
                         name: tool_call.function.name,
-                    }));
+                        ...(tool_call.extra_content ? {extra_content: tool_call.extra_content}: {})
+                    });
                     tool_call_blocks[tool_call.index] = toolblock;
                 } else {
                     toolblock = tool_call_blocks[tool_call.index];
@@ -206,9 +163,8 @@ const create_chat_stream_handler = ({
         }
     }
 
-    const final_usage = last_usage ?? getUsage();
     // TODO DS: this is a bit too abstracted... this is basically just doing the metering now
-    usage_calculator({ usage: final_usage });
+    usage_calculator({ usage: last_usage });
 
     if ( mode === 'text' ) textblock.end();
     if ( mode === 'tool' ) toolblock.end();
@@ -253,7 +209,7 @@ const handle_completion_output = async ({
     if ( finally_fn ) await finally_fn();
 
     const is_empty = completion.choices?.[0]?.message?.content?.trim() === '';
-    if ( is_empty && ! completion.choices?.[0]?.message?.tool_calls ) {
+    if ( is_empty && !completion.choices?.[0]?.message?.tool_calls ) {
         // GPT refuses to generate an empty response if you ask it to,
         // so this will probably only happen on an error condition.
         throw new Error('an empty response was generated');

@@ -1,14 +1,14 @@
-const { PermissionImplicator, PermissionUtil } = require("./auth/permissionUtils.mjs");
-const BaseService = require("./BaseService")
+const { PermissionImplicator, PermissionUtil } = require('./auth/permissionUtils.mjs');
+const BaseService = require('./BaseService');
 
-const APIError = require("../api/APIError");
-const { is_valid_uuid } = require("../helpers");
-const { Context } = require("../util/context");
-const { DB_WRITE } = require("./database/consts");
-const configurable_auth = require("../middleware/configurable_auth");
-const { Endpoint } = require("../util/expressutil");
-const { whatis } = require("../util/langutil");
-const { UserActorType } = require("./auth/Actor");
+const APIError = require('../api/APIError');
+const { is_valid_uuid } = require('../helpers');
+const { Context } = require('../util/context');
+const { DB_WRITE } = require('./database/consts');
+const configurable_auth = require('../middleware/configurable_auth');
+const { Endpoint } = require('../util/expressutil');
+const { whatis } = require('../util/langutil');
+const { UserActorType } = require('./auth/Actor');
 
 class ThreadService extends BaseService {
     static MODULES = {
@@ -19,14 +19,14 @@ class ThreadService extends BaseService {
         this.db = this.services.get('database').get(DB_WRITE, 'service:thread');
 
         this.thread_body_max_size = 4 * 1024; // 4KiB
-        
+
         const svc_apiError = this.services.get('api-error');
         svc_apiError.register({
             'thread_not_found': {
                 status: 400,
                 message: ({ uid }) => {
                     return `Thread with UID ${uid} was not found`;
-                }
+                },
             },
         });
 
@@ -37,7 +37,7 @@ class ThreadService extends BaseService {
                 return permission.startsWith('thread:');
             },
             checker: async ({ actor, permission }) => {
-                if ( !(actor.type instanceof UserActorType) ) {
+                if ( ! (actor.type instanceof UserActorType) ) {
                     return undefined;
                 }
 
@@ -52,7 +52,7 @@ class ThreadService extends BaseService {
                 }
 
                 return undefined;
-            }
+            },
         }));
         const NO_RECURSE_PERMISSIONS = ['children-of', 'own-children-of'];
         svc_permission.register_implicator(PermissionImplicator.create({
@@ -75,17 +75,15 @@ class ThreadService extends BaseService {
                 }
 
                 const svc_permission = this.services.get('permission');
-                const reading = await svc_permission.scan(
-                    actor,
-                    PermissionUtil.join('thread', parent_uid, 'children-of', ...rest),
-                );
+                const reading = await svc_permission.scan(actor,
+                                PermissionUtil.join('thread', parent_uid, 'children-of', ...rest));
                 const options = PermissionUtil.reading_to_options(reading);
                 if ( options.length <= 0 ) {
                     return undefined;
                 }
 
                 return {};
-            }
+            },
         }));
         svc_permission.register_implicator(PermissionImplicator.create({
             id: 'own-children-of',
@@ -108,7 +106,7 @@ class ThreadService extends BaseService {
                 }
 
                 console.log('own children implicator', {
-                    permission
+                    permission,
                 });
 
                 if ( thread.owner_user_id !== actor.type.user.id ) {
@@ -116,24 +114,22 @@ class ThreadService extends BaseService {
                 }
 
                 const svc_permission = this.services.get('permission');
-                const reading = await svc_permission.scan(
-                    actor,
-                    PermissionUtil.join('thread', parent_uid, 'own-children-of', ...rest),
-                );
+                const reading = await svc_permission.scan(actor,
+                                PermissionUtil.join('thread', parent_uid, 'own-children-of', ...rest));
                 const options = PermissionUtil.reading_to_options(reading);
                 if ( options.length <= 0 ) {
                     return undefined;
                 }
 
                 return {};
-            }
+            },
         }));
 
         await this.init_event_listeners_();
         await this.init_socket_subs_();
     }
 
-    async init_event_listeners_() {
+    async init_event_listeners_ () {
         const svc_event = this.services.get('event');
         svc_event.on('outer.thread.notify-subscribers', async (_, {
             uid, action, data,
@@ -142,12 +138,10 @@ class ThreadService extends BaseService {
             if ( ! this.socket_subs_[uid] ) return;
 
             const svc_socketio = this.services.get('socketio');
-            await svc_socketio.send(
-                Array.from(this.socket_subs_[uid]).map(socket => ({ socket })),
-                'thread.' + action,
-                { ...data, subscription: uid },
-            );
-        })
+            await svc_socketio.send(Array.from(this.socket_subs_[uid]).map(socket => ({ socket })),
+                            `thread.${ action}`,
+                            { ...data, subscription: uid });
+        });
     }
 
     async init_socket_subs_ () {
@@ -234,7 +228,7 @@ class ThreadService extends BaseService {
                     // Disable deep-nesting for now
                     {
                         const parent_thread = await this.get_thread({ uid: parent_uid });
-                        if ( !parent_thread ) {
+                        if ( ! parent_thread ) {
                             throw svc_apiError.create('thread_not_found', {
                                 uid: parent_uid,
                             });
@@ -248,30 +242,24 @@ class ThreadService extends BaseService {
                     }
 
                     const svc_permission = this.services.get('permission');
-                    const reading = await svc_permission.scan(
-                        actor,
-                        PermissionUtil.join('thread', parent_uid, 'post'),
-                    );
+                    const reading = await svc_permission.scan(actor,
+                                    PermissionUtil.join('thread', parent_uid, 'post'));
                     const options = PermissionUtil.reading_to_options(reading);
                     if ( options.length <= 0 ) {
                         throw APIError.create('permission_denied', null, {
-                            permission: 'thread:' + parent_uid + ':post',
+                            permission: `thread:${ parent_uid }:post`,
                         });
                     }
                 }
 
                 if ( parent_uid === null ) {
                     console.log('its this one');
-                    await this.db.write(
-                        "INSERT INTO `thread` (uid, owner_user_id, text) VALUES (?, ?, ?)",
-                        [uid, actor.type.user.id, text]
-                    );
+                    await this.db.write('INSERT INTO `thread` (uid, owner_user_id, text) VALUES (?, ?, ?)',
+                                    [uid, actor.type.user.id, text]);
                 } else {
                     console.log('its tHAT one');
-                    await this.db.write(
-                        "INSERT INTO `thread` (uid, parent_uid, owner_user_id, text) VALUES (?, ?, ?, ?)",
-                        [uid, parent_uid, actor.type.user.id, text]
-                    );
+                    await this.db.write('INSERT INTO `thread` (uid, parent_uid, owner_user_id, text) VALUES (?, ?, ?, ?)',
+                                    [uid, parent_uid, actor.type.user.id, text]);
                 }
 
                 res.json({ uid });
@@ -285,7 +273,7 @@ class ThreadService extends BaseService {
                         uuid: actor.type.user.id,
                     },
                 });
-            }
+            },
         }).attach(router);
 
         Endpoint({
@@ -322,7 +310,7 @@ class ThreadService extends BaseService {
 
                 // Get existing thread
                 const thread = await this.get_thread({ uid });
-                if ( !thread ) {
+                if ( ! thread ) {
                     throw svc_apiError.create('thread_not_found', {
                         uid,
                     });
@@ -345,11 +333,9 @@ class ThreadService extends BaseService {
                 }
 
                 // Update thread
-                await this.db.write(
-                    "UPDATE `thread` SET text=? WHERE uid=?",
-                    [text, uid]
-                );
-                
+                await this.db.write('UPDATE `thread` SET text=? WHERE uid=?',
+                                [text, uid]);
+
                 res.json({});
 
                 // Notify subscribers
@@ -363,7 +349,7 @@ class ThreadService extends BaseService {
                     uid,
                     text,
                 });
-            }
+            },
         }).attach(router);
 
         Endpoint({
@@ -383,7 +369,7 @@ class ThreadService extends BaseService {
 
                 // Get existing thread
                 const thread = await this.get_thread({ uid });
-                if ( !thread ) {
+                if ( ! thread ) {
                     throw svc_apiError.create('thread_not_found', {
                         uid,
                     });
@@ -406,11 +392,9 @@ class ThreadService extends BaseService {
                 }
 
                 // Update thread
-                await this.db.write(
-                    "DELETE FROM `thread` WHERE uid=?",
-                    [uid]
-                );
-                
+                await this.db.write('DELETE FROM `thread` WHERE uid=?',
+                                [uid]);
+
                 res.json({});
 
                 // Notify subscribers
@@ -422,7 +406,7 @@ class ThreadService extends BaseService {
                 await this.notify_subscribers(parent_uid, 'child-delete', {
                     parent_uid,
                 });
-            }
+            },
         }).attach(router);
 
         Endpoint({
@@ -439,7 +423,6 @@ class ThreadService extends BaseService {
                         got: whatis(uid),
                     });
                 }
-                
 
                 const actor = Context.get('actor');
 
@@ -459,7 +442,7 @@ class ThreadService extends BaseService {
                 const thread = await this.get_thread({ uid });
 
                 res.json(this.client_safe_thread(thread));
-            }
+            },
         }).attach(router);
 
         Endpoint({
@@ -501,14 +484,14 @@ class ThreadService extends BaseService {
                             got: whatis(value),
                         });
                     }
-                    if ( value < 0 || ! Number.isInteger(value) ) {
+                    if ( value < 0 || !Number.isInteger(value) ) {
                         throw APIError.create('field_invalid', null, {
                             key,
                             expected: 'positive integer',
                             got: value,
                         });
                     }
-                }
+                };
                 validate_positive_integer('page', page);
 
                 if ( req.body.limit !== undefined ) {
@@ -518,14 +501,11 @@ class ThreadService extends BaseService {
                 const limit = Math.min(100, req.body.limit ?? 50);
                 const offset = page * limit;
 
-                const threads = await this.db.read(
-                    "SELECT * FROM `thread` WHERE parent_uid=? LIMIT ?,?",
-                    [uid, offset, limit]
-                );
+                const threads = await this.db.read('SELECT * FROM `thread` WHERE parent_uid=? LIMIT ?,?',
+                                [uid, offset, limit]);
 
-                res.json(await Promise.all(threads.map(
-                    this.client_safe_thread.bind(this))));
-            }
+                res.json(await Promise.all(threads.map(this.client_safe_thread.bind(this))));
+            },
         }).attach(router);
     }
 
@@ -545,12 +525,10 @@ class ThreadService extends BaseService {
     }
 
     async get_thread ({ uid }) {
-        const [thread] = await this.db.read(
-            "SELECT * FROM `thread` WHERE uid=?",
-            [uid]
-        );
+        const [thread] = await this.db.read('SELECT * FROM `thread` WHERE uid=?',
+                        [uid]);
 
-        if ( !thread ) {
+        if ( ! thread ) {
             const svc_apiError = this.services.get('api-error');
             throw svc_apiError.create('thread_not_found', {
                 uid,

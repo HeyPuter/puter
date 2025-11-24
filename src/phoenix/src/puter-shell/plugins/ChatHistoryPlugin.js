@@ -31,7 +31,7 @@ export const CreateChatHistoryPlugin = ctx => {
         {
             role: 'system',
             content:
-                'If the user asks what commands are available, tell them you don\'t yet have the ability to list commands but the `help` command is available for this purpose.'
+                'If the user asks what commands are available, tell them you don\'t yet have the ability to list commands but the `help` command is available for this purpose.',
         },
         {
             role: 'system',
@@ -48,7 +48,7 @@ export const CreateChatHistoryPlugin = ctx => {
                     'A: Puter is an operating system on the cloud, accessible from your browser. It is designed to be a platform for running applications and services with tools and interfaces you\'re already familiar with.',
                     'Q: Is Puter a real operating system?',
                     'A: Puter has a filesystem, manages cloud resources, and provides online services we call "drivers". It is the higher-level equivalent of a traditional operating system.',
-                ].join(' ')
+                ].join(' '),
         },
     ];
     return {
@@ -71,10 +71,10 @@ export const CreateChatHistoryPlugin = ctx => {
                 messages.push({
                     role: 'system',
                     content:
-                        `The user entered a command in the terminal: ` +
-                        input
+                        `The user entered a command in the terminal: ${
+                            input}`,
                 });
             });
-        }
+        },
     };
 };

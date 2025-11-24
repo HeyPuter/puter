@@ -16,7 +16,7 @@
  * You should have received a copy of the GNU Affero General Public License
  * along with this program.  If not, see <https://www.gnu.org/licenses/>.
  */
-import { ProxyReader } from "./ProxyReader.js";
+import { ProxyReader } from './ProxyReader.js';
 
 const decoder = new TextDecoder();
 
@@ -72,9 +72,9 @@ export class SyncLinesReader extends ProxyReader {
 
             // Any lines between are enqueued for subsequent reads,
             // and they include a line-feed character.
-            this.lines.push(...lines.map(txt => txt + '\n'));
+            this.lines.push(...lines.map(txt => `${txt }\n`));
 
-            return { value: firstLine + '\n' };
+            return { value: `${firstLine }\n` };
         }
     }
 }

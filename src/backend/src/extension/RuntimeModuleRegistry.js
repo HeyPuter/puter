@@ -1,12 +1,12 @@
-const { AdvancedBase } = require("@heyputer/putility");
-const { RuntimeModule } = require("./RuntimeModule");
+const { AdvancedBase } = require('@heyputer/putility');
+const { RuntimeModule } = require('./RuntimeModule');
 
 class RuntimeModuleRegistry extends AdvancedBase {
     constructor () {
         super();
         this.modules_ = {};
     }
-    
+
     register (extensionModule, options = {}) {
         if ( ! (extensionModule instanceof RuntimeModule) ) {
             throw new Error(`expected a RuntimeModule, but got: ${
@@ -19,7 +19,7 @@ class RuntimeModuleRegistry extends AdvancedBase {
         this.modules_[uniqueName] = extensionModule;
         extensionModule.runtimeModuleRegistry = this;
     }
-    
+
     exportsOf (name) {
         if ( ! this.modules_[name] ) {
             throw new Error(`could not find runtime module: ${name}`);
@@ -29,5 +29,5 @@ class RuntimeModuleRegistry extends AdvancedBase {
 }
 
 module.exports = {
-    RuntimeModuleRegistry
+    RuntimeModuleRegistry,
 };

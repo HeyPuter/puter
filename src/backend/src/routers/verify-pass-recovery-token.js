@@ -16,11 +16,11 @@
  * You should have received a copy of the GNU Affero General Public License
  * along with this program.  If not, see <https://www.gnu.org/licenses/>.
  */
-"use strict"
-const express = require('express')
-const router = new express.Router()
-const config = require('../config')
-const { get_user } = require('../helpers')
+'use strict';
+const express = require('express');
+const router = new express.Router();
+const config = require('../config');
+const { get_user } = require('../helpers');
 
 const jwt = require('jsonwebtoken');
 
@@ -30,13 +30,15 @@ const SAFE_NEGATIVE_RESPONSE = 'This password recovery token is no longer valid.
 // -----------------------------------------------------------------------//
 // POST /verify-pass-recovery-token
 // -----------------------------------------------------------------------//
-router.post('/verify-pass-recovery-token', express.json(), async (req, res, next)=>{
+router.post('/verify-pass-recovery-token', express.json(), async (req, res, next) => {
     // check subdomain
-    if(require('../helpers').subdomain(req) !== 'api' && require('../helpers').subdomain(req) !== '')
+    if ( require('../helpers').subdomain(req) !== 'api' && require('../helpers').subdomain(req) !== '' )
+    {
         next();
+    }
 
     if ( ! req.body.token ) {
-        return res.status(401).send('token is required')
+        return res.status(401).send('token is required');
     }
 
     const svc_edgeRateLimit = req.services.get('edge-rate-limit');
@@ -55,6 +57,6 @@ router.post('/verify-pass-recovery-token', express.json(), async (req, res, next
     const time_remaining = exp - current_time;
 
     return res.status(200).send({ time_remaining });
-})
+});
 
-module.exports = router
+module.exports = router;

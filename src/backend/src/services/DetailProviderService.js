@@ -17,7 +17,7 @@
  * You should have received a copy of the GNU Affero General Public License
  * along with this program.  If not, see <https://www.gnu.org/licenses/>.
  */
-const BaseService = require("./BaseService")
+const BaseService = require('./BaseService');
 
 /**
  * A generic service class for any service that enables registering
@@ -33,24 +33,23 @@ class DetailProviderService extends BaseService {
         this.providers_.push(fn);
     }
 
-
     /**
     * Asynchronously retrieves details by invoking registered detail providers
-    * in list. Populates the provided output object with the results of 
-    * each provider. If no output object is provided, a new one is created 
+    * in list. Populates the provided output object with the results of
+    * each provider. If no output object is provided, a new one is created
     * by default.
     *
-    * @param {Object} context - The context object containing input data for 
+    * @param {Object} context - The context object containing input data for
     *                           the providers.
-    * @param {Object} [out={}] - An optional output object to populate with 
+    * @param {Object} [out={}] - An optional output object to populate with
     *                            the details.
-    * @returns {Promise<Object>} The populated output object after all 
+    * @returns {Promise<Object>} The populated output object after all
     *                            providers have been processed.
     */
     async get_details (context, out) {
         out = out || {};
 
-        for (const provider of this.providers_) {
+        for ( const provider of this.providers_ ) {
             await provider(context, out);
         }
 
@@ -58,4 +57,4 @@ class DetailProviderService extends BaseService {
     }
 }
 
-module.exports = { DetailProviderService }
+module.exports = { DetailProviderService };

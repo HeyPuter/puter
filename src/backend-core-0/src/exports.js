@@ -1,1 +1,1 @@
-export * as validation from './pdim/validation';
+export * as validation from './pdim/validation.js';

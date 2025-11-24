@@ -16,16 +16,16 @@
  * You should have received a copy of the GNU Affero General Public License
  * along with this program.  If not, see <https://www.gnu.org/licenses/>.
  */
-import UIAlert from "../UI/UIAlert.js";
+import UIAlert from '../UI/UIAlert.js';
 
-import { Service } from "../definitions.js";
+import { Service } from '../definitions.js';
 
 export class LaunchOnInitService extends Service {
     _construct () {
         this.commands = {
             'window-call': ({ fn_name, args }) => {
                 window[fn_name](...args);
-            }
+            },
         };
     }
     async _init () {

@@ -20,6 +20,18 @@
 
 export const OPENAI_COST_MAP = {
     // GPT-5 models
+    'openai:gpt-5.1:prompt_tokens': 125,
+    'openai:gpt-5.1:cached_tokens': 13,
+    'openai:gpt-5.1:completion_tokens': 1000,
+    'openai:gpt-5.1-codex:prompt_tokens': 125,
+    'openai:gpt-5.1-codex:cached_tokens': 13,
+    'openai:gpt-5.1-codex:completion_tokens': 1000,
+    'openai:gpt-5.1-codex-mini:prompt_tokens': 25,
+    'openai:gpt-5.1-codex-mini:cached_tokens': 3,
+    'openai:gpt-5.1-codex-mini:completion_tokens': 200,
+    'openai:gpt-5.1-chat-latest:prompt_tokens': 125,
+    'openai:gpt-5.1-chat-latest:cached_tokens': 13,
+    'openai:gpt-5.1-chat-latest:completion_tokens': 1000,
     'openai:gpt-5-2025-08-07:prompt_tokens': 125,
     'openai:gpt-5-2025-08-07:cached_tokens': 13,
     'openai:gpt-5-2025-08-07:completion_tokens': 1000,
@@ -51,9 +63,11 @@ export const OPENAI_COST_MAP = {
     'openai:o1-pro:completion_tokens': 60000,
 
     // O3 models
-    'openai:o3:prompt_tokens': 1000,
-    'openai:o3:completion_tokens': 4000,
+    'openai:o3:prompt_tokens': 200,
+    'openai:o3:cached_tokens': 50,
+    'openai:o3:completion_tokens': 800,
     'openai:o3-mini:prompt_tokens': 110,
+    'openai:o3-mini:cached_tokens': 55,
     'openai:o3-mini:completion_tokens': 440,
 
     // O4 models

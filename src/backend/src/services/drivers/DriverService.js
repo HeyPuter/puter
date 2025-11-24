@@ -17,16 +17,16 @@
  * You should have received a copy of the GNU Affero General Public License
  * along with this program.  If not, see <https://www.gnu.org/licenses/>.
  */
-const { Context } = require("../../util/context");
-const APIError = require("../../api/APIError");
-const { DriverError } = require("./DriverError");
-const { TypedValue } = require("./meta/Runtime");
-const BaseService = require("../BaseService");
-const { PermissionUtil } = require("../auth/permissionUtils.mjs");
-const { Invoker } = require("../../../../putility/src/libs/invoker");
-const { get_user } = require("../../helpers");
+const { Context } = require('../../util/context');
+const APIError = require('../../api/APIError');
+const { DriverError } = require('./DriverError');
+const { TypedValue } = require('./meta/Runtime');
+const BaseService = require('../BaseService');
+const { PermissionUtil } = require('../auth/permissionUtils.mjs');
+const { Invoker } = require('../../../../putility/src/libs/invoker');
+const { get_user } = require('../../helpers');
 const { whatis } = require('../../util/langutil');
-const { AdvancedBase } = require("@heyputer/putility");
+const { AdvancedBase } = require('@heyputer/putility');
 
 const strutil = require('@heyputer/putility').libs.string;
 
@@ -40,7 +40,7 @@ class DriverService extends BaseService {
 
     static MODULES = {
         types: require('./types'),
-    }
+    };
 
     // 'IMPLEMENTS' here makes DriverService itself a driver
     static IMPLEMENTS = {
@@ -54,7 +54,7 @@ class DriverService extends BaseService {
                     app_objects: {},
                     usages: [],
                 };
-                
+
                 const event = {
                     actor,
                     usages: [],
@@ -62,7 +62,6 @@ class DriverService extends BaseService {
                 const svc_event = this.services.get('event');
                 await svc_event.emit('usages.query', event);
                 usages.usages = event.usages;
-
 
                 for ( const k in usages.apps ) {
                     usages.apps[k] = Object.values(usages.apps[k]);
@@ -73,28 +72,29 @@ class DriverService extends BaseService {
                     // user: Object.values(usages.user),
                     // apps: usages.apps,
                     // app_objects: usages.app_objects,
-                    
+
                     // This is the main "usages" object
                     usages: usages.usages,
                 };
-            }
-        }
-    }
+            },
+        },
+    };
 
     _construct () {
         this.drivers = {};
         this.interface_to_implementation = {};
         this.interface_to_test_service = {};
         this.service_aliases = {};
+        this.interface_service_aliases = {};
     }
 
     _init () {
         const svc_registry = this.services.get('registry');
         svc_registry.register_collection('');
-        
+
         const { quot } = strutil;
         const svc_apiError = this.services.get('api-error');
-        
+
         /**
          * There are registered into the new APIErrorService which allows for
          * better sepration of concerns between APIError and the services which.
@@ -121,17 +121,16 @@ class DriverService extends BaseService {
             },
             'no_implementation_available': {
                 status: 502,
-                message: ({
-                    iface,
-                    interface_name,
-                    driver
-                }) => `No implementation available for ` +
-                    (iface ?? interface_name) ? 'interface' : 'driver' +
-                    ' ' + quot(iface ?? interface_name ?? driver) + '.',
+                message: ({ iface, interface_name, driver }) => {
+                    const has_interface = (iface ?? interface_name) !== undefined;
+                    const target_type = has_interface ? 'interface' : 'driver';
+                    const target_name = quot(iface ?? interface_name ?? driver);
+                    return `No implementation available for ${target_type} ${target_name}.`;
+                },
             },
         });
     }
-    
+
     async ['__on_boot.consolidation'] () {
         const svc_registry = this.services.get('registry');
         const svc_event = this.services.get('event');
@@ -145,7 +144,7 @@ class DriverService extends BaseService {
             };
             await svc_event.emit('create.interfaces', event);
         }
-        
+
         {
             const col_drivers = svc_registry.get('drivers');
             const event = {
@@ -156,7 +155,7 @@ class DriverService extends BaseService {
             await svc_event.emit('create.drivers', event);
         }
     }
-    
+
     /**
     * This method is responsible for registering collections in the service registry.
     * It registers 'interfaces', 'drivers', and 'types' collections.
@@ -185,12 +184,12 @@ class DriverService extends BaseService {
             }
         }
         await services.emit('driver.register.interfaces',
-            { col_interfaces });
-        
+                        { col_interfaces });
+
         await services.emit('driver.register.drivers',
-            { col_drivers });
+                        { col_drivers });
     }
-    
+
     // This is a bit meta: we register the "driver" driver interface.
     // This allows DriverService to be a driver called "driver".
     // The driver drivers allows checking metered usage for drivers,
@@ -198,7 +197,7 @@ class DriverService extends BaseService {
     async ['__on_driver.register.interfaces'] () {
         const svc_registry = this.services.get('registry');
         const col_interfaces = svc_registry.get('interfaces');
-        
+
         col_interfaces.set('driver', {
             description: 'provides functions for managing Puter drivers',
             methods: {
@@ -210,7 +209,7 @@ class DriverService extends BaseService {
             },
         });
     }
-    
+
     register_driver (interface_name, implementation) {
         this.interface_to_implementation[interface_name] = implementation;
     }
@@ -219,26 +218,25 @@ class DriverService extends BaseService {
         this.interface_to_test_service[interface_name] = service_name;
     }
 
-    register_service_alias (service_name, alias) {
+    register_service_alias (service_name, alias, options = {}) {
+        const iface = options.iface;
+        if ( iface ) {
+            if ( ! this.interface_service_aliases[iface] ) {
+                this.interface_service_aliases[iface] = {};
+            }
+            this.interface_service_aliases[iface][alias] = service_name;
+            return;
+        }
         this.service_aliases[alias] = service_name;
     }
-    
-    get_interface (interface_name) {
-        const o = {};
-        const col_interfaces = svc_registry.get('interfaces');
-        const keys = col_interfaces.keys();
-        for ( const k of keys ) o[k] = col_interfaces.get(k);
-        return col_interfaces.get(interface_name);
-    }
-    
+
     get_default_implementation (interface_name) {
         // If there's a hardcoded implementation, use that
         // (^ temporary, until all are migrated)
-        if (this.interface_to_implementation.hasOwnProperty(interface_name)) {
+        if ( this.interface_to_implementation.hasOwnProperty(interface_name) ) {
             return this.interface_to_implementation[interface_name];
         }
     }
-
 
     /**
     * This method is responsible for calling the specified driver method with the given arguments.
@@ -254,7 +252,8 @@ class DriverService extends BaseService {
         try {
             return await this._call(o);
         } catch ( e ) {
-            this.log.error('Driver error response: ' + e.toString());
+            this.log.error(`Driver error response: ${ e.toString()}`);
+            console.error(e);
             if ( ! (e instanceof APIError) ) {
                 this.errors.report('driver', {
                     source: e,
@@ -264,7 +263,6 @@ class DriverService extends BaseService {
             return this._driver_response_from_error(e);
         }
     }
-
 
     /**
     * This method is responsible for making a call to a driver using its implementation and interface.
@@ -289,6 +287,7 @@ class DriverService extends BaseService {
         const iface_to_driver = {
             ['puter-ocr']: 'aws-textract',
             ['puter-tts']: 'aws-polly',
+            ['puter-speech2speech']: 'elevenlabs-voice-changer',
             ['puter-speech2txt']: 'openai-speech2txt',
             ['puter-chat-completion']: 'openai-completion',
             ['puter-image-generation']: 'openai-image-generation',
@@ -300,9 +299,9 @@ class DriverService extends BaseService {
             'puter-subdomains': 'es:subdomain',
             'puter-notifications': 'es:notification',
         };
-        
+
         driver = driver ?? iface_to_driver[iface] ?? iface;
-        
+
         // For these ones, the interface specified actually specifies the
         // specificc driver to use.
         const iface_to_iface = {
@@ -322,7 +321,12 @@ class DriverService extends BaseService {
             response_metadata: {},
             test_mode,
         };
-        driver = this.service_aliases[driver] ?? driver;
+        const iface_aliases = this.interface_service_aliases[iface];
+        if ( iface_aliases && iface_aliases[driver] ) {
+            driver = iface_aliases[driver];
+        } else {
+            driver = this.service_aliases[driver] ?? driver;
+        }
 
         const service = this.get_service_or_throw_(driver, iface);
 
@@ -330,30 +334,34 @@ class DriverService extends BaseService {
         if ( test_mode && caps && caps.supports_test_mode(iface, method) ) {
             skip_usage = true;
         }
-        
+
         const svc_event = this.services.get('event');
         const event = {};
         event.call_details = {
             service: driver,
-            iface, method, args,
+            iface,
+            method,
+            args,
             skip_usage,
         };
         event.context = Context.sub({
             client_driver_call,
             call_details: event.call_details,
         });
-        
+
         svc_event.emit('driver.create-call-context', event);
-        
+
         const svc_trace = this.services.get('traceService');
-        
+
         return await svc_trace.spanify(`driver:${driver}:${iface}:${method}`, async () => {
             return event.context.arun(async () => {
                 const result = await this.call_new_({
                     actor,
                     service,
                     service_name: driver,
-                    iface, method, args: processed_args,
+                    iface,
+                    method,
+                    args: processed_args,
                     skip_usage,
                 });
                 result.metadata = client_driver_call.response_metadata;
@@ -361,7 +369,6 @@ class DriverService extends BaseService {
             });
         });
     }
-    
 
     /**
      * Reserved for future implementation of "best policy" selection.
@@ -375,7 +382,7 @@ class DriverService extends BaseService {
         /*
         const svc_systemData = this.services.get('system-data');
         const svc_su = this.services.get('su');
-        
+
         const policies = await Promise.all(option.path.map(async path_node => {
             const policy = await svc_su.sudo(async () => {
                 return await svc_systemData.interpret(option.data);
@@ -388,19 +395,18 @@ class DriverService extends BaseService {
         return policies;
         */
     }
-    
 
     /**
      * Reserved for future implementation of "best policy" selection.
      * For now, this just returns the first option of a list of options.
-     * 
-     * @param {*} options 
-     * @returns 
+     *
+     * @param {*} options
+     * @returns
      */
     async select_best_option_ (options) {
         return options[0];
     }
-    
+
     /**
     * This method is used to call a driver method with provided arguments.
     * It first processes the arguments to ensure they are of the correct type and format.
@@ -422,17 +428,15 @@ class DriverService extends BaseService {
         }
 
         const svc_permission = this.services.get('permission');
-        const reading = await svc_permission.scan(
-            actor,
-            PermissionUtil.join('service', service_name, 'ii', iface),
-        );
+        const reading = await svc_permission.scan(actor,
+                        PermissionUtil.join('service', service_name, 'ii', iface));
         const options = PermissionUtil.reading_to_options(reading);
         if ( options.length <= 0 ) {
             throw APIError.create('forbidden');
         }
         const option = await this.select_best_option_(options);
         const policies = await this.get_policies_for_option_(option);
-        
+
         // NOT FINAL: For now we apply monthly usage logic
         // to the first holder of the permission. Later this
         // will be changed so monthly usage can cascade across
@@ -440,7 +444,7 @@ class DriverService extends BaseService {
         // immediately because it's a hefty time sink and it's
         // going to be some time before we can offer this feature
         // to the end-user either way.
-        
+
         let effective_policy = null;
         for ( const policy of policies ) {
             if ( policy.holder ) {
@@ -448,16 +452,13 @@ class DriverService extends BaseService {
                 break;
             }
         }
-        
+
         if ( ! effective_policy ) {
-            throw new Error(
-                'policies with no effective user are not yet ' +
-                'supported'
-            );
+            throw new Error('policies with no effective user are not yet ' +
+                'supported');
         }
 
-        const policy_holder = await get_user(
-            { username: effective_policy.holder });
+        const policy_holder = await get_user({ username: effective_policy.holder });
 
         // NOT FINAL: this will be handled by 'get_policies_for_option_'
         // when cascading monthly usage is implemented.
@@ -466,16 +467,16 @@ class DriverService extends BaseService {
         effective_policy = await svc_su.sudo(async () => {
             return await svc_systemData.interpret(effective_policy.data);
         });
-        
+
         effective_policy = effective_policy.policy;
-        
+
         this.log.debug('Invoking Driver Call', {
             service_name,
             iface,
             method,
             policy: effective_policy,
         });
-            
+
         const invoker = Invoker.create({
             decorators: [
                 {
@@ -486,11 +487,9 @@ class DriverService extends BaseService {
                         const svc_rateLimit = this.services.get('rate-limit');
 
                         await svc_su.sudo(policy_holder, async () => {
-                            await svc_rateLimit.check_and_increment(
-                                `V1:${service_name}:${iface}:${method}`,
-                                effective_policy['rate-limit'].max,
-                                effective_policy['rate-limit'].period,
-                            );
+                            await svc_rateLimit.check_and_increment(`V1:${service_name}:${iface}:${method}`,
+                                            effective_policy['rate-limit'].max,
+                                            effective_policy['rate-limit'].period);
                         });
                         return args;
                     },
@@ -526,7 +525,7 @@ class DriverService extends BaseService {
                                     ? method_spec.result_choices[0].type
                                     : method_spec.result.type
                                     ;
-                            const svc_coercion = services.get('coercion');
+                            const svc_coercion = this.services.get('coercion');
                             result = await svc_coercion.coerce(desired_type, result);
                         }
                         return result;
@@ -539,7 +538,6 @@ class DriverService extends BaseService {
         });
         return await invoker.run(args);
     }
-    
 
     /**
      * This method converts an error into an appropriate driver response.
@@ -560,13 +558,13 @@ class DriverService extends BaseService {
      * @param {*} interface_name - the name of the interface
      * @param {*} method_name - the name of the method
      * @param {*} args - raw argument values from request body
-     * @returns 
+     * @returns
      */
     async _process_args (interface_name, method_name, args) {
         const svc_registry = this.services.get('registry');
         const c_interfaces = svc_registry.get('interfaces');
         const c_types = svc_registry.get('types');
-        
+
         const svc_apiError = this.services.get('api-error');
 
         // Note: 'interface' is a strict mode reserved word.
@@ -585,7 +583,6 @@ class DriverService extends BaseService {
             args = { [method.default_parameter]: args };
         }
 
-        
         for ( const [arg_name, arg_descriptor] of Object.entries(method.parameters) ) {
             const arg_value = arg_name === '*' ? args : args[arg_name];
             const arg_behaviour = c_types.get(arg_descriptor.type);
@@ -604,8 +601,7 @@ class DriverService extends BaseService {
             const ctx = Context.get();
 
             try {
-                processed_args[arg_name] = await arg_behaviour.consolidate(
-                    ctx, arg_value, { arg_descriptor, arg_name });
+                processed_args[arg_name] = await arg_behaviour.consolidate(ctx, arg_value, { arg_descriptor, arg_name });
             } catch ( e ) {
                 throw svc_apiError.create('argument_consolidation_failed', {
                     interface_name,
@@ -615,8 +611,8 @@ class DriverService extends BaseService {
                 });
             }
         }
-        
-        if ( typeof processed_args['*'] ==='object' ) {
+
+        if ( typeof processed_args['*'] === 'object' ) {
             for ( const k in processed_args['*'] ) {
                 processed_args[k] = processed_args['*'][k];
             }
@@ -625,7 +621,7 @@ class DriverService extends BaseService {
 
         return processed_args;
     }
-    
+
     /**
     * This method retrieves the driver service for the provided interface name.
     * It first checks if the driver service already exists in the registry,
@@ -640,7 +636,7 @@ class DriverService extends BaseService {
                 this.services.get(name).list_traits()
                     .includes(iface);
         })();
-        
+
         if ( driver_service_exists ) {
             return this.services.get(name);
         }
@@ -651,7 +647,7 @@ class DriverService extends BaseService {
         if ( maybe_driver ) {
             const org = maybe_driver;
             const impl = Object.create(org);
-            
+
             // TraitsFeature also uses `in <impl>`, so this should cover
             // all the methods that would get re-"`bind`'d"
             for ( const k in org ) {

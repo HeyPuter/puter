@@ -16,12 +16,11 @@
  * You should have received a copy of the GNU Affero General Public License
  * along with this program.  If not, see <https://www.gnu.org/licenses/>.
  */
-const { webpack, web } = require("webpack");
-const BaseService = require("../../services/BaseService");
+const { webpack, web } = require('webpack');
+const BaseService = require('../../services/BaseService');
 
 const path_ = require('node:path');
 const fs = require('node:fs');
-const rollupModule = require("rollup");
 
 class ProxyLogger {
     constructor (log) {
@@ -32,7 +31,7 @@ class ProxyLogger {
         stream.on('data', (chunk) => {
             buffer += chunk.toString();
             let lineEndIndex = buffer.indexOf('\n');
-            while (lineEndIndex !== -1) {
+            while ( lineEndIndex !== -1 ) {
                 const line = buffer.substring(0, lineEndIndex);
                 this.log(line);
                 buffer = buffer.substring(lineEndIndex + 1);
@@ -41,7 +40,7 @@ class ProxyLogger {
         });
 
         stream.on('end', () => {
-            if (buffer.length) {
+            if ( buffer.length ) {
                 this.log(buffer);
             }
         });
@@ -61,7 +60,7 @@ class DevWatcherService extends BaseService {
     async _init (args) {
         this.args = args;
     }
-    
+
     // Oh geez we need to wait for the web server to initialize
     // so that `config.origin` has the actual port in it if the
     // port is set to `auto` - you have no idea how confusing
@@ -70,24 +69,18 @@ class DevWatcherService extends BaseService {
     async ['__on_ready.webserver'] () {
         const svc_process = this.services.get('process');
 
-        let { root, commands, webpack, rollup } = this.args;
+        let { root, commands, webpack } = this.args;
         if ( ! webpack ) webpack = [];
-        if ( ! rollup ) rollup = [];
-        
+
         let promises = [];
         for ( const entry of commands ) {
             const { directory } = entry;
-            const fullpath = this.modules.path.join(
-                root, directory);
+            const fullpath = this.modules.path.join(root, directory);
             // promises.push(this.start_({ ...entry, fullpath }));
             promises.push(svc_process.start({ ...entry, fullpath }));
         }
         for ( const entry of webpack ) {
             const p = this.start_a_webpack_watcher_(entry);
-            promises.push(p);
-        }
-        for ( const entry of rollup ) {
-            const p = this.start_a_rollup_watcher_(entry);
             promises.push(p);
         }
         await Promise.all(promises);
@@ -124,7 +117,7 @@ class DevWatcherService extends BaseService {
             const packageJSONObject = JSON.parse(fs.readFileSync(packageJSONPath));
             moduleType = packageJSONObject?.type ?? 'module';
         }
-        
+
         return {
             configjsPath,
             moduleType,
@@ -146,36 +139,65 @@ class DevWatcherService extends BaseService {
             configIsFor: 'webpack', // for error message
             possibleConfigNames,
         });
-        
+
         let oldEnv;
 
         if ( entry.env ) {
             oldEnv = process.env;
             const newEnv = Object.create(process.env);
+            let global_config = null;
+            try {
+                const svc_config = this.services.get('config');
+                global_config = svc_config ? svc_config.get('global_config') : null;
+            } catch (e) {
+                // Config service not available yet, will use null
+            }
+
             for ( const k in entry.env ) {
-                newEnv[k] = entry.env[k];
+                const envValue = entry.env[k];
+                // If it's a function, call it with the config, otherwise use the value directly
+                if ( typeof envValue === 'function' ) {
+                    try {
+                        const result = envValue({ global_config: global_config });
+                        // Only set the env var if we got a non-empty result
+                        // This allows the webpack config to use its fallback values
+                        if ( result ) {
+                            newEnv[k] = result;
+                        }
+                    } catch (e) {
+                        // If config is not available yet, don't set the env var
+                        // This allows the webpack config to use its fallback values from config files
+                        // Only log if it's not a null/undefined access error (which is expected)
+                        if ( !e.message.includes('Cannot read properties of null') &&
+                            !e.message.includes('Cannot read properties of undefined') ) {
+                            this.log.warn(`Could not evaluate env function for ${k}: ${e.message}`);
+                        }
+                    }
+                } else {
+                    newEnv[k] = envValue;
+                }
             }
             process.env = newEnv; // Yep, it totally lets us do this
         }
         let webpackConfig = moduleType === 'module'
             ? (await import(webpackConfigPath)).default
             : require(webpackConfigPath);
-        
+
         // The webpack config can sometimes be a function
         if ( typeof webpackConfig === 'function' ) {
             webpackConfig = await webpackConfig();
         }
 
         if ( oldEnv ) process.env = oldEnv;
-        
+
         webpackConfig.context = webpackConfig.context
             ? path_.resolve(path_.join(this.args.root, entry.directory), webpackConfig.context)
             : path_.join(this.args.root, entry.directory);
-            
+
         if ( entry.onConfig ) entry.onConfig(webpackConfig);
 
         const webpacker = webpack(webpackConfig);
-        
+
         let errorAfterLastEnd = false;
         let firstEvent = true;
         webpacker.watch({}, (err, stats) => {
@@ -184,11 +206,14 @@ class DevWatcherService extends BaseService {
                 firstEvent = false;
                 hideSuccess = true;
             }
-            if (err || stats.hasErrors()) {
-                this.log.error(`error information: ${entry.directory} using Webpack`, {
-                    err,
-                    stats,
-                });
+            if ( err || stats.hasErrors() ) {
+                // Extract error information without serializing the entire stats object
+                const errorInfo = {
+                    err: err ? err.message : null,
+                    errors: stats.compilation?.errors?.map(e => e.message) || [],
+                    warnings: stats.compilation?.warnings?.map(w => w.message) || [],
+                };
+                this.log.error(`error information: ${entry.directory} using Webpack`, errorInfo);
                 this.log.error(`❌ failed to update ${entry.directory} using Webpack`);
             } else {
                 // Normally success messages aren't important, but sometimes it takes
@@ -197,83 +222,6 @@ class DevWatcherService extends BaseService {
                 if ( ! hideSuccess ) {
                     this.log.info(`✅ updated ${entry.directory} using Webpack`);
                 }
-            }
-        });
-    }
-    
-    async start_a_rollup_watcher_ (entry) {
-        const possibleConfigNames = [
-            ['rollup.config.js', 'package.json'],
-            ['rollup.config.cjs', 'commonjs'],
-            ['rollup.config.mjs', 'module'],
-        ];
-
-        const {
-            configjsPath: rollupConfigPath,
-            moduleType,
-        } = await this.get_configjs({
-            directory: entry.directory,
-            configIsFor: 'rollup', // for error message
-            possibleConfigNames,
-        });
-
-        const updateRollupPaths = (config, newBase) => {
-            const onoutput = o => ({ ...o, file: o.file ? path_.join(newBase, o.file) : o.file });
-            return {
-                ...config,
-                input: path_.join(newBase, config.input),
-                output: Array.isArray(config.output)
-                    ? config.output.map(onoutput)
-                    : onoutput(config.output),
-            };
-        };
-        
-        let oldEnv;
-
-        if ( entry.env ) {
-            oldEnv = process.env;
-            const newEnv = Object.create(process.env);
-            for ( const k in entry.env ) {
-                newEnv[k] = entry.env[k];
-            }
-            process.env = newEnv; // Yep, it totally lets us do this
-        }
-
-        let rollupConfig = moduleType === 'module'
-            ? (await import(rollupConfigPath)).default
-            : require(rollupConfigPath);
-
-        if ( oldEnv ) process.env = oldEnv;
-
-        rollupConfig = updateRollupPaths(
-            rollupConfig,
-            path_.join(this.args.root, entry.directory),
-        );
-        // rollupConfig.watch = true; // I mean why can't it just...
-
-        const watcher = rollupModule.watch(rollupConfig);
-        let errorAfterLastEnd = false;
-        let firstEvent = true;
-        watcher.on('event', (event) => {
-            if ( event.code === 'END' ) {
-                let hideSuccess = false;
-                if ( firstEvent ) {
-                    firstEvent = false;
-                    hideSuccess = true;
-                }
-                if ( errorAfterLastEnd ) {
-                    errorAfterLastEnd = false;
-                    return;
-                }
-                if ( ! hideSuccess ) {
-                    this.log.info(`✅ updated ${entry.directory} using Rollup`);
-                }
-            } else if ( event.code === 'ERROR' ) {
-                this.log.error(`error information: ${entry.directory} using Rollup`, {
-                    event,
-                });
-                this.log.error(`❌ failed to update ${entry.directory} using Rollup`);
-                errorAfterLastEnd = true;
             }
         });
     }

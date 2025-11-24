@@ -16,12 +16,12 @@
  * You should have received a copy of the GNU Affero General Public License
  * along with this program.  If not, see <https://www.gnu.org/licenses/>.
  */
-import { Context } from "../context/context.js";
+import { Context } from '../context/context.js';
 
 const modifiers = ['shift', 'alt', 'ctrl', 'meta'];
 
 const keyboardModifierBits = {};
-for ( let i=0 ; i < modifiers.length ; i++ ) {
+for ( let i = 0 ; i < modifiers.length ; i++ ) {
     const key = `KEYBOARD_BIT_${modifiers[i].toUpperCase()}`;
     keyboardModifierBits[key] = 1 << i;
 }
@@ -41,8 +41,8 @@ export const ANSIContext = new Context({
         CHAR_FF: 0x0C,
         CSI_F_0: 0x40,
         CSI_F_E: 0x7F,
-        ...keyboardModifierBits
-    }
+        ...keyboardModifierBits,
+    },
 });
 
 export const getActiveModifiersFromXTerm = (n) => {
@@ -51,7 +51,7 @@ export const getActiveModifiersFromXTerm = (n) => {
 
     const active = {};
 
-    for ( let i=0 ; i < modifiers.length ; i++ ) {
+    for ( let i = 0 ; i < modifiers.length ; i++ ) {
         if ( n & 1 << i ) {
             active[modifiers[i]] = true;
         }

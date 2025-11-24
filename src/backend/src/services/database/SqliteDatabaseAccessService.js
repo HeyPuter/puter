@@ -39,7 +39,7 @@ class SqliteDatabaseAccessService extends BaseDatabaseAccessService {
     * @param {void}
     * @returns {void}
     */
-    async _init() {
+    async _init () {
         const require = this.require;
         const Database = require('better-sqlite3');
 
@@ -166,6 +166,12 @@ class SqliteDatabaseAccessService extends BaseDatabaseAccessService {
             [35, [
                 '0039_add-expireAt-to-kv-store.sql',
             ]],
+            [36, [
+                '0040_add_user_metadata.sql',
+            ]],
+            [37, [
+                '0041_add_unique_constraint_user_uuid.sql',
+            ]],
         ];
 
         // Database upgrade logic
@@ -188,7 +194,7 @@ class SqliteDatabaseAccessService extends BaseDatabaseAccessService {
         const [{ user_version }] = do_setup
             ? [{ user_version: -1 }]
             : await this._read('PRAGMA user_version');
-        this.log.info('database version: ' + user_version);
+        this.log.info(`database version: ${ user_version}`);
 
         for ( const [v_lt_or_eq, files] of available_migrations ) {
             if ( v_lt_or_eq + 1 >= TARGET_VERSION && TARGET_VERSION !== HIGHEST_VERSION ) {
@@ -217,10 +223,10 @@ class SqliteDatabaseAccessService extends BaseDatabaseAccessService {
                     const stmts = contents.split(/;\s*\n/);
                     for ( let i = 0; i < stmts.length; i++ ) {
                         if ( stmts[i].trim() === '' ) continue;
-                        const stmt = stmts[i] + ';';
+                        const stmt = `${stmts[i] };`;
                         try {
                             this.db.exec(stmt);
-                        } catch( e ) {
+                        } catch ( e ) {
                             throw new CompositeError(`failed to apply: ${basename} at line ${i}`, e);
                         }
                     }
@@ -231,7 +237,7 @@ class SqliteDatabaseAccessService extends BaseDatabaseAccessService {
                         await this.run_js_migration_({
                             filename, contents,
                         });
-                    } catch( e ) {
+                    } catch ( e ) {
                         throw new CompositeError(`failed to apply: ${basename}`, e);
                     }
                     break;
@@ -288,7 +294,7 @@ class SqliteDatabaseAccessService extends BaseDatabaseAccessService {
     /**
     * Implementation for prepared statements for READ operations.
     */
-    async _read(query, params = []) {
+    async _read (query, params = []) {
         query = this.sqlite_transform_query_(query);
         params = this.sqlite_transform_params_(params);
         return this.db.prepare(query).all(...params);
@@ -299,14 +305,14 @@ class SqliteDatabaseAccessService extends BaseDatabaseAccessService {
     * This method may perform additional steps to obtain the data, which
     * is not applicable to the SQLite implementation.
     */
-    async _tryHardRead(query, params) {
+    async _tryHardRead (query, params) {
         return await this._read(query, params);
     }
 
     /**
      * Implementation for prepared statements for WRITE operations.
      */
-    async _write(query, params) {
+    async _write (query, params) {
         query = this.sqlite_transform_query_(query);
         params = this.sqlite_transform_params_(params);
 
@@ -325,7 +331,7 @@ class SqliteDatabaseAccessService extends BaseDatabaseAccessService {
     * @param {object} config - The configuration object for the database.
     * @returns {Promise} A promise that resolves when the database is initialized.
     */
-    async _batch_write(entries) {
+    async _batch_write (entries) {
         /**
         * @description This method is used to execute SQL queries in batch mode.
         * It accepts an array of objects, where each object contains a SQL query as the `statement` property and an array of parameters as the `values` property.
@@ -342,14 +348,14 @@ class SqliteDatabaseAccessService extends BaseDatabaseAccessService {
         })();
     }
 
-    sqlite_transform_query_(query) {
+    sqlite_transform_query_ (query) {
         // replace `now()` with `datetime('now')`
         query = query.replace(/now\(\)/g, 'datetime(\'now\')');
 
         return query;
     }
 
-    sqlite_transform_params_(params) {
+    sqlite_transform_params_ (params) {
         return params.map(p => {
             if ( typeof p === 'boolean' ) {
                 return p ? 1 : 0;
@@ -363,7 +369,7 @@ class SqliteDatabaseAccessService extends BaseDatabaseAccessService {
     * @param {object} options - Optional parameters for the method.
     * @returns {Promise} A promise that resolves when the database upgrade is complete.
     */
-    async run_js_migration_({ filename: _filename, contents }) {
+    async run_js_migration_ ({ filename: _filename, contents }) {
         /**
         * Method to run JavaScript migrations. This method is used to apply JavaScript code to the SQLite database during the upgrade process.
         *
@@ -384,7 +390,7 @@ class SqliteDatabaseAccessService extends BaseDatabaseAccessService {
         await vm.runInContext(contents, context);
     }
 
-    _register_commands(commands) {
+    _register_commands (commands) {
         commands.registerCommands('sqlite', [
             {
                 id: 'execfile',
@@ -395,7 +401,7 @@ class SqliteDatabaseAccessService extends BaseDatabaseAccessService {
                         const fs = require('fs');
                         const contents = fs.readFileSync(filename, 'utf8');
                         this.db.exec(contents);
-                    } catch( err ) {
+                    } catch ( err ) {
                         log.error(err.message);
                     }
                 },
@@ -408,7 +414,7 @@ class SqliteDatabaseAccessService extends BaseDatabaseAccessService {
                         const [query] = args;
                         const rows = this._read(query, []);
                         log.log(rows);
-                    } catch( err ) {
+                    } catch ( err ) {
                         log.error(err.message);
                     }
                 },
@@ -418,8 +424,8 @@ class SqliteDatabaseAccessService extends BaseDatabaseAccessService {
                 description: 'dismiss the database update notice',
                 handler: async (_, log) => {
                     const svc_devConsole = this.services.get('dev-console');
-                    if ( !svc_devConsole ) return;
-                    if ( !this.database_update_notice ) return;
+                    if ( ! svc_devConsole ) return;
+                    if ( ! this.database_update_notice ) return;
                     svc_devConsole.remove_widget(this.database_update_notice);
                     const lines = this.database_update_notice();
                     for ( const line of lines ) log.log(line);

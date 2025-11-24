@@ -4,7 +4,7 @@ if [ $(basename "$(pwd)") != "phoenix" ]; then
 fi
 
 export CONFIG_FILE='config/release.js'
-npx rollup -c rollup.config.js
+npx webpack
 
 if [ -d ./release ]; then
     rm -rf ./release/*

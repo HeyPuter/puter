@@ -17,9 +17,8 @@
  * You should have received a copy of the GNU Affero General Public License
  * along with this program.  If not, see <https://www.gnu.org/licenses/>.
  */
-const { AdvancedBase } = require("@heyputer/putility");
-const BaseService = require("./BaseService");
-
+const { AdvancedBase } = require('@heyputer/putility');
+const BaseService = require('./BaseService');
 
 /**
 * @class MapCollection
@@ -33,7 +32,7 @@ class MapCollection extends AdvancedBase {
     static MODULES = {
         kv: globalThis.kv,
         uuidv4: require('uuid').v4,
-    }
+    };
     /**
     * @method MapCollection#_mk_key
     * @description Creates a unique key for the map collection.
@@ -51,7 +50,7 @@ class MapCollection extends AdvancedBase {
     get (key) {
         return this.kv.get(this._mk_key(key));
     }
-    
+
     exists (key) {
         return this.kv.exists(this._mk_key(key));
     }
@@ -63,7 +62,6 @@ class MapCollection extends AdvancedBase {
     del (key) {
         return this.kv.del(this._mk_key(key));
     }
-    
 
     /**
     * Retrieves all keys in the map collection, excluding the prefix.
@@ -83,7 +81,6 @@ class MapCollection extends AdvancedBase {
     }
 }
 
-
 /**
 * @class RegistryService
 * @extends BaseService
@@ -93,8 +90,7 @@ class MapCollection extends AdvancedBase {
 class RegistryService extends BaseService {
     static MODULES = {
         MapCollection,
-    }
-
+    };
 
     /**
     * Initializes the RegistryService by setting up the collections.
@@ -108,7 +104,6 @@ class RegistryService extends BaseService {
     _construct () {
         this.collections_ = {};
     }
-
 
     /**
     * Initializes the service by setting up the collections object.

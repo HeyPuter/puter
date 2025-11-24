@@ -6,9 +6,8 @@ const openai_fish = require('../samples/openai-tools-1');
 const echo_stream = {
     write: data => {
         console.log(data);
-    }
+    },
 };
-
 
 const chatStream = new Streaming.AIChatStream({
     stream: echo_stream,
@@ -37,7 +36,7 @@ for ( const chunk of openai_fish ) {
         continue;
     }
 
-    if (  ! nou(choice.delta.tool_calls) ) {
+    if ( ! nou(choice.delta.tool_calls) ) {
         if ( mode === 'text' ) {
             mode = 'tool';
             textblock.end();

@@ -42,9 +42,9 @@ export default {
         const res = await puterSDK.auth.signIn();
 
         ctx.vars.user = res?.username;
-        ctx.vars.home = '/' + res?.username;
-        ctx.vars.pwd = '/' + res?.username + `/AppData/` + puterSDK.appID;
+        ctx.vars.home = `/${ res?.username}`;
+        ctx.vars.pwd = `/${ res?.username }/AppData/${ puterSDK.appID}`;
 
         return res?.username;
-    }
-}
+    },
+};

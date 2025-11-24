@@ -18,7 +18,7 @@
  */
 /* eslint-disable no-control-regex */
 
-export function lengthIgnoringEscapes(text) {
+export function lengthIgnoringEscapes (text) {
     const escape = '\x1b';
     // There are a lot of different ones, but we only use graphics-mode ones, so only parse those for now.
     // TODO: Parse other escape sequences as needed.
@@ -26,12 +26,12 @@ export function lengthIgnoringEscapes(text) {
     const escapeSequenceRegex = /^\x1B\[\d.*?m/;
 
     let length = 0;
-    for (let i = 0; i < text.length; i++) {
+    for ( let i = 0; i < text.length; i++ ) {
         const char = text[i];
-        if (char === escape) {
+        if ( char === escape ) {
             // Consume an ANSI escape sequence
             const match = text.substring(i).match(escapeSequenceRegex);
-            if (match) {
+            if ( match ) {
                 i += match[0].length - 1;
             }
             continue;
@@ -49,42 +49,44 @@ export const wrapText = (text, width) => {
     };
 
     // If width was invalid, just return the original text as a failsafe.
-    if (typeof width !== 'number' || width < 1)
+    if ( typeof width !== 'number' || width < 1 )
+    {
         return [text];
+    }
 
     const lines = [];
     let currentLine = '';
     const splitWordIfTooLong = (word) => {
-        while (lengthIgnoringEscapes(word) > width) {
-            lines.push(word.substring(0, width - 1) + '-');
+        while ( lengthIgnoringEscapes(word) > width ) {
+            lines.push(`${word.substring(0, width - 1) }-`);
             word = word.substring(width - 1);
         }
 
         currentLine = word;
     };
 
-    for (let i = 0; i < text.length; i++) {
+    for ( let i = 0; i < text.length; i++ ) {
         const char = text.charAt(i);
         // Handle special characters
-        if (char === '\n') {
+        if ( char === '\n' ) {
             lines.push(currentLine.trimEnd());
             currentLine = '';
             // Don't skip whitespace after a newline, to allow for indentation.
             continue;
         }
         // TODO: Handle \t?
-        if (/\S/.test(char)) {
+        if ( /\S/.test(char) ) {
             // Grab next word
             let word = char;
-            while ((i+1) < text.length && /\S/.test(text[i + 1])) {
-                word += text[i+1];
+            while ( (i + 1) < text.length && /\S/.test(text[i + 1]) ) {
+                word += text[i + 1];
                 i++;
             }
-            if (lengthIgnoringEscapes(currentLine) === 0) {
+            if ( lengthIgnoringEscapes(currentLine) === 0 ) {
                 splitWordIfTooLong(word);
                 continue;
             }
-            if ((lengthIgnoringEscapes(currentLine) + lengthIgnoringEscapes(word)) > width) {
+            if ( (lengthIgnoringEscapes(currentLine) + lengthIgnoringEscapes(word)) > width ) {
                 // Next line
                 lines.push(currentLine.trimEnd());
                 splitWordIfTooLong(word);
@@ -95,17 +97,17 @@ export const wrapText = (text, width) => {
         }
 
         currentLine += char;
-        if (lengthIgnoringEscapes(currentLine) >= width) {
+        if ( lengthIgnoringEscapes(currentLine) >= width ) {
             lines.push(currentLine.trimEnd());
             currentLine = '';
             // Skip whitespace at end of line.
-            while (isWhitespace(text[i + 1])) {
+            while ( isWhitespace(text[i + 1]) ) {
                 i++;
             }
             continue;
         }
     }
-    if (currentLine.length >= 0) { // Not lengthIgnoringEscapes!
+    if ( currentLine.length >= 0 ) { // Not lengthIgnoringEscapes!
         lines.push(currentLine);
     }
 

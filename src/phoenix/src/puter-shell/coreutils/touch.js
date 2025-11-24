@@ -26,7 +26,7 @@ export default {
     description: 'Mark the FILE(s) as accessed and modified at the current time, creating them if they do not exist.',
     args: {
         $: 'simple-parser',
-        allowPositionals: true
+        allowPositionals: true,
     },
     execute: async ctx => {
         const { positionals } = ctx.locals;
@@ -37,14 +37,14 @@ export default {
             throw new Exit(1);
         }
 
-        for ( let i=0 ; i < positionals.length ; i++ ) {
+        for ( let i = 0 ; i < positionals.length ; i++ ) {
             const path = resolveRelativePath(ctx.vars, positionals[i]);
-            
+
             let stat = null;
             try {
                 stat = await filesystem.stat(path);
             } catch (e) {
-                if (e.posixCode !== ErrorCodes.ENOENT) {
+                if ( e.posixCode !== ErrorCodes.ENOENT ) {
                     await ctx.externs.err.write(`touch: ${e.message}\n`);
                     throw new Exit(1);
                 }
@@ -54,5 +54,5 @@ export default {
 
             await filesystem.write(path, '');
         }
-    }
-}
+    },
+};

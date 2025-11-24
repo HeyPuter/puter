@@ -109,13 +109,13 @@ export class ParserFactory {
 
         resultParams = resultParams ?? {};
         resultParams.assign = resultParams.assign ?? {};
-        
+
         const impl = new cls(parserParams);
         const parser = new Parser({
             impl,
-            assign: resultParams.assign
+            assign: resultParams.assign,
         });
-        
+
         // return parser;
         return this.decorate(parser);
     }

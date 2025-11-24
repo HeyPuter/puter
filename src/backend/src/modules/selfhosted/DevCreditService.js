@@ -1,4 +1,4 @@
-const BaseService = require("../../services/BaseService");
+const BaseService = require('../../services/BaseService');
 
 /**
  * PermissiveCreditService listens to the event where DriverService asks
@@ -10,14 +10,14 @@ const BaseService = require("../../services/BaseService");
 class PermissiveCreditService extends BaseService {
     static MODULES = {
         uuidv4: require('uuid').v4,
-    }
+    };
     _init () {
         // Maps usernames to simulated credit amounts
         // (used when config.simulated_credit is set)
         this.simulated_credit_ = {};
 
         const svc_event = this.services.get('event');
-        svc_event.on(`credit.check-available`, (_, event) => {
+        svc_event.on('credit.check-available', (_, event) => {
             const username = event.actor.type.user.username;
             event.available = this.get_user_credit_(username);
 
@@ -26,11 +26,11 @@ class PermissiveCreditService extends BaseService {
 
             // Useful for testing with Polly
             // event.available = 9000;
-            
+
             // Useful for testing judge0
             // event.available = 50_000;
             // event.avaialble = 49_999;
-            
+
             // Useful for testing ConvertAPI
             // event.available = 4_500_000;
             // event.available = 4_499_999;
@@ -39,11 +39,10 @@ class PermissiveCreditService extends BaseService {
             // event.available = 150_000;
             // event.available = 149_999;
         });
-        
+
         svc_event.on('credit.record-cost', (_, event) => {
             const username = event.actor.type.user.username;
-            event.available = this.consume_user_credit_(
-                username, event.cost);
+            event.available = this.consume_user_credit_(username, event.cost);
             if ( ! this.config.simulated_credit ) return;
 
             // Update usage settings tab in UI
@@ -57,13 +56,13 @@ class PermissiveCreditService extends BaseService {
                 },
             });
         });
-        
+
         svc_event.on('usages.query', (_, event) => {
             const username = event.actor.type.user.username;
             if ( ! this.config.simulated_credit ) {
                 event.usages.push({
                     id: 'dev-credit',
-                    name: `Unlimited Credit`,
+                    name: 'Unlimited Credit',
                     used: 0,
                     available: 1,
                 });
@@ -89,7 +88,7 @@ class PermissiveCreditService extends BaseService {
     }
     consume_user_credit_ (username, amount) {
         if ( ! this.config.simulated_credit ) return;
-        
+
         if ( ! this.simulated_credit_[username] ) {
             this.simulated_credit_[username] = this.config.simulated_credit;
         }

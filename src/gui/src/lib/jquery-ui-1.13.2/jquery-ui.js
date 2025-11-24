@@ -1330,7 +1330,7 @@ var disableSelection = $.fn.extend( {
 // Create a local jQuery because jQuery Color relies on it and the
 // global may not exist with AMD and a custom build (#10199).
 // This module is a noop if used as a regular AMD module.
-// eslint-disable-next-line no-unused-vars
+ 
 var jQuery = $;
 
 
@@ -2057,9 +2057,9 @@ colors = jQuery.Color.names = {
 
 //>>label: Effects Core
 //>>group: Effects
-/* eslint-disable max-len */
+ 
 //>>description: Extends the internal jQuery effects. Includes morphing and easing. Required by all other effects.
-/* eslint-enable max-len */
+ 
 //>>docs: https://api.jqueryui.com/category/effects-core/
 //>>demos: https://jqueryui.com/effect/
 
@@ -2368,7 +2368,7 @@ if ( $.uiBackCompat !== false ) {
 			// Firefox incorrectly exposes anonymous content
 			// https://bugzilla.mozilla.org/show_bug.cgi?id=561664
 			try {
-				// eslint-disable-next-line no-unused-expressions
+				 
 				active.id;
 			} catch ( e ) {
 				active = document.body;
@@ -3263,9 +3263,9 @@ var effectsEffectDrop = $.effects.define( "drop", "hide", function( options, don
 
 //>>label: Explode Effect
 //>>group: Effects
-/* eslint-disable max-len */
+ 
 //>>description: Explodes an element in all directions into n pieces. Implodes an element to its original wholeness.
-/* eslint-enable max-len */
+ 
 //>>docs: https://api.jqueryui.com/explode-effect/
 //>>demos: https://jqueryui.com/effect/
 
@@ -4350,9 +4350,9 @@ var uniqueId = $.fn.extend( {
 
 //>>label: Accordion
 //>>group: Widgets
-/* eslint-disable max-len */
+ 
 //>>description: Displays collapsible content panels for presenting information in a limited amount of space.
-/* eslint-enable max-len */
+ 
 //>>docs: https://api.jqueryui.com/accordion/
 //>>demos: https://jqueryui.com/accordion/
 //>>css.structure: ../../themes/base/core.css
@@ -7299,7 +7299,7 @@ if ( $.uiBackCompat !== false ) {
 var widgetsButton = $.ui.button;
 
 
-/* eslint-disable max-len, camelcase */
+ 
 /*!
  * jQuery UI Datepicker 1.13.3
  * https://jqueryui.com
@@ -13645,9 +13645,9 @@ var widgetsDroppable = $.ui.droppable;
 
 //>>label: Progressbar
 //>>group: Widgets
-/* eslint-disable max-len */
+ 
 //>>description: Displays a status indicator for loading state, standard percentage, and other progress indicators.
-/* eslint-enable max-len */
+ 
 //>>docs: https://api.jqueryui.com/progressbar/
 //>>demos: https://jqueryui.com/progressbar/
 //>>css.structure: ../../themes/base/core.css
@@ -14106,9 +14106,9 @@ var widgetsSelectable = $.widget( "ui.selectable", $.ui.mouse, {
 
 //>>label: Selectmenu
 //>>group: Widgets
-/* eslint-disable max-len */
+ 
 //>>description: Duplicates and extends the functionality of a native HTML select element, allowing it to be customizable in behavior and appearance far beyond the limitations of a native select.
-/* eslint-enable max-len */
+ 
 //>>docs: https://api.jqueryui.com/selectmenu/
 //>>demos: https://jqueryui.com/selectmenu/
 //>>css.structure: ../../themes/base/core.css

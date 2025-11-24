@@ -1,12 +1,12 @@
-import path from "../../../lib/path.js";
+import path from '../../../lib/path.js';
 import * as utils from '../../../lib/utils.js';
 import getAbsolutePathForApp from '../utils/getAbsolutePathForApp.js';
-import stat from "./stat.js";
+import stat from './stat.js';
 
 const move = function (...args) {
     let options;
     // If first argument is an object, it's the options
-    if (typeof args[0] === 'object' && args[0] !== null) {
+    if ( typeof args[0] === 'object' && args[0] !== null ) {
         options = args[0];
     } else {
         // Otherwise, we assume separate arguments are provided
@@ -22,12 +22,12 @@ const move = function (...args) {
     }
 
     return new Promise(async (resolve, reject) => {
-        // If auth token is not provided and we are in the web environment, 
+        // If auth token is not provided and we are in the web environment,
         // try to authenticate with Puter
-        if(!puter.authToken && puter.env === 'web'){
-            try{
+        if ( !puter.authToken && puter.env === 'web' ) {
+            try {
                 await puter.ui.authenticateWithPuter();
-            }catch(e){
+            } catch (e) {
                 // if authentication fails, throw an error
                 reject('Authentication failed.');
             }
@@ -37,12 +37,12 @@ const move = function (...args) {
         options.source = getAbsolutePathForApp(options.source);
         options.destination = getAbsolutePathForApp(options.destination);
 
-        if (!options.new_name) {
+        if ( ! options.new_name ) {
             // Handler to check if dest is supposed to be a file or a folder
             try {
                 const destStats = await stat.bind(this)(options.destination); // this is meant to error if it doesn't exist
-                if (!destStats.is_dir) {
-                    throw "is not directory" // just a wuick way to just to the catch
+                if ( ! destStats.is_dir ) {
+                    throw 'is not directory'; // just a wuick way to just to the catch
                 }
             } catch (e) {
                 options.new_name = path.basename(options.destination);
@@ -65,7 +65,7 @@ const move = function (...args) {
             new_metadata: (options.new_metadata || options.newMetadata),
             original_client_socket_id: options.excludeSocketID,
         }));
-    })
-}
+    });
+};
 
 export default move;

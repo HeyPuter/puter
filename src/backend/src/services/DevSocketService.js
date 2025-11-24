@@ -1,4 +1,4 @@
-const BaseService = require("./BaseService");
+const BaseService = require('./BaseService');
 
 const path_ = require('node:path');
 const net = require('node:net');
@@ -28,21 +28,21 @@ class DevSocketService extends BaseService {
 
         const server = net.createServer(conn => {
 
-            conn.setEncoding("utf8");
-            conn.write(SOCKET_INTRO + "\n");
+            conn.setEncoding('utf8');
+            conn.write(`${SOCKET_INTRO }\n`);
 
-            let buf = "";
-            conn.on("data", (chunk) => {
+            let buf = '';
+            conn.on('data', (chunk) => {
                 buf += chunk;
                 let nl;
-                while ((nl = buf.indexOf("\n")) >= 0) {
+                while ( (nl = buf.indexOf('\n')) >= 0 ) {
                     let line = buf.slice(0, nl); buf = buf.slice(nl + 1);
                     line = line.trim();
 
                     const logoutputs = [];
                     const logfn = (...a) => {
                         logoutputs.push(a.join(' '));
-                        conn.write(JSON.stringify(a) + "\n");
+                        conn.write(`${JSON.stringify(a) }\n`);
                     };
                     const log = {
                         log: logfn,
@@ -60,7 +60,7 @@ class DevSocketService extends BaseService {
         });
         process.on('beforeExit', this.cleanup_.bind(this));
     }
-    
+
     cleanup_ () {
         if ( this.cleaned_up ) return;
         this.cleaned_up = true;
@@ -68,7 +68,6 @@ class DevSocketService extends BaseService {
         fs.unlinkSync(this.sock);
     }
 }
-
 
 module.exports = {
     DevSocketService,

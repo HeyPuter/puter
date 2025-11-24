@@ -16,7 +16,7 @@
  * You should have received a copy of the GNU Affero General Public License
  * along with this program.  If not, see <https://www.gnu.org/licenses/>.
  */
-import { strataparse } from '@heyputer/parsers'
+import { strataparse } from '@heyputer/parsers';
 const {
     StringPStratumImpl,
     StrataParser,
@@ -25,18 +25,15 @@ const {
 import { buildParserFirstHalf } from './src/ansi-shell/parsing/buildParserFirstHalf.js';
 import { buildParserSecondHalf } from './src/ansi-shell/parsing/buildParserSecondHalf.js';
 
-
 const sp = new StrataParser();
 
-const cstParserFac = new ParserFactory()
+const cstParserFac = new ParserFactory();
 cstParserFac.concrete = true;
 cstParserFac.rememberSource = true;
 
-sp.add(
-    new StringPStratumImpl(`
+sp.add(new StringPStratumImpl(`
         ls | tail -n 2 "ab" > "te\\"st"
-    `)
-);
+    `));
 
 // buildParserFirstHalf(sp, 'syntaxHighlighting');
 buildParserFirstHalf(sp, 'interpreting');

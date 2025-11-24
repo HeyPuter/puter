@@ -16,15 +16,15 @@
  * You should have received a copy of the GNU Affero General Public License
  * along with this program.  If not, see <https://www.gnu.org/licenses/>.
  */
-const eggspress = require("../../api/eggspress");
-const { deleteUser, invalidate_cached_user } = require("../../helpers");
+const eggspress = require('../../api/eggspress');
+const { deleteUser, invalidate_cached_user } = require('../../helpers');
 
-const config = require("../../config");
+const config = require('../../config');
 
-module.exports = eggspress("/delete-own-user", {
-    subdomain: "api",
+module.exports = eggspress('/delete-own-user', {
+    subdomain: 'api',
     auth: true,
-    allowedMethods: ["POST"],
+    allowedMethods: ['POST'],
 }, async (req, res, next) => {
     const bcrypt = require('bcrypt');
 
@@ -36,17 +36,17 @@ module.exports = eggspress("/delete-own-user", {
         if ( ! user ) return false;
 
         // temporary users don't require password verification
-        if ( ! user.email && ! user.password ) {
+        if ( !user.email && !user.password ) {
             return true;
         }
 
         if ( ! req.body.password ) return false;
-        if ( ! user || ! user.password ) return false;
+        if ( !user || !user.password ) return false;
         if ( ! await bcrypt.compare(req.body.password, req.user.password) ) {
             return false;
         }
         return true;
-    }
+    };
 
     if ( ! await validate_request() ) {
         return res.status(400).send({ success: false });

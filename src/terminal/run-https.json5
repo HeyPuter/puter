@@ -6,9 +6,9 @@
             command: 'npx http-server -p 8082 -S -C "{cert}" -K "{key}"',
         },
         {
-            name: 'term.rollup',
+            name: 'term.webpack',
             pwd: '.',
-            command: 'npx rollup -c rollup.config.js --watch',
+            command: 'npx webpack --watch',
         },
     ]
 }

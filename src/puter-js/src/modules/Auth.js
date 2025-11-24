@@ -1,6 +1,6 @@
 import * as utils from '../lib/utils.js';
 
-class Auth{
+class Auth {
     // Used to generate a unique message id for each message sent to the host environment
     // we start from 1 because 0 is falsy and we want to avoid that for the message id
     #messageID = 1;
@@ -13,7 +13,7 @@ class Auth{
      * @param {string} APIOrigin - Origin of the API server. Used to build the API endpoint URLs.
      * @param {string} appID - ID of the app to use.
      */
-    constructor(context) {
+    constructor (context) {
         this.authToken = context.authToken;
         this.APIOrigin = context.APIOrigin;
         this.appID = context.appID;
@@ -26,7 +26,7 @@ class Auth{
      * @memberof [Auth]
      * @returns {void}
      */
-    setAuthToken(authToken) {
+    setAuthToken (authToken) {
         this.authToken = authToken;
     }
 
@@ -37,7 +37,7 @@ class Auth{
      * @memberof [Auth]
      * @returns {void}
      */
-    setAPIOrigin(APIOrigin) {
+    setAPIOrigin (APIOrigin) {
         this.APIOrigin = APIOrigin;
     }
 
@@ -67,8 +67,8 @@ class Auth{
                 }
             }, 100);
 
-            function messageHandler(e) {
-                if ( e.data.msg_id == msg_id ){
+            function messageHandler (e) {
+                if ( e.data.msg_id == msg_id ) {
                     // Clear the interval since we got a response
                     clearInterval(checkClosed);
 
@@ -76,7 +76,7 @@ class Auth{
                     delete e.data.msg_id;
                     delete e.data.msg;
 
-                    if ( e.data.success ){
+                    if ( e.data.success ) {
                         // set the auth token
                         puter.setAuthToken(e.data.token);
 
@@ -106,7 +106,7 @@ class Auth{
         }
     };
 
-    getUser = function(...args){
+    getUser = function (...args) {
         let options;
 
         // If first argument is an object, it's the options
@@ -134,7 +134,7 @@ class Auth{
         puter.resetAuthToken();
     };
 
-    async whoami() {
+    async whoami () {
         try {
             const resp = await fetch(`${this.APIOrigin}/whoami`, {
                 headers: {
@@ -155,7 +155,7 @@ class Auth{
             }
 
             return result;
-        } catch( error ) {
+        } catch ( error ) {
             // Log the error
             if ( globalThis.puter?.apiCallLogger?.isEnabled() ) {
                 globalThis.puter.apiCallLogger.logRequest({
@@ -172,7 +172,7 @@ class Auth{
         }
     }
 
-    async getMonthlyUsage() {
+    async getMonthlyUsage () {
         try {
             const resp = await fetch(`${this.APIOrigin}/metering/usage`, {
                 headers: {
@@ -193,7 +193,7 @@ class Auth{
             }
 
             return result;
-        } catch( error ) {
+        } catch ( error ) {
             // Log the error
             if ( globalThis.puter?.apiCallLogger?.isEnabled() ) {
                 globalThis.puter.apiCallLogger.logRequest({
@@ -210,8 +210,8 @@ class Auth{
         }
     }
 
-    async getDetailedAppUsage(appId) {
-        if ( !appId ) {
+    async getDetailedAppUsage (appId) {
+        if ( ! appId ) {
             throw new Error('appId is required');
         }
 
@@ -235,7 +235,7 @@ class Auth{
             }
 
             return result;
-        } catch( error ) {
+        } catch ( error ) {
             // Log the error
             if ( globalThis.puter?.apiCallLogger?.isEnabled() ) {
                 globalThis.puter.apiCallLogger.logRequest({
@@ -252,7 +252,7 @@ class Auth{
         }
     }
 
-    async getGlobalUsage() {
+    async getGlobalUsage () {
         try {
             const resp = await fetch(`${this.APIOrigin}/metering/globalUsage`, {
                 headers: {
@@ -273,7 +273,7 @@ class Auth{
             }
 
             return result;
-        } catch( error ) {
+        } catch ( error ) {
             // Log the error
             if ( globalThis.puter?.apiCallLogger?.isEnabled() ) {
                 globalThis.puter.apiCallLogger.logRequest({

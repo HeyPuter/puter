@@ -11,13 +11,13 @@
             command: 'npx http-server -p 8080 -S -C "{cert}" -K "{key}"',
         },
         {
-            name: 'term.rollup',
-            command: 'npx rollup -c rollup.config.js --watch',
+            name: 'term.webpack',
+            command: 'npx webpack --watch',
             pwd: '.'
         },
         {
-            name: 'ansi.rollup',
-            command: 'npx rollup -c rollup.config.js --watch',
+            name: 'ansi.webpack',
+            command: 'npx webpack --watch',
             pwd: '../phoenix'
         },
     ]

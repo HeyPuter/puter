@@ -23,7 +23,7 @@ class Context {
     static USE_NAME_FALLBACK = {};
     static next_name_ = 0;
     static other_next_names_ = {};
-    
+
     // Context hooks should be registered via service (ContextService.js)
     static context_hooks_ = {
         pre_create: [],
@@ -46,10 +46,8 @@ class Context {
     static get (k, { allow_fallback } = {}) {
         let x = this.contextAsyncLocalStorage.getStore()?.get('context');
         if ( ! x ) {
-            if ( context_config.strict && ! allow_fallback ) {
-                throw new Error(
-                    'FAILED TO GET THE CORRECT CONTEXT'
-                );
+            if ( context_config.strict && !allow_fallback ) {
+                throw new Error('FAILED TO GET THE CORRECT CONTEXT');
             }
 
             x = this.root.sub({}, this.USE_NAME_FALLBACK);
@@ -71,7 +69,7 @@ class Context {
     static sub (values, opt_name) {
         return this.get().sub(values, opt_name);
     }
-    
+
     #dead = false;
 
     /**
@@ -165,7 +163,7 @@ class Context {
     }
     async arun (...args) {
         let cb = args.shift();
-        
+
         let hints = {};
         if ( typeof cb === 'object' ) {
             hints = cb;
@@ -176,11 +174,11 @@ class Context {
             const sub_context = this.sub(cb);
             return await sub_context.arun({ trace: true }, ...args);
         }
-        
+
         const replace_callback = new_cb => {
             cb = new_cb;
-        }
-        
+        };
+
         for ( const hook of this.constructor.context_hooks_.pre_arun ) {
             hook({
                 hints,
@@ -190,7 +188,7 @@ class Context {
                 callback: cb,
             });
         }
-        
+
         const als = this.constructor.contextAsyncLocalStorage;
         return await als.run(new Map(), async () => {
             als.getStore().set('context', this);
@@ -209,7 +207,7 @@ class Context {
         return `Context(${this.describe_()})`;
     }
     describe_ () {
-        if ( ! this.parent_ ) return `[R]`;
+        if ( ! this.parent_ ) return '[R]';
         return `${this.parent_.describe_()}->${this.name}`;
     }
 
@@ -232,7 +230,8 @@ class ContextExpressMiddleware {
     }
     async run (req, res, next) {
         return await this.parent_.sub({
-            req, res,
+            req,
+            res,
             trace_request: uuidv4(),
         }, 'req').arun(async () => {
             const ctx = Context.get();

@@ -16,15 +16,15 @@
  * You should have received a copy of the GNU Affero General Public License
  * along with this program.  If not, see <https://www.gnu.org/licenses/>.
  */
-const APIError = require("../../api/APIError");
-const eggspress = require("../../api/eggspress");
-const { FileFacade } = require("../../services/drivers/FileFacade");
-const { TypeSpec } = require("../../services/drivers/meta/Construct");
-const { TypedValue } = require("../../services/drivers/meta/Runtime");
-const { Context } = require("../../util/context");
-const { whatis } = require("../../util/langutil");
+const APIError = require('../../api/APIError');
+const eggspress = require('../../api/eggspress');
+const { FileFacade } = require('../../services/drivers/FileFacade');
+const { TypeSpec } = require('../../services/drivers/meta/Construct');
+const { TypedValue } = require('../../services/drivers/meta/Runtime');
+const { Context } = require('../../util/context');
+const { whatis } = require('../../util/langutil');
 const { TeePromise } = require('@heyputer/putility').libs.promise;
-const { valid_file_size } = require("../../util/validutil");
+const { valid_file_size } = require('../../util/validutil');
 
 let _handle_multipart;
 
@@ -59,7 +59,7 @@ module.exports = eggspress('/drivers/call', {
 }, async (req, res, next) => {
     const x = Context.get();
     const svc_driver = x.get('services').get('driver');
-    
+
     let p_request = null;
     let body;
     if ( req.headers['content-type'].includes('multipart/form-data') ) {
@@ -86,7 +86,7 @@ module.exports = eggspress('/drivers/call', {
     // consider the case where a driver method implements a
     // stream transformation, thus the stream from the request isn't
     // consumed until the response is being sent.
-    
+
     _respond(res, result);
 
     // What we _can_ do is await the request promise while responding
@@ -145,9 +145,7 @@ _handle_multipart = async (req) => {
                 dst[key_parts[i]] = {};
             }
             if ( whatis(dst[key_parts[i]]) !== 'object' ) {
-                throw new Error(
-                    `Tried to set member of non-object: ${key_parts[i]} in ${fieldname}`
-                );
+                throw new Error(`Tried to set member of non-object: ${key_parts[i]} in ${fieldname}`);
             }
             dst = dst[key_parts[i]];
         }
@@ -199,4 +197,4 @@ _handle_multipart = async (req) => {
     await p_nonfile_data_end;
 
     return { params, p_data_end };
-}
+};

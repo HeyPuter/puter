@@ -16,63 +16,63 @@
  * You should have received a copy of the GNU Affero General Public License
  * along with this program.  If not, see <https://www.gnu.org/licenses/>.
  */
-const APIError = require("./APIError");
+const APIError = require('./APIError');
 
 /**
  * api_error_handler() is an express error handler for API errors.
  * It adheres to the express error handler signature and should be
  * used as the last middleware in an express app.
- * 
+ *
  * Since Express 5 is not yet released, this function is used by
  * eggspress() to handle errors instead of as a middleware.
- * 
+ *
  * @todo remove this function and use express error handling
  * when Express 5 is released
- * 
- * @param {*} err 
- * @param {*} req 
- * @param {*} res 
- * @param {*} next 
- * @returns 
+ *
+ * @param {*} err
+ * @param {*} req
+ * @param {*} res
+ * @param {*} next
+ * @returns
  */
 module.exports = function (err, req, res, next) {
-        if (res.headersSent) {
-            console.error('error after headers were sent:', err);
-            return next(err)
-        }
+    if ( res.headersSent ) {
+        console.error('error after headers were sent:', err);
+        return next(err);
+    }
 
-        // API errors might have a response to help the
-        // developer resolve the issue.
-        if ( err instanceof APIError ) {
-            return err.write(res);
-        }
+    // API errors might have a response to help the
+    // developer resolve the issue.
+    if ( err instanceof APIError ) {
+        return err.write(res);
+    }
 
-        if (
-            typeof err === 'object' &&
-            ! (err instanceof Error) &&
-            err.hasOwnProperty('message')
-        ) {
-            const apiError = APIError.create(400, err);
-            return apiError.write(res);
-        }
+    if (
+        typeof err === 'object' &&
+        !(err instanceof Error) &&
+        err.hasOwnProperty('message')
+    ) {
+        const apiError = APIError.create(400, err);
+        return apiError.write(res);
+    }
 
-        console.error('internal server error:', err);
+    console.error('internal server error:', err);
 
-        const services = globalThis.services;
-        if ( services && services.has('alarm') ) {
-            const alarm = services.get('alarm');
-            alarm.create('api_error_handler', err.message, {
-                error: err,
-                url: req.url,
-                method: req.method,
-                body: req.body,
-                headers: req.headers,
-            });
-        }
+    const services = globalThis.services;
+    if ( services && services.has('alarm') ) {
+        const alarm = services.get('alarm');
+        alarm.create('api_error_handler', err.message, {
+            error: err,
+            url: req.url,
+            method: req.method,
+            body: req.body,
+            headers: req.headers,
+        });
+    }
 
-        req.__error_handled = true;
-        
-        // Other errors should provide as little information
-        // to the client as possible for security reasons.
-        return res.send(500, 'Internal Server Error');
+    req.__error_handled = true;
+
+    // Other errors should provide as little information
+    // to the client as possible for security reasons.
+    return res.send(500, 'Internal Server Error');
 };

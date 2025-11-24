@@ -42,55 +42,55 @@ export const printUsage = async (command, out, vars) => {
         return `\x1B[91m${text}\x1B[0m`;
     };
     const wrap = text => {
-        return wrapText(text, vars.size.cols).join('\n') + '\n';
-    }
+        return `${wrapText(text, vars.size.cols).join('\n') }\n`;
+    };
 
     await heading('Usage');
-    if (!usage) {
+    if ( ! usage ) {
         let output = name;
-        if (options) {
+        if ( options ) {
             output += ' [OPTIONS]';
         }
-        if (args.allowPositionals) {
+        if ( args.allowPositionals ) {
             output += ' INPUTS...';
         }
         await out.write(`  ${output}\n\n`);
-    } else if (typeof usage === 'string') {
+    } else if ( typeof usage === 'string' ) {
         await out.write(`  ${usage}\n\n`);
     } else {
-        for (const line of usage) {
+        for ( const line of usage ) {
             await out.write(`  ${line}\n`);
         }
         await out.write('\n');
     }
 
-    if (description) {
+    if ( description ) {
         await out.write(wrap(description));
-        await out.write(`\n`);
+        await out.write('\n');
     }
 
-    if (options) {
+    if ( options ) {
         await heading('Options');
 
-        for (const optionName in options) {
+        for ( const optionName in options ) {
             let optionText = '  ';
             let indentSize = optionText.length;
             const option = options[optionName];
-            if (option.short) {
-                optionText += colorOption('-' + option.short) + ', ';
+            if ( option.short ) {
+                optionText += `${colorOption(`-${ option.short}`) }, `;
                 indentSize += `-${option.short}, `.length;
             } else {
-                optionText += `    `;
-                indentSize += `    `.length;
+                optionText += '    ';
+                indentSize += '    '.length;
             }
             optionText += colorOption(`--${optionName}`);
             indentSize += `--${optionName}`.length;
-            if (option.type !== 'boolean') {
+            if ( option.type !== 'boolean' ) {
                 const valueName = option.valueName || 'VALUE';
                 optionText += `=${colorOptionArgument(valueName)}`;
                 indentSize += `=${valueName}`.length;
             }
-            if (option.description) {
+            if ( option.description ) {
                 const indentSizeIncludingTab = (size) => {
                     return (Math.floor(size / TAB_SIZE) + 1) * TAB_SIZE + 1;
                 };
@@ -100,7 +100,7 @@ export const printUsage = async (command, out, vars) => {
                 let skipIndentOnFirstLine = true;
 
                 // If there's not enough room after a very long option name, start on the next line.
-                if (remainingWidth < 30) {
+                if ( remainingWidth < 30 ) {
                     optionText += '\n';
                     indentSize = 8;
                     remainingWidth = vars.size.cols - indentSizeIncludingTab(indentSize);
@@ -108,8 +108,8 @@ export const printUsage = async (command, out, vars) => {
                 }
 
                 const wrappedDescriptionLines = wrapText(option.description, remainingWidth);
-                for (const line of wrappedDescriptionLines) {
-                    if (skipIndentOnFirstLine) {
+                for ( const line of wrappedDescriptionLines ) {
+                    if ( skipIndentOnFirstLine ) {
                         skipIndentOnFirstLine = false;
                     } else {
                         optionText += ' '.repeat(indentSize);
@@ -124,11 +124,11 @@ export const printUsage = async (command, out, vars) => {
         await out.write('\n');
     }
 
-    if (helpSections) {
-        for (const [title, contents] of Object.entries(helpSections)) {
+    if ( helpSections ) {
+        for ( const [title, contents] of Object.entries(helpSections) ) {
             await heading(title);
             await out.write(wrap(contents));
             await out.write('\n\n');
         }
     }
-}
+};

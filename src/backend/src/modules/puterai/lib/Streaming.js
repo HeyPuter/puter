@@ -2,9 +2,9 @@
  * Assign the properties of the override object to the original object,
  * like Object.assign, except properties are ordered so override properties
  * are enumerated first.
- * 
- * @param {*} original 
- * @param {*} override 
+ *
+ * @param {*} original
+ * @param {*} override
  */
 const objectAssignTop = (original, override) => {
     let o = {
@@ -16,7 +16,7 @@ const objectAssignTop = (original, override) => {
         ...original,
     };
     return o;
-}
+};
 
 class AIChatConstructStream {
     constructor (chatStream, params) {
@@ -29,11 +29,27 @@ class AIChatConstructStream {
 }
 
 class AIChatTextStream extends AIChatConstructStream {
-    addText (text) {
+    addText (text, extra_content) {
         const json = JSON.stringify({
             type: 'text', text,
+            ...(extra_content?{extra_content}:{})
         });
-        this.chatStream.stream.write(json + '\n');
+        this.chatStream.stream.write(`${json }\n`);
+    }
+
+    addReasoning (reasoning) {
+        const json = JSON.stringify({
+            type: 'reasoning', reasoning,
+        });
+        this.chatStream.stream.write(`${json }\n`);
+    }
+
+    addExtraContent(extra_content) {
+        const json = JSON.stringify({
+            type: 'extra_content',
+            extra_content
+        });
+        this.chatStream.stream.write(`${json }\n`);
     }
 }
 
@@ -53,11 +69,11 @@ class AIChatToolUseStream extends AIChatConstructStream {
         const str = JSON.stringify(objectAssignTop({
             ...this.contentBlock,
             input: JSON.parse(this.buffer),
-            ...( ! this.contentBlock.text ? { text: "" } : {}),
+            ...( !this.contentBlock.text ? { text: '' } : {}),
         }, {
             type: 'tool_use',
         }));
-        this.chatStream.stream.write(str + '\n');
+        this.chatStream.stream.write(`${str }\n`);
     }
 }
 
@@ -88,5 +104,5 @@ class AIChatStream {
 }
 
 module.exports = class Streaming {
-    static AIChatStream  = AIChatStream;
-}
+    static AIChatStream = AIChatStream;
+};

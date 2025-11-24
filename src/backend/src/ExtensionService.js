@@ -1,29 +1,29 @@
 /*
  * Copyright (C) 2024-present Puter Technologies Inc.
- * 
+ *
  * This file is part of Puter.
- * 
+ *
  * Puter is free software: you can redistribute it and/or modify
  * it under the terms of the GNU Affero General Public License as published
  * by the Free Software Foundation, either version 3 of the License, or
  * (at your option) any later version.
- * 
+ *
  * This program is distributed in the hope that it will be useful,
  * but WITHOUT ANY WARRANTY; without even the implied warranty of
  * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
  * GNU Affero General Public License for more details.
- * 
+ *
  * You should have received a copy of the GNU Affero General Public License
  * along with this program.  If not, see <https://www.gnu.org/licenses/>.
  */
 
-const { AdvancedBase } = require("@heyputer/putility");
-const BaseService = require("./services/BaseService");
-const { Endpoint } = require("./util/expressutil");
-const configurable_auth = require("./middleware/configurable_auth");
-const { Context } = require("./util/context");
-const { DB_WRITE } = require("./services/database/consts");
-const { Actor } = require("./services/auth/Actor");
+const { AdvancedBase } = require('@heyputer/putility');
+const BaseService = require('./services/BaseService');
+const { Endpoint } = require('./util/expressutil');
+const configurable_auth = require('./middleware/configurable_auth');
+const { Context } = require('./util/context');
+const { DB_WRITE } = require('./services/database/consts');
+const { Actor } = require('./services/auth/Actor');
 
 /**
  * State shared with the default service and the `extension` global so that
@@ -37,7 +37,7 @@ class ExtensionServiceState extends AdvancedBase {
         this.extension = a[0].extension;
 
         this.expressThings_ = [];
-        
+
         // Values shared between the `extension` global and its service
         this.values = new Context();
     }
@@ -64,8 +64,9 @@ class ExtensionServiceState extends AdvancedBase {
             route: path,
             handler: handler,
             ...(options.subdomain ? { subdomain: options.subdomain } : {}),
+            otherOpts: options.otherOpts || {},
         });
-    
+
         this.expressThings_.push({ type: 'endpoint', value: endpoint });
     }
 }
@@ -81,10 +82,10 @@ class ExtensionService extends BaseService {
     }
     async _init (args) {
         this.state = args.state;
-        
+
         this.state.values.set('services', this.services);
         this.state.values.set('log_context', this.services.get('log-service').create(
-            this.state.extension.name));
+                        this.state.extension.name));
 
         // Create database access object for extension
         const db = this.services.get('database').get(DB_WRITE, 'extension');
@@ -113,20 +114,20 @@ class ExtensionService extends BaseService {
         // Propagate all events from extension to Puter's event bus
         this.state.extension.on_all(async (key, data, meta) => {
             if ( meta.from_outside_of_extension ) return;
-            
+
             await svc_event.emit(key, data, meta);
         });
-        
+
         this.state.extension.kv = (() => {
             const impls = this.services.get_implementors('puter-kvstore');
             const impl_kv = impls[0].impl;
-            
+
             return new Proxy(impl_kv, {
                 get: (target, prop) => {
                     if ( typeof target[prop] !== 'function' ) {
                         return target[prop];
                     }
-                    
+
                     return (...args) => {
                         if ( typeof args[0] !== 'object' ) {
                             // Luckily named parameters don't have positional

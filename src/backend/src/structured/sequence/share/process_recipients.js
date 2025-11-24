@@ -17,18 +17,18 @@
  * along with this program.  If not, see <https://www.gnu.org/licenses/>.
  */
 
-const APIError = require("../../../api/APIError");
-const { Sequence } = require("../../../codex/Sequence");
-const config = require("../../../config");
+const APIError = require('../../../api/APIError');
+const { Sequence } = require('../../../codex/Sequence');
+const config = require('../../../config');
 
 const validator = require('validator');
-const { get_user } = require("../../../helpers");
+const { get_user } = require('../../../helpers');
 
 /*
     This code is optimized for editors supporting folding.
     Fold at Level 2 to conveniently browse sequence steps.
     Fold at Level 3 after opening an inner-sequence.
-    
+
     If you're using VSCode {
         typically "Ctrl+K, Ctrl+2" or "⌘K, ⌘2";
         to revert "Ctrl+K, Ctrl+J" or "⌘K, ⌘J";
@@ -41,13 +41,13 @@ module.exports = new Sequence({
     after_each (a) {
         const { recipients_work } = a.values();
         recipients_work.clear_invalid();
-    }
+    },
 }, [
     function valid_username_or_email (a) {
         const { result, recipients_work } = a.values();
         for ( const item of recipients_work.list() ) {
             const { value, i } = item;
-            
+
             if ( typeof value !== 'string' ) {
                 item.invalid = true;
                 result.recipients[i] =
@@ -65,7 +65,7 @@ module.exports = new Sequence({
                 item.type = 'email';
                 continue;
             }
-            
+
             item.invalid = true;
             result.recipients[i] =
                 APIError.create('invalid_username_or_email', null, {
@@ -102,5 +102,7 @@ module.exports = new Sequence({
             item.user = user;
         }
     },
-    function return_state (a) { return a; }
+    function return_state (a) {
+        return a;
+    },
 ]);

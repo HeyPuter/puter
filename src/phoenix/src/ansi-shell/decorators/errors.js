@@ -26,13 +26,11 @@ export default {
                 console.log('GOT IT HERE');
                 // message without "Error:"
                 let message = e.message;
-                if (message.startsWith('Error: ')) {
+                if ( message.startsWith('Error: ') ) {
                     message = message.slice(7);
                 }
-                ctx.externs.err.write(
-                    '\x1B[31;1m' + command.name + ': ' + message + '\x1B[0m\n'
-                );
+                ctx.externs.err.write(`\x1B[31;1m${ command.name }: ${ message }\x1B[0m\n`);
             }
-        }
-    }
-}
+        };
+    },
+};

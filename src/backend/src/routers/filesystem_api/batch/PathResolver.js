@@ -57,7 +57,7 @@ module.exports = class PathResolver {
     }
 
     putSelector (refName, selector, meta) {
-        this.log.debug(`putSelector called for: ${refName}`)
+        this.log.debug(`putSelector called for: ${refName}`);
         this.selectors[refName] = selector;
         this.meta[refName] = meta;
         if ( ! this.listeners.hasOwnProperty(refName) ) return;
@@ -96,13 +96,16 @@ module.exports = class PathResolver {
         if ( inputPath === '~' ) {
             return `/${username}`;
         }
+        if ( inputPath.startsWith('.') ) {
+            throw APIError.create('unresolved_relative_path', null, { path: inputPath });
+        }
         const refName = this.getReferenceUsed(inputPath);
         if ( refName === null ) return inputPath;
 
         this.log.debug(`-- awaitSelector -- input path is ${inputPath}`);
         this.log.debug(`-- awaitSelector -- refName is ${refName}`);
         if ( ! this.selectors.hasOwnProperty(refName) ) {
-            this.log.debug(`-- awaitSelector -- doing the await`);
+            this.log.debug('-- awaitSelector -- doing the await');
             if ( ! this.listeners[refName] ) {
                 this.listeners[refName] = [];
             }
@@ -137,4 +140,4 @@ module.exports = class PathResolver {
 
         return refName;
     }
-}
+};

@@ -16,8 +16,8 @@
  * You should have received a copy of the GNU Affero General Public License
  * along with this program.  If not, see <https://www.gnu.org/licenses/>.
  */
-const config = require("../config");
-const BaseService = require("../services/BaseService");
+const config = require('../config');
+const BaseService = require('../services/BaseService');
 
 class Metric {
     constructor (windowSize) {
@@ -64,7 +64,7 @@ class Metric {
 
         if ( this.cumulativeAverage ) {
             metrics.push({
-                MetricName: prefix + '.' + 'cumulative-avg',
+                MetricName: `${prefix }.` + 'cumulative-avg',
                 Value: this.cumulativeAverage,
                 Timestamp,
                 Unit: 'Milliseconds',
@@ -74,7 +74,7 @@ class Metric {
 
         if ( this.windowAverage && this.count >= this.WINDOW_SIZE ) {
             metrics.push({
-                MetricName: prefix + '.' + 'window-avg',
+                MetricName: `${prefix }.` + 'window-avg',
                 Value: this.windowAverage,
                 Timestamp,
                 Unit: 'Milliseconds',
@@ -96,7 +96,8 @@ class PerformanceMonitorContext {
         this.stamp('monitor-created');
     }
 
-    branch () {}
+    branch () {
+    }
 
     stamp (name) {
         if ( ! name ) {
@@ -105,7 +106,7 @@ class PerformanceMonitorContext {
         }
         this.stamps.push({
             name,
-            ts: Date.now()
+            ts: Date.now(),
         });
     }
 
@@ -113,11 +114,11 @@ class PerformanceMonitorContext {
         this.stamps.push({
             name,
             start: Date.now(),
-        })
+        });
     }
 
     end () {
-        this.stamp("end");
+        this.stamp('end');
         this.performanceMonitor.logMonitorContext(this);
     }
 }
@@ -138,7 +139,6 @@ class PerformanceMonitor extends BaseService {
             this.cw = new AWS.CloudWatch(config.cloudwatch);
         }
 
-
         if ( config.monitor ) {
             this.config = config.monitor;
         }
@@ -152,7 +152,7 @@ class PerformanceMonitor extends BaseService {
     createContext (name) {
         return new PerformanceMonitorContext({
             performanceMonitor: this,
-            name
+            name,
         });
     }
 
@@ -161,7 +161,7 @@ class PerformanceMonitor extends BaseService {
             this.performanceMetrics[ctx.name] =
                 new Metric(config.windowSize ?? 30);
         }
-        
+
         const metricsToUpdate = {};
 
         // Update averaging metrics
@@ -190,7 +190,7 @@ class PerformanceMonitor extends BaseService {
         }
 
         if ( ! config.performance_monitors_stdout ) return;
-        
+
         // Write to stout
         {
             console.log('[Monitor Snapshot]', ctx.name);
@@ -198,8 +198,7 @@ class PerformanceMonitor extends BaseService {
             for ( const stamp of ctx.stamps ) {
                 let start = stamp.start ?? begin.ts;
                 let end = stamp.end ?? stamp.ts;
-                console.log('|', stamp.name,
-                    (end - start) + 'ms')
+                console.log('|', stamp.name, `${end - start }ms`);
             }
         }
     }
@@ -220,10 +219,9 @@ class PerformanceMonitor extends BaseService {
         for ( let key in this.performanceMetrics ) {
             const prefix = key.replace(/\s+/g, '-');
             const metric = this.performanceMetrics[key];
-            
+
             MetricData.push(...metric.getCloudwatchMetrics(prefix));
         }
-
 
         const Dimensions = [
             {
@@ -243,7 +241,7 @@ class PerformanceMonitor extends BaseService {
             if ( Number.isNaN(value) ) continue;
             const prefix = key.replace(/\s+/g, '-');
             MetricData.push({
-                MetricName: prefix + '.operations',
+                MetricName: `${prefix }.operations`,
                 Unit: 'Count/Second',
                 Value: value,
                 Dimensions,
@@ -270,10 +268,8 @@ class PerformanceMonitor extends BaseService {
             await this.cw.putMetricData(params).promise();
         } catch (e) {
             // TODO: alarm condition
-            console.error(
-                'Failed to send metrics to CloudWatch',
-                e
-            )
+            console.error('Failed to send metrics to CloudWatch',
+                            e);
         }
     }
 }

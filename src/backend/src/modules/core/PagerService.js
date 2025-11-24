@@ -21,7 +21,6 @@ const pdjs = require('@pagerduty/pdjs');
 const BaseService = require('../../services/BaseService');
 const util = require('util');
 
-
 /**
 * @class PagerService
 * @extends BaseService
@@ -34,14 +33,14 @@ const util = require('util');
 class PagerService extends BaseService {
     static USE = {
         Context: 'core.context',
-    }
-    
+    };
+
     async _construct () {
         this.config = this.global_config.pager;
         this.alertHandlers_ = [];
 
     }
-    
+
     /**
      * PagerService registers its commands at the consolidation phase because
      * the '_init' method of CommandService may not have been called yet.
@@ -123,7 +122,6 @@ class PagerService extends BaseService {
         }
     }
 
-
     /**
     * Sends an alert to all registered alert handlers.
     *
@@ -155,9 +153,9 @@ class PagerService extends BaseService {
                         source: 'test',
                         severity,
                     });
-                }
-            }
-        ])
+                },
+            },
+        ]);
     }
 
 }

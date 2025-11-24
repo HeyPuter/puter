@@ -25,6 +25,10 @@ const { Context } = require('./util/context');
 const { LLOWrite } = require('./filesystem/ll_operations/ll_write');
 const { LLRead } = require('./filesystem/ll_operations/ll_read');
 const { RuntimeModule } = require('./extension/RuntimeModule.js');
+const { TYPE_DIRECTORY, TYPE_FILE } = require('./filesystem/FSNodeContext.js');
+const { TDetachable } = require('@heyputer/putility/src/traits/traits.js');
+const { MultiDetachable } = require('@heyputer/putility/src/libs/listener.js');
+const { OperationFrame } = require('./services/OperationTraceService');
 
 /**
  * Core module for the Puter platform that includes essential services including
@@ -36,10 +40,10 @@ const { RuntimeModule } = require('./extension/RuntimeModule.js');
  * and Core2Module will take on its name.
  */
 class CoreModule extends AdvancedBase {
-    dirname() {
+    dirname () {
         return __dirname;
     }
-    async install(context) {
+    async install (context) {
         const services = context.get('services');
         const app = context.get('app');
         const useapi = context.get('useapi');
@@ -57,7 +61,7 @@ class CoreModule extends AdvancedBase {
     * @param {Object} context.services - Service registry for registering legacy services
     * @returns {Promise<void>} Resolves when legacy services are installed
     */
-    async install_legacy(context) {
+    async install_legacy (context) {
         const services = context.get('services');
         await install_legacy({ services });
     }
@@ -88,6 +92,10 @@ const install = async ({ context, services, app, useapi, modapi }) => {
         def('core.Context', Context);
 
         def('core', require('./services/auth/Actor'), { assign: true });
+        def('core', {
+            TDetachable,
+            MultiDetachable,
+        }, { assign: true });
         def('core.config', config);
 
         // Note: this is an incomplete export; it was added for a proprietary
@@ -98,6 +106,9 @@ const install = async ({ context, services, app, useapi, modapi }) => {
         def('core.fs', {
             LLOWrite,
             LLRead,
+            TYPE_DIRECTORY,
+            TYPE_FILE,
+            OperationFrame,
         });
         def('core.fs.selectors', require('./filesystem/node/selectors'));
         def('core.util.stream', require('./util/streamutil'));
@@ -220,6 +231,9 @@ const install = async ({ context, services, app, useapi, modapi }) => {
     const { InformationService } = require('./services/information/InformationService');
     services.registerService('information', InformationService);
 
+    const { TraceService } = require('./services/TraceService.js');
+    services.registerService('traceService', TraceService);
+
     const { FilesystemService } = require('./filesystem/FilesystemService');
     services.registerService('filesystem', FilesystemService);
 
@@ -269,11 +283,11 @@ const install = async ({ context, services, app, useapi, modapi }) => {
     });
     services.registerService('__refresh-assocs', RefreshAssociationsService);
     services.registerService('__prod-debugging', MakeProdDebuggingLessAwfulService);
-    if ( config.env == 'dev' && ! config.no_devsocket ) {
+    if ( config.env == 'dev' && !config.no_devsocket ) {
         const { DevSocketService } = require('./services/DevSocketService.js');
         services.registerService('dev-socket', DevSocketService);
     }
-    if ( (config.env == 'dev' && ! config.no_devconsole && process.env.DEVCONSOLE) || config.devconsole ) {
+    if ( (config.env == 'dev' && !config.no_devconsole && process.env.DEVCONSOLE) || config.devconsole ) {
         const { DevConsoleService } = require('./services/DevConsoleService');
         services.registerService('dev-console', DevConsoleService);
     } else {
@@ -419,18 +433,19 @@ const install = async ({ context, services, app, useapi, modapi }) => {
 
     const { PermissionShortcutService } = require('./services/auth/PermissionShortcutService');
     services.registerService('permission-shortcut', PermissionShortcutService);
+
+    const { FileCacheService } = require('./services/file-cache/FileCacheService');
+    services.registerService('file-cache', FileCacheService);
 };
 
 const install_legacy = async ({ services }) => {
     const { OperationTraceService } = require('./services/OperationTraceService');
     const { ClientOperationService } = require('./services/ClientOperationService');
     const { EngPortalService } = require('./services/EngPortalService');
-    const { FileCacheService } = require('./services/file-cache/FileCacheService');
 
     // === Services which do not yet extend BaseService ===
     // services.registerService('filesystem', FilesystemService);
     services.registerService('operationTrace', OperationTraceService);
-    services.registerService('file-cache', FileCacheService);
     services.registerService('client-operation', ClientOperationService);
     services.registerService('engineering-portal', EngPortalService);
 

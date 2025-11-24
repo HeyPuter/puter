@@ -49,7 +49,7 @@ class TogetherAIService extends BaseService {
     * @returns {Promise<void>}
     * @private
     */
-    async _init() {
+    async _init () {
         this.together = new Together({
             apiKey: this.config.apiKey,
         });
@@ -67,7 +67,7 @@ class TogetherAIService extends BaseService {
     * Returns the default model ID for the Together AI service
     * @returns {string} The ID of the default model (meta-llama/Meta-Llama-3.1-8B-Instruct-Turbo)
     */
-    get_default_model() {
+    get_default_model () {
         return 'meta-llama/Meta-Llama-3.1-8B-Instruct-Turbo';
     }
 
@@ -79,7 +79,7 @@ class TogetherAIService extends BaseService {
              *
              * @returns Promise<Array<Object>> Array of model details
              */
-            async models() {
+            async models () {
                 return await this.models_();
             },
 
@@ -89,7 +89,7 @@ class TogetherAIService extends BaseService {
             * @description Retrieves all available model IDs and their aliases,
             * flattening them into a single array of strings that can be used for model selection
             */
-            async list() {
+            async list () {
                 let models = this.modules.kv.get(`${this.kvkey}:models`);
                 if ( ! models ) models = await this.models_();
                 return models.map(model => model.id);
@@ -98,7 +98,7 @@ class TogetherAIService extends BaseService {
              * AI Chat completion method.
              * See AIChatService for more details.
              */
-            async complete({ messages, stream, model }) {
+            async complete ({ messages, stream, model }) {
                 if ( model === 'model-fallback-test-1' ) {
                     throw new Error('Model Fallback Test 1');
                 }
@@ -112,9 +112,9 @@ class TogetherAIService extends BaseService {
 
                 // Metering integration
                 const actor = Context.get('actor');
-                const modelId = model ?? this.get_default_model();
 
-                const modelDetails = (await this.models_()).find(m => m.id === modelId);
+                const modelDetails = (await this.models_()).find(m => m.id === modelId || m.aliases?.include(modelId));
+                const modelId = modelDetails ?? this.get_default_model();
 
                 if ( stream ) {
                     const stream = new PassThrough();
@@ -145,7 +145,7 @@ class TogetherAIService extends BaseService {
                             const str = JSON.stringify({
                                 text: chunk.choices[0].delta.content,
                             });
-                            stream.write(str + '\n');
+                            stream.write(`${str }\n`);
                         }
                         stream.end();
                     })();
@@ -176,14 +176,15 @@ class TogetherAIService extends BaseService {
     *                          description and pricing information
     * @remarks Models are cached for 5 minutes in KV store
     */
-    async models_() {
+    async models_ () {
         let models = this.modules.kv.get(`${this.kvkey}:models`);
         if ( models ) return models;
         const api_models = await this.together.models.list();
         models = [];
         for ( const model of api_models ) {
             models.push({
-                id: model.id,
+                id: `togetherai:${model.id}`,
+                aliases: [model.id],
                 name: model.display_name,
                 context: model.context_length,
                 description: model.description,

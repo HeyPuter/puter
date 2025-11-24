@@ -23,7 +23,7 @@ const maxErrorNameLength = Object.keys(ErrorCodes)
     .reduce((longest, name) => Math.max(longest, name.length), 0);
 const maxNumberLength = 3;
 
-async function printSingleErrno(errorCode, out) {
+async function printSingleErrno (errorCode, out) {
     const metadata = ErrorMetadata.get(errorCode);
     const paddedName = errorCode.description + ' '.repeat(maxErrorNameLength - errorCode.description.length);
     const code = metadata.code.toString();
@@ -42,38 +42,38 @@ export default {
             list: {
                 description: 'List all errno values',
                 type: 'boolean',
-                short: 'l'
+                short: 'l',
             },
             search: {
                 description: 'Search for errors whose descriptions contain NAME-OR-CODEs, case-insensitively',
                 type: 'boolean',
-                short: 's'
-            }
-        }
+                short: 's',
+            },
+        },
     },
     execute: async ctx => {
         const { err, out } = ctx.externs;
         const { positionals, values } = ctx.locals;
 
-        if (values.search) {
-            for (const [errorCode, metadata] of ErrorMetadata) {
+        if ( values.search ) {
+            for ( const [errorCode, metadata] of ErrorMetadata ) {
                 const description = metadata.description.toLowerCase();
                 let matches = true;
-                for (const nameOrCode of positionals) {
-                    if (! description.includes(nameOrCode.toLowerCase())) {
+                for ( const nameOrCode of positionals ) {
+                    if ( ! description.includes(nameOrCode.toLowerCase()) ) {
                         matches = false;
                         break;
                     }
                 }
-                if (matches) {
+                if ( matches ) {
                     await printSingleErrno(errorCode, out);
                 }
             }
             return;
         }
 
-        if (values.list) {
-            for (const errorCode of ErrorMetadata.keys()) {
+        if ( values.list ) {
+            for ( const errorCode of ErrorMetadata.keys() ) {
                 await printSingleErrno(errorCode, out);
             }
             return;
@@ -85,20 +85,20 @@ export default {
             failedToMatchSomething = true;
         };
 
-        for (const nameOrCode of positionals) {
+        for ( const nameOrCode of positionals ) {
             let errorCode = ErrorCodes[nameOrCode.toUpperCase()];
-            if (errorCode) {
+            if ( errorCode ) {
                 await printSingleErrno(errorCode, out);
                 continue;
             }
 
             const code = Number.parseInt(nameOrCode);
-            if (!isFinite(code)) {
+            if ( ! isFinite(code) ) {
                 await fail(nameOrCode);
                 continue;
             }
             errorCode = errorFromIntegerCode(code);
-            if (errorCode) {
+            if ( errorCode ) {
                 await printSingleErrno(errorCode, out);
                 continue;
             }
@@ -106,8 +106,8 @@ export default {
             await fail(nameOrCode);
         }
 
-        if (failedToMatchSomething) {
+        if ( failedToMatchSomething ) {
             throw new Exit(1);
         }
-    }
+    },
 };

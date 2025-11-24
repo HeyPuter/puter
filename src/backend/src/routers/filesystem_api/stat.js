@@ -16,7 +16,7 @@
  * You should have received a copy of the GNU Affero General Public License
  * along with this program.  If not, see <https://www.gnu.org/licenses/>.
  */
-"use strict"
+'use strict';
 const eggspress = require('../../api/eggspress.js');
 const FSNodeParam = require('../../api/filesystem/FSNodeParam');
 const { HLStat } = require('../../filesystem/hl_operations/hl_stat.js');
@@ -34,7 +34,7 @@ module.exports = eggspress('/stat', {
     },
     parameters: {
         subject: new FSNodeParam('subject'),
-    }
+    },
 }, async (req, res, next) => {
     // modules
     const hl_stat = new HLStat();

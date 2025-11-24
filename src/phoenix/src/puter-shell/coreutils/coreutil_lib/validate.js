@@ -28,9 +28,9 @@ export const validate_string = (str, meta) => {
         throw new Error(`${meta?.name} must be a string`);
     }
 
-    if ( ! meta.allow_empty && str.length === 0 ) {
+    if ( !meta.allow_empty && str.length === 0 ) {
         throw new Error(`${meta?.name} must not be empty`);
     }
 
     return str;
-}
+};

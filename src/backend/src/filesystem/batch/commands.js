@@ -16,27 +16,26 @@
  * You should have received a copy of the GNU Affero General Public License
  * along with this program.  If not, see <https://www.gnu.org/licenses/>.
  */
-const { AdvancedBase } = require("@heyputer/putility");
-const { AsyncProviderFeature } = require("../../traits/AsyncProviderFeature");
-const { HLMkdir, QuickMkdir } = require("../hl_operations/hl_mkdir");
-const { Context } = require("../../util/context");
-const { HLWrite } = require("../hl_operations/hl_write");
-const { get_app } = require("../../helpers");
-const { OperationFrame } = require("../../services/OperationTraceService");
-const { HLMkShortcut } = require("../hl_operations/hl_mkshortcut");
-const { HLMkLink } = require("../hl_operations/hl_mklink");
-const { HLRemove } = require("../hl_operations/hl_remove");
-
+const { AdvancedBase } = require('@heyputer/putility');
+const { AsyncProviderFeature } = require('../../traits/AsyncProviderFeature');
+const { HLMkdir, QuickMkdir } = require('../hl_operations/hl_mkdir');
+const { Context } = require('../../util/context');
+const { HLWrite } = require('../hl_operations/hl_write');
+const { get_app } = require('../../helpers');
+const { OperationFrame } = require('../../services/OperationTraceService');
+const { HLMkShortcut } = require('../hl_operations/hl_mkshortcut');
+const { HLMkLink } = require('../hl_operations/hl_mklink');
+const { HLRemove } = require('../hl_operations/hl_remove');
 
 class BatchCommand extends AdvancedBase {
     static FEATURES = [
         new AsyncProviderFeature(),
-    ]
+    ];
     static async run (executor, parameters) {
         const instance = new this();
         let x = Context.get();
         const operationTraceSvc = x.get('services').get('operationTrace');
-        const frame = await operationTraceSvc.add_frame('batch:' + this.name);
+        const frame = await operationTraceSvc.add_frame(`batch:${ this.name}`);
         if ( parameters.hasOwnProperty('item_upload_id') ) {
             frame.attr('gui_metadata', {
                 ...(frame.get_attr('gui_metadata') || {}),
@@ -73,11 +72,9 @@ class MkdirCommand extends BatchCommand {
                 path: parameters.path,
             });
             if ( parameters.as ) {
-                executor.pathResolver.putSelector(
-                    parameters.as,
-                    q_mkdir.created.selector,
-                    { conflict_free: true }
-                );
+                executor.pathResolver.putSelector(parameters.as,
+                                q_mkdir.created.selector,
+                                { conflict_free: true });
             }
             this.setFactory('result', async () => {
                 await q_mkdir.created.awaitStableEntry();
@@ -101,15 +98,13 @@ class MkdirCommand extends BatchCommand {
             actor: executor.actor,
         });
         if ( parameters.as ) {
-            executor.pathResolver.putSelector(
-                parameters.as,
-                hl_mkdir.created.selector,
-                hl_mkdir.used_existing
-                    ? undefined
-                    : { conflict_free: true }
-            );
+            executor.pathResolver.putSelector(parameters.as,
+                            hl_mkdir.created.selector,
+                            hl_mkdir.used_existing
+                                ? undefined
+                                : { conflict_free: true });
         }
-        this.provideValue('result', response)
+        this.provideValue('result', response);
     }
 }
 
@@ -125,7 +120,7 @@ class WriteCommand extends BatchCommand {
 
         let app;
         if ( parameters.app_uid ) {
-            app = await get_app({uid: parameters.app_uid})
+            app = await get_app({ uid: parameters.app_uid });
         }
 
         const hl_write = new HLWrite();
@@ -157,7 +152,6 @@ class WriteCommand extends BatchCommand {
         });
 
         this.provideValue('result', response);
-
 
         // const opctx = await fs.write(fs, {
         //     // --- per file ---
@@ -197,7 +191,7 @@ class ShortcutCommand extends BatchCommand {
 
         let app;
         if ( parameters.app_uid ) {
-            app = await get_app({uid: parameters.app_uid})
+            app = await get_app({ uid: parameters.app_uid });
         }
 
         await destinationOrParent.fetchEntry({ thumbnail: true });
@@ -232,7 +226,7 @@ class SymlinkCommand extends BatchCommand {
 
         let app;
         if ( parameters.app_uid ) {
-            app = await get_app({uid: parameters.app_uid})
+            app = await get_app({ uid: parameters.app_uid });
         }
 
         await destinationOrParent.fetchEntry({ thumbnail: true });
@@ -281,5 +275,5 @@ module.exports = {
         shortcut: ShortcutCommand,
         symlink: SymlinkCommand,
         delete: DeleteCommand,
-    }
+    },
 };

@@ -42,7 +42,7 @@ router.post('/getItem', auth, express.json(), async (req, res, next) => {
     }
 
     // validation
-    if ( !req.body.key )
+    if ( ! req.body.key )
     {
         return res.status(400).send('`key` is required.');
     }
@@ -77,8 +77,8 @@ router.post('/getItem', auth, express.json(), async (req, res, next) => {
             throw new Error(driver_response.error?.message ?? 'Unknown error');
         }
         driver_result = driver_response.result;
-    } catch( e ) {
-        return res.status(400).send('puter-kvstore driver error: ' + e.message);
+    } catch ( e ) {
+        return res.status(400).send(`puter-kvstore driver error: ${ e.message}`);
     }
 
     if ( driver_result ) {
@@ -95,7 +95,7 @@ router.post('/getItem', auth, express.json(), async (req, res, next) => {
     let kv;
     // Get value from DB
     // If app is specified, then get value for that app
-    if ( req.body.app ){
+    if ( req.body.app ) {
         kv = await db.read('SELECT * FROM kv WHERE user_id=? AND app=? AND kkey_hash=? LIMIT 1',
                         [
                             req.user.id,

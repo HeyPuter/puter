@@ -43,8 +43,8 @@ const ReadlineProcessorBuilder = builder => builder
         imports: {
             out: {},
             in_: {},
-            history: {}
-        }
+            history: {},
+        },
     }))
     .variable('result', { getDefaultValue: () => '' })
     .variable('cursor', { getDefaultValue: () => 0 })
@@ -106,8 +106,8 @@ const ReadlineProcessorBuilder = builder => builder
             const inputState = readline_comprehend(ctx.sub({
                 params: {
                     input: vars.result,
-                    cursor: vars.cursor
-                }
+                    cursor: vars.cursor,
+                },
             }));
             // NEXT: get tab completer for input state
             let completer = null;
@@ -129,12 +129,10 @@ const ReadlineProcessorBuilder = builder => builder
             }
 
             if ( completer === null ) return;
-            
-            const completions = await completer.getCompletions(
-                externs.commandCtx,
-                inputState,
-            );
-            
+
+            const completions = await completer.getCompletions(externs.commandCtx,
+                            inputState);
+
             const applyCompletion = txt => {
                 const p1 = vars.result.slice(0, vars.cursor);
                 const p2 = vars.result.slice(vars.cursor);
@@ -151,18 +149,18 @@ const ReadlineProcessorBuilder = builder => builder
 
             if ( completions.length > 1 ) {
                 let inCommon = '';
-                for ( let i=0 ; completions.every(completion => completion.length > i) ; i++ ) {
+                for ( let i = 0 ; completions.every(completion => completion.length > i) ; i++ ) {
                     let matches = true;
 
                     const chrFirst = completions[0][i];
-                    for ( let ci=1 ; ci < completions.length ; ci++ ) {
+                    for ( let ci = 1 ; ci < completions.length ; ci++ ) {
                         const chrOther = completions[ci][i];
                         if ( chrFirst !== chrOther ) {
                             matches = false;
                             break;
                         }
                     }
-                
+
                     if ( ! matches ) break;
                     inCommon += chrFirst;
                 }
@@ -187,7 +185,7 @@ const ReadlineProcessorBuilder = builder => builder
             if ( vars.cursor === 0 ) return;
 
             vars.result = vars.result.slice(0, vars.cursor - 1) +
-                vars.result.slice(vars.cursor)
+                vars.result.slice(vars.cursor);
 
             vars.cursor--;
 
@@ -219,14 +217,14 @@ const ReadlineProcessorBuilder = builder => builder
                 consts.CHAR_ESC,
                 consts.CHAR_CSI,
                 '@'.charCodeAt(0),
-                ...locals.byteBuffer
+                ...locals.byteBuffer,
             ]);
             externs.out.write(insertSequence);
             // update buffer
             vars.result =
                 vars.result.slice(0, vars.cursor) +
                 part +
-                vars.result.slice(vars.cursor)
+                vars.result.slice(vars.cursor);
             // update cursor
             vars.cursor += part.length;
         }
@@ -257,7 +255,7 @@ const ReadlineProcessorBuilder = builder => builder
 
         if (
             locals.byte >= consts.CSI_F_0 &&
-            locals.byte <  consts.CSI_F_E
+            locals.byte < consts.CSI_F_E
         ) {
             ctx.trigger('ESC-CSI.post');
             ctx.setState('start');
@@ -305,15 +303,13 @@ const ReadlineProcessorBuilder = builder => builder
                 ctx.consts.CHAR_ESC,
                 ctx.consts.CHAR_CSI,
                 ...controlSequence,
-                finalByte
-            ]))
+                finalByte,
+            ]));
         }
     })
     .build();
 
-const ReadlineProcessor = ReadlineProcessorBuilder(
-    new StatefulProcessorBuilder()
-);
+const ReadlineProcessor = ReadlineProcessorBuilder(new StatefulProcessorBuilder());
 
 class Readline {
     constructor (params) {
@@ -330,10 +326,11 @@ class Readline {
         await out.write(prompt);
 
         const {
-            result
+            result,
         } = await ReadlineProcessor.run({
             prompt,
-            out, in_,
+            out,
+            in_,
             history: this.history,
             commandCtx,
         });
@@ -347,7 +344,7 @@ class Readline {
 }
 
 export default class ReadlineLib {
-    static create(params) {
+    static create (params) {
         const rl = new Readline(params);
         return rl;
     }

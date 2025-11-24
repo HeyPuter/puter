@@ -27,7 +27,7 @@ export class CommandStdinDecorator {
     // utility methods
     async collect () {
         const items = [];
-        for (;;) {
+        for ( ;; ) {
             const { value, done } = await this.rs.read();
             if ( done ) return items;
             items.push(value);

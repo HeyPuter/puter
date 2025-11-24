@@ -32,7 +32,6 @@ class DriverError {
         this.message = source?.message || message;
     }
 
-
     /**
     * Serializes the DriverError instance into a standardized object format.
     * @returns {Object} An object with keys '$' for type identification and 'message' for error details.
@@ -47,5 +46,5 @@ class DriverError {
 }
 
 module.exports = {
-    DriverError
+    DriverError,
 };

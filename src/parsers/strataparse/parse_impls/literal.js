@@ -16,7 +16,7 @@
  * You should have received a copy of the GNU Affero General Public License
  * along with this program.  If not, see <https://www.gnu.org/licenses/>.
  */
-import { ParserConfigDSL } from "../dsl/ParserBuilder.js";
+import { ParserConfigDSL } from '../dsl/ParserBuilder.js';
 
 const encoder = new TextEncoder();
 const decoder = new TextDecoder();
@@ -24,8 +24,8 @@ const decoder = new TextDecoder();
 export default class LiteralParserImpl {
     static meta = {
         inputs: 'bytes',
-        outputs: 'node'
-    }
+        outputs: 'node',
+    };
     static createFunction ({ parserFactory }) {
         return (value) => {
             const conf = new ParserConfigDSL(parserFactory, this);
@@ -40,17 +40,15 @@ export default class LiteralParserImpl {
         }
 
         if ( value.length === 0 ) {
-            throw new Error(
-                'tried to construct a LiteralParser with an ' +
+            throw new Error('tried to construct a LiteralParser with an ' +
                 'empty value, which could cause infinite ' +
-                'iteration'
-            );
+                'iteration');
         }
 
         this.value = value;
     }
     parse (lexer) {
-        for ( let i=0 ; i < this.value.length ; i++ ) {
+        for ( let i = 0 ; i < this.value.length ; i++ ) {
             let { done, value } = lexer.next();
             if ( done ) return;
             if ( this.value[i] !== value ) return;

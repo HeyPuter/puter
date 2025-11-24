@@ -9,12 +9,12 @@ declare global {
 declare class Puter {
     // Properties
     appID: string;
-    env: 'app' | 'web' | 'gui';
+    env: 'app' | 'web' | 'gui' | 'nodejs' | 'service-worker';
 
     // Utility methods
-    print(text: string, options?: { code?: boolean }): void;
-    randName(separator?: string): string;
-    exit(statusCode?: number): void;
+    print (text: string, options?: { code?: boolean }): void;
+    randName (separator?: string): string;
+    exit (statusCode?: number): void;
 
     // Sub-modules
     ai: AI;
@@ -47,6 +47,9 @@ interface AI {
     chat(messages: ChatMessage[], testMode?: boolean, options?: NonStreamingChatOptions): Promise<ChatResponse>;
 
     img2txt(image: string | File | Blob, testMode?: boolean): Promise<string>;
+    img2txt(image: string | File | Blob, options?: Img2TxtOptions): Promise<string>;
+    img2txt(image: string | File | Blob, testMode?: boolean, options?: Img2TxtOptions): Promise<string>;
+    img2txt(options: Img2TxtOptions): Promise<string>;
 
     txt2img(prompt: string, testMode?: boolean): Promise<HTMLImageElement>;
     txt2img(prompt: string, options?: Txt2ImgOptions): Promise<HTMLImageElement>;
@@ -67,14 +70,24 @@ interface AI {
     speech2txt(source: Speech2TxtOptions, testMode?: boolean): Promise<string | Speech2TxtResult>;
 }
 
-type StreamingChatOptions = Omit<ChatOptions, "stream"> & { stream: true };
-type NonStreamingChatOptions = Omit<ChatOptions, "stream"> & { stream?: false | undefined };
+type StreamingChatOptions = Omit<ChatOptions, 'stream'> & { stream: true };
+type NonStreamingChatOptions = Omit<ChatOptions, 'stream'> & { stream?: false | undefined };
 
 interface ChatOptions {
     model?: string;
     stream?: boolean;
     max_tokens?: number;
     temperature?: number;
+    reasoning?: {
+        effort?: 'none' | 'low' | 'medium' | 'high' | 'minimal';
+        [key: string]: unknown;
+    };
+    reasoning_effort?: 'none' | 'low' | 'medium' | 'high' | 'minimal';
+    text?: {
+        verbosity?: 'low' | 'medium' | 'high';
+        [key: string]: unknown;
+    };
+    verbosity?: 'low' | 'medium' | 'high';
     tools?: ToolDefinition[];
 }
 
@@ -125,11 +138,40 @@ interface Txt2ImgOptions {
 
 interface Txt2VidOptions {
     prompt?: string;
-    model?: 'sora-2' | 'sora-2-pro';
-    duration?: 4 | 8 | 12;
-    seconds?: 4 | 8 | 12;
-    size?: '720x1280' | '1280x720' | '1024x1792' | '1792x1024';
-    resolution?: '720x1280' | '1280x720' | '1024x1792' | '1792x1024';
+    model?: string;
+    duration?: number;
+    seconds?: number;
+    size?: string;
+    resolution?: string;
+    width?: number;
+    height?: number;
+    fps?: number;
+    steps?: number;
+    guidance_scale?: number;
+    seed?: number;
+    output_format?: string;
+    output_quality?: number;
+    negative_prompt?: string;
+    reference_images?: string[];
+    frame_images?: Array<Record<string, unknown>>;
+    metadata?: Record<string, unknown>;
+    provider?: string;
+    service?: string;
+    driver?: string;
+    test_mode?: boolean;
+}
+
+interface Img2TxtOptions {
+    source?: string | File | Blob;
+    provider?: 'aws-textract' | 'mistral';
+    model?: string;
+    pages?: number[];
+    includeImageBase64?: boolean;
+    imageLimit?: number;
+    imageMinSize?: number;
+    bboxAnnotationFormat?: Record<string, unknown>;
+    documentAnnotationFormat?: Record<string, unknown>;
+    testMode?: boolean;
 }
 
 interface Txt2SpeechOptions {
@@ -236,12 +278,41 @@ interface Auth {
     signOut(): void;
     isSignedIn(): boolean;
     getUser(): Promise<User>;
+    getMonthlyUsage(): Promise<MonthlyUsage>;
+    getDetailedAppUsage(appId: string): Promise<DetailedAppUsage>;
 }
 
 interface User {
     uuid: string;
     username: string;
     email_confirmed: boolean;
+}
+
+interface AllowanceInfo {
+    monthUsageAllowance: number;
+    remaining: number;
+}
+
+interface AppUsage {
+    count: number;
+    total: number;
+}
+
+interface APIUsage {
+    cost: number;
+    count: number;
+    units: number;
+}
+
+interface MonthlyUsage {
+    allowanceInfo: AllowanceInfo;
+    appTotals: Record<string, AppUsage>;
+    usage: Record<string, APIUsage>;
+}
+
+interface DetailedAppUsage {
+    total: number;
+    [key: string]: APIUsage;
 }
 
 // Drivers Module
@@ -375,17 +446,17 @@ interface Networking {
 }
 
 declare class Socket {
-    constructor(hostname: string, port: number);
-    write(data: ArrayBuffer | Uint8Array | string): void;
-    close(): void;
-    on(event: 'open', callback: () => void): void;
-    on(event: 'data', callback: (buffer: Uint8Array) => void): void;
-    on(event: 'error', callback: (reason: string) => void): void;
-    on(event: 'close', callback: (hadError: boolean) => void): void;
+    constructor (hostname: string, port: number);
+    write (data: ArrayBuffer | Uint8Array | string): void;
+    close (): void;
+    on (event: 'open', callback: () => void): void;
+    on (event: 'data', callback: (buffer: Uint8Array) => void): void;
+    on (event: 'error', callback: (reason: string) => void): void;
+    on (event: 'close', callback: (hadError: boolean) => void): void;
 }
 
 declare class TLSSocket extends Socket {
-    constructor(hostname: string, port: number);
+    constructor (hostname: string, port: number);
 }
 
 // Permissions Module
@@ -563,5 +634,5 @@ export {
     Permissions, Puter, ReaddirOptions, ReadOptions, SpaceInfo, StatsPeriod, Subdomain, ThemeData, ToolCall, ToolDefinition, Txt2ImgOptions,
     Txt2SpeechOptions, UI, UpdateAppAttributes, User, WindowOptions, WorkerDeployment,
     WorkerExecOptions,
-    WorkerInfo, Workers, WriteOptions
+    WorkerInfo, Workers, WriteOptions,
 };
