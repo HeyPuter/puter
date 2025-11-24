@@ -247,6 +247,50 @@ class ClaudeService extends BaseService {
                     const init_chat_stream = async ({ chatStream }) => {
                         const completion = await anthropic.messages.stream(sdk_params);
                         const usageSum = {};
+                        const runningUsage = {
+                            input_tokens: 0,
+                            output_tokens: 0,
+                            total_tokens: 0,
+                        };
+
+                        // Each emitted content block now carries an incremental usage object
+                        // ({ input_tokens, output_tokens, total_tokens }) for live metering.
+                        const getUsage = () => ({
+                            input_tokens: runningUsage.input_tokens,
+                            output_tokens: runningUsage.output_tokens,
+                            total_tokens: runningUsage.total_tokens,
+                        });
+
+                        const enhanceTextBlock = (block) => {
+                            block.addText = (text) => {
+                                const payload = {
+                                    type: 'text',
+                                    text,
+                                    usage: getUsage(),
+                                };
+                                block.chatStream.stream.write(JSON.stringify(payload) + '\n');
+                            };
+                            return block;
+                        };
+
+                        const enhanceToolBlock = (block) => {
+                            const originalAddPartialJSON = block.addPartialJSON?.bind(block);
+                            if ( originalAddPartialJSON ) {
+                                block.addPartialJSON = (partial_json) => originalAddPartialJSON(partial_json);
+                            }
+                            block.end = () => {
+                                const buffer = (block.buffer || '').trim() === '' ? '{}' : block.buffer;
+                                const payload = {
+                                    ...block.contentBlock,
+                                    input: JSON.parse(buffer),
+                                    ...(block.contentBlock?.text ? {} : { text: '' }),
+                                    type: 'tool_use',
+                                    usage: getUsage(),
+                                };
+                                block.chatStream.stream.write(JSON.stringify(payload) + '\n');
+                            };
+                            return block;
+                        };
 
                         let message, contentBlock;
                         for await ( const event of completion ) {
@@ -257,6 +301,9 @@ class ClaudeService extends BaseService {
                                 if ( ! usageSum[key] ) usageSum[key] = 0;
                                 usageSum[key] += meteredData[key];
                             });
+                            runningUsage.input_tokens += meteredData.input_tokens || 0;
+                            runningUsage.output_tokens += meteredData.output_tokens || 0;
+                            runningUsage.total_tokens = runningUsage.input_tokens + runningUsage.output_tokens;
 
                             if ( event.type === 'message_start' ) {
                                 message = chatStream.message();
@@ -270,16 +317,16 @@ class ClaudeService extends BaseService {
 
                             if ( event.type === 'content_block_start' ) {
                                 if ( event.content_block.type === 'tool_use' ) {
-                                    contentBlock = message.contentBlock({
+                                    contentBlock = enhanceToolBlock(message.contentBlock({
                                         type: event.content_block.type,
                                         id: event.content_block.id,
                                         name: event.content_block.name,
-                                    });
+                                    }));
                                     continue;
                                 }
-                                contentBlock = message.contentBlock({
+                                contentBlock = enhanceTextBlock(message.contentBlock({
                                     type: event.content_block.type,
-                                });
+                                }));
                                 continue;
                             }
 

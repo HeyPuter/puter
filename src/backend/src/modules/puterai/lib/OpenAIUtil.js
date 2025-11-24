@@ -91,6 +91,8 @@ const create_chat_stream_handler = ({
     completion,
     usage_calculator,
 }) => async ({ chatStream }) => {
+    // Streaming chunks now include a running usage object ({ prompt_tokens, completion_tokens, total_tokens })
+    // so downstream consumers can surface live token counts without changing existing fields.
     deviations = Object.assign({
         // affected by: Groq
         index_usage_from_stream_chunk: chunk => chunk.usage,
@@ -106,6 +108,50 @@ const create_chat_stream_handler = ({
     const tool_call_blocks = [];
 
     let last_usage = null;
+    const usage_totals = {
+        prompt_tokens: 0,
+        completion_tokens: 0,
+        total_tokens: 0,
+    };
+
+    const getUsage = () => ({
+        prompt_tokens: usage_totals.prompt_tokens,
+        completion_tokens: usage_totals.completion_tokens,
+        total_tokens: usage_totals.total_tokens,
+    });
+
+    const enhanceTextBlock = (block) => {
+        block.addText = (text) => {
+            const payload = {
+                type: 'text',
+                text,
+                usage: getUsage(),
+            };
+            block.chatStream.stream.write(JSON.stringify(payload) + '\n');
+        };
+        return block;
+    };
+
+    const enhanceToolBlock = (block) => {
+        const originalAddPartialJSON = block.addPartialJSON?.bind(block);
+        if ( originalAddPartialJSON ) {
+            block.addPartialJSON = (partial_json) => originalAddPartialJSON(partial_json);
+        }
+        block.end = () => {
+            const buffer = (block.buffer || '').trim() === '' ? '{}' : block.buffer;
+            const payload = {
+                ...block.contentBlock,
+                input: JSON.parse(buffer),
+                ...(block.contentBlock?.text ? {} : { text: '' }),
+                type: 'tool_use',
+                usage: getUsage(),
+            };
+            block.chatStream.stream.write(JSON.stringify(payload) + '\n');
+        };
+        return block;
+    };
+
+    textblock = enhanceTextBlock(textblock);
     for await ( let chunk of completion ) {
         chunk = deviations.chunk_but_like_actually(chunk);
         if ( process.env.DEBUG ) {
@@ -115,7 +161,15 @@ const create_chat_stream_handler = ({
                             delta && JSON.stringify(delta));
         }
         const chunk_usage = deviations.index_usage_from_stream_chunk(chunk);
-        if ( chunk_usage ) last_usage = chunk_usage;
+        if ( chunk_usage ) {
+            usage_totals.prompt_tokens += chunk_usage.prompt_tokens ?? 0;
+            usage_totals.completion_tokens += chunk_usage.completion_tokens ?? 0;
+            usage_totals.total_tokens = usage_totals.prompt_tokens + usage_totals.completion_tokens;
+            last_usage = {
+                ...chunk_usage,
+                ...getUsage(),
+            };
+        }
         if ( chunk.choices.length < 1 ) continue;
 
         const choice = chunk.choices[0];
@@ -124,7 +178,7 @@ const create_chat_stream_handler = ({
             if ( mode === 'tool' ) {
                 toolblock.end();
                 mode = 'text';
-                textblock = message.contentBlock({ type: 'text' });
+                textblock = enhanceTextBlock(message.contentBlock({ type: 'text' }));
             }
             textblock.addText(choice.delta.content);
             continue;
@@ -138,11 +192,11 @@ const create_chat_stream_handler = ({
             }
             for ( const tool_call of tool_calls ) {
                 if ( ! tool_call_blocks[tool_call.index] ) {
-                    toolblock = message.contentBlock({
+                    toolblock = enhanceToolBlock(message.contentBlock({
                         type: 'tool_use',
                         id: tool_call.id,
                         name: tool_call.function.name,
-                    });
+                    }));
                     tool_call_blocks[tool_call.index] = toolblock;
                 } else {
                     toolblock = tool_call_blocks[tool_call.index];
@@ -152,8 +206,9 @@ const create_chat_stream_handler = ({
         }
     }
 
+    const final_usage = last_usage ?? getUsage();
     // TODO DS: this is a bit too abstracted... this is basically just doing the metering now
-    usage_calculator({ usage: last_usage });
+    usage_calculator({ usage: final_usage });
 
     if ( mode === 'text' ) textblock.end();
     if ( mode === 'tool' ) toolblock.end();
