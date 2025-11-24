@@ -253,17 +253,18 @@ export class OpenAICompletionService {
         messages = await OpenAIUtil.process_input_messages(messages);
 
         const completion = await this.#openAi.chat.completions.create({
-            user: user_private_uid,
-            messages: messages,
-            model: model,
-            ...(tools ? { tools } : {}),
-            ...(max_tokens ? { max_completion_tokens: max_tokens } : {}),
-            ...(temperature ? { temperature } : {}),
-            stream,
-            ...(stream ? {
-                stream_options: { include_usage: true },
-            } : {}),
-        });
+    user: user_private_uid,
+    messages: messages,
+    model: model,
+    ...(tools ? { tools } : {}),
+    ...(max_tokens ? { max_completion_tokens: max_tokens } : {}),
+    ...(temperature ? { temperature } : {}),
+    stream,
+    ...(stream ? {
+        stream_options: { include_usage: true },
+    } : {}),
+});
+
         // TODO DS: simplify this logic for all the ai services, each service should handle its cost calculation in the service
         // for now I'm overloading this usage calculator to handle the future promise resolution...
         return OpenAIUtil.handle_completion_output({
