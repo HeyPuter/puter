@@ -113,10 +113,10 @@ class PuterAIModule extends AdvancedBase {
             services.registerService('deepseek', DeepSeekService);
         }
         if ( config?.services?.['gemini'] ) {
-            const { GeminiOpenAIService } =  require('./GeminiOpenAiService/GeminiOpenAIService.mjs');
+            const { GeminiService } =  require('./GeminiService/GeminiService.mjs');
             const { GeminiImageGenerationService } = require('./GeminiImageGenerationService');
 
-            services.registerService('gemini', GeminiOpenAIService);
+            services.registerService('gemini', GeminiService);
             services.registerService('gemini-image-generation', GeminiImageGenerationService);
         }
         if ( config?.services?.['openrouter'] ) {

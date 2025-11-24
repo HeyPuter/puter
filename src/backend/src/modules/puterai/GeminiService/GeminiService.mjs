@@ -1,13 +1,13 @@
 // Preamble: Before this we used Gemini's SDK directly and as we found out
-// its actually kind of terrible
-
-import BaseService from '../../../services/BaseService';
+// its actually kind of terrible. So we use the openai sdk now
+import BaseService from '../../../services/BaseService.js';
 import openai from 'openai';
-import OpenAIUtil from '../lib/OpenAIUtil';
-import { Context } from '../../util/context';
+import OpenAIUtil from '../lib/OpenAIUtil.js';
+import { Context } from '../../../util/context.js';
 import { models } from './models.mjs';
 
-export class GeminiOpenAIService extends BaseService {
+
+export class GeminiService extends BaseService {
     /**
     * @type {import('../../services/MeteringService/MeteringService').MeteringService}
     */
@@ -89,8 +89,8 @@ export class GeminiOpenAIService extends BaseService {
             console.error('Gemini completion error: ', e);
             throw e;
         }
-
-        const modelDetails =  (await this.models_()).find(m => m.id === model);
+        
+        const modelDetails =  (await this.models()).find(m => m.id === model);
         return OpenAIUtil.handle_completion_output({
             usage_calculator: ({ usage }) => {
                 const trackedUsage = {
