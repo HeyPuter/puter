@@ -793,64 +793,13 @@ class AI {
             requestParams.model = requestParams.model.replace('openai/', '');
             driver = 'openai-completion';
         }
-
-        // if model starts with:
-        //      agentica-org/
-        //      ai21/
-        //      aion-labs/
-        //      alfredpros/
-        //      alpindale/
-        //      amazon/
-        //      anthracite-org/
-        //      arcee-ai/
-        //      arliai/
-        //      baidu/
-        //      bytedance/
-        //      cognitivecomputations/
-        //      cohere/
-        //      deepseek/
-        //      eleutherai/
-        //      google/
-        //      gryphe/
-        //      inception/
-        //      infermatic/
-        //      liquid/
-        //      mancer/
-        //      meta-llama/
-        //      microsoft/
-        //      minimax/
-        //      mistralai/
-        //      moonshotai/
-        //      morph/
-        //      neversleep/
-        //      nousresearch/
-        //      nvidia/
-        //      openrouter/
-        //      perplexity/
-        //      pygmalionai/
-        //      qwen/
-        //      raifle/
-        //      rekaai/
-        //      sao10k/
-        //      sarvamai/
-        //      scb10x/
-        //      shisa-ai/
-        //      sophosympatheia/
-        //      switchpoint/
-        //      tencent/
-        //      thedrummer/
-        //      thudm/
-        //      tngtech/
-        //      undi95/
-        //      x-ai/
-        //      z-ai/
-
-        // prepend it with openrouter:
+        // For the following providers, we need to prepend "openrouter:" to the model name so that the backend driver can handle it
         if (
             requestParams.model.startsWith('agentica-org/') ||
             requestParams.model.startsWith('ai21/') ||
             requestParams.model.startsWith('aion-labs/') ||
             requestParams.model.startsWith('alfredpros/') ||
+            requestParams.model.startsWith('allenai/') ||
             requestParams.model.startsWith('alpindale/') ||
             requestParams.model.startsWith('amazon/') ||
             requestParams.model.startsWith('anthracite-org/') ||
