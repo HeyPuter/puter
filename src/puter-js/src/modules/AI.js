@@ -1001,6 +1001,10 @@ class AI {
             options.model = 'gemini-2.5-flash-image-preview';
         }
 
+        if (options.model === "nano-banana-pro") {
+            options.model = "gemini-3-pro-image-preview";
+        }
+
         const driverHint = typeof options.driver === 'string' ? options.driver : undefined;
         const providerRaw = typeof options.provider === 'string'
             ? options.provider
@@ -1019,7 +1023,7 @@ class AI {
             AIService = 'gemini-image-generation';
         } else if ( providerHint === 'together' || providerHint === 'together-ai' ) {
             AIService = 'together-image-generation';
-        } else if ( options.model === 'gemini-2.5-flash-image-preview' ) {
+        } else if (options.model === 'gemini-2.5-flash-image-preview' || options.model === "gemini-3-pro-image-preview" ) {
             AIService = 'gemini-image-generation';
         } else if ( looksLikeTogetherModel ) {
             AIService = 'together-image-generation';
