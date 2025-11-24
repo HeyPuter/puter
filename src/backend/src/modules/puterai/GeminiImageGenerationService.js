@@ -42,6 +42,9 @@ class GeminiImageGenerationService extends BaseService {
             'gemini-2.5-flash-image-preview': {
                 '1024x1024': 0.039,
             },
+            'gemini-3-pro-image-preview': {
+                '1024x1024': 0.156,
+            },
         };
     }
 
@@ -192,9 +195,10 @@ class GeminiImageGenerationService extends BaseService {
         }
 
         const response = await this.genAI.models.generateContent({
-            model: 'gemini-2.5-flash-image-preview',
-            contents: contents,
+            model,
+            contents,
         });
+
         // Metering usage tracking
         // Gemini usage: always 1 image, resolution, cost, model
         this.meteringService.incrementUsage(actor, usageType, 1);
@@ -221,10 +225,14 @@ class GeminiImageGenerationService extends BaseService {
      * @returns {Array<Object>} Array of valid ratio objects
      * @private
      */
-    _getValidRatios (model) {
-        if ( model === 'gemini-2.5-flash-image-preview' ) {
+    _getValidRatios(model) {
+        if (
+            model === 'gemini-2.5-flash-image-preview' ||
+            model === 'gemini-3-pro-image-preview'
+        ) {
             return [this.constructor.RATIO_SQUARE];
         }
+        return [];
     }
 
     _validate_ratio (ratio, model) {
