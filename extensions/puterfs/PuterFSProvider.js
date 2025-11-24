@@ -20,6 +20,7 @@
 const STUCK_STATUS_TIMEOUT = 10 * 1000;
 const STUCK_ALARM_TIMEOUT = 20 * 1000;
 
+import crypto from 'node:crypto';
 import path_ from 'node:path';
 import { v4 as uuidv4 } from 'uuid';
 
