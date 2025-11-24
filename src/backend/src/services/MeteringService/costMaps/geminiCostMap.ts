@@ -14,4 +14,5 @@ export const GEMINI_COST_MAP = {
     'gemini:gemini-1.5-flash:promptTokenCount': 3,
     'gemini:gemini-1.5-flash:candidatesTokenCount': 2,
     'gemini:gemini-2.5-flash-image-preview:1024x1024': 3_900_000,
+    'gemini:gemini-3-pro-image-preview:1024x1024': 15_600_000
 };
