@@ -116,7 +116,7 @@ class PuterAIModule extends AdvancedBase {
             services.registerService('deepseek', DeepSeekService);
         }
         if ( config?.services?.['gemini'] ) {
-            const { GeminiService } = require('./GeminiService');
+            const { GeminiService } =  require('./GeminiService/GeminiService.mjs');
             const { GeminiImageGenerationService } = require('./GeminiImageGenerationService');
 
             services.registerService('gemini', GeminiService);
@@ -129,13 +129,13 @@ class PuterAIModule extends AdvancedBase {
 
         // Autodiscover Ollama service and then check if its disabled in the config
         // if config.services.ollama.enabled is undefined, it means the user hasn't set it, so we should default to true
-        const ollama_available = await fetch('http://localhost:11434/api/tags').then(resp => resp.json()).then(data => {
+        const ollama_available = await fetch('http://localhost:11434/api/tags').then(resp => resp.json()).then(_data => {
             const ollama_enabled = config?.services?.['ollama']?.enabled;
             if ( ollama_enabled === undefined ) {
                 return true;
             }
             return ollama_enabled;
-        }).catch(err => {
+        }).catch(_err => {
             return false;
         });
         // User can disable ollama in the config, but by default it should be enabled if discovery is successful

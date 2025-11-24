@@ -257,7 +257,7 @@ const nn = {
         modified: 'Endra',
         new_email: 'Ny e-post',
         no: 'Nei',
-        original_name: 'Origninalt namn',
+        original_name: 'Originalt namn',
         original_path: 'Original sti',
         oss_code_and_content: 'Programvare med open kjeldekode og innhald',
         password_recovery_rate_limit:
