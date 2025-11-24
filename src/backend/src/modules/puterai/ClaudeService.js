@@ -370,6 +370,19 @@ class ClaudeService extends BaseService {
     models_ () {
         return [
             {
+                id: 'claude-opus-4-5',
+                aliases: ['claude-opus-4-5-latest', 'claude-opus-4.5'],
+                name: 'Claude Opus 4.5',
+                cost: {
+                    currency: 'usd-cents',
+                    tokens: 1_000_000,
+                    input: 500,
+                    output: 2500,
+                },
+                context: 200000,
+                max_tokens: 64000,
+            },
+            {
                 id: 'claude-haiku-4-5-20251001',
                 aliases: ['claude-haiku-4.5', 'claude-haiku-4-5'],
                 name: 'Claude Haiku 4.5',
