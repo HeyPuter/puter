@@ -51,7 +51,7 @@ class TestLogger {
 * - Context creation and management
 * Does not include full service initialization or legacy service support
 */
-class TestKernel extends AdvancedBase {
+export class TestKernel extends AdvancedBase {
     constructor () {
         super();
 
@@ -267,7 +267,3 @@ const main = async () => {
 if ( require.main === module ) {
     main();
 }
-
-module.exports = {
-    TestKernel,
-};
