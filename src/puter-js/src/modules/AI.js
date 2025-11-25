@@ -88,24 +88,41 @@ class AI {
     /**
      * Returns a list of available AI models.
      * @param {string} provider - The provider to filter the models returned.
-     * @returns {Object} Object containing lists of available models by provider
+     * @returns {Array} Array containing available model objects
      */
     async listModels (provider) {
-        const modelsByProvider = {};
+        // Prefer the public API endpoint and fall back to the legacy driver call if needed.
+        const headers = this.authToken ? { Authorization: `Bearer ${this.authToken}` } : {};
 
-        const models = await puter.drivers.call('puter-chat-completion', 'ai-chat', 'models');
+        const tryFetchModels = async () => {
+            const resp = await fetch(`${this.APIOrigin }/puterai/chat/models/details`, { headers });
+            if ( !resp.ok ) return null;
+            const data = await resp.json();
+            const models = Array.isArray(data?.models) ? data.models : [];
+            return provider ? models.filter(model => model.provider === provider) : models;
+        };
 
-        if ( !models || !models.result || !Array.isArray(models.result) ) {
-            return modelsByProvider;
-        }
-        models.result.forEach(item => {
-            if ( !item.provider || !item.id ) return;
-            if ( provider && item.provider !== provider ) return;
-            if ( ! modelsByProvider[item.provider] ) modelsByProvider[item.provider] = [];
-            modelsByProvider[item.provider].push(item.id);
-        });
+        const tryDriverModels = async () => {
+            const models = await puter.drivers.call('puter-chat-completion', 'ai-chat', 'models');
+            const result = Array.isArray(models?.result) ? models.result : [];
+            return provider ? result.filter(model => model.provider === provider) : result;
+        };
 
-        return modelsByProvider;
+        const models = await (async () => {
+            try {
+                const apiModels = await tryFetchModels();
+                if ( apiModels !== null ) return apiModels;
+            } catch (e) {
+                // Ignore and fall back to the driver call below.
+            }
+            try {
+                return await tryDriverModels();
+            } catch (e) {
+                return [];
+            }
+        })();
+
+        return models;
     }
 
     /**
@@ -113,16 +130,12 @@ class AI {
      * @returns {Array} Array containing providers
      */
     async listModelProviders () {
-        let providers = [];
-        const models = await puter.drivers.call('puter-chat-completion', 'ai-chat', 'models');
-
-        if ( !models || !models.result || !Array.isArray(models.result) ) return providers; // if models is invalid then return empty array
-        providers = new Set(); // Use a Set to store unique providers
-        models.result.forEach(item => {
-            if ( item.provider ) providers.add(item.provider);
+        const models = await this.listModels();
+        const providers = new Set();
+        (models ?? []).forEach(item => {
+            if ( item?.provider ) providers.add(item.provider);
         });
-        providers = Array.from(providers); // Convert Set to an array
-        return providers;
+        return Array.from(providers);
     }
 
     img2txt = async (...args) => {
