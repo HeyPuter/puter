@@ -37,6 +37,17 @@ Puter is an advanced, open-source internet operating system designed to be featu
 
 <br/>
 
+## 📑 Table of Contents
+
+- [Getting Started](#getting-started)
+  - [💻 Local Development](#-local-development)
+  - [🐳 Docker](#-docker)
+  - [☁️ Self-Hosting](#️-self-hosting)
+- [System Requirements](#system-requirements)
+- [Support](#support)
+- [License](#license)
+
+
 ## Getting Started
 
 ### 💻 Local Development
