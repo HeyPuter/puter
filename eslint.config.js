@@ -56,10 +56,34 @@ const rules = {
 };
 
 export default defineConfig([
+    // TypeScript support for tests
+    {
+        files: ['**/*.test.ts', '**/*.test.mts', '**/*.test.setup.ts'],
+        ignores: ['tests/playwright/tests/**/*.ts'],
+        languageOptions: {
+            parser: tseslintParser,
+            globals: { ...globals.node, ...globals.vitest },
+            parserOptions: {
+                ecmaVersion: 'latest',
+                sourceType: 'module',
+                project: './tests/tsconfig.json',
+            },
+        },
+        plugins: {
+            '@typescript-eslint': tseslintPlugin,
+        },
+        rules: {
+            // Recommended rules for TypeScript
+            '@typescript-eslint/no-explicit-any': 'warn',
+            '@typescript-eslint/no-unused-vars': ['error', { argsIgnorePattern: '^_', caughtErrors: 'none' }],
+            '@typescript-eslint/ban-ts-comment': 'warn',
+            '@typescript-eslint/consistent-type-definitions': ['error', 'interface'],
+        },
+    },
     // TypeScript support block
     {
         files: ['**/*.ts'],
-        ignores: ['tests/**/*.ts', 'extensions/**/*.ts'],
+        ignores: ['**/*.test.ts', '**/*.test.mts', 'extensions/**/*.ts'],
         languageOptions: {
             parser: tseslintParser,
             parserOptions: {
@@ -99,40 +123,19 @@ export default defineConfig([
             '@typescript-eslint/no-unused-vars': ['error', { argsIgnorePattern: '^_', caughtErrors: 'none' }],
             '@typescript-eslint/ban-ts-comment': 'warn',
             '@typescript-eslint/consistent-type-definitions': ['error', 'interface'],
-        } },
-    // TypeScript support for tests
-    {
-        files: ['tests/**/*.ts'],
-        ignores: ['tests/playwright/tests/**/*.ts'],
-
-        languageOptions: {
-            parser: tseslintParser,
-            globals: { ...globals.jest, ...globals.node },
-            parserOptions: {
-                ecmaVersion: 'latest',
-                sourceType: 'module',
-                project: './tests/tsconfig.json',
-            },
         },
-        plugins: {
-            '@typescript-eslint': tseslintPlugin,
-        },
-        rules: {
-            // Recommended rules for TypeScript
-            '@typescript-eslint/no-explicit-any': 'warn',
-            '@typescript-eslint/no-unused-vars': ['error', { argsIgnorePattern: '^_', caughtErrors: 'none' }],
-            '@typescript-eslint/ban-ts-comment': 'warn',
-            '@typescript-eslint/consistent-type-definitions': ['error', 'interface'],
-        } },
+    },
     {
         plugins: {
             js,
             '@stylistic': stylistic,
-            custom: { rules: {
-                'control-structure-spacing': controlStructureSpacing,
-                'bang-space-if': bangSpaceIf,
-                'space-unary-ops-with-exception': spaceUnaryOpsWithException,
-            } },
+            custom: {
+                rules: {
+                    'control-structure-spacing': controlStructureSpacing,
+                    'bang-space-if': bangSpaceIf,
+                    'space-unary-ops-with-exception': spaceUnaryOpsWithException,
+                },
+            },
         },
     },
     {
@@ -143,6 +146,8 @@ export default defineConfig([
         ],
         ignores: [
             '**/*.test.js',
+            '**/*.test.ts',
+            '**/*.test.mts',
         ],
         languageOptions: { globals: globals.node },
         rules,
@@ -155,8 +160,10 @@ export default defineConfig([
     {
         files: [
             '**/*.test.js',
+            '**/*.test.ts',
+            '**/*.test.mts',
         ],
-        languageOptions: { globals: { ...globals.jest, ...globals.node } },
+        languageOptions: { globals: { ...globals.node, ...globals.vitest } },
         rules,
         plugins: {
             js,

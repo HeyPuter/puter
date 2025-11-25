@@ -13,7 +13,7 @@ describe('Puter KV Module', () => {
         expect(getRes).toBe(0);
     });
     it('should get empty key', async () => {
-        const emptyRes = await puter.kv.get('fake' + TEST_KEY)
+        const emptyRes = await puter.kv.get(`fake${ TEST_KEY}`);
         expect(emptyRes).toBeNull();
     });
 
@@ -39,7 +39,7 @@ describe('Puter KV Module', () => {
         expect(incrRes).toBe(1);
         const finalGet = await puter.kv.get(TEST_KEY);
         expect(finalGet).toBe(1);
-    })
+    });
 
     it('should decrement a key with second argument', async () => {
         await puter.kv.set(TEST_KEY, 0);
@@ -47,7 +47,7 @@ describe('Puter KV Module', () => {
         expect(incrRes).toBe(-1);
         const finalGet = await puter.kv.get(TEST_KEY);
         expect(finalGet).toBe(-1);
-    })
+    });
 
     it('should increment a key with second argument', async () => {
         await puter.kv.set(TEST_KEY, 0);
@@ -55,7 +55,7 @@ describe('Puter KV Module', () => {
         expect(incrRes).toBe(2);
         const finalGet = await puter.kv.get(TEST_KEY);
         expect(finalGet).toBe(2);
-    })
+    });
 
     it('should decrement a key with second argument', async () => {
         await puter.kv.set(TEST_KEY, 0);
@@ -63,7 +63,7 @@ describe('Puter KV Module', () => {
         expect(incrRes).toBe(-3);
         const finalGet = await puter.kv.get(TEST_KEY);
         expect(finalGet).toBe(-3);
-    })
+    });
 
     it('should increment a key with nested path', async () => {
         await puter.kv.set(TEST_KEY, { a: { b: 0 } });
@@ -71,7 +71,7 @@ describe('Puter KV Module', () => {
         expect(incrRes).toEqual({ a: { b: 1 } });
         const finalGet = await puter.kv.get(TEST_KEY);
         expect(finalGet).toEqual({ a: { b: 1 } });
-    })
+    });
 
     it('should decrement a key with nested path', async () => {
         await puter.kv.set(TEST_KEY, { a: { b: 0 } });
@@ -79,21 +79,21 @@ describe('Puter KV Module', () => {
         expect(incrRes).toEqual({ a: { b: -1 } });
         const finalGet = await puter.kv.get(TEST_KEY);
         expect(finalGet).toEqual({ a: { b: -1 } });
-    })
+    });
 
     it('should increment a nonexistent key with nested path', async () => {
         const incrRes = await puter.kv.incr(TEST_KEY + 1, { 'a.b': 1 });
         expect(incrRes).toEqual({ a: { b: 1 } });
         const finalGet = await puter.kv.get(TEST_KEY + 1);
         expect(finalGet).toEqual({ a: { b: 1 } });
-    })
+    });
 
     it('should decrement a nonexistent key with nested path', async () => {
         const incrRes = await puter.kv.decr(TEST_KEY + 2, { 'a.b': 1 });
         expect(incrRes).toEqual({ a: { b: -1 } });
         const finalGet = await puter.kv.get(TEST_KEY + 2);
         expect(finalGet).toEqual({ a: { b: -1 } });
-    })
+    });
 
     it('should list keys', async () => {
         const listRes = await puter.kv.list();
@@ -103,7 +103,7 @@ describe('Puter KV Module', () => {
     });
     // delete ops should go last
     it('should flush all keys', async () => {
-        const flushRes = await puter.kv.flush()
+        const flushRes = await puter.kv.flush();
         expect(flushRes).toBe(true);
         const postFlushList = await puter.kv.list();
         expect(Array.isArray(postFlushList)).toBe(true);
