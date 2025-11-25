@@ -17,6 +17,7 @@
  * along with this program.  If not, see <https://www.gnu.org/licenses/>.
  */
 const APIError = require('../../api/APIError');
+const config = require('../../config');
 const { app_name_exists, refresh_apps_cache } = require('../../helpers');
 
 const { AppUnderUserActorType } = require('../../services/auth/Actor');
@@ -103,6 +104,16 @@ class AppES extends BaseES {
          * @returns {Promise<Object>} Upsert operation results
          */
         async upsert (entity, extra) {
+            const actor = Context.get('actor');
+            const user = actor?.type?.user;
+
+            const full_entity = extra.old_entity
+                ? await (await extra.old_entity.clone()).apply(entity)
+                : entity
+                ;
+
+            await this.ensure_puter_site_subdomain_is_owned_(full_entity, extra, user);
+
             if ( await app_name_exists(await entity.get('name')) ) {
                 const { old_entity } = extra;
                 const is_name_change = ( !old_entity ) ||
@@ -198,13 +209,6 @@ class AppES extends BaseES {
                 : await entity.get('owner');
 
             {
-                const { old_entity } = extra;
-
-                const full_entity = old_entity
-                    ? await (await old_entity.clone()).apply(entity)
-                    : entity
-                    ;
-
                 // Update app cache
                 const raw_app = {
                     // These map to different names
@@ -352,6 +356,47 @@ class AppES extends BaseES {
             }
 
             return subdomain_id;
+        },
+
+        /**
+         * Ensures that when an app uses a puter.site subdomain as its index_url,
+         * the subdomain belongs to the user creating/updating the app.
+         */
+        async ensure_puter_site_subdomain_is_owned_ (entity, extra, user) {
+            if ( ! user ) return;
+
+            // Only enforce when the index_url is being set or changed
+            const new_index_url = await entity.get('index_url');
+            if ( ! new_index_url ) return;
+            if ( extra.old_entity ) {
+                const old_index_url = await extra.old_entity.get('index_url');
+                if ( old_index_url === new_index_url ) {
+                    return;
+                }
+            }
+
+            let hostname;
+            try {
+                hostname = (new URL(new_index_url)).hostname.toLowerCase();
+            } catch {
+                return;
+            }
+
+            const hosting_domain = config.static_hosting_domain?.toLowerCase();
+            if ( ! hosting_domain ) return;
+
+            const suffix = `.${hosting_domain}`;
+            if ( ! hostname.endsWith(suffix) ) return;
+
+            const subdomain = hostname.slice(0, hostname.length - suffix.length);
+            if ( ! subdomain ) return;
+
+            const svc_puterSite = this.context.get('services').get('puter-site');
+            const site = await svc_puterSite.get_subdomain(subdomain, { is_custom_domain: false });
+
+            if ( ! site || site.user_id !== user.id ) {
+                throw APIError.create('subdomain_not_owned', null, { subdomain });
+            }
         },
     };
 }

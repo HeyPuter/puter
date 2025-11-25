@@ -323,6 +323,10 @@ module.exports = class APIError {
             status: 400,
             message: ({ subdomain }) => `Subdomain ${quot(subdomain)} is not available.`,
         },
+        'subdomain_not_owned': {
+            status: 403,
+            message: ({ subdomain }) => `You must own the ${quot(subdomain)} subdomain on Puter to use it for this app.`,
+        },
 
         // Users
         'email_already_in_use': {
