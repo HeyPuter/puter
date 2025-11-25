@@ -1,4 +1,20 @@
+Description:
+# This workflow automatically builds a Docker image from the repository
+# and publishes it to the GitHub Container Registry (GHCR). It runs
+# whenever changes are pushed to the `main` branch or when a new
+# version tag (like 1.0.0, 2.5.3, etc.) is created.
 #
+# What this workflow does:
+#   ? Logs in to GitHub Container Registry
+#   ? Builds a Docker image using the repository's Dockerfile
+#   ? Generates metadata (like Docker tags and labels)
+#   ? Pushes multi-architecture images (amd64 + arm64) to GHCR
+#
+# Why it's useful:
+# This automates the release process, ensures consistent builds,
+# and eliminates the need to manually build/publish Docker images.
+#
+
 name: Docker Image CI
 
 # Configures this workflow to run every time a change is pushed to the
