@@ -1,11 +1,18 @@
 {
     "extends": "../tsconfig.json",
     "compilerOptions": {
-        "rootDir": ".."
+        "rootDir": "..",
+    "target": "es6",
+    "module": "es6",
+    "moduleResolution": "bundler",
+    "outDir": "build",
+    "esModuleInterop": true
+  
     },
     "include": [
-        "**/*.ts",
-        "**/*.tsx"
+        "../**/*.test.mts",
+        "../**/*.test.ts",
+        "../src/backend/test.setup.mts"    
     ],
     "exclude": [
         "node_modules"

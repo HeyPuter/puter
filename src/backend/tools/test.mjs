@@ -17,14 +17,13 @@
  * You should have received a copy of the GNU Affero General Public License
  * along with this program.  If not, see <https://www.gnu.org/licenses/>.
  */
-const { AdvancedBase } = require('@heyputer/putility');
-const useapi = require('useapi');
-const { BaseService, EssentialModules } = require('../exports');
-const CoreModule = require('../src/CoreModule');
-const { Context } = require('../src/util/context');
-const { Kernel } = require('../src/Kernel');
-const { HTTPThumbnailService } = require('../src/services/thumbnails/HTTPThumbnailService');
-const { RuntimeModuleRegistry } = require('../src/extension/RuntimeModuleRegistry');
+import { AdvancedBase } from '@heyputer/putility';
+import useapi from 'useapi';
+import { BaseService, EssentialModules } from '../exports';
+import { RuntimeModuleRegistry } from '../src/extension/RuntimeModuleRegistry';
+import { Kernel } from '../src/Kernel';
+import { HTTPThumbnailService } from '../src/services/thumbnails/HTTPThumbnailService';
+import { Context } from '../src/util/context';
 
 /**
  * A simple implementation of the log interface for the test kernel.
@@ -65,7 +64,9 @@ class TestKernel extends AdvancedBase {
         * @returns {void}
         */
         this.useapi.withuse(() => {
+            // eslint-disable-next-line no-undef
             def('Module', AdvancedBase);
+            // eslint-disable-next-line no-undef
             def('Service', BaseService);
         });
 
@@ -87,7 +88,7 @@ class TestKernel extends AdvancedBase {
         const { consoleLogManager } = require('../src/util/consolelog');
         consoleLogManager.initialize_proxy_methods();
 
-        consoleLogManager.decorate_all(({ manager, replace }, ...a) => {
+        consoleLogManager.decorate_all(({ _manager, replace }, ...a) => {
             replace(...this.logfn_(...a));
         });
 
@@ -151,7 +152,7 @@ class TestKernel extends AdvancedBase {
 TestKernel.prototype._create_mod_context =
     Kernel.prototype._create_mod_context;
 
-const k = new TestKernel();
+export const k = new TestKernel();
 for ( const mod of EssentialModules ) {
     k.add_module(new mod());
 }

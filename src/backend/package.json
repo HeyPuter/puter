@@ -94,6 +94,7 @@
   "devDependencies": {
     "@types/node": "^20.5.3",
     "chai": "^4.3.7",
+    "jsdom": "^27.2.0",
     "mocha": "^10.2.0",
     "nodemon": "^3.1.0",
     "nyc": "^15.1.0",
