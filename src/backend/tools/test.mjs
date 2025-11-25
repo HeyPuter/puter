@@ -264,4 +264,10 @@ const main = async () => {
     process.exit(total_failed ? 1 : 0);
 };
 
-main();
+if ( require.main === module ) {
+    main();
+}
+
+module.exports = {
+    TestKernel,
+};
