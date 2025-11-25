@@ -183,3 +183,29 @@ This repository, including all its contents, sub-projects, modules, and componen
 - [PuterAI Module](./src/backend/doc/modules/puterai/README.md)
 - [Metering Service](./src/backend/src/services/MeteringService/README.md)
 - [Extensions Development Guide](./extensions/README.md)
+
+### Local Development
+
+1. Clone & install
+\`\`\`bash
+git clone https://github.com/HeyPuter/puter
+cd puter
+npm install
+npm start
+\`\`\`
+
+2. Open in browser
+- App should be available at: \`http://puter.localhost:4100\` (or the next available port).
+
+3. Quick troubleshooting (First Run)
+- If \`puter.localhost\` does not resolve, try \`http://localhost:4100\` instead.
+- If port 4100 is already in use, \`npm start\` will pick the next free port — check the console output for the URL.
+- If the app fails to start:
+  - Ensure Node.js is a supported version (see \`package.json\` engines).
+  - Remove \`node_modules\` and reinstall: \`rm -rf node_modules package-lock.json && npm install\`.
+  - On Linux, if using Docker, ensure the directories are owned by uid 1000 as shown in the Docker instructions.
+- For Docker users, use the commands under **Docker / Docker Compose** later in this README.
+
+4. Need help?
+- Open an issue with the \`good first issue\` label or join the community Discord (link in the repo header).
+
