@@ -48,6 +48,18 @@ const TOGETHER_VIDEO_MODEL_PREFIXES = [
     'wan-ai/',
 ];
 
+const BFL_IMAGE_MODELS = [
+    'flux-2-pro',
+    'flux-2-flex',
+    'flux-pro-1.1',
+    'flux-pro-1.1-ultra',
+    'flux-pro-1.1-raw',
+    'flux-pro-1.0-fill',
+    'flux-pro-1.0-expand',
+    'flux-kontext-pro',
+    'flux-kontext-max',
+];
+
 class AI {
     /**
      * Creates a new instance with the given authentication token, API origin, and app ID,
@@ -1006,6 +1018,7 @@ class AI {
         }
 
         const driverHint = typeof options.driver === 'string' ? options.driver : undefined;
+        const driverHintLower = driverHint ? driverHint.toLowerCase() : undefined;
         const providerRaw = typeof options.provider === 'string'
             ? options.provider
             : (typeof options.service === 'string' ? options.service : undefined);
@@ -1017,14 +1030,24 @@ class AI {
             (TOGETHER_IMAGE_MODEL_PREFIXES.some(prefix => modelLower.startsWith(prefix)) ||
                 TOGETHER_IMAGE_MODEL_KEYWORDS.some(keyword => modelLower.includes(keyword)));
 
-        if ( driverHint ) {
+        const looksLikeBflModel =
+            typeof options.model === 'string' &&
+            BFL_IMAGE_MODELS.includes(modelLower);
+
+        if ( driverHintLower === 'bfl' || driverHintLower === 'black-forest-labs' || driverHintLower === 'bfl-image-generation' ) {
+            AIService = 'bfl-image-generation';
+        } else if ( driverHint ) {
             AIService = driverHint;
         } else if ( providerHint === 'gemini' ) {
             AIService = 'gemini-image-generation';
+        } else if ( providerHint === 'bfl' || providerHint === 'black-forest-labs' || providerHint === 'blackforestlabs' ) {
+            AIService = 'bfl-image-generation';
         } else if ( providerHint === 'together' || providerHint === 'together-ai' ) {
             AIService = 'together-image-generation';
         } else if (options.model === 'gemini-2.5-flash-image-preview' || options.model === "gemini-3-pro-image-preview" ) {
             AIService = 'gemini-image-generation';
+        } else if ( looksLikeBflModel ) {
+            AIService = 'bfl-image-generation';
         } else if ( looksLikeTogetherModel ) {
             AIService = 'together-image-generation';
         }

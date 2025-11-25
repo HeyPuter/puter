@@ -1,5 +1,6 @@
 // setup.ts - Vitest global setup for Puter API tests (TypeScript)
 import { beforeAll } from 'vitest';
+// @ts-ignore
 import { k } from './tools/test.mjs';
 let testKernel = {};
 beforeAll(async () => {

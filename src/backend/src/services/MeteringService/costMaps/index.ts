@@ -14,6 +14,7 @@ import { OPENAI_VIDEO_COST_MAP } from './openaiVideoCostMap';
 import { TOGETHER_COST_MAP } from './togetherCostMap';
 import { XAI_COST_MAP } from './xaiCostMap';
 import { ELEVENLABS_COST_MAP } from './elevenlabsCostMap';
+import { BFL_COST_MAP } from './bflCostMap';
 
 export const COST_MAPS = {
     ...AWS_POLLY_COST_MAP,
@@ -30,6 +31,7 @@ export const COST_MAPS = {
     ...OPENAI_VIDEO_COST_MAP,
     ...OPENROUTER_COST_MAP,
     ...TOGETHER_COST_MAP,
+    ...BFL_COST_MAP,
     ...XAI_COST_MAP,
     ...FILE_SYSTEM_COST_MAP,
 };
