@@ -80,12 +80,12 @@ class LLCWrite extends LLFilesystemOperation {
         const parent = this.values.parent;
 
         // Embed fields into this.context
-        this.context.set('immutable', this.values.immutable);
-        this.context.set('tmp', this.values.tmp);
-        this.context.set('fsentry_tmp', this.values.fsentry_tmp);
-        this.context.set('message', this.values.message);
-        this.context.set('actor', this.values.actor);
-        this.context.set('app_id', this.values.app_id);
+        this.context.set('immutable', this.context.get('immutable') ?? this.values.immutable);
+        this.context.set('tmp', this.context.get('tmp') ?? this.values.tmp);
+        this.context.set('fsentry_tmp', this.context.get('fsentry_tmp') ?? this.values.fsentry_tmp);
+        this.context.set('message', this.context.get('message') ?? this.values.message);
+        this.context.set('actor', this.context.get('actor') ?? this.values.actor);
+        this.context.set('app_id', this.context.get('app_id') ?? this.values.app_id);
 
         if ( ! await parent.exists() ) {
             throw APIError.create('subject_does_not_exist');

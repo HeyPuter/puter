@@ -29,6 +29,9 @@ const { Actor, UserActorType } = require('../../services/auth/Actor');
 const { DB_WRITE } = require('../../services/database/consts');
 const { TEAL } = require('../../services/NullDevConsoleService');
 const { quot } = require('@heyputer/putility').libs.string;
+const bcrypt = require('bcrypt');
+const uuidv4 = require('uuid').v4;
+const crypto = require('crypto');
 
 const USERNAME = 'admin';
 
@@ -68,36 +71,26 @@ const DEFAULT_FILES = {
 };
 
 class DefaultUserService extends BaseService {
-    static MODULES = {
-        bcrypt: require('bcrypt'),
-        uuidv4: require('uuid').v4,
-    };
     async _init () {
         this._register_commands(this.services.get('commands'));
     }
     async ['__on_ready.webserver'] () {
         // check if a user named `admin` exists
         let user = await get_user({ username: USERNAME, cached: false });
-        if ( ! user ) user = await this.create_default_user_();
+        if ( ! user ) {
+            user = await this.create_default_user_();
+        } else {
+            await this.#createDefaultUserFiles(Actor.adapt(user));
+        }
 
         // check if user named `admin` is using default password
-        const require = this.require;
         const tmp_password = await this.get_tmp_password_(user);
-        const bcrypt = require('bcrypt');
         const is_default_password = await bcrypt.compare(tmp_password,
                         user.password);
         if ( ! is_default_password ) return;
 
         // console.log(`password for admin is: ${tmp_password}`);
         const svc_devConsole = this.services.get('dev-console');
-
-        // console.log('\n');
-        // console.log("************************************************");
-        // console.log('* Your default login credentials are:');
-        // console.log(`* Username: \x1b[1m${USERNAME}\x1b[0m`);
-        // console.log(`* Password: \x1b[1m${tmp_password}\x1b[0m`);
-        // console.log("************************************************");
-        // console.log('\n');
 
         // NB: this is needed for the CI to extract the password
         console.log(`password for admin is: ${tmp_password}`);
@@ -141,12 +134,10 @@ class DefaultUserService extends BaseService {
         this.start_poll_({ tmp_password, user });
         svc_devConsole.add_widget(this.default_user_widget);
     }
-    start_poll_ ({ tmp_password, user }) {
+    start_poll_ ({ tmp_password }) {
         const interval = 1000 * 3; // 3 seconds
         const poll_interval = asyncSafeSetInterval(async () => {
             const user = await get_user({ username: USERNAME });
-            const require = this.require;
-            const bcrypt = require('bcrypt');
             const is_default_password = await bcrypt.compare(tmp_password,
                             user.password);
             if ( ! is_default_password ) {
@@ -164,7 +155,7 @@ class DefaultUserService extends BaseService {
                 VALUES (?, ?, ?)
             `,
         [
-            this.modules.uuidv4(),
+            uuidv4(),
             USERNAME,
             1024 * 1024 * 1024 * 10, // 10 GB
         ]);
@@ -176,7 +167,6 @@ class DefaultUserService extends BaseService {
         const user = await get_user({ username: USERNAME, cached: false });
         const actor = Actor.adapt(user);
         const tmp_password = await this.get_tmp_password_(user);
-        const bcrypt = require('bcrypt');
         const password_hashed = await bcrypt.hash(tmp_password, 8);
         await db.write('UPDATE user SET password = ? WHERE id = ?',
                         [
@@ -187,11 +177,22 @@ class DefaultUserService extends BaseService {
         const svc_user = this.services.get('user');
         await svc_user.generate_default_fsentries({ user });
         // generate default files for admin user
+
+        await this.#createDefaultUserFiles(actor);
+
+        invalidate_cached_user(user);
+        await new Promise(rslv => setTimeout(rslv, 2000));
+        return user;
+    }
+
+    async #recursiveCreateDefaultFilesIfMissing ({ components, tree, actor }) {
         const svc_fs = this.services.get('filesystem');
-        const make_tree_ = async ({ components, tree }) => {
-            const parent = await svc_fs.node(new NodePathSelector(`/${components.join('/')}`));
-            for ( const k in tree ) {
-                if ( typeof tree[k] === 'string' ) {
+
+        const parent = await svc_fs.node(new NodePathSelector(`/${components.join('/')}`));
+        for ( const k in tree ) {
+
+            if ( typeof tree[k] === 'string' ) {
+                try {
                     const buffer = Buffer.from(tree[k], 'utf-8');
                     const hl_write = new HLWrite();
                     await hl_write.run({
@@ -201,32 +202,51 @@ class DefaultUserService extends BaseService {
                             size: buffer.length,
                             stream: buffer_to_stream(buffer),
                         },
-                        user,
+                        actor,
                     });
-                } else {
+                } catch (e) {
+                    if ( e.message.includes('already exists.') ) {
+                    // ignore
+                    } else {
+                    // throw if it actually fails to create the files
+                        throw e;
+                    }
+                }
+            } else {
+                try {
                     const hl_qmkdir = new QuickMkdir();
                     await hl_qmkdir.run({
                         parent,
                         path: k,
+                        actor,
                     });
-                    const components_ = [...components, k];
-                    await make_tree_({
-                        components: components_,
-                        tree: tree[k],
-                    });
+                } catch (e) {
+                    if ( e.message.includes('already exists.') ) {
+                    // ignore
+                    } else {
+                    // throw if it actually fails to create the files
+                        throw e;
+                    }
                 }
-
+                const components_ = [...components, k];
+                await this.#recursiveCreateDefaultFilesIfMissing({
+                    components: components_,
+                    tree: tree[k],
+                    actor,
+                });
             }
-        };
-        await Context.get().sub({ user, actor }).arun(async () => {
-            await make_tree_({
+
+        }
+    };
+    async #createDefaultUserFiles (actor) {
+        await this.services.get('su').sudo(actor, async () => {
+            await this.#recursiveCreateDefaultFilesIfMissing({
                 components: ['admin'],
                 tree: DEFAULT_FILES,
+                actor,
             });
         });
-        invalidate_cached_user(user);
-        await new Promise(rslv => setTimeout(rslv, 2000));
-        return user;
+
     }
     async get_tmp_password_ (user) {
         const actor = await Actor.create(UserActorType, { user });
@@ -240,7 +260,7 @@ class DefaultUserService extends BaseService {
 
             if ( driver_response.result ) return driver_response.result;
 
-            const tmp_password = require('crypto').randomBytes(4).toString('hex');
+            const tmp_password = crypto.randomBytes(4).toString('hex');
             await svc_driver.call({
                 iface: 'puter-kvstore',
                 method: 'set',
@@ -258,8 +278,7 @@ class DefaultUserService extends BaseService {
         const actor = await Actor.create(UserActorType, { user });
         return await Context.get().sub({ actor }).arun(async () => {
             const svc_driver = this.services.get('driver');
-            const tmp_password = require('crypto').randomBytes(4).toString('hex');
-            const bcrypt = require('bcrypt');
+            const tmp_password = crypto.randomBytes(4).toString('hex');
             const password_hashed = await bcrypt.hash(tmp_password, 8);
             await svc_driver.call({
                 iface: 'puter-kvstore',

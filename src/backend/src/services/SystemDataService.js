@@ -47,7 +47,7 @@ class SystemDataService extends BaseService {
     */
     async interpret (data) {
         if ( whatis(data) === 'object' && data.$ ) {
-            return await this.dereference_(data);
+            return await this.#dereference(data);
         }
         if ( whatis(data) === 'object' ) {
             const new_o = {};
@@ -73,7 +73,7 @@ class SystemDataService extends BaseService {
     * @param {Object|Array|*} data - The data to interpret, which can be of any type.
     * @returns {Promise<*>} The interpreted result, which could be a primitive, object, or array.
     */
-    async dereference_ (data) {
+    async #dereference (data) {
         const svc_fs = this.services.get('filesystem');
         if ( data.$ === 'json-address' ) {
             const node = await svc_fs.node(data.path);

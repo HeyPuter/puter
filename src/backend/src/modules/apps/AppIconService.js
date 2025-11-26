@@ -238,16 +238,18 @@ class AppIconService extends BaseService {
         const dir_system = await svc_user.get_system_dir();
 
         // Ensure app icons directory exists
-        const dir_app_icons = await svc_fs.node(new NodePathSelector('/system/app_icons'));
-        if ( ! await dir_app_icons.exists() ) {
-            const ll_mkdir = new LLMkdir();
-            await ll_mkdir.run({
-                parent: dir_system,
-                name: 'app_icons',
-                actor: await svc_su.get_system_actor(),
-            });
-        }
-        this.dir_app_icons = dir_app_icons;
+        await svc_su.sudo(async () => {
+            const dir_app_icons = await svc_fs.node(new NodePathSelector('/system/app_icons'));
+            if ( ! await dir_app_icons.exists() ) {
+                const ll_mkdir = new LLMkdir();
+                await ll_mkdir.run({
+                    parent: dir_system,
+                    name: 'app_icons',
+                    actor: await svc_su.get_system_actor(),
+                });
+            }
+            this.dir_app_icons = dir_app_icons;
+        });
 
         // Listen for new app icons
         const svc_event = this.services.get('event');

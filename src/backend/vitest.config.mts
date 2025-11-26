@@ -11,10 +11,8 @@ export default defineConfig(({ mode }) => ({
     test: {
         globals: true,
         environment: 'jsdom',
-        setupFiles: [path.resolve(__dirname, './test.setup.mts')],
         coverage: {
             reporter: ['text', 'json', 'html'],
-            exclude: [path.resolve(__dirname, './test.setup.mts')],
         },
         env: loadEnv(mode, '', 'PUTER_'),
     },
