@@ -1,4 +1,4 @@
-import { FileReaderPoly } from "./polyfills/fileReaderPoly";
+import { FileReaderPoly } from "./polyfills/fileReaderPoly.js";
 
 /**
  * Parses a given response text into a JSON object. If the parsing fails due to invalid JSON format,
