@@ -27,6 +27,7 @@ import { Container } from '../src/services/Container.js';
 import { HTTPThumbnailService } from '../src/services/thumbnails/HTTPThumbnailService.js';
 import { consoleLogManager } from '../src/util/consolelog.js';
 import { Context } from '../src/util/context.js';
+import { TestCoreModule } from '../src/modules/test-core/TestCoreModule.js';
 const { BaseService, EssentialModules } = why;
 
 /**
@@ -272,14 +273,17 @@ if ( import.meta.main ) {
 }
 
 export const createTestKernel = async ({
-    serviceMap,
+    serviceMap = {},
     initLevelString = 'construct',
+    extraSteps = true,
+    testCore = false,
 }) => {
 
     const initLevelMap = { CONSTRUCT: 1, INIT: 2 };
     const initLevel = initLevelMap[(`${initLevelString}`).toUpperCase()];
     const testKernel = new TestKernel();
     testKernel.add_module(new Core2Module());
+    if ( testCore ) testKernel.add_module(new TestCoreModule());
     for ( const [name, service] of Object.entries(serviceMap) ) {
         testKernel.add_module({
             install: context => {
@@ -304,6 +308,9 @@ export const createTestKernel = async ({
         if ( initLevel >= initLevelMap.INIT ) {
             await ins.init();
         }
+    }
+    if ( extraSteps && testCore && initLevel >= initLevelMap.INIT ) {
+        await testKernel.services?.get('su').__on('boot.consolidation', []);
     }
     return testKernel;
 };
