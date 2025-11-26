@@ -18,7 +18,10 @@ RUN apk add --no-cache git python3 make g++ \
 WORKDIR /app
 
 # Copy package.json and package-lock.json
-COPY package*.json ./
+COPY package.json package-lock.json ./
+
+# Fail early if lockfile or manifest is missing
+RUN test -f package.json && test -f package-lock.json
 
 # Copy the source files
 COPY . .
@@ -34,6 +37,7 @@ RUN npm cache clean --force && \
         if [ $i -lt 3 ]; then \
             sleep 15; \
         else \
+            cat /app/npm-debug.log || true; \
             exit 1; \
         fi; \
     done
