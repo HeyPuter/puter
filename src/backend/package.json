@@ -4,7 +4,7 @@
   "description": "Backend/Kernel for Puter",
   "main": "exports.js",
   "scripts": {
-    "test": "npx mocha src/**/*.test.js && node ./tools/test.js",
+    "test": "npx mocha src/**/*.test.js && node ./tools/test.mjs",
     "build:worker": "cd src/services/worker && npm run build"
   },
   "dependencies": {
