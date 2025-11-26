@@ -1,19 +1,11 @@
 import { describe, expect, it, vi } from 'vitest';
 import { createTestKernel } from '../../../tools/test.mjs';
-import { MeteringServiceWrapper } from './MeteringServiceWrapper.mjs';
-import { DBKVServiceWrapper } from '../repositories/DBKVStore/index.mjs';
-import { SUService } from '../SUService';
-import { AlarmService } from '../../modules/core/AlarmService';
-import { EventService } from '../../services/EventService';
-import { SqliteDatabaseAccessService } from '../database/SqliteDatabaseAccessService';
-import { MeteringService } from './MeteringService';
 import * as config from '../../config';
-import { CommandService } from '../CommandService';
-import { TraceService } from '../TraceService';
 import { Actor } from '../auth/Actor';
-import { GetUserService } from '../GetUserService';
-import { DetailProviderService } from '../DetailProviderService';
+import { DBKVServiceWrapper } from '../repositories/DBKVStore/index.mjs';
 import { GLOBAL_APP_KEY } from './consts.js';
+import { MeteringService } from './MeteringService';
+import { MeteringServiceWrapper } from './MeteringServiceWrapper.mjs';
 
 describe('MeteringService', async () => {
 
@@ -26,20 +18,12 @@ describe('MeteringService', async () => {
     });
     const testKernel = await createTestKernel({
         serviceMap: {
-            'whoami': DetailProviderService,
-            'get-user': GetUserService,
-            database: SqliteDatabaseAccessService,
-            traceService: TraceService,
             meteringService: MeteringServiceWrapper,
             'puter-kvstore': DBKVServiceWrapper,
-            su: SUService,
-            alarm: AlarmService,
-            event: EventService,
-            commands: CommandService,
         },
         initLevelString: 'init',
+        testCore: true,
     });
-    await testKernel.services?.get('su').__on('boot.consolidation', []);
 
     const testSubject = testKernel.services!.get('meteringService') as MeteringServiceWrapper;
     const eventService = testKernel.services!.get('event') as EventService;
