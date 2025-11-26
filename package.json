@@ -40,7 +40,7 @@
     "yaml": "^2.8.1"
   },
   "scripts": {
-    "test": "npx mocha src/phoenix/test && npx vitest run src/backend && node src/backend/tools/test",
+    "test": "npx mocha src/phoenix/test && npx vitest run src/backend && node src/backend/tools/test.mjs",
     "test:puterjs-api": "vitest run tests/puterJsApiTests",
     "test:backend": "vitest --config=src/backend/vitest.config.mts src/backend",
     "start=gui": "nodemon --exec \"node dev-server.js\" ",
