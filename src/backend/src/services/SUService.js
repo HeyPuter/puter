@@ -18,7 +18,6 @@
  */
 
 // METADATA // {"ai-commented":{"service":"openai-completion","model":"gpt-4o-mini"}}
-const { get_user } = require('../helpers');
 const { Context } = require('../util/context');
 const { TeePromise } = require('@heyputer/putility').libs.promise;
 const { Actor, UserActorType } = require('./auth/Actor');
@@ -56,7 +55,7 @@ class SUService extends BaseService {
      *                          system user and actor have been set.
      */
     async ['__on_boot.consolidation'] () {
-        const sys_user = await get_user({ username: 'system' });
+        const sys_user = await this.services.get('get-user').get_user({ username: 'system' });
         this.sys_user_.resolve(sys_user);
         const sys_actor = new Actor({
             type: new UserActorType({

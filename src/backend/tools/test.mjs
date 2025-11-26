@@ -105,6 +105,7 @@ export class TestKernel extends AdvancedBase {
             services,
             useapi: this.useapi,
             ['runtime-modules']: this.runtimeModuleRegistry,
+            args: {},
         }, 'app');
         this.root_context = root_context;
         globalThis.root_context = root_context;
@@ -274,7 +275,8 @@ export const createTestKernel = async ({
     serviceMap,
     initLevelString = 'construct',
 }) => {
-    const initLevelMap = { CONSTRUCT: 1 };
+
+    const initLevelMap = { CONSTRUCT: 1, INIT: 2 };
     const initLevel = initLevelMap[(`${initLevelString}`).toUpperCase()];
     const testKernel = new TestKernel();
     testKernel.add_module(new Core2Module());
@@ -295,6 +297,12 @@ export const createTestKernel = async ({
         ins.context = testKernel.root_context;
         if ( initLevel >= initLevelMap.CONSTRUCT ) {
             await ins.construct();
+        }
+    }
+    for ( const name of service_names ) {
+        const ins = testKernel.services.instances_[name];
+        if ( initLevel >= initLevelMap.INIT ) {
+            await ins.init();
         }
     }
     return testKernel;

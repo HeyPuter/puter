@@ -43,11 +43,9 @@ class SqliteDatabaseAccessService extends BaseDatabaseAccessService {
         const require = this.require;
         const Database = require('better-sqlite3');
 
-        this._register_commands(this.services.get('commands'));
-
         const fs = require('fs');
         const path_ = require('path');
-        const do_setup = !fs.existsSync(this.config.path);
+        const do_setup = this.config.path === ':memory:' || !fs.existsSync(this.config.path);
 
         this.db = new Database(this.config.path);
 
@@ -185,7 +183,7 @@ class SqliteDatabaseAccessService extends BaseDatabaseAccessService {
         */
         const TARGET_VERSION = (() => {
             const args = Context.get('args');
-            if ( args['database-target-version'] ) {
+            if ( args?.['database-target-version'] ) {
                 return parseInt(args['database-target-version']);
             }
             return HIGHEST_VERSION;
@@ -289,6 +287,10 @@ class SqliteDatabaseAccessService extends BaseDatabaseAccessService {
                     `got ${user_version}`);
             }
         });
+    }
+
+    async '__on_boot.consolidation' () {
+        this._register_commands(this.services.get('commands'));
     }
 
     /**
