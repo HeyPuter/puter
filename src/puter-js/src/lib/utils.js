@@ -1,3 +1,5 @@
+import { FileReaderPoly } from "./polyfills/fileReaderPoly.js";
+
 /**
  * Parses a given response text into a JSON object. If the parsing fails due to invalid JSON format,
  * the original response text is returned.
@@ -589,7 +591,7 @@ class TeePromise {
 
 async function blob_to_url (blob) {
     const tp = new TeePromise();
-    const reader = new FileReader();
+    const reader = new (globalThis.FileReader || FileReaderPoly)();
     reader.onloadend = () => tp.resolve(reader.result);
     reader.readAsDataURL(blob);
     return await tp;
@@ -597,7 +599,7 @@ async function blob_to_url (blob) {
 
 function blobToDataUri (blob) {
     return new Promise((resolve, reject) => {
-        const reader = new FileReader();
+        const reader = new (globalThis.FileReader || FileReaderPoly)();
         reader.onload = function (event) {
             resolve(event.target.result);
         };
@@ -611,7 +613,7 @@ function blobToDataUri (blob) {
 function arrayBufferToDataUri (arrayBuffer) {
     return new Promise((resolve, reject) => {
         const blob = new Blob([arrayBuffer]);
-        const reader = new FileReader();
+        const reader = new (globalThis.FileReader || FileReaderPoly)();
         reader.onload = function (event) {
             resolve(event.target.result);
         };
@@ -622,10 +624,6 @@ function arrayBufferToDataUri (arrayBuffer) {
     });
 }
 
-export { parseResponse, uuidv4, handle_resp, handle_error, initXhr, setupXhrEventHandlers, driverCall,
-    TeePromise,
-    make_driver_method,
-    blob_to_url,
-    arrayBufferToDataUri,
-    blobToDataUri,
+export {
+    arrayBufferToDataUri, blob_to_url, blobToDataUri, driverCall, handle_error, handle_resp, initXhr, make_driver_method, parseResponse, setupXhrEventHandlers, TeePromise, uuidv4
 };
