@@ -272,6 +272,7 @@ const config_pointer = {};
 //
 Object.defineProperty(context_config, 'strict', {
     get: () => config_to_export.env === 'dev',
+    configurable: true,
 });
 
 module.exports = config_to_export;

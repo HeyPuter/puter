@@ -17,7 +17,6 @@
  * You should have received a copy of the GNU Affero General Public License
  * along with this program.  If not, see <https://www.gnu.org/licenses/>.
  */
-const { Actor } = require('./auth/Actor');
 const BaseService = require('./BaseService');
 const { DB_READ } = require('./database/consts');
 
@@ -101,7 +100,7 @@ class GetUserService extends BaseService {
         if ( cached && !options.force ) {
             for ( const prop of this.id_properties ) {
                 if ( options.hasOwnProperty(prop) ) {
-                    const user = kv.get(`users:${prop}:${options[prop]}`);
+                    const user = globalThis.kv?.get(`users:${prop}:${options[prop]}`);
                     if ( user ) return user;
                 }
             }
@@ -132,7 +131,7 @@ class GetUserService extends BaseService {
         try {
             for ( const prop of this.id_properties ) {
                 if ( user[prop] ) {
-                    kv.set(`users:${prop}:${user[prop]}`, user);
+                    globalThis.kv?.set(`users:${prop}:${user[prop]}`, user);
                 }
             }
         } catch ( e ) {
