@@ -96,6 +96,11 @@ class PuterAIModule extends AdvancedBase {
             services.registerService('together-video-generation', TogetherVideoGenerationService);
         }
 
+        if ( config?.services?.['black-forest-labs'] || config?.services?.bfl ) {
+            const { BlackForestLabsImageGenerationService } = require('./BlackForestLabsImageGenerationService');
+            services.registerService('bfl-image-generation', BlackForestLabsImageGenerationService);
+        }
+
         if ( config?.services?.['mistral'] ) {
             const { MistralAIService } = require('./MistralAIService');
             services.registerService('mistral', MistralAIService);
