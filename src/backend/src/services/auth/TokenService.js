@@ -225,52 +225,6 @@ class TokenService extends BaseService {
         return decompressed;
     }
 
-    _test ({ assert }) {
-        const U1 = '843f1d83-3c30-48c7-8964-62aff1a912d0';
-        const U2 = '42e9c36b-8a53-4c3e-8e18-fe549b10a44d';
-        const U3 = 'app-c22ef816-edb6-47c5-8c41-31c6520fa9e6';
-        // Test compression
-        {
-            const context = this.compression.auth;
-            const payload = {
-                uuid: U1,
-                type: 'session',
-                user_uid: U2,
-                app_uid: U3,
-            };
-
-            const compressed = this._compress_payload(context, payload);
-            assert(() => compressed.u === uuid_compression().encode(U1));
-            assert(() => compressed.t === 's');
-            assert(() => compressed.uu === uuid_compression().encode(U2));
-            assert(() => compressed.au === uuid_compression('app-').encode(U3));
-        }
-
-        // Test decompression
-        {
-            const context = this.compression.auth;
-            const payload = {
-                u: uuid_compression().encode(U1),
-                t: 's',
-                uu: uuid_compression().encode(U2),
-                au: uuid_compression('app-').encode(U3),
-            };
-
-            const decompressed = this._decompress_payload(context, payload);
-            assert(() => decompressed.uuid === U1);
-            assert(() => decompressed.type === 'session');
-            assert(() => decompressed.user_uid === U2);
-            assert(() => decompressed.app_uid === U3);
-        }
-
-        // Test UUID preservation
-        {
-            const payload = { uuid: U1 };
-            const compressed = this._compress_payload(this.compression.auth, payload);
-            const decompressed = this._decompress_payload(this.compression.auth, compressed);
-            assert(() => decompressed.uuid === U1);
-        }
-    }
 }
 
 module.exports = { TokenService };

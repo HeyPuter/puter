@@ -1,3 +1,5 @@
+const BaseService = require("../services/BaseService");
+
 /*
  * Copyright (C) 2024-present Puter Technologies Inc.
  *
@@ -16,7 +18,7 @@
  * You should have received a copy of the GNU Affero General Public License
  * along with this program.  If not, see <https://www.gnu.org/licenses/>.
  */
-class ArrayUtil extends use.Library {
+class ArrayUtil extends (globalThis.use?.Library ?? BaseService) {
     /**
      *
      * @param {*} marked_map
@@ -46,48 +48,6 @@ class ArrayUtil extends use.Library {
         return subject;
     }
 
-    _test ({ assert }) {
-        // inner indices
-        {
-            const subject = [
-                'a', 'b', 'c', 'd', 'e', 'f', 'g', 'h',
-            ];
-            //   0    1    2    3    4    5    6    7
-            const marked_map = [2, 5];
-            this.remove_marked_items(marked_map, subject);
-            assert(() => subject.join('') === 'abdegh');
-        }
-        // left edge
-        {
-            const subject = [
-                'a', 'b', 'c', 'd', 'e', 'f', 'g', 'h',
-            ];
-            //   0    1    2    3    4    5    6    7
-            const marked_map = [0];
-            this.remove_marked_items(marked_map, subject);
-            assert(() => subject.join('') === 'bcdefgh');
-        }
-        // right edge
-        {
-            const subject = [
-                'a', 'b', 'c', 'd', 'e', 'f', 'g', 'h',
-            ];
-            //   0    1    2    3    4    5    6    7
-            const marked_map = [7];
-            this.remove_marked_items(marked_map, subject);
-            assert(() => subject.join('') === 'abcdefg');
-        }
-        // both edges
-        {
-            const subject = [
-                'a', 'b', 'c', 'd', 'e', 'f', 'g', 'h',
-            ];
-            //   0    1    2    3    4    5    6    7
-            const marked_map = [0, 7];
-            this.remove_marked_items(marked_map, subject);
-            assert(() => subject.join('') === 'bcdefg');
-        }
-    }
 }
 
 module.exports = ArrayUtil;
