@@ -12,11 +12,9 @@
     },
     "exclude": [
         "**/*.test.ts",
-        "**/*.test.setup.ts",
-        "**/*.test.setup.mts",
-        "**/*.vitest.config.ts",
-        "**/*.vitest.config.mts",
         "**/*.test.mts",
+        "**/vitest.config.ts",
+        "**/vitest.config.mts",
         "**/*.spec.ts",
         "**/*.spec.mts",
         "**/test/**",
