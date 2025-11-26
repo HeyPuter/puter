@@ -1,0 +1,91 @@
+
+# Time-based split (e.g., last 20% as test)
+split_idx = int(0.8 * len(X_scaled))
+X_train, X_test = X_scaled[:split_idx], X_scaled[split_idx:]
+y_train, y_test = y[:split_idx], y[split_idx:]
+
+# Helper metrics
+def mape(y_true, y_pred):
+    return np.mean(np.abs((y_true - y_pred) / np.clip(np.abs(y_true), 1e-8, None))) * 100
+
+def mase(y_true, y_pred, y_insample, m=24):
+    # Seasonal naive benchmark
+    if len(y_insample) <= m:
+        return np.nan
+    y_naive = y_insample[m:]
+    y_insample_lag = y_insample[:-m]
+    mae_naive = np.mean(np.abs(y_naive - y_insample_lag))
+    mae_model = np.mean(np.abs(y_true - y_pred))
+    return mae_model / (mae_naive + 1e-12)
+
+def directional_accuracy(y_true, y_pred):
+    dy_true = np.sign(np.diff(y_true))
+    dy_pred = np.sign(np.diff(y_pred))
+    if len(dy_true) == 0:
+        return np.nan
+    return np.mean(dy_true == dy_pred) * 100
+
+def regression_report(y_true, y_pred, y_insample=None, m=24):
+    out = {}
+    out["MAE"] = mean_absolute_error(y_true, y_pred)
+    out["RMSE"] = mean_squared_error(y_true, y_pred, squared=False)
+    out["MAPE (%)"] = mape(y_true, y_pred)
+    out["R2"] = r2_score(y_true, y_pred)
+    out["Directional Accuracy (%)"] = directional_accuracy(y_true, y_pred)
+    if y_insample is not None:
+        out["MASE"] = mase(y_true, y_pred, y_insample, m=m)
+    return out
+
+# Cross-validation with TimeSeriesSplit
+tscv = TimeSeriesSplit(n_splits=5)
+
+# Ridge Regression
+ridge = Ridge()
+ridge_param_grid = {"alpha": [0.1, 1.0, 5.0, 10.0, 50.0]}
+ridge_cv = GridSearchCV(ridge, ridge_param_grid, cv=tscv, scoring="neg_root_mean_squared_error", n_jobs=-1)
+ridge_cv.fit(X_train, y_train)
+ridge_best = ridge_cv.best_estimator_
+
+# Random Forest Regressor
+rf = RandomForestRegressor(random_state=RANDOM_STATE, n_jobs=-1)
+rf_param_grid = {
+    "n_estimators": [200, 400],
+    "max_depth": [None, 10, 20],
+    "min_samples_split": [2, 5]
+}
+rf_cv = GridSearchCV(rf, rf_param_grid, cv=tscv, scoring="neg_root_mean_squared_error", n_jobs=-1)
+rf_cv.fit(X_train, y_train)
+rf_best = rf_cv.best_estimator_
+
+# XGBoost Regressor (if available)
+if XGBRegressor is not None:
+    xgb = XGBRegressor(
+        random_state=RANDOM_STATE,
+        n_estimators=500,
+        objective="reg:squarederror",
+        tree_method="hist",
+        n_jobs=-1,
+    )
+    xgb_param_grid = {
+        "learning_rate": [0.03, 0.07, 0.1],
+        "max_depth": [4, 6, 8],
+        "subsample": [0.8, 1.0],
+        "colsample_bytree": [0.8, 1.0]
+    }
+    xgb_cv = GridSearchCV(xgb, xgb_param_grid, cv=tscv, scoring="neg_root_mean_squared_error", n_jobs=-1)
+    xgb_cv.fit(X_train, y_train)
+    xgb_best = xgb_cv.best_estimator_
+else:
+    xgb_best = None
+
+# Evaluate on test
+ridge_pred = ridge_best.predict(X_test)
+rf_pred = rf_best.predict(X_test)
+xgb_pred = xgb_best.predict(X_test) if xgb_best is not None else None
+
+# Reports
+ridge_report = regression_report(y_test, ridge_pred, y_insample=y_train)
+rf_report = regression_report(y_test, rf_pred, y_insample=y_train)
+xgb_report = regression_report(y_test, xgb_pred, y_insample=y_train) if xgb_pred is not None else None
+
+ridge_report, rf_report, xgb_report
