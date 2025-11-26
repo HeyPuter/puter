@@ -18,6 +18,7 @@
  */
 const config = require('../config');
 const BaseService = require('../services/BaseService');
+const { CloudWatchClient } = require('@aws-sdk/client-cloudwatch');
 
 class Metric {
     constructor (windowSize) {
@@ -135,8 +136,7 @@ class PerformanceMonitor extends BaseService {
 
     _init () {
         if ( config.cloudwatch ) {
-            const AWS = require('aws-sdk');
-            this.cw = new AWS.CloudWatch(config.cloudwatch);
+            this.cw = new CloudWatchClient(config.cloudwatch);
         }
 
         if ( config.monitor ) {
@@ -157,7 +157,7 @@ class PerformanceMonitor extends BaseService {
     }
 
     logMonitorContext (ctx) {
-        if ( ! this.performanceMetrics.hasOwnProperty(ctx.name) ) {
+        if ( ! this.performanceMetrics[ctx.name] ) {
             this.performanceMetrics[ctx.name] =
                 new Metric(config.windowSize ?? 30);
         }

@@ -20,11 +20,12 @@
 const express = require('express');
 const router = express.Router();
 const config = require('../config.js');
-const { DB_WRITE } = require('../services/database/consts.js');
 const { NodePathSelector } = require('../filesystem/node/selectors.js');
 const { HLRead } = require('../filesystem/hl_operations/hl_read.js');
 const { UserActorType } = require('../services/auth/Actor.js');
 const configurable_auth = require('../middleware/configurable_auth.js');
+const { subdomain } = require('../helpers');
+const _path = require('path');
 
 // -----------------------------------------------------------------------//
 // GET /down
@@ -34,7 +35,7 @@ router.post('/down', express.json(), express.urlencoded({ extended: true }), con
     const actor = req.actor;
 
     if ( !actor || !(actor.type instanceof UserActorType) ) {
-        if ( require('../helpers').subdomain(req) !== 'api' )
+        if ( subdomain(req) !== 'api' )
         {
             next();
         }
@@ -68,11 +69,7 @@ router.post('/down', express.json(), express.urlencoded({ extended: true }), con
     }
 
     // modules
-    const db = req.services.get('database').get(DB_WRITE, 'filesystem');
-    const _path = require('path');
-    const { chkperm } = require('../helpers');
-    const path       = _path.resolve('/', req.query.path);
-    const AWS        = require('aws-sdk');
+    const path = _path.resolve('/', req.query.path);
 
     // cannot download the root, because it's a directory!
     if ( path === '/' )
@@ -91,9 +88,6 @@ router.post('/down', express.json(), express.urlencoded({ extended: true }), con
 
     // stream data from S3
     try {
-        const esc_filename = (await fsnode.get('name'))
-            .replace(/[^a-zA-Z0-9-_\.]/g, '_');
-
         res.setHeader('Content-Type', 'application/octet-stream');
         res.attachment(await fsnode.get('name'));
 
@@ -102,12 +96,6 @@ router.post('/down', express.json(), express.urlencoded({ extended: true }), con
             fsNode: fsnode,
             user: req.user,
         });
-        // let stream = await s3.getObject({
-        //     Bucket: fsentry.bucket,
-        //     Key: fsentry.uuid, // File name you want to save as in S3
-        // }).createReadStream().on('error', error => {
-        //     console.log(error);
-        // });
         return stream.pipe(res);
     } catch (e) {
         console.log(e);

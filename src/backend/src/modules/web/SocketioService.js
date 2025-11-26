@@ -19,6 +19,7 @@
 
 // METADATA // {"ai-params":{"service":"claude"},"ai-commented":{"service":"claude"}}
 const BaseService = require('../../services/BaseService');
+const socketio = require('socket.io');
 
 /**
  * SocketioService provides a service for sending messages to clients.
@@ -26,19 +27,12 @@ const BaseService = require('../../services/BaseService');
  * interface for sending messages to rooms or socket ids.
  */
 class SocketioService extends BaseService {
-    static MODULES = {
-        socketio: require('socket.io'),
-    };
-
     /**
      * Initializes socket.io
      *
      * @evtparam server The server to attach socket.io to.
      */
     ['__on_install.socketio'] (_, { server }) {
-        const require = this.require;
-
-        const socketio = require('socket.io');
         /**
          * @type {import('socket.io').Server}
          */
@@ -81,11 +75,11 @@ class SocketioService extends BaseService {
      */
     has (socket_specifier) {
         if ( socket_specifier.room ) {
-            const room = this.io.sockets.adapter.rooms.get(socket_specifier.room);
+            const room = this.io?.sockets.adapter.rooms.get(socket_specifier.room);
             return (!!room) && room.size > 0;
         }
         if ( socket_specifier.socket ) {
-            return this.io.sockets.sockets.has(socket_specifier.socket);
+            return this.io?.sockets.sockets.has(socket_specifier.socket);
         }
     }
 }
