@@ -479,7 +479,7 @@ const zhtw = {
         'window_folder_empty': "此資料夾是空的", // In English: "This folder is empty"
         'manage_your_subdomains': "管理您的子網域", // In English: "Manage Your Subdomains"
         'open_containing_folder': "開啟所在的資料夾", // In English: "Open containing folder"
-		        'confirm_download_file_to_desktop': "您確定要將 %% 下載到您的桌面嗎？", // In English: "Are you sure you want to download %% to your Desktop?"
+		'confirm_download_file_to_desktop': "您確定要將 %% 下載到您的桌面嗎？", // In English: "Are you sure you want to download %% to your Desktop?"
         'downloading_file': "正在下載 %%", // In English: "Downloading %%"
         'error_download_failed': "下載檔案失敗", // In English: "Failed to download file"
         'Resources': "資源", // In English: "Resources"
