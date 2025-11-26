@@ -479,6 +479,21 @@ const zhtw = {
         'window_folder_empty': "此資料夾是空的", // In English: "This folder is empty"
         'manage_your_subdomains': "管理您的子網域", // In English: "Manage Your Subdomains"
         'open_containing_folder': "開啟所在的資料夾", // In English: "Open containing folder"
+		'confirm_download_file_to_desktop': "您確定要將 %% 下載到您的桌面嗎？", // In English: "Are you sure you want to download %% to your Desktop?"
+        'downloading_file': "正在下載 %%", // In English: "Downloading %%"
+        'error_download_failed': "下載檔案失敗", // In English: "Failed to download file"
+        'Resources': "資源", // In English: "Resources"
+        'Storage': "儲存空間", // In English: "Storage"
+        'untar': "解壓縮 Tar", // In English: "Untar"
+        'untarring': "正在解壓縮 %strong%", // In English: "Untarring %strong%"
+        'uploading': "正在上傳", // In English: "Uploading"
+        'uploading_file': "正在上傳 %%", // In English: "Uploading %%"
+        'tar': "Tar 壓縮", // In English: "Tar"
+        'download_as_tar': "下載為 Tar", // In English: "Download as Tar"
+        'tarring': "正在建立 Tar 壓縮檔 %strong%", // In English: "Tarring %strong%"
+        'set_as_background': "設為桌面背景", // In English: "Set as Desktop Background"
+        'error_user_or_path_not_found': "找不到使用者或路徑。", // In English: "User or path not found."
+        'error_invalid_username': "無效的使用者名稱。", // In English: "Invalid username."
     },
 };
 
