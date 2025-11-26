@@ -18,6 +18,13 @@
  */
 
 export const CLAUDE_COST_MAP = {
+    // Claude Opus 4.5
+    'claude:claude-opus-4-5:input_tokens': 500,
+    'claude:claude-opus-4-5:ephemeral_5m_input_tokens': 500 * 1.25,
+    'claude:claude-opus-4-5:ephemeral_1h_input_tokens': 500 * 2,
+    'claude:claude-opus-4-5:cache_read_input_tokens': 500 * 0.1,
+    'claude:claude-opus-4-5:output_tokens': 2500,
+
     // Claude Sonnet 4.5
     'claude:claude-sonnet-4-5-20250929:input_tokens': 300,
     'claude:claude-sonnet-4-5-20250929:ephemeral_5m_input_tokens': 300 * 1.25,
