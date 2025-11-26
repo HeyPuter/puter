@@ -19,11 +19,15 @@
  */
 import { AdvancedBase } from '@heyputer/putility';
 import useapi from 'useapi';
-import { BaseService, EssentialModules } from '../exports';
-import { RuntimeModuleRegistry } from '../src/extension/RuntimeModuleRegistry';
-import { Kernel } from '../src/Kernel';
-import { HTTPThumbnailService } from '../src/services/thumbnails/HTTPThumbnailService';
-import { Context } from '../src/util/context';
+import why from '../exports.js';
+import { RuntimeModuleRegistry } from '../src/extension/RuntimeModuleRegistry.js';
+import { Kernel } from '../src/Kernel.js';
+import { Core2Module } from '../src/modules/core/Core2Module.js';
+import { Container } from '../src/services/Container.js';
+import { HTTPThumbnailService } from '../src/services/thumbnails/HTTPThumbnailService.js';
+import { consoleLogManager } from '../src/util/consolelog.js';
+import { Context } from '../src/util/context.js';
+const { BaseService, EssentialModules } = why;
 
 /**
  * A simple implementation of the log interface for the test kernel.
@@ -85,14 +89,11 @@ export class TestKernel extends AdvancedBase {
     * @description Stores the provided module in the kernel's internal modules array for later installation
     */
     boot () {
-        const { consoleLogManager } = require('../src/util/consolelog');
         consoleLogManager.initialize_proxy_methods();
 
         consoleLogManager.decorate_all(({ _manager, replace }, ...a) => {
             replace(...this.logfn_(...a));
         });
-
-        const { Container } = require('../src/services/Container');
 
         this.testLogger = new TestLogger();
 
@@ -125,7 +126,6 @@ export class TestKernel extends AdvancedBase {
         const mod_install_root_context = Context.get();
 
         for ( const module of this.modules ) {
-            console.log('module?"???', module);
             const mod_context = this._create_mod_context(mod_install_root_context,
                             {
                                 name: module.constructor.name,
@@ -152,18 +152,6 @@ export class TestKernel extends AdvancedBase {
 TestKernel.prototype._create_mod_context =
     Kernel.prototype._create_mod_context;
 
-export const k = new TestKernel();
-for ( const mod of EssentialModules ) {
-    k.add_module(new mod());
-}
-k.add_module({
-    install: async (context) => {
-        const services = context.get('services');
-        services.registerService('thumbs-http', HTTPThumbnailService);
-    },
-});
-k.boot();
-
 const do_after_tests_ = [];
 
 /**
@@ -188,7 +176,18 @@ let total_failed = 0;
 * @type {number} total_failed - Count of all failed assertions
 */
 const main = async () => {
-    console.log('awaiting services readty');
+    const k = new TestKernel();
+    for ( const mod of EssentialModules ) {
+        k.add_module(new mod());
+    }
+    k.add_module({
+        install: async (context) => {
+            const services = context.get('services');
+            services.registerService('thumbs-http', HTTPThumbnailService);
+        },
+    });
+    k.boot();
+    console.log('awaiting services ready');
     await k.services.ready;
     console.log('services have become ready');
 
@@ -264,6 +263,24 @@ const main = async () => {
     process.exit(total_failed ? 1 : 0);
 };
 
-if ( require.main === module ) {
+if ( import.meta.main ) {
     main();
 }
+
+export const createTestKernel = async ({
+    serviceMap,
+}) => {
+    const testKernel = new TestKernel();
+    testKernel.add_module(new Core2Module());
+    for ( const [name, service] of Object.entries(serviceMap) ) {
+        testKernel.add_module({
+            install: context => {
+                const services = context.get('services');
+                services.registerService(name, service);
+            },
+        });
+    }
+    testKernel.boot();
+    await testKernel.services.ready;
+    return testKernel;
+};
