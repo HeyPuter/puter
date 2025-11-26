@@ -106,6 +106,7 @@ export class TestKernel extends AdvancedBase {
             useapi: this.useapi,
             ['runtime-modules']: this.runtimeModuleRegistry,
         }, 'app');
+        this.root_context = root_context;
         globalThis.root_context = root_context;
 
         root_context.arun(async () => {
@@ -132,7 +133,9 @@ export class TestKernel extends AdvancedBase {
                                 ['module']: module,
                                 external: false,
                             });
-            await module.install(mod_context);
+            await this.root_context.arun(async () => {
+                await module.install(mod_context);
+            });
         }
 
         // Real kernel initializes services here, but in this test kernel
@@ -269,7 +272,10 @@ if ( import.meta.main ) {
 
 export const createTestKernel = async ({
     serviceMap,
+    initLevelString = 'construct',
 }) => {
+    const initLevelMap = { CONSTRUCT: 1 };
+    const initLevel = initLevelMap[(`${initLevelString}`).toUpperCase()];
     const testKernel = new TestKernel();
     testKernel.add_module(new Core2Module());
     for ( const [name, service] of Object.entries(serviceMap) ) {
@@ -282,5 +288,14 @@ export const createTestKernel = async ({
     }
     testKernel.boot();
     await testKernel.services.ready;
+    const service_names = Object.keys(testKernel.services.instances_);
+    for ( const name of service_names ) {
+        const ins = testKernel.services.instances_[name];
+        // Fix context
+        ins.context = testKernel.root_context;
+        if ( initLevel >= initLevelMap.CONSTRUCT ) {
+            await ins.construct();
+        }
+    }
     return testKernel;
 };

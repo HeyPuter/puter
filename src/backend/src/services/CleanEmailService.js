@@ -173,27 +173,6 @@ class CleanEmailService extends BaseService {
         return true;
     }
 
-    _test ({ assert }) {
-        const cases = [
-            {
-                email: 'bob.ross+happy-clouds@googlemail.com',
-                expected: 'bobross@gmail.com',
-            },
-            {
-                email: 'under.rated+email-service@yahoo.com',
-                expected: 'under.rated+email-service@yahoo.com',
-            },
-            {
-                email: 'the-absolute+best@protonmail.com',
-                expected: 'the-absolute@protonmail.com',
-            },
-        ];
-
-        for ( const { email, expected } of cases ) {
-            const cleaned = this.clean(email);
-            assert.equal(cleaned, expected, `clean_email(${email}) === ${expected}`);
-        }
-    }
 }
 
 module.exports = { CleanEmailService };
