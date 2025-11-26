@@ -150,7 +150,7 @@ class ClaudeService extends BaseService {
                         ((
                             model === 'claude-3-5-sonnet-20241022'
                             || model === 'claude-3-5-sonnet-20240620'
-                        ) ? 8192 : this.models_().filter(e => e.name === model)[0].max_tokens || 4096), //required
+                        ) ? 8192 : this.models_().filter(e => (e.name === model || e.aliases?.includes(model)))[0]?.max_tokens || 4096), //required
                     temperature: temperature || 0, // required
                     ...( (system_prompts && system_prompts[0]?.content) ? {
                         system: system_prompts[0]?.content,
