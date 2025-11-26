@@ -33,6 +33,8 @@
   will be specified here with `my-name`.
 - This permission is always rewritten as the permission
   described below (backend does this automatically).
+  
+- `<ACCESS-LEVEL>` may be `access`, `read`, or `write` (where `write` implies `read`, and `read` implies `access`).
 
 ### `site:uid#<UUID-OF-SITE>:access`
 - If the subdomain is **not** [protected](../features/protected-apps.md),
@@ -41,15 +43,34 @@
   allow access to the site via a Puter app iframe with
   a token for the entity to which permission was granted
 
-### `app:<NAME-OF-APP>:access`
+### `site:owner#<UUID-OF-USER>:<ACCESS-LEVEL>`
+- Grants access to **all protected sites owned by the specified user**.
+- When checking a specific site permission (`site:uid#...:<ACCESS-LEVEL>`), the system
+  treats this owner-wide permission as sufficient if the site's owner matches.
+- You can also specify the owner by username using
+  `site:owner@<USERNAME>:<ACCESS-LEVEL>`; it will be rewritten to the canonical
+  `owner#<UUID>` form automatically.
+  
+### `app:<NAME-OF-APP>:<ACCESS-LEVEL>`
 
 - `<NAME-OF-APP>` specifies the app that this
   permission is associated with.
 - This permission is always rewritten as the permission
   described below (backend does this automatically).
   
-### `app:uid#<UUID-OF-APP>:access`
+- `<ACCESS-LEVEL>` may be `access`, `read`, or `write` (where `write` implies `read`, and `read` implies `access`).
+  
+### `app:uid#<UUID-OF-APP>:<ACCESS-LEVEL>`
 - If the app is **not** [protected](../features/protected-apps.md),
   this permission is ignored by the system.
 - If the app **is** protected, this permission will
   allow reading the app's metadata and seeing that the app exists.
+
+### `app:owner#<UUID-OF-USER>:<ACCESS-LEVEL>`
+- Grants access to **all protected apps owned by the specified user**.
+- When checking a specific app permission (`app:uid#...:<ACCESS-LEVEL>`), the system
+  treats this owner-wide permission as sufficient if the app's owner matches.
+- You can also specify the owner by username using
+  `app:owner@<USERNAME>:<ACCESS-LEVEL>`; it will be rewritten to the canonical
+  `owner#<UUID>` form automatically.
+- Same access levels apply: `access`, `read`, `write` (`write` ⇒ `read` ⇒ `access`).

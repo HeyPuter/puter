@@ -19,7 +19,7 @@
  */
 const { NodeInternalIDSelector, NodeUIDSelector } = require('../filesystem/node/selectors');
 const { SiteActorType } = require('./auth/Actor');
-const { PermissionUtil, PermissionRewriter, PermissionImplicator } = require('./auth/permissionUtils.mjs');
+const { PermissionExploder, PermissionUtil, PermissionRewriter, PermissionImplicator } = require('./auth/permissionUtils.mjs');
 const BaseService = require('./BaseService');
 const { DB_WRITE } = require('./database/consts');
 
@@ -47,6 +47,21 @@ class PuterSiteService extends BaseService {
 
         // Rewrite site permissions specified by name
         const svc_permission = this.services.get('permission');
+        // owner@username -> owner#uuid
+        svc_permission.register_rewriter(PermissionRewriter.create({
+            matcher: permission => {
+                if ( ! permission.startsWith('site:') ) return false;
+                const [_, specifier] = PermissionUtil.split(permission);
+                return specifier.startsWith('owner@');
+            },
+            rewriter: async permission => {
+                const [_1, owner_spec, ...rest] = PermissionUtil.split(permission);
+                const username = owner_spec.slice('owner@'.length);
+                const svc_user = services.get('get-user');
+                const user = await svc_user.get_user({ username });
+                return PermissionUtil.join(_1, `owner#${user.uuid ?? user.uid ?? user.id}`, ...rest);
+            },
+        }));
         svc_permission.register_rewriter(PermissionRewriter.create({
             matcher: permission => {
                 if ( ! permission.startsWith('site:') ) return false;
@@ -58,6 +73,54 @@ class PuterSiteService extends BaseService {
                 const [_1, name, ...rest] = PermissionUtil.split(permission);
                 const sd = await this.get_subdomain(name);
                 return PermissionUtil.join(_1, `uid#${sd.uuid}`, ...rest);
+            },
+        }));
+
+        // Access levels: write > read > access
+        svc_permission.register_exploder(PermissionExploder.create({
+            id: 'site-access-levels',
+            matcher: permission => permission.startsWith('site:'),
+            exploder: async ({ permission }) => {
+                const parts = PermissionUtil.split(permission);
+                if ( parts.length < 3 ) return [permission];
+
+                const [prefix, spec, lvl, ...rest] = parts;
+                const perms = [permission];
+                if ( lvl === 'access' ) {
+                    perms.push(PermissionUtil.join(prefix, spec, 'read', ...rest));
+                    perms.push(PermissionUtil.join(prefix, spec, 'write', ...rest));
+                } else if ( lvl === 'read' ) {
+                    perms.push(PermissionUtil.join(prefix, spec, 'write', ...rest));
+                }
+                return perms;
+            },
+        }));
+
+        // uid#X => owner#Y wildcard
+        svc_permission.register_exploder(PermissionExploder.create({
+            id: 'site-owner-wildcard',
+            matcher: permission => {
+                if ( ! permission.startsWith('site:') ) return false;
+                const parts = PermissionUtil.split(permission);
+                return parts[1]?.startsWith('uid#') && parts[2];
+            },
+            exploder: async ({ permission }) => {
+                const [_1, site_spec, ...rest] = PermissionUtil.split(permission);
+                const site_uid = site_spec.slice('uid#'.length);
+                const subdomain = await this.get_subdomain_by_uid(site_uid);
+                if ( ! subdomain ) return [permission];
+
+                const owner_id = subdomain.user_id;
+                if ( owner_id === null || owner_id === undefined ) return [permission];
+
+                const svc_user = services.get('get-user');
+                const owner = await svc_user.get_user({ id: owner_id });
+                const owner_key = owner.uuid ?? owner.uid ?? owner.id;
+
+                return [
+                    permission,
+                    PermissionUtil.join(_1, `owner#${owner_key}`, ...rest),
+                ];
             },
         }));
 
