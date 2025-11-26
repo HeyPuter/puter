@@ -26,7 +26,7 @@ export class MeteringService {
         this.#eventService = eventService;
     }
 
-    utilRecordUsageObject<T extends Record<string, number>>(trackedUsageObject: T, actor: Actor, modelPrefix: string, costsOverrides?: Record<keyof T, number>) {
+    utilRecordUsageObject<T extends Record<string, number>>(trackedUsageObject: T, actor: Actor, modelPrefix: string, costsOverrides?: Partial<Record<keyof T, number>>) {
         this.batchIncrementUsages(actor, Object.entries(trackedUsageObject).map(([usageKind, amount]) => ({
             usageType: `${modelPrefix}:${usageKind}`,
             usageAmount: amount,
@@ -105,7 +105,7 @@ export class MeteringService {
                 const actorUsagesPromise = this.#kvStore.incr({
                     key: actorUsageKey,
                     pathAndAmountMap,
-                }) as Promise<UsageByType>;
+                }) as unknown as Promise<UsageByType>;
 
                 const puterConsumptionKey = this.#generateGloabalUsageKey(userId, appId, currentMonth); // global consumption across all users and apps
                 this.#kvStore.incr({
@@ -257,7 +257,7 @@ export class MeteringService {
                 const actorUsagesPromise = this.#kvStore.incr({
                     key: actorUsageKey,
                     pathAndAmountMap: aggregatedPathAndAmountMap,
-                }) as Promise<UsageByType>;
+                }) as unknown as Promise<UsageByType>;
 
                 const puterConsumptionKey = this.#generateGloabalUsageKey(userId, appId, currentMonth);
                 this.#kvStore.incr({
@@ -517,7 +517,7 @@ export class MeteringService {
             }
             keys.push(`${keyPrefix}${currentMonth}`); // for initial unsharded data
             const usages = await this.#kvStore.get({ key: keys }) as UsageByType[];
-            const aggregatedUsage: UsageByType = { total: 0 };
+            const aggregatedUsage: UsageByType = { total: 0 } as UsageByType;
             usages.filter(Boolean).forEach(({ total, ...usage } = {} as UsageByType) => {
                 aggregatedUsage.total += total || 0;
 
