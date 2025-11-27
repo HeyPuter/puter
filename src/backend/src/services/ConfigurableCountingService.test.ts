@@ -77,4 +77,3 @@ describe('ConfigurableCountingService', async () => {
         expect(modelCategory!.type).toBe('string');
     });
 });
-

@@ -21,7 +21,7 @@ describe('EventService', async () => {
         eventService.on('test.event', () => {
             received = true;
         });
-        
+
         await eventService.emit('test.event', {});
         expect(received).toBe(true);
     });
@@ -31,7 +31,7 @@ describe('EventService', async () => {
         eventService.on('data.event', (key, data) => {
             receivedData = data;
         });
-        
+
         await eventService.emit('data.event', { value: 42 });
         expect(receivedData).toEqual({ value: 42 });
     });
@@ -41,30 +41,36 @@ describe('EventService', async () => {
         eventService.on('wild.*', (key) => {
             received.push(key);
         });
-        
+
         await eventService.emit('wild.test1', {});
         await eventService.emit('wild.test2', {});
-        
+
         expect(received).toContain('wild.test1');
         expect(received).toContain('wild.test2');
     });
 
     it('should support multiple listeners on same event', async () => {
         let count = 0;
-        eventService.on('multi.event', () => { count++; });
-        eventService.on('multi.event', () => { count++; });
-        
+        eventService.on('multi.event', () => {
+            count++;
+        });
+        eventService.on('multi.event', () => {
+            count++;
+        });
+
         await eventService.emit('multi.event', {});
         expect(count).toBe(2);
     });
 
     it('should detach listeners', async () => {
         let count = 0;
-        const det = eventService.on('detach.event', () => { count++; });
-        
+        const det = eventService.on('detach.event', () => {
+            count++;
+        });
+
         await eventService.emit('detach.event', {});
         expect(count).toBe(1);
-        
+
         det.detach();
         await eventService.emit('detach.event', {});
         expect(count).toBe(1); // Should still be 1
@@ -75,7 +81,7 @@ describe('EventService', async () => {
         eventService.on_all(() => {
             globalReceived = true;
         });
-        
+
         await eventService.emit('any.event', {});
         expect(globalReceived).toBe(true);
     });
@@ -91,10 +97,9 @@ describe('EventService', async () => {
         eventService.on('scope.test.event', () => {
             received = true;
         });
-        
+
         const scoped = eventService.get_scoped('scope.test');
         await scoped.emit('event', {});
         expect(received).toBe(true);
     });
 });
-

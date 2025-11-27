@@ -37,11 +37,9 @@ describe('TraceService', async () => {
     });
 
     it('should handle errors in spanify', async () => {
-        await expect(
-            traceService.spanify('error-span', async () => {
-                throw new Error('Test span error');
-            })
-        ).rejects.toThrow('Test span error');
+        await expect(traceService.spanify('error-span', async () => {
+            throw new Error('Test span error');
+        })).rejects.toThrow('Test span error');
     });
 
     it('should support options in spanify', async () => {
@@ -61,4 +59,3 @@ describe('TraceService', async () => {
         expect(result).toEqual(obj);
     });
 });
-

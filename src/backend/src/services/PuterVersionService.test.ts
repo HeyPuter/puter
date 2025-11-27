@@ -24,7 +24,7 @@ describe('PuterVersionService', async () => {
 
     it('should return version info', () => {
         const versionInfo = versionService.get_version();
-        
+
         expect(versionInfo).toBeDefined();
         expect(versionInfo).toHaveProperty('version');
         expect(versionInfo).toHaveProperty('environment');
@@ -34,27 +34,27 @@ describe('PuterVersionService', async () => {
 
     it('should have valid version string', () => {
         const versionInfo = versionService.get_version();
-        
+
         expect(typeof versionInfo.version).toBe('string');
         expect(versionInfo.version).toBeTruthy();
     });
 
     it('should have deploy_timestamp matching boot_time', () => {
         const versionInfo = versionService.get_version();
-        
+
         expect(versionInfo.deploy_timestamp).toBe(versionService.boot_time);
     });
 
     it('should have environment from config', () => {
         const versionInfo = versionService.get_version();
-        
+
         // Environment might be undefined in test context
         expect(versionInfo).toHaveProperty('environment');
     });
 
     it('should have location from config', () => {
         const versionInfo = versionService.get_version();
-        
+
         // Location might be undefined in test context
         expect(versionInfo).toHaveProperty('location');
     });
@@ -62,9 +62,8 @@ describe('PuterVersionService', async () => {
     it('should return consistent version info on multiple calls', () => {
         const versionInfo1 = versionService.get_version();
         const versionInfo2 = versionService.get_version();
-        
+
         expect(versionInfo1.version).toBe(versionInfo2.version);
         expect(versionInfo1.deploy_timestamp).toBe(versionInfo2.deploy_timestamp);
     });
 });
-
