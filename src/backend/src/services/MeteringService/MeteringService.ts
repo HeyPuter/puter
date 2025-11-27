@@ -30,7 +30,7 @@ export class MeteringService {
         this.batchIncrementUsages(actor, Object.entries(trackedUsageObject).map(([usageKind, amount]) => ({
             usageType: `${modelPrefix}:${usageKind}`,
             usageAmount: amount,
-            costOverride: costsOverrides?.[usageKind as keyof T],
+            costOverride: costsOverrides?.[usageKind as keyof T] || undefined,
         })));
     }
 
@@ -79,9 +79,11 @@ export class MeteringService {
             const currentMonth = this.#getMonthYearString();
 
             return this.#superUserService.sudo(async () => {
-                const totalCost = (costOverride ?? (COST_MAPS[usageType as keyof typeof COST_MAPS] || 0) * usageAmount) || 0; // TODO DS: apply our policy discounts here eventually
 
-                if ( COST_MAPS[usageType as keyof typeof COST_MAPS] !== 0 && totalCost === 0 && costOverride === undefined ) {
+                const mappedCost = COST_MAPS[usageType as keyof typeof COST_MAPS];
+                const totalCost = (costOverride ?? ((mappedCost || 0) * usageAmount));
+
+                if ( totalCost === 0 && mappedCost !== 0 && costOverride !== 0 ) {
                     // could be something is off, there are some models that cost nothing from openrouter, but then our overrides should not be undefined, so will flag
                     this.#alarmService.create('metering-service-0-cost-warning', 'potential abuse vector', {
                         actor,
@@ -227,11 +229,12 @@ export class MeteringService {
                         continue; // skip invalid entries
                     }
 
-                    const totalCost = (costOverride ?? (COST_MAPS[usageType as keyof typeof COST_MAPS] || 0) * usageAmount) || 0;
+                    const mappedCost = COST_MAPS[usageType as keyof typeof COST_MAPS];
+                    const totalCost = costOverride ?? ((mappedCost || 0) * usageAmount);
                     totalBatchCost += totalCost;
 
                     // Check for zero cost warning (only flag once per batch)
-                    if ( !hasZeroCostWarning && COST_MAPS[usageType as keyof typeof COST_MAPS] !== 0 && totalCost === 0 && costOverride === undefined ) {
+                    if ( !hasZeroCostWarning && totalCost === 0 && mappedCost !== 0 && costOverride !== 0 ) {
                         hasZeroCostWarning = true;
                         this.#alarmService.create('metering-service-0-cost-warning', 'potential abuse vector', {
                             actor,
