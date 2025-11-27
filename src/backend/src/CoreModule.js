@@ -271,7 +271,6 @@ const install = async ({ context, services, app, useapi, modapi }) => {
     services.registerService('context-init', ContextInitService);
     services.registerService('identification', IdentificationService);
     services.registerService('auth-audit', AuthAuditService);
-    services.registerService('counting', ConfigurableCountingService);
     services.registerService('thumbnails', StrategizedService, {
         strategy_key: 'engine',
         default_strategy: 'purejs',
