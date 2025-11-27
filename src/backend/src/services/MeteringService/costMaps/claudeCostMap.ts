@@ -19,17 +19,18 @@
 
 export const CLAUDE_COST_MAP = {
     // Claude Opus 4.5
-    'claude:claude-opus-4-5:input_tokens': 500,
-    'claude:claude-opus-4-5:ephemeral_5m_input_tokens': 500 * 1.25,
-    'claude:claude-opus-4-5:ephemeral_1h_input_tokens': 500 * 2,
-    'claude:claude-opus-4-5:cache_read_input_tokens': 500 * 0.1,
-    'claude:claude-opus-4-5:output_tokens': 2500,
-
     'claude:claude-opus-4-5-20251101:input_tokens': 500,
     'claude:claude-opus-4-5-20251101:ephemeral_5m_input_tokens': 500 * 1.25,
     'claude:claude-opus-4-5-20251101:ephemeral_1h_input_tokens': 500 * 2,
     'claude:claude-opus-4-5-20251101:cache_read_input_tokens': 500 * 0.1,
     'claude:claude-opus-4-5-20251101:output_tokens': 2500,
+
+    // Claude Haiku 4.5
+    'claude:claude-haiku-4-5-20251001:input_tokens': 100,
+    'claude:claude-haiku-4-5-20251001:ephemeral_5m_input_tokens': 100 * 1.25,
+    'claude:claude-haiku-4-5-20251001:ephemeral_1h_input_tokens': 100 * 2,
+    'claude:claude-haiku-4-5-20251001:cache_read_input_tokens': 100 * 0.1,
+    'claude:claude-haiku-4-5-20251001:output_tokens': 500,
 
     // Claude Sonnet 4.5
     'claude:claude-sonnet-4-5-20250929:input_tokens': 300,
