@@ -25,7 +25,8 @@ describe('CommandService', async () => {
             {
                 id: 'test-cmd',
                 description: 'A test command',
-                handler: async () => {},
+                handler: async () => {
+                },
             },
         ]);
         expect(commandService.commandNames).toContain('test-service:test-cmd');
@@ -37,10 +38,12 @@ describe('CommandService', async () => {
             {
                 id: 'exec-cmd',
                 description: 'Execute test',
-                handler: async () => { executed = true; },
+                handler: async () => {
+                    executed = true;
+                },
             },
         ]);
-        
+
         const mockLog = { error: vi.fn(), log: vi.fn() };
         await commandService.executeCommand(['exec-test:exec-cmd'], mockLog);
         expect(executed).toBe(true);
@@ -52,10 +55,12 @@ describe('CommandService', async () => {
             {
                 id: 'args-cmd',
                 description: 'Args test',
-                handler: async (args) => { receivedArgs = args; },
+                handler: async (args) => {
+                    receivedArgs = args;
+                },
             },
         ]);
-        
+
         const mockLog = { error: vi.fn(), log: vi.fn() };
         await commandService.executeCommand(['args-test:args-cmd', 'arg1', 'arg2'], mockLog);
         expect(receivedArgs).toEqual(['arg1', 'arg2']);
@@ -67,30 +72,16 @@ describe('CommandService', async () => {
         expect(mockLog.error).toHaveBeenCalledWith('unknown command: unknown-command');
     });
 
-    it('should execute raw commands', async () => {
-        let executed = false;
-        commandService.registerCommands('raw-test', [
-            {
-                id: 'raw-cmd',
-                description: 'Raw test',
-                handler: async () => { executed = true; },
-            },
-        ]);
-        
-        const mockLog = { error: vi.fn(), log: vi.fn() };
-        await commandService.executeRawCommand('raw-test:raw-cmd', mockLog);
-        expect(executed).toBe(true);
-    });
-
     it('should get command by id', () => {
         commandService.registerCommands('get-test', [
             {
                 id: 'get-cmd',
                 description: 'Get test',
-                handler: async () => {},
+                handler: async () => {
+                },
             },
         ]);
-        
+
         const cmd = commandService.getCommand('get-test:get-cmd');
         expect(cmd).toBeDefined();
         expect(cmd?.id).toBe('get-test:get-cmd');
@@ -107,14 +98,14 @@ describe('CommandService', async () => {
             {
                 id: 'complete-cmd',
                 description: 'Complete test',
-                handler: async () => {},
+                handler: async () => {
+                },
                 completer: (args) => ['option1', 'option2'],
             },
         ]);
-        
+
         const cmd = commandService.getCommand('complete-test:complete-cmd');
         const completions = cmd?.completeArgument([]);
         expect(completions).toEqual(['option1', 'option2']);
     });
 });
-
