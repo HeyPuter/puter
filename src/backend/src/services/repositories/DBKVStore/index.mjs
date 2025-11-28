@@ -3,6 +3,7 @@ import { DB_READ } from '../../database/consts.js';
 import { DBKVStore } from './DBKVStore.js';
 
 export class DBKVServiceWrapper extends BaseService {
+    /** @type {DBKVStore} */
     kvStore = undefined;
     _init () {
         /** @type {DBKVStore} */

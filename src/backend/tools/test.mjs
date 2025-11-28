@@ -57,6 +57,9 @@ class TestLogger {
 * Does not include full service initialization or legacy service support
 */
 export class TestKernel extends AdvancedBase {
+
+    /**@type {Context} */
+    root_context;
     constructor () {
         super();
 

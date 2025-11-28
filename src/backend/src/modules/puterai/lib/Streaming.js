@@ -1,38 +1,18 @@
-/**
- * Assign the properties of the override object to the original object,
- * like Object.assign, except properties are ordered so override properties
- * are enumerated first.
- *
- * @param {*} original
- * @param {*} override
- */
-const objectAssignTop = (original, override) => {
-    let o = {
-        ...original,
-        ...override,
-    };
-    o = {
-        ...override,
-        ...original,
-    };
-    return o;
-};
-
 class AIChatConstructStream {
     constructor (chatStream, params) {
         this.chatStream = chatStream;
         if ( this._start ) this._start(params);
     }
     end () {
-        if ( this._end ) this._end();
     }
 }
 
 class AIChatTextStream extends AIChatConstructStream {
     addText (text, extra_content) {
         const json = JSON.stringify({
-            type: 'text', text,
-            ...(extra_content?{extra_content}:{})
+            type: 'text',
+            text,
+            ...(extra_content ? { extra_content } : {}),
         });
         this.chatStream.stream.write(`${json }\n`);
     }
@@ -44,10 +24,10 @@ class AIChatTextStream extends AIChatConstructStream {
         this.chatStream.stream.write(`${json }\n`);
     }
 
-    addExtraContent(extra_content) {
+    addExtraContent (extra_content) {
         const json = JSON.stringify({
             type: 'extra_content',
-            extra_content
+            extra_content,
         });
         this.chatStream.stream.write(`${json }\n`);
     }
@@ -61,18 +41,17 @@ class AIChatToolUseStream extends AIChatConstructStream {
     addPartialJSON (partial_json) {
         this.buffer += partial_json;
     }
-    _end () {
+    end () {
         if ( this.buffer.trim() === '' ) {
             this.buffer = '{}';
         }
         if ( process.env.DEBUG ) console.log('BUFFER BEING PARSED', this.buffer);
-        const str = JSON.stringify(objectAssignTop({
+        const str = JSON.stringify({
+            type: 'tool_use',
             ...this.contentBlock,
             input: JSON.parse(this.buffer),
             ...( !this.contentBlock.text ? { text: '' } : {}),
-        }, {
-            type: 'tool_use',
-        }));
+        });
         this.chatStream.stream.write(`${str }\n`);
     }
 }
