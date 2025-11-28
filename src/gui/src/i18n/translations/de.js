@@ -70,7 +70,7 @@ const de = {
         confirm_your_email_address: 'Bestätigen Sie Ihre E-Mail-Adresse',
         contact_us: 'Kontaktieren Sie uns',
         contact_us_verification_required: 'Sie müssen eine verifizierte E-Mail-Adresse haben, um dies zu verwenden.',
-        contain: 'Füllen',
+        contain: 'Enthalten',
         continue: 'Weiter',
         copy: 'Kopieren',
         copy_link: 'Link kopieren',
@@ -80,7 +80,7 @@ const de = {
         create_account: 'Konto erstellen',
         create_free_account: 'Kostenloses Konto erstellen',
         create_shortcut: 'Verknüpfung erstellen',
-        credits: 'Credits',
+        credits: 'Mitwirkende',
         current_password: 'Aktuelles Passwort',
         cut: 'Ausschneiden',
         clock: 'Uhr',
@@ -123,7 +123,7 @@ const de = {
         end_process_force_confirm: 'Möchten Sie diesen Prozess wirklich beenden?',
         end_soft: 'Weich beenden',
         enlarged_qr_code: 'Vergrößerter QR-Code',
-        enter_password_to_confirm_delete_user: 'Geben Sie Ihr Passwort ein, um die Entferung des Kontos zu bestätigen',
+        enter_password_to_confirm_delete_user: 'Geben Sie Ihr Passwort ein, um die Löschung des Kontos zu bestätigen',
         error_message_is_missing: 'Fehlermeldung fehlt.',
         error_unknown_cause: 'Ein unbekannter Fehler ist aufgetreten.',
         error_uploading_files: 'Dateien konnten nicht hochgeladen werden',
@@ -341,7 +341,7 @@ const de = {
         login2fa_recovery_back: 'Zurück',
         login2fa_recovery_placeholder: 'XXXXXXXX',
 
-        'change': 'Änderung', // In English: "Change"
+        'change': 'Ändern', // In English: "Change"
         'clock_visibility': 'Uhrensichtbarkeit', // In English: "Clock Visibility"
         'confirm': 'Bestätigen', // In English: "Confirm"
         'reading': 'Lesen %strong%', // In English: "Reading %strong%"
@@ -416,7 +416,7 @@ const de = {
         'publish_as_serverless_worker': 'Als Worker veröffentlichen', // In English: "Publish as Worker"
         'toolbar.enter_fullscreen': 'Vollbildmodus aktivieren', // In English: "Enter Full Screen"
         'toolbar.github': 'GitHub', // In English: "GitHub"
-        'toolbar.refer': 'Verweisen', // In English: "Refer"
+        'toolbar.refer': 'Empfehlen', // In English: "Refer"
         'toolbar.save_account': 'Konto speichern', // In English: "Save Account"
         'toolbar.search': 'Suchen', // In English: "Search"
         'toolbar.qrcode': 'QR-Code', // In English: "QR Code"
@@ -438,7 +438,7 @@ const de = {
         'alert_warning_title': 'Warnung', // In English: "Warning!"
         'alert_info_title': 'Info', // In English: "Info"
         'alert_success_title': 'Erfolg!', // In English: "Success!"
-        'alert_confirm_title': 'Bist du sicher?', // In English: "Are you sure?"
+        'alert_confirm_title': 'Sind Sie sicher?', // In English: "Are you sure?"
         'alert_yes': 'Ja', // In English: "Yes"
         'alert_no': 'Nein', // In English: "No"
         'alert_retry': 'Wiederholen', // In English: "Retry"
@@ -446,7 +446,7 @@ const de = {
         'signup_confirm_password': 'Passwort bestätigen', // In English: "Confirm Password"
         'login_email_username_required': 'E-Mail oder Benutzername ist erforderlich', // In English: "Email or username is required"
         'login_password_required': 'Passwort erforderlich', // In English: "Password is required"
-        'window_title_open': 'Offen', // In English: "Open"
+        'window_title_open': 'Öffnen', // In English: "Open"
         'window_title_change_password': 'Kennwort ändern', // In English: "Change Password"
         'window_title_select_font': 'Schriftart auswählen…', // In English: "Select font…"
         'window_title_session_list': 'Sitzungsliste!', // In English: "Session List!"
@@ -466,7 +466,7 @@ const de = {
         'desktop_position_right': 'Rechts', // In English: "Right"
         'item_shared_with_you': 'Ein Benutzer hat diesen Artikel mit Ihnen geteilt.', // In English: "A user has shared this item with you."
         'item_shared_by_you': 'Sie haben diesen Artikel mit mindestens einem anderen Benutzer geteilt.', // In English: "You have shared this item with at least one other user."
-        'item_shortcut': 'Abkürzung', // In English: "Shortcut"
+        'item_shortcut': 'Verknüpfung', // In English: "Shortcut"
         'item_associated_websites': 'Zugehörige Website', // In English: "Associated website"
         'item_associated_websites_plural': 'Zugehörige Websites', // In English: "Associated websites"
         'no_suitable_apps_found': 'Keine passenden Apps gefunden', // In English: "No suitable apps found"
