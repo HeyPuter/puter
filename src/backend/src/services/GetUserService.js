@@ -17,6 +17,8 @@
  * You should have received a copy of the GNU Affero General Public License
  * along with this program.  If not, see <https://www.gnu.org/licenses/>.
  */
+const { Actor, UserActorType } = require('./auth/Actor');
+const { PermissionImplicator } = require('./auth/permissionUtils.mjs');
 const BaseService = require('./BaseService');
 const { DB_READ } = require('./database/consts');
 
@@ -55,6 +57,24 @@ class GetUserService extends BaseService {
     * @returns {Promise<void>} A promise that resolves when the initialization is complete.
     */
     async _init () {
+
+        const svc_permission = this.services.get('permission');
+        console.log('reg imppl');
+        svc_permission.register_implicator(PermissionImplicator.create({
+            id: 'user-set-own',
+            shortcut: true,
+            matcher: permission => {
+                return permission.startsWith('user:');
+            },
+            checker: async ({ actor, permission }) => {
+                if ( ! (actor.type instanceof UserActorType) ) {
+                    return undefined;
+                }
+                if ( permission === `user:${ actor.type.user.uuid }:email:read` ) {
+                    return {};
+                }
+            },
+        }));
     }
 
     /**
