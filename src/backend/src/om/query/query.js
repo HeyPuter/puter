@@ -117,6 +117,42 @@ class PredicateUtil {
 
         return predicate;
     }
+
+    static write_human_readable (predicate) {
+        if ( predicate instanceof Eq ) {
+            return `${predicate.key}=${predicate.value}`;
+        }
+
+        if ( predicate instanceof And ) {
+            const parts = predicate.children.map(child =>
+                PredicateUtil.write_human_readable(child));
+            return parts.join(' and ');
+        }
+
+        if ( predicate instanceof Or ) {
+            const parts = predicate.children.map(child =>
+                PredicateUtil.write_human_readable(child));
+            return parts.join(' or ');
+        }
+
+        if ( predicate instanceof StartsWith ) {
+            return `${predicate.key} starts with "${predicate.value}"`;
+        }
+
+        if ( predicate instanceof IsNotNull ) {
+            return `${predicate.key} is not null`;
+        }
+
+        if ( predicate instanceof Like ) {
+            return `${predicate.key} like "${predicate.value}"`;
+        }
+
+        if ( predicate instanceof Null ) {
+            return '';
+        }
+
+        return String(predicate);
+    }
 }
 
 module.exports = {
