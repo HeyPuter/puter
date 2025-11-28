@@ -20,7 +20,7 @@
 const APIError = require('../api/APIError');
 const { Entity } = require('../om/entitystorage/Entity');
 const { IdentifierUtil } = require('../om/IdentifierUtil');
-const { Null, And, Eq } = require('../om/query/query');
+const { Null, And, Eq, PredicateUtil } = require('../om/query/query');
 const { Context } = require('../util/context');
 const BaseService = require('./BaseService');
 
@@ -199,12 +199,13 @@ class EntityStoreService extends BaseService {
                     old_entity = maybe_entity[0];
                 }
             }
-        }
 
-        if ( ! old_entity ) {
-            throw APIError.create('entity_not_found', null, {
-                identifier: await entity.get(this.om.primary_identifier),
-            });
+            if ( ! old_entity ) {
+                throw APIError.create('entity_not_found', null, {
+                    identifier: PredicateUtil.write_human_readable(predicate)
+                        || await entity.get(this.om.primary_identifier),
+                });
+            }
         }
 
         // Set primary identifier's value of `entity` to that in `old_entity`
