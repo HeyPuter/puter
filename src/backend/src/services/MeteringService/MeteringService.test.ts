@@ -3,9 +3,11 @@ import { createTestKernel } from '../../../tools/test.mjs';
 import * as config from '../../config';
 import { Actor } from '../auth/Actor';
 import { DBKVServiceWrapper } from '../repositories/DBKVStore/index.mjs';
-import { GLOBAL_APP_KEY } from './consts.js';
+import { GLOBAL_APP_KEY, PERIOD_ESCAPE } from './consts.js';
 import { MeteringService } from './MeteringService';
 import { MeteringServiceWrapper } from './MeteringServiceWrapper.mjs';
+import { COST_MAPS } from './costMaps/index.js';
+import type { EventService } from '../EventService.js';
 
 describe('MeteringService', async () => {
 
@@ -198,5 +200,22 @@ describe('MeteringService', async () => {
 
         expect(res.total).toBe(12);
         expect(res['aws-polly:standard:character']).toMatchObject({ cost: 12, units: 10, count: 1 });
+    });
+
+    it('applies the configured cost map rate for every usage type', async () => {
+        const usageAmount = 2;
+
+        for ( const [usageType, costPerUnit] of Object.entries(COST_MAPS) ) {
+            const actor = makeActor(`cost-map-user-${usageType.replace(/[^a-zA-Z0-9]/g, '-')}`);
+            const result = await testSubject.meteringService.incrementUsage(actor, usageType, usageAmount);
+            const escapedUsageType = usageType.replace(/\./g, PERIOD_ESCAPE);
+
+            expect(result.total).toBe(costPerUnit * usageAmount);
+            expect(result[escapedUsageType]).toMatchObject({
+                cost: costPerUnit * usageAmount,
+                units: usageAmount,
+                count: 1,
+            });
+        }
     });
 });
