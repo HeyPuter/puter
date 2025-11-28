@@ -1,7 +1,7 @@
 // static imports
+import _path from 'fs';
 import TimeAgo from 'javascript-time-ago';
 import localeEn from 'javascript-time-ago/locale/en';
-import _path from 'fs';
 
 // runtime imports
 const { UserActorType, AppUnderUserActorType } = extension.import('core');
@@ -61,6 +61,7 @@ const whoami_common = ({ is_user, user }) => {
 
 extension.get('/whoami', { subdomain: 'api' }, async (req, res, next) => {
     const actor = req.actor;
+
     if ( ! actor ) {
         throw Error('actor not found in context');
     }
@@ -101,7 +102,10 @@ extension.get('/whoami', { subdomain: 'api' }, async (req, res, next) => {
 
     // TODO: redundant? GetUserService already puts these values on 'user'
     // Get whoami values from other services
-    const svc_whoami = req.services.get('whoami');
+    const /** @type {any} */ svc_whoami = req.services.get('whoami');
+
+    const /** @type {any} */ svc_permission = req.services.get('permission');
+
     const provider_details = await svc_whoami.get_details({
         user: req.user,
         actor: actor,
@@ -112,8 +116,12 @@ extension.get('/whoami', { subdomain: 'api' }, async (req, res, next) => {
         // When apps call /whoami they should not see these attributes
         // delete details.username;
         // delete details.uuid;
-        delete details.email;
-        delete details.unconfirmed_email;
+
+        if ( ! (await svc_permission.check(actor, `user:${details.uuid}:email:read`)) ) {
+            delete details.email;
+            delete details.unconfirmed_email;
+        }
+
         delete details.desktop_bg_url;
         delete details.desktop_bg_color;
         delete details.desktop_bg_fit;
