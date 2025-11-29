@@ -8,6 +8,8 @@ import { DBKVServiceWrapper } from './index.mjs';
 describe('DBKVStore', async () => {
 
     config.load_config({
+        kv_max_key_size: 1000,
+        kv_max_value_size: 1000,
         'services': {
             'database': {
                 path: ':memory:',

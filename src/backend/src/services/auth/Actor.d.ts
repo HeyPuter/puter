@@ -7,7 +7,7 @@ export class SystemActorType {
 
 export class Actor {
     type: {
-        app: { uid: string }
+        app: { uid: string, timestamp?: Date }
         user: IUser
     };
     get uid (): string;

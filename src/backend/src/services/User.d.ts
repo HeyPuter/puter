@@ -1,6 +1,7 @@
 import { SUB_POLICIES } from './MeteringService/subPolicies';
 
 export interface IUser {
+    id: number,
     uuid: string,
     username: string,
     email: string,

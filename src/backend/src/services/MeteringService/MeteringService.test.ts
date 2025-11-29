@@ -2,12 +2,12 @@ import { describe, expect, it, vi } from 'vitest';
 import { createTestKernel } from '../../../tools/test.mjs';
 import * as config from '../../config';
 import { Actor } from '../auth/Actor';
+import type { EventService } from '../EventService.js';
 import { DBKVServiceWrapper } from '../repositories/DBKVStore/index.mjs';
 import { GLOBAL_APP_KEY, PERIOD_ESCAPE } from './consts.js';
+import { COST_MAPS } from './costMaps/index.js';
 import { MeteringService } from './MeteringService';
 import { MeteringServiceWrapper } from './MeteringServiceWrapper.mjs';
-import { COST_MAPS } from './costMaps/index.js';
-import type { EventService } from '../EventService.js';
 
 describe('MeteringService', async () => {
 
@@ -60,12 +60,18 @@ describe('MeteringService', async () => {
     });
 
     it('should record usage for an actor properly', async () => {
+        const usageType = 'aws-polly:standard:character';
+        const costPerUnit = COST_MAPS[usageType];
         const res = await testSubject.meteringService.incrementUsage({ type: { user: { uuid: 'test-user-id' } } } as unknown as Actor,
-                        'aws-polly:standard:character',
+                        usageType,
                         1);
 
-        // TODO DS: validate the result properly
-        expect(res).toBeDefined();
+        expect(res.total).toBe(costPerUnit);
+        expect(res[usageType]).toMatchObject({
+            cost: costPerUnit,
+            units: 1,
+            count: 1,
+        });
     });
 
     it('utilRecordUsageObject delegates tracked usage to batchIncrementUsages', () => {
