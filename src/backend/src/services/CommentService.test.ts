@@ -54,7 +54,7 @@ describe('CommentService', async () => {
     it('should generate UUID for comments', () => {
         const uuid1 = commentService.modules.uuidv4();
         const uuid2 = commentService.modules.uuidv4();
-        
+
         expect(uuid1).toBeDefined();
         expect(uuid2).toBeDefined();
         expect(typeof uuid1).toBe('string');
@@ -64,7 +64,7 @@ describe('CommentService', async () => {
 
     it('should validate UUID format', () => {
         const uuid = commentService.modules.uuidv4();
-        
+
         // UUID v4 format: xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx
         const uuidRegex = /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
         expect(uuid).toMatch(uuidRegex);
@@ -76,32 +76,31 @@ describe('CommentService', async () => {
             user: { id: 1 },
         };
         const mockRes = {};
-        
+
         // Mock database write
         const originalWrite = commentService.db.write.bind(commentService.db);
         commentService.db.write = vi.fn().mockResolvedValue({ insertId: 123 });
-        
+
         try {
-            const result = await commentService.create_comment_({ 
-                req: mockReq, 
-                res: mockRes 
+            const result = await commentService.create_comment_({
+                req: mockReq,
+                res: mockRes,
             });
-            
+
             expect(result).toBeDefined();
             expect(result.id).toBe(123);
             expect(result.uid).toBeDefined();
             expect(typeof result.uid).toBe('string');
-            
+
             // Verify database write was called with correct parameters
             expect(commentService.db.write).toHaveBeenCalledWith(
-                expect.stringContaining('INSERT INTO `user_comments`'),
-                expect.arrayContaining([
-                    expect.any(String), // UUID
-                    1, // user_id
-                    '{}', // metadata
-                    'Test comment text',
-                ])
-            );
+                            expect.stringContaining('INSERT INTO `user_comments`'),
+                            expect.arrayContaining([
+                                expect.any(String), // UUID
+                                1, // user_id
+                                '{}', // metadata
+                                'Test comment text',
+                            ]));
         } finally {
             commentService.db.write = originalWrite;
         }
@@ -115,21 +114,20 @@ describe('CommentService', async () => {
             id: 123,
             uid: 'comment-uuid',
         };
-        
+
         const originalWrite = commentService.db.write.bind(commentService.db);
         commentService.db.write = vi.fn().mockResolvedValue({});
-        
+
         try {
             await commentService.attach_comment_to_fsentry({
                 node: mockNode,
                 comment: comment,
             });
-            
+
             expect(commentService.db.write).toHaveBeenCalledWith(
-                expect.stringContaining('INSERT INTO `user_fsentry_comments`'),
-                expect.arrayContaining([123, 456])
-            );
-            
+                            expect.stringContaining('INSERT INTO `user_fsentry_comments`'),
+                            expect.arrayContaining([123, 456]));
+
             expect(mockNode.get).toHaveBeenCalledWith('mysql-id');
         } finally {
             commentService.db.write = originalWrite;
@@ -140,22 +138,21 @@ describe('CommentService', async () => {
         const mockNode = {
             get: vi.fn().mockResolvedValue(789),
         };
-        
+
         const originalRead = commentService.db.read.bind(commentService.db);
         commentService.db.read = vi.fn().mockResolvedValue([]);
-        
+
         try {
             // Note: This test only verifies the database call structure
             // Full integration tests would require proper user service setup
             await commentService.get_comments_for_fsentry({
                 node: mockNode,
             });
-            
+
             expect(commentService.db.read).toHaveBeenCalledWith(
-                expect.stringContaining('SELECT * FROM `user_comments`'),
-                expect.arrayContaining([789])
-            );
-            
+                            expect.stringContaining('SELECT * FROM `user_comments`'),
+                            expect.arrayContaining([789]));
+
             expect(mockNode.get).toHaveBeenCalledWith('mysql-id');
         } finally {
             commentService.db.read = originalRead;
@@ -166,28 +163,27 @@ describe('CommentService', async () => {
         const mockNode = {
             get: vi.fn().mockResolvedValue(999),
         };
-        
+
         const comments = [
             { id: 1, uid: 'uuid-1' },
             { id: 2, uid: 'uuid-2' },
             { id: 3, uid: 'uuid-3' },
         ];
-        
+
         const originalWrite = commentService.db.write.bind(commentService.db);
         commentService.db.write = vi.fn().mockResolvedValue({});
-        
+
         try {
-            for (const comment of comments) {
+            for ( const comment of comments ) {
                 await commentService.attach_comment_to_fsentry({
                     node: mockNode,
                     comment,
                 });
             }
-            
+
             expect(commentService.db.write).toHaveBeenCalledTimes(3);
         } finally {
             commentService.db.write = originalWrite;
         }
     });
 });
-

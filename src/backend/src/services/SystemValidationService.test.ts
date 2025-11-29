@@ -24,7 +24,7 @@ describe('SystemValidationService', async () => {
     it('should handle mark_invalid in dev environment', async () => {
         // Set up dev environment
         const originalEnv = systemValidationService.global_config?.env;
-        if (systemValidationService.global_config) {
+        if ( systemValidationService.global_config ) {
             systemValidationService.global_config.env = 'dev';
         }
 
@@ -41,10 +41,10 @@ describe('SystemValidationService', async () => {
             turn_on_the_warning_lights: mockTurnOn,
             add_widget: mockAddWidget,
         };
-        
+
         const originalGet = testKernel.services.get.bind(testKernel.services);
         testKernel.services.get = vi.fn((name: string) => {
-            if (name === 'dev-console') return mockDevConsole;
+            if ( name === 'dev-console' ) return mockDevConsole;
             return originalGet(name);
         }) as any;
 
@@ -63,7 +63,7 @@ describe('SystemValidationService', async () => {
             expect(mockAddWidget).toHaveBeenCalled();
         } finally {
             // Restore original environment
-            if (systemValidationService.global_config) {
+            if ( systemValidationService.global_config ) {
                 systemValidationService.global_config.env = originalEnv;
             }
             testKernel.services.get = originalGet as any;
@@ -72,7 +72,7 @@ describe('SystemValidationService', async () => {
 
     it('should create source error if not provided', async () => {
         const originalEnv = systemValidationService.global_config?.env;
-        if (systemValidationService.global_config) {
+        if ( systemValidationService.global_config ) {
             systemValidationService.global_config.env = 'dev';
         }
 
@@ -85,10 +85,10 @@ describe('SystemValidationService', async () => {
             turn_on_the_warning_lights: vi.fn(),
             add_widget: vi.fn(),
         };
-        
+
         const originalGet = testKernel.services.get.bind(testKernel.services);
         testKernel.services.get = vi.fn((name: string) => {
-            if (name === 'dev-console') return mockDevConsole;
+            if ( name === 'dev-console' ) return mockDevConsole;
             return originalGet(name);
         }) as any;
 
@@ -99,7 +99,7 @@ describe('SystemValidationService', async () => {
                 source: expect.any(Error),
             }));
         } finally {
-            if (systemValidationService.global_config) {
+            if ( systemValidationService.global_config ) {
                 systemValidationService.global_config.env = originalEnv;
             }
             testKernel.services.get = originalGet as any;
@@ -108,7 +108,7 @@ describe('SystemValidationService', async () => {
 
     it('should report with correct parameters', async () => {
         const originalEnv = systemValidationService.global_config?.env;
-        if (systemValidationService.global_config) {
+        if ( systemValidationService.global_config ) {
             systemValidationService.global_config.env = 'dev';
         }
 
@@ -121,10 +121,10 @@ describe('SystemValidationService', async () => {
             turn_on_the_warning_lights: vi.fn(),
             add_widget: vi.fn(),
         };
-        
+
         const originalGet = testKernel.services.get.bind(testKernel.services);
         testKernel.services.get = vi.fn((name: string) => {
-            if (name === 'dev-console') return mockDevConsole;
+            if ( name === 'dev-console' ) return mockDevConsole;
             return originalGet(name);
         }) as any;
 
@@ -139,11 +139,10 @@ describe('SystemValidationService', async () => {
                 alarm: true,
             });
         } finally {
-            if (systemValidationService.global_config) {
+            if ( systemValidationService.global_config ) {
                 systemValidationService.global_config.env = originalEnv;
             }
             testKernel.services.get = originalGet as any;
         }
     });
 });
-

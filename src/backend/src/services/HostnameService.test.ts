@@ -39,9 +39,8 @@ describe('HostnameService', async () => {
     it('should maintain multiple entries', () => {
         hostnameService.entries['first.test.com'] = { scope: 'web' };
         hostnameService.entries['second.test.com'] = { scope: 'api' };
-        
+
         expect(hostnameService.entries['first.test.com'].scope).toBe('web');
         expect(hostnameService.entries['second.test.com'].scope).toBe('api');
     });
 });
-

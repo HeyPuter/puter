@@ -52,7 +52,7 @@ describe('FeatureFlagService', async () => {
             $: 'function-flag',
             fn: async ({ actor }) => actor?.type?.user?.username === 'test',
         });
-        
+
         const result = await featureFlagService.check({ actor: { type: { user: { username: 'test' } } } }, 'dynamic-flag');
         expect(result).toBe(true);
     });
@@ -62,7 +62,7 @@ describe('FeatureFlagService', async () => {
             $: 'function-flag',
             fn: async ({ actor }) => actor?.type?.user?.username !== 'test',
         });
-        
+
         const result = await featureFlagService.check({ actor: { type: { user: { username: 'other' } } } }, 'conditional-flag');
         expect(result).toBe(true);
     });
@@ -74,11 +74,10 @@ describe('FeatureFlagService', async () => {
             $: 'function-flag',
             fn: async () => true,
         });
-        
+
         expect(featureFlagService.known_flags.has('multi-flag-1')).toBe(true);
         expect(featureFlagService.known_flags.has('multi-flag-2')).toBe(true);
         expect(featureFlagService.known_flags.has('multi-flag-3')).toBe(true);
         expect(featureFlagService.known_flags.size).toBeGreaterThanOrEqual(3);
     });
 });
-

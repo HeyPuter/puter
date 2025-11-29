@@ -34,15 +34,15 @@ describe('LockService', async () => {
 
     it('should handle multiple sequential locks', async () => {
         const results: number[] = [];
-        
+
         await lockService.lock('seq-lock', async () => {
             results.push(1);
         });
-        
+
         await lockService.lock('seq-lock', async () => {
             results.push(2);
         });
-        
+
         expect(results).toEqual([1, 2]);
     });
 
@@ -71,11 +71,8 @@ describe('LockService', async () => {
     });
 
     it('should handle errors within lock callback', async () => {
-        await expect(
-            lockService.lock('error-lock', async () => {
-                throw new Error('Test error');
-            })
-        ).rejects.toThrow('Test error');
+        await expect(lockService.lock('error-lock', async () => {
+            throw new Error('Test error');
+        })).rejects.toThrow('Test error');
     });
 });
-

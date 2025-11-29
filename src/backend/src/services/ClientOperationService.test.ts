@@ -19,7 +19,7 @@ describe('ClientOperationService', async () => {
 
     it('should create operation with default parameters', async () => {
         const tracker = await clientOperationService.add_operation({});
-        
+
         expect(tracker).toBeDefined();
         expect(tracker.name).toBe('untitled');
         expect(Array.isArray(tracker.tags)).toBe(true);
@@ -34,7 +34,7 @@ describe('ClientOperationService', async () => {
         const tracker = await clientOperationService.add_operation({
             name: 'test-operation',
         });
-        
+
         expect(tracker.name).toBe('test-operation');
     });
 
@@ -43,7 +43,7 @@ describe('ClientOperationService', async () => {
         const tracker = await clientOperationService.add_operation({
             tags,
         });
-        
+
         expect(tracker.tags).toEqual(tags);
     });
 
@@ -52,7 +52,7 @@ describe('ClientOperationService', async () => {
         const tracker = await clientOperationService.add_operation({
             frame,
         });
-        
+
         expect(tracker.frame).toBe(frame);
     });
 
@@ -61,7 +61,7 @@ describe('ClientOperationService', async () => {
         const tracker = await clientOperationService.add_operation({
             metadata,
         });
-        
+
         expect(tracker.metadata).toEqual(metadata);
     });
 
@@ -70,7 +70,7 @@ describe('ClientOperationService', async () => {
         const tracker = await clientOperationService.add_operation({
             objects,
         });
-        
+
         expect(tracker.objects).toEqual(objects);
     });
 
@@ -82,9 +82,9 @@ describe('ClientOperationService', async () => {
             metadata: { meta: 'data' },
             objects: [{ obj: 1 }],
         };
-        
+
         const tracker = await clientOperationService.add_operation(params);
-        
+
         expect(tracker.name).toBe(params.name);
         expect(tracker.tags).toEqual(params.tags);
         expect(tracker.frame).toBe(params.frame);
@@ -96,7 +96,7 @@ describe('ClientOperationService', async () => {
         const tracker1 = await clientOperationService.add_operation({ name: 'op1' });
         const tracker2 = await clientOperationService.add_operation({ name: 'op2' });
         const tracker3 = await clientOperationService.add_operation({ name: 'op3' });
-        
+
         expect(tracker1.name).toBe('op1');
         expect(tracker2.name).toBe('op2');
         expect(tracker3.name).toBe('op3');
@@ -109,7 +109,7 @@ describe('ClientOperationService', async () => {
 
     it('should generate context key with ckey', () => {
         const key = clientOperationService.ckey('test-key');
-        
+
         expect(key).toBeDefined();
         expect(typeof key).toBe('string');
         expect(key).toContain('test-key');
@@ -118,8 +118,7 @@ describe('ClientOperationService', async () => {
     it('should generate different keys for different inputs', () => {
         const key1 = clientOperationService.ckey('key1');
         const key2 = clientOperationService.ckey('key2');
-        
+
         expect(key1).not.toBe(key2);
     });
 });
-

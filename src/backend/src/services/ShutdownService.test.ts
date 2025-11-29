@@ -29,8 +29,10 @@ describe('ShutdownService', async () => {
     });
 
     it('should call process.exit when shutdown is called', () => {
-        const exitSpy = vi.spyOn(process, 'exit').mockImplementation((() => {}) as any);
-        const stdoutSpy = vi.spyOn(process.stdout, 'write').mockImplementation((() => {}) as any);
+        const exitSpy = vi.spyOn(process, 'exit').mockImplementation((() => {
+        }) as any);
+        const stdoutSpy = vi.spyOn(process.stdout, 'write').mockImplementation((() => {
+        }) as any);
 
         shutdownService.shutdown({ reason: 'test shutdown', code: 0 });
 
@@ -42,8 +44,10 @@ describe('ShutdownService', async () => {
     });
 
     it('should use default exit code when not provided', () => {
-        const exitSpy = vi.spyOn(process, 'exit').mockImplementation((() => {}) as any);
-        const stdoutSpy = vi.spyOn(process.stdout, 'write').mockImplementation((() => {}) as any);
+        const exitSpy = vi.spyOn(process, 'exit').mockImplementation((() => {
+        }) as any);
+        const stdoutSpy = vi.spyOn(process.stdout, 'write').mockImplementation((() => {
+        }) as any);
 
         shutdownService.shutdown({ reason: 'test' });
 
@@ -54,8 +58,10 @@ describe('ShutdownService', async () => {
     });
 
     it('should use custom exit code when provided', () => {
-        const exitSpy = vi.spyOn(process, 'exit').mockImplementation((() => {}) as any);
-        const stdoutSpy = vi.spyOn(process.stdout, 'write').mockImplementation((() => {}) as any);
+        const exitSpy = vi.spyOn(process, 'exit').mockImplementation((() => {
+        }) as any);
+        const stdoutSpy = vi.spyOn(process.stdout, 'write').mockImplementation((() => {
+        }) as any);
 
         shutdownService.shutdown({ reason: 'error', code: 1 });
 
@@ -66,8 +72,10 @@ describe('ShutdownService', async () => {
     });
 
     it('should work without any parameters', () => {
-        const exitSpy = vi.spyOn(process, 'exit').mockImplementation((() => {}) as any);
-        const stdoutSpy = vi.spyOn(process.stdout, 'write').mockImplementation((() => {}) as any);
+        const exitSpy = vi.spyOn(process, 'exit').mockImplementation((() => {
+        }) as any);
+        const stdoutSpy = vi.spyOn(process.stdout, 'write').mockImplementation((() => {
+        }) as any);
 
         shutdownService.shutdown();
 
@@ -77,4 +85,3 @@ describe('ShutdownService', async () => {
         stdoutSpy.mockRestore();
     });
 });
-

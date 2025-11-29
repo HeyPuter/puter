@@ -34,9 +34,8 @@ describe('HelloWorldService', async () => {
     it('should greet with different subjects', async () => {
         const greeting1 = await helloWorldService.as('hello-world').greet({ subject: 'Bob' });
         const greeting2 = await helloWorldService.as('hello-world').greet({ subject: 'Charlie' });
-        
+
         expect(greeting1).toBe('Hello, Bob!');
         expect(greeting2).toBe('Hello, Charlie!');
     });
 });
-

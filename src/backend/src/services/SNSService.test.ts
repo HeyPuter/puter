@@ -18,4 +18,3 @@ describe('SNSService', () => {
         expect(snsService).toBeInstanceOf(SNSService);
     });
 });
-

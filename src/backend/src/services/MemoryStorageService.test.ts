@@ -40,7 +40,7 @@ describe('MemoryStorageService', async () => {
         }) as Readable;
 
         const chunks: Buffer[] = [];
-        for await (const chunk of stream) {
+        for await ( const chunk of stream ) {
             chunks.push(chunk);
         }
 
@@ -49,9 +49,7 @@ describe('MemoryStorageService', async () => {
     });
 
     it('should throw error when memory_file is not provided', async () => {
-        await expect(
-            memoryStorage.create_read_stream('test-uuid', {})
-        ).rejects.toThrow('MemoryStorageService.create_read_stream: memory_file is required');
+        await expect(memoryStorage.create_read_stream('test-uuid', {})).rejects.toThrow('MemoryStorageService.create_read_stream: memory_file is required');
     });
 
     it('should handle empty content', async () => {
@@ -64,7 +62,7 @@ describe('MemoryStorageService', async () => {
         }) as Readable;
 
         const chunks: Buffer[] = [];
-        for await (const chunk of stream) {
+        for await ( const chunk of stream ) {
             chunks.push(chunk);
         }
 
@@ -83,7 +81,7 @@ describe('MemoryStorageService', async () => {
         }) as Readable;
 
         const chunks: Buffer[] = [];
-        for await (const chunk of stream) {
+        for await ( const chunk of stream ) {
             chunks.push(chunk);
         }
 
@@ -91,4 +89,3 @@ describe('MemoryStorageService', async () => {
         expect(result).toEqual(binaryData);
     });
 });
-
