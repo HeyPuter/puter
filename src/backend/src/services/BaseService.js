@@ -136,3 +136,4 @@ class BaseService extends concepts.Service {
 }
 
 module.exports = BaseService;
+module.exports.BaseService = BaseService;

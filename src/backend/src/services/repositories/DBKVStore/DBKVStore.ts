@@ -10,7 +10,19 @@ import { RecursiveRecord } from '../../MeteringService/types.js';
 
 const GLOBAL_APP_KEY = 'global';
 
-export class DBKVStore {
+export interface IDBKVStore {
+    get ({ key }: { key: string | string[] }): Promise<unknown | null | (unknown | null)[]>;
+    set ({ key, value, expireAt }: { key: string, value: unknown, expireAt?: number }): Promise<boolean>;
+    del ({ key }: { key: string }): Promise<boolean>;
+    list ({ as }: { as?: 'keys' | 'values' | 'entries' }): Promise<string[] | unknown[] | { key: string, value: unknown }[]>;
+    flush (): Promise<boolean>;
+    expireAt ({ key, timestamp }: { key: string, timestamp: number }): Promise<void>;
+    expire ({ key, ttl }: { key: string, ttl: number }): Promise<void>;
+    incr<T extends Record<string, number>>({ key, pathAndAmountMap }: { key: string, pathAndAmountMap: T }): Promise<T extends { '': number } ? number : RecursiveRecord<number>>;
+    decr<T extends Record<string, number>>({ key, pathAndAmountMap }: { key: string, pathAndAmountMap: T }): Promise<T extends { '': number } ? number : RecursiveRecord<number>>;
+}
+
+export class DBKVStore implements IDBKVStore {
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     #db: any;
     #meteringService: MeteringService;
@@ -44,7 +56,7 @@ export class DBKVStore {
             const rows = app
                 ? await this.#db.read('SELECT kkey, value, expireAt FROM kv WHERE user_id=? AND app=? AND kkey_hash IN (?)', [user.id, app.uid, key_hashes])
                 : await this.#db.read(`SELECT kkey, value, expireAt FROM kv WHERE user_id=? AND (app IS NULL OR app = '${GLOBAL_APP_KEY}') AND kkey_hash IN (${key_hashes.map(() => '?').join(',')})`,
-                                [user.id, key_hashes]);
+                                [user, key_hashes]);
 
             const kvPairs: Record<string, unknown> = {};
             rows.forEach((row: { kkey: string, value: string }) => {
@@ -259,7 +271,7 @@ export class DBKVStore {
         return await this.#expireat(key, timestamp);
     }
 
-    async incr<T extends Record<string, number>>({ key, pathAndAmountMap }: { key: string, pathAndAmountMap: T }): Promise<T extends { '': number } ? number : RecursiveRecord<number>> {
+    async incr<T extends Record<string, number>>({ key, pathAndAmountMap }: { key: string; pathAndAmountMap: T; }): Promise<T extends { '': number; } ? number : RecursiveRecord<number>> {
         if ( Object.values(pathAndAmountMap).find((v) => typeof v !== 'number') ) {
             throw new Error('All values in pathAndAmountMap must be numbers');
         }
@@ -309,8 +321,8 @@ export class DBKVStore {
         return currVal as T extends { '': number } ? number : RecursiveRecord<number>;
     }
 
-    async decr ({ key, pathAndAmountMap }: Parameters<typeof DBKVStore.prototype.incr>[0]): ReturnType<typeof DBKVStore.prototype.incr> {
-        return await this.incr({ key, pathAndAmountMap: Object.fromEntries(Object.entries(pathAndAmountMap).map(([k, v]) => [k, -v])) });
+    async decr<T extends Record<string, number>>({ key, pathAndAmountMap }: { key: string; pathAndAmountMap: T; }): Promise<T extends { '': number; } ? number : RecursiveRecord<number>> {
+        return this.incr({ key, pathAndAmountMap: Object.fromEntries(Object.entries(pathAndAmountMap).map(([k, v]) => [k, -v])) as T });
     }
 
     async #expireat (key: string, timestamp: number) {

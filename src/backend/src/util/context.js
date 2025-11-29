@@ -43,17 +43,22 @@ class Context {
     static create (values, opt_name) {
         return new Context(values, undefined, opt_name);
     }
-    static get (k, { allow_fallback } = {}) {
-        let x = this.contextAsyncLocalStorage.getStore()?.get('context');
-        if ( ! x ) {
+    static get (key, { allow_fallback } = {}) {
+        const existingContext = this.contextAsyncLocalStorage.getStore()?.get('context');
+        if ( ! existingContext ) {
             if ( context_config.strict && !allow_fallback ) {
                 throw new Error('FAILED TO GET THE CORRECT CONTEXT');
             }
-
-            x = this.root.sub({}, this.USE_NAME_FALLBACK);
+            const rootFallback =  this.root.sub({}, this.USE_NAME_FALLBACK);
+            if ( key ) {
+                return rootFallback.get(key);
+            }
+            return rootFallback;
         }
-        if ( x && k ) return x.get(k);
-        return x;
+        if ( key ) {
+            return existingContext.get(key);
+        }
+        return existingContext;
     }
     static set (k, v) {
         const x = this.contextAsyncLocalStorage.getStore()?.get('context');
@@ -137,7 +142,7 @@ class Context {
             }
             if ( opt_name ) {
                 const name_numbers = this.constructor.other_next_names_;
-                if ( ! name_numbers.hasOwnProperty(opt_name) ) {
+                if ( ! Object.prototype.hasOwnProperty.call(name_numbers, opt_name) ) {
                     name_numbers[opt_name] = 0;
                 }
                 const num = ++name_numbers[opt_name];

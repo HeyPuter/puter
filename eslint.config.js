@@ -8,7 +8,7 @@ import bangSpaceIf from './eslint/bang-space-if.js';
 import controlStructureSpacing from './eslint/control-structure-spacing.js';
 import spaceUnaryOpsWithException from './eslint/space-unary-ops-with-exception.js';
 
-const rules = {
+export const rules = {
     'no-unused-vars': ['error', {
         vars: 'all',
         args: 'after-used',
@@ -53,6 +53,8 @@ const rules = {
     'custom/space-unary-ops-with-exception': ['error', { words: true, nonwords: false }],
     '@stylistic/no-multi-spaces': ['error', { exceptions: { 'VariableDeclarator': true } }],
     '@stylistic/type-annotation-spacing': 'error',
+    '@stylistic/type-generic-spacing': 'error',
+    '@stylistic/type-named-tuple-spacing': ['error'],
 };
 
 export default defineConfig([
