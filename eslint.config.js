@@ -58,6 +58,15 @@ export const rules = {
 };
 
 export default defineConfig([
+    {
+        files: ['**/*.d.ts'],
+        parserOptions: {
+            project: null,
+        },
+        rules: {
+            '@typescript-eslint/no-unused-vars': 'off', // Disable rules requiring type checking
+        },
+    },
     // TypeScript support for tests
     {
         files: ['**/*.test.ts', '**/*.test.mts', '**/*.test.setup.ts'],

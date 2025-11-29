@@ -56,7 +56,7 @@ export class DBKVStore implements IDBKVStore {
             const rows = app
                 ? await this.#db.read('SELECT kkey, value, expireAt FROM kv WHERE user_id=? AND app=? AND kkey_hash IN (?)', [user.id, app.uid, key_hashes])
                 : await this.#db.read(`SELECT kkey, value, expireAt FROM kv WHERE user_id=? AND (app IS NULL OR app = '${GLOBAL_APP_KEY}') AND kkey_hash IN (${key_hashes.map(() => '?').join(',')})`,
-                                [user, key_hashes]);
+                                [user.id, key_hashes]);
 
             const kvPairs: Record<string, unknown> = {};
             rows.forEach((row: { kkey: string, value: string }) => {
