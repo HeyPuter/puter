@@ -42,7 +42,7 @@
   "scripts": {
     "test": "npx mocha src/phoenix/test && npx vitest run src/backend && node src/backend/tools/test.mjs",
     "test:puterjs-api": "vitest run tests/puterJsApiTests",
-    "test:backend": "vitest run --config=src/backend/vitest.config.ts src/backend",
+    "test:backend": "npm run build:ts; vitest run --config=src/backend/vitest.config.ts src/backend",
     "start=gui": "nodemon --exec \"node dev-server.js\" ",
     "start": "node ./tools/run-selfhosted.js",
     "prestart": "npm run build:ts",

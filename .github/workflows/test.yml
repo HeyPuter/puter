@@ -7,7 +7,7 @@ on:
     branches: ["main"]
 
 jobs:
-  test:
+  test-backend:
     runs-on: ubuntu-latest
 
     strategy:
@@ -22,13 +22,13 @@ jobs:
         with:
           node-version: ${{ matrix.node-version }}
 
-      - name: Build
+      - name: Backend Tests
         run: |
           rm package-lock.json
           npm install -g npm@latest
           npm install
           npm run build
-          npm run test
+          npm run test:backend
 
   api-test:
     name: backend (node env, api-test)

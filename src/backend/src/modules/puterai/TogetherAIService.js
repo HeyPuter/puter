@@ -156,14 +156,21 @@ class TogetherAIService extends BaseService {
                     };
                 }
 
-                // return completion.choices[0];
                 const ret = completion.choices[0];
+
                 ret.usage = {
                     input_tokens: completion.usage.prompt_tokens,
                     output_tokens: completion.usage.completion_tokens,
                 };
+
+                const trackedUsage = OpenAIUtil.extractMeteredUsage(completion.usage);
+                const costOverrides =  {
+                    prompt_tokens: trackedUsage.prompt_tokens * (modelDetails?.cost?.input ?? 0),
+                    completion_tokens: trackedUsage.completion_tokens * (modelDetails?.cost?.output ?? 0),
+                };
                 // Metering: record usage for non-streamed completion
-                this.meteringService.utilRecordUsageObject(completion.usage, actor, modelId);
+                this.meteringService.utilRecordUsageObject(completion.usage, actor, modelId, costOverrides);
+
                 return ret;
             },
         },
