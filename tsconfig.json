@@ -8,7 +8,9 @@
         "esModuleInterop": true,
         "forceConsistentCasingInFileNames": true,
         "skipLibCheck": true,
-        "sourceMap": true
+        "sourceMap": true,
+        "removeComments": true,
+        "noEmitOnError": true,
     },
     "exclude": [
         "**/*.test.ts",
