@@ -17,6 +17,7 @@
  * along with this program.  If not, see <https://www.gnu.org/licenses/>.
  */
 const { AppUnderUserActorType } = require('../../services/auth/Actor');
+const { PermissionUtil } = require('../../services/auth/permissionUtils.mjs');
 const { Context } = require('../../util/context');
 const { Eq, Or } = require('../query/query');
 const { BaseES } = require('./BaseES');
@@ -28,7 +29,14 @@ class AppLimitedES extends BaseES {
     async select (options) {
         const actor = Context.get('actor');
 
+        app_under_user_check:
         if ( actor.type instanceof AppUnderUserActorType ) {
+            const svc_permission = Context.get('services').get('permission');
+            const perm = PermissionUtil.join('apps-of-user', actor.type.user.uuid, 'read');
+            const can_read_any = await svc_permission.check(actor, perm);
+
+            if ( can_read_any ) break app_under_user_check;
+
             if ( this.exception && typeof this.exception === 'function' ) {
                 this.exception = await this.exception();
             }
