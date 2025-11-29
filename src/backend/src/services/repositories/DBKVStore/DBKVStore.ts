@@ -53,10 +53,14 @@ export class DBKVStore implements IDBKVStore {
         if ( Array.isArray(key) ) {
             const keys = key;
             const key_hashes = keys.map((key: string) => murmurhash.v3(key));
+            const placeholders = key_hashes.map(() => '?').join(',');
+            const params = app
+                ? [user.id, app.uid, ...key_hashes]
+                : [user.id, ...key_hashes];
             const rows = app
-                ? await this.#db.read('SELECT kkey, value, expireAt FROM kv WHERE user_id=? AND app=? AND kkey_hash IN (?)', [user.id, app.uid, key_hashes])
-                : await this.#db.read(`SELECT kkey, value, expireAt FROM kv WHERE user_id=? AND (app IS NULL OR app = '${GLOBAL_APP_KEY}') AND kkey_hash IN (${key_hashes.map(() => '?').join(',')})`,
-                                [user.id, key_hashes]);
+                ? await this.#db.read(`SELECT kkey, value, expireAt FROM kv WHERE user_id=? AND app=? AND kkey_hash IN (${placeholders})`, params)
+                : await this.#db.read(`SELECT kkey, value, expireAt FROM kv WHERE user_id=? AND (app IS NULL OR app = '${GLOBAL_APP_KEY}') AND kkey_hash IN (${placeholders})`,
+                                params);
 
             const kvPairs: Record<string, unknown> = {};
             rows.forEach((row: { kkey: string, value: string }) => {
@@ -82,7 +86,7 @@ export class DBKVStore implements IDBKVStore {
                 deleteExpired(expiredKeys);
             }
 
-            return keys.map((key: string) => kvPairs[key]) as unknown[];
+            return keys.map((key: string) => Object.prototype.hasOwnProperty.call(kvPairs, key) ? kvPairs[key] : null) as unknown[];
         }
 
         const key_hash = murmurhash.v3(key);

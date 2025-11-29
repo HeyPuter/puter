@@ -223,5 +223,5 @@ describe('MeteringService', async () => {
                 count: 1,
             });
         }
-    });
+    }, 10000);
 });

@@ -2,7 +2,6 @@ import { describe, expect, it } from 'vitest';
 import { createTestKernel } from '../../../../tools/test.mjs';
 import * as config from '../../../config';
 import { Actor } from '../../auth/Actor';
-import { MeteringServiceWrapper } from '../../MeteringService/MeteringServiceWrapper.mjs';
 import { DBKVServiceWrapper } from './index.mjs';
 
 describe('DBKVStore', async () => {
@@ -18,10 +17,7 @@ describe('DBKVStore', async () => {
     });
 
     const testKernel = await createTestKernel({
-        serviceMap: {
-            meteringService: MeteringServiceWrapper,
-            'puter-kvstore': DBKVServiceWrapper,
-        },
+        serviceMap: {},
         initLevelString: 'init',
         testCore: true,
     });
@@ -62,6 +58,29 @@ describe('DBKVStore', async () => {
 
         expect(fromOne).toBe('one');
         expect(fromTwo).toBe('two');
+    });
+
+    it('retrieves single and multiple keys respecting app vs global scope', async () => {
+        const userId = 12;
+        const globalActor = makeActor(userId);
+        const appActor = makeActor(userId, 'scoped-app');
+
+        await su.sudo(globalActor, () => kvStore.set({ key: 'shared', value: 'global-shared' }));
+        await su.sudo(globalActor, () => kvStore.set({ key: 'global-only', value: 'global' }));
+        await su.sudo(appActor, () => kvStore.set({ key: 'shared', value: 'app-shared' }));
+        await su.sudo(appActor, () => kvStore.set({ key: 'app-only', value: 'app' }));
+
+        const globalSingle = await su.sudo(globalActor, () => kvStore.get({ key: 'shared' }));
+        const appSingle = await su.sudo(appActor, () => kvStore.get({ key: 'shared' }));
+
+        expect(globalSingle).toBe('global-shared');
+        expect(appSingle).toBe('app-shared');
+
+        const globalList = await su.sudo(globalActor, () => kvStore.get({ key: ['shared', 'app-only', 'global-only'] }));
+        const appList = await su.sudo(appActor, () => kvStore.get({ key: ['shared', 'app-only', 'global-only'] }));
+
+        expect(globalList).toEqual(['global-shared', null, 'global']);
+        expect(appList).toEqual(['app-shared', 'app', null]);
     });
 
     it('increments nested numeric paths and persists the aggregated totals', async () => {
