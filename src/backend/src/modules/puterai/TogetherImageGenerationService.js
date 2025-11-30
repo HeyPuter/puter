@@ -99,6 +99,9 @@ class TogetherImageGenerationService extends BaseService {
                     response_format,
                 } = params;
 
+                const svc_event = this.services.get('event');
+                svc_event.emit('ai.log.image', { actor: Context.get('actor'), parameters: params, completionId: '0', intended_service: params.model });
+
                 if ( test_mode ) {
                     return new TypedValue({
                         $: 'string:url:web',
