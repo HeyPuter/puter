@@ -8,7 +8,7 @@
 # worry about Docker unless the build/run process changes.
 
 # Build stage
-FROM node:23.9-alpine AS build
+FROM node:24-alpine AS build
 
 # Install build dependencies
 RUN apk add --no-cache git python3 make g++ \
@@ -37,13 +37,13 @@ RUN npm cache clean --force && \
         if [ $i -lt 3 ]; then \
             sleep 15; \
         else \
-            LOG_DIR=\"$(npm config get cache)/_logs\"; \
-            echo \"npm install failed; dumping logs from $LOG_DIR\"; \
-            if [ -d \"$LOG_DIR\" ]; then \
-                ls -al \"$LOG_DIR\" || true; \
-                cat \"$LOG_DIR\"/* || true; \
+            LOG_DIR="$(npm config get cache | tr -d '\"')/_logs"; \
+            echo "npm install failed; dumping logs from $LOG_DIR"; \
+            if [ -d "$LOG_DIR" ]; then \
+                ls -al "$LOG_DIR" || true; \
+                cat "$LOG_DIR"/* || true; \
             else \
-                echo \"Log directory not found\"; \
+                echo "Log directory not found (npm cache: $(npm config get cache))"; \
             fi; \
             exit 1; \
         fi; \
@@ -53,7 +53,7 @@ RUN npm cache clean --force && \
 RUN cd src/gui && npm run build && cd -
 
 # Production stage
-FROM node:23.9-alpine
+FROM node:24-alpine
 
 # Set labels
 LABEL repo="https://github.com/HeyPuter/puter"
