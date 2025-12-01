@@ -1,6 +1,5 @@
 import { describe, expect, it, vi } from 'vitest';
 import { createTestKernel } from '../../../tools/test.mjs';
-import * as config from '../../config';
 import { Actor } from '../auth/Actor';
 import type { EventService } from '../EventService.js';
 import { DBKVServiceWrapper } from '../repositories/DBKVStore/index.mjs';
@@ -10,14 +9,6 @@ import { MeteringService } from './MeteringService';
 import { MeteringServiceWrapper } from './MeteringServiceWrapper.mjs';
 
 describe('MeteringService', async () => {
-
-    config.load_config({
-        'services': {
-            'database': {
-                path: ':memory:',
-            },
-        },
-    });
     const testKernel = await createTestKernel({
         serviceMap: {
             meteringService: MeteringServiceWrapper,
@@ -25,6 +16,11 @@ describe('MeteringService', async () => {
         },
         initLevelString: 'init',
         testCore: true,
+        serviceConfigOverrideMap: {
+            'database': {
+                path: ':memory:',
+            },
+        },
     });
 
     const testSubject = testKernel.services!.get('meteringService') as MeteringServiceWrapper;

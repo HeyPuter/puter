@@ -280,6 +280,8 @@ export const createTestKernel = async ({
     initLevelString = 'construct',
     extraSteps = true,
     testCore = false,
+    serviceConfigOverrideMap = {},
+    globalConfigOverrideMap = {},
 }) => {
 
     const initLevelMap = { CONSTRUCT: 1, INIT: 2 };
@@ -298,6 +300,31 @@ export const createTestKernel = async ({
     testKernel.boot();
     await testKernel.services.ready;
     const service_names = Object.keys(testKernel.services.instances_);
+
+    for ( const name of service_names ) {
+
+        const serviceConfigOverride = serviceConfigOverrideMap[name] ;
+        const globalConfigOverride = globalConfigOverrideMap[name] ;
+
+        if ( serviceConfigOverride ) {
+            const ins = testKernel.services.instances_[name];
+            // Apply service config overrides
+            ins.config = {
+                ...ins.config,
+                ...serviceConfigOverride,
+            };
+        }
+
+        if ( globalConfigOverride ) {
+            const ins = testKernel.services.instances_[name];
+            // Apply global config overrides
+            ins.global_config = {
+                ...ins.global_config,
+                ...globalConfigOverride,
+            };
+        }
+    }
+
     for ( const name of service_names ) {
         const ins = testKernel.services.instances_[name];
         // Fix context

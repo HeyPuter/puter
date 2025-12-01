@@ -26,6 +26,8 @@ export class BaseService {
     log: Logger;
     errors: any;
 
+    as(interfaceName: string): Record<string, unknown>;
+
     run_as_early_as_possible (): Promise<void>;
     construct (): Promise<void>;
     init (): Promise<void>;

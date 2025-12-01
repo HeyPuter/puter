@@ -11,6 +11,7 @@ const { DBKVServiceWrapper } = require('../../services/repositories/DBKVStore/in
 const { SUService } = require('../../services/SUService');
 const { TraceService } = require('../../services/TraceService');
 const { AlarmService } = require('../core/AlarmService');
+const APIErrorService = require('../web/APIErrorService');
 
 class TestCoreModule {
     async install (context) {
@@ -28,6 +29,7 @@ class TestCoreModule {
         services.registerService('permission', PermissionService);
         services.registerService('group', GroupService);
         services.registerService('anomaly', AnomalyService);
+        services.registerService('api-error', APIErrorService);
     }
 }
 

@@ -5,21 +5,23 @@ import { defineConfig } from 'vitest/config';
 export default defineConfig(({ mode }) => ({
     test: {
         globals: true,
-        environment: 'jsdom',
         setupFiles: [],
         coverage: {
             provider: 'v8',
             reporter: ['text', 'json', 'json-summary', 'html', 'lcov'],
-            include: ['src/backend/**/*.js', 'src/backend/**/*.mjs', 'src/backend/**/*.ts', 'src/backend/**/*.ts'],
+            include: ['src/**/*.{js,mjs,ts}'],
             exclude: [
-                '**/types/**',
-                '**/constants/**',
-                '**/*.d.ts',
-                '**/dist/**',
-                '**/*.min.*',
+                'src/**/types/**',
+                'src/**/constants/**',
+                'src/**/*.d.ts',
+                'src/**/*.d.mts',
+                'src/**/*.d.cts',
+                'src/**/dist/**',
+                'src/**/*.min.*',
             ],
         },
         env: loadEnv(mode, '', 'PUTER_'),
-        include: ['src/backend/**/*.test.ts', 'src/backend/**/*.test.js']
+        include: ['src/**/*.{test,spec}.{ts,js}'],
+        root: __dirname, // Ensures paths are relative to backend/
     },
 }));
