@@ -59,7 +59,7 @@ export const rules = {
 
 export default defineConfig([
     {
-        files: ['**/*.d.ts'],
+        files: ['**/*.d.ts', '**/*.d.mts', '**/*.d.cts'],
         parserOptions: {
             project: null,
         },
