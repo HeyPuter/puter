@@ -39,8 +39,12 @@ RUN npm cache clean --force && \
         else \
             LOG_DIR=\"$(npm config get cache)/_logs\"; \
             echo \"npm install failed; dumping logs from $LOG_DIR\"; \
-            ls -al \"$LOG_DIR\" || true; \
-            cat \"$LOG_DIR\"/* || true; \
+            if [ -d \"$LOG_DIR\" ]; then \
+                ls -al \"$LOG_DIR\" || true; \
+                cat \"$LOG_DIR\"/* || true; \
+            else \
+                echo \"Log directory not found\"; \
+            fi; \
             exit 1; \
         fi; \
     done
