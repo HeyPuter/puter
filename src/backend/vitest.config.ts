@@ -9,7 +9,7 @@ export default defineConfig(({ mode }) => ({
         setupFiles: [],
         coverage: {
             provider: 'v8',
-            reporter: ['text', 'json', 'json-summary', 'html'],
+            reporter: ['text', 'json', 'json-summary', 'html', 'lcov'],
             include: ['src/backend/**/*.js', 'src/backend/**/*.mjs', 'src/backend/**/*.ts', 'src/backend/**/*.ts'],
             exclude: [
                 '**/types/**',
