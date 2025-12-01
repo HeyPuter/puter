@@ -64,3 +64,6 @@ AGENTS.md
 
 # source maps
 *.map
+
+
+coverage/
