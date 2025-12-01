@@ -31,7 +31,7 @@ jobs:
           npm run test:backend
 
   api-test:
-    name: backend (node env, api-test)
+    name: API tests (node env, api-test)
     runs-on: ubuntu-latest
     timeout-minutes: 5
 
@@ -58,75 +58,6 @@ jobs:
           name: (api-test) server-logs
           path: /tmp/backend.log
           retention-days: 3
-
-  playwright-test:
-    if: false
-    name: puterjs (browser env, playwright)
-    runs-on: ubuntu-latest
-    timeout-minutes: 10
-
-    strategy:
-      matrix:
-        node-version: [22.x]
-
-    steps:
-      - uses: actions/checkout@v4
-
-      - name: Use Node.js ${{ matrix.node-version }}
-        uses: actions/setup-node@v4
-        with:
-          node-version: ${{ matrix.node-version }}
-
-      - name: Install Dependencies
-        run: npm install
-        working-directory: ./tests/playwright
-
-      - name: Install Playwright Browsers
-        run: npx playwright install --with-deps
-        working-directory: ./tests/playwright
-
-      - name: Playwright Test
-        run: |
-          pip install -r ./tests/ci/requirements.txt
-          ./tests/ci/playwright-test.py
-
-      - uses: actions/upload-artifact@v4
-        if: ${{ !cancelled() }}
-        with:
-          name: (playwright) server-logs
-          path: |
-            /tmp/backend.log
-            /tmp/fs-tree-manager.log
-          retention-days: 3
-
-      - uses: actions/upload-artifact@v4
-        if: ${{ !cancelled() }}
-        with:
-          name: (playwright) config-files
-          path: |
-            ./volatile/config/config.json
-            ./src/fs_tree_manager/config.yaml
-            ./tests/client-config.yaml
-          retention-days: 3
-
-      - uses: actions/upload-artifact@v4
-        if: ${{ !cancelled() }}
-        id: playwright-report
-        with:
-          name: (playwright) playwright-report
-          path: tests/playwright/playwright-report/
-          retention-days: 3
-
-      - name: Get Playwright artifact URL
-        run: |
-          ARTIFACT_URL=$(gh api repos/${{ github.repository }}/actions/runs/${{ github.run_id }}/artifacts \
-            --jq '.artifacts[] | select(.name=="playwright-report") | .archive_download_url')
-          echo "url=$ARTIFACT_URL" >> $GITHUB_OUTPUT
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-
-      - name: Output artifact URL
-        run: echo 'Artifact URL is ${{ steps.playwright-report.outputs.artifact-url }}'
 
   vitest:
     name: puterjs (node env, vitest)
