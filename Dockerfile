@@ -37,7 +37,10 @@ RUN npm cache clean --force && \
         if [ $i -lt 3 ]; then \
             sleep 15; \
         else \
-            cat /app/npm-debug.log || true; \
+            LOG_DIR=\"$(npm config get cache)/_logs\"; \
+            echo \"npm install failed; dumping logs from $LOG_DIR\"; \
+            ls -al \"$LOG_DIR\" || true; \
+            cat \"$LOG_DIR\"/* || true; \
             exit 1; \
         fi; \
     done
