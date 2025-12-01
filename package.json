@@ -17,6 +17,8 @@
     "@types/uuid": "^10.0.0",
     "@typescript-eslint/eslint-plugin": "^8.46.1",
     "@typescript-eslint/parser": "^8.46.1",
+    "@vitest/coverage-v8": "^4.0.14",
+    "@vitest/ui": "^4.0.14",
     "chalk": "^4.1.0",
     "clean-css": "^5.3.2",
     "dotenv": "^16.4.5",
@@ -40,9 +42,10 @@
     "yaml": "^2.8.1"
   },
   "scripts": {
-    "test": "npx mocha src/phoenix/test && npx vitest run src/backend && node src/backend/tools/test.mjs",
+    "test": "npx mocha src/phoenix/test && npx vitest run --config=src/backend/vitest.config.ts && node src/backend/tools/test.mjs",
     "test:puterjs-api": "vitest run tests/puterJsApiTests",
-    "test:backend": "npm run build:ts; vitest run --config=src/backend/vitest.config.ts src/backend",
+    "test:backend": "npm run build:ts; vitest run --config=src/backend/vitest.config.ts",
+    "test:backend-coverage": "npm run build:ts; vitest run --config=src/backend/vitest.config.ts",
     "start=gui": "nodemon --exec \"node dev-server.js\" ",
     "start": "node ./tools/run-selfhosted.js",
     "prestart": "npm run build:ts",

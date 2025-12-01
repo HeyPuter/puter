@@ -22,13 +22,62 @@ jobs:
         with:
           node-version: ${{ matrix.node-version }}
 
-      - name: Backend Tests
+      - name: Backend Tests (with coverage)
         run: |
           rm package-lock.json
           npm install -g npm@latest
           npm install
           npm run build
-          npm run test:backend
+          npm run test:backend -- --coverage
+
+      - name: Upload backend coverage report
+        if: ${{ always() && hashFiles('coverage/**/coverage-summary.json') != '' }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: backend-coverage-${{ matrix.node-version }}
+          path: coverage
+          retention-days: 5
+
+      - name: Publish backend coverage summary
+        if: ${{ always() && matrix.node-version == '22.x' }}
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const fs = require('fs');
+            const path = require('path');
+            const globModule = require('glob');
+
+            const matches = globModule.sync('coverage/**/coverage-summary.json', {
+              cwd: process.cwd(),
+              ignore: ['**/node_modules/**'],
+            });
+
+            if (!matches.length) {
+              core.warning('Coverage summary not found (expected coverage/**/coverage-summary.json). Did Vitest run with --coverage and include the json-summary reporter?');
+              return;
+            }
+
+            const summaryPath = path.resolve(matches[0]);
+            const summary = JSON.parse(fs.readFileSync(summaryPath, 'utf8'));
+            const metrics = ['lines', 'statements', 'branches', 'functions']
+              .map((key) => ({
+                label: key.charAt(0).toUpperCase() + key.slice(1),
+                ...summary.total[key],
+              }));
+
+            core.summary
+              .addHeading('Backend coverage')
+              .addTable([
+                ['Metric', 'Covered', 'Total', 'Pct'],
+                ...metrics.map(({ label, covered, total, pct }) => [
+                  label,
+                  `${covered}`,
+                  `${total}`,
+                  `${pct}%`,
+                ]),
+              ])
+              .addRaw('Full HTML report is available in the uploaded `backend-coverage-${{ matrix.node-version }}` artifact.')
+              .write();
 
   api-test:
     name: API tests (node env, api-test)
