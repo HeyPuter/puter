@@ -30,6 +30,54 @@ const PRIVATE_UID_SECRET = config.private_uid_secret
     ?? require('crypto').randomBytes(24).toString('hex');
 
 /**
+ * Base class for all actor types in the system.
+ * Provides common initialization functionality for actor type instances.
+ */
+class ActorType {
+    /**
+     * Initializes the ActorType with the provided properties.
+     *
+     * @param {Object} o - Object containing properties to assign to this instance.
+     */
+    constructor (o) {
+        for ( const k in o ) {
+            this[k] = o[k];
+        }
+    }
+}
+
+/**
+ * Class representing the system actor type within the actor framework.
+ * This type serves as a specific implementation of an actor that
+ * represents a system-level entity and provides methods for UID retrieval
+ * and related type management.
+ */
+class SystemActorType extends ActorType {
+    /**
+     * Gets the unique identifier for the system actor.
+     *
+     * @returns {string} Always returns 'system'.
+     */
+    get uid () {
+        return 'system';
+    }
+
+    /**
+     * Gets a related actor type for the system actor.
+     *
+     * @param {Function} type_class - The ActorType class to get a related type for.
+     * @returns {SystemActorType} Returns this instance if type_class is SystemActorType.
+     * @throws {Error} If the requested type_class is not supported.
+     */
+    get_related_type (type_class) {
+        if ( type_class === SystemActorType ) {
+            return this;
+        }
+        throw new Error(`cannot get ${type_class.name} from ${this.constructor.name}`);
+    }
+}
+
+/**
  * Represents an Actor in the system, extending functionality from AdvancedBase.
  * The Actor class is responsible for managing actor instances, including
  * creating new actors, generating unique identifiers, and handling related types
@@ -174,54 +222,6 @@ class Actor extends AdvancedBase {
 }
 
 /**
- * Base class for all actor types in the system.
- * Provides common initialization functionality for actor type instances.
- */
-class ActorType {
-    /**
-     * Initializes the ActorType with the provided properties.
-     *
-     * @param {Object} o - Object containing properties to assign to this instance.
-     */
-    constructor (o) {
-        for ( const k in o ) {
-            this[k] = o[k];
-        }
-    }
-}
-
-/**
- * Class representing the system actor type within the actor framework.
- * This type serves as a specific implementation of an actor that
- * represents a system-level entity and provides methods for UID retrieval
- * and related type management.
- */
-class SystemActorType extends ActorType {
-    /**
-     * Gets the unique identifier for the system actor.
-     *
-     * @returns {string} Always returns 'system'.
-     */
-    get uid () {
-        return 'system';
-    }
-
-    /**
-     * Gets a related actor type for the system actor.
-     *
-     * @param {Function} type_class - The ActorType class to get a related type for.
-     * @returns {SystemActorType} Returns this instance if type_class is SystemActorType.
-     * @throws {Error} If the requested type_class is not supported.
-     */
-    get_related_type (type_class) {
-        if ( type_class === SystemActorType ) {
-            return this;
-        }
-        throw new Error(`cannot get ${type_class.name} from ${this.constructor.name}`);
-    }
-}
-
-/**
  * Represents the type of a User Actor in the system, allowing operations and relations
  * specific to user actors. This class extends the base functionality to uniquely identify
  * user actors and define how they relate to other types of actors within the system.
@@ -334,7 +334,7 @@ class SiteActorType {
      * @param {Object} o - The properties to initialize the SiteActorType with.
      * @param {...*} a - Additional arguments.
      */
-    constructor (o, ...a) {
+    constructor (o, ..._a) {
         for ( const k in o ) {
             this[k] = o[k];
         }

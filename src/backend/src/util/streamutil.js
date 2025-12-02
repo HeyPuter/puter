@@ -145,33 +145,64 @@ const offset_write_stream = ({
     originalDataStream, newDataStream, offset,
     replace_length = 0,
 }) => {
+
     const passThrough = new PassThrough();
     let remaining = offset;
     let new_end = false;
     let org_end = false;
     let replaced_bytes = 0;
-
-    let last_state = null;
-    const implied = {
-        get state () {
-            const state =
-                remaining > 0 ? STATE_ORIGINAL_STREAM :
-                    new_end && org_end ? STATE_END :
-                        new_end ? STATE_CONTINUE :
-                            STATE_NEW_STREAM ;
-            // (comment to reset indentation)
-            if ( state !== last_state ) {
-                last_state = state;
-                if ( state.on_enter ) state.on_enter();
-            }
-            return state;
+    let defer_buffer = Buffer.alloc(0);
+    let new_stream_early_buffer = Buffer.alloc(0);
+    let implied;
+    const STATE_ORIGINAL_STREAM = {
+        on_enter: () => {
+            console.log('STATE_ORIGINAL_STREAM');
+            newDataStream.pause();
         },
     };
 
-    let defer_buffer = Buffer.alloc(0);
-    let new_stream_early_buffer = Buffer.alloc(0);
+    const STATE_NEW_STREAM = {
+        on_enter: () => {
+            console.log('STATE_NEW_STREAM');
+            originalDataStream.pause();
+            originalDataStream.off('data', original_stream_on_data);
+            newDataStream.resume();
+        },
+    };
 
-    const original_stream_on_data = chunk => {
+    const STATE_END = {
+        on_enter: () => {
+            console.log('STATE_END');
+            passThrough.end();
+        },
+    };
+
+    const STATE_CONTINUE = {
+        on_enter: () => {
+            console.log('STATE_CONTINUE');
+            if ( defer_buffer.length > 0 ) {
+                const remaining_replacement = replace_length - replaced_bytes;
+                if ( replaced_bytes < replace_length ) {
+                    if ( defer_buffer.length <= remaining_replacement ) {
+                        console.log('skipping deferred', defer_buffer.toString());
+                        replaced_bytes += defer_buffer.length;
+                        defer_buffer = Buffer.alloc(0);
+                    } else {
+                        console.log('skipping deferred', defer_buffer.slice(0, remaining_replacement).toString());
+                        defer_buffer = defer_buffer.slice(remaining_replacement);
+                        replaced_bytes += remaining_replacement;
+                    }
+                }
+                console.log('pushing deferred:', defer_buffer.toString());
+                passThrough.push(defer_buffer);
+            }
+            // originalDataStream.pipe(passThrough);
+            originalDataStream.on('data', original_stream_on_data);
+            originalDataStream.resume();
+        },
+    };
+
+    function original_stream_on_data (chunk) {
         console.log('original stream data', chunk.length, implied.state);
         console.log('received from original:', chunk.toString());
 
@@ -214,48 +245,20 @@ const offset_write_stream = ({
         implied.state;
     };
 
-    const STATE_ORIGINAL_STREAM = {
-        on_enter: () => {
-            console.log('STATE_ORIGINAL_STREAM');
-            newDataStream.pause();
-        },
-    };
-    const STATE_NEW_STREAM = {
-        on_enter: () => {
-            console.log('STATE_NEW_STREAM');
-            originalDataStream.pause();
-            originalDataStream.off('data', original_stream_on_data);
-            newDataStream.resume();
-        },
-    };
-    const STATE_CONTINUE = {
-        on_enter: () => {
-            console.log('STATE_CONTINUE');
-            if ( defer_buffer.length > 0 ) {
-                const remaining_replacement = replace_length - replaced_bytes;
-                if ( replaced_bytes < replace_length ) {
-                    if ( defer_buffer.length <= remaining_replacement ) {
-                        console.log('skipping deferred', defer_buffer.toString());
-                        replaced_bytes += defer_buffer.length;
-                        defer_buffer = Buffer.alloc(0);
-                    } else {
-                        console.log('skipping deferred', defer_buffer.slice(0, remaining_replacement).toString());
-                        defer_buffer = defer_buffer.slice(remaining_replacement);
-                        replaced_bytes += remaining_replacement;
-                    }
-                }
-                console.log('pushing deferred:', defer_buffer.toString());
-                passThrough.push(defer_buffer);
+    let last_state = null;
+    implied = {
+        get state () {
+            const state =
+                remaining > 0 ? STATE_ORIGINAL_STREAM :
+                    new_end && org_end ? STATE_END :
+                        new_end ? STATE_CONTINUE :
+                            STATE_NEW_STREAM ;
+            // (comment to reset indentation)
+            if ( state !== last_state ) {
+                last_state = state;
+                if ( state.on_enter ) state.on_enter();
             }
-            // originalDataStream.pipe(passThrough);
-            originalDataStream.on('data', original_stream_on_data);
-            originalDataStream.resume();
-        },
-    };
-    const STATE_END = {
-        on_enter: () => {
-            console.log('STATE_END');
-            passThrough.end();
+            return state;
         },
     };
 

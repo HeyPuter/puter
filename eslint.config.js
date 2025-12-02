@@ -55,6 +55,9 @@ export const rules = {
     '@stylistic/type-annotation-spacing': 'error',
     '@stylistic/type-generic-spacing': 'error',
     '@stylistic/type-named-tuple-spacing': ['error'],
+    'no-use-before-define': ['error', {
+        'functions': false,
+    }],
 };
 
 export default defineConfig([
@@ -65,6 +68,7 @@ export default defineConfig([
         },
         rules: {
             '@typescript-eslint/no-unused-vars': 'off', // Disable rules requiring type checking
+            'no-use-before-define': 'off',
         },
     },
     // TypeScript support for tests

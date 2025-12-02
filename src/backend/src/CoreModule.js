@@ -31,45 +31,6 @@ const { MultiDetachable } = require('@heyputer/putility/src/libs/listener.js');
 const { OperationFrame } = require('./services/OperationTraceService');
 
 /**
- * Core module for the Puter platform that includes essential services including
- * authentication, filesystems, rate limiting, permissions, and various API endpoints.
- *
- * This is a monolithic module. Incrementally, services should be migrated to
- * Core2Module and other modules instead. Core2Module has a smaller scope, and each
- * new module will be a cohesive concern. Once CoreModule is empty, it will be removed
- * and Core2Module will take on its name.
- */
-class CoreModule extends AdvancedBase {
-    dirname () {
-        return __dirname;
-    }
-    async install (context) {
-        const services = context.get('services');
-        const app = context.get('app');
-        const useapi = context.get('useapi');
-        const modapi = context.get('modapi');
-        await install({ context, services, app, useapi, modapi });
-    }
-
-    /**
-    * Installs legacy services that don't extend BaseService and require special handling.
-    * These services were created before the BaseService class existed and don't listen
-    * to the init event. They need to be installed after the init event is dispatched
-    * due to initialization order dependencies.
-    *
-    * @param {Object} context - The context object containing service references
-    * @param {Object} context.services - Service registry for registering legacy services
-    * @returns {Promise<void>} Resolves when legacy services are installed
-    */
-    async install_legacy (context) {
-        const services = context.get('services');
-        await install_legacy({ services });
-    }
-}
-
-module.exports = CoreModule;
-
-/**
  * @footgun - real install method is defined above
  */
 const install = async ({ context, services, app, useapi, modapi }) => {
@@ -146,7 +107,6 @@ const install = async ({ context, services, app, useapi, modapi }) => {
     const { NAPIThumbnailService } = require('./services/thumbnails/NAPIThumbnailService');
     const { RateLimitService } = require('./services/sla/RateLimitService');
     const { AuthService } = require('./services/auth/AuthService');
-    const { PreAuthService } = require('./services/auth/PreAuthService');
     const { SLAService } = require('./services/sla/SLAService');
     const { PermissionService } = require('./services/auth/PermissionService');
     const { ACLService } = require('./services/auth/ACLService');
@@ -450,3 +410,42 @@ const install_legacy = async ({ services }) => {
     services.registerService('engineering-portal', EngPortalService);
 
 };
+
+/**
+ * Core module for the Puter platform that includes essential services including
+ * authentication, filesystems, rate limiting, permissions, and various API endpoints.
+ *
+ * This is a monolithic module. Incrementally, services should be migrated to
+ * Core2Module and other modules instead. Core2Module has a smaller scope, and each
+ * new module will be a cohesive concern. Once CoreModule is empty, it will be removed
+ * and Core2Module will take on its name.
+ */
+class CoreModule extends AdvancedBase {
+    dirname () {
+        return __dirname;
+    }
+    async install (context) {
+        const services = context.get('services');
+        const app = context.get('app');
+        const useapi = context.get('useapi');
+        const modapi = context.get('modapi');
+        await install({ context, services, app, useapi, modapi });
+    }
+
+    /**
+    * Installs legacy services that don't extend BaseService and require special handling.
+    * These services were created before the BaseService class existed and don't listen
+    * to the init event. They need to be installed after the init event is dispatched
+    * due to initialization order dependencies.
+    *
+    * @param {Object} context - The context object containing service references
+    * @param {Object} context.services - Service registry for registering legacy services
+    * @returns {Promise<void>} Resolves when legacy services are installed
+    */
+    async install_legacy (context) {
+        const services = context.get('services');
+        await install_legacy({ services });
+    }
+}
+
+module.exports = CoreModule;

@@ -37,7 +37,7 @@ module.exports = eggspress('/batch', {
     // multest: true,
     // multipart_jsons: ['operation'],
     allowedMethods: ['POST'],
-}, async (req, res, next) => {
+}, async (req, res, _next) => {
     const log = req.services.get('log-service').create('batch');
     const errors = req.services.get('error-service').create(log);
 
@@ -46,6 +46,7 @@ module.exports = eggspress('/batch', {
 
     let app;
     if ( req.body.app_uid ) {
+        // eslint-disable-next-line no-unused-vars
         app = await get_app({ uid: req.body.app_uid });
     }
 
@@ -135,6 +136,7 @@ module.exports = eggspress('/batch', {
     const pending_operations = [];
     const response_promises = [];
     const fileinfos = [];
+    let request_error = null;
 
     const on_nonfile_data_end = OnlyOnceFn(() => {
         if ( request_error ) {
@@ -150,6 +152,7 @@ module.exports = eggspress('/batch', {
                 log.debug(`executing ${op_spec.op}`);
                 response_promises[i] = batch_exe.exec_op(req, op_spec);
             } else {
+                // no handler
             }
         }
 
@@ -167,7 +170,6 @@ module.exports = eggspress('/batch', {
     });
 
     const still_reading = new TeePromise();
-    let request_error = null;
 
     busboy.on('field', (fieldname, value, details) => {
         try {
@@ -178,7 +180,7 @@ module.exports = eggspress('/batch', {
                 throw new Error('valueTruncated');
             }
 
-            if ( expected_metadata.hasOwnProperty(fieldname) ) {
+            if ( Object.prototype.hasOwnProperty.call(expected_metadata, fieldname) ) {
                 expected_metadata[fieldname] = value;
                 req.body[fieldname] = value;
                 return;
@@ -216,7 +218,7 @@ module.exports = eggspress('/batch', {
         }
     });
 
-    busboy.on('file', async (fieldname, stream, detais) => {
+    busboy.on('file', async (fieldname, stream ) => {
         if ( batch_exe.total_tbd ) {
             batch_exe.total_tbd = false;
             batch_widget.ic = pending_operations.length;
@@ -281,7 +283,9 @@ module.exports = eggspress('/batch', {
     frame.done();
 
     if ( pending_operations.length ) {
-        for ( const op_spec of pending_operations ) {
+
+        // eslint-disable-next-line no-unused-vars
+        for ( const _op_spec of pending_operations ) {
             const err = new APIError('batch_missing_file');
             request_errors_.push(err);
         }

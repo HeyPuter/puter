@@ -262,76 +262,6 @@ function invalidate_cached_user_by_id (id) {
  */
 async function refresh_apps_cache (options, override) {
     return;
-    /** @type BaseDatabaseAccessService */
-    const db = services.get('database').get(DB_READ, 'apps');
-    const svc_event = services.get('event');
-
-    const log = services.get('log-service').create('refresh_apps_cache');
-    log.tick('refresh apps cache');
-    // if options is not provided, refresh all apps
-    if ( ! options ) {
-        let apps = await db.read('SELECT * FROM apps');
-        for ( let index = 0; index < apps.length; index++ ) {
-            const app = apps[index];
-            kv.set(`apps:name:${ app.name}`, app);
-            kv.set(`apps:id:${ app.id}`, app);
-            kv.set(`apps:uid:${ app.uid}`, app);
-        }
-        svc_event.emit('apps.invalidate', {
-            options, apps,
-        });
-    }
-    // refresh only apps that are approved for listing
-    else if ( options.only_approved_for_listing ) {
-        let apps = await db.read('SELECT * FROM apps WHERE approved_for_listing = 1');
-        for ( let index = 0; index < apps.length; index++ ) {
-            const app = apps[index];
-            kv.set(`apps:name:${ app.name}`, app);
-            kv.set(`apps:id:${ app.id}`, app);
-            kv.set(`apps:uid:${ app.uid}`, app);
-        }
-        svc_event.emit('apps.invalidate', {
-            options, apps,
-        });
-    }
-    // if options is provided, refresh only the app specified
-    else {
-        let app;
-
-        if ( options.name )
-        {
-            app = await db.pread('SELECT * FROM apps WHERE name = ?', [options.name]);
-        }
-        else if ( options.uid )
-        {
-            app = await db.pread('SELECT * FROM apps WHERE uid = ?', [options.uid]);
-        }
-        else if ( options.id )
-        {
-            app = await db.pread('SELECT * FROM apps WHERE id = ?', [options.id]);
-        }
-        else {
-            log.error('invalid options to refresh_apps_cache');
-            throw new Error('Invalid options provided');
-        }
-
-        if ( !app || !app[0] ) {
-            log.error('refresh_apps_cache could not find the app');
-            return;
-        } else {
-            app = app[0];
-            if ( override ) {
-                Object.assign(app, override);
-            }
-            kv.set(`apps:name:${ app.name}`, app);
-            kv.set(`apps:id:${ app.id}`, app);
-            kv.set(`apps:uid:${ app.uid}`, app);
-        }
-
-        svc_event.emit('apps.invalidate', {
-            options, app,
-        });
-    }
 }
 
 async function refresh_associations_cache () {
@@ -664,18 +594,6 @@ function byte_format (bytes) {
     return `${Math.round(bytes / Math.pow(1024, i), 2) } ${ sizes[i]}`;
 };
 
-const get_dir_size = async (path, user) => {
-    let size = 0;
-    const descendants = await get_descendants(path, user);
-    for ( let i = 0; i < descendants.length; i++ ) {
-        if ( ! descendants[i].is_dir ) {
-            size += descendants[i].size;
-        }
-    }
-
-    return size;
-};
-
 /**
  * Recursively retrieve all files, directories, and subdirectories under `path`.
  * Optionally the `depth` can be set.
@@ -685,7 +603,7 @@ const get_dir_size = async (path, user) => {
  * @param {integer} depth
  * @returns
  */
-const get_descendants_0 = async (path, user, depth, return_thumbnail = false) => {
+async function getDescendantsHelper (path, user, depth, return_thumbnail = false) {
     const log = services.get('log-service').create('get_descendants');
     log.called();
 
@@ -865,14 +783,26 @@ const get_descendants_0 = async (path, user, depth, return_thumbnail = false) =>
     return ret.flat();
 };
 
-const get_descendants = async (...args) => {
+async function get_descendants (...args) {
     const tracer = services.get('traceService').tracer;
     let ret;
     await tracer.startActiveSpan('get_descendants', async span => {
-        ret = await get_descendants_0(...args);
+        ret = await getDescendantsHelper(...args);
         span.end();
     });
     return ret;
+};
+
+const get_dir_size = async (path, user) => {
+    let size = 0;
+    const descendants = await get_descendants(path, user);
+    for ( let i = 0; i < descendants.length; i++ ) {
+        if ( ! descendants[i].is_dir ) {
+            size += descendants[i].size;
+        }
+    }
+
+    return size;
 };
 
 /**
@@ -880,7 +810,7 @@ const get_descendants = async (...args) => {
  * @param {integer} entry_id
  * @returns
  */
-const id2path = async (entry_uid) => {
+async function id2path (entry_uid) {
     if ( entry_uid == null ) {
         throw new Error('got null or undefined entry id');
     }
