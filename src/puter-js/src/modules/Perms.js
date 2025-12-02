@@ -10,15 +10,22 @@ export default class Perms {
         this.APIOrigin = APIOrigin;
     }
     async req_ (route, body) {
-        const resp = await fetch(this.APIOrigin + route, {
-            method: body ? 'POST' : 'GET',
-            headers: {
-                Authorization: `Bearer ${this.authToken}`,
-                'Content-Type': 'application/json',
-            },
-            ...(body ? { body: JSON.stringify(body) } : {}),
-        });
-        return await resp.json();
+        try {
+            const resp = await fetch(this.APIOrigin + route, {
+                method: body ? 'POST' : 'GET',
+                headers: {
+                    Authorization: `Bearer ${this.authToken}`,
+                    'Content-Type': 'application/json',
+                },
+                ...(body ? { body: JSON.stringify(body) } : {}),
+            });
+            if ( resp.headers.get('content-type')?.includes('application/json') ) {
+                return await resp.json();
+            }
+            return { message: await resp.text(), code: 'unknown_error' };
+        } catch (e) {
+            return { message: e.message, code: 'internal_error' };
+        }
     }
 
     // Grant Permissions
