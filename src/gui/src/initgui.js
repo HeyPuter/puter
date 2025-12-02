@@ -17,35 +17,35 @@
  * along with this program.  If not, see <https://www.gnu.org/licenses/>.
  */
 
+import UIAlert from './UI/UIAlert.js';
+import UIComponentWindow from './UI/UIComponentWindow.js';
 import UIDesktop from './UI/UIDesktop.js';
 import UIWindow from './UI/UIWindow.js';
-import UIAlert from './UI/UIAlert.js';
-import UIWindowLogin from './UI/UIWindowLogin.js';
-import UIWindowSignup from './UI/UIWindowSignup.js';
-import path from './lib/path.js';
-import UIWindowSaveAccount from './UI/UIWindowSaveAccount.js';
-import UIWindowNewPassword from './UI/UIWindowNewPassword.js';
-import UIWindowLoginInProgress from './UI/UIWindowLoginInProgress.js';
-import UIWindowEmailConfirmationRequired from './UI/UIWindowEmailConfirmationRequired.js';
-import UIWindowSessionList from './UI/UIWindowSessionList.js';
-import UIWindowRequestPermission from './UI/UIWindowRequestPermission.js';
 import UIWindowChangeUsername from './UI/UIWindowChangeUsername.js';
-import update_last_touch_coordinates from './helpers/update_last_touch_coordinates.js';
-import update_title_based_on_uploads from './helpers/update_title_based_on_uploads.js';
-import { ThemeService } from './services/ThemeService.js';
-import { BroadcastService } from './services/BroadcastService.js';
-import { ProcessService } from './services/ProcessService.js';
+import UIWindowEmailConfirmationRequired from './UI/UIWindowEmailConfirmationRequired.js';
+import UIWindowLogin from './UI/UIWindowLogin.js';
+import UIWindowLoginInProgress from './UI/UIWindowLoginInProgress.js';
+import UIWindowNewPassword from './UI/UIWindowNewPassword.js';
+import UIWindowRequestPermission from './UI/UIWindowRequestPermission.js';
+import UIWindowSaveAccount from './UI/UIWindowSaveAccount.js';
+import UIWindowSessionList from './UI/UIWindowSessionList.js';
+import UIWindowSignup from './UI/UIWindowSignup.js';
 import { PROCESS_RUNNING } from './definitions.js';
-import { LocaleService } from './services/LocaleService.js';
-import { SettingsService } from './services/SettingsService.js';
-import UIComponentWindow from './UI/UIComponentWindow.js';
-import update_mouse_position from './helpers/update_mouse_position.js';
-import { LaunchOnInitService } from './services/LaunchOnInitService.js';
 import item_icon from './helpers/item_icon.js';
+import update_last_touch_coordinates from './helpers/update_last_touch_coordinates.js';
+import update_mouse_position from './helpers/update_mouse_position.js';
+import update_title_based_on_uploads from './helpers/update_title_based_on_uploads.js';
+import path from './lib/path.js';
 import { AntiCSRFService } from './services/AntiCSRFService.js';
-import { IPCService } from './services/IPCService.js';
-import { ExecService } from './services/ExecService.js';
+import { BroadcastService } from './services/BroadcastService.js';
 import { DebugService } from './services/DebugService.js';
+import { ExecService } from './services/ExecService.js';
+import { IPCService } from './services/IPCService.js';
+import { LaunchOnInitService } from './services/LaunchOnInitService.js';
+import { LocaleService } from './services/LocaleService.js';
+import { ProcessService } from './services/ProcessService.js';
+import { SettingsService } from './services/SettingsService.js';
+import { ThemeService } from './services/ThemeService.js';
 import { privacy_aware_path } from './util/desktop.js';
 
 const launch_services = async function (options) {
@@ -1024,17 +1024,40 @@ window.initgui = async function (options) {
                         resolve();
                     });
 
+                    window.update_auth_data(data.token, data.user);
+
                     // if this is a popup, hide the spinner, make sure it was visible for at least 2 seconds
                     if(window.embedded_in_popup) await new Promise(async resolve => {
                         let spinner_duration = (Date.now() - spinner_init_ts);
+
+                        (async () => {
+                            let data = await window.getUserAppToken(new URL(window.openerOrigin).origin);
+                            // This is an implicit app and the app_uid is sent back from the server
+                            // we cache it here so that we can use it later
+                            window.host_app_uid = data.app_uid;
+                            // send token to parent
+                            window.opener.postMessage({
+                                msg: 'puter.token',
+                                success: true,
+                                msg_id: msg_id,
+                                token: data.token,
+                                username: window.user.username,
+                                app_uid: data.app_uid,
+                            }, window.openerOrigin);
+                            // close popup
+                            if ( !action || action === 'sign-in' ) {
+                                window.close();
+                                window.open('', '_self').close();
+                            }
+                        })();
                         if (spinner_duration < 2000) {
                             await window.sleep(2000 - spinner_duration);
+                            resolve();
                         }
                         puter.ui.hideSpinner();
                     });
                     /*eslint-enable*/
 
-                    window.update_auth_data(data.token, data.user);
                     document.dispatchEvent(new Event('login', { bubbles: true }));
                 },
                 error: async (err) => {
