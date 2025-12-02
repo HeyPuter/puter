@@ -26,7 +26,7 @@ declare global {
 declare const puter: Puter;
 
 export default puter;
-export { puter, Puter };
+export { puter };
 
 export type {
     AI,
@@ -109,6 +109,7 @@ export type {
     WorkerInfo,
     WorkersHandler,
     WriteOptions,
+    Puter
 };
 
 // NOTE: Provider-specific response bodies (AI, drivers, workers logging stream) intentionally

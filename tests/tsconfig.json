@@ -5,6 +5,7 @@
         "noEmit": true,
         "target": "es6",
         "module": "esnext",
+        "lib": ["ESNext"],
         "moduleResolution": "bundler",
         "outDir": "build",
         "esModuleInterop": true,
