@@ -35,7 +35,7 @@ import item_icon from '../helpers/item_icon.js';
 const el_body = document.getElementsByTagName('body')[0];
 const SNAP_PLACEHOLDER_DELAY_MS = 600; // delay before showing placeholder in any snap zone
 
-async function UIWindow (options) {
+async function UIWindow(options) {
     const win_id = window.global_element_id++;
     window.last_window_zindex++;
 
@@ -43,14 +43,12 @@ async function UIWindow (options) {
     options.dominant = options.dominant ?? false;
 
     // in case of file dialogs, the window is automatically dominant
-    if ( options.is_openFileDialog || options.is_saveFileDialog || options.is_directoryPicker )
-    {
+    if (options.is_openFileDialog || options.is_saveFileDialog || options.is_directoryPicker) {
         options.dominant = true;
     }
 
     // we don't want to increment window_counter for dominant windows
-    if ( !options.dominant && !options.is_panel )
-    {
+    if (!options.dominant && !options.is_panel) {
         window.window_counter++;
     }
 
@@ -64,7 +62,7 @@ async function UIWindow (options) {
     // indicates if sidebar is hidden, only applies to directory windows
     let sidebar_hidden = false;
 
-    const default_window_top = (`calc(15% + ${ (window.window_counter - 1) % 10 * 20 }px)`);
+    const default_window_top = (`calc(15% + ${(window.window_counter - 1) % 10 * 20}px)`);
 
     // list of file types that are allowed, other types will be disabled but still shown
     options.allowed_file_types = options.allowed_file_types ?? '';
@@ -93,15 +91,14 @@ async function UIWindow (options) {
     options.is_resizable = options.is_resizable ?? true;
 
     // if this is a fullpage window, it won't be resizable
-    if ( options.is_fullpage ) {
+    if (options.is_fullpage) {
         options.is_maximized = false;
         options.is_resizable = false;
     }
 
     // In the embedded/fullpage mode every window is on top since there is no taskbar to switch between windows
     // if user has specifically asked for this window to NOT stay on top, honor it.
-    if ( (window.is_embedded || window.is_fullpage_mode) && !options.parent_uuid && options.stay_on_top !== false )
-    {
+    if ((window.is_embedded || window.is_fullpage_mode) && !options.parent_uuid && options.stay_on_top !== false) {
         options.stay_on_top = true;
     }
     // Keep the window on top of all previously opened windows
@@ -124,7 +121,7 @@ async function UIWindow (options) {
     options.layout = options.layout ?? 'icons';
     options.width = options.width ?? 680;
     options.window_css = options.window_css ?? {};
-    options.window_class = (options.window_class !== undefined ? ` ${ options.window_class}` : '');
+    options.window_class = (options.window_class !== undefined ? ` ${options.window_class}` : '');
 
     options.is_visible = options.is_visible ?? true;
 
@@ -132,47 +129,46 @@ async function UIWindow (options) {
     options.custom_path = options.custom_path ?? null;
 
     // if only one instance is allowed, bring focus to the window that is already open
-    if ( options.single_instance && options.app !== '' ) {
-        let $already_open_window =  $(`.window[data-app="${html_encode(options.app)}"]`);
-        if ( $already_open_window.length ) {
+    if (options.single_instance && options.app !== '') {
+        let $already_open_window = $(`.window[data-app="${html_encode(options.app)}"]`);
+        if ($already_open_window.length) {
             $(`.window[data-app="${html_encode(options.app)}"]`).focusWindow();
             return;
         }
     }
 
     // left
-    let desktop_width = window.innerWidth - ( is_panel_open() ? PANEL_WIDTH : 0);
-    if ( !options.dominant && !options.center ) {
-        options.left = options.left ?? `${(desktop_width / 2 - options.width / 2) + (window.window_counter - 1) % 10 * 30 }px`;
-    } else if ( !options.dominant && options.center ) {
-        options.left = options.left ?? `${desktop_width / 2 - options.width / 2 }px`;
+    let desktop_width = window.innerWidth - (is_panel_open() ? PANEL_WIDTH : 0);
+    if (!options.dominant && !options.center) {
+        options.left = options.left ?? `${(desktop_width / 2 - options.width / 2) + (window.window_counter - 1) % 10 * 30}px`;
+    } else if (!options.dominant && options.center) {
+        options.left = options.left ?? `${desktop_width / 2 - options.width / 2}px`;
     }
-    else if ( options.dominant ) {
-        options.left = `${desktop_width / 2 - options.width / 2 }px`;
+    else if (options.dominant) {
+        options.left = `${desktop_width / 2 - options.width / 2}px`;
     }
     else {
-        options.left = options.left ?? (`${desktop_width / 2 - options.width / 2 }px`);
+        options.left = options.left ?? (`${desktop_width / 2 - options.width / 2}px`);
     }
 
     // top
-    if ( !options.dominant && !options.center ) {
-        options.top = options.top ?? `${(window.innerHeight / 2 - options.height / 2) + (window.window_counter - 1) % 10 * 30 }px`;
-    } else if ( !options.dominant && options.center ) {
-        options.top = options.top ?? `${window.innerHeight / 2 - options.height / 2 }px`;
+    if (!options.dominant && !options.center) {
+        options.top = options.top ?? `${(window.innerHeight / 2 - options.height / 2) + (window.window_counter - 1) % 10 * 30}px`;
+    } else if (!options.dominant && options.center) {
+        options.top = options.top ?? `${window.innerHeight / 2 - options.height / 2}px`;
     }
-    else if ( options.dominant ) {
+    else if (options.dominant) {
         options.top = (window.innerHeight * 0.15);
     }
-    else if ( isMobile.phone )
-    {
+    else if (isMobile.phone) {
         options.top = 100;
     }
 
-    if ( isMobile.phone && !options.center && !options.dominant ) {
+    if (isMobile.phone && !options.center && !options.dominant) {
         options.left = 0;
-        options.top = `${window.toolbar_height }px`;
+        options.top = `${window.toolbar_height}px`;
         options.width = '100%';
-        options.height = `calc(100% - ${ window.toolbar_height }px)`;
+        options.height = `calc(100% - ${window.toolbar_height}px)`;
     } else {
         options.width += 'px';
         options.height += 'px';
@@ -181,7 +177,7 @@ async function UIWindow (options) {
     // =====================================
     // cover page
     // =====================================
-    if ( options.cover_page ) {
+    if (options.cover_page) {
         options.left = 0;
         options.top = 0;
         options.width = '100%';
@@ -193,28 +189,27 @@ async function UIWindow (options) {
     let h = '';
 
     // Window
-    let zindex = options.stay_on_top ? (`${99999999 + window.last_window_zindex + 1 } !important`) : window.last_window_zindex;
+    let zindex = options.stay_on_top ? (`${99999999 + window.last_window_zindex + 1} !important`) : window.last_window_zindex;
     let user_set_url_params = [];
-    if ( options.params !== undefined ) {
-        for ( let key in options.params ) {
-            user_set_url_params.push(`${key }=${ options.params[key]}`);
+    if (options.params !== undefined) {
+        for (let key in options.params) {
+            user_set_url_params.push(`${key}=${options.params[key]}`);
         }
-        if ( user_set_url_params.length > 0 )
-        {
-            user_set_url_params = `?${ user_set_url_params.join('&')}`;
+        if (user_set_url_params.length > 0) {
+            user_set_url_params = `?${user_set_url_params.join('&')}`;
         }
     }
 
     // --------------------------------------------------------
     // Panel
     // --------------------------------------------------------
-    if ( options.is_panel ) {
+    if (options.is_panel) {
         options.width = PANEL_WIDTH;
         options.has_head = false;
         options.show_in_taskbar = false;
         options.is_resizable = false;
-        options.left = `${window.innerWidth - options.width }px`;
-        options.width = `${options.width }px`;
+        options.left = `${window.innerWidth - options.width}px`;
+        options.width = `${options.width}px`;
         options.height = '100%';
         options.top = 0;
         options.right = '0 !important';
@@ -272,12 +267,12 @@ async function UIWindow (options) {
                 data-is_panel ="${options.is_panel ? 1 : 0}"
                 data-is_visible ="${options.is_visible ? 1 : 0}"
                 style=" z-index: ${zindex}; 
-                        ${options.right !== undefined ? `right: ${ html_encode(options.right) }; ` : ''}
-                        ${options.left !== undefined ? `left: ${ html_encode(options.left) }; ` : ''}
-                        ${options.width !== undefined ? `width: ${ html_encode(options.width) }; ` : ''}
-                        ${options.height !== undefined ? `height: ${ html_encode(options.height) }; ` : ''}
-                        ${options.border_radius !== undefined ? `border-radius: ${ html_encode(options.border_radius) }; ` : ''}
-                        ${options.position !== undefined ? `position: ${ html_encode(options.position) }; ` : ''}
+                        ${options.right !== undefined ? `right: ${html_encode(options.right)}; ` : ''}
+                        ${options.left !== undefined ? `left: ${html_encode(options.left)}; ` : ''}
+                        ${options.width !== undefined ? `width: ${html_encode(options.width)}; ` : ''}
+                        ${options.height !== undefined ? `height: ${html_encode(options.height)}; ` : ''}
+                        ${options.border_radius !== undefined ? `border-radius: ${html_encode(options.border_radius)}; ` : ''}
+                        ${options.position !== undefined ? `position: ${html_encode(options.position)}; ` : ''}
                     " 
                 >`;
     // window mask
@@ -287,26 +282,23 @@ async function UIWindow (options) {
     h += '</div>';
 
     // Head
-    if ( options.has_head ) {
+    if (options.has_head) {
         h += '<div class="window-head">';
         // draggable handle which also contains icon and title
         h += '<div class="window-head-draggable">';
         // icon
-        if ( options.icon )
-        {
+        if (options.icon) {
             h += '<img class="window-head-icon" />';
         }
         // title
         h += `<span class="window-head-title" title="${html_encode(options.title)}"></span>`;
         h += '</div>';
         // Minimize button, only if window is resizable and not embedded
-        if ( options.is_resizable && options.show_minimize_button && !window.is_embedded )
-        {
+        if (options.is_resizable && options.show_minimize_button && !window.is_embedded) {
             h += `<span class="window-action-btn window-minimize-btn" style="margin-left:0;"><img src="${html_encode(window.icons['minimize.svg'])}" draggable="false"></span>`;
         }
         // Maximize button
-        if ( options.is_resizable && options.show_maximize_button )
-        {
+        if (options.is_resizable && options.show_maximize_button) {
             h += `<span class="window-action-btn window-scale-btn"><img src="${html_encode(window.icons['scale.svg'])}" draggable="false"></span>`;
         }
         // Close button
@@ -315,15 +307,15 @@ async function UIWindow (options) {
     }
 
     // Sidebar
-    if ( options.is_dir && !isMobile.phone ) {
+    if (options.is_dir && !isMobile.phone) {
         h += `<div class="window-sidebar disable-user-select hide-scrollbar"
-                    style="${window.window_sidebar_width ? `width: ${ html_encode(window.window_sidebar_width) }px !important;` : ''}"
+                    style="${window.window_sidebar_width ? `width: ${html_encode(window.window_sidebar_width)}px !important;` : ''}"
                     draggable="false"
                 >`;
         // favorites
         h += `<h2 class="window-sidebar-title disable-user-select">${i18n('favorites')}</h2>`;
         // default items if sidebar_items is not set
-        if ( ! window.sidebar_items ) {
+        if (!window.sidebar_items) {
             h += `<div draggable="false" title="${i18n('home')}" class="window-sidebar-item disable-user-select ${options.path === window.home_path ? 'window-sidebar-item-active' : ''}" data-path="${html_encode(window.home_path)}"><img draggable="false" class="window-sidebar-item-icon" src="${html_encode(window.icons['sidebar-folder-home.svg'])}">${i18n('home')}</div>`;
             h += `<div draggable="false" title="${i18n('documents')}" class="window-sidebar-item disable-user-select ${options.path === window.docs_path ? 'window-sidebar-item-active' : ''}" data-path="${html_encode(window.docs_path)}"><img draggable="false" class="window-sidebar-item-icon" src="${html_encode(window.icons['sidebar-folder-documents.svg'])}">${i18n('documents')}</div>`;
             h += `<div draggable="false" title="${i18n('public')}" class="window-sidebar-item disable-user-select ${options.path === window.public_path ? 'window-sidebar-item-active' : ''}" data-path="${html_encode(window.public_path)}"><img draggable="false" class="window-sidebar-item-icon" src="${html_encode(window.icons['sidebar-folder-public.svg'])}">${i18n('public')}</div>`;
@@ -332,34 +324,27 @@ async function UIWindow (options) {
             h += `<div draggable="false" title="${i18n('videos')}" class="window-sidebar-item disable-user-select ${options.path === window.videos_path ? 'window-sidebar-item-active' : ''}" data-path="${html_encode(window.videos_path)}"><img draggable="false" class="window-sidebar-item-icon" src="${html_encode(window.icons['sidebar-folder-videos.svg'])}">${i18n('videos')}</div>`;
         } else {
             let items = JSON.parse(window.sidebar_items);
-            for ( let item of items ) {
+            for (let item of items) {
                 let icon;
-                if ( item.path === window.home_path )
-                {
+                if (item.path === window.home_path) {
                     icon = window.icons['sidebar-folder-home.svg'];
                 }
-                else if ( item.path === window.docs_path )
-                {
+                else if (item.path === window.docs_path) {
                     icon = window.icons['sidebar-folder-documents.svg'];
                 }
-                else if ( item.path === window.public_path )
-                {
+                else if (item.path === window.public_path) {
                     icon = window.icons['sidebar-folder-public.svg'];
                 }
-                else if ( item.path === window.pictures_path )
-                {
+                else if (item.path === window.pictures_path) {
                     icon = window.icons['sidebar-folder-pictures.svg'];
                 }
-                else if ( item.path === window.desktop_path )
-                {
+                else if (item.path === window.desktop_path) {
                     icon = window.icons['sidebar-folder-desktop.svg'];
                 }
-                else if ( item.path === window.videos_path )
-                {
+                else if (item.path === window.videos_path) {
                     icon = window.icons['sidebar-folder-videos.svg'];
                 }
-                else
-                {
+                else {
                     icon = window.icons['sidebar-folder.svg'];
                 }
                 h += `<div title="${html_encode(item.label)}" class="window-sidebar-item disable-user-select ${options.path === item.path ? 'window-sidebar-item-active' : ''}" data-path="${html_encode(item.path)}"><img draggable="false" class="window-sidebar-item-icon" src="${html_encode(icon)}">${html_encode(item.name)}</div>`;
@@ -372,7 +357,7 @@ async function UIWindow (options) {
     h += `<div class="window-menubar" data-window-id="${win_id}"></div>`;
 
     // Navbar
-    if ( options.is_dir ) {
+    if (options.is_dir) {
         h += '<div class="window-navbar">';
         h += '<div style="float:left; margin-left:5px; margin-right:5px;">';
         // Back
@@ -403,10 +388,9 @@ async function UIWindow (options) {
                 id="window-body-${win_id}" 
                 style="${!options.has_head ? ' height: 100%;' : ''}">`;
     // iframe, for apps
-    if ( options.iframe_url || options.iframe_srcdoc ) {
+    if (options.iframe_url || options.iframe_srcdoc) {
         let allow_str = 'picture-in-picture; document-picture-in-picture; camera; encrypted-media; gamepad; display-capture; geolocation; gyroscope; microphone; midi; clipboard-read; clipboard-write; fullscreen; web-share; file-system-handle; local-storage; downloads;';
-        if ( window.co_isolation_enabled )
-        {
+        if (window.co_isolation_enabled) {
             allow_str += ' cross-origin-isolated;';
         }
         // <iframe>
@@ -416,12 +400,12 @@ async function UIWindow (options) {
                         data-app="${html_encode(options.app)}"
                         class="window-app-iframe" 
                         frameborder="0" 
-                        ${options.iframe_url ? `src="${ html_encode(options.iframe_url)}"` : ''}
-                        ${options.iframe_srcdoc ? `srcdoc="${ html_encode(options.iframe_srcdoc) }"` : ''}
+                        ${options.iframe_url ? `src="${html_encode(options.iframe_url)}"` : ''}
+                        ${options.iframe_srcdoc ? `srcdoc="${html_encode(options.iframe_srcdoc)}"` : ''}
                         ${(window.co_isolation_enabled && options.iframe_credentialless !== false)
-                                ? 'credentialless '
-                                : ''
-                        }
+                ? 'credentialless '
+                : ''
+            }
                         allow = "${allow_str}"
                         allowtransparency="true"
                         allowpaymentrequest="true" 
@@ -431,12 +415,12 @@ async function UIWindow (options) {
                         sandbox="allow-forms allow-modals allow-pointer-lock allow-popups allow-popups-to-escape-sandbox ${options.iframe_srcdoc ? '' : 'allow-same-origin'} allow-scripts allow-top-navigation-by-user-activation allow-downloads allow-presentation allow-storage-access-by-user-activation"></iframe>`;
     }
     // custom body
-    else if ( options.body_content !== undefined ) {
+    else if (options.body_content !== undefined) {
         h += options.body_content;
     }
 
     // Directory
-    if ( options.is_dir ) {
+    if (options.is_dir) {
         // Detail layout header
         h += window.explore_table_headers();
 
@@ -455,7 +439,7 @@ async function UIWindow (options) {
     h += '</div>';
 
     // Explorer footer
-    if ( options.is_dir && !options.is_saveFileDialog && !options.is_openFileDialog && !options.is_directoryPicker ) {
+    if (options.is_dir && !options.is_saveFileDialog && !options.is_openFileDialog && !options.is_directoryPicker) {
         h += '<div class="explorer-footer">';
         h += '<span class="explorer-footer-item-count"></span>';
         h += '<span class="explorer-footer-seperator">|</span>';
@@ -464,14 +448,13 @@ async function UIWindow (options) {
     }
 
     // is_saveFileDialog
-    if ( options.is_saveFileDialog ) {
+    if (options.is_saveFileDialog) {
         h += '<div class="window-filedialog-prompt">';
         h += '<div style="display:flex; flex-grow: 1;">';
         h += `<input type="text" style="flex-grow:1;" class="savefiledialog-filename" autocorrect="off" spellcheck="false" value="${html_encode(options.saveFileDialog_default_filename) ?? ''}">`;
         h += `<button class="button button-small filedialog-cancel-btn">${i18n('cancel')}</button>`;
         h += '<button class="button ';
-        if ( options.saveFileDialog_default_filename === undefined || options.saveFileDialog_default_filename === '' )
-        {
+        if (options.saveFileDialog_default_filename === undefined || options.saveFileDialog_default_filename === '') {
             h += 'disabled ';
         }
         h += `button-small button-primary savefiledialog-save-btn">${i18n('save')}</button>`;
@@ -480,7 +463,7 @@ async function UIWindow (options) {
     }
 
     // is_openFileDialog
-    else if ( options.is_openFileDialog ) {
+    else if (options.is_openFileDialog) {
         h += '<div class="window-filedialog-prompt">';
         // 'upload here'
         h += `<div class="window-filedialog-upload-here"><svg xmlns="http://www.w3.org/2000/svg" style="width: 18px; height: 18px; margin-bottom: -4px;" width="16" height="16" fill="currentColor" class="bi bi-cloud-arrow-up" viewBox="0 0 16 16">
@@ -496,7 +479,7 @@ async function UIWindow (options) {
     }
 
     // is_directoryPicker
-    else if ( options.is_directoryPicker ) {
+    else if (options.is_directoryPicker) {
         h += '<div class="window-filedialog-prompt">';
         h += '<div style="text-align:right; flex-grow: 1;">';
         h += `<button class="button button-small filedialog-cancel-btn">${i18n('cancel')}</button>`;
@@ -507,12 +490,11 @@ async function UIWindow (options) {
     h += '</div>';
 
     // backdrop
-    if ( options.backdrop ) {
+    if (options.backdrop) {
         let backdrop_zindex;
         // backdrop should also cover over taskbar
         let taskbar_zindex = $('.taskbar').css('z-index');
-        if ( taskbar_zindex === null || taskbar_zindex === undefined )
-        {
+        if (taskbar_zindex === null || taskbar_zindex === undefined) {
             backdrop_zindex = zindex;
         }
         else {
@@ -521,19 +503,18 @@ async function UIWindow (options) {
         }
 
         // dominant backdrop will cover over toolbar as well
-        if ( options.backdrop_covers_toolbar )
-        {
+        if (options.backdrop_covers_toolbar) {
             backdrop_zindex = 999999;
         }
 
-        h = `<div class="window-backdrop" style="z-index:${backdrop_zindex};">${ h }</div>`;
+        h = `<div class="window-backdrop" style="z-index:${backdrop_zindex};">${h}</div>`;
     }
 
     // Append
     $(el_body).append(h);
 
     // disable_parent_window
-    if ( options.disable_parent_window && options.parent_uuid !== null ) {
+    if (options.disable_parent_window && options.parent_uuid !== null) {
         const $el_parent_window = $(`.window[data-element_uuid="${options.parent_uuid}"]`);
         const $el_parent_disable_mask = $el_parent_window.find('.window-disable-mask');
         //disable parent window
@@ -544,9 +525,9 @@ async function UIWindow (options) {
     }
 
     // Add Taskbar Item
-    if ( !options.is_openFileDialog && !options.is_saveFileDialog && !options.is_directoryPicker && options.show_in_taskbar ) {
+    if (!options.is_openFileDialog && !options.is_saveFileDialog && !options.is_directoryPicker && options.show_in_taskbar) {
         // add icon if there is no similar app already open
-        if ( $(`.taskbar-item[data-app="${options.app}"]`).length === 0 ) {
+        if ($(`.taskbar-item[data-app="${options.app}"]`).length === 0) {
             UITaskbarItem({
                 icon: options.icon,
                 name: options.title,
@@ -555,7 +536,7 @@ async function UIWindow (options) {
                 before_trash: true,
                 onClick: function () {
                     let open_window_count = parseInt($(`.taskbar-item[data-app="${options.app}"]`).attr('data-open-windows'));
-                    if ( open_window_count === 0 ) {
+                    if (open_window_count === 0) {
                         launch_app({
                             name: options.app,
                         });
@@ -564,12 +545,11 @@ async function UIWindow (options) {
                     }
                 },
             });
-            if ( options.app )
-            {
+            if (options.app) {
                 $(`.taskbar-item[data-app="${options.app}"] .active-taskbar-indicator`).show();
             }
         } else {
-            if ( options.app ) {
+            if (options.app) {
                 $(`.taskbar-item[data-app="${options.app}"]`).attr('data-open-windows', parseInt($(`.taskbar-item[data-app="${options.app}"]`).attr('data-open-windows')) + 1);
                 $(`.taskbar-item[data-app="${options.app}"] .active-taskbar-indicator`).show();
             }
@@ -577,7 +557,7 @@ async function UIWindow (options) {
     }
 
     // if directory, set window_nav_history and window_nav_history_current_position
-    if ( options.is_dir ) {
+    if (options.is_dir) {
         window.window_nav_history[win_id] = [options.path];
         window.window_nav_history_current_position[win_id] = 0;
     }
@@ -601,9 +581,9 @@ async function UIWindow (options) {
     const el_directorypicker_select_btn = document.querySelector(`#window-${win_id} .directorypicker-select-btn`);
     const el_window_filedialog_upload_here = document.querySelector(`#window-${win_id} .window-filedialog-upload-here`);
 
-    if ( el_window_filedialog_upload_here ) {
+    if (el_window_filedialog_upload_here) {
         el_window_filedialog_upload_here.addEventListener('click', function () {
-            window.init_upload_using_dialog(el_window_body, `${$(el_window).attr('data-path') }/`);
+            window.init_upload_using_dialog(el_window_body, `${$(el_window).attr('data-path')}/`);
         });
     }
     // attach optional event listeners
@@ -612,10 +592,10 @@ async function UIWindow (options) {
     // disable menubar by default
     $(el_window).find('.window-menubar').hide();
 
-    if ( options.is_maximized ) {
+    if (options.is_maximized) {
         // save original size and position
         $(el_window).attr({
-            'data-left-before-maxim': `${(window.innerWidth / 2 - 680 / 2) + (window.window_counter - 1) % 10 * 30 }px`,
+            'data-left-before-maxim': `${(window.innerWidth / 2 - 680 / 2) + (window.window_counter - 1) % 10 * 30}px`,
             'data-top-before-maxim': default_window_top,
             'data-width-before-maxim': '680px',
             'data-height-before-maxim': '350px',
@@ -637,21 +617,20 @@ async function UIWindow (options) {
     $(el_window_head_title).html(html_encode(options.title));
 
     // set icon
-    if ( options.icon )
-    {
+    if (options.icon) {
         $(el_window_head_icon).attr('src', options.icon.image ?? options.icon);
     }
 
     // root folder of a shared user?
-    if ( options.is_dir && (options.path.split('/').length - 1) === 1 && options.path !== `/${window.user.username}` ) {
+    if (options.is_dir && (options.path.split('/').length - 1) === 1 && options.path !== `/${window.user.username}`) {
         $(el_window_head_icon).attr('src', window.icons['shared.svg']);
     }
     // focus on this window and deactivate other windows
-    if ( options.is_visible ) {
+    if (options.is_visible) {
         $(el_window).focusWindow();
     }
 
-    if ( window.animate_window_opening ) {
+    if (window.animate_window_opening) {
         // animate window opening
         $(el_window).css({
             'opacity': '0',
@@ -678,7 +657,7 @@ async function UIWindow (options) {
     // =====================================
     // Center relative to parent window
     // =====================================
-    if ( options.parent_center && options.parent_uuid ) {
+    if (options.parent_center && options.parent_uuid) {
         const $parent_window = $(`.window[data-element_uuid="${options.parent_uuid}"]`);
         const parent_window_width = $parent_window.width();
         const parent_window_height = $parent_window.height();
@@ -689,33 +668,31 @@ async function UIWindow (options) {
         options.left = parent_window_left + parent_window_width / 2 - window_width / 2;
         options.top = parent_window_top + parent_window_height / 2 - window_height / 2;
         $(el_window).css({
-            'left': `${options.left }px`,
-            'top': `${options.top }px`,
+            'left': `${options.left}px`,
+            'top': `${options.top}px`,
         });
     }
 
     // onAppend() - using show() is a hack to make sure window is visible AND onAppend is called when
     // window is actually appended and usable.
     // NOTE: there is another is_visible condition below
-    if ( options.is_visible ) {
+    if (options.is_visible) {
 
-        if ( options.fadeIn ) {
+        if (options.fadeIn) {
             $(el_window).css('opacity', 0);
 
             $(el_window).animate({ opacity: 1 }, options.fadeIn, function () {
                 // Move the onAppend callback here to ensure it's called after fade-in
-                if ( options.is_visible ) {
+                if (options.is_visible) {
                     $(el_window).show(0, function (e) {
                         // if SaveFileDialog, bring focus to the el_savefiledialog_filename and select all
-                        if ( options.is_saveFileDialog ) {
+                        if (options.is_saveFileDialog) {
                             let item_name = el_savefiledialog_filename.value;
-                            const extname = path.extname(`/${ item_name}`);
-                            if ( extname !== '' )
-                            {
+                            const extname = path.extname(`/${item_name}`);
+                            if (extname !== '') {
                                 el_savefiledialog_filename.setSelectionRange(0, item_name.length - extname.length);
                             }
-                            else
-                            {
+                            else {
                                 $(el_savefiledialog_filename).select();
                             }
 
@@ -724,7 +701,7 @@ async function UIWindow (options) {
                         //set custom window css
                         $(el_window).css(options.window_css);
                         // onAppend()
-                        if ( options.onAppend && typeof options.onAppend === 'function' ) {
+                        if (options.onAppend && typeof options.onAppend === 'function') {
                             options.onAppend(el_window);
                         }
                     });
@@ -733,15 +710,13 @@ async function UIWindow (options) {
         } else {
             $(el_window).show(0, function (e) {
                 // if SaveFileDialog, bring focus to the el_savefiledialog_filename and select all
-                if ( options.is_saveFileDialog ) {
+                if (options.is_saveFileDialog) {
                     let item_name = el_savefiledialog_filename.value;
-                    const extname = path.extname(`/${ item_name}`);
-                    if ( extname !== '' )
-                    {
+                    const extname = path.extname(`/${item_name}`);
+                    if (extname !== '') {
                         el_savefiledialog_filename.setSelectionRange(0, item_name.length - extname.length);
                     }
-                    else
-                    {
+                    else {
                         $(el_savefiledialog_filename).select();
                     }
 
@@ -750,14 +725,14 @@ async function UIWindow (options) {
                 //set custom window css
                 $(el_window).css(options.window_css);
                 // onAppend()
-                if ( options.onAppend && typeof options.onAppend === 'function' ) {
+                if (options.onAppend && typeof options.onAppend === 'function') {
                     options.onAppend(el_window);
                 }
             });
         }
     }
 
-    if ( options.is_saveFileDialog ) {
+    if (options.is_saveFileDialog) {
         //------------------------------------------------
         // SaveFileDialog > Save button
         //------------------------------------------------
@@ -765,13 +740,12 @@ async function UIWindow (options) {
             const filename = $(el_savefiledialog_filename).val();
             try {
                 window.validate_fsentry_name(filename);
-            } catch ( err ) {
+            } catch (err) {
                 UIAlert(err.message, 'error', 'OK');
                 return;
             }
             const target_path = path.join($(el_window).attr('data-path'), filename);
-            if ( options.onSaveFileDialogSave && typeof options.onSaveFileDialogSave === 'function' )
-            {
+            if (options.onSaveFileDialogSave && typeof options.onSaveFileDialogSave === 'function') {
                 options.onSaveFileDialogSave(target_path, el_window);
             }
         });
@@ -780,7 +754,7 @@ async function UIWindow (options) {
         // SaveFileDialog > Enter
         //------------------------------------------------
         $(el_savefiledialog_filename).on('keypress', function (event) {
-            if ( event.which === 13 ) {
+            if (event.which === 13) {
                 $(el_savefiledialog_save_btn).trigger('click');
             }
         });
@@ -789,19 +763,17 @@ async function UIWindow (options) {
         // Enable/disable Save button based on input
         //------------------------------------------------
         $(el_savefiledialog_filename).bind('keydown change input paste', function () {
-            if ( $(this).val() !== '' )
-            {
+            if ($(this).val() !== '') {
                 $(el_savefiledialog_save_btn).removeClass('disabled');
             }
-            else
-            {
+            else {
                 $(el_savefiledialog_save_btn).addClass('disabled');
             }
         });
         $(el_savefiledialog_filename).get(0).focus({ preventScroll: true });
     }
 
-    if ( options.is_openFileDialog ) {
+    if (options.is_openFileDialog) {
         //------------------------------------------------
         // OpenFileDialog > Open button
         //------------------------------------------------
@@ -810,8 +782,7 @@ async function UIWindow (options) {
             let selected_files;
 
             // No item selected
-            if ( selected_els.length === 0 )
-            {
+            if (selected_els.length === 0) {
                 return;
             }
             // ------------------------------------------------
@@ -823,8 +794,7 @@ async function UIWindow (options) {
                 const items_to_sign = [];
 
                 // prepare items to sign
-                for ( let i = 0; i < selected_els.length; i++ )
-                {
+                for (let i = 0; i < selected_els.length; i++) {
                     items_to_sign.push({ uid: $(selected_els[i]).attr('data-uid'), action: 'write', path: $(selected_els[i]).attr('data-path') });
                 }
 
@@ -834,14 +804,13 @@ async function UIWindow (options) {
                 selected_files = Array.isArray(selected_files) ? selected_files : [selected_files];
 
                 // change path of each item to preserve privacy
-                for ( let i = 0; i < selected_files.length; i++ )
-                {
+                for (let i = 0; i < selected_files.length; i++) {
                     selected_files[i].path = privacy_aware_path(selected_files[i].path);
                 }
             }
 
             const ifram_msg_uid = $(el_window).attr('data-iframe_msg_uid');
-            if ( options.return_to_parent_window ) {
+            if (options.return_to_parent_window) {
                 window.opener.postMessage({
                     msg: 'fileOpenPicked',
                     original_msg_id: ifram_msg_uid,
@@ -854,10 +823,10 @@ async function UIWindow (options) {
                 window.close();
                 window.open('', '_self').close();
             }
-            else if ( options.parent_uuid ) {
+            else if (options.parent_uuid) {
                 // send event to iframe
                 const target_iframe = $(`.window[data-element_uuid="${options.parent_uuid}"]`).find('.window-app-iframe').get(0);
-                if ( target_iframe ) {
+                if (target_iframe) {
                     target_iframe.contentWindow.postMessage({
                         msg: 'fileOpenPicked',
                         original_msg_id: ifram_msg_uid,
@@ -880,7 +849,7 @@ async function UIWindow (options) {
             }
         });
     }
-    else if ( options.is_directoryPicker ) {
+    else if (options.is_directoryPicker) {
         //------------------------------------------------
         // DirectoryPicker > Select button
         //------------------------------------------------
@@ -890,7 +859,7 @@ async function UIWindow (options) {
             // ------------------------------------------------
             // No item selected, return current directory
             // ------------------------------------------------
-            if ( selected_els.length === 0 ) {
+            if (selected_els.length === 0) {
                 selected_dirs = await puter.fs.sign(options.initiating_app_uuid, { uid: $(el_window).attr('data-uid'), action: 'write', path: $(el_window).attr('data-path') });
                 selected_dirs = selected_dirs.items;
             }
@@ -904,8 +873,7 @@ async function UIWindow (options) {
                 const items_to_sign = [];
 
                 // prepare items to sign
-                for ( let i = 0; i < selected_els.length; i++ )
-                {
+                for (let i = 0; i < selected_els.length; i++) {
                     items_to_sign.push({ uid: $(selected_els[i]).attr('data-uid'), action: 'write', path: $(selected_els[i]).attr('data-path') });
                 }
 
@@ -915,15 +883,14 @@ async function UIWindow (options) {
                 selected_dirs = Array.isArray(selected_dirs) ? selected_dirs : [selected_dirs];
 
                 // change path of each item to preserve privacy
-                for ( let i = 0; i < selected_dirs.length; i++ )
-                {
+                for (let i = 0; i < selected_dirs.length; i++) {
                     selected_dirs[i].path = privacy_aware_path(selected_dirs[i].path);
                 }
             }
 
             const ifram_msg_uid = $(el_window).attr('data-iframe_msg_uid');
 
-            if ( options.return_to_parent_window ) {
+            if (options.return_to_parent_window) {
                 window.opener.postMessage({
                     msg: 'directoryPicked',
                     original_msg_id: ifram_msg_uid,
@@ -936,10 +903,10 @@ async function UIWindow (options) {
                 window.close();
                 window.open('', '_self').close();
             }
-            if ( options.parent_uuid ) {
+            if (options.parent_uuid) {
                 // Send directoryPicked event to iframe
                 const target_iframe = $(`.window[data-element_uuid="${options.parent_uuid}"]`).find('.window-app-iframe').get(0);
-                if ( target_iframe ) {
+                if (target_iframe) {
                     target_iframe.contentWindow.postMessage({
                         msg: 'directoryPicked',
                         original_msg_id: ifram_msg_uid,
@@ -952,12 +919,12 @@ async function UIWindow (options) {
         });
     }
 
-    if ( options.is_saveFileDialog || options.is_openFileDialog || options.is_directoryPicker ) {
+    if (options.is_saveFileDialog || options.is_openFileDialog || options.is_directoryPicker) {
         //------------------------------------------------
         // FileDialog > Cancel button
         //------------------------------------------------
         $(el_filedialog_cancel_btn).on('click', function (e) {
-            if ( options.return_to_parent_window ) {
+            if (options.return_to_parent_window) {
                 window.close();
                 window.open('', '_self').close();
             }
@@ -967,11 +934,11 @@ async function UIWindow (options) {
                 $(`.window[data-element_uuid="${options.parent_uuid}"]`).find('.window-disable-mask').hide();
                 $(el_window).close();
             });
-            if ( options.onDialogCancel ) options.onDialogCancel.call(el_window);
+            if (options.onDialogCancel) options.onDialogCancel.call(el_window);
         });
     }
 
-    if ( options.is_dir ) {
+    if (options.is_dir) {
         window.navbar_path_droppable(el_window);
         window.sidebar_item_droppable(el_window);
         // --------------------------------------------------------
@@ -979,12 +946,11 @@ async function UIWindow (options) {
         // --------------------------------------------------------
         $(el_window_navbar_back_btn).on('click', function (e) {
             // if history menu is open don't continue
-            if ( $(el_window_navbar_back_btn).hasClass('has-open-contextmenu') )
-            {
+            if ($(el_window_navbar_back_btn).hasClass('has-open-contextmenu')) {
                 return;
             }
             // if ctrl/cmd are pressed, open in new window
-            if ( e.ctrlKey || e.metaKey ) {
+            if (e.ctrlKey || e.metaKey) {
                 const dirpath = window.window_nav_history[win_id].at(window.window_nav_history_current_position[win_id] - 1);
                 UIWindow({
                     path: dirpath,
@@ -1009,7 +975,7 @@ async function UIWindow (options) {
             let items = [];
             const pos = el_window_navbar_back_btn.getBoundingClientRect();
 
-            for ( let index = window.window_nav_history_current_position[win_id] - 1; index >= 0; index-- ) {
+            for (let index = window.window_nav_history_current_position[win_id] - 1; index >= 0; index--) {
                 const history_item = window.window_nav_history[win_id].at(index);
 
                 // build item for context menu
@@ -1021,7 +987,7 @@ async function UIWindow (options) {
                         window.window_nav_history_current_position[win_id] = history_index;
                         const new_path = window.window_nav_history[win_id].at(window.window_nav_history_current_position[win_id]);
                         // if ctrl/cmd are pressed, open in new window
-                        if ( e.ctrlKey || e.metaKey && (new_path !== undefined && new_path !== null) ) {
+                        if (e.ctrlKey || e.metaKey && (new_path !== undefined && new_path !== null)) {
                             UIWindow({
                                 path: new_path,
                                 title: new_path === '/' ? window.root_dirname : path.basename(new_path),
@@ -1049,12 +1015,11 @@ async function UIWindow (options) {
         // --------------------------------------------------------
         $(el_window_navbar_forward_btn).on('click', function (e) {
             // if history menu is open don't continue
-            if ( $(el_window_navbar_forward_btn).hasClass('has-open-contextmenu') )
-            {
+            if ($(el_window_navbar_forward_btn).hasClass('has-open-contextmenu')) {
                 return;
             }
             // if ctrl/cmd are pressed, open in new window
-            if ( e.ctrlKey || e.metaKey ) {
+            if (e.ctrlKey || e.metaKey) {
                 const dirpath = window.window_nav_history[win_id].at(window.window_nav_history_current_position[win_id] + 1);
                 UIWindow({
                     path: dirpath,
@@ -1070,7 +1035,7 @@ async function UIWindow (options) {
                 // get last path in history
                 const target_path = window.window_nav_history[win_id].at(window.window_nav_history_current_position[win_id]);
                 // update window path
-                if ( target_path !== undefined ) {
+                if (target_path !== undefined) {
                     window.update_window_path(el_window, target_path);
                 }
             }
@@ -1082,7 +1047,7 @@ async function UIWindow (options) {
             let items = [];
             const pos = el_window_navbar_forward_btn.getBoundingClientRect();
 
-            for ( let index = window.window_nav_history_current_position[win_id] + 1; index < window.window_nav_history[win_id].length; index++ ) {
+            for (let index = window.window_nav_history_current_position[win_id] + 1; index < window.window_nav_history[win_id].length; index++) {
                 const history_item = window.window_nav_history[win_id].at(index);
 
                 // build item for context menu
@@ -1094,7 +1059,7 @@ async function UIWindow (options) {
                         window.window_nav_history_current_position[win_id] = history_index;
                         const new_path = window.window_nav_history[win_id].at(window.window_nav_history_current_position[win_id]);
                         // if ctrl/cmd are pressed, open in new window
-                        if ( e.ctrlKey || e.metaKey && (new_path !== undefined && new_path !== null) ) {
+                        if (e.ctrlKey || e.metaKey && (new_path !== undefined && new_path !== null)) {
                             UIWindow({
                                 path: new_path,
                                 title: new_path === '/' ? window.root_dirname : path.basename(new_path),
@@ -1124,7 +1089,7 @@ async function UIWindow (options) {
         $(el_window_navbar_up_btn).on('click', function (e) {
             const target_path = path.resolve(path.join($(el_window).attr('data-path'), '..'));
             // if ctrl/cmd are pressed, open in new window
-            if ( e.ctrlKey || e.metaKey && (target_path !== undefined && target_path !== null) ) {
+            if (e.ctrlKey || e.metaKey && (target_path !== undefined && target_path !== null)) {
                 UIWindow({
                     path: target_path,
                     title: target_path === '/' ? window.root_dirname : path.basename(target_path),
@@ -1134,7 +1099,7 @@ async function UIWindow (options) {
                 });
             }
             // ... otherwise, open in same window
-            else if ( target_path !== undefined && target_path !== null ) {
+            else if (target_path !== undefined && target_path !== null) {
                 // update history
                 window.window_nav_history[win_id] = window.window_nav_history[win_id].slice(0, window.window_nav_history_current_position[win_id] + 1);
                 window.window_nav_history[win_id].push(target_path);
@@ -1149,7 +1114,7 @@ async function UIWindow (options) {
         $(el_window).find('.window-navbar-layout-settings').on('contextmenu taphold', function () {
             let cur_layout = $(el_window).attr('data-layout');
             let items = [];
-            for ( let i = 0; i < layouts.length; i++ ) {
+            for (let i = 0; i < layouts.length; i++) {
                 items.push({
                     html: `<span style="text-transform: capitalize;">${layouts[i]}</span>`,
                     icon: cur_layout === layouts[i] ? '✓' : '',
@@ -1166,9 +1131,9 @@ async function UIWindow (options) {
         });
         $(el_window).find('.window-navbar-layout-settings').on('click', function () {
             let cur_layout = $(el_window).attr('data-layout');
-            for ( let i = 0; i < layouts.length; i++ ) {
-                if ( cur_layout === layouts[i] ) {
-                    if ( i === layouts.length - 1 ) {
+            for (let i = 0; i < layouts.length; i++) {
+                if (cur_layout === layouts[i]) {
+                    if (i === layouts.length - 1) {
                         window.update_window_layout(el_window, layouts[0]);
                         window.set_layout($(el_window).attr('data-uid'), layouts[0]);
                     } else {
@@ -1183,24 +1148,22 @@ async function UIWindow (options) {
         // directory content
         // --------------------------------------------------------
         //auth
-        if ( !window.is_auth() && !(await UIWindowLogin()) )
-        {
+        if (!window.is_auth() && !(await UIWindowLogin())) {
             return;
         }
 
         // --------------------------------------------------------
         // SIDEBAR sharing
         // --------------------------------------------------------
-        if ( options.is_dir && !isMobile.phone ) {
+        if (options.is_dir && !isMobile.phone) {
             puter.fs.readdir({ path: '/', consistency: 'eventual' }).then(function (shared_users) {
                 let ht = '';
-                if ( shared_users && shared_users.length - 1 > 0 ) {
+                if (shared_users && shared_users.length - 1 > 0) {
                     ht += '<h2 class="window-sidebar-title disable-user-select">Shared with me</h2>';
-                    for ( let index = 0; index < shared_users.length; index++ ) {
+                    for (let index = 0; index < shared_users.length; index++) {
                         const shared_user = shared_users[index];
                         // don't show current user's folder!
-                        if ( shared_user.name === window.user.username )
-                        {
+                        if (shared_user.name === window.user.username) {
                             continue;
                         }
                         ht += `<div  class="window-sidebar-item not-sortable disable-user-select ${options.path === shared_user.path ? 'window-sidebar-item-active' : ''}" 
@@ -1217,9 +1180,9 @@ async function UIWindow (options) {
                 $(el_window).find('.window-sidebar-item:not(.ui-droppable)').droppable({
                     accept: '.item',
                     tolerance: 'pointer',
-                    drop: function ( event, ui ) {
+                    drop: function (event, ui) {
                         // check if item was actually dropped on this navbar path
-                        if ( $(window.mouseover_window).attr('data-id') !== $(el_window).attr('data-id') ) {
+                        if ($(window.mouseover_window).attr('data-id') !== $(el_window).attr('data-id')) {
                             return;
                         }
                         const items_to_share = [];
@@ -1234,9 +1197,9 @@ async function UIWindow (options) {
 
                         // all subsequent items
                         const cloned_items = document.getElementsByClassName('item-selected-clone');
-                        for ( let i = 0; i < cloned_items.length; i++ ) {
-                            const source_item = document.getElementById(`item-${ $(cloned_items[i]).attr('data-id')}`);
-                            if ( ! source_item ) continue;
+                        for (let i = 0; i < cloned_items.length; i++) {
+                            const source_item = document.getElementById(`item-${$(cloned_items[i]).attr('data-id')}`);
+                            if (!source_item) continue;
                             items_to_share.push({
                                 uid: $(source_item).attr('data-uid'),
                                 path: $(source_item).attr('data-path'),
@@ -1246,14 +1209,14 @@ async function UIWindow (options) {
                         }
 
                         // if alt key is down, create shortcut items
-                        if ( event.altKey ) {
+                        if (event.altKey) {
                             items_to_share.forEach((item_to_move) => {
                                 window.create_shortcut(path.basename($(item_to_move).attr('data-path')),
-                                                $(item_to_move).attr('data-is_dir') === '1',
-                                                $(this).attr('data-path'),
-                                                null,
-                                                $(item_to_move).attr('data-shortcut_to') === '' ? $(item_to_move).attr('data-uid') : $(item_to_move).attr('data-shortcut_to'),
-                                                $(item_to_move).attr('data-shortcut_to_path') === '' ? $(item_to_move).attr('data-path') : $(item_to_move).attr('data-shortcut_to_path'));
+                                    $(item_to_move).attr('data-is_dir') === '1',
+                                    $(this).attr('data-path'),
+                                    null,
+                                    $(item_to_move).attr('data-shortcut_to') === '' ? $(item_to_move).attr('data-uid') : $(item_to_move).attr('data-shortcut_to'),
+                                    $(item_to_move).attr('data-shortcut_to_path') === '' ? $(item_to_move).attr('data-path') : $(item_to_move).attr('data-shortcut_to_path'));
                             });
                         }
                         // move items
@@ -1268,14 +1231,12 @@ async function UIWindow (options) {
                     },
                     over: function (event, ui) {
                         // check if item was actually hovered over this window
-                        if ( $(window.mouseover_window).attr('data-id') !== $(el_window).attr('data-id') )
-                        {
+                        if ($(window.mouseover_window).attr('data-id') !== $(el_window).attr('data-id')) {
                             return;
                         }
 
                         // Don't do anything if the dragged item is NOT a UIItem
-                        if ( ! $(ui.draggable).hasClass('item') )
-                        {
+                        if (!$(ui.draggable).hasClass('item')) {
                             return;
                         }
 
@@ -1285,12 +1246,11 @@ async function UIWindow (options) {
                         $('.item-selected-clone').css('opacity', 0.2);
 
                         // disable all window bodies
-                        $('.item-container').droppable( 'disable');
+                        $('.item-container').droppable('disable');
                     },
                     out: function (event, ui) {
                         // Don't do anything if the dragged element is NOT a UIItem
-                        if ( ! $(ui.draggable).hasClass('item') )
-                        {
+                        if (!$(ui.draggable).hasClass('item')) {
                             return;
                         }
 
@@ -1299,7 +1259,7 @@ async function UIWindow (options) {
                         $('.ui-draggable-dragging').css('opacity', 'initial');
                         $('.item-selected-clone').css('opacity', 'initial');
 
-                        $('.item-container').droppable( 'enable');
+                        $('.item-container').droppable('enable');
                     },
                 });
             }).catch(function (err) {
@@ -1312,28 +1272,27 @@ async function UIWindow (options) {
     }
 
     // set iframe url
-    if ( options.iframe_url ) {
+    if (options.iframe_url) {
         $(el_window_app_iframe).attr('src', options.iframe_url);
         //bring focus to iframe
         el_window_app_iframe.contentWindow.focus();
     }
     // set the position of window
-    if ( ! options.is_maximized ) {
+    if (!options.is_maximized) {
         $(el_window).css('top', options.top);
         $(el_window).css('left', options.left);
     }
-    if ( options.is_visible ) {
+    if (options.is_visible) {
         $(el_window).css('display', 'block');
     }
 
     // mousedown on the window body will unselect selected items if neither ctrl nor command are pressed
     $(el_window_body).on('mousedown', function (e) {
-        if ( $(e.target).hasClass('window-body') && !e.ctrlKey && !e.metaKey ) {
+        if ($(e.target).hasClass('window-body') && !e.ctrlKey && !e.metaKey) {
             $(el_window_body).find('.item-selected').removeClass('item-selected');
             window.update_explorer_footer_selected_items_count(el_window);
             // if this is openFileDialog, disable the Open button
-            if ( options.is_openFileDialog )
-            {
+            if (options.is_openFileDialog) {
                 $(el_openfiledialog_open_btn).addClass('disabled');
             }
         }
@@ -1348,9 +1307,9 @@ async function UIWindow (options) {
     // --------------------------------------------------------
     // Backdrop click
     // --------------------------------------------------------
-    if ( options.backdrop && options.close_on_backdrop_click ) {
+    if (options.backdrop && options.close_on_backdrop_click) {
         $(el_window).closest('.window-backdrop').on('mousedown', function (e) {
-            if ( $(e.target).hasClass('window-backdrop') ) {
+            if ($(e.target).hasClass('window-backdrop')) {
                 $(el_window).close();
             }
         });
@@ -1362,7 +1321,7 @@ async function UIWindow (options) {
     let selection_area = null;
     let initial_body_scroll_width = 0;
     let initial_body_scroll_height = 0;
-    if ( options.is_dir && options.selectable_body && !isMobile.phone && !isMobile.tablet ) {
+    if (options.is_dir && options.selectable_body && !isMobile.phone && !isMobile.tablet) {
         let selected_ctrl_items = [];
 
         // selection area
@@ -1412,7 +1371,7 @@ async function UIWindow (options) {
             const windowBodyRect = el_window_body.getBoundingClientRect();
 
             // Get the window body's content dimensions
-            initial_body_scroll_width = el_window_body.scrollWidth ;
+            initial_body_scroll_width = el_window_body.scrollWidth;
             initial_body_scroll_height = el_window_body.scrollHeight;
 
             // Calculate position relative to the window body (accounting for scroll)
@@ -1436,8 +1395,8 @@ async function UIWindow (options) {
             .on('beforedrag', evt => {
             })
             .on('start', ({ store, event }) => {
-                if ( !event.ctrlKey && !event.metaKey ) {
-                // Get the scroll position of the window body
+                if (!event.ctrlKey && !event.metaKey) {
+                    // Get the scroll position of the window body
                     const scrollLeft = $(el_window_body).scrollLeft();
                     const scrollTop = $(el_window_body).scrollTop();
 
@@ -1448,7 +1407,7 @@ async function UIWindow (options) {
                     selection_area_start_x = window.mouseX - windowBodyRect.left + scrollLeft;
                     selection_area_start_y = window.mouseY - windowBodyRect.top + scrollTop;
 
-                    for ( const el of store.stored ) {
+                    for (const el of store.stored) {
                         el.classList.remove('item-selected');
                     }
 
@@ -1456,7 +1415,7 @@ async function UIWindow (options) {
                 }
             })
             .on('move', ({ store: { changed: { added, removed } }, event }) => {
-            // Get the scroll position of the window body
+                // Get the scroll position of the window body
                 const scrollLeft = $(el_window_body).scrollLeft();
                 const scrollTop = $(el_window_body).scrollTop();
 
@@ -1496,9 +1455,9 @@ async function UIWindow (options) {
                     'display': 'block',
                 });
 
-                for ( const el of added ) {
-                // if ctrl or meta key is pressed and the item is already selected, then unselect it
-                    if ( (event.ctrlKey || event.metaKey) && $(el).hasClass('item-selected') ) {
+                for (const el of added) {
+                    // if ctrl or meta key is pressed and the item is already selected, then unselect it
+                    if ((event.ctrlKey || event.metaKey) && $(el).hasClass('item-selected')) {
                         el.classList.remove('item-selected');
                         selected_ctrl_items.push(el);
                     }
@@ -1510,11 +1469,10 @@ async function UIWindow (options) {
                     }
                 }
 
-                for ( const el of removed ) {
+                for (const el of removed) {
                     el.classList.remove('item-selected');
                     // in case this item was selected by ctrl+click before, then reselect it again
-                    if ( selected_ctrl_items.includes(el) )
-                    {
+                    if (selected_ctrl_items.includes(el)) {
                         $(el).addClass('item-selected');
                     }
                 }
@@ -1522,23 +1480,19 @@ async function UIWindow (options) {
                 window.update_explorer_footer_selected_items_count(el_window);
 
                 // If this is openFileDialog, enable/disable the Open button accordingly
-                if ( options.is_openFileDialog && $(el_window).find('.item-selected').length )
-                {
+                if (options.is_openFileDialog && $(el_window).find('.item-selected').length) {
                     $(el_openfiledialog_open_btn).removeClass('disabled');
                 }
-                else
-                {
+                else {
                     $(el_openfiledialog_open_btn).addClass('disabled');
                 }
             })
             .on('stop', ({ store, event }) => {
-            // If this is openFileDialog, enable/disable the Open button accordingly
-                if ( options.is_openFileDialog && $(el_window).find('.item-selected').length )
-                {
+                // If this is openFileDialog, enable/disable the Open button accordingly
+                if (options.is_openFileDialog && $(el_window).find('.item-selected').length) {
                     $(el_openfiledialog_open_btn).removeClass('disabled');
                 }
-                else
-                {
+                else {
                     $(el_openfiledialog_open_btn).addClass('disabled');
                 }
             });
@@ -1551,23 +1505,21 @@ async function UIWindow (options) {
         accept: '.item',
         greedy: true,
         tolerance: 'pointer',
-        drop: async function ( e, ui ) {
+        drop: async function (e, ui) {
             // check if item was actually dropped on this window
-            if ( $(window.mouseover_window).attr('data-id') !== $(el_window).attr('data-id') )
-            {
+            if ($(window.mouseover_window).attr('data-id') !== $(el_window).attr('data-id')) {
                 return;
             }
 
             // can't drop anything here but a UIItem
-            if ( ! $(ui.draggable).hasClass('item') )
-            {
+            if (!$(ui.draggable).hasClass('item')) {
                 return;
             }
 
             // --------------------------------------------------
             // In case this was dropped on an App window
             // --------------------------------------------------
-            if ( el_window_app_iframe !== null ) {
+            if (el_window_app_iframe !== null) {
                 const items_to_move = [];
 
                 // first item
@@ -1575,10 +1527,9 @@ async function UIWindow (options) {
 
                 // all subsequent items
                 const cloned_items = document.getElementsByClassName('item-selected-clone');
-                for ( let i = 0; i < cloned_items.length; i++ ) {
-                    const source_item = document.getElementById(`item-${ $(cloned_items[i]).attr('data-id')}`);
-                    if ( source_item !== null )
-                    {
+                for (let i = 0; i < cloned_items.length; i++) {
+                    const source_item = document.getElementById(`item-${$(cloned_items[i]).attr('data-id')}`);
+                    if (source_item !== null) {
                         items_to_move.push(source_item);
                     }
                 }
@@ -1587,8 +1538,7 @@ async function UIWindow (options) {
                 const items_to_sign = [];
 
                 // prepare items to sign
-                for ( let i = 0; i < items_to_move.length; i++ )
-                {
+                for (let i = 0; i < items_to_move.length; i++) {
                     items_to_sign.push({ uid: $(items_to_move[i]).attr('data-uid'), action: 'write', path: $(items_to_move[i]).attr('data-path') });
                 }
 
@@ -1599,7 +1549,7 @@ async function UIWindow (options) {
 
                 // prepare items
                 let items = [];
-                for ( let index = 0; index < signatures.length; index++ ) {
+                for (let index = 0; index < signatures.length; index++) {
                     const item = signatures[index];
                     items.push({
                         name: item.fsentry_name,
@@ -1626,7 +1576,7 @@ async function UIWindow (options) {
                 el_window_app_iframe.contentWindow.postMessage({ msg: 'drop', x: (window.mouseX - rect.left), y: (window.mouseY - rect.top), items: items }, '*');
 
                 // bring focus to this window
-                if ( options.is_visible ) {
+                if (options.is_visible) {
                     $(el_window).focusWindow();
                 }
             }
@@ -1635,16 +1585,15 @@ async function UIWindow (options) {
             // why not simply only launch droppable on directories? this is because
             // if a window is not droppable and an item is dropped on it, the app will think
             // it was dropped on desktop.
-            if ( ! options.is_dir ) {
+            if (!options.is_dir) {
                 return false;
             }
             // If dropped on the same window, do not proceed
-            if ( $(ui.draggable).closest('.item-container').attr('data-path') === $(window.mouseover_window).attr('data-path') && !e.ctrlKey ) {
+            if ($(ui.draggable).closest('.item-container').attr('data-path') === $(window.mouseover_window).attr('data-path') && !e.ctrlKey) {
                 return;
             }
             // If ctrl is pressed and source is Trashed, cancel whole operation
-            if ( e.ctrlKey && path.dirname($(ui.draggable).attr('data-path')) === window.trash_path )
-            {
+            if (e.ctrlKey && path.dirname($(ui.draggable).attr('data-path')) === window.trash_path) {
                 return;
             }
 
@@ -1658,9 +1607,9 @@ async function UIWindow (options) {
 
             // all subsequent items
             const cloned_items = document.getElementsByClassName('item-selected-clone');
-            for ( let i = 0; i < cloned_items.length; i++ ) {
-                const source_item = document.getElementById(`item-${ $(cloned_items[i]).attr('data-id')}`);
-                if ( source_item !== null ) {
+            for (let i = 0; i < cloned_items.length; i++) {
+                const source_item = document.getElementById(`item-${$(cloned_items[i]).attr('data-id')}`);
+                if (source_item !== null) {
                     items_to_move.push(source_item);
                 }
             }
@@ -1669,7 +1618,7 @@ async function UIWindow (options) {
             // if this is the home directory of another user, show the sharing dialog
             // --------------------------------------------------------
             let cur_path = $(el_window).attr('data-path');
-            if ( window.countSubstr(cur_path, '/') === 1 && cur_path !== `/${window.user.username}` ) {
+            if (window.countSubstr(cur_path, '/') === 1 && cur_path !== `/${window.user.username}`) {
                 let username = cur_path.split('/')[1];
 
                 const items_to_share = [];
@@ -1684,9 +1633,9 @@ async function UIWindow (options) {
 
                 // all subsequent items
                 const cloned_items = document.getElementsByClassName('item-selected-clone');
-                for ( let i = 0; i < cloned_items.length; i++ ) {
-                    const source_item = document.getElementById(`item-${ $(cloned_items[i]).attr('data-id')}`);
-                    if ( ! source_item ) continue;
+                for (let i = 0; i < cloned_items.length; i++) {
+                    const source_item = document.getElementById(`item-${$(cloned_items[i]).attr('data-id')}`);
+                    if (!source_item) continue;
                     items_to_share.push({
                         uid: $(source_item).attr('data-uid'),
                         path: $(source_item).attr('data-path'),
@@ -1700,20 +1649,20 @@ async function UIWindow (options) {
             }
 
             // If ctrl key is down, copy items. Except if target is Trash
-            if ( e.ctrlKey && $(window.mouseover_window).attr('data-path') !== window.trash_path ) {
+            if (e.ctrlKey && $(window.mouseover_window).attr('data-path') !== window.trash_path) {
                 // Copy items
                 window.copy_items(items_to_move, $(window.mouseover_window).attr('data-path'));
             }
 
             // if alt key is down, create shortcut items
-            else if ( e.altKey ) {
+            else if (e.altKey) {
                 items_to_move.forEach((item_to_move) => {
                     window.create_shortcut(path.basename($(item_to_move).attr('data-path')),
-                                    $(item_to_move).attr('data-is_dir') === '1',
-                                    $(window.mouseover_window).attr('data-path'),
-                                    null,
-                                    $(item_to_move).attr('data-shortcut_to') === '' ? $(item_to_move).attr('data-uid') : $(item_to_move).attr('data-shortcut_to'),
-                                    $(item_to_move).attr('data-shortcut_to_path') === '' ? $(item_to_move).attr('data-path') : $(item_to_move).attr('data-shortcut_to_path'));
+                        $(item_to_move).attr('data-is_dir') === '1',
+                        $(window.mouseover_window).attr('data-path'),
+                        null,
+                        $(item_to_move).attr('data-shortcut_to') === '' ? $(item_to_move).attr('data-uid') : $(item_to_move).attr('data-shortcut_to'),
+                        $(item_to_move).attr('data-shortcut_to_path') === '' ? $(item_to_move).attr('data-path') : $(item_to_move).attr('data-shortcut_to_path'));
                 });
             }
             // otherwise, move items
@@ -1723,15 +1672,13 @@ async function UIWindow (options) {
         },
         over: function (event, ui) {
             // Don't do anything if the dragged item is NOT a UIItem
-            if ( ! $(ui.draggable).hasClass('item') )
-            {
+            if (!$(ui.draggable).hasClass('item')) {
                 return;
             }
         },
         out: function (event, ui) {
             // Don't do anything if the dragged item is NOT a UIItem
-            if ( ! $(ui.draggable).hasClass('item') )
-            {
+            if (!$(ui.draggable).hasClass('item')) {
                 return;
             }
         },
@@ -1742,15 +1689,15 @@ async function UIWindow (options) {
     // double click on a window head will maximize or shrink window
     // only maximize/shrink if window is marked `is_resizable`
     // --------------------------------------------------------
-    if ( options.is_resizable ) {
+    if (options.is_resizable) {
         $(el_window_head).dblclick(function () {
             window.scale_window(el_window);
         });
     }
 
     $(el_window_head).mousedown(function () {
-        if ( window_is_snapped ) {
-            $(el_window).draggable( 'option', 'cursorAt', { left: width_before_snap / 2 });
+        if (window_is_snapped) {
+            $(el_window).draggable('option', 'cursorAt', { left: width_before_snap / 2 });
         }
     });
 
@@ -1758,7 +1705,7 @@ async function UIWindow (options) {
     // Click On The `Scale` Button
     // (the little rectangle in the window head)
     // --------------------------------------------------------
-    if ( options.is_resizable ) {
+    if (options.is_resizable) {
         $(el_window_head_scale_btn).click(function () {
             window.scale_window(el_window);
         });
@@ -1775,7 +1722,7 @@ async function UIWindow (options) {
             clearTimeout(drag_enter_timeout);
             // If items are dragged over this window long enough, bring it to front
             drag_enter_timeout = setTimeout(function () {
-                if ( options.is_visible ) {
+                if (options.is_visible) {
                     $(el_window).focusWindow();
                 }
             }, 1400);
@@ -1800,7 +1747,7 @@ async function UIWindow (options) {
     // --------------------------------------------------------
     $(el_window_body).dragster({
         enter: function (dragsterEvent, event) {
-            if ( options.is_dir ) {
+            if (options.is_dir) {
                 // remove any context menu that might be open
                 $('.context-menu').remove();
 
@@ -1809,15 +1756,15 @@ async function UIWindow (options) {
             }
         },
         leave: function (dragsterEvent, event) {
-            if ( options.is_dir ) {
+            if (options.is_dir) {
                 $(el_window).find('.item-container').removeClass('item-container-active');
             }
         },
         drop: function (dragsterEvent, event) {
             const e = event.originalEvent;
-            if ( options.is_dir ) {
+            if (options.is_dir) {
                 // if files were dropped...
-                if ( e.dataTransfer?.items?.length > 0 ) {
+                if (e.dataTransfer?.items?.length > 0) {
                     window.upload_items(e.dataTransfer.items, $(el_window).attr('data-path'));
                 }
                 // de-highlight all windows
@@ -1855,20 +1802,20 @@ async function UIWindow (options) {
     let snap_trigger_timeout;
     let last_snap_zone;
 
-    if ( options.is_draggable ) {
+    if (options.is_draggable) {
         let window_snap_placeholder = $(`<div class="window-snap-placeholder animate__animated animate__zoomIn animate__faster">
                 <div class="window-snap-placeholder-inner"></div>
              </div>`);
 
         const showSnapPlaceholder = (zone) => {
-            if ( window_is_snapped || !zone ) {
+            if (window_is_snapped || !zone) {
                 return false;
             }
 
             const snapDims = getSnapDimensions();
             let css = null;
 
-            if ( zone === 'w' ) {
+            if (zone === 'w') {
                 css = {
                     'display': 'block',
                     'width': snapDims.available_width / 2,
@@ -1877,7 +1824,7 @@ async function UIWindow (options) {
                     'left': snapDims.start_x,
                     'z-index': window.last_window_zindex - 1,
                 };
-            } else if ( zone === 'nw' ) {
+            } else if (zone === 'nw') {
                 css = {
                     'display': 'block',
                     'width': snapDims.available_width / 2,
@@ -1886,7 +1833,7 @@ async function UIWindow (options) {
                     'left': snapDims.start_x,
                     'z-index': window.last_window_zindex - 1,
                 };
-            } else if ( zone === 'ne' ) {
+            } else if (zone === 'ne') {
                 css = {
                     'display': 'block',
                     'width': snapDims.available_width / 2,
@@ -1895,7 +1842,7 @@ async function UIWindow (options) {
                     'left': snapDims.start_x + snapDims.available_width / 2,
                     'z-index': window.last_window_zindex - 1,
                 };
-            } else if ( zone === 'e' ) {
+            } else if (zone === 'e') {
                 css = {
                     'display': 'block',
                     'width': snapDims.available_width / 2,
@@ -1904,7 +1851,7 @@ async function UIWindow (options) {
                     'left': snapDims.start_x + snapDims.available_width / 2,
                     'z-index': window.last_window_zindex - 1,
                 };
-            } else if ( zone === 'n' ) {
+            } else if (zone === 'n') {
                 css = {
                     'display': 'block',
                     'width': snapDims.available_width,
@@ -1913,7 +1860,7 @@ async function UIWindow (options) {
                     'left': snapDims.start_x,
                     'z-index': window.last_window_zindex - 1,
                 };
-            } else if ( zone === 'sw' ) {
+            } else if (zone === 'sw') {
                 css = {
                     'display': 'block',
                     'top': snapDims.start_y + snapDims.available_height / 2,
@@ -1922,7 +1869,7 @@ async function UIWindow (options) {
                     'height': snapDims.available_height / 2,
                     'z-index': window.last_window_zindex - 1,
                 };
-            } else if ( zone === 'se' ) {
+            } else if (zone === 'se') {
                 css = {
                     'display': 'block',
                     'top': snapDims.start_y + snapDims.available_height / 2,
@@ -1933,13 +1880,13 @@ async function UIWindow (options) {
                 };
             }
 
-            if ( ! css ) {
+            if (!css) {
                 return false;
             }
 
             window_snap_placeholder.css(css);
 
-            if ( ! snap_placeholder_active ) {
+            if (!snap_placeholder_active) {
                 snap_placeholder_active = true;
                 $(el_body).append(window_snap_placeholder);
             }
@@ -1950,7 +1897,7 @@ async function UIWindow (options) {
         };
 
         const hideSnapPlaceholder = () => {
-            if ( snap_placeholder_active ) {
+            if (snap_placeholder_active) {
                 snap_placeholder_active = false;
                 window_snap_placeholder.fadeOut(80);
             }
@@ -1960,30 +1907,30 @@ async function UIWindow (options) {
             start: function (e, ui) {
                 window.a_window_is_being_dragged = true;
                 last_snap_zone = undefined;
-                if ( snap_trigger_timeout ) {
+                if (snap_trigger_timeout) {
                     clearTimeout(snap_trigger_timeout);
                     snap_trigger_timeout = undefined;
                 }
                 hideSnapPlaceholder();
                 $('.toolbar').css('pointer-events', 'none');
                 // if window is snapped, unsnap it and reset its position to where it was before snapping
-                if ( options.is_resizable && window_is_snapped ) {
+                if (options.is_resizable && window_is_snapped) {
                     window_is_snapped = false;
                     $(el_window).css({
                         'width': width_before_snap,
-                        'height': `${height_before_snap }px`,
+                        'height': `${height_before_snap}px`,
                     });
 
                     // if at any point the window's width is "too small", hide the sidebar
-                    if ( $(el_window).width() < window.window_width_threshold_for_sidebar ) {
-                        if ( width_before_snap >= window.window_width_threshold_for_sidebar && !sidebar_hidden ) {
+                    if ($(el_window).width() < window.window_width_threshold_for_sidebar) {
+                        if (width_before_snap >= window.window_width_threshold_for_sidebar && !sidebar_hidden) {
                             $(el_window_sidebar).hide();
                         }
                         sidebar_hidden = true;
                     }
                     // if at any point the window's width is "big enough", show the sidebar
-                    else if ( $(el_window).width() >= window.window_width_threshold_for_sidebar ) {
-                        if ( sidebar_hidden ) {
+                    else if ($(el_window).width() >= window.window_width_threshold_for_sidebar) {
+                        if (sidebar_hidden) {
                             $(el_window_sidebar).show();
                         }
                         sidebar_hidden = false;
@@ -2002,14 +1949,14 @@ async function UIWindow (options) {
                 //transform causes draggable to start inaccurately
                 $(el_window).css('transform', 'none');
             },
-            drag: function ( e, ui ) {
+            drag: function (e, ui) {
                 $(el_window_app_iframe).css('pointer-events', 'none');
                 $('.window').css('pointer-events', 'none');
                 // jqueryui changes the z-index automatically, if the stay_on_top flag is set
                 // make sure window stays on top
                 $('.window[data-stay_on_top="true"]').css('z-index', 999999999);
 
-                if ( $(el_window).attr('data-is_maximized') === '1' ) {
+                if ($(el_window).attr('data-is_maximized') === '1') {
                     $(el_window).attr('data-is_maximized', '0');
                     // maximize icon
                     $(el_window_head_scale_btn).find('img').attr('src', window.icons['scale.svg']);
@@ -2017,11 +1964,11 @@ async function UIWindow (options) {
                 // --------------------------------------------------------
                 // Snap to screen edges
                 // --------------------------------------------------------
-                if ( options.is_resizable ) {
+                if (options.is_resizable) {
                     const activeZone = window.current_active_snap_zone;
 
-                    if ( activeZone !== last_snap_zone ) {
-                        if ( snap_trigger_timeout ) {
+                    if (activeZone !== last_snap_zone) {
+                        if (snap_trigger_timeout) {
                             clearTimeout(snap_trigger_timeout);
                             snap_trigger_timeout = undefined;
                         }
@@ -2029,14 +1976,14 @@ async function UIWindow (options) {
                         hideSnapPlaceholder();
                         last_snap_zone = activeZone;
 
-                        if ( activeZone ) {
+                        if (activeZone) {
                             const scheduledZone = activeZone;
                             snap_trigger_timeout = setTimeout(function () {
                                 snap_trigger_timeout = undefined;
-                                if ( ! $(el_window).hasClass('window-dragging') ) {
+                                if (!$(el_window).hasClass('window-dragging')) {
                                     return;
                                 }
-                                if ( window.current_active_snap_zone !== scheduledZone ) {
+                                if (window.current_active_snap_zone !== scheduledZone) {
                                     return;
                                 }
                                 showSnapPlaceholder(scheduledZone);
@@ -2044,20 +1991,20 @@ async function UIWindow (options) {
                         }
                     }
 
-                    if ( ! activeZone ) {
+                    if (!activeZone) {
                         hideSnapPlaceholder();
                     }
                 }
             },
             stop: function () {
                 window.a_window_is_being_dragged = false;
-                if ( snap_trigger_timeout ) {
+                if (snap_trigger_timeout) {
                     clearTimeout(snap_trigger_timeout);
                     snap_trigger_timeout = undefined;
                 }
                 last_snap_zone = undefined;
                 let window_will_snap = false;
-                $(el_window).draggable( 'option', 'cursorAt', false);
+                $(el_window).draggable('option', 'cursorAt', false);
 
                 $(el_window).removeClass('window-dragging');
                 $(el_window).attr({
@@ -2074,7 +2021,7 @@ async function UIWindow (options) {
                     $(this).css('z-index', $(this).attr('data-initial_zindex'));
                 });
 
-                if ( options.is_resizable && snap_placeholder_active && !window_is_snapped ) {
+                if (options.is_resizable && snap_placeholder_active && !window_is_snapped) {
                     window_will_snap = true;
                     $(window_snap_placeholder).css('padding', 0);
 
@@ -2083,7 +2030,7 @@ async function UIWindow (options) {
                         const snapDims = getSnapDimensions();
 
                         // snap to w
-                        if ( window.current_active_snap_zone === 'w' ) {
+                        if (window.current_active_snap_zone === 'w') {
                             $(el_window).css({
                                 'top': snapDims.start_y,
                                 'left': snapDims.start_x,
@@ -2092,7 +2039,7 @@ async function UIWindow (options) {
                             });
                         }
                         // snap to nw
-                        else if ( window.current_active_snap_zone === 'nw' ) {
+                        else if (window.current_active_snap_zone === 'nw') {
                             $(el_window).css({
                                 'top': snapDims.start_y,
                                 'left': snapDims.start_x,
@@ -2101,7 +2048,7 @@ async function UIWindow (options) {
                             });
                         }
                         // snap to ne
-                        else if ( window.current_active_snap_zone === 'ne' ) {
+                        else if (window.current_active_snap_zone === 'ne') {
                             $(el_window).css({
                                 'top': snapDims.start_y,
                                 'left': snapDims.start_x + snapDims.available_width / 2,
@@ -2110,7 +2057,7 @@ async function UIWindow (options) {
                             });
                         }
                         // snap to sw
-                        else if ( window.current_active_snap_zone === 'sw' ) {
+                        else if (window.current_active_snap_zone === 'sw') {
                             $(el_window).css({
                                 'top': snapDims.start_y + snapDims.available_height / 2,
                                 'left': snapDims.start_x,
@@ -2119,7 +2066,7 @@ async function UIWindow (options) {
                             });
                         }
                         // snap to se
-                        else if ( window.current_active_snap_zone === 'se' ) {
+                        else if (window.current_active_snap_zone === 'se') {
                             $(el_window).css({
                                 'top': snapDims.start_y + snapDims.available_height / 2,
                                 'left': snapDims.start_x + snapDims.available_width / 2,
@@ -2128,7 +2075,7 @@ async function UIWindow (options) {
                             });
                         }
                         // snap to e
-                        else if ( window.current_active_snap_zone === 'e' ) {
+                        else if (window.current_active_snap_zone === 'e') {
                             $(el_window).css({
                                 'top': snapDims.start_y,
                                 'left': snapDims.start_x + snapDims.available_width / 2,
@@ -2137,7 +2084,7 @@ async function UIWindow (options) {
                             });
                         }
                         // snap to n
-                        else if ( window.current_active_snap_zone === 'n' ) {
+                        else if (window.current_active_snap_zone === 'n') {
                             window.scale_window(el_window);
                         }
                         // snap placeholder is no longer active
@@ -2149,15 +2096,15 @@ async function UIWindow (options) {
                         window_is_snapped = true;
 
                         // if at any point the window's width is "too small", hide the sidebar
-                        if ( $(el_window).width() < window.window_width_threshold_for_sidebar ) {
-                            if ( width_before_snap >= window.window_width_threshold_for_sidebar && !sidebar_hidden ) {
+                        if ($(el_window).width() < window.window_width_threshold_for_sidebar) {
+                            if (width_before_snap >= window.window_width_threshold_for_sidebar && !sidebar_hidden) {
                                 $(el_window_sidebar).hide();
                             }
                             sidebar_hidden = true;
                         }
                         // if at any point the window's width is "big enough", show the sidebar
-                        else if ( $(el_window).width() >= window.window_width_threshold_for_sidebar ) {
-                            if ( sidebar_hidden ) {
+                        else if ($(el_window).width() >= window.window_width_threshold_for_sidebar) {
+                            if (sidebar_hidden) {
                                 $(el_window_sidebar).show();
                             }
                             sidebar_hidden = false;
@@ -2169,43 +2116,43 @@ async function UIWindow (options) {
                 // Bottom boundary (account for taskbar position)
                 const taskbar_position = window.taskbar_position || 'bottom';
                 let maxTop;
-                if ( taskbar_position === 'bottom' ) {
+                if (taskbar_position === 'bottom') {
                     maxTop = window.innerHeight - window.taskbar_height - 30;
                 } else {
                     maxTop = window.innerHeight - 30;
                 }
                 // the lst '- 30' is to account for the window head
-                if ( $(el_window).position().top > maxTop && !window_will_snap ) {
+                if ($(el_window).position().top > maxTop && !window_will_snap) {
                     $(el_window).animate({
                         top: maxTop - 30,
                     }, 100);
                 }
                 // if window is dropped too far to the right, move it left
                 let maxLeft;
-                if ( taskbar_position === 'right' ) {
+                if (taskbar_position === 'right') {
                     maxLeft = window.innerWidth - window.taskbar_height - 50;
                 } else {
                     maxLeft = window.innerWidth - 50;
                 }
-                if ( $(el_window).position().left > maxLeft && !window_will_snap ) {
+                if ($(el_window).position().left > maxLeft && !window_will_snap) {
                     $(el_window).animate({
                         left: maxLeft,
                     }, 100);
                 }
                 // if window is dropped too far to the left, move it right
                 let minLeft;
-                if ( taskbar_position === 'left' ) {
+                if (taskbar_position === 'left') {
                     minLeft = window.taskbar_height - $(el_window).width() + 150;
                 } else {
                     minLeft = -$(el_window).width() + 150;
                 }
-                if ( $(el_window).position().left < minLeft && !window_will_snap ) {
+                if ($(el_window).position().left < minLeft && !window_will_snap) {
                     $(el_window).animate({
                         left: minLeft,
                     }, 100);
                 }
             },
-            handle: `.window-head-draggable${ options.draggable_body ? ', .window-body' : ''}`,
+            handle: `.window-head-draggable${options.draggable_body ? ', .window-body' : ''}`,
             stack: '.window',
             scroll: false,
             containment: '.window-container',
@@ -2215,8 +2162,8 @@ async function UIWindow (options) {
     // --------------------------------------------------------
     // Resizable
     // --------------------------------------------------------
-    if ( options.is_resizable ) {
-        if ( $(el_window).width() < window.window_width_threshold_for_sidebar ) {
+    if (options.is_resizable) {
+        if ($(el_window).width() < window.window_width_threshold_for_sidebar) {
             $(el_window_sidebar).hide();
             sidebar_hidden = true;
         }
@@ -2232,22 +2179,22 @@ async function UIWindow (options) {
             },
             resize: function (e, ui) {
                 // if at any point the window's width is "too small", hide the sidebar
-                if ( ui.size.width < window.window_width_threshold_for_sidebar ) {
-                    if ( ui.originalSize.width >= window.window_width_threshold_for_sidebar && !sidebar_hidden ) {
+                if (ui.size.width < window.window_width_threshold_for_sidebar) {
+                    if (ui.originalSize.width >= window.window_width_threshold_for_sidebar && !sidebar_hidden) {
                         $(el_window_sidebar).hide();
                     }
                     sidebar_hidden = true;
                 }
                 // if at any point the window's width is "big enough", show the sidebar
-                else if ( ui.size.width >= window.window_width_threshold_for_sidebar ) {
-                    if ( sidebar_hidden ) {
+                else if (ui.size.width >= window.window_width_threshold_for_sidebar) {
+                    if (sidebar_hidden) {
                         $(el_window_sidebar).show();
                     }
                     sidebar_hidden = false;
                 }
 
                 // when resizing the top of the window, make sure the window head is not hidden behind the toolbar
-                if ( $(el_window).position().top < window.toolbar_height ) {
+                if ($(el_window).position().top < window.toolbar_height) {
                     var difference = window.toolbar_height - $(el_window).position().top;
                     $(el_window).css({
                         'top': window.toolbar_height,
@@ -2303,9 +2250,9 @@ async function UIWindow (options) {
     // Alt/Option + Shift + click on window head will open a prompt to enter iframe url
     // --------------------------------------------------------
     $(el_window_head).on('click', function (e) {
-        if ( e.altKey && e.shiftKey && el_window_app_iframe !== null ) {
+        if (e.altKey && e.shiftKey && el_window_app_iframe !== null) {
             let url = prompt('Enter URL', options.iframe_url);
-            if ( url ) {
+            if (url) {
                 $(el_window_app_iframe).attr('src', url);
             }
         }
@@ -2315,16 +2262,14 @@ async function UIWindow (options) {
     // --------------------------------------------------------
     $(el_window_head).bind('contextmenu taphold', function (event) {
         // dimiss taphold on regular devices
-        if ( event.type === 'taphold' && !isMobile.phone && !isMobile.tablet )
-        {
+        if (event.type === 'taphold' && !isMobile.phone && !isMobile.tablet) {
             return;
         }
 
         const $target = $(event.target);
 
         // Cases in which native ctx menu should be preserved
-        if ( options.allow_native_ctxmenu || $target.hasClass('allow-native-ctxmenu') || $target.is('input') || $target.is('textarea') )
-        {
+        if (options.allow_native_ctxmenu || $target.hasClass('allow-native-ctxmenu') || $target.is('input') || $target.is('textarea')) {
             return true;
         }
 
@@ -2332,8 +2277,7 @@ async function UIWindow (options) {
         event.preventDefault();
 
         // If window has no head, don't show ctxmenu
-        if ( ! options.has_head )
-        {
+        if (!options.has_head) {
             return;
         }
 
@@ -2341,7 +2285,7 @@ async function UIWindow (options) {
         // -------------------------------------------
         // Maximize/Minimize
         // -------------------------------------------
-        if ( options.is_resizable ) {
+        if (options.is_resizable) {
             menu_items.push({
                 html: $(el_window).attr('data-is_maximized') === '0' ? 'Maximize' : 'Restore',
                 onClick: function () {
@@ -2361,7 +2305,7 @@ async function UIWindow (options) {
         //-------------------------------------------
         // Reload App
         //-------------------------------------------
-        if ( el_window_app_iframe !== null ) {
+        if (el_window_app_iframe !== null) {
             menu_items.push({
                 html: i18n('reload_app'),
                 onClick: function () {
@@ -2393,24 +2337,22 @@ async function UIWindow (options) {
     // --------------------------------------------------------
     $(el_window_body).bind('contextmenu taphold', function (event) {
         // dimiss taphold on regular devices
-        if ( event.type === 'taphold' && !isMobile.phone && !isMobile.tablet )
-        {
+        if (event.type === 'taphold' && !isMobile.phone && !isMobile.tablet) {
             return;
         }
 
         const $target = $(event.target);
 
         // Cases in which native ctx menu should be preserved
-        if ( options.allow_native_ctxmenu || $target.hasClass('allow-native-ctxmenu') || $target.is('input') || $target.is('textarea') )
-        {
+        if (options.allow_native_ctxmenu || $target.hasClass('allow-native-ctxmenu') || $target.is('input') || $target.is('textarea')) {
             return true;
         }
 
         // custom ctxmenu for all other elements
         event.preventDefault();
-        if ( options.allow_context_menu && event.target === el_window_body ) {
+        if (options.allow_context_menu && event.target === el_window_body) {
             // Regular directories
-            if ( $(el_window).attr('data-path') !== window.trash_path ) {
+            if ($(el_window).attr('data-path') !== window.trash_path) {
                 let menu_items = [];
 
                 // -------------------------------------------
@@ -2502,7 +2444,7 @@ async function UIWindow (options) {
                     },
                 });
 
-                if ( $(el_window).attr('data-path') !== '/' ) {
+                if ($(el_window).attr('data-path') !== '/') {
                     // -------------------------------------------
                     // -
                     // -------------------------------------------
@@ -2522,12 +2464,10 @@ async function UIWindow (options) {
                         html: i18n('paste'),
                         disabled: (window.clipboard.length === 0 || $(el_window).attr('data-path') === '/') ? true : false,
                         onClick: function () {
-                            if ( window.clipboard_op === 'copy' )
-                            {
+                            if (window.clipboard_op === 'copy') {
                                 window.copy_clipboard_items($(el_window).attr('data-path'), el_window_body);
                             }
-                            else if ( window.clipboard_op === 'move' )
-                            {
+                            else if (window.clipboard_op === 'move') {
                                 window.move_clipboard_items(el_window_body);
                             }
                         },
@@ -2549,7 +2489,7 @@ async function UIWindow (options) {
                         html: i18n('upload_here'),
                         disabled: $(el_window).attr('data-path') === '/' ? true : false,
                         onClick: function () {
-                            window.init_upload_using_dialog(el_window_body, `${$(el_window).attr('data-path') }/`);
+                            window.init_upload_using_dialog(el_window_body, `${$(el_window).attr('data-path')}/`);
                         },
                     });
                     // -------------------------------------------
@@ -2559,7 +2499,7 @@ async function UIWindow (options) {
                         html: i18n('upload_folder_here'),
                         disabled: $(el_window).attr('data-path') === '/' ? true : false,
                         onClick: function () {
-                            window.init_folder_upload_using_dialog(el_window_body, `${$(el_window).attr('data-path') }/`);
+                            window.init_folder_upload_using_dialog(el_window_body, `${$(el_window).attr('data-path')}/`);
                         },
                     });
                     // -------------------------------------------
@@ -2573,8 +2513,8 @@ async function UIWindow (options) {
                         html: i18n('publish_as_website'),
                         disabled: !options.is_dir,
                         onClick: async function () {
-                            if ( window.require_email_verification_to_publish_website ) {
-                                if ( window.user.is_temp &&
+                            if (window.require_email_verification_to_publish_website) {
+                                if (window.user.is_temp &&
                                     !await UIWindowSaveAccount({
                                         send_confirmation_code: true,
                                         message: i18n('save_account_to_publish'),
@@ -2582,12 +2522,10 @@ async function UIWindow (options) {
                                             backdrop: true,
                                             close_on_backdrop_click: false,
                                         },
-                                    }) )
-                                {
+                                    })) {
                                     return;
                                 }
-                                else if ( !window.user.email_confirmed && !await UIWindowEmailConfirmationRequired() )
-                                {
+                                else if (!window.user.email_confirmed && !await UIWindowEmailConfirmationRequired()) {
                                     return;
                                 }
                             }
@@ -2632,12 +2570,12 @@ async function UIWindow (options) {
                             top = top > (window.innerHeight - (window_height + window.taskbar_height + window.toolbar_height)) ? (window.innerHeight - (window_height + window.taskbar_height + window.toolbar_height)) : top;
 
                             UIWindowItemProperties(options.title,
-                                            $(el_window).attr('data-path'),
-                                            $(el_window).attr('data-uid'),
-                                            left,
-                                            top,
-                                            window_width,
-                                            window_height);
+                                $(el_window).attr('data-path'),
+                                $(el_window).attr('data-uid'),
+                                left,
+                                top,
+                                window_width,
+                                window_height);
                         },
                     });
                 }
@@ -2677,8 +2615,7 @@ async function UIWindow (options) {
                                         },
                                     ],
                                 });
-                                if ( alert_resp === 'no' )
-                                {
+                                if (alert_resp === 'no') {
                                     return;
                                 }
 
@@ -2687,7 +2624,7 @@ async function UIWindow (options) {
                                     window.delete_item(this);
                                 });
                                 // update other clients
-                                if ( window.socket ) {
+                                if (window.socket) {
                                     window.socket.emit('trash.is_empty', { is_empty: true });
                                 }
                                 // use the 'empty trash' icon
@@ -2702,7 +2639,7 @@ async function UIWindow (options) {
     // --------------------------------------------------------
     // Head Context Menu
     // --------------------------------------------------------
-    if ( options.has_head ) {
+    if (options.has_head) {
         $(el_window_head).bind('contextmenu taphold', function (event) {
             event.preventDefault();
             return false;
@@ -2726,7 +2663,7 @@ async function UIWindow (options) {
                 const e = event.originalEvent;
                 $(el_item).removeClass('item-selected');
                 // if files were dropped...
-                if ( e.dataTransfer?.items?.length > 0 ) {
+                if (e.dataTransfer?.items?.length > 0) {
                     window.upload_items(e.dataTransfer.items, $(el_item).attr('data-path'));
                 }
 
@@ -2740,7 +2677,7 @@ async function UIWindow (options) {
     //--------------------------------------------------
     // Sidebar sortable
     //--------------------------------------------------
-    if ( options.is_dir && !isMobile.phone ) {
+    if (options.is_dir && !isMobile.phone) {
         const $sidebar = $(el_window).find('.window-sidebar');
 
         $sidebar.sortable({
@@ -2790,7 +2727,7 @@ async function UIWindow (options) {
 
         // Make the sortable operation more responsive
         $sidebar.on('mousedown', '.window-sidebar-item', function (e) {
-            if ( ! $(this).hasClass('window-sidebar-title') ) {
+            if (!$(this).hasClass('window-sidebar-title')) {
                 $(this).addClass('grabbing');
             }
         });
@@ -2801,7 +2738,7 @@ async function UIWindow (options) {
     }
 
     $(document).on('mouseup', function (e) {
-        if ( selection_area ) {
+        if (selection_area) {
             $(selection_area).hide();
             $(selection_area).remove();
             selection_area = null;
@@ -2812,7 +2749,7 @@ async function UIWindow (options) {
     $(el_window_body).css(options.body_css);
 
     // is fullpage?
-    if ( options.is_fullpage ) {
+    if (options.is_fullpage) {
         $(el_window).hide();
         setTimeout(function () {
             window.enter_fullpage_mode(el_window);
@@ -2823,17 +2760,16 @@ async function UIWindow (options) {
     return el_window;
 }
 
-function delete_window_element (el_window) {
+function delete_window_element(el_window) {
     // if this is the active element, set it to null
-    if ( window.active_element === el_window ) {
+    if (window.active_element === el_window) {
         window.active_element = null;
     }
     // remove DOM element
     $(el_window).remove();
     // if no other windows open, reset window_counter
     // resetting window counter is important so that next window opens at the center of the screen
-    if ( $('.window').length === 0 )
-    {
+    if ($('.window').length === 0) {
         window.window_counter = 0;
     }
 }
@@ -2841,10 +2777,10 @@ function delete_window_element (el_window) {
 $(document).on('click', '.window-sidebar-item', async function (e) {
     const el_window = $(this).closest('.window');
     const parent_win_id = $(el_window).attr('data-id');
-    const item_path =  $(this).attr('data-path');
+    const item_path = $(this).attr('data-path');
 
     // ctrl/cmd + click will open in new window
-    if ( e.metaKey || e.ctrlKey ) {
+    if (e.metaKey || e.ctrlKey) {
         UIWindow({
             path: item_path,
             title: path.basename(item_path),
@@ -2862,7 +2798,7 @@ $(document).on('click', '.window-sidebar-item', async function (e) {
         });
     }
     // update window path only if it's a new path AND no ctrl/cmd key pressed
-    else if ( item_path !== $(el_window).attr('data-path') ) {
+    else if (item_path !== $(el_window).attr('data-path')) {
         window.window_nav_history[parent_win_id] = window.window_nav_history[parent_win_id].slice(0, window.window_nav_history_current_position[parent_win_id] + 1);
         window.window_nav_history[parent_win_id].push(item_path);
         window.window_nav_history_current_position[parent_win_id]++;
@@ -2879,8 +2815,7 @@ $(document).on('contextmenu', '.window-sidebar', function (e) {
 
 $(document).on('contextmenu taphold', '.window-sidebar-item', function (event) {
     // dismiss taphold on regular devices
-    if ( event.type === 'taphold' && !isMobile.phone && !isMobile.tablet )
-    {
+    if (event.type === 'taphold' && !isMobile.phone && !isMobile.tablet) {
         return;
     }
 
@@ -2934,13 +2869,13 @@ $(document).on('contextmenu taphold', '.window-sidebar-item', function (event) {
 $(document).on('dblclick', '.window .ui-resizable-handle', function (e) {
     let el_window = $(this).closest('.window');
     // bottom
-    if ( $(this).hasClass('ui-resizable-s') ) {
+    if ($(this).hasClass('ui-resizable-s')) {
         let height = window.innerHeight - $(el_window).position().top - window.taskbar_height - 6;
         $(el_window).height(height);
     }
 
     // top
-    else if ( $(this).hasClass('ui-resizable-n') ) {
+    else if ($(this).hasClass('ui-resizable-n')) {
         let height = $(el_window).height() + $(el_window).position().top - window.toolbar_height;
         $(el_window).css({
             height: height,
@@ -2948,14 +2883,14 @@ $(document).on('dblclick', '.window .ui-resizable-handle', function (e) {
         });
     }
     // right
-    else if ( $(this).hasClass('ui-resizable-e') ) {
+    else if ($(this).hasClass('ui-resizable-e')) {
         let width = window.innerWidth - $(el_window).position().left;
         $(el_window).css({
             width: width,
         });
     }
     // left
-    else if ( $(this).hasClass('ui-resizable-w') ) {
+    else if ($(this).hasClass('ui-resizable-w')) {
         let width = $(el_window).width() + $(el_window).position().left;
         $(el_window).css({
             width: width,
@@ -2963,7 +2898,7 @@ $(document).on('dblclick', '.window .ui-resizable-handle', function (e) {
         });
     }
     // bottom left
-    else if ( $(this).hasClass('ui-resizable-sw') ) {
+    else if ($(this).hasClass('ui-resizable-sw')) {
         let width = $(el_window).width() + $(el_window).position().left;
         let height = window.innerHeight - $(el_window).position().top - window.taskbar_height - 6;
         $(el_window).css({
@@ -2973,7 +2908,7 @@ $(document).on('dblclick', '.window .ui-resizable-handle', function (e) {
         });
     }
     // bottom right
-    else if ( $(this).hasClass('ui-resizable-se') ) {
+    else if ($(this).hasClass('ui-resizable-se')) {
         let width = window.innerWidth - $(el_window).position().left;
         let height = window.innerHeight - $(el_window).position().top - window.taskbar_height - 6;
         $(el_window).css({
@@ -2982,7 +2917,7 @@ $(document).on('dblclick', '.window .ui-resizable-handle', function (e) {
         });
     }
     // top right
-    else if ( $(this).hasClass('ui-resizable-ne') ) {
+    else if ($(this).hasClass('ui-resizable-ne')) {
         let width = window.innerWidth - $(el_window).position().left;
         let height = $(el_window).height() + $(el_window).position().top - window.toolbar_height;
         $(el_window).css({
@@ -2992,7 +2927,7 @@ $(document).on('dblclick', '.window .ui-resizable-handle', function (e) {
         });
     }
     // top left
-    else if ( $(this).hasClass('ui-resizable-nw') ) {
+    else if ($(this).hasClass('ui-resizable-nw')) {
         let width = $(el_window).width() + $(el_window).position().left;
         let height = $(el_window).height() + $(el_window).position().top - window.toolbar_height;
         $(el_window).css({
@@ -3006,8 +2941,7 @@ $(document).on('dblclick', '.window .ui-resizable-handle', function (e) {
 });
 
 $(document).on('click', '.window-navbar-path', function (e) {
-    if ( ! $(e.target).hasClass('window-navbar-path') )
-    {
+    if (!$(e.target).hasClass('window-navbar-path')) {
         return;
     }
 
@@ -3020,7 +2954,7 @@ $(document).on('blur', '.window-navbar-path-input', function (e) {
 });
 
 $(document).on('keyup', '.window-navbar-path-input', function (e) {
-    if ( e.key === 'Enter' || e.keyCode === 13 ) {
+    if (e.key === 'Enter' || e.keyCode === 13) {
         window.update_window_path($(e.target).closest('.window'), $(e.target).val());
         $(e.target).hide();
         $(e.target).siblings('.window-navbar-path').show().select();
@@ -3032,7 +2966,7 @@ $(document).on('click', '.window-navbar-path-dirname', function (e) {
     const parent_win_id = $($el_parent_window).attr('data-id');
 
     // open in new window
-    if ( e.metaKey || e.ctrlKey ) {
+    if (e.metaKey || e.ctrlKey) {
         const dirpath = $(this).attr('data-path');
         UIWindow({
             path: dirpath,
@@ -3044,7 +2978,7 @@ $(document).on('click', '.window-navbar-path-dirname', function (e) {
         });
     }
     // only change dir if target is not the same as current path
-    else if ( $el_parent_window.attr('data-path') !== $(this).attr('data-path') ) {
+    else if ($el_parent_window.attr('data-path') !== $(this).attr('data-path')) {
         window.window_nav_history[parent_win_id] = window.window_nav_history[parent_win_id].slice(0, window.window_nav_history_current_position[parent_win_id] + 1);
         window.window_nav_history[parent_win_id].push($(this).attr('data-path'));
         window.window_nav_history_current_position[parent_win_id] = window.window_nav_history[parent_win_id].length - 1;
@@ -3054,14 +2988,12 @@ $(document).on('click', '.window-navbar-path-dirname', function (e) {
 
 $(document).on('contextmenu taphold', '.window-navbar', function (event) {
     // don't disable system ctxmenu on the address bar input
-    if ( $(event.target).hasClass('window-navbar-path-input') )
-    {
+    if ($(event.target).hasClass('window-navbar-path-input')) {
         return;
     }
 
     // dismiss taphold on regular devices
-    if ( event.type === 'taphold' && !isMobile.phone && !isMobile.tablet )
-    {
+    if (event.type === 'taphold' && !isMobile.phone && !isMobile.tablet) {
         return;
     }
 
@@ -3072,8 +3004,7 @@ $(document).on('contextmenu taphold', '.window-navbar', function (event) {
 
 $(document).on('contextmenu taphold', '.window-navbar-path-dirname', function (event) {
     // dismiss taphold on regular devices
-    if ( event.type === 'taphold' && !isMobile.phone && !isMobile.tablet )
-    {
+    if (event.type === 'taphold' && !isMobile.phone && !isMobile.tablet) {
         return;
     }
 
@@ -3110,23 +3041,21 @@ $(document).on('contextmenu taphold', '.window-navbar-path-dirname', function (e
     // -
     // -------------------------------------------
     menu_items.push('-'),
-    // -------------------------------------------
-    // Paste
-    // -------------------------------------------
-    menu_items.push({
-        html: i18n('paste'),
-        disabled: window.clipboard.length > 0 ? false : true,
-        onClick: function () {
-            if ( window.clipboard_op === 'copy' )
-            {
-                window.copy_clipboard_items($(el).attr('data-path'), null);
-            }
-            else if ( window.clipboard_op === 'move' )
-            {
-                window.move_clipboard_items(null, $(el).attr('data-path'));
-            }
-        },
-    });
+        // -------------------------------------------
+        // Paste
+        // -------------------------------------------
+        menu_items.push({
+            html: i18n('paste'),
+            disabled: window.clipboard.length > 0 ? false : true,
+            onClick: function () {
+                if (window.clipboard_op === 'copy') {
+                    window.copy_clipboard_items($(el).attr('data-path'), null);
+                }
+                else if (window.clipboard_op === 'move') {
+                    window.move_clipboard_items(null, $(el).attr('data-path'));
+                }
+            },
+        });
 
     UIContextMenu({
         parent_element: $(this),
@@ -3148,9 +3077,9 @@ window.navbar_path_droppable = (el_window) => {
     $(el_window).find('.window-navbar-path-dirname').droppable({
         accept: '.item',
         tolerance: 'pointer',
-        drop: function ( event, ui ) {
+        drop: function (event, ui) {
             // check if item was actually dropped on this navbar path
-            if ( $(window.mouseover_window).attr('data-id') !== $(el_window).attr('data-id') ) {
+            if ($(window.mouseover_window).attr('data-id') !== $(el_window).attr('data-id')) {
                 return;
             }
             const items_to_move = [];
@@ -3160,23 +3089,22 @@ window.navbar_path_droppable = (el_window) => {
 
             // all subsequent items
             const cloned_items = document.getElementsByClassName('item-selected-clone');
-            for ( let i = 0; i < cloned_items.length; i++ ) {
-                const source_item = document.getElementById(`item-${ $(cloned_items[i]).attr('data-id')}`);
-                if ( source_item !== null )
-                {
+            for (let i = 0; i < cloned_items.length; i++) {
+                const source_item = document.getElementById(`item-${$(cloned_items[i]).attr('data-id')}`);
+                if (source_item !== null) {
                     items_to_move.push(source_item);
                 }
             }
 
             // if alt key is down, create shortcut items
-            if ( event.altKey ) {
+            if (event.altKey) {
                 items_to_move.forEach((item_to_move) => {
                     window.create_shortcut(path.basename($(item_to_move).attr('data-path')),
-                                    $(item_to_move).attr('data-is_dir') === '1',
-                                    $(this).attr('data-path'),
-                                    null,
-                                    $(item_to_move).attr('data-shortcut_to') === '' ? $(item_to_move).attr('data-uid') : $(item_to_move).attr('data-shortcut_to'),
-                                    $(item_to_move).attr('data-shortcut_to_path') === '' ? $(item_to_move).attr('data-path') : $(item_to_move).attr('data-shortcut_to_path'));
+                        $(item_to_move).attr('data-is_dir') === '1',
+                        $(this).attr('data-path'),
+                        null,
+                        $(item_to_move).attr('data-shortcut_to') === '' ? $(item_to_move).attr('data-uid') : $(item_to_move).attr('data-shortcut_to'),
+                        $(item_to_move).attr('data-shortcut_to_path') === '' ? $(item_to_move).attr('data-path') : $(item_to_move).attr('data-shortcut_to_path'));
                 });
             }
             // move items
@@ -3191,14 +3119,12 @@ window.navbar_path_droppable = (el_window) => {
         },
         over: function (event, ui) {
             // check if item was actually hovered over this window
-            if ( $(window.mouseover_window).attr('data-id') !== $(el_window).attr('data-id') )
-            {
+            if ($(window.mouseover_window).attr('data-id') !== $(el_window).attr('data-id')) {
                 return;
             }
 
             // Don't do anything if the dragged item is NOT a UIItem
-            if ( ! $(ui.draggable).hasClass('item') )
-            {
+            if (!$(ui.draggable).hasClass('item')) {
                 return;
             }
 
@@ -3208,12 +3134,11 @@ window.navbar_path_droppable = (el_window) => {
             $('.item-selected-clone').css('opacity', 0.2);
 
             // disable all window bodies
-            $('.item-container').droppable( 'disable');
+            $('.item-container').droppable('disable');
         },
         out: function (event, ui) {
             // Don't do anything if the dragged element is NOT a UIItem
-            if ( ! $(ui.draggable).hasClass('item') )
-            {
+            if (!$(ui.draggable).hasClass('item')) {
                 return;
             }
 
@@ -3222,7 +3147,7 @@ window.navbar_path_droppable = (el_window) => {
             $('.ui-draggable-dragging').css('opacity', 'initial');
             $('.item-selected-clone').css('opacity', 'initial');
 
-            $('.item-container').droppable( 'enable');
+            $('.item-container').droppable('enable');
         },
     });
 };
@@ -3240,24 +3165,23 @@ window.navbar_path_droppable = (el_window) => {
  */
 window.navbar_path = (abs_path) => {
     // remove trailing slash
-    if ( abs_path.endsWith('/') && abs_path !== '/' )
-    {
+    if (abs_path.endsWith('/') && abs_path !== '/') {
         abs_path = abs_path.slice(0, -1);
     }
 
     const dirs = (abs_path === '/' ? [''] : abs_path.split('/'));
     const dirpaths = (abs_path === '/' ? ['/'] : []);
     const path_seperator_html = `<img class="path-seperator" draggable="false" src="${html_encode(window.icons['triangle-right.svg'])}">`;
-    if ( dirs.length > 1 ) {
-        for ( let i = 0; i < dirs.length; i++ ) {
+    if (dirs.length > 1) {
+        for (let i = 0; i < dirs.length; i++) {
             dirpaths[i] = '';
-            for ( let j = 1; j <= i; j++ ) {
+            for (let j = 1; j <= i; j++) {
                 dirpaths[i] += `/${dirs[j]}`;
             }
         }
     }
     let str = `${path_seperator_html}<span class="window-navbar-path-dirname" data-path="${html_encode('/')}">${html_encode(window.root_dirname)}</span>`;
-    for ( let k = 1; k < dirs.length; k++ ) {
+    for (let k = 1; k < dirs.length; k++) {
         str += `${path_seperator_html}<span class="window-navbar-path-dirname" data-path="${html_encode(dirpaths[k])}">${dirs[k] === 'Trash' ? i18n('trash') : html_encode(dirs[k])}</span>`;
     }
     return str;
@@ -3281,37 +3205,31 @@ window.update_window_path = async function (el_window, target_path) {
     // clean
     $(el_window).find('.explore-table-headers-th > .header-sort-icon').html('');
 
-    if ( is_dir ) {
+    if (is_dir) {
         // if nav history for this window is empty, disable forward btn
-        if ( window.window_nav_history[win_id] && window.window_nav_history[win_id].length - 1 === window.window_nav_history_current_position[win_id] )
-        {
+        if (window.window_nav_history[win_id] && window.window_nav_history[win_id].length - 1 === window.window_nav_history_current_position[win_id]) {
             $(el_window_navbar_forward_btn).addClass('window-navbar-btn-disabled');
         }
         // ... else, enable forawrd btn
-        else
-        {
+        else {
             $(el_window_navbar_forward_btn).removeClass('window-navbar-btn-disabled');
         }
 
         // disable back button if path is root
-        if ( window.window_nav_history_current_position[win_id] === 0 )
-        {
+        if (window.window_nav_history_current_position[win_id] === 0) {
             $(el_window_navbar_back_btn).addClass('window-navbar-btn-disabled');
         }
         // ... enable back btn in all other cases
-        else
-        {
+        else {
             $(el_window_navbar_back_btn).removeClass('window-navbar-btn-disabled');
         }
 
         // disabled Up button if this is root
-        if ( target_path === '/' )
-        {
+        if (target_path === '/') {
             $(el_window_navbar_up_btn).addClass('window-navbar-btn-disabled');
         }
         // ... enable back btn in all other cases
-        else
-        {
+        else {
             $(el_window_navbar_up_btn).removeClass('window-navbar-btn-disabled');
         }
 
@@ -3322,8 +3240,7 @@ window.update_window_path = async function (el_window, target_path) {
         $(el_window_body).find('.item').removeItems();
 
         // add the 'Detail View' table header
-        if ( $(el_window).find('.explore-table-headers').length === 0 )
-        {
+        if ($(el_window).find('.explore-table-headers').length === 0) {
             $(el_window_body).prepend(window.explore_table_headers());
         }
 
@@ -3331,31 +3248,29 @@ window.update_window_path = async function (el_window, target_path) {
         $(el_window).find('.explore-table-headers').hide();
 
         // system directories with custom icons and predefined names
-        if ( target_path === window.desktop_path ) {
+        if (target_path === window.desktop_path) {
             $(el_window).find('.window-head-icon').attr('src', window.icons['folder-desktop.svg']);
             $(el_window).find('.window-head-title').text(i18n('desktop'));
-        } else if ( target_path === window.home_path ) {
+        } else if (target_path === window.home_path) {
             $(el_window).find('.window-head-icon').attr('src', window.icons['folder-home.svg']);
             $(el_window).find('.window-head-title').text(i18n('home'));
-        } else if ( target_path === window.docs_path ) {
+        } else if (target_path === window.docs_path) {
             $(el_window).find('.window-head-icon').attr('src', window.icons['folder-documents.svg']);
             $(el_window).find('.window-head-title').text(i18n('documents'));
-        } else if ( target_path === window.public_path ) {
+        } else if (target_path === window.public_path) {
             $(el_window).find('.window-head-icon').attr('src', window.icons['folder-public.svg']);
             $(el_window).find('.window-head-title').text(i18n('public'));
-        } else if ( target_path === window.videos_path ) {
+        } else if (target_path === window.videos_path) {
             $(el_window).find('.window-head-icon').attr('src', window.icons['folder-videos.svg']);
             $(el_window).find('.window-head-title').text(i18n('videos'));
-        } else if ( target_path === window.pictures_path ) {
+        } else if (target_path === window.pictures_path) {
             $(el_window).find('.window-head-icon').attr('src', window.icons['folder-pictures.svg']);
             $(el_window).find('.window-head-title').text(i18n('pictures'));
         }// root folder of a shared user?
-        else if ( (target_path.split('/').length - 1) === 1 && target_path !== `/${window.user.username}` )
-        {
+        else if ((target_path.split('/').length - 1) === 1 && target_path !== `/${window.user.username}`) {
             $(el_window).find('.window-head-icon').attr('src', window.icons['shared.svg']);
         }
-        else
-        {
+        else {
             $(el_window).find('.window-head-icon').attr('src', window.icons['folder.svg']);
         }
     }
@@ -3364,47 +3279,39 @@ window.update_window_path = async function (el_window, target_path) {
     $(el_window).attr('data-name', html_encode(path.basename(target_path)));
 
     // /stat
-    if ( target_path !== '/' ) {
+    if (target_path !== '/') {
         try {
             puter.fs.stat({ path: target_path, consistency: 'eventual' }).then(fsentry => {
-                $(el_window).removeClass(`window-${ $(el_window).attr('data-uid')}`);
-                $(el_window).addClass(`window-${ fsentry.id}`);
+                $(el_window).removeClass(`window-${$(el_window).attr('data-uid')}`);
+                $(el_window).addClass(`window-${fsentry.id}`);
                 $(el_window).attr('data-uid', fsentry.id);
                 $(el_window).attr('data-sort_by', fsentry.sort_by ?? 'name');
                 $(el_window).attr('data-sort_order', fsentry.sort_order ?? 'asc');
                 $(el_window).attr('data-layout', fsentry.layout ?? 'icons');
                 $(el_window_item_container).attr('data-uid', fsentry.id);
                 // title - use i18n for system directories
-                if ( target_path === window.home_path )
-                {
+                if (target_path === window.home_path) {
                     $(el_window).find('.window-head-title').text(i18n('home'));
                 }
-                else if ( target_path === window.desktop_path )
-                {
+                else if (target_path === window.desktop_path) {
                     $(el_window).find('.window-head-title').text(i18n('desktop'));
                 }
-                else if ( target_path === window.docs_path || target_path === window.documents_path )
-                {
+                else if (target_path === window.docs_path || target_path === window.documents_path) {
                     $(el_window).find('.window-head-title').text(i18n('documents'));
                 }
-                else if ( target_path === window.pictures_path )
-                {
+                else if (target_path === window.pictures_path) {
                     $(el_window).find('.window-head-title').text(i18n('pictures'));
                 }
-                else if ( target_path === window.videos_path )
-                {
+                else if (target_path === window.videos_path) {
                     $(el_window).find('.window-head-title').text(i18n('videos'));
                 }
-                else if ( target_path === window.public_path )
-                {
+                else if (target_path === window.public_path) {
                     $(el_window).find('.window-head-title').text(i18n('public'));
                 }
-                else if ( target_path === window.trash_path )
-                {
+                else if (target_path === window.trash_path) {
                     $(el_window).find('.window-head-title').text(i18n('trash'));
                 }
-                else
-                {
+                else {
                     $(el_window).find('.window-head-title').text(fsentry.name);
                 }
                 // data-name
@@ -3416,11 +3323,11 @@ window.update_window_path = async function (el_window, target_path) {
                 // update layout
                 window.update_window_layout(el_window, fsentry.layout);
                 // update explore header if in details view
-                if ( fsentry.layout === 'details' ) {
+                if (fsentry.layout === 'details') {
                     window.update_details_layout_sort_visuals(el_window, fsentry.sort_by, fsentry.sort_order);
                 }
             });
-        } catch ( err ) {
+        } catch (err) {
             UIAlert(err.responseText);
 
             // todo optim: this is dumb because updating the window should only happen if this /readdir request is successful,
@@ -3430,14 +3337,14 @@ window.update_window_path = async function (el_window, target_path) {
     }
     // path is '/' (global root)
     else {
-        $(el_window).removeClass(`window-${ $(el_window).attr('data-uid')}`);
+        $(el_window).removeClass(`window-${$(el_window).attr('data-uid')}`);
         $(el_window).addClass('window-null');
         $(el_window).attr('data-uid', 'null');
         $(el_window).attr('data-name', '');
         $(el_window).find('.window-head-title').text(window.root_dirname);
     }
 
-    if ( is_dir ) {
+    if (is_dir) {
         refresh_item_container(el_window_body);
         window.navbar_path_droppable(el_window);
     }
@@ -3452,9 +3359,9 @@ window.sidebar_item_droppable = (el_window) => {
     $(el_window).find('.window-sidebar-item').droppable({
         accept: '.item',
         tolerance: 'pointer',
-        drop: function ( event, ui ) {
+        drop: function (event, ui) {
             // check if item was actually dropped on this navbar path
-            if ( $(window.mouseover_window).attr('data-id') !== $(el_window).attr('data-id') ) {
+            if ($(window.mouseover_window).attr('data-id') !== $(el_window).attr('data-id')) {
                 return;
             }
             const items_to_move = [];
@@ -3464,23 +3371,22 @@ window.sidebar_item_droppable = (el_window) => {
 
             // all subsequent items
             const cloned_items = document.getElementsByClassName('item-selected-clone');
-            for ( let i = 0; i < cloned_items.length; i++ ) {
-                const source_item = document.getElementById(`item-${ $(cloned_items[i]).attr('data-id')}`);
-                if ( source_item !== null )
-                {
+            for (let i = 0; i < cloned_items.length; i++) {
+                const source_item = document.getElementById(`item-${$(cloned_items[i]).attr('data-id')}`);
+                if (source_item !== null) {
                     items_to_move.push(source_item);
                 }
             }
 
             // if alt key is down, create shortcut items
-            if ( event.altKey ) {
+            if (event.altKey) {
                 items_to_move.forEach((item_to_move) => {
                     window.create_shortcut(path.basename($(item_to_move).attr('data-path')),
-                                    $(item_to_move).attr('data-is_dir') === '1',
-                                    $(this).attr('data-path'),
-                                    null,
-                                    $(item_to_move).attr('data-shortcut_to') === '' ? $(item_to_move).attr('data-uid') : $(item_to_move).attr('data-shortcut_to'),
-                                    $(item_to_move).attr('data-shortcut_to_path') === '' ? $(item_to_move).attr('data-path') : $(item_to_move).attr('data-shortcut_to_path'));
+                        $(item_to_move).attr('data-is_dir') === '1',
+                        $(this).attr('data-path'),
+                        null,
+                        $(item_to_move).attr('data-shortcut_to') === '' ? $(item_to_move).attr('data-uid') : $(item_to_move).attr('data-shortcut_to'),
+                        $(item_to_move).attr('data-shortcut_to_path') === '' ? $(item_to_move).attr('data-path') : $(item_to_move).attr('data-shortcut_to_path'));
                 });
             }
             // move items
@@ -3495,14 +3401,12 @@ window.sidebar_item_droppable = (el_window) => {
         },
         over: function (event, ui) {
             // check if item was actually hovered over this window
-            if ( $(window.mouseover_window).attr('data-id') !== $(el_window).attr('data-id') )
-            {
+            if ($(window.mouseover_window).attr('data-id') !== $(el_window).attr('data-id')) {
                 return;
             }
 
             // Don't do anything if the dragged item is NOT a UIItem
-            if ( ! $(ui.draggable).hasClass('item') )
-            {
+            if (!$(ui.draggable).hasClass('item')) {
                 return;
             }
 
@@ -3512,12 +3416,11 @@ window.sidebar_item_droppable = (el_window) => {
             $('.item-selected-clone').css('opacity', 0.2);
 
             // disable all window bodies
-            $('.item-container').droppable( 'disable');
+            $('.item-container').droppable('disable');
         },
         out: function (event, ui) {
             // Don't do anything if the dragged element is NOT a UIItem
-            if ( ! $(ui.draggable).hasClass('item') )
-            {
+            if (!$(ui.draggable).hasClass('item')) {
                 return;
             }
 
@@ -3526,7 +3429,7 @@ window.sidebar_item_droppable = (el_window) => {
             $('.ui-draggable-dragging').css('opacity', 'initial');
             $('.item-selected-clone').css('opacity', 'initial');
 
-            $('.item-container').droppable( 'enable');
+            $('.item-container').droppable('enable');
         },
     });
 };
@@ -3538,29 +3441,29 @@ $.fn.close = async function (options) {
         const el_iframe = $(this).find('.window-app-iframe');
         const app_uses_sdk = el_iframe.length > 0 && el_iframe.attr('data-appUsesSDK') === 'true';
 
-        if ( app_uses_sdk ) {
+        if (app_uses_sdk) {
             // get appInstanceID
             const appInstanceID = el_iframe.closest('.window').attr('data-element_uuid');
             // tell child app that this window is about to close, get its response
-            if ( ! options.bypass_iframe_messaging ) {
+            if (!options.bypass_iframe_messaging) {
                 const resp = await window.sendWindowWillCloseMsg(el_iframe.get(0));
-                if ( ! resp.msg ) {
+                if (!resp.msg) {
                     return false;
                 }
             }
             // remove the menubar from the window.menubars array
-            if ( appInstanceID ) {
+            if (appInstanceID) {
                 delete window.menubars[appInstanceID];
                 window.app_instance_ids.delete(appInstanceID);
             }
         }
 
-        if ( this.on_before_exit ) {
-            if ( ! await this.on_before_exit() ) return false;
+        if (this.on_before_exit) {
+            if (! await this.on_before_exit()) return false;
         }
 
         // Process window close if this is a window
-        if ( $(this).hasClass('window') ) {
+        if ($(this).hasClass('window')) {
             const win_id = parseInt($(this).attr('data-id'));
             let window_uuid = $(this).attr('data-element_uuid');
             // remove all instances of win_id from window.window_stack
@@ -3568,26 +3471,25 @@ $.fn.close = async function (options) {
             // taskbar update
             let open_window_count = parseInt($(`.taskbar-item[data-app="${$(this).attr('data-app')}"]`).attr('data-open-windows'));
             // update open window count of corresponding taskbar item
-            if ( open_window_count > 0 ) {
+            if (open_window_count > 0) {
                 $(`.taskbar-item[data-app="${$(this).attr('data-app')}"]`).attr('data-open-windows', open_window_count - 1);
             }
             // decide whether to remove taskbar item
-            if ( open_window_count === 1 ) {
+            if (open_window_count === 1) {
                 $(`.taskbar-item[data-app="${$(this).attr('data-app')}"] .active-taskbar-indicator`).hide();
                 window.remove_taskbar_item($(`.taskbar-item[data-app="${$(this).attr('data-app')}"][data-keep-in-taskbar="false"]`));
             }
             // if no more windows of this app are open, remove taskbar item
-            if ( open_window_count - 1 === 0 )
-            {
+            if (open_window_count - 1 === 0) {
                 $(`.taskbar-item[data-app="${$(this).attr('data-app')}"] .active-taskbar-indicator`).hide();
             }
             // if a fullpage window is closed, show desktop and taskbar
-            if ( $(this).attr('data-is_fullpage') === '1' ) {
+            if ($(this).attr('data-is_fullpage') === '1') {
                 window.exit_fullpage_mode();
             }
 
             // FileDialog closed
-            if ( $(this).hasClass('window-filedialog') || $(this).attr('data-disable_parent_window') === 'true' ) {
+            if ($(this).hasClass('window-filedialog') || $(this).attr('data-disable_parent_window') === 'true') {
                 // re-enable this FileDialog's parent window
                 $(`.window[data-element_uuid="${$(this).attr('data-parent_uuid')}"]`).addClass('window-active');
                 $(`.window[data-element_uuid="${$(this).attr('data-parent_uuid')}"]`).removeClass('window-disabled');
@@ -3600,10 +3502,10 @@ $.fn.close = async function (options) {
                 // close any open FileDialogs belonging to this window
                 $(`.window-filedialog[data-parent_uuid="${window_uuid}"]`).close();
                 // bring focus to the last window in the window-stack (only if not minimized)
-                if ( ! _.isEmpty(window.window_stack) ) {
+                if (!_.isEmpty(window.window_stack)) {
                     const $last_window_in_stack = $(`.window[data-id="${window.window_stack[window.window_stack.length - 1]}"]`);
                     // check if previous window is not minimized
-                    if ( $last_window_in_stack !== null && $last_window_in_stack.attr('data-is_minimized') !== '1' && $last_window_in_stack.attr('data-is_minimized') !== 'true' ) {
+                    if ($last_window_in_stack !== null && $last_window_in_stack.attr('data-is_minimized') !== '1' && $last_window_in_stack.attr('data-is_minimized') !== 'true') {
                         $(`.window[data-id="${window.window_stack[window.window_stack.length - 1]}"]`).focusWindow();
                     }
                     // otherwise, change URL/Title to desktop
@@ -3612,7 +3514,7 @@ $.fn.close = async function (options) {
                         document.title = i18n('window_title_puter');
                     }
                     // if it's explore
-                    if ( $last_window_in_stack.attr('data-app') && $last_window_in_stack.attr('data-app').toLowerCase() === 'explorer' ) {
+                    if ($last_window_in_stack.attr('data-app') && $last_window_in_stack.attr('data-app').toLowerCase() === 'explorer') {
                         window.history.replaceState(null, document.title, '/');
                         document.title = i18n('window_title_puter');
                     }
@@ -3636,7 +3538,7 @@ $.fn.close = async function (options) {
             $(`.window-menubar-global[data-window-id="${win_id}"]`).remove();
 
             // remove DOM element
-            if ( options?.shrink_to_target ) {
+            if (options?.shrink_to_target) {
                 // get target location
                 const target_pos = $(options.shrink_to_target).position();
                 const target_size = $(options.shrink_to_target).get(0).getBoundingClientRect();
@@ -3652,7 +3554,7 @@ $.fn.close = async function (options) {
                     delete_window_element(this);
                 });
             }
-            else if ( window.animate_window_closing ) {
+            else if (window.animate_window_closing) {
                 // start shrink animation
                 $(this).css({
                     'transition': 'transform 400ms',
@@ -3667,9 +3569,9 @@ $.fn.close = async function (options) {
             }
         }
         // focus back to desktop?
-        if ( _.isEmpty(window.window_stack) ) {
+        if (_.isEmpty(window.window_stack)) {
             // The following is to make sure the iphone keyboard is dismissed when the last window is closed
-            if ( isMobile.phone || isMobile.tablet ) {
+            if (isMobile.phone || isMobile.tablet) {
                 document.activeElement.blur();
                 $('input').blur();
             }
@@ -3684,12 +3586,12 @@ $.fn.close = async function (options) {
 
 window.scale_window = (el_window) => {
     //maximize
-    if ( $(el_window).attr('data-is_maximized') !== '1' ) {
+    if ($(el_window).attr('data-is_maximized') !== '1') {
         // save original size and position
         let el_window_rect = el_window.getBoundingClientRect();
         $(el_window).attr({
-            'data-left-before-maxim': `${el_window_rect.left }px`,
-            'data-top-before-maxim': `${el_window_rect.top }px`,
+            'data-left-before-maxim': `${el_window_rect.left}px`,
+            'data-top-before-maxim': `${el_window_rect.top}px`,
             'data-width-before-maxim': $(el_window).css('width'),
             'data-height-before-maxim': $(el_window).css('height'),
             'data-is_maximized': '1',
@@ -3702,7 +3604,7 @@ window.scale_window = (el_window) => {
         window.update_maximized_window_for_taskbar(el_window);
 
         // hide toolbar
-        if ( !isMobile.phone && !isMobile.tablet ) {
+        if (!isMobile.phone && !isMobile.tablet) {
             window.hide_toolbar();
         }
     }
@@ -3738,28 +3640,27 @@ window.scale_window = (el_window) => {
 window.update_explorer_footer_item_count = function (el_window) {
     //update dir count in explorer footer
     let item_count = $(el_window).find('.item').length;
-    $(el_window).find('.explorer-footer .explorer-footer-item-count').html(`${item_count } ${i18n('item')}${ item_count == 0 || item_count > 1 ? `${i18n('plural_suffix')}` : ''}`);
+    $(el_window).find('.explorer-footer .explorer-footer-item-count').html(`${item_count} ${i18n('item')}${item_count == 0 || item_count > 1 ? `${i18n('plural_suffix')}` : ''}`);
 };
 
 window.update_explorer_footer_selected_items_count = function (el_window) {
     //update dir count in explorer footer
     let item_count = $(el_window).find('.item-selected').length;
-    if ( item_count > 0 ) {
+    if (item_count > 0) {
         $(el_window).find('.explorer-footer-seperator, .explorer-footer-selected-items-count').show();
-        $(el_window).find('.explorer-footer .explorer-footer-selected-items-count').html(`${item_count } ${i18n('item')}${ item_count == 0 || item_count > 1 ? `${i18n('plural_suffix')}` : '' } ${i18n('selected')}`);
+        $(el_window).find('.explorer-footer .explorer-footer-selected-items-count').html(`${item_count} ${i18n('item')}${item_count == 0 || item_count > 1 ? `${i18n('plural_suffix')}` : ''} ${i18n('selected')}`);
     } else {
         $(el_window).find('.explorer-footer-seperator, .explorer-footer-selected-items-count').hide();
     }
 };
 
 window.set_sort_by = function (item_uid, sort_by, sort_order) {
-    if ( sort_order !== 'asc' && sort_order !== 'desc' )
-    {
+    if (sort_order !== 'asc' && sort_order !== 'desc') {
         sort_order = 'asc';
     }
 
     $.ajax({
-        url: `${window.api_origin }/set_sort_by`,
+        url: `${window.api_origin}/set_sort_by`,
         type: 'POST',
         data: JSON.stringify({
             sort_by: sort_by,
@@ -3800,21 +3701,21 @@ window.explore_table_headers = function () {
 window.update_window_layout = function (el_window, layout) {
     layout = layout ?? 'icons';
 
-    if ( layout === 'icons' ) {
+    if (layout === 'icons') {
         $(el_window).find('.explore-table-headers').hide();
         $(el_window).find('.item-container').removeClass('item-container-list');
         $(el_window).find('.item-container').removeClass('item-container-details');
         $(el_window).find('.window-navbar-layout-settings').attr('src', window.icons['layout-icons.svg']);
         $(el_window).attr('data-layout', layout);
     }
-    else if ( layout === 'list' ) {
+    else if (layout === 'list') {
         $(el_window).find('.explore-table-headers').hide();
         $(el_window).find('.item-container').removeClass('item-container-details');
         $(el_window).find('.item-container').addClass('item-container-list');
         $(el_window).find('.window-navbar-layout-settings').attr('src', window.icons['layout-list.svg']);
         $(el_window).attr('data-layout', layout);
     }
-    else if ( layout === 'details' ) {
+    else if (layout === 'details') {
         $(el_window).find('.explore-table-headers').show();
         $(el_window).find('.item-container').removeClass('item-container-list');
         $(el_window).find('.item-container').addClass('item-container-details');
@@ -3825,7 +3726,7 @@ window.update_window_layout = function (el_window, layout) {
 
 $.fn.makeWindowVisible = function (options) {
     $(this).each(async function () {
-        if ( $(this).hasClass('window') ) {
+        if ($(this).hasClass('window')) {
             $(this).show();
             $(this).focusWindow();
 
@@ -3834,7 +3735,7 @@ $.fn.makeWindowVisible = function (options) {
             });
 
             // if sidepanel, shift desktop toolbar to the left
-            if ( $(this).attr('data-is_panel') === '1' ) {
+            if ($(this).attr('data-is_panel') === '1') {
                 $('.toolbar').css('left', `calc(50% - ${window.PANEL_WIDTH / 2}px)`);
                 $('.taskbar.taskbar-position-bottom').css('left', `calc(50% - ${window.PANEL_WIDTH / 2}px)`);
                 $('.window[data-is_panel="0"]').css('transform', `translateX(-${window.PANEL_WIDTH / 2}px)`);
@@ -3845,13 +3746,13 @@ $.fn.makeWindowVisible = function (options) {
 
 $.fn.makeWindowInvisible = async function (options) {
     $(this).each(async function () {
-        if ( $(this).hasClass('window') ) {
+        if ($(this).hasClass('window')) {
             $(this).hide();
             $(this).attr({
                 'data-is_visible': '0',
             });
             // if sidepanel, shift desktop toolbar to the right
-            if ( $(this).attr('data-is_panel') === '1' ) {
+            if ($(this).attr('data-is_panel') === '1') {
                 $('.toolbar').css('left', 'calc(50%)');
                 $('.taskbar.taskbar-position-bottom').css('left', 'calc(50%)');
                 $('.window[data-is_panel="0"]').css('transform', 'translateX(0px)');
@@ -3863,15 +3764,15 @@ $.fn.makeWindowInvisible = async function (options) {
 
 $.fn.showWindow = async function (options) {
     $(this).each(async function () {
-        if ( $(this).hasClass('window') ) {
+        if ($(this).hasClass('window')) {
             // show window
             const el_window = this;
             $(el_window).css({
                 'transition': 'top 0.2s, left 0.2s, bottom 0.2s, right 0.2s, width 0.2s, height 0.2s',
-                top: `${$(el_window).attr('data-orig-top') }px`,
-                left: `${$(el_window).attr('data-orig-left') }px`,
-                width: `${$(el_window).attr('data-orig-width') }px`,
-                height: `${$(el_window).attr('data-orig-height') }px`,
+                top: `${$(el_window).attr('data-orig-top')}px`,
+                left: `${$(el_window).attr('data-orig-left')}px`,
+                width: `${$(el_window).attr('data-orig-width')}px`,
+                height: `${$(el_window).attr('data-orig-height')}px`,
             });
             $(el_window).css('z-index', ++window.last_window_zindex);
 
@@ -3895,13 +3796,12 @@ $.fn.showWindow = async function (options) {
 
 window.toggle_empty_folder_message = function (el_item_container) {
     // if the item container is the desktop, don't show/hide the empty message
-    if ( $(el_item_container).hasClass('desktop') )
-    {
+    if ($(el_item_container).hasClass('desktop')) {
         return;
     }
 
     // if the item container is empty, show the empty message
-    if ( $(el_item_container).has('.item').length === 0 ) {
+    if ($(el_item_container).has('.item').length === 0) {
         $(el_item_container).find('.explorer-empty-message').show();
     }
     // if the item container is not empty, hide the empty message
@@ -3911,7 +3811,7 @@ window.toggle_empty_folder_message = function (el_item_container) {
 };
 
 $.fn.focusWindow = function (event) {
-    if ( this.hasClass('window') ) {
+    if (this.hasClass('window')) {
         const $app_iframe = $(this).find('.window-app-iframe');
         const win_id = $(this).attr('data-id');
 
@@ -3922,15 +3822,15 @@ $.fn.focusWindow = function (event) {
         // disable pointer events on all windows' iframes, except for this window's iframe
         $('.window-app-iframe').not($app_iframe).css('pointer-events', 'none');
         // bring this window to front, only if it's not stay_on_top
-        if ( $(this).attr('data-stay_on_top') !== 'true' ) {
+        if ($(this).attr('data-stay_on_top') !== 'true') {
             $(this).css('z-index', ++window.last_window_zindex);
         }
         // if this window has a parent, bring them to the front too
-        if ( $(this).attr('data-parent_uuid') !== 'null' ) {
+        if ($(this).attr('data-parent_uuid') !== 'null') {
             $(`.window[data-element_uuid="${$(this).attr('data-parent_uuid')}"]`).css('z-index', window.last_window_zindex);
         }
         // if this window has child windows, bring them to the front too
-        if ( $(this).attr('data-element_uuid') !== 'null' ) {
+        if ($(this).attr('data-element_uuid') !== 'null') {
             $(`.window[data-parent_uuid="${$(this).attr('data-element_uuid')}"]`).css('z-index', ++window.last_window_zindex);
         }
 
@@ -3941,13 +3841,13 @@ $.fn.focusWindow = function (event) {
 
         // if a menubar or any of its items are clicked, don't focus the iframe. This is important to preserve the focus on the menubar
         // and to enable keyboard navigation through the menubar items
-        if ( $(event?.target).hasClass('window-menubar') || $(event?.target).closest('.window-menubar').length > 0 ) {
+        if ($(event?.target).hasClass('window-menubar') || $(event?.target).closest('.window-menubar').length > 0) {
             $($app_iframe).css('pointer-events', 'none');
             $app_iframe.get(0)?.blur();
             $app_iframe.get(0)?.contentWindow?.blur();
         }
         // if this has an iframe
-        else if ( !$(this).hasClass('window-disabled') && $app_iframe.length > 0 ) {
+        else if (!$(this).hasClass('window-disabled') && $app_iframe.length > 0) {
             $($app_iframe).css('pointer-events', 'all');
             $app_iframe.get(0)?.focus({ preventScroll: true });
             $app_iframe.get(0)?.contentWindow?.focus({ preventScroll: true });
@@ -3975,16 +3875,16 @@ $.fn.focusWindow = function (event) {
         const url_app_name = $(this).attr('data-app_pseudonym') || $(this).attr('data-app');
         let custom_path = $(this).attr('data-custom_path');
 
-        if ( custom_path && custom_path !== '' ) {
-            if ( update_window_url === 'true' || update_window_url === null ) {
-                if ( ! custom_path.startsWith('/') ) {
-                    custom_path = `/${ custom_path}`;
+        if (custom_path && custom_path !== '') {
+            if (update_window_url === 'true' || update_window_url === null) {
+                if (!custom_path.startsWith('/')) {
+                    custom_path = `/${custom_path}`;
                 }
                 window.history.replaceState({ window_id: $(this).attr('data-id') }, '', custom_path);
                 document.title = $(this).attr('data-name');
             }
         }
-        else if ( update_window_url === 'true' || update_window_url === null ) {
+        else if (update_window_url === 'true' || update_window_url === null) {
             window.history.replaceState({ window_id: $(this).attr('data-id') }, '', `/app/${url_app_name}${$(this).attr('data-user_set_url_params')}`);
             document.title = $(this).attr('data-name');
         }
@@ -4000,7 +3900,7 @@ $.fn.focusWindow = function (event) {
 // hides a window
 $.fn.hideWindow = async function (options) {
     $(this).each(async function () {
-        if ( $(this).hasClass('window') ) {
+        if ($(this).hasClass('window')) {
             // get taskbar item location
             let taskbar_item_pos = $(`.taskbar .taskbar-item[data-app="${$(this).attr('data-app')}"]`).position();
 
@@ -4008,19 +3908,19 @@ $.fn.hideWindow = async function (options) {
             let animationTarget = {};
             const taskbarPosition = window.taskbar_position || 'bottom';
 
-            if ( taskbarPosition === 'bottom' ) {
+            if (taskbarPosition === 'bottom') {
                 // taskbar position is center of window minus half of taskbar item width
                 taskbar_item_pos.left = taskbar_item_pos.left + ($(window).width() / 2) - ($('.taskbar').width() / 2);
                 animationTarget = {
                     top: 'calc(100% - 60px)',
                     left: taskbar_item_pos.left + 14.5,
                 };
-            } else if ( taskbarPosition === 'left' ) {
+            } else if (taskbarPosition === 'left') {
                 animationTarget = {
                     top: taskbar_item_pos.top + ($(window).height() / 2) - ($('.taskbar').height() / 2) + 14.5,
                     left: '5px',
                 };
-            } else if ( taskbarPosition === 'right' ) {
+            } else if (taskbarPosition === 'right') {
                 animationTarget = {
                     top: taskbar_item_pos.top + ($(window).height() / 2) - ($('.taskbar').height() / 2) + 14.5,
                     left: 'calc(100% - 60px)',
@@ -4069,10 +3969,10 @@ $(document).on('click', '.explore-table-headers-th', function (e) {
     let sort_order = $(e.target).closest('.window').attr('data-sort_order') ?? 'asc';
 
     // flip sort order
-    if ( sort_order === 'asc' ) {
+    if (sort_order === 'asc') {
         sort_order = 'desc';
         sort_icon = `<img src="${window.icons['down-arrow.svg']}">`;
-    } else if ( sort_order === 'desc' ) {
+    } else if (sort_order === 'desc') {
         sort_icon = `<img src="${window.icons['up-arrow.svg']}">`;
         sort_order = 'asc';
     }
@@ -4089,13 +3989,13 @@ $(document).on('click', '.explore-table-headers-th', function (e) {
     $(e.target).closest('.window').find('.explore-table-headers-th-active > .header-sort-icon').html(sort_icon);
 
     // set sort_by
-    if ( $(e.target).hasClass('explore-table-headers-th--name') ) {
+    if ($(e.target).hasClass('explore-table-headers-th--name')) {
         sort_by = 'name';
-    } else if ( $(e.target).hasClass('explore-table-headers-th--modified') ) {
+    } else if ($(e.target).hasClass('explore-table-headers-th--modified')) {
         sort_by = 'modified';
-    } else if ( $(e.target).hasClass('explore-table-headers-th--size') ) {
+    } else if ($(e.target).hasClass('explore-table-headers-th--size')) {
         sort_by = 'size';
-    } else if ( $(e.target).hasClass('explore-table-headers-th--type') ) {
+    } else if ($(e.target).hasClass('explore-table-headers-th--type')) {
         sort_by = 'type';
     }
 
@@ -4106,7 +4006,7 @@ $(document).on('click', '.explore-table-headers-th', function (e) {
 
 window.set_layout = function (item_uid, layout) {
     $.ajax({
-        url: `${window.api_origin }/set_layout`,
+        url: `${window.api_origin}/set_layout`,
         type: 'POST',
         data: JSON.stringify({
             item_uid: item_uid,
@@ -4123,9 +4023,9 @@ window.set_layout = function (item_uid, layout) {
             },
         },
         success: function () {
-            if ( layout === 'details' ) {
+            if (layout === 'details') {
                 let el_window = $(`.window[data-uid="${item_uid}"]`);
-                if ( el_window.length > 0 ) {
+                if (el_window.length > 0) {
                     let sort_by = el_window.attr('data-sort_by');
                     let sort_order = el_window.attr('data-sort_order');
                     window.update_details_layout_sort_visuals(el_window, sort_by, sort_order);
@@ -4139,28 +4039,26 @@ window.update_details_layout_sort_visuals = function (el_window, sort_by, sort_o
     let sort_icon = '';
     $(el_window).find('.explore-table-headers-th > .header-sort-icon').html('');
 
-    if ( !sort_order || sort_order === 'asc' )
-    {
+    if (!sort_order || sort_order === 'asc') {
         sort_icon = `<img src="${window.icons['up-arrow.svg']}">`;
     }
-    else if ( sort_order === 'desc' )
-    {
+    else if (sort_order === 'desc') {
         sort_icon = `<img src="${window.icons['down-arrow.svg']}">`;
     }
 
-    if ( !sort_by || sort_by === 'name' ) {
+    if (!sort_by || sort_by === 'name') {
         $(el_window).find('.explore-table-headers-th').removeClass('explore-table-headers-th-active');
         $(el_window).find('.explore-table-headers-th--name').addClass('explore-table-headers-th-active');
         $(el_window).find('.explore-table-headers-th--name > .header-sort-icon').html(sort_icon);
-    } else if ( sort_by === 'size' ) {
+    } else if (sort_by === 'size') {
         $(el_window).find('.explore-table-headers-th').removeClass('explore-table-headers-th-active');
         $(el_window).find('.explore-table-headers-th--size').addClass('explore-table-headers-th-active');
         $(el_window).find('.explore-table-headers-th--size > .header-sort-icon').html(sort_icon);
-    } else if ( sort_by === 'modified' ) {
+    } else if (sort_by === 'modified') {
         $(el_window).find('.explore-table-headers-th').removeClass('explore-table-headers-th-active');
         $(el_window).find('.explore-table-headers-th--modified').addClass('explore-table-headers-th-active');
         $(el_window).find('.explore-table-headers-th--modified > .header-sort-icon').html(sort_icon);
-    } else if ( sort_by === 'type' ) {
+    } else if (sort_by === 'type') {
         $(el_window).find('.explore-table-headers-th').removeClass('explore-table-headers-th-active');
         $(el_window).find('.explore-table-headers-th--type').addClass('explore-table-headers-th-active');
         $(el_window).find('.explore-table-headers-th--type > .header-sort-icon').html(sort_icon);
@@ -4172,7 +4070,7 @@ window.update_details_layout_sort_visuals = function (el_window, sort_by, sort_o
 // w3c is working on a fix for this, but it's not ready yet.
 // more info here: https://github.com/w3c/webappsec-permissions-policy/issues/171
 document.addEventListener('scroll', function (event) {
-    if ( $(event.target).hasClass('window-app') || $(event.target).hasClass('window-app-iframe') || $(event.target?.activeElement).hasClass('window-app-iframe') ) {
+    if ($(event.target).hasClass('window-app') || $(event.target).hasClass('window-app-iframe') || $(event.target?.activeElement).hasClass('window-app-iframe')) {
         setTimeout(function () {
             // scroll window back to top
             $('.window-app').scrollTop(0);
@@ -4183,7 +4081,7 @@ document.addEventListener('scroll', function (event) {
 }, true);
 
 // Function to save sidebar order to user preferences
-async function saveSidebarOrder (order) {
+async function saveSidebarOrder(order) {
     try {
         await puter.kv.set({
             key: 'sidebar_items',
@@ -4192,7 +4090,7 @@ async function saveSidebarOrder (order) {
 
         // Save to window object for quick access
         window.sidebar_items = JSON.stringify(order);
-    } catch ( err ) {
+    } catch (err) {
         console.error('Error saving sidebar order:', err);
     }
 }
@@ -4202,9 +4100,9 @@ window.update_maximized_window_for_taskbar = function (el_window) {
     const position = window.taskbar_position || 'bottom';
 
     // Handle fullpage mode differently
-    if ( window.is_fullpage_mode ) {
+    if (window.is_fullpage_mode) {
         $(el_window).css({
-            'top': `${window.toolbar_height }px`,
+            'top': `${window.toolbar_height}px`,
             'left': '0',
             'width': '100%',
             'height': `calc(100% - ${window.toolbar_height}px)`,
@@ -4212,38 +4110,38 @@ window.update_maximized_window_for_taskbar = function (el_window) {
         return;
     }
 
-    if ( position === 'bottom' ) {
+    if (position === 'bottom') {
         let height = window.innerHeight - window.taskbar_height - window.toolbar_height - 6;
         let width = '100%';
 
         // any open panels?
-        if ( is_panel_open() ) {
+        if (is_panel_open()) {
             width = window.innerWidth - PANEL_WIDTH - 2;
         }
 
         $(el_window).css({
-            'top': `${window.toolbar_height }px`,
+            'top': `${window.toolbar_height}px`,
             'left': '0',
             'width': width,
-            'height': `${height }px`,
+            'height': `${height}px`,
         });
-    } else if ( position === 'left' ) {
+    } else if (position === 'left') {
         let width = window.innerWidth - window.taskbar_height - 1;
 
         // any open panels?
-        if ( is_panel_open() ) {
+        if (is_panel_open()) {
             width = `calc(100% - ${window.taskbar_height + 1}px - ${PANEL_WIDTH}px - 1px)`;
         }
 
         $(el_window).css({
-            'top': `${window.toolbar_height }px`,
-            'left': `${window.taskbar_height + 1 }px`,
+            'top': `${window.toolbar_height}px`,
+            'left': `${window.taskbar_height + 1}px`,
             'width': width,
             'height': `calc(100% - ${window.toolbar_height}px)`,
         });
-    } else if ( position === 'right' ) {
+    } else if (position === 'right') {
         $(el_window).css({
-            'top': `${window.toolbar_height }px`,
+            'top': `${window.toolbar_height}px`,
             'left': '0',
             'width': `calc(100% - ${window.taskbar_height + 1}px)`,
             'height': `calc(100% - ${window.toolbar_height}px)`,
@@ -4252,17 +4150,17 @@ window.update_maximized_window_for_taskbar = function (el_window) {
 };
 
 // Function to get snap dimensions and positions based on taskbar position
-function getSnapDimensions () {
+function getSnapDimensions() {
     const taskbar_position = window.taskbar_position || 'bottom';
 
     let available_width, available_height, start_x, start_y;
 
-    if ( taskbar_position === 'left' ) {
+    if (taskbar_position === 'left') {
         available_width = window.innerWidth - window.taskbar_height;
         available_height = window.innerHeight - window.toolbar_height;
         start_x = window.taskbar_height;
         start_y = window.toolbar_height;
-    } else if ( taskbar_position === 'right' ) {
+    } else if (taskbar_position === 'right') {
         available_width = window.innerWidth - window.taskbar_height;
         available_height = window.innerHeight - window.toolbar_height;
         start_x = 0;
@@ -4275,7 +4173,7 @@ function getSnapDimensions () {
     }
 
     // Adjust for open panel
-    if ( is_panel_open() ) {
+    if (is_panel_open()) {
         available_width = available_width - PANEL_WIDTH;
     }
 

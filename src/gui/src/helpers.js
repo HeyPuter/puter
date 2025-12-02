@@ -32,19 +32,17 @@ import get_html_element_from_options from './helpers/get_html_element_from_optio
 import item_icon from './helpers/item_icon.js';
 
 window.is_auth = () => {
-    if ( localStorage.getItem('auth_token') === null || window.auth_token === null )
-    {
+    if (localStorage.getItem('auth_token') === null || window.auth_token === null) {
         return false;
     }
-    else
-    {
+    else {
         return true;
     }
 };
 
 window.suggest_apps_for_fsentry = async (options) => {
     let res = await $.ajax({
-        url: `${window.api_origin }/suggest_apps`,
+        url: `${window.api_origin}/suggest_apps`,
         type: 'POST',
         contentType: 'application/json',
         data: JSON.stringify({
@@ -60,8 +58,7 @@ window.suggest_apps_for_fsentry = async (options) => {
             },
         },
         success: function (res) {
-            if ( options.onSuccess && typeof options.onSuccess == 'function' )
-            {
+            if (options.onSuccess && typeof options.onSuccess == 'function') {
                 options.onSuccess(res);
             }
         },
@@ -78,9 +75,9 @@ window.suggest_apps_for_fsentry = async (options) => {
  */
 window.byte_format = (bytes) => {
     const sizes = ['Bytes', 'KB', 'MB', 'GB', 'TB'];
-    if ( bytes === 0 ) return '0 Byte';
+    if (bytes === 0) return '0 Byte';
     const i = parseInt(Math.floor(Math.log(bytes) / Math.log(1024)));
-    return `${(bytes / Math.pow(1024, i)).toFixed(2) } ${ sizes[i]}`;
+    return `${(bytes / Math.pow(1024, i)).toFixed(2)} ${sizes[i]}`;
 };
 
 /**
@@ -153,11 +150,11 @@ window.scrollParentToChild = (parent, child) => {
     var isViewable = (childRect.top >= parentRect.top) && (childRect.bottom <= parentRect.top + parentViewableArea.height);
 
     // if you can't see the child try to scroll parent
-    if ( ! isViewable ) {
+    if (!isViewable) {
         // Should we scroll using top or bottom? Find the smaller ABS adjustment
         const scrollTop = childRect.top - parentRect.top;
         const scrollBot = childRect.bottom - parentRect.bottom;
-        if ( Math.abs(scrollTop) < Math.abs(scrollBot) ) {
+        if (Math.abs(scrollTop) < Math.abs(scrollBot)) {
             // we're near the top of the list
             parent.scrollTop += (scrollTop + 80);
         } else {
@@ -186,32 +183,25 @@ window.scrollParentToChild = (parent, child) => {
  * 6. Name cannot exceed the maximum allowed length (as defined in window.max_item_name_length).
  */
 window.validate_fsentry_name = function (name) {
-    if ( ! name )
-    {
+    if (!name) {
         throw { message: i18n('name_cannot_be_empty') };
     }
-    else if ( ! window.isString(name) )
-    {
+    else if (!window.isString(name)) {
         throw { message: i18n('name_must_be_string') };
     }
-    else if ( name.includes('/') )
-    {
+    else if (name.includes('/')) {
         throw { message: i18n('name_cannot_contain_slash') };
     }
-    else if ( name === '.' )
-    {
+    else if (name === '.') {
         throw { message: i18n('name_cannot_contain_period') };
     }
-    else if ( name === '..' )
-    {
+    else if (name === '..') {
         throw { message: i18n('name_cannot_contain_double_period') };
     }
-    else if ( name.length > window.max_item_name_length )
-    {
+    else if (name.length > window.max_item_name_length) {
         throw { message: i18n('name_too_long', window.max_item_name_length) };
     }
-    else
-    {
+    else {
         return true;
     }
 };
@@ -245,7 +235,7 @@ window.generate_identifier = function () {
 
     // return a random combination of first_adj + noun + number (between 0 and 9999)
     // e.g. clever-idea-123
-    return `${first_adj[Math.floor(Math.random() * first_adj.length)] }-${ nouns[Math.floor(Math.random() * nouns.length)] }-${ Math.floor(Math.random() * 10000)}`;
+    return `${first_adj[Math.floor(Math.random() * first_adj.length)]}-${nouns[Math.floor(Math.random() * nouns.length)]}-${Math.floor(Math.random() * 10000)}`;
 };
 
 /**
@@ -280,41 +270,39 @@ window.isString = function (variable) {
 
 window.check_fsentry_against_allowed_file_types_string = function (fsentry, allowed_file_types_string) {
     // simple cases that are always a pass
-    if ( !allowed_file_types_string || allowed_file_types_string.trim() === '' )
-    {
+    if (!allowed_file_types_string || allowed_file_types_string.trim() === '') {
         return true;
     }
 
     // parse allowed_file_types into an array of extensions and types
     let allowed_file_types = allowed_file_types_string.split(',');
-    if ( allowed_file_types.length > 0 ) {
+    if (allowed_file_types.length > 0) {
         // trim every entry
-        for ( let index = 0; index < allowed_file_types.length; index++ ) {
+        for (let index = 0; index < allowed_file_types.length; index++) {
             allowed_file_types[index] = allowed_file_types[index].trim();
         }
     }
 
     let passes_allowed_file_type_filter = true;
     // check types, only if this fsentry is a file and not a directory
-    if ( !fsentry.is_dir && allowed_file_types.length > 0 ) {
+    if (!fsentry.is_dir && allowed_file_types.length > 0) {
         passes_allowed_file_type_filter = false;
-        for ( let index = 0; index < allowed_file_types.length; index++ ) {
+        for (let index = 0; index < allowed_file_types.length; index++) {
             const allowed_file_type = allowed_file_types[index].toLowerCase();
 
             // if type is not already set, try to set it based on the file name
-            if ( ! fsentry.type )
-            {
+            if (!fsentry.type) {
                 fsentry.type = mime.getType(fsentry.name);
             }
 
             // extensions (e.g. .jpg)
-            if ( allowed_file_type.startsWith('.') && fsentry.name.toLowerCase().endsWith(allowed_file_type) ) {
+            if (allowed_file_type.startsWith('.') && fsentry.name.toLowerCase().endsWith(allowed_file_type)) {
                 passes_allowed_file_type_filter = true;
                 break;
             }
 
             // MIME types (e.g. text/plain)
-            else if ( globToRegExp(allowed_file_type).test(fsentry.type?.toLowerCase()) ) {
+            else if (globToRegExp(allowed_file_type).test(fsentry.type?.toLowerCase())) {
                 passes_allowed_file_type_filter = true;
                 break;
             }
@@ -324,125 +312,111 @@ window.check_fsentry_against_allowed_file_types_string = function (fsentry, allo
     return passes_allowed_file_type_filter;
 }
 
-// @author Rich Adams <rich@richadams.me>
+    // @author Rich Adams <rich@richadams.me>
 
-// Implements a tap and hold functionality. If you click/tap and release, it will trigger a normal
-// click event. But if you click/tap and hold for 1s (default), it will trigger a taphold event instead.
+    // Implements a tap and hold functionality. If you click/tap and release, it will trigger a normal
+    // click event. But if you click/tap and hold for 1s (default), it will trigger a taphold event instead.
 
-;(function ($)
-{
-    // Default options
-    var defaults = {
-        duration: 500, // ms
-        clickHandler: null,
-    };
+    ; (function ($) {
+        // Default options
+        var defaults = {
+            duration: 500, // ms
+            clickHandler: null,
+        };
 
-    // When start of a taphold event is triggered.
-    function startHandler (event)
-    {
-        var $elem = jQuery(this);
+        // When start of a taphold event is triggered.
+        function startHandler(event) {
+            var $elem = jQuery(this);
 
-        // Merge the defaults and any user defined settings.
-        let settings = jQuery.extend({}, defaults, event.data);
+            // Merge the defaults and any user defined settings.
+            let settings = jQuery.extend({}, defaults, event.data);
 
-        // If object also has click handler, store it and unbind. Taphold will trigger the
-        // click itself, rather than normal propagation.
-        if ( typeof $elem.data('events') != 'undefined'
-            && typeof $elem.data('events').click != 'undefined' )
-        {
-            // Find the one without a namespace defined.
-            for ( var c in $elem.data('events').click )
-            {
-                if ( $elem.data('events').click[c].namespace == '' )
-                {
-                    var handler = $elem.data('events').click[c].handler;
-                    $elem.data('taphold_click_handler', handler);
-                    $elem.unbind('click', handler);
-                    break;
+            // If object also has click handler, store it and unbind. Taphold will trigger the
+            // click itself, rather than normal propagation.
+            if (typeof $elem.data('events') != 'undefined'
+                && typeof $elem.data('events').click != 'undefined') {
+                // Find the one without a namespace defined.
+                for (var c in $elem.data('events').click) {
+                    if ($elem.data('events').click[c].namespace == '') {
+                        var handler = $elem.data('events').click[c].handler;
+                        $elem.data('taphold_click_handler', handler);
+                        $elem.unbind('click', handler);
+                        break;
+                    }
                 }
             }
-        }
-        // Otherwise, if a custom click handler was explicitly defined, then store it instead.
-        else if ( typeof settings.clickHandler == 'function' )
-        {
-            $elem.data('taphold_click_handler', settings.clickHandler);
-        }
-
-        // Reset the flags
-        $elem.data('taphold_triggered', false); // If a hold was triggered
-        $elem.data('taphold_clicked', false); // If a click was triggered
-        $elem.data('taphold_cancelled', false); // If event has been cancelled.
-
-        // Set the timer for the hold event.
-        $elem.data('taphold_timer',
-                        setTimeout(function ()
-                        {
-                            // If event hasn't been cancelled/clicked already, then go ahead and trigger the hold.
-                            if ( !$elem.data('taphold_cancelled')
-                                && !$elem.data('taphold_clicked') )
-                            {
-                                // Trigger the hold event, and set the flag to say it's been triggered.
-                                $elem.trigger(jQuery.extend(event, jQuery.Event('taphold')));
-                                $elem.data('taphold_triggered', true);
-                            }
-                        }, settings.duration));
-    }
-
-    // When user ends a tap or click, decide what we should do.
-    function stopHandler (event)
-    {
-        var $elem = jQuery(this);
-
-        // If taphold has been cancelled, then we're done.
-        if ( $elem.data('taphold_cancelled') ) {
-            return;
-        }
-
-        // Clear the hold timer. If it hasn't already triggered, then it's too late anyway.
-        clearTimeout($elem.data('taphold_timer'));
-
-        // If hold wasn't triggered and not already clicked, then was a click event.
-        if ( !$elem.data('taphold_triggered')
-            && !$elem.data('taphold_clicked') )
-        {
-            // If click handler, trigger it.
-            if ( typeof $elem.data('taphold_click_handler') == 'function' )
-            {
-                $elem.data('taphold_click_handler')(jQuery.extend(event, jQuery.Event('click')));
+            // Otherwise, if a custom click handler was explicitly defined, then store it instead.
+            else if (typeof settings.clickHandler == 'function') {
+                $elem.data('taphold_click_handler', settings.clickHandler);
             }
 
-            // Set flag to say we've triggered the click event.
-            $elem.data('taphold_clicked', true);
+            // Reset the flags
+            $elem.data('taphold_triggered', false); // If a hold was triggered
+            $elem.data('taphold_clicked', false); // If a click was triggered
+            $elem.data('taphold_cancelled', false); // If event has been cancelled.
+
+            // Set the timer for the hold event.
+            $elem.data('taphold_timer',
+                setTimeout(function () {
+                    // If event hasn't been cancelled/clicked already, then go ahead and trigger the hold.
+                    if (!$elem.data('taphold_cancelled')
+                        && !$elem.data('taphold_clicked')) {
+                        // Trigger the hold event, and set the flag to say it's been triggered.
+                        $elem.trigger(jQuery.extend(event, jQuery.Event('taphold')));
+                        $elem.data('taphold_triggered', true);
+                    }
+                }, settings.duration));
         }
-    }
 
-    // If a user prematurely leaves the boundary of the object we're working on.
-    function leaveHandler (event)
-    {
-        // Cancel the event.
-        $(this).data('taphold_cancelled', true);
-    }
+        // When user ends a tap or click, decide what we should do.
+        function stopHandler(event) {
+            var $elem = jQuery(this);
 
-    // Determine if touch events are supported.
-    var touchSupported = ('ontouchstart' in window) // Most browsers
-        || ('onmsgesturechange' in window); // Microsoft
+            // If taphold has been cancelled, then we're done.
+            if ($elem.data('taphold_cancelled')) {
+                return;
+            }
 
-    var taphold = $.event.special.taphold =
+            // Clear the hold timer. If it hasn't already triggered, then it's too late anyway.
+            clearTimeout($elem.data('taphold_timer'));
+
+            // If hold wasn't triggered and not already clicked, then was a click event.
+            if (!$elem.data('taphold_triggered')
+                && !$elem.data('taphold_clicked')) {
+                // If click handler, trigger it.
+                if (typeof $elem.data('taphold_click_handler') == 'function') {
+                    $elem.data('taphold_click_handler')(jQuery.extend(event, jQuery.Event('click')));
+                }
+
+                // Set flag to say we've triggered the click event.
+                $elem.data('taphold_clicked', true);
+            }
+        }
+
+        // If a user prematurely leaves the boundary of the object we're working on.
+        function leaveHandler(event) {
+            // Cancel the event.
+            $(this).data('taphold_cancelled', true);
+        }
+
+        // Determine if touch events are supported.
+        var touchSupported = ('ontouchstart' in window) // Most browsers
+            || ('onmsgesturechange' in window); // Microsoft
+
+        var taphold = $.event.special.taphold =
         {
-            setup: function (data)
-            {
+            setup: function (data) {
                 $(this).bind((touchSupported ? 'touchstart' : 'mousedown'), data, startHandler)
                     .bind((touchSupported ? 'touchend' : 'mouseup'), stopHandler)
                     .bind((touchSupported ? 'touchmove touchcancel' : 'mouseleave'), leaveHandler);
             },
-            teardown: function (namespaces)
-            {
+            teardown: function (namespaces) {
                 $(this).unbind((touchSupported ? 'touchstart' : 'mousedown'), startHandler)
                     .unbind((touchSupported ? 'touchend' : 'mouseup'), stopHandler)
                     .unbind((touchSupported ? 'touchmove touchcancel' : 'mouseleave'), leaveHandler);
             },
         };
-})(jQuery);
+    })(jQuery);
 
 window.refresh_user_data = async (auth_token) => {
     let whoami;
@@ -452,7 +426,7 @@ window.refresh_user_data = async (auth_token) => {
         // Ignored
     }
     // update local user data
-    if ( whoami ) {
+    if (whoami) {
         window.update_auth_data(auth_token, whoami);
     }
 };
@@ -462,13 +436,12 @@ window.update_auth_data = async (auth_token, user) => {
     localStorage.setItem('auth_token', auth_token);
 
     // Has username changed?
-    if ( window.user?.username !== user.username )
-    {
+    if (window.user?.username !== user.username) {
         update_username_in_gui(user.username);
     }
 
     // Has email changed?
-    if ( window.user?.email !== user.email && user.email ) {
+    if (window.user?.email !== user.email && user.email) {
         $('.user-email').html(html_encode(user.email));
     }
 
@@ -480,12 +453,12 @@ window.update_auth_data = async (auth_token, user) => {
         blob.text()
             .then(text => {
                 const profile = JSON.parse(text);
-                if ( profile.picture ) {
+                if (profile.picture) {
                     window.user.profile.picture = html_encode(profile.picture);
                 }
 
                 // update profile picture in GUI
-                if ( window.user.profile.picture ) {
+                if (window.user.profile.picture) {
                     $('.profile-pic').css('background-image', `url(${window.user.profile.picture})`);
                 }
             })
@@ -493,7 +466,7 @@ window.update_auth_data = async (auth_token, user) => {
                 console.error('Error converting Blob to JSON:', error);
             });
     }).catch((e) => {
-        if ( e?.code === 'subject_does_not_exist' ) {
+        if (e?.code === 'subject_does_not_exist') {
             // create .profile file
             puter.fs.write(`/${user.username}/Public/.profile`, JSON.stringify({}));
         }
@@ -515,10 +488,10 @@ window.update_auth_data = async (auth_token, user) => {
     puter.setAuthToken(auth_token, window.api_origin);
 
     //update the logged_in_users array entry for this user
-    if ( window.user ) {
+    if (window.user) {
         let logged_in_users_updated = false;
-        for ( let i = 0; i < window.logged_in_users.length && !logged_in_users_updated; i++ ) {
-            if ( window.logged_in_users[i].uuid === window.user.uuid ) {
+        for (let i = 0; i < window.logged_in_users.length && !logged_in_users_updated; i++) {
+            if (window.logged_in_users[i].uuid === window.user.uuid) {
                 window.logged_in_users[i] = window.user;
                 window.logged_in_users[i].auth_token = window.auth_token;
                 logged_in_users_updated = true;
@@ -526,7 +499,7 @@ window.update_auth_data = async (auth_token, user) => {
         }
 
         // no matching array elements, add one
-        if ( ! logged_in_users_updated ) {
+        if (!logged_in_users_updated) {
             let userobj = window.user;
             userobj.auth_token = window.auth_token;
             window.logged_in_users.push(userobj);
@@ -535,17 +508,17 @@ window.update_auth_data = async (auth_token, user) => {
         localStorage.setItem('logged_in_users', JSON.stringify(window.logged_in_users.map(to_storable_user)));
     }
 
-    window.desktop_path = `/${ window.user.username }/Desktop`;
-    window.trash_path = `/${ window.user.username }/Trash`;
-    window.appdata_path = `/${ window.user.username }/AppData`;
-    window.docs_path = `/${ window.user.username }/Documents`;
-    window.pictures_path = `/${ window.user.username }/Pictures`;
-    window.videos_path = `/${ window.user.username }/Videos`;
-    window.desktop_path = `/${ window.user.username }/Desktop`;
-    window.home_path = `/${ window.user.username}`;
-    window.public_path = `/${ window.user.username }/Public`;
+    window.desktop_path = `/${window.user.username}/Desktop`;
+    window.trash_path = `/${window.user.username}/Trash`;
+    window.appdata_path = `/${window.user.username}/AppData`;
+    window.docs_path = `/${window.user.username}/Documents`;
+    window.pictures_path = `/${window.user.username}/Pictures`;
+    window.videos_path = `/${window.user.username}/Videos`;
+    window.desktop_path = `/${window.user.username}/Desktop`;
+    window.home_path = `/${window.user.username}`;
+    window.public_path = `/${window.user.username}/Public`;
 
-    if ( window.user !== null && !window.user.is_temp ) {
+    if (window.user !== null && !window.user.is_temp) {
         $('.user-options-login-btn, .user-options-create-account-btn').hide();
         $('.user-options-menu-btn').show();
     }
@@ -555,7 +528,7 @@ window.update_auth_data = async (auth_token, user) => {
 };
 
 window.mutate_user_preferences = function (user_preferences_delta) {
-    for ( const [key, value] of Object.entries(user_preferences_delta) ) {
+    for (const [key, value] of Object.entries(user_preferences_delta)) {
         // Don't wait for set to be done for better efficiency
         puter.kv.set(`user_preferences.${key}`, value);
     }
@@ -620,19 +593,17 @@ window.is_fullscreen = () => {
 };
 
 window.get_apps = async (app_names, callback) => {
-    if ( Array.isArray(app_names) )
-    {
+    if (Array.isArray(app_names)) {
         app_names = app_names.join('|');
     }
 
     // 'explorer' is a special app, no metadata should be returned
-    if ( app_names === 'explorer' )
-    {
+    if (app_names === 'explorer') {
         return [];
     }
 
     let res = await $.ajax({
-        url: `${window.api_origin }/apps/${app_names}`,
+        url: `${window.api_origin}/apps/${app_names}`,
         type: 'GET',
         async: true,
         contentType: 'application/json',
@@ -643,17 +614,14 @@ window.get_apps = async (app_names, callback) => {
         },
     });
 
-    if ( res.length === 1 )
-    {
+    if (res.length === 1) {
         res = res[0];
     }
 
-    if ( callback && typeof callback === 'function' )
-    {
+    if (callback && typeof callback === 'function') {
         callback(res);
     }
-    else
-    {
+    else {
         return res;
     }
 };
@@ -678,10 +646,10 @@ window.get_apps = async (app_names, callback) => {
  * window.sendItemChangeEventToWatchingApps('item123', { property: 'value' });
  */
 window.sendItemChangeEventToWatchingApps = function (item_uid, event_data) {
-    if ( window.watchItems[item_uid] ) {
+    if (window.watchItems[item_uid]) {
         window.watchItems[item_uid].forEach(app_instance_id => {
             const iframe = $(`.window[data-element_uuid="${app_instance_id}"]`).find('.window-app-iframe');
-            if ( iframe && iframe.length > 0 ) {
+            if (iframe && iframe.length > 0) {
                 iframe.get(0)?.contentWindow
                     .postMessage({
                         msg: 'itemChanged',
@@ -711,7 +679,7 @@ window.show_save_account_notice_if_needed = function (message) {
     puter.kv.get({
         key: 'save_account_notice_shown',
     }).then(async function (value) {
-        if ( !value && window.user?.is_temp ) {
+        if (!value && window.user?.is_temp) {
             puter.kv.set({
                 key: 'save_account_notice_shown',
                 value: true,
@@ -743,15 +711,15 @@ window.show_save_account_notice_if_needed = function (message) {
 
                 });
 
-                if ( alert_resp === 'remind-later' ) {
+                if (alert_resp === 'remind-later') {
                     // TODO
                 }
-                if ( alert_resp === 'save-session' ) {
+                if (alert_resp === 'save-session') {
                     let saved = await UIWindowSaveAccount({
                         send_confirmation_code: false,
                     });
 
-                } else if ( alert_resp === 'login' ) {
+                } else if (alert_resp === 'login') {
                     let login_result = await UIWindowLogin({
                         show_signup_button: false,
                         reload_on_success: true,
@@ -770,54 +738,53 @@ window.show_save_account_notice_if_needed = function (message) {
 };
 
 window.onpopstate = (event) => {
-    if ( event.state !== null && event.state.window_id !== null ) {
+    if (event.state !== null && event.state.window_id !== null) {
         $(`.window[data-id="${event.state.window_id}"]`).focusWindow();
     }
 };
 
 window.sort_items = (item_container, sort_by, sort_order) => {
-    if ( sort_order !== 'asc' && sort_order !== 'desc' )
-    {
+    if (sort_order !== 'asc' && sort_order !== 'desc') {
         sort_order = 'asc';
     }
 
     $(item_container).find('.item[data-sortable="true"]').detach().sort(function (a, b) {
         // Name
-        if ( !sort_by || sort_by === 'name' ) {
-            if ( a.dataset.name.toLowerCase() < b.dataset.name.toLowerCase() ) {
+        if (!sort_by || sort_by === 'name') {
+            if (a.dataset.name.toLowerCase() < b.dataset.name.toLowerCase()) {
                 return (sort_order === 'asc' ? -1 : 1);
             }
-            if ( a.dataset.name.toLowerCase() > b.dataset.name.toLowerCase() ) {
+            if (a.dataset.name.toLowerCase() > b.dataset.name.toLowerCase()) {
                 return (sort_order === 'asc' ? 1 : -1);
             }
             return 0;
         }
         // Size
-        else if ( sort_by === 'size' ) {
-            if ( parseInt(a.dataset.size) < parseInt(b.dataset.size) ) {
+        else if (sort_by === 'size') {
+            if (parseInt(a.dataset.size) < parseInt(b.dataset.size)) {
                 return (sort_order === 'asc' ? -1 : 1);
             }
-            if ( parseInt(a.dataset.size) > parseInt(b.dataset.size) ) {
+            if (parseInt(a.dataset.size) > parseInt(b.dataset.size)) {
                 return (sort_order === 'asc' ? 1 : -1);
             }
             return 0;
         }
         // Modified
-        else if ( sort_by === 'modified' ) {
-            if ( parseInt(a.dataset.modified) < parseInt(b.dataset.modified) ) {
+        else if (sort_by === 'modified') {
+            if (parseInt(a.dataset.modified) < parseInt(b.dataset.modified)) {
                 return (sort_order === 'asc' ? -1 : 1);
             }
-            if ( parseInt(a.dataset.modified) > parseInt(b.dataset.modified) ) {
+            if (parseInt(a.dataset.modified) > parseInt(b.dataset.modified)) {
                 return (sort_order === 'asc' ? 1 : -1);
             }
             return 0;
         }
         // Type
-        else if ( sort_by === 'type' ) {
-            if ( path.extname(a.dataset.name.toLowerCase()) < path.extname(b.dataset.name.toLowerCase()) ) {
+        else if (sort_by === 'type') {
+            if (path.extname(a.dataset.name.toLowerCase()) < path.extname(b.dataset.name.toLowerCase())) {
                 return (sort_order === 'asc' ? -1 : 1);
             }
-            if ( path.extname(a.dataset.name.toLowerCase()) > path.extname(b.dataset.name.toLowerCase()) ) {
+            if (path.extname(a.dataset.name.toLowerCase()) > path.extname(b.dataset.name.toLowerCase())) {
                 return (sort_order === 'asc' ? 1 : -1);
             }
             return 0;
@@ -846,12 +813,12 @@ window.create_folder = async (basedir, appendto_element) => {
     // create folder
     try {
         await puter.fs.mkdir({
-            path: `${dirname }/${folder_name}`,
+            path: `${dirname}/${folder_name}`,
             rename: true,
             overwrite: false,
             success: function (data) {
                 const el_created_dir = $(appendto_element).find(`.item[data-path="${html_encode(dirname)}/${html_encode(data.name)}"]`);
-                if ( el_created_dir.length > 0 ) {
+                if (el_created_dir.length > 0) {
                     window.activate_item_name_editor(el_created_dir);
 
                     // Add action to actions_history for undo ability
@@ -863,7 +830,7 @@ window.create_folder = async (basedir, appendto_element) => {
                 }
             },
         });
-    } catch ( err ) {
+    } catch (err) {
     }
 };
 
@@ -879,7 +846,7 @@ window.create_file = async (options) => {
         puter.fs.upload(new File(content, filename), dirname, {
             success: async function (data) {
                 const created_file = $(appendto_element).find(`.item[data-path="${html_encode(dirname)}/${html_encode(data.name)}"]`);
-                if ( created_file.length > 0 ) {
+                if (created_file.length > 0) {
                     window.activate_item_name_editor(created_file);
 
                     // Add action to actions_history for undo ability
@@ -890,7 +857,7 @@ window.create_file = async (options) => {
                 }
             },
         });
-    } catch ( err ) {
+    } catch (err) {
         console.log(err);
     }
 };
@@ -906,7 +873,7 @@ window.available_templates = () => {
             // Directly check the templates directory
             const hasTemplateFiles = await puter.fs.readdir(templatesPath, { consistency: 'eventual' });
 
-            if ( hasTemplateFiles.length == 0 ) {
+            if (hasTemplateFiles.length == 0) {
                 window.file_templates = [];
                 return [];
             }
@@ -922,7 +889,7 @@ window.available_templates = () => {
                     ? ''
                     : element.name.slice(extIndex + 1);
 
-                if ( extension == 'txt' ) extension = 'text';
+                if (extension == 'txt') extension = 'text';
 
                 const _path = path.join(templatesPath, element.name);
 
@@ -939,7 +906,7 @@ window.available_templates = () => {
             window.file_templates = result;
             return result;
 
-        } catch ( err ) {
+        } catch (err) {
             console.log(err);
             window.file_templates = [];
         }
@@ -954,7 +921,7 @@ window.available_templates = () => {
 
 window.create_shortcut = async (filename, is_dir, basedir, appendto_element, shortcut_to, shortcut_to_path) => {
     const extname = path.extname(filename);
-    const basename = `${path.basename(filename, extname) } - Shortcut`;
+    const basename = `${path.basename(filename, extname)} - Shortcut`;
     filename = basename + extname;
 
     // create file shortcut
@@ -964,7 +931,7 @@ window.create_shortcut = async (filename, is_dir, basedir, appendto_element, sho
             shortcutTo: shortcut_to_path ?? shortcut_to,
             dedupeName: true,
         });
-    } catch ( err ) {
+    } catch (err) {
         console.log(err);
     }
 };
@@ -993,21 +960,19 @@ window.copy_clipboard_items = async function (dest_path, dest_container_element)
 
         const copied_item_paths = [];
 
-        for ( let i = 0; i < window.clipboard.length; i++ ) {
+        for (let i = 0; i < window.clipboard.length; i++) {
             let copy_path = window.clipboard[i].path;
             let item_with_same_name_already_exists = true;
             let overwrite = overwrite_all;
             progwin?.set_status(i18n('copying_file', copy_path));
 
             do {
-                if ( overwrite )
-                {
+                if (overwrite) {
                     item_with_same_name_already_exists = false;
                 }
 
                 // cancelled?
-                if ( window.operation_cancelled[copy_op_id] )
-                {
+                if (window.operation_cancelled[copy_op_id]) {
                     return;
                 }
 
@@ -1022,7 +987,7 @@ window.copy_clipboard_items = async function (dest_path, dest_container_element)
                     });
 
                     // remove overwritten item from the DOM
-                    if ( resp[0].overwritten?.id ) {
+                    if (resp[0].overwritten?.id) {
                         $(`.item[data-uid=${resp[0].overwritten.id}]`).removeItems();
                     }
 
@@ -1031,8 +996,8 @@ window.copy_clipboard_items = async function (dest_path, dest_container_element)
 
                     // skips next loop iteration
                     break;
-                } catch ( err ) {
-                    if ( err.code === 'item_with_same_name_exists' ) {
+                } catch (err) {
+                    if (err.code === 'item_with_same_name_exists') {
                         const alert_resp = await UIAlert({
                             message: `<strong>${html_encode(err.entry_name)}</strong> already exists.`,
                             buttons: [
@@ -1041,23 +1006,23 @@ window.copy_clipboard_items = async function (dest_path, dest_container_element)
                                 ... (window.clipboard.length > 1) ? [{ label: i18n('skip'), value: 'skip' }] : [{ label: i18n('cancel'), value: 'cancel' }],
                             ],
                         });
-                        if ( alert_resp === 'replace' ) {
+                        if (alert_resp === 'replace') {
                             overwrite = true;
-                        } else if ( alert_resp === 'replace_all' ) {
+                        } else if (alert_resp === 'replace_all') {
                             overwrite = true;
                             overwrite_all = true;
-                        } else if ( alert_resp === 'skip' || alert_resp === 'cancel' ) {
+                        } else if (alert_resp === 'skip' || alert_resp === 'cancel') {
                             item_with_same_name_already_exists = false;
                         }
                     }
                     else {
-                        if ( err.message ) {
+                        if (err.message) {
                             UIAlert(err.message);
                         }
                         item_with_same_name_already_exists = false;
                     }
                 }
-            } while ( item_with_same_name_already_exists );
+            } while (item_with_same_name_already_exists);
         }
 
         // done
@@ -1070,8 +1035,8 @@ window.copy_clipboard_items = async function (dest_path, dest_container_element)
         clearTimeout(progwin_timeout);
 
         let copy_duration = (Date.now() - copy_progress_window_init_ts);
-        if ( progwin ) {
-            if ( copy_duration >= window.copy_progress_hide_delay ) {
+        if (progwin) {
+            if (copy_duration >= window.copy_progress_hide_delay) {
                 progwin.close();
             } else {
                 setTimeout(() => {
@@ -1109,20 +1074,18 @@ window.copy_items = function (el_items, dest_path) {
 
         const copied_item_paths = [];
 
-        for ( let i = 0; i < el_items.length; i++ ) {
+        for (let i = 0; i < el_items.length; i++) {
             let copy_path = $(el_items[i]).attr('data-path');
             let item_with_same_name_already_exists = true;
             let overwrite = overwrite_all;
             progwin?.set_status(i18n('copying_file', copy_path));
 
             do {
-                if ( overwrite )
-                {
+                if (overwrite) {
                     item_with_same_name_already_exists = false;
                 }
                 // cancelled?
-                if ( window.operation_cancelled[copy_op_id] )
-                {
+                if (window.operation_cancelled[copy_op_id]) {
                     return;
                 }
                 try {
@@ -1135,7 +1098,7 @@ window.copy_items = function (el_items, dest_path) {
                     });
 
                     // remove overwritten item from the DOM
-                    if ( resp[0].overwritten?.id ) {
+                    if (resp[0].overwritten?.id) {
                         $(`.item[data-uid=${resp.overwritten.id}]`).removeItems();
                     }
 
@@ -1144,8 +1107,8 @@ window.copy_items = function (el_items, dest_path) {
 
                     // skips next loop iteration
                     item_with_same_name_already_exists = false;
-                } catch ( err ) {
-                    if ( err.code === 'item_with_same_name_exists' ) {
+                } catch (err) {
+                    if (err.code === 'item_with_same_name_exists') {
                         const alert_resp = await UIAlert({
                             message: `<strong>${html_encode(err.entry_name)}</strong> already exists.`,
                             buttons: [
@@ -1154,26 +1117,26 @@ window.copy_items = function (el_items, dest_path) {
                                 ... (el_items.length > 1) ? [{ label: i18n('skip'), value: 'skip' }] : [{ label: i18n('cancel'), value: 'cancel' }],
                             ],
                         });
-                        if ( alert_resp === 'replace' ) {
+                        if (alert_resp === 'replace') {
                             overwrite = true;
-                        } else if ( alert_resp === 'replace_all' ) {
+                        } else if (alert_resp === 'replace_all') {
                             overwrite = true;
                             overwrite_all = true;
-                        } else if ( alert_resp === 'skip' || alert_resp === 'cancel' ) {
+                        } else if (alert_resp === 'skip' || alert_resp === 'cancel') {
                             item_with_same_name_already_exists = false;
                         }
                     }
                     else {
-                        if ( err.message ) {
+                        if (err.message) {
                             UIAlert(err.message);
                         }
-                        else if ( err ) {
+                        else if (err) {
                             UIAlert(err);
                         }
                         item_with_same_name_already_exists = false;
                     }
                 }
-            } while ( item_with_same_name_already_exists );
+            } while (item_with_same_name_already_exists);
         }
 
         // done
@@ -1186,8 +1149,8 @@ window.copy_items = function (el_items, dest_path) {
         clearTimeout(progwin_timeout);
 
         let copy_duration = (Date.now() - copy_progress_window_init_ts);
-        if ( progwin ) {
-            if ( copy_duration >= window.copy_progress_hide_delay ) {
+        if (progwin) {
+            if (copy_duration >= window.copy_progress_hide_delay) {
                 progwin.close();
             } else {
                 setTimeout(() => {
@@ -1208,15 +1171,14 @@ window.copy_items = function (el_items, dest_path) {
  * @returns {Promise<void>}
  */
 window.delete_item = async function (el_item, descendants_only = false) {
-    if ( $(el_item).attr('data-immutable') === '1' )
-    {
+    if ($(el_item).attr('data-immutable') === '1') {
         return;
     }
 
     // hide all UIItems with matching uids
     $(`.item[data-uid='${$(el_item).attr('data-uid')}']`).fadeOut(150, function () {
         // close all windows with matching uids
-        $(`.window-${ $(el_item).attr('data-uid')}`).close();
+        $(`.window-${$(el_item).attr('data-uid')}`).close();
         // close all windows that belong to a descendant of this item
         // todo this has to be case-insensitive but the `i` selector doesn't work on ^=
         $(`.window[data-path^="${$(el_item).attr('data-path')}/"]`).close();
@@ -1242,7 +1204,7 @@ window.delete_item = async function (el_item, descendants_only = false) {
             // update all shortcuts to this item
             $(`.item[data-shortcut_to_path="${html_encode($(el_item).attr('data-path'))}" i]`).attr('data-shortcut_to_path', '');
         });
-    } catch ( err ) {
+    } catch (err) {
         UIAlert(err.responseText);
     }
 };
@@ -1250,12 +1212,11 @@ window.delete_item = async function (el_item, descendants_only = false) {
 window.move_clipboard_items = function (el_target_container, target_path) {
     let dest_path = target_path === undefined ? $(el_target_container).attr('data-path') : target_path;
     let el_items = [];
-    if ( window.clipboard.length > 0 ) {
-        for ( let i = 0; i < window.clipboard.length; i++ ) {
+    if (window.clipboard.length > 0) {
+        for (let i = 0; i < window.clipboard.length; i++) {
             el_items.push($(`.item[data-path="${html_encode(window.clipboard[i])}" i]`));
         }
-        if ( el_items.length > 0 )
-        {
+        if (el_items.length > 0) {
             window.move_items(el_items, dest_path);
         }
     }
@@ -1263,7 +1224,7 @@ window.move_clipboard_items = function (el_target_container, target_path) {
     window.clipboard = [];
 };
 
-function downloadFile (url, postData = {}) {
+function downloadFile(url, postData = {}) {
     // Create a hidden iframe to trigger the download
     const iframe = document.createElement('iframe');
     iframe.style.display = 'none';
@@ -1316,9 +1277,9 @@ function downloadFile (url, postData = {}) {
  */
 window.trigger_download = (paths) => {
     let urls = [];
-    for ( let index = 0; index < paths.length; index++ ) {
+    for (let index = 0; index < paths.length; index++) {
         urls.push({
-            download: `${window.origin }/down?path=${ paths[index]}`,
+            download: `${window.origin}/down?path=${paths[index]}`,
             filename: path.basename(paths[index]),
         });
     }
@@ -1328,7 +1289,7 @@ window.trigger_download = (paths) => {
             const resp = await fetch(`${window.gui_origin}/get-anticsrf-token`, {
                 headers: {
                     'Content-Type': 'application/json',
-                    'Authorization': `Bearer ${ window.auth_token}`,
+                    'Authorization': `Bearer ${window.auth_token}`,
                 },
             });
             const { token } = await resp.json();
@@ -1345,7 +1306,7 @@ window.trigger_download = (paths) => {
             method: 'POST',
             headers: {
                 'Content-Type': 'application/json',
-                'Authorization': `Bearer ${ puter.authToken}`,
+                'Authorization': `Bearer ${puter.authToken}`,
             },
             body: JSON.stringify({
                 anti_csrf,
@@ -1375,14 +1336,13 @@ window.move_items = async function (el_items, dest_path, is_undo = false) {
     // are immutable do not proceed
     // --------------------------------------------------------
     let all_items_are_immutable = true;
-    for ( let i = 0; i < el_items.length; i++ ) {
-        if ( $(el_items[i]).attr('data-immutable') === '0' ) {
+    for (let i = 0; i < el_items.length; i++) {
+        if ($(el_items[i]).attr('data-immutable') === '0') {
             all_items_are_immutable = false;
             break;
         }
     }
-    if ( all_items_are_immutable )
-    {
+    if (all_items_are_immutable) {
         return;
     }
 
@@ -1411,24 +1371,22 @@ window.move_items = async function (el_items, dest_path, is_undo = false) {
     const moved_items = [];
 
     // Go through each item and try to move it
-    for ( let i = 0; i < el_items.length; i++ ) {
+    for (let i = 0; i < el_items.length; i++) {
         // get current item
         let el_item = el_items[i];
 
         // if operation cancelled by user, stop
-        if ( window.operation_cancelled[move_op_id] )
-        {
+        if (window.operation_cancelled[move_op_id]) {
             return;
         }
 
         // cannot move an immutable item, skip it
-        if ( $(el_item).attr('data-immutable') === '1' )
-        {
+        if ($(el_item).attr('data-immutable') === '1') {
             continue;
         }
 
         // cannot move item to its own path, skip it
-        if ( path.dirname($(el_item).attr('data-path')) === dest_path ) {
+        if (path.dirname($(el_item).attr('data-path')) === dest_path) {
             await UIAlert(`<p>Moving <strong>${html_encode($(el_item).attr('data-name'))}</strong></p>Cannot move item to its current location.`);
 
             continue;
@@ -1451,8 +1409,7 @@ window.move_items = async function (el_items, dest_path, is_undo = false) {
                 let metadata = $(el_item).attr('data-metadata');
 
                 // no metadata?
-                if ( metadata === '' || metadata === 'null' || metadata === null )
-                {
+                if (metadata === '' || metadata === 'null' || metadata === null) {
                     metadata = {};
                 }
                 // try to parse metadata as JSON
@@ -1467,8 +1424,7 @@ window.move_items = async function (el_items, dest_path, is_undo = false) {
                 let new_name;
 
                 // user cancelled?
-                if ( window.operation_cancelled[move_op_id] )
-                {
+                if (window.operation_cancelled[move_op_id]) {
                     return;
                 }
 
@@ -1480,7 +1436,7 @@ window.move_items = async function (el_items, dest_path, is_undo = false) {
                 // --------------------------------------------------------
                 // Trashing
                 // --------------------------------------------------------
-                if ( dest_path === window.trash_path ) {
+                if (dest_path === window.trash_path) {
                     new_name = $(el_item).attr('data-uid');
                     metadata = {
                         original_name: $(el_item).attr('data-name'),
@@ -1491,8 +1447,7 @@ window.move_items = async function (el_items, dest_path, is_undo = false) {
                     status_i18n_string = 'deleting_file';
 
                     // update other clients
-                    if ( window.socket )
-                    {
+                    if (window.socket) {
                         window.socket.emit('trash.is_empty', { is_empty: false });
                     }
 
@@ -1503,7 +1458,7 @@ window.move_items = async function (el_items, dest_path, is_undo = false) {
                 }
 
                 // moving an item into a trashed directory? deny.
-                else if ( dest_path.startsWith(window.trash_path) ) {
+                else if (dest_path.startsWith(window.trash_path)) {
                     progwin?.close();
                     UIAlert('Cannot move items into a deleted folder.');
                     return;
@@ -1512,12 +1467,12 @@ window.move_items = async function (el_items, dest_path, is_undo = false) {
                 // --------------------------------------------------------
                 // If recycling an item, restore its original name
                 // --------------------------------------------------------
-                else if ( metadata.trashed_ts !== undefined ) {
+                else if (metadata.trashed_ts !== undefined) {
                     recycling = true;
                     new_name = metadata.original_name;
                     metadata = {};
                     untrashed_at_least_one_item = true;
-                    path_to_show_on_progwin = `${window.trash_path }/${ new_name}`;
+                    path_to_show_on_progwin = `${window.trash_path}/${new_name}`;
                 }
 
                 // --------------------------------------------------------
@@ -1562,7 +1517,7 @@ window.move_items = async function (el_items, dest_path, is_undo = false) {
                 });
 
                 // if trashing, close windows of trashed items and its descendants
-                if ( dest_path === window.trash_path ) {
+                if (dest_path === window.trash_path) {
                     $(`.window[data-path="${html_encode($(el_item).attr('data-path'))}" i]`).close();
                     // todo this has to be case-insensitive but the `i` selector doesn't work on ^=
                     $(`.window[data-path^="${html_encode($(el_item).attr('data-path'))}/"]`).close();
@@ -1576,9 +1531,9 @@ window.move_items = async function (el_items, dest_path, is_undo = false) {
                     });
                 }
 
-                if ( dest_path === window.trash_path ) {
+                if (dest_path === window.trash_path) {
                     // if trashing dir...
-                    if ( $(el_item).attr('data-is_dir') === '1' ) {
+                    if ($(el_item).attr('data-is_dir') === '1') {
                         // disassociate all its websites
                         // todo, some client-side check to see if this dir has at least one associated website before sending ajax request
                         // FIXME: dir_uuid is not defined, is this the same as the data-uid attribute?
@@ -1591,7 +1546,7 @@ window.move_items = async function (el_items, dest_path, is_undo = false) {
                 }
 
                 // if replacing an existing item, remove the old item that was just replaced
-                if ( resp.overwritten?.id ) {
+                if (resp.overwritten?.id) {
                     $(`.item[data-uid=${resp.overwritten.id}]`).removeItems();
                 }
 
@@ -1628,7 +1583,7 @@ window.move_items = async function (el_items, dest_path, is_undo = false) {
                 // if these new path have any open parents that need to be updated
                 resp.parent_dirs_created?.forEach(async dir => {
                     let item_container = $(`.item-container[data-path="${html_encode(path.dirname(dir.path))}" i]`);
-                    if ( item_container.length > 0 && $(`.item[data-path="${html_encode(dir.path)}" i]`).length === 0 ) {
+                    if (item_container.length > 0 && $(`.item[data-path="${html_encode(dir.path)}" i]`).length === 0) {
                         UIItem({
                             appendTo: item_container,
                             immutable: false,
@@ -1653,11 +1608,11 @@ window.move_items = async function (el_items, dest_path, is_undo = false) {
                 $(`.item-container[data-path="${html_encode(dest_path)}" i]`).each(function () {
                     window.sort_items(this, $(this).attr('data-sort_by'), $(this).attr('data-sort_order'));
                 });
-            } catch ( err ) {
+            } catch (err) {
                 // -----------------------------------------------------------------------
                 // if item with same name already exists, ask user if they want to overwrite
                 // -----------------------------------------------------------------------
-                if ( err.code === 'item_with_same_name_exists' ) {
+                if (err.code === 'item_with_same_name_exists') {
                     item_with_same_name_already_exists = true;
 
                     const alert_resp = await UIAlert({
@@ -1668,12 +1623,12 @@ window.move_items = async function (el_items, dest_path, is_undo = false) {
                             ... (el_items.length > 1) ? [{ label: i18n('skip'), value: 'skip' }] : [{ label: i18n('cancel'), value: 'cancel' }],
                         ],
                     });
-                    if ( alert_resp === 'replace' ) {
+                    if (alert_resp === 'replace') {
                         overwrite = true;
-                    } else if ( alert_resp === 'replace_all' ) {
+                    } else if (alert_resp === 'replace_all') {
                         overwrite = true;
                         overwrite_all = true;
-                    } else if ( alert_resp === 'skip' || alert_resp === 'cancel' ) {
+                    } else if (alert_resp === 'skip' || alert_resp === 'cancel') {
                         item_with_same_name_already_exists = false;
                     }
                 }
@@ -1690,15 +1645,15 @@ window.move_items = async function (el_items, dest_path, is_undo = false) {
                     break;
                 }
             }
-        } while ( item_with_same_name_already_exists );
+        } while (item_with_same_name_already_exists);
 
         // check if trash is empty
-        if ( untrashed_at_least_one_item ) {
+        if (untrashed_at_least_one_item) {
             const trash = await puter.fs.stat({ path: window.trash_path, consistency: 'eventual' });
-            if ( window.socket ) {
+            if (window.socket) {
                 window.socket.emit('trash.is_empty', { is_empty: trash.is_empty });
             }
-            if ( trash.is_empty ) {
+            if (trash.is_empty) {
                 $('[data-app="trash"]').find('.taskbar-icon > img').attr('src', window.icons['trash.svg']);
                 $(`.item[data-path="${html_encode(window.trash_path)}" i]`).find('.item-icon > img').attr('src', window.icons['trash.svg']);
                 $(`.window[data-path="${html_encode(window.trash_path)}" i]`).find('.window-head-icon').attr('src', window.icons['trash.svg']);
@@ -1715,19 +1670,19 @@ window.move_items = async function (el_items, dest_path, is_undo = false) {
     // DONE! close progress window with delay to allow user to see 100% progress
     // -----------------------------------------------------------------------
     // Add action to actions_history for undo ability
-    if ( !is_undo && dest_path !== window.trash_path ) {
+    if (!is_undo && dest_path !== window.trash_path) {
         window.actions_history.push({
             operation: 'move',
             data: moved_items,
         });
-    } else if ( !is_undo && dest_path === window.trash_path ) {
+    } else if (!is_undo && dest_path === window.trash_path) {
         window.actions_history.push({
             operation: 'delete',
             data: moved_items,
         });
     }
 
-    if ( progwin ) {
+    if (progwin) {
         setTimeout(() => {
             progwin.close();
         }, window.copy_progress_hide_delay);
@@ -1748,7 +1703,7 @@ window.move_items = async function (el_items, dest_path, is_undo = false) {
  * window.refresh_desktop_background();
  */
 window.refresh_desktop_background = function () {
-    if ( window.user && (window.user.desktop_bg_url !== null || window.user.desktop_bg_color !== null) ) {
+    if (window.user && (window.user.desktop_bg_url !== null || window.user.desktop_bg_color !== null)) {
         window.set_desktop_background({
             url: window.user.desktop_bg_url,
             fit: window.user.desktop_bg_fit,
@@ -1767,8 +1722,8 @@ window.refresh_desktop_background = function () {
 
 window.determine_website_url = function (fsentry_path) {
     // search window.sites and if any site has `dir_path` set and the fsentry_path starts with that dir_path + '/', return the site's url + path
-    for ( let i = 0; i < window.sites.length; i++ ) {
-        if ( window.sites[i].dir_path && fsentry_path.startsWith(`${window.sites[i].dir_path }/`) ) {
+    for (let i = 0; i < window.sites.length; i++) {
+        if (window.sites[i].dir_path && fsentry_path.startsWith(`${window.sites[i].dir_path}/`)) {
             return window.sites[i].address + fsentry_path.replace(window.sites[i].dir_path, '');
         }
     }
@@ -1778,7 +1733,7 @@ window.determine_website_url = function (fsentry_path) {
 
 window.update_sites_cache = function () {
     return puter.hosting.list((sites) => {
-        if ( sites && sites.length > 0 ) {
+        if (sites && sites.length > 0) {
             window.sites = sites;
         } else {
             window.sites = [];
@@ -1800,13 +1755,13 @@ window.init_upload_using_dialog = function (el_target_container, target_path = n
     target_path = target_path === null ? $(el_target_container).attr('data-path') : path.resolve(target_path);
     $('#upload-file-dialog').trigger('click');
     $('#upload-file-dialog').on('change', async function (e) {
-        if ( $('#upload-file-dialog').val() !== '' ) {
+        if ($('#upload-file-dialog').val() !== '') {
             const files = $('#upload-file-dialog')[0].files;
-            if ( files.length > 0 ) {
+            if (files.length > 0) {
                 try {
                     window.upload_items(files, target_path);
                 }
-                catch ( err ) {
+                catch (err) {
                     UIAlert(err.message ?? err);
                 }
                 $('#upload-file-dialog').val('');
@@ -1826,13 +1781,13 @@ window.init_folder_upload_using_dialog = function (el_target_container, target_p
     target_path = target_path === null ? $(el_target_container).attr('data-path') : path.resolve(target_path);
     $('#upload-folder-dialog').trigger('click');
     $('#upload-folder-dialog').on('change', async function (e) {
-        if ( $('#upload-folder-dialog').val() !== '' ) {
+        if ($('#upload-folder-dialog').val() !== '') {
             const files = $('#upload-folder-dialog')[0].files;
-            if ( files.length > 0 ) {
+            if (files.length > 0) {
                 try {
                     window.upload_items(files, target_path);
                 }
-                catch ( err ) {
+                catch (err) {
                     UIAlert(err.message ?? err);
                 }
                 $('#upload-folder-dialog').val('');
@@ -1848,90 +1803,90 @@ window.upload_items = async function (items, dest_path) {
     let upload_progress_window;
     let opid;
 
-    if ( dest_path == window.trash_path ) {
+    if (dest_path == window.trash_path) {
         UIAlert('Uploading to trash is not allowed!');
         return;
     }
 
     puter.fs.upload(
-                    // what to upload
-                    items,
-                    // where to upload
-                    dest_path,
-                    // options
-                    {
-                        // init
-                        init: async (operation_id, xhr) => {
-                            opid = operation_id;
-                            // create upload progress window
-                            upload_progress_window = await UIWindowProgress({
-                                title: i18n('upload'),
-                                icon: window.icons['app-icon-uploader.svg'],
-                                operation_id: operation_id,
-                                show_progress: true,
-                                on_cancel: () => {
-                                    window.show_save_account_notice_if_needed();
-                                    xhr.abort();
-                                },
-                            });
-                            // add to active_uploads
-                            window.active_uploads[opid] = 0;
-                        },
-                        // start
-                        start: async function () {
-                            // change upload progress window message to uploading
-                            upload_progress_window.set_status('Uploading');
-                            upload_progress_window.set_progress(0);
-                        },
-                        // progress
-                        progress: async function (operation_id, op_progress) {
-                            upload_progress_window.set_progress(op_progress);
-                            // update active_uploads
-                            window.active_uploads[opid] = op_progress;
-                            // update title if window is not visible
-                            if ( document.visibilityState !== 'visible' ) {
-                                update_title_based_on_uploads();
-                            }
-                        },
-                        // success
-                        success: async function (items) {
-                            // DONE
-                            // Add action to actions_history for undo ability
-                            const files = [];
-                            if ( typeof items[Symbol.iterator] === 'function' ) {
-                                for ( const item of items ) {
-                                    files.push(item.path);
-                                }
-                            } else {
-                                files.push(items.path);
-                            }
+        // what to upload
+        items,
+        // where to upload
+        dest_path,
+        // options
+        {
+            // init
+            init: async (operation_id, xhr) => {
+                opid = operation_id;
+                // create upload progress window
+                upload_progress_window = await UIWindowProgress({
+                    title: i18n('upload'),
+                    icon: window.icons['app-icon-uploader.svg'],
+                    operation_id: operation_id,
+                    show_progress: true,
+                    on_cancel: () => {
+                        window.show_save_account_notice_if_needed();
+                        xhr.abort();
+                    },
+                });
+                // add to active_uploads
+                window.active_uploads[opid] = 0;
+            },
+            // start
+            start: async function () {
+                // change upload progress window message to uploading
+                upload_progress_window.set_status('Uploading');
+                upload_progress_window.set_progress(0);
+            },
+            // progress
+            progress: async function (operation_id, op_progress) {
+                upload_progress_window.set_progress(op_progress);
+                // update active_uploads
+                window.active_uploads[opid] = op_progress;
+                // update title if window is not visible
+                if (document.visibilityState !== 'visible') {
+                    update_title_based_on_uploads();
+                }
+            },
+            // success
+            success: async function (items) {
+                // DONE
+                // Add action to actions_history for undo ability
+                const files = [];
+                if (typeof items[Symbol.iterator] === 'function') {
+                    for (const item of items) {
+                        files.push(item.path);
+                    }
+                } else {
+                    files.push(items.path);
+                }
 
-                            window.actions_history.push({
-                                operation: 'upload',
-                                data: files,
-                            });
-                            // close progress window after a bit of delay for a better UX
-                            setTimeout(() => {
-                                setTimeout(() => {
-                                    upload_progress_window.close();
-                                    window.show_save_account_notice_if_needed();
-                                }, Math.abs(window.upload_progress_hide_delay));
-                            });
-                            // remove from active_uploads
-                            delete window.active_uploads[opid];
-                        },
-                        // error
-                        error: async function (err) {
-                            upload_progress_window.show_error(i18n('error_uploading_files'), err.message);
-                            // remove from active_uploads
-                            delete window.active_uploads[opid];
-                        },
-                        // abort
-                        abort: async function (operation_id) {
-                            // remove from active_uploads
-                            delete window.active_uploads[opid];
-                        },
-                    });
+                window.actions_history.push({
+                    operation: 'upload',
+                    data: files,
+                });
+                // close progress window after a bit of delay for a better UX
+                setTimeout(() => {
+                    setTimeout(() => {
+                        upload_progress_window.close();
+                        window.show_save_account_notice_if_needed();
+                    }, Math.abs(window.upload_progress_hide_delay));
+                });
+                // remove from active_uploads
+                delete window.active_uploads[opid];
+            },
+            // error
+            error: async function (err) {
+                upload_progress_window.show_error(i18n('error_uploading_files'), err.message);
+                // remove from active_uploads
+                delete window.active_uploads[opid];
+            },
+            // abort
+            abort: async function (operation_id) {
+                // remove from active_uploads
+                delete window.active_uploads[opid];
+            },
+        });
 };
 
 window.empty_trash = async function () {
@@ -1949,8 +1904,7 @@ window.empty_trash = async function () {
             },
         ],
     });
-    if ( alert_resp === 'no' )
-    {
+    if (alert_resp === 'no') {
         return;
     }
 
@@ -1969,7 +1923,7 @@ window.empty_trash = async function () {
         recursive: true,
         success: async function (resp) {
             // update other clients
-            if ( window.socket ) {
+            if (window.socket) {
                 window.socket.emit('trash.is_empty', { is_empty: true });
             }
             // use the 'empty trash' icon for Trash
@@ -1980,7 +1934,7 @@ window.empty_trash = async function () {
             // todo this has to be case-insensitive but the `i` selector doesn't work on ^=
             $(`.item[data-path^="${window.trash_path}/"]`).removeItems();
             // update the footer item count for Trash
-            window. update_explorer_footer_item_count($(`.window[data-path="${window.trash_path}"]`));
+            window.update_explorer_footer_item_count($(`.window[data-path="${window.trash_path}"]`));
             // close progress window
             clearTimeout(progwin_timeout);
             setTimeout(() => {
@@ -1997,7 +1951,7 @@ window.empty_trash = async function () {
 };
 
 window.copy_to_clipboard = async function (text) {
-    if ( navigator.clipboard ) {
+    if (navigator.clipboard) {
         // copy text to clipboard
         await navigator.clipboard.writeText(text);
     }
@@ -2007,26 +1961,26 @@ window.copy_to_clipboard = async function (text) {
 };
 
 window.getUsage = () => {
-    return fetch(`${window.api_origin }/drivers/usage`, {
+    return fetch(`${window.api_origin}/drivers/usage`, {
         headers: {
             'Content-Type': 'application/json',
-            'Authorization': `Bearer ${ window.auth_token}`,
+            'Authorization': `Bearer ${window.auth_token}`,
         },
         method: 'GET',
     })
         .then(response => {
-        // Check if the response is ok (status code in the range 200-299)
-            if ( ! response.ok ) {
+            // Check if the response is ok (status code in the range 200-299)
+            if (!response.ok) {
                 throw new Error('Network response was not ok');
             }
             return response.json(); // Parse the response as JSON
         })
         .then(data => {
-        // Handle the JSON data
+            // Handle the JSON data
             return data;
         })
         .catch(error => {
-        // Handle any errors
+            // Handle any errors
             console.error('There has been a problem with your fetch operation:', error);
         });
 
@@ -2034,10 +1988,10 @@ window.getUsage = () => {
 
 window.getAppUIDFromOrigin = async function (origin) {
     try {
-        const response = await fetch(`${window.api_origin }/auth/app-uid-from-origin`, {
+        const response = await fetch(`${window.api_origin}/auth/app-uid-from-origin`, {
             headers: {
                 'Content-Type': 'application/json',
-                'Authorization': `Bearer ${ window.auth_token}`,
+                'Authorization': `Bearer ${window.auth_token}`,
             },
             body: JSON.stringify({ origin: origin }),
             method: 'POST',
@@ -2047,7 +2001,7 @@ window.getAppUIDFromOrigin = async function (origin) {
 
         // Assuming the app_uid is in the data object, return it
         return data.uid;
-    } catch ( err ) {
+    } catch (err) {
         // Handle any errors here
         console.error(err);
         // You may choose to return something specific here in case of an error
@@ -2057,10 +2011,10 @@ window.getAppUIDFromOrigin = async function (origin) {
 
 window.getUserAppToken = async function (origin) {
     try {
-        const response = await fetch(`${window.api_origin }/auth/get-user-app-token`, {
+        const response = await fetch(`${window.api_origin}/auth/get-user-app-token`, {
             headers: {
                 'Content-Type': 'application/json',
-                'Authorization': `Bearer ${ window.auth_token}`,
+                'Authorization': `Bearer ${window.auth_token}`,
             },
             body: JSON.stringify({ origin: origin }),
             method: 'POST',
@@ -2070,7 +2024,7 @@ window.getUserAppToken = async function (origin) {
 
         // return
         return data;
-    } catch ( err ) {
+    } catch (err) {
         // Handle any errors here
         console.error(err);
         // You may choose to return something specific here in case of an error
@@ -2080,10 +2034,10 @@ window.getUserAppToken = async function (origin) {
 
 window.checkUserSiteRelationship = async function (origin) {
     try {
-        const response = await fetch(`${window.api_origin }/auth/check-app `, {
+        const response = await fetch(`${window.api_origin}/auth/check-app `, {
             headers: {
                 'Content-Type': 'application/json',
-                'Authorization': `Bearer ${ window.auth_token}`,
+                'Authorization': `Bearer ${window.auth_token}`,
             },
             body: JSON.stringify({ origin: origin }),
             method: 'POST',
@@ -2093,7 +2047,7 @@ window.checkUserSiteRelationship = async function (origin) {
 
         // return
         return data;
-    } catch ( err ) {
+    } catch (err) {
         // Handle any errors here
         console.error(err);
         // You may choose to return something specific here in case of an error
@@ -2102,15 +2056,15 @@ window.checkUserSiteRelationship = async function (origin) {
 };
 
 // Converts a Blob to a Uint8Array [local helper module]
-async function blobToUint8Array (blob) {
+async function blobToUint8Array(blob) {
     const totalLength = blob.size;
     const reader = blob.stream().getReader();
     let chunks = [];
     let receivedLength = 0;
 
-    while ( true ) {
+    while (true) {
         const { done, value } = await reader.read();
-        if ( done ) break;
+        if (done) break;
 
         chunks.push(value);
         receivedLength += value.length;
@@ -2118,7 +2072,7 @@ async function blobToUint8Array (blob) {
     let uint8Array = new Uint8Array(receivedLength);
     let position = 0;
 
-    for ( let chunk of chunks ) {
+    for (let chunk of chunks) {
         uint8Array.set(chunk, position);
         position += chunk.length;
     }
@@ -2156,22 +2110,22 @@ window.zipItems = async function (el_items, targetDirPath, download = true) {
 
     let perItemAdditionProgress = window.zippingProgressConfig.SEQUENCING / el_items.length;
     let currentProgress = 0;
-    for ( let idx = 0; idx < el_items.length; idx++ ) {
+    for (let idx = 0; idx < el_items.length; idx++) {
         const el_item = el_items[idx];
-        if ( window.operation_cancelled[zip_operation_id] ) return;
+        if (window.operation_cancelled[zip_operation_id]) return;
         let targetPath = $(el_item).attr('data-path');
 
         // if directory, zip the directory
-        if ( $(el_item).attr('data-is_dir') === '1' ) {
+        if ($(el_item).attr('data-is_dir') === '1') {
             progwin?.set_status(i18n('reading', path.basename(targetPath)));
             // Recursively read the directory
             let children = await readDirectoryRecursive(targetPath);
 
             // Add files to the zip
-            for ( let cIdx = 0; cIdx < children.length; cIdx++ ) {
+            for (let cIdx = 0; cIdx < children.length; cIdx++) {
                 const child = children[cIdx];
 
-                if ( ! child.relativePath ) {
+                if (!child.relativePath) {
                     // Add empty directiories to the zip
                     toBeZipped = {
                         ...toBeZipped,
@@ -2180,13 +2134,11 @@ window.zipItems = async function (el_items, targetDirPath, download = true) {
                 } else {
                     // Add files from directory to the zip
                     let relativePath;
-                    if ( el_items.length === 1 )
-                    {
+                    if (el_items.length === 1) {
                         relativePath = child.relativePath;
                     }
-                    else
-                    {
-                        relativePath = `${path.basename(targetPath) }/${ child.relativePath}`;
+                    else {
+                        relativePath = `${path.basename(targetPath)}/${child.relativePath}`;
                     }
 
                     // read file content
@@ -2220,20 +2172,18 @@ window.zipItems = async function (el_items, targetDirPath, download = true) {
 
     // determine name of zip file
     let zipName;
-    if ( el_items.length === 1 )
-    {
+    if (el_items.length === 1) {
         zipName = path.basename($(el_items[0]).attr('data-path'));
     }
-    else
-    {
+    else {
         zipName = 'Archive';
     }
 
-    progwin?.set_status(i18n('zipping', `${zipName }.zip`));
+    progwin?.set_status(i18n('zipping', `${zipName}.zip`));
     progwin?.set_progress(currentProgress.toPrecision(2));
     terminateOp = fflate.zip(toBeZipped, { level: 9 }, async (err, zippedContents) => {
         currentProgress += window.zippingProgressConfig.ZIPPING;
-        if ( err ) {
+        if (err) {
             // close progress window
             clearTimeout(progwin_timeout);
             setTimeout(() => {
@@ -2246,7 +2196,7 @@ window.zipItems = async function (el_items, targetDirPath, download = true) {
             let zippedBlob = new Blob([new Uint8Array(zippedContents, zippedContents.byteOffset, zippedContents.length)]);
 
             // Trigger the download
-            if ( download ) {
+            if (download) {
                 const url = URL.createObjectURL(zippedBlob);
                 const a = document.createElement('a');
                 a.href = url;
@@ -2260,10 +2210,10 @@ window.zipItems = async function (el_items, targetDirPath, download = true) {
             }
             // save
             else {
-                progwin?.set_status(i18n('writing', `${zipName }.zip`));
+                progwin?.set_status(i18n('writing', `${zipName}.zip`));
                 currentProgress += window.zippingProgressConfig.WRITING;
                 progwin?.set_progress(currentProgress.toPrecision(2));
-                await puter.fs.write(`${targetDirPath }/${ zipName }.zip`, zippedBlob, { overwrite: false, dedupeName: true });
+                await puter.fs.write(`${targetDirPath}/${zipName}.zip`, zippedBlob, { overwrite: false, dedupeName: true });
                 progwin?.set_progress(window.zippingProgressConfig.TOTAL);
             }
 
@@ -2276,19 +2226,19 @@ window.zipItems = async function (el_items, targetDirPath, download = true) {
     });
 };
 
-async function readDirectoryRecursive (path, baseDir = '') {
+async function readDirectoryRecursive(path, baseDir = '') {
     let allFiles = [];
 
     // Read the directory
     const entries = await puter.fs.readdir(path, { consistency: 'eventual' });
 
-    if ( entries.length === 0 ) {
+    if (entries.length === 0) {
         allFiles.push({ path });
     } else {
         // Process each entry
-        for ( const entry of entries ) {
+        for (const entry of entries) {
             const fullPath = `${path}/${entry.name}`;
-            if ( entry.is_dir ) {
+            if (entry.is_dir) {
                 // If entry is a directory, recursively read it
                 const subDirFiles = await readDirectoryRecursive(fullPath, `${baseDir}${entry.name}/`);
                 allFiles = allFiles.concat(subDirFiles);
@@ -2349,7 +2299,7 @@ window.unzipItem = async function (itemPath) {
     terminateOp = fflate.unzip(file, async (err, unzipped) => {
         currentProgress += window.zippingProgressConfig.ZIPPING;
         progwin?.set_progress(currentProgress.toPrecision(2));
-        if ( err ) {
+        if (err) {
             UIAlert(e.message);
             // close progress window
             clearTimeout(progwin_timeout);
@@ -2357,7 +2307,7 @@ window.unzipItem = async function (itemPath) {
                 progwin?.close();
             }, Math.max(0, window.copy_progress_hide_delay - (Date.now() - start_ts)));
         } else {
-            const rootdir = await puter.fs.mkdir(`${path.dirname(filePath) }/${ path.basename(filePath, '.zip')}`, { dedupeName: true });
+            const rootdir = await puter.fs.mkdir(`${path.dirname(filePath)}/${path.basename(filePath, '.zip')}`, { dedupeName: true });
             let perItemProgress = window.zippingProgressConfig.WRITING / Object.keys(unzipped).length;
             let queuedFileWrites = [];
             Object.keys(unzipped).forEach(fileItem => {
@@ -2372,29 +2322,29 @@ window.unzipItem = async function (itemPath) {
                 }
             });
             queuedFileWrites.length && puter.fs.upload(
-                            // what to upload
-                            queuedFileWrites,
-                            // where to upload
-                            `${rootdir.path }/`,
-                            // options
-                            {
-                                createFileParent: true,
-                                progress: async function (operation_id, op_progress) {
-                                    progwin.set_progress(op_progress);
-                                    // update title if window is not visible
-                                    if ( document.visibilityState !== 'visible' ) {
-                                        update_title_based_on_uploads();
-                                    }
-                                },
-                                success: async function (items) {
-                                    progwin?.set_progress(window.zippingProgressConfig.TOTAL.toPrecision(2));
-                                    // close progress window
-                                    clearTimeout(progwin_timeout);
-                                    setTimeout(() => {
-                                        progwin?.close();
-                                    }, Math.max(0, window.unzip_progress_hide_delay - (Date.now() - start_ts)));
-                                },
-                            });
+                // what to upload
+                queuedFileWrites,
+                // where to upload
+                `${rootdir.path}/`,
+                // options
+                {
+                    createFileParent: true,
+                    progress: async function (operation_id, op_progress) {
+                        progwin.set_progress(op_progress);
+                        // update title if window is not visible
+                        if (document.visibilityState !== 'visible') {
+                            update_title_based_on_uploads();
+                        }
+                    },
+                    success: async function (items) {
+                        progwin?.set_progress(window.zippingProgressConfig.TOTAL.toPrecision(2));
+                        // close progress window
+                        clearTimeout(progwin_timeout);
+                        setTimeout(() => {
+                            progwin?.close();
+                        }, Math.max(0, window.unzip_progress_hide_delay - (Date.now() - start_ts)));
+                    },
+                });
         }
     });
 };
@@ -2432,23 +2382,23 @@ window.tarItems = async function (el_items, targetDirPath, download = true) {
     let perItemAdditionProgress = window.zippingProgressConfig.SEQUENCING / el_items.length;
     let currentProgress = 0;
 
-    for ( let idx = 0; idx < el_items.length; idx++ ) {
+    for (let idx = 0; idx < el_items.length; idx++) {
         const el_item = el_items[idx];
-        if ( window.operation_cancelled[tar_operation_id] ) return;
+        if (window.operation_cancelled[tar_operation_id]) return;
         let targetPath = $(el_item).attr('data-path');
 
-        if ( $(el_item).attr('data-is_dir') === '1' ) {
+        if ($(el_item).attr('data-is_dir') === '1') {
             progwin?.set_status(i18n('reading', path.basename(targetPath)));
             let children = await readDirectoryRecursive(targetPath);
 
-            for ( let cIdx = 0; cIdx < children.length; cIdx++ ) {
+            for (let cIdx = 0; cIdx < children.length; cIdx++) {
                 const child = children[cIdx];
 
-                if ( ! child.relativePath ) {
-                    let relativePath = el_items.length === 1 ? path.basename(child.path) : `${path.basename(targetPath) }/${ path.basename(child.path)}`;
-                    files.push({ name: `${relativePath }/`, content: new Uint8Array(0), isDir: true });
+                if (!child.relativePath) {
+                    let relativePath = el_items.length === 1 ? path.basename(child.path) : `${path.basename(targetPath)}/${path.basename(child.path)}`;
+                    files.push({ name: `${relativePath}/`, content: new Uint8Array(0), isDir: true });
                 } else {
-                    let relativePath = el_items.length === 1 ? child.relativePath : `${path.basename(targetPath) }/${ child.relativePath}`;
+                    let relativePath = el_items.length === 1 ? child.relativePath : `${path.basename(targetPath)}/${child.relativePath}`;
                     progwin?.set_status(i18n('sequencing', child.relativePath));
                     let content = await puter.fs.read(child.path);
                     files.push({ name: relativePath, content: await blobToUint8Array(content), isDir: false });
@@ -2468,7 +2418,7 @@ window.tarItems = async function (el_items, targetDirPath, download = true) {
 
     let tarName = el_items.length === 1 ? path.basename($(el_items[0]).attr('data-path')) : 'Archive';
 
-    progwin?.set_status(i18n('tarring', `${tarName }.tar`));
+    progwin?.set_status(i18n('tarring', `${tarName}.tar`));
     progwin?.set_progress(currentProgress.toPrecision(2));
 
     try {
@@ -2477,7 +2427,7 @@ window.tarItems = async function (el_items, targetDirPath, download = true) {
 
         let tarBlob = new Blob([tarContents]);
 
-        if ( download ) {
+        if (download) {
             const url = URL.createObjectURL(tarBlob);
             const a = document.createElement('a');
             a.href = url;
@@ -2487,10 +2437,10 @@ window.tarItems = async function (el_items, targetDirPath, download = true) {
             document.body.removeChild(a);
             URL.revokeObjectURL(url);
         } else {
-            progwin?.set_status(i18n('writing', `${tarName }.tar`));
+            progwin?.set_status(i18n('writing', `${tarName}.tar`));
             currentProgress += window.zippingProgressConfig.WRITING;
             progwin?.set_progress(currentProgress.toPrecision(2));
-            await puter.fs.write(`${targetDirPath }/${ tarName }.tar`, tarBlob, { overwrite: false, dedupeName: true });
+            await puter.fs.write(`${targetDirPath}/${tarName}.tar`, tarBlob, { overwrite: false, dedupeName: true });
             progwin?.set_progress(window.zippingProgressConfig.TOTAL);
         }
 
@@ -2498,7 +2448,7 @@ window.tarItems = async function (el_items, targetDirPath, download = true) {
         setTimeout(() => {
             progwin?.close();
         }, Math.max(0, window.zip_progress_hide_delay - (Date.now() - start_ts)));
-    } catch ( err ) {
+    } catch (err) {
         clearTimeout(progwin_timeout);
         setTimeout(() => {
             progwin?.close();
@@ -2513,24 +2463,24 @@ window.tarItems = async function (el_items, targetDirPath, download = true) {
  * @param {Array<{name: string, content: Uint8Array, isDir: boolean}>} files - Array of file objects to include in the tar
  * @returns {Uint8Array} The tar archive as a Uint8Array
  */
-function createTar (files) {
+function createTar(files) {
     let blocks = [];
 
-    for ( let file of files ) {
+    for (let file of files) {
         let header = new Uint8Array(512);
         let nameBytes = new TextEncoder().encode(file.name);
         header.set(nameBytes.slice(0, 100), 0);
 
         let mode = file.isDir ? '0000755' : '0000644';
-        header.set(new TextEncoder().encode(`${mode }\0`), 100);
+        header.set(new TextEncoder().encode(`${mode}\0`), 100);
         header.set(new TextEncoder().encode('0000000\0'), 108);
         header.set(new TextEncoder().encode('0000000\0'), 116);
 
         let size = file.isDir ? 0 : file.content.length;
-        let sizeOctal = `${size.toString(8).padStart(11, '0') }\0`;
+        let sizeOctal = `${size.toString(8).padStart(11, '0')}\0`;
         header.set(new TextEncoder().encode(sizeOctal), 124);
 
-        let mtime = `${Math.floor(Date.now() / 1000).toString(8).padStart(11, '0') }\0`;
+        let mtime = `${Math.floor(Date.now() / 1000).toString(8).padStart(11, '0')}\0`;
         header.set(new TextEncoder().encode(mtime), 136);
 
         header.set(new TextEncoder().encode('        '), 148);
@@ -2539,18 +2489,18 @@ function createTar (files) {
         header.set(new TextEncoder().encode('00'), 263);
 
         let checksum = 0;
-        for ( let i = 0; i < 512; i++ ) {
+        for (let i = 0; i < 512; i++) {
             checksum += header[i];
         }
-        let checksumOctal = `${checksum.toString(8).padStart(6, '0') }\0 `;
+        let checksumOctal = `${checksum.toString(8).padStart(6, '0')}\0 `;
         header.set(new TextEncoder().encode(checksumOctal), 148);
 
         blocks.push(header);
 
-        if ( !file.isDir && file.content.length > 0 ) {
+        if (!file.isDir && file.content.length > 0) {
             blocks.push(file.content);
             let padding = (512 - (file.content.length % 512)) % 512;
-            if ( padding > 0 ) {
+            if (padding > 0) {
                 blocks.push(new Uint8Array(padding));
             }
         }
@@ -2561,7 +2511,7 @@ function createTar (files) {
     let totalLength = blocks.reduce((sum, block) => sum + block.length, 0);
     let result = new Uint8Array(totalLength);
     let offset = 0;
-    for ( let block of blocks ) {
+    for (let block of blocks) {
         result.set(block, offset);
         offset += block.length;
     }
@@ -2608,12 +2558,12 @@ window.untarItem = async function (itemPath) {
         currentProgress += window.zippingProgressConfig.ZIPPING;
         progwin?.set_progress(currentProgress.toPrecision(2));
 
-        const rootdir = await puter.fs.mkdir(`${path.dirname(filePath) }/${ path.basename(filePath, '.tar')}`, { dedupeName: true });
+        const rootdir = await puter.fs.mkdir(`${path.dirname(filePath)}/${path.basename(filePath, '.tar')}`, { dedupeName: true });
         let perItemProgress = window.zippingProgressConfig.WRITING / files.length;
         let queuedFileWrites = [];
 
-        for ( let fileItem of files ) {
-            if ( ! fileItem.isDir ) {
+        for (let fileItem of files) {
+            if (!fileItem.isDir) {
                 let fileData = new Blob([fileItem.content]);
                 progwin?.set_status(i18n('writing', fileItem.name));
                 queuedFileWrites.push(new File([fileData], fileItem.name));
@@ -2623,24 +2573,24 @@ window.untarItem = async function (itemPath) {
         }
 
         queuedFileWrites.length && puter.fs.upload(queuedFileWrites,
-                        `${rootdir.path }/`,
-                        {
-                            createFileParent: true,
-                            progress: async function (operation_id, op_progress) {
-                                progwin.set_progress(op_progress);
-                                if ( document.visibilityState !== 'visible' ) {
-                                    update_title_based_on_uploads();
-                                }
-                            },
-                            success: async function (items) {
-                                progwin?.set_progress(window.zippingProgressConfig.TOTAL.toPrecision(2));
-                                clearTimeout(progwin_timeout);
-                                setTimeout(() => {
-                                    progwin?.close();
-                                }, Math.max(0, window.unzip_progress_hide_delay - (Date.now() - start_ts)));
-                            },
-                        });
-    } catch ( err ) {
+            `${rootdir.path}/`,
+            {
+                createFileParent: true,
+                progress: async function (operation_id, op_progress) {
+                    progwin.set_progress(op_progress);
+                    if (document.visibilityState !== 'visible') {
+                        update_title_based_on_uploads();
+                    }
+                },
+                success: async function (items) {
+                    progwin?.set_progress(window.zippingProgressConfig.TOTAL.toPrecision(2));
+                    clearTimeout(progwin_timeout);
+                    setTimeout(() => {
+                        progwin?.close();
+                    }, Math.max(0, window.unzip_progress_hide_delay - (Date.now() - start_ts)));
+                },
+            });
+    } catch (err) {
         UIAlert(err.message);
         clearTimeout(progwin_timeout);
         setTimeout(() => {
@@ -2655,19 +2605,19 @@ window.untarItem = async function (itemPath) {
  * @param {Uint8Array} data - The tar file binary data
  * @returns {Array<{name: string, content: Uint8Array, isDir: boolean}>} Array of parsed file objects
  */
-function parseTar (data) {
+function parseTar(data) {
     let files = [];
     let offset = 0;
 
-    while ( offset < data.length - 1024 ) {
+    while (offset < data.length - 1024) {
         let header = data.slice(offset, offset + 512);
 
         let checksum = 0;
-        for ( let i = 0; i < 148; i++ ) checksum += header[i];
-        for ( let i = 148; i < 156; i++ ) checksum += 32;
-        for ( let i = 156; i < 512; i++ ) checksum += header[i];
+        for (let i = 0; i < 148; i++) checksum += header[i];
+        for (let i = 148; i < 156; i++) checksum += 32;
+        for (let i = 156; i < 512; i++) checksum += header[i];
 
-        if ( checksum === 256 ) break;
+        if (checksum === 256) break;
 
         let nameEnd = header.indexOf(0);
         let name = new TextDecoder().decode(header.slice(0, nameEnd));
@@ -2680,13 +2630,13 @@ function parseTar (data) {
 
         offset += 512;
 
-        if ( !isDir && size > 0 ) {
+        if (!isDir && size > 0) {
             let content = data.slice(offset, offset + size);
             files.push({ name, content, isDir: false });
             offset += size;
             let padding = (512 - (size % 512)) % 512;
             offset += padding;
-        } else if ( isDir ) {
+        } else if (isDir) {
             files.push({ name, content: new Uint8Array(0), isDir: true });
         }
     }
@@ -2701,8 +2651,7 @@ window.rename_file = async (options, new_name, old_name, old_path, el_item, el_i
         excludeSocketID: window.socket.id,
         success: async (fsentry) => {
             // Add action to actions_history for undo ability
-            if ( ! is_undo )
-            {
+            if (!is_undo) {
                 window.actions_history.push({
                     operation: 'rename',
                     data: { options, new_name, old_name, old_path, el_item, el_item_name, el_item_icon, el_item_name_editor, website_url },
@@ -2712,7 +2661,7 @@ window.rename_file = async (options, new_name, old_name, old_path, el_item, el_i
             // Has the extension changed? in that case update options.sugggested_apps
             const old_extension = path.extname(old_name);
             const new_extension = path.extname(new_name);
-            if ( old_extension !== new_extension ) {
+            if (old_extension !== new_extension) {
                 window.suggest_apps_for_fsentry({
                     uid: options.uid,
                     onSuccess: function (suggested_apps) {
@@ -2756,21 +2705,19 @@ window.rename_file = async (options, new_name, old_name, old_path, el_item, el_i
             // Update all elements that have matching paths
             $(`[data-path="${html_encode(old_path)}" i]`).each(function () {
                 $(this).attr('data-path', new_path);
-                if ( $(this).hasClass('window-navbar-path-dirname') )
-                {
+                if ($(this).hasClass('window-navbar-path-dirname')) {
                     $(this).text(new_name);
                 }
             });
 
             // Update the paths of all elements whose paths start with `old_path`
-            $(`[data-path^="${`${html_encode(old_path) }/`}"]`).each(function () {
-                const new_el_path = _.replace($(this).attr('data-path'), `${old_path }/`, `${new_path}/`);
+            $(`[data-path^="${`${html_encode(old_path)}/`}"]`).each(function () {
+                const new_el_path = _.replace($(this).attr('data-path'), `${old_path}/`, `${new_path}/`);
                 $(this).attr('data-path', new_el_path);
             });
 
             // Update the 'Sites Cache'
-            if ( $(el_item).attr('data-has_website') === '1' )
-            {
+            if ($(el_item).attr('data-has_website') === '1') {
                 await window.update_sites_cache();
             }
 
@@ -2801,7 +2748,7 @@ window.rename_file = async (options, new_name, old_name, old_path, el_item, el_i
             $(el_item_name_editor).val(html_encode($(el_item).attr('data-name')));
 
             //show error
-            if ( err.message ) {
+            if (err.message) {
                 UIAlert(err.message);
             }
         },
@@ -2821,32 +2768,32 @@ window.delete_item_with_path = async function (path) {
             descendantsOnly: false,
             recursive: true,
         });
-    } catch ( err ) {
+    } catch (err) {
         UIAlert(err.responseText);
     }
 };
 
 window.undo_last_action = async () => {
-    if ( window.actions_history.length > 0 ) {
+    if (window.actions_history.length > 0) {
         const last_action = window.actions_history.pop();
 
         // Undo the create file action
-        if ( last_action.operation === 'create_file' || last_action.operation === 'create_folder' ) {
+        if (last_action.operation === 'create_file' || last_action.operation === 'create_folder') {
             const lastCreatedItem = last_action.data;
             window.undo_create_file_or_folder(lastCreatedItem);
-        } else if ( last_action.operation === 'rename' ) {
-            const { options, new_name, old_name, old_path, el_item, el_item_name, el_item_icon, el_item_name_editor, website_url }  = last_action.data;
+        } else if (last_action.operation === 'rename') {
+            const { options, new_name, old_name, old_path, el_item, el_item_name, el_item_icon, el_item_name_editor, website_url } = last_action.data;
             window.rename_file(options, old_name, new_name, old_path, el_item, el_item_name, el_item_icon, el_item_name_editor, website_url, true);
-        } else if ( last_action.operation === 'upload' ) {
+        } else if (last_action.operation === 'upload') {
             const files = last_action.data;
             window.undo_upload(files);
-        } else if ( last_action.operation === 'copy' ) {
+        } else if (last_action.operation === 'copy') {
             const files = last_action.data;
             window.undo_copy(files);
-        } else if ( last_action.operation === 'move' ) {
+        } else if (last_action.operation === 'move') {
             const items = last_action.data;
             window.undo_move(items);
-        } else if ( last_action.operation === 'delete' ) {
+        } else if (last_action.operation === 'delete') {
             const items = last_action.data;
             window.undo_delete(items);
         }
@@ -2858,26 +2805,26 @@ window.undo_create_file_or_folder = async (item) => {
 };
 
 window.undo_upload = async (files) => {
-    for ( const file of files ) {
+    for (const file of files) {
         await window.delete_item_with_path(file);
     }
 };
 
 window.undo_copy = async (files) => {
-    for ( const file of files ) {
+    for (const file of files) {
         await window.delete_item_with_path(file);
     }
 };
 
 window.undo_move = async (items) => {
-    for ( const item of items ) {
+    for (const item of items) {
         const el = await get_html_element_from_options(item.options);
         window.move_items([el], path.dirname(item.original_path), true);
     }
 };
 
 window.undo_delete = async (items) => {
-    for ( const item of items ) {
+    for (const item of items) {
         const el = await get_html_element_from_options(item.options);
         let metadata = $(el).attr('data-metadata') === '' ? {} : JSON.parse($(el).attr('data-metadata'));
         window.move_items([el], path.dirname(metadata.original_path), true);
@@ -2903,7 +2850,7 @@ window.clear_desktop_item_positions = async (el_desktop) => {
         $(el_item).css('left', '');
         $(el_item).css('top', '');
     });
-    if ( window.reset_item_positions ) {
+    if (window.reset_item_positions) {
         window.delete_desktop_item_positions();
     }
 };
@@ -2912,10 +2859,10 @@ window.set_desktop_item_positions = async (el_desktop) => {
     $(el_desktop).find('.item').each(async function () {
         const position = window.desktop_item_positions[$(this).attr('data-uid')];
         const el_item = $(this)[0];
-        if ( position ) {
+        if (position) {
             $(el_item).css('position', 'absolute');
-            $(el_item).css('left', `${position.left }px`);
-            $(el_item).css('top', `${position.top }px`);
+            $(el_item).css('left', `${position.left}px`);
+            $(el_item).css('top', `${position.top}px`);
         }
     });
 };
@@ -2937,7 +2884,7 @@ window.change_clock_visible = (clock_visible) => {
     newValue === 'show' && $('#clock').show();
     newValue === 'hide' && $('#clock').hide();
 
-    if ( clock_visible ) {
+    if (clock_visible) {
         // save clock_visible to user preferences
         window.mutate_user_preferences({
             clock_visible: newValue,
@@ -2962,7 +2909,7 @@ window.iframe_for_app_instance = (instance_id) => {
 // Run any callbacks to say that the app has launched
 window.report_app_launched = (instance_id, { uses_sdk = true }) => {
     const child_launch_callback = window.child_launch_callbacks[instance_id];
-    if ( child_launch_callback ) {
+    if (child_launch_callback) {
         const parent_iframe = window.iframe_for_app_instance(child_launch_callback.parent_instance_id);
         // send confirmation to requester window
         parent_iframe.contentWindow.postMessage({
@@ -2984,7 +2931,7 @@ window.report_app_closed = (instance_id, status_code) => {
     // notify parent app, if we have one, that we're closing
     const parent_id = el_window.dataset['parent_instance_id'];
     const parent = $(`.window[data-element_uuid="${parent_id}"] .window-app-iframe`).get(0);
-    if ( parent ) {
+    if (parent) {
         parent.contentWindow.postMessage({
             msg: 'appClosed',
             appInstanceID: instance_id,
@@ -3007,28 +2954,28 @@ window.report_app_closed = (instance_id, status_code) => {
 
 window.set_menu_item_prop = (items, item_id, prop, val) => {
     // iterate over items
-    for ( const item of items ) {
+    for (const item of items) {
         // find the item with the given item_id
-        if ( item.id === item_id ) {
+        if (item.id === item_id) {
             // set the property value
             item[prop] = val;
             break;
         }
-        else if ( item.items ) {
+        else if (item.items) {
             set_menu_item_prop(item.items, item_id, prop, val);
         }
     }
 };
 
 window.countSubstr = (str, substring) => {
-    if ( substring.length === 0 ) {
+    if (substring.length === 0) {
         return 0;
     }
 
     let count = 0;
     let pos = str.indexOf(substring);
 
-    while ( pos !== -1 ) {
+    while (pos !== -1) {
         count++;
         pos = str.indexOf(substring, pos + 1);
     }
@@ -3042,9 +2989,9 @@ window.detectHostOS = function () {
     var macosPlatforms = ['Macintosh', 'MacIntel', 'MacPPC', 'Mac68K'];
     var windowsPlatforms = ['Win32', 'Win64', 'Windows', 'WinCE'];
 
-    if ( macosPlatforms.indexOf(platform) !== -1 ) {
+    if (macosPlatforms.indexOf(platform) !== -1) {
         return 'macos';
-    } else if ( windowsPlatforms.indexOf(platform) !== -1 ) {
+    } else if (windowsPlatforms.indexOf(platform) !== -1) {
         return 'windows';
     } else {
         return 'other';
@@ -3057,7 +3004,7 @@ window.update_profile = function (username, key_vals) {
             .then(text => {
                 const profile = JSON.parse(text);
 
-                for ( const key in key_vals ) {
+                for (const key in key_vals) {
                     profile[key] = key_vals[key];
                     // update window.user.profile
                     window.user.profile[key] = key_vals[key];
@@ -3069,7 +3016,7 @@ window.update_profile = function (username, key_vals) {
                 console.error('Error converting Blob to JSON:', error);
             });
     }).catch((e) => {
-        if ( e?.code === 'subject_does_not_exist' ) {
+        if (e?.code === 'subject_does_not_exist') {
             // create .profile file
             puter.fs.write(`/${username}/Public/.profile`, JSON.stringify({}));
         }
@@ -3091,13 +3038,13 @@ window.get_profile_picture = async function (username) {
     let icon;
     // try getting profile pic
     try {
-        let stat = await puter.fs.stat({ path: `/${ username }/Public/.profile`, consistency: 'eventual' });
-        if ( stat.size > 0 && stat.is_dir === false && stat.size < 1000000 ) {
-            let profile_json = await puter.fs.read(`/${ username }/Public/.profile`);
+        let stat = await puter.fs.stat({ path: `/${username}/Public/.profile`, consistency: 'eventual' });
+        if (stat.size > 0 && stat.is_dir === false && stat.size < 1000000) {
+            let profile_json = await puter.fs.read(`/${username}/Public/.profile`);
             profile_json = await blob2str(profile_json);
             const profile = JSON.parse(profile_json);
 
-            if ( profile.picture && profile.picture.startsWith('data:image') ) {
+            if (profile.picture && profile.picture.startsWith('data:image')) {
                 icon = profile.picture;
             }
         }
@@ -3108,7 +3055,7 @@ window.get_profile_picture = async function (username) {
 };
 
 window.format_with_units = (num, { mulUnits, divUnits, precision = 3 }) => {
-    if ( num === 0 ) return '0';
+    if (num === 0) return '0';
 
     mulUnits = mulUnits ?? ['', 'K', 'M', 'G', 'T', 'P', 'E', 'Z', 'Y'];
     divUnits = divUnits ?? ['m', 'µ', 'n', 'p', 'f', 'a', 'z', 'y'];
@@ -3119,9 +3066,9 @@ window.format_with_units = (num, { mulUnits, divUnits, precision = 3 }) => {
 
     symbol = exp >= 0
         ? mulUnits[exp]
-        : divUnits[-exp - 1] ;
+        : divUnits[-exp - 1];
 
-    if ( ! symbol ) {
+    if (!symbol) {
         symbol = `e${exp * 3}`;
     }
 
@@ -3132,7 +3079,7 @@ window.format_with_units = (num, { mulUnits, divUnits, precision = 3 }) => {
 };
 
 window.format_SI = (num) => {
-    if ( num === 0 ) return '0';
+    if (num === 0) return '0';
 
     const mulUnits = ['', 'K', 'M', 'G', 'T', 'P', 'E', 'Z', 'Y'];
     const divUnits = ['m', 'µ', 'n', 'p', 'f', 'a', 'z', 'y'];
@@ -3141,7 +3088,7 @@ window.format_SI = (num) => {
 };
 
 window.format_credits = (num) => {
-    if ( num === 0 ) return '0';
+    if (num === 0) return '0';
 
     const mulUnits = ['', 'K', 'M', 'B', 'T', 'Q'];
 
@@ -3190,13 +3137,13 @@ window.number_format = (num, options = {}) => {
     } = options;
 
     // Handle non-numeric values
-    if ( num === null || num === undefined || isNaN(num) ) {
-        return `${prefix }0${ suffix}`;
+    if (num === null || num === undefined || isNaN(num)) {
+        return `${prefix}0${suffix}`;
     }
 
     // Handle infinity
-    if ( ! isFinite(num) ) {
-        return num > 0 ? `${prefix }∞${ suffix}` : `${prefix }-∞${ suffix}`;
+    if (!isFinite(num)) {
+        return num > 0 ? `${prefix}∞${suffix}` : `${prefix}-∞${suffix}`;
     }
 
     const isNegative = num < 0;
@@ -3210,20 +3157,20 @@ window.number_format = (num, options = {}) => {
     let [intPart, decPart] = rounded.toFixed(decimals).split('.');
 
     // Add thousand separators to integer part
-    if ( thousandSeparator ) {
+    if (thousandSeparator) {
         intPart = intPart.replace(/\B(?=(\d{3})+(?!\d))/g, thousandSeparator);
     }
 
     // Build the number string
     let numStr = intPart;
-    if ( decimals > 0 ) {
-    // Handle stripInsignificantZeros
-        if ( stripInsignificantZeros && decPart ) {
+    if (decimals > 0) {
+        // Handle stripInsignificantZeros
+        if (stripInsignificantZeros && decPart) {
             decPart = decPart.replace(/0+$/, '');
         }
-        if ( decPart && decPart.length > 0 ) {
+        if (decPart && decPart.length > 0) {
             numStr += decimalSeparator + decPart;
-        } else if ( ! stripInsignificantZeros ) {
+        } else if (!stripInsignificantZeros) {
             numStr += decimalSeparator + decPart;
         }
     }
@@ -3232,17 +3179,17 @@ window.number_format = (num, options = {}) => {
     let sign = '';
     let wrapper = { start: '', end: '' };
 
-    if ( isNegative ) {
-        if ( negativeFormat === 'parentheses' ) {
+    if (isNegative) {
+        if (negativeFormat === 'parentheses') {
             wrapper = { start: '(', end: ')' };
-        } else if ( negativeFormat === 'accounting' ) {
+        } else if (negativeFormat === 'accounting') {
             // Accounting format: negative in parentheses with red color context
             wrapper = { start: '(', end: ')' };
         } else {
             // Default: sign format
             sign = '-';
         }
-    } else if ( forceSign && num > 0 ) {
+    } else if (forceSign && num > 0) {
         sign = '+';
     }
 
@@ -3269,8 +3216,8 @@ window.handle_same_name_exists = async ({
     try {
         await action({ overwrite: false });
         return true;
-    } catch ( err ) {
-        if ( err.code !== 'item_with_same_name_exists' ) {
+    } catch (err) {
+        if (err.code !== 'item_with_same_name_exists') {
             console.error(err);
             await UIAlert({
                 message: err.message ?? 'Upload failed.',
@@ -3293,7 +3240,7 @@ window.handle_same_name_exists = async ({
             ],
             parent_uuid,
         });
-        if ( alert_resp === 'replace' ) {
+        if (alert_resp === 'replace') {
             await action({ overwrite: true });
             return true;
         }
