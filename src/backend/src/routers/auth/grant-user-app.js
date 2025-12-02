@@ -20,6 +20,7 @@ const APIError = require('../../api/APIError');
 const eggspress = require('../../api/eggspress');
 const { UserActorType } = require('../../services/auth/Actor');
 const { Context } = require('../../util/context');
+const { validate_fields } = require('../../util/validutil');
 
 module.exports = eggspress('/auth/grant-user-app', {
     subdomain: 'api',
@@ -40,15 +41,12 @@ module.exports = eggspress('/auth/grant-user-app', {
         req.body.app_uid = await svc_auth.app_uid_from_origin(req.body.origin);
     }
 
-    if ( ! req.body.app_uid ) {
-        throw APIError.create('field_missing', null, { key: 'app_uid' });
-    }
-
-    if ( ! req.body.permission ) {
-        throw APIError.create('field_missing', null, {
-            key: 'permission',
-        });
-    }
+    validate_fields({
+        app_uid: { type: 'string', optional: false },
+        permission: { type: 'string', optional: false },
+        extra: { type: 'object', optional: true },
+        meta: { type: 'object', optional: true },
+    }, req.body);
 
     await svc_permission.grant_user_app_permission(actor, req.body.app_uid, req.body.permission, req.body.extra || {}, req.body.meta || {});
 
