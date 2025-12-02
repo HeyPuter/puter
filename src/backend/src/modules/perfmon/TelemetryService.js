@@ -38,13 +38,13 @@ class TelemetryService extends BaseService {
                             [SemanticResourceAttributes.SERVICE_VERSION]: '0.1.0',
                         }));
 
+        const exporter = this.#getConfiguredExporter();
+        this.exporter = exporter;
         const processor = new BatchSpanProcessor(exporter);
         const provider = new NodeTracerProvider({ resource,
             spanProcessors: [
                 processor,
             ] });
-        const exporter = this.#getConfiguredExporter();
-        this.exporter = exporter;
 
         provider.register();
 
