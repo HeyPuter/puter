@@ -113,7 +113,7 @@ class TogetherAIService extends BaseService {
                 // Metering integration
                 const actor = Context.get('actor');
 
-                const modelDetails = (await this.models_()).find(m => m.id === modelId || m.aliases?.include(modelId));
+                const modelDetails = (await this.models_()).find(m => m.id === model || m.aliases?.include(model));
                 const modelId = modelDetails ?? this.get_default_model();
 
                 if ( stream ) {

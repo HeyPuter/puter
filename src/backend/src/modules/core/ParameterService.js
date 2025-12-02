@@ -21,6 +21,64 @@
 const BaseService = require('../../services/BaseService');
 
 /**
+* @class Parameter
+* @description Represents a configurable parameter with value management, constraints, and change notification capabilities.
+* Provides functionality for setting/getting values, binding to object instances, and subscribing to value changes.
+* Supports validation through configurable constraints and maintains a list of value change listeners.
+*/
+class Parameter {
+    constructor (spec) {
+        this.spec_ = spec;
+        this.valueListeners_ = [];
+
+        if ( spec.default ) {
+            this.value_ = spec.default;
+        }
+    }
+
+    /**
+    * Sets a new value for the parameter after validating against constraints
+    * @param {*} value - The new value to set for the parameter
+    * @throws {Error} If the value fails any constraint checks
+    * @fires valueListeners with new value and old value
+    * @async
+    */
+    async set (value) {
+        for ( const constraint of (this.spec_.constraints ?? []) ) {
+            if ( ! await constraint.check(value) ) {
+                throw new Error(`value ${value} does not satisfy constraint ${constraint.id}`);
+            }
+        }
+
+        const old = this.value_;
+        this.value_ = value;
+        for ( const listener of this.valueListeners_ ) {
+            listener(value, { old });
+        }
+    }
+
+    /**
+    * Gets the current value of this parameter
+    * @returns {Promise<*>} The parameter's current value
+    */
+    async get () {
+        return this.value_;
+    }
+
+    bindToInstance (instance, name) {
+        const value = this.value_;
+        instance[name] = value;
+        this.valueListeners_.push((value) => {
+            instance[name] = value;
+        });
+    }
+
+    subscribe (listener) {
+        this.valueListeners_.push(listener);
+    }
+}
+
+/**
 * @class ParameterService
 * @extends BaseService
 * @description Service class for managing system parameters and their values.
@@ -151,64 +209,6 @@ class ParameterService extends BaseService {
                 },
             },
         ]);
-    }
-}
-
-/**
-* @class Parameter
-* @description Represents a configurable parameter with value management, constraints, and change notification capabilities.
-* Provides functionality for setting/getting values, binding to object instances, and subscribing to value changes.
-* Supports validation through configurable constraints and maintains a list of value change listeners.
-*/
-class Parameter {
-    constructor (spec) {
-        this.spec_ = spec;
-        this.valueListeners_ = [];
-
-        if ( spec.default ) {
-            this.value_ = spec.default;
-        }
-    }
-
-    /**
-    * Sets a new value for the parameter after validating against constraints
-    * @param {*} value - The new value to set for the parameter
-    * @throws {Error} If the value fails any constraint checks
-    * @fires valueListeners with new value and old value
-    * @async
-    */
-    async set (value) {
-        for ( const constraint of (this.spec_.constraints ?? []) ) {
-            if ( ! await constraint.check(value) ) {
-                throw new Error(`value ${value} does not satisfy constraint ${constraint.id}`);
-            }
-        }
-
-        const old = this.value_;
-        this.value_ = value;
-        for ( const listener of this.valueListeners_ ) {
-            listener(value, { old });
-        }
-    }
-
-    /**
-    * Gets the current value of this parameter
-    * @returns {Promise<*>} The parameter's current value
-    */
-    async get () {
-        return this.value_;
-    }
-
-    bindToInstance (instance, name) {
-        const value = this.value_;
-        instance[name] = value;
-        this.valueListeners_.push((value) => {
-            instance[name] = value;
-        });
-    }
-
-    subscribe (listener) {
-        this.valueListeners_.push(listener);
     }
 }
 

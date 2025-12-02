@@ -20,6 +20,13 @@ const backendLanguageOptions = {
     },
 };
 
+const mandatoryRules = {
+    'no-undef': 'error',
+    'no-use-before-define': ['error', {
+        'functions': false,
+    }],
+};
+
 export default defineConfig([
     {
         ignores: [
@@ -47,9 +54,7 @@ export default defineConfig([
         ignores: [
             'src/backend/src/services/database/sqlite_setup/**/*.js',
         ],
-        rules: {
-            'no-undef': 'error',
-        },
+        rules: mandatoryRules,
         languageOptions: {
             ...backendLanguageOptions,
         },
@@ -58,9 +63,7 @@ export default defineConfig([
         files: [
             'src/backend/src/services/database/sqlite_setup/**/*.js',
         ],
-        rules: {
-            'no-undef': 'error',
-        },
+        rules: mandatoryRules,
         languageOptions: {
             globals: {
                 read: 'readonly',
@@ -76,9 +79,7 @@ export default defineConfig([
             'extensions/**/*.{ts}',
             'src/backend-core-0/**/*.{ts}',
         ],
-        rules: {
-            'no-undef': 'error',
-        },
+        rules: mandatoryRules,
         languageOptions: {
             ...backendLanguageOptions,
         },

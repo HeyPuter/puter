@@ -27,6 +27,27 @@ const { TeePromise } = require('@heyputer/putility').libs.promise;
 const { valid_file_size } = require('../../util/validutil');
 
 let _handle_multipart;
+const responseHelper = (res, result) => {
+    if ( result.result instanceof TypedValue ) {
+        const tv = result.result;
+        if ( TypeSpec.adapt({ $: 'stream' }).equals(tv.type) ) {
+            res.set('Content-Type', tv.type.raw.content_type);
+            if ( tv.type.raw.chunked ) {
+                res.set('Transfer-Encoding', 'chunked');
+            }
+            tv.value.pipe(res);
+            return;
+        }
+
+        // This is the
+        if ( typeof tv.value === 'object' ) {
+            tv.value.type_fallback = true;
+        }
+        res.json(tv.value);
+        return;
+    }
+    res.json(result);
+};
 
 /**
  * POST /drivers/call
@@ -56,7 +77,7 @@ module.exports = eggspress('/drivers/call', {
     // noReallyItsJson: true,
     jsonCanBeLarge: true,
     allowedMethods: ['POST'],
-}, async (req, res, next) => {
+}, async (req, res) => {
     const x = Context.get();
     const svc_driver = x.get('services').get('driver');
 
@@ -87,34 +108,12 @@ module.exports = eggspress('/drivers/call', {
     // stream transformation, thus the stream from the request isn't
     // consumed until the response is being sent.
 
-    _respond(res, result);
+    responseHelper(res, result);
 
     // What we _can_ do is await the request promise while responding
     // to ensure errors are caught here.
     await p_request;
 });
-
-const _respond = (res, result) => {
-    if ( result.result instanceof TypedValue ) {
-        const tv = result.result;
-        if ( TypeSpec.adapt({ $: 'stream' }).equals(tv.type) ) {
-            res.set('Content-Type', tv.type.raw.content_type);
-            if ( tv.type.raw.chunked ) {
-                res.set('Transfer-Encoding', 'chunked');
-            }
-            tv.value.pipe(res);
-            return;
-        }
-
-        // This is the
-        if ( typeof tv.value === 'object' ) {
-            tv.value.type_fallback = true;
-        }
-        res.json(tv.value);
-        return;
-    }
-    res.json(result);
-};
 
 _handle_multipart = async (req) => {
     const Busboy = require('busboy');
@@ -130,7 +129,7 @@ _handle_multipart = async (req) => {
 
     const p_data_end = new TeePromise();
     const p_nonfile_data_end = new TeePromise();
-    bb.on('file', (fieldname, stream, details) => {
+    bb.on('file', (fieldname, stream, _details) => {
         p_nonfile_data_end.resolve();
         const fileinfo = files[file_index++];
         stream.pipe(fileinfo.stream);
@@ -141,7 +140,7 @@ _handle_multipart = async (req) => {
         const last_key = key_parts.pop();
         let dst = params;
         for ( let i = 0; i < key_parts.length; i++ ) {
-            if ( ! dst.hasOwnProperty(key_parts[i]) ) {
+            if ( ! Object.prototype.hasOwnProperty.call(dst, key_parts[i]) ) {
                 dst[key_parts[i]] = {};
             }
             if ( whatis(dst[key_parts[i]]) !== 'object' ) {
@@ -164,7 +163,7 @@ _handle_multipart = async (req) => {
             files.push(fileinfo);
             value = file_facade;
         }
-        if ( dst.hasOwnProperty(last_key) ) {
+        if ( Object.prototype.hasOwnProperty.call(dst, last_key) ) {
             if ( ! Array.isArray(dst[last_key]) ) {
                 dst[last_key] = [dst[last_key]];
             }
@@ -174,7 +173,7 @@ _handle_multipart = async (req) => {
         }
     };
 
-    bb.on('field', (fieldname, value, details) => {
+    bb.on('field', (fieldname, value, _details) => {
         const o = JSON.parse(value);
         for ( const k in o ) {
             on_field(k, o[k]);
