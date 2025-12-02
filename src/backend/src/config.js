@@ -21,6 +21,7 @@ const deep_proto_merge = require('./config/deep_proto_merge');
 // const reserved_words = require('./config/reserved_words');
 
 let config = {};
+config.__import_identity__ = require('uuid').v4();
 
 // Static defaults
 config.servers = [];
@@ -149,8 +150,6 @@ config.os.refined = config.os.archbtw;
 if ( config.os.refined ) {
     config.no_browser_launch = true;
 }
-
-module.exports = config;
 
 // NEW_CONFIG_LOADING
 const maybe_port = config =>
