@@ -1330,8 +1330,8 @@ function UIItem (options) {
             // -------------------------------------------
             if ( is_trash ) {
                 menu_items.push({
-                    html: "Empty Trash",
-                    onClick: async function(){
+                    html: i18n('empty_trash'),
+                    onClick: async function () {
                         window.empty_trash();
                     },
                 });

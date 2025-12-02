@@ -80,7 +80,7 @@ class TrashAutoDeleteService extends BaseService {
         if (!userObj) return;
 
         const prefDays = await this._getUserPref(userId);
-        if (!prefDays) return;
+        if ( ! prefDays ) return;
 
         const now = Date.now();
         const DAY_MS = 86400000;
@@ -96,11 +96,11 @@ class TrashAutoDeleteService extends BaseService {
 
         let deletedCount = 0;
 
-        for (const f of files) {
+        for ( const f of files ) {
             const ageDays = (now - (f.created * 1000)) / DAY_MS;
             // const ageDays = 3; // Used for testing!
 
-            if (ageDays < prefDays) continue;
+            if ( ageDays < prefDays ) continue;
 
             try {
                 await this._deleteOne(userObj, f.uuid);

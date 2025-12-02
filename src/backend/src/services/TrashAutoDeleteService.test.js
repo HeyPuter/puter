@@ -58,7 +58,7 @@ function makeService ({ db, log, socketio } = {}) {
     // override services so _deleteOne can do this.services.get('socketio')
     svc.services = {
         get: (name) => {
-            if (name === 'socketio') return socketSvc;
+            if ( name === 'socketio' ) return socketSvc;
             // we don't use other services in these tests
             return null;
         },
@@ -322,7 +322,7 @@ describe('TrashAutoDeleteService — Socket emission tests', () => {
     
         // Mock database service so _init() does not crash
         svc.services.get = (name) => {
-            if (name === 'database') {
+            if ( name === 'database' ) {
                 return {
                     get: vi.fn().mockResolvedValue({
                         // mocked DB interface, not used in this test
@@ -331,7 +331,7 @@ describe('TrashAutoDeleteService — Socket emission tests', () => {
                     })
                 };
             }
-            if (name === 'socketio') {
+            if ( name === 'socketio' ) {
                 return { send: vi.fn() };
             }
             return null;
