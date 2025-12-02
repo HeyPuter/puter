@@ -38,12 +38,13 @@ class TelemetryService extends BaseService {
                             [SemanticResourceAttributes.SERVICE_VERSION]: '0.1.0',
                         }));
 
-        const provider = new NodeTracerProvider({ resource });
-        const exporter = this.getConfiguredExporter_();
-        this.exporter = exporter;
-
         const processor = new BatchSpanProcessor(exporter);
-        provider.addSpanProcessor(processor);
+        const provider = new NodeTracerProvider({ resource,
+            spanProcessors: [
+                processor,
+            ] });
+        const exporter = this.#getConfiguredExporter();
+        this.exporter = exporter;
 
         provider.register();
 
@@ -83,11 +84,12 @@ class TelemetryService extends BaseService {
         });
     }
 
-    getConfiguredExporter_ () {
+    #getConfiguredExporter () {
         if ( config.jaeger ?? this.config.jaeger ) {
             return new OTLPTraceExporter(config.jaeger ?? this.config.jaeger);
         }
         const exporter = new ConsoleSpanExporter();
+        return exporter;
     }
 }
 
