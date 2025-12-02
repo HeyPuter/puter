@@ -2640,52 +2640,102 @@ async function UIWindow (options) {
                     items: menu_items,
                 });
             }
-            // Trash conext menu
-            else {
-                UIContextMenu({
-                    parent_element: el_window_body,
-                    items: [
-                        // -------------------------------------------
-                        // Empty Trash
-                        // -------------------------------------------
-                        {
-                            html: i18n('empty_trash'),
-                            disabled: false,
-                            onClick: async function () {
-                                // TODO: Merge this with window.empty_trash()
-                                const alert_resp = await UIAlert({
-                                    message: i18n('empty_trash_confirmation'),
-                                    buttons: [
-                                        {
-                                            label: i18n('yes'),
-                                            value: 'yes',
-                                            type: 'primary',
-                                        },
-                                        {
-                                            label: i18n('no'),
-                                            value: 'no',
-                                        },
-                                    ],
-                                });
-                                if ( alert_resp === 'no' )
-                                {
-                                    return;
-                                }
+            // Trash context menu
+            else{
+                // --------------------------------------------------
+                // Preload or initialize auto-delete preference, then show menu
+                // --------------------------------------------------
+                (async () => {
+                    try {
+                        let stored = await puter.kv.get("auto_delete_days");
 
-                                // todo this has to be case-insensitive but the `i` selector doesn't work on ^=
-                                $(`.item[data-path^="${html_encode(window.trash_path)}/"]`).each(function () {
-                                    window.delete_item(this);
-                                });
-                                // update other clients
-                                if ( window.socket ) {
-                                    window.socket.emit('trash.is_empty', { is_empty: true });
+                        // Initialize default value if not present
+                        if (stored === undefined || stored === null) {
+                            console.log("[trash] auto_delete_days not set, initializing to 0");
+                            await puter.kv.set("auto_delete_days", "0");
+                            stored = "0";
+                        }
+
+                        window.auto_delete_days_pref = parseInt(stored) || 0;
+                        console.log("[trash] loaded auto_delete_days_pref =", window.auto_delete_days_pref);
+
+                        // ✅ Only build UI after value is ready
+                        UIContextMenu({
+                            parent_element: el_window_body,
+                            items: [
+                                {
+                                    html: i18n('empty_trash'),
+                                    disabled: false,
+                                    onClick: async function(){
+                                        const alert_resp = await UIAlert({
+                                            message: i18n('empty_trash_confirmation'),
+                                            buttons:[
+                                                { label: i18n('yes'), value: 'yes', type: 'primary' },
+                                                { label: i18n('no'), value: 'no' },
+                                            ]
+                                        });
+                                        if(alert_resp === 'no') return;
+
+                                        $(`.item[data-path^="${html_encode(window.trash_path)}/"]`).each(function(){
+                                            window.delete_item(this);
+                                        });
+                                        if(window.socket){
+                                            window.socket.emit('trash.is_empty', {is_empty: true});
+                                        }
+                                        $(`.item[data-path="${html_encode(window.trash_path)}" i], .item[data-shortcut_to_path="${html_encode(window.trash_path)}" i]`)
+                                            .find('.item-icon > img')
+                                            .attr('src', window.icons['trash.svg']);
+                                    }
+                                },
+                                {
+                                    html: "Auto-delete Settings",
+                                    items: [
+                                        {
+                                            html: "None (disabled)",
+                                            checked: window.auto_delete_days_pref === 0,
+                                            onClick: async function() {
+                                                await puter.kv.set("auto_delete_days", "0");
+                                                window.auto_delete_days_pref = 0;
+                                                await UIAlert({ message: "Auto-delete disabled", buttons: [{ label: "OK", value: "ok", type: "primary" }] });
+                                            }
+                                        },
+                                        {
+                                            html: "After 24 hours",
+                                            checked: window.auto_delete_days_pref === 1,
+                                            onClick: async function() {
+                                                await puter.kv.set("auto_delete_days", "1");
+                                                window.auto_delete_days_pref = 1;
+                                                await UIAlert({ message: "Auto-delete interval set to 24 hours", buttons: [{ label: "OK", value: "ok", type: "primary" }] });
+                                            }
+                                        },
+                                        {
+                                            html: "After 7 days",
+                                            checked: window.auto_delete_days_pref === 7,
+                                            onClick: async function() {
+                                                await puter.kv.set("auto_delete_days", "7");
+                                                window.auto_delete_days_pref = 7;
+                                                await UIAlert({ message: "Auto-delete interval set to 7 days", buttons: [{ label: "OK", value: "ok", type: "primary" }] });
+                                            }
+                                        },
+                                        {
+                                            html: "After 30 days",
+                                            checked: window.auto_delete_days_pref === 30,
+                                            onClick: async function() {
+                                                await puter.kv.set("auto_delete_days", "30");
+                                                window.auto_delete_days_pref = 30;
+                                                await UIAlert({ message: "Auto-delete interval set to 30 days", buttons: [{ label: "OK", value: "ok", type: "primary" }] });
+                                            }
+                                        }
+                                    ]
                                 }
-                                // use the 'empty trash' icon
-                                $(`.item[data-path="${html_encode(window.trash_path)}" i], .item[data-shortcut_to_path="${html_encode(window.trash_path)}" i]`).find('.item-icon > img').attr('src', window.icons['trash.svg']);
-                            },
-                        },
-                    ],
-                });
+                            ]
+                        });
+
+                    } catch (err) {
+                        console.error("Failed to load or initialize auto_delete_days_pref:", err);
+                        window.auto_delete_days_pref = 0;
+                    }
+                })();
             }
         }
     });
