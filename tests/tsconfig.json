@@ -3,9 +3,8 @@
     "noEmit": true,
     "compilerOptions": {
         "noEmit": true,
-        "rootDir": ".",
         "target": "es6",
-        "module": "es6",
+        "module": "esnext",
         "moduleResolution": "bundler",
         "outDir": "build",
         "esModuleInterop": true,
@@ -14,6 +13,7 @@
     "include": [
         "../**/*.test.mts",
         "../**/*.test.ts",
+        "./puterJsApiTests/testUtil.ts"
     ],
     "exclude": [
         "node_modules"

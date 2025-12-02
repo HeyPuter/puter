@@ -19,7 +19,6 @@
         "**/vitest.config.mts",
         "**/*.spec.ts",
         "**/*.spec.mts",
-        "**/test/**",
         "**/tests/**",
         "node_modules",
         "dist",

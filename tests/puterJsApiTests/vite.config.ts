@@ -11,7 +11,7 @@ export default defineConfig(({ mode }) => ({
             reporter: ['text', 'json', 'html'],
             exclude: ['setup.ts', 'testUtils.ts'],
         },
-        env: loadEnv(mode, "", "PUTER_"),
+        env: loadEnv(mode, '', 'PUTER_'),
     },
     plugins: [
         viteStaticCopy({
