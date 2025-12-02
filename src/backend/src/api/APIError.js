@@ -163,6 +163,10 @@ module.exports = class APIError {
             status: 400,
             message: ({ key }) => `Field ${quot(key)} is required.`,
         },
+        'fields_missing': {
+            status: 400,
+            message: ({ keys }) => `The following fields are required but missing: ${keys.map(quot).join(', ')}.`,
+        },
         'xor_field_missing': {
             status: 400,
             message: ({ names }) => {
@@ -191,6 +195,16 @@ module.exports = class APIError {
                 return `Field ${quot(key)} is invalid.${
                     expected ? ` Expected ${expected}.` : ''
                 }${got ? ` Got ${got}.` : ''}`;
+            },
+        },
+        'fields_invalid': {
+            status: 400,
+            message: ({ errors }) => {
+                let s = 'The following validation errors occurred: ';
+                s += errors.map(error => `Field ${quot(error.key)} is invalid.${
+                    error.expected ? ` Expected ${error.expected}.` : ''
+                }${error.got ? ` Got ${error.got}.` : ''}`).join(', ');
+                return s;
             },
         },
         'field_immutable': {
