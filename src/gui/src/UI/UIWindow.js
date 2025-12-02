@@ -2553,6 +2553,16 @@ async function UIWindow (options) {
                         },
                     });
                     // -------------------------------------------
+                    // Upload Folder Here
+                    // -------------------------------------------
+                    menu_items.push({
+                        html: i18n('upload_folder_here'),
+                        disabled: $(el_window).attr('data-path') === '/' ? true : false,
+                        onClick: function () {
+                            window.init_folder_upload_using_dialog(el_window_body, `${$(el_window).attr('data-path') }/`);
+                        },
+                    });
+                    // -------------------------------------------
                     // -
                     // -------------------------------------------
                     menu_items.push('-');

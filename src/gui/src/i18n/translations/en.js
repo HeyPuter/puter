@@ -329,6 +329,7 @@ const en = {
         uploading: 'Uploading',
         uploading_file: 'Uploading %%',
         upload_here: 'Upload here',
+        upload_folder_here: 'Upload Folder here',
         used_of: '{{used}} used of {{available}}',
         usage: 'Usage',
         username: 'Username',

@@ -1818,6 +1818,32 @@ window.init_upload_using_dialog = function (el_target_container, target_path = n
     });
 };
 
+window.init_folder_upload_using_dialog = function (el_target_container, target_path = null) {
+    $('#upload-folder-dialog').unbind('onchange');
+    $('#upload-folder-dialog').unbind('change');
+    $('#upload-folder-dialog').unbind('onChange');
+
+    target_path = target_path === null ? $(el_target_container).attr('data-path') : path.resolve(target_path);
+    $('#upload-folder-dialog').trigger('click');
+    $('#upload-folder-dialog').on('change', async function (e) {
+        if ( $('#upload-folder-dialog').val() !== '' ) {
+            const files = $('#upload-folder-dialog')[0].files;
+            if ( files.length > 0 ) {
+                try {
+                    window.upload_items(files, target_path);
+                }
+                catch ( err ) {
+                    UIAlert(err.message ?? err);
+                }
+                $('#upload-folder-dialog').val('');
+            }
+        }
+        else {
+            return;
+        }
+    });
+};
+
 window.upload_items = async function (items, dest_path) {
     let upload_progress_window;
     let opid;

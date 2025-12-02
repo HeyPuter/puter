@@ -688,6 +688,7 @@ async function UIDesktop (options) {
             <input type="hidden" name="name" id="upload-filename" value="">
             <input type="hidden" name="path" id="upload-target-path" value="">
             <input type="file" name="file" id="upload-file-dialog" style="display: none;" multiple="multiple">
+            <input type="file" name="folder" id="upload-folder-dialog" style="display: none;" webkitdirectory directory multiple>
         </form>`;
 
     h += '<div class="window-container"></div>';
@@ -1054,6 +1055,15 @@ async function UIDesktop (options) {
                         html: i18n('upload_here'),
                         onClick: function () {
                             window.init_upload_using_dialog(el_desktop);
+                        },
+                    },
+                    // -------------------------------------------
+                    // Upload Folder Here
+                    // -------------------------------------------
+                    {
+                        html: i18n('upload_folder_here'),
+                        onClick: function () {
+                            window.init_folder_upload_using_dialog(el_desktop);
                         },
                     },
                     // -------------------------------------------
