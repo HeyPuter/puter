@@ -1031,6 +1031,7 @@ window.initgui = async function (options) {
                         let spinner_duration = (Date.now() - spinner_init_ts);
 
                         (async () => {
+                            let msg_id = window.url_query_params.get('msg_id');
                             let data = await window.getUserAppToken(new URL(window.openerOrigin).origin);
                             // This is an implicit app and the app_uid is sent back from the server
                             // we cache it here so that we can use it later
