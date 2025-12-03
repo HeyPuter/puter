@@ -129,10 +129,10 @@ class PermissionService extends BaseService {
     * Can be a single permission string or an array of permission strings.
     * @returns {Promise<boolean>} - True if the actor has at least one of the permissions, false otherwise.
     */
-    async check (actor, permission_options) {
+    async check (actor, permission_options, scan_options = {}) {
         const svc_trace = this.services.get('traceService');
         return await svc_trace.spanify('permission:check', async () => {
-            const reading = await this.scan(actor, permission_options);
+            const reading = await this.scan(actor, permission_options, undefined, undefined, scan_options);
             const options = PermissionUtil.reading_to_options(reading);
             return options.length > 0;
         });
@@ -169,15 +169,15 @@ class PermissionService extends BaseService {
     *
     * @returns {Promise<Array>} A promise that resolves to an array of permission readings.
     */
-    async scan (actor, permission_options, _reserved, state) {
+    async scan (actor, permission_options, _reserved, state, scan_options = {}) {
         const svc_trace = this.services.get('traceService');
         return await svc_trace.spanify('permission:scan', async () => {
             return await ECMAP.arun(async () => {
-                return await this.#scan(actor, permission_options, _reserved, state);
+                return await this.#scan(actor, permission_options, _reserved, state, scan_options);
             });
         }, { attributes: { permission_options }, actor: actor.uid });
     }
-    async #scan (actor, permission_options, _reserved, state) {
+    async #scan (actor, permission_options, _reserved, state, scan_options = {}) {
         if ( ! state ) {
             this.log.debug('scan', {
                 actor: actor.uid,
@@ -202,7 +202,7 @@ class PermissionService extends BaseService {
                         ...permission_options);
 
         const cached = this.modules.memKVMap.get(cache_str);
-        if ( cached ) {
+        if ( cached && !scan_options.no_cache ) {
             return cached;
         }
 
