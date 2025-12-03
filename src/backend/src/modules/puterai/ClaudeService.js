@@ -39,11 +39,11 @@ class ClaudeService extends BaseService {
     // Traits definitions
     static IMPLEMENTS = {
         ['puter-chat-completion']: {
-            async models () {
-                return this.models();
+            async models (...args) {
+                return this.models(...args);
             },
-            async list () {
-                return this.list();
+            async list (...args) {
+                return this.list(...args);
             },
             async complete (...args) {
                 return this.complete(...args);
