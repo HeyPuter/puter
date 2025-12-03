@@ -475,7 +475,7 @@ const puterInit = (function () {
         setAppID = function (appID) {
             // save to localStorage
             try {
-                localStorage.setItem('puter.app.id', appID);
+                globalThis.localStorage.setItem('puter.app.id', appID);
             } catch ( error ) {
                 // Handle the error here
                 console.error('Error accessing localStorage:', error);
@@ -488,7 +488,7 @@ const puterInit = (function () {
             // If the SDK is running on a 3rd-party site or an app, then save the authToken in localStorage
             if ( this.env === 'web' || this.env === 'app' ) {
                 try {
-                    localStorage.setItem('puter.auth.token', authToken);
+                    globalThis.localStorage.setItem('puter.auth.token', authToken);
                 } catch ( error ) {
                     // Handle the error here
                     console.error('Error accessing localStorage:', error);
@@ -522,7 +522,7 @@ const puterInit = (function () {
             // If the SDK is running on a 3rd-party site or an app, then save the authToken in localStorage
             if ( this.env === 'web' || this.env === 'app' ) {
                 try {
-                    localStorage.removeItem('puter.auth.token');
+                    globalThis.localStorage.removeItem('puter.auth.token');
                 } catch ( error ) {
                     // Handle the error here
                     console.error('Error accessing localStorage:', error);

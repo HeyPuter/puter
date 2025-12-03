@@ -1,6 +1,6 @@
+import path from '../../lib/path.js';
 import io from '../../lib/socket.io/socket.io.esm.min.js';
 import * as utils from '../../lib/utils.js';
-import path from '../../lib/path.js';
 
 // Constants
 //
@@ -244,7 +244,7 @@ export class PuterJSFileSystemModule extends AdvancedBase {
     invalidateCache () {
         // Action: Update last valid time
         // Set to 0, which means the cache is not up to date.
-        localStorage.setItem(LAST_VALID_TS, '0');
+        globalThis.localStorage.setItem(LAST_VALID_TS, '0');
         puter._cache.flushall();
     }
 
@@ -282,13 +282,13 @@ export class PuterJSFileSystemModule extends AdvancedBase {
     async checkCacheAndPurge () {
         try {
             const serverTimestamp = await this.getCacheTimestamp();
-            const localValidTs = parseInt(localStorage.getItem(LAST_VALID_TS)) || 0;
+            const localValidTs = parseInt(globalThis.localStorage.getItem(LAST_VALID_TS)) || 0;
 
             if ( serverTimestamp - localValidTs > 2000 ) {
                 console.log('Cache is not up to date, purging cache');
                 // Server has newer data, purge local cache
                 puter._cache.flushall();
-                localStorage.setItem(LAST_VALID_TS, '0');
+                globalThis.localStorage.setItem(LAST_VALID_TS, '0');
             }
         } catch ( error ) {
             // If we can't get the server timestamp, silently fail
@@ -314,7 +314,7 @@ export class PuterJSFileSystemModule extends AdvancedBase {
 
         // Start new timer
         this.cacheUpdateTimer = setInterval(() => {
-            localStorage.setItem(LAST_VALID_TS, Date.now().toString());
+            globalThis.localStorage.setItem(LAST_VALID_TS, Date.now().toString());
         }, 1000);
     }
 

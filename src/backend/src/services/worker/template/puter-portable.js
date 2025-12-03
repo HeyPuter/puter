@@ -15,6 +15,14 @@ if (globalThis.Cloudflare) {
     }
 }
 
+export default {
+    fetch(request, env, ctx) {
+        Object.assign(globalThis, env);
+        globalThis.db = env.db;
+        return router.route({request, waitUntil: ctx.waitUntil, env })
+    },
+};
+
 globalThis.init_puter_portable = (auth, apiOrigin, type) => {
     // Who put C in my JS??
     /*
@@ -32,9 +40,13 @@ globalThis.init_puter_portable = (auth, apiOrigin, type) => {
         goodContext.location = new URL("https://puter.work");
         goodContext.addEventListener = ()=>{};
         // @ts-ignore
-        with (goodContext) {
+        ((goodContext) => {
+            let location = new URL("https://puter.site/");
+            let globalThis = goodContext;
+            globalThis.location = location;
+
             #include "../../../../../puter-js/dist/puter.js"
-        }
+        })(goodContext);
         goodContext.puter.setAPIOrigin(apiOrigin);
         goodContext.puter.setAuthToken(auth);
         return goodContext.puter;

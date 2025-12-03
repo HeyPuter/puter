@@ -1,4 +1,4 @@
-import { FileReaderPoly } from "./polyfills/fileReaderPoly.js";
+import { FileReaderPoly } from './polyfills/fileReaderPoly.js';
 
 /**
  * Parses a given response text into a JSON object. If the parsing fails due to invalid JSON format,
@@ -78,7 +78,7 @@ function uuidv4 () {
  * @returns {XMLHttpRequest} The initialized XMLHttpRequest object.
  */
 function initXhr (endpoint, APIOrigin, authToken, method = 'post', contentType = 'text/plain;actually=json', responseType = undefined) {
-    const xhr = new XMLHttpRequest();
+    const xhr = new globalThis.XMLHttpRequest();
     xhr.open(method, APIOrigin + endpoint, true);
     if ( authToken )
     {
@@ -627,3 +627,4 @@ function arrayBufferToDataUri (arrayBuffer) {
 export {
     arrayBufferToDataUri, blob_to_url, blobToDataUri, driverCall, handle_error, handle_resp, initXhr, make_driver_method, parseResponse, setupXhrEventHandlers, TeePromise, uuidv4
 };
+

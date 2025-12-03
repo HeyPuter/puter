@@ -63,12 +63,12 @@ function inits2w () {
          */
         async route (event) {
             if ( ! globalThis.me ) {
-                globalThis.me = { puter: init_puter_portable(globalThis.puter_auth, globalThis.puter_endpoint || 'https://api.puter.com', 'userPuter') };
+                globalThis.me = { puter: init_puter_portable(event.env.puter_auth, event.env.puter_endpoint || 'https://api.puter.com', 'userPuter') };
                 globalThis.my = me;
                 globalThis.myself = me;
             }
             if ( event.request.headers.has('puter-auth') ) {
-                event.requestor = { puter: init_puter_portable(event.request.headers.get('puter-auth'), globalThis.puter_endpoint || 'https://api.puter.com', 'userPuter') };
+                event.requestor = { puter: init_puter_portable(event.request.headers.get('puter-auth'), event.env.puter_endpoint || 'https://api.puter.com', 'userPuter') };
                 event.user = event.requestor;
             }
 
@@ -121,13 +121,13 @@ function inits2w () {
         },
     };
     globalThis.router = router;
-    self.addEventListener('fetch', (event) => {
-        if ( ! router.routing )
-        {
-            return false;
-        }
-        event.respondWith(router.route(event));
-    });
+    // self.addEventListener('fetch', (event) => {
+    //     if ( ! router.routing )
+    //     {
+    //         return false;
+    //     }
+    //     event.respondWith(router.route(event));
+    // });
 }
 
 export default inits2w;

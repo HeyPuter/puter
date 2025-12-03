@@ -5,7 +5,7 @@ function sha1 (input) {
     return crypto.createHash('sha1').update(input, 'utf8').digest().toString('hex').slice(0, 7);
 }
 
-function calculateWorkerNameNew (uuid, workerId) {
+function calculateWorkerNameNew (workerId) {
 
     return `${workerId}`; // Used to be ${workerId}-${uuid.replaceAll("-", "")}
 }

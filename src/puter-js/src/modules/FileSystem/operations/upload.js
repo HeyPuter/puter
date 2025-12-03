@@ -32,7 +32,7 @@ const upload = async function (items, dirPath, options = {}) {
         };
 
         // xhr object to be used for the upload
-        let xhr = new XMLHttpRequest();
+        let xhr = new globalThis.XMLHttpRequest();
 
         // Can not write to root
         if ( dirPath === '/' )

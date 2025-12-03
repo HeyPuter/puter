@@ -4,6 +4,7 @@ let config = {};
 // Constants
 const CF_BASE_URL = 'https://api.cloudflare.com/';
 let WORKERS_BASE_URL;
+let D1_BASE_URL;
 // Workers for Platforms support
 
 function cfFetch (url, method = 'GET', body, givenHeaders) {
@@ -18,14 +19,24 @@ function cfFetch (url, method = 'GET', body, givenHeaders) {
 async function getWorker (userData, authorization, workerId) {
     await cfFetch(`${WORKERS_BASE_URL}/scripts/${calculateWorkerNameNew(userData.uuid, workerId)}`, 'GET');
 }
-async function createWorker (userData, authorization, workerName, body, PREAMBLE_LENGTH) {
+
+async function createDB (databaseName) {
+    return await (await cfFetch(`${D1_BASE_URL}`, 'POST', JSON.stringify({
+        name: databaseName,
+    }))).json();
+}
+
+async function createWorker (userData, authorization, workerName, body, PREAMBLE_LENGTH, databaseID) {
     const formData = new FormData();
-
     const workerMetaData = {
-
-        body_part: 'swCode',
-        compatibility_date: '2025-07-15',
+        main_module: 'worker.js',
+        compatibility_date: '2025-12-03',
         bindings: [
+            ...(databaseID ? [{
+                type: 'd1',
+                name: 'db',
+                id: databaseID,
+            }] : []),
             {
                 type: 'secret_text',
                 name: 'puter_auth',
@@ -40,8 +51,9 @@ async function createWorker (userData, authorization, workerName, body, PREAMBLE
         ],
 
     };
+    console.log('workerMetadata: ', workerMetaData);
     formData.append('metadata', JSON.stringify(workerMetaData));
-    formData.append('swCode', body);
+    formData.append('swCode', new Blob([body], { type: 'application/javascript+module' }), 'worker.js');
     const cfReturnCodes = await (await cfFetch(`${WORKERS_BASE_URL}/scripts/${workerName}/`, 'PUT', formData)).json();
 
     if ( cfReturnCodes.success ) {
@@ -74,20 +86,20 @@ async function createWorker (userData, authorization, workerName, body, PREAMBLE
         return { success: false, errors: parsedErrors, url: null, body };
     }
 }
-function setPreambleLength (length) {
 
-}
 function setCloudflareKeys (givenConfig) {
     config = givenConfig;
-    WORKERS_BASE_URL = `${CF_BASE_URL }client/v4/accounts/${config.ACCOUNTID}/workers`;
+    WORKERS_BASE_URL = `${CF_BASE_URL}client/v4/accounts/${config.ACCOUNTID}/workers`;
     if ( config.namespace ) {
         WORKERS_BASE_URL += `/dispatch/namespaces/${config.namespace}`;
     }
+    D1_BASE_URL = `${CF_BASE_URL}client/v4/accounts/${config.ACCOUNTID}/d1/database`;
+    console.log(`${CF_BASE_URL}client/v4/accounts/${config.ACCOUNTID}/d1/database`);
 
 }
 
-async function deleteWorker (userData, authorization, workerId) {
-    return await (await cfFetch(`${WORKERS_BASE_URL}/scripts/${calculateWorkerNameNew(userData.uuid, workerId)}/`, 'DELETE')).json();
+async function deleteWorker (userData, workerId) {
+    return await (await cfFetch(`${WORKERS_BASE_URL}/scripts/${calculateWorkerNameNew(workerId)}/`, 'DELETE')).json();
 
 }
 
@@ -96,4 +108,5 @@ module.exports = {
     deleteWorker,
     getWorker,
     setCloudflareKeys,
+    createDB,
 };
