@@ -111,4 +111,29 @@ export default class Perms {
     async listGroups () {
         return await this.req_('/group/list');
     }
+
+    // #region shorthand functions
+    /**
+     * Request to see a user's email. If the user has already granted this
+     * permission the user will not be prompted and their email address
+     * will be returned. If the user grants permission their email address will
+     * be returned. If the user does not allow access `undefined` will be
+     * returned. If the user does not have an email address, the value of their
+     * email address will be `null`.
+     *
+     * @return {string|null|undefined} An email address or undefined
+     */
+    async requestEmail () {
+        let whoami;
+        whoami = await puter.auth.whoami();
+        if ( whoami.email !== undefined ) return whoami.email;
+        const granted = await this.puter.ui.requestPermission({
+            permission: `user:${whoami.uuid}:email:read`,
+        });
+        if ( granted ) {
+            whoami = await puter.auth.whoami();
+        }
+        return whoami.email;
+    }
+    // #endregion
 }
