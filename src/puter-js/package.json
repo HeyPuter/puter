@@ -1,14 +1,15 @@
 {
     "name": "@heyputer/puter.js",
-    "version": "2.1.6",
+    "version": "2.1.9",
     "description": "Puter.js - A JavaScript library for interacting with Puter services.",
     "main": "src/index.js",
-    "types": "index.d.ts",
-    "typings": "index.d.ts",
+    "types": "./index.d.ts",
+    "typings": "./index.d.ts",
     "type": "module",
     "files": [
         "dist/puter.cjs",
         "src/",
+        "types/",
         "index.d.ts"
     ],
     "publishConfig": {
