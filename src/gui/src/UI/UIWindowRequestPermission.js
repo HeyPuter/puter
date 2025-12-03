@@ -151,9 +151,41 @@ async function get_permission_description (permission) {
     const parts = split_permission(permission);
     const [resource_type, resource_id, action, interface_name = null] = parts;
     let fsentry;
+    let app;
 
     if ( resource_type === 'fs' ) {
         fsentry = await puter.fs.stat({ uid: resource_id, consistency: 'eventual' });
+    }
+    if ( resource_type === 'app' ) {
+        // resource_id may be uid#<appUid>, owner#<userId>, owner@<username>, or name
+        const id = resource_id ?? '';
+        if ( id.startsWith('uid#') ) {
+            const app_uid = id.slice('uid#'.length);
+            try {
+                app = await puter.apps.get(app_uid);
+            } catch (e) {
+                // ignore lookup failures; fallback to generic text
+            }
+        } else if ( ! id.startsWith('owner#') && ! id.startsWith('owner@') && id ) {
+            try {
+                app = await puter.apps.get(id);
+            } catch (e) {
+                // ignore lookup failures
+            }
+        }
+    }
+    if ( resource_type === 'site' ) {
+        // resource_id may be uid#<siteUid>, owner#<userId>, owner@<username>, or subdomain name
+        const id = resource_id ?? '';
+        if ( id.startsWith('uid#') ) {
+            const site_uid = id.slice('uid#'.length);
+            try {
+                // There is no dedicated site getter in puter.js here; fall back to name display
+                // if available in permission string.
+            } catch (e) {
+                // ignore
+            }
+        }
     }
 
     const permission_mappings = {
@@ -161,6 +193,57 @@ async function get_permission_description (permission) {
         'thread': action === 'post' ? `post to thread ${resource_id}.` : null,
         'service': action === 'ii' ? `use ${resource_id} to invoke ${interface_name}.` : null,
         'driver': `use ${resource_id} to ${action}.`,
+        'app': (() => {
+            if ( (resource_id ?? '').startsWith('owner#') || (resource_id ?? '').startsWith('owner@') ) {
+                const label = resource_id.startsWith('owner#')
+                    ? resource_id.slice('owner#'.length)
+                    : resource_id.slice('owner@'.length);
+                if ( action === 'write' ) {
+                    return `modify all protected apps owned by ${label}`;
+                }
+                if ( action === 'read' ) {
+                    return `access all protected apps owned by ${label}`;
+                }
+                return `access all protected apps owned by ${label}`;
+            }
+            if ( action === 'access' ) {
+                if ( app?.name ) return `access app "${app.name}".`;
+                if ( app?.uid ) return `access app with UID ${app.uid}.`;
+                return `access app ${resource_id}.`;
+            }
+            if ( action === 'read' ) {
+                if ( app?.name ) return `access app "${app.name}".`;
+                if ( app?.uid ) return `access app with UID ${app.uid}.`;
+                return `access app ${resource_id}.`;
+            }
+            if ( action === 'write' ) {
+                if ( app?.name ) return `modify settings for app "${app.name}".`;
+                if ( app?.uid ) return `modify settings for app with UID ${app.uid}.`;
+                return `modify settings for app ${resource_id}.`;
+            }
+            return null;
+        })(),
+        'site': (() => {
+            if ( (resource_id ?? '').startsWith('owner#') || (resource_id ?? '').startsWith('owner@') ) {
+                const label = resource_id.startsWith('owner#')
+                    ? resource_id.slice('owner#'.length)
+                    : resource_id.slice('owner@'.length);
+                if ( action === 'write' ) {
+                    return `modify all protected sites owned by ${label}`;
+                }
+                if ( action === 'read' ) {
+                    return `access all protected sites owned by ${label}`;
+                }
+                return `access all protected sites owned by ${label}`;
+            }
+            if ( action === 'access' || action === 'read' ) {
+                return `access site ${resource_id}.`;
+            }
+            if ( action === 'write' ) {
+                return `modify settings for site ${resource_id}.`;
+            }
+            return null;
+        })(),
     };
 
     return permission_mappings[resource_type];
