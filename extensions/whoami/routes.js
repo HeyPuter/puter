@@ -117,7 +117,7 @@ extension.get('/whoami', { subdomain: 'api' }, async (req, res, next) => {
         // delete details.username;
         // delete details.uuid;
 
-        if ( ! (await svc_permission.check(actor, `user:${details.uuid}:email:read`)) ) {
+        if ( ! (await svc_permission.check(actor, `user:${details.uuid}:email:read`, { no_cache: true })) ) {
             delete details.email;
             delete details.unconfirmed_email;
         }
