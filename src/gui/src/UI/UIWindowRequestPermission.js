@@ -149,21 +149,36 @@ async function setup_window_events (el_window, options, resolve) {
  */
 async function get_permission_description (permission) {
     const parts = split_permission(permission);
-    const [resource_type, resource_id, action, interface_name = null] = parts;
-    let fsentry;
 
-    if ( resource_type === 'fs' ) {
-        fsentry = await puter.fs.stat({ uid: resource_id, consistency: 'eventual' });
+    if ( ['fs', 'thread', 'service', 'driver'].includes(parts[0]) ) {
+        const [resource_type, resource_id, action, interface_name = null] = parts;
+        let fsentry;
+
+        if ( resource_type === 'fs' ) {
+            fsentry = await puter.fs.stat({ uid: resource_id, consistency: 'eventual' });
+        }
+
+        const permission_mappings = {
+            'fs': fsentry ? `use ${fsentry.name} located at ${fsentry.dirpath} with ${action} access.` : null,
+            'thread': action === 'post' ? `post to thread ${resource_id}.` : null,
+            'service': action === 'ii' ? `use ${resource_id} to invoke ${interface_name}.` : null,
+            'driver': `use ${resource_id} to ${action}.`,
+        };
+
+        return permission_mappings[resource_type];
     }
 
-    const permission_mappings = {
-        'fs': fsentry ? `use ${fsentry.name} located at ${fsentry.dirpath} with ${action} access.` : null,
-        'thread': action === 'post' ? `post to thread ${resource_id}.` : null,
-        'service': action === 'ii' ? `use ${resource_id} to invoke ${interface_name}.` : null,
-        'driver': `use ${resource_id} to ${action}.`,
-    };
+    if ( parts[0] === 'user' ) {
+        const whoami = await puter.auth.whoami();
+        // An app can't ask to see other users' information
+        if ( whoami.uuid !== parts[1] ) return null;
 
-    return permission_mappings[resource_type];
+        if ( parts[2] === 'email' && parts[3] === 'read' ) {
+            return 'see your email address';
+        }
+    }
+
+    return null;
 }
 
 function split_permission (permission) {
