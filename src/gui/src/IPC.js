@@ -17,23 +17,23 @@
  * along with this program.  If not, see <https://www.gnu.org/licenses/>.
  */
 
-import UIAlert from './UI/UIAlert.js';
-import UIWindow from './UI/UIWindow.js';
-import UIWindowSignup from './UI/UIWindowSignup.js';
-import UIWindowRequestPermission from './UI/UIWindowRequestPermission.js';
-import UIItem from './UI/UIItem.js';
-import UIWindowFontPicker from './UI/UIWindowFontPicker.js';
-import UIWindowColorPicker from './UI/UIWindowColorPicker.js';
-import UIPrompt from './UI/UIPrompt.js';
 import download from './helpers/download.js';
-import path from './lib/path.js';
-import UIContextMenu from './UI/UIContextMenu.js';
-import update_mouse_position from './helpers/update_mouse_position.js';
 import item_icon from './helpers/item_icon.js';
-import UIPopover from './UI/UIPopover.js';
 import socialLink from './helpers/socialLink.js';
+import update_mouse_position from './helpers/update_mouse_position.js';
+import path from './lib/path.js';
+import UIAlert from './UI/UIAlert.js';
+import UIContextMenu from './UI/UIContextMenu.js';
+import UIItem from './UI/UIItem.js';
+import UIPopover from './UI/UIPopover.js';
+import UIPrompt from './UI/UIPrompt.js';
+import UIWindow from './UI/UIWindow.js';
+import UIWindowColorPicker from './UI/UIWindowColorPicker.js';
 import UIWindowEmailConfirmationRequired from './UI/UIWindowEmailConfirmationRequired.js';
+import UIWindowFontPicker from './UI/UIWindowFontPicker.js';
+import UIWindowRequestPermission from './UI/UIWindowRequestPermission.js';
 import UIWindowSaveAccount from './UI/UIWindowSaveAccount.js';
+import UIWindowSignup from './UI/UIWindowSignup.js';
 
 import { PROCESS_IPC_ATTACHED } from './definitions.js';
 
@@ -1270,6 +1270,7 @@ const ipc_listener = async (event, handled) => {
         // options.permission must be provided and be a string
         if ( !event.data.options.permission || typeof event.data.options.permission !== 'string' )
         {
+            console.error('IPC requestPermission requires parameter { permission }', event.data);
             return;
         }
 

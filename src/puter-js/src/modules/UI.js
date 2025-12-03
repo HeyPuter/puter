@@ -182,7 +182,15 @@ class UI extends EventListener {
             ...args,
         }, '*');
         //register callback
-        this.#callbackFunctions[msg_id] = resolve;
+        this.#callbackFunctions[msg_id] = (...a) => {
+            resolve(...a);
+        };
+    }
+
+    #postMessageAsync (name, args = {}) {
+        return new Promise(resolve => {
+            this.#postMessageWithCallback(name, resolve, args);
+        });
     }
 
     #postMessageWithObject (name, value) {
@@ -974,17 +982,14 @@ class UI extends EventListener {
         this.#postMessageWithObject('setMenubar', spec);
     };
 
-    requestPermission (options) {
-        return new Promise((resolve) => {
-            if ( this.env === 'app' ) {
-                return new Promise((resolve) => {
-                    this.#postMessageWithCallback('requestPermission', resolve, { options });
-                });
-            } else {
-                // TODO: Implement for web
-                resolve(false);
-            }
-        });
+    async requestPermission (options) {
+        if ( this.env === 'app' ) {
+            const result = await this.#postMessageAsync('requestPermission', { options });
+            return result.granted;
+        } else {
+            // TODO: Implement for web
+            return false;
+        }
     };
 
     disableMenuItem (item_id) {
