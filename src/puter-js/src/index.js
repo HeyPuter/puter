@@ -458,6 +458,7 @@ const puterInit = (function () {
 
         registerModule (name, cls, parameters = {}) {
             const instance = new cls(this.context, parameters);
+            instance.puter = this;
             this.modules_.push(name);
             this[name] = instance;
             if ( instance._init ) instance._init({ puter: this });

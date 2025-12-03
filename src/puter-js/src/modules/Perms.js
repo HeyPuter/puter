@@ -131,7 +131,7 @@ export default class Perms {
             permission: `user:${whoami.uuid}:email:read`,
         });
         if ( granted ) {
-            whoami = await puter.auth.whoami();
+            whoami = await this.puter.auth.whoami();
         }
         return whoami.email;
     }
