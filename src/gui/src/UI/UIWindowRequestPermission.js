@@ -144,9 +144,10 @@ async function setup_window_events (el_window, options, resolve) {
 }
 
 /**
- * Generates user-friendly description of permission string. Currently handles:
- * fs:UUID-OF-FILE:read, fs:/path/to/file:read, thread:UUID-OF-THREAD:post,
- * service:name-of-service:ii:name-of-interface, driver:driver-name:action-name
+ * Generates user-friendly description of permission string in HTML format.
+ * 
+ * @param {string} permission - The permission string to describe
+ * @returns {string} The user-friendly description of the permission in HTML format
  */
 async function get_permission_description (permission) {
     const parts = split_permission(permission);
@@ -154,13 +155,13 @@ async function get_permission_description (permission) {
     if ( ['fs', 'thread', 'service', 'driver'].includes(parts[0]) ) {
         const [resource_type, resource_id, action, interface_name = null] = parts;
         let fsentry;
-        let fs_description = null;
+        let fs_description_html = null;
 
         if ( resource_type === 'fs' ) {
             // Check for standard folders using whoami().directories
             const standard_folder_description = await get_standard_folder_description(resource_id, action);
             if ( standard_folder_description ) {
-                fs_description = standard_folder_description;
+                fs_description_html = standard_folder_description;
             } else {
                 // Try to stat by path or UUID
                 try {
@@ -169,19 +170,19 @@ async function get_permission_description (permission) {
                     } else {
                         fsentry = await puter.fs.stat({ uid: resource_id, consistency: 'eventual' });
                     }
-                    fs_description = `use ${fsentry.name} located at ${fsentry.dirpath} with ${action} access.`;
+                    fs_description_html = `use ${html_encode(fsentry.name)} located at ${html_encode(fsentry.dirpath)} with ${html_encode(action)} access.`;
                 } catch (e) {
                     // Can't stat, use resource_id directly
-                    fs_description = `access ${resource_id} with ${action} access.`;
+                    fs_description_html = `access ${html_encode(resource_id)} with ${html_encode(action)} access.`;
                 }
             }
         }
 
         const permission_mappings = {
-            'fs': fs_description,
-            'thread': action === 'post' ? `post to thread ${resource_id}.` : null,
-            'service': action === 'ii' ? `use ${resource_id} to invoke ${interface_name}.` : null,
-            'driver': `use ${resource_id} to ${action}.`,
+            'fs': fs_description_html,
+            'thread': action === 'post' ? `post to thread ${html_encode(resource_id)}.` : null,
+            'service': action === 'ii' ? `use ${html_encode(resource_id)} to invoke ${html_encode(interface_name)}.` : null,
+            'driver': `use ${html_encode(resource_id)} to ${html_encode(action)}.`,
         };
 
         return permission_mappings[resource_type];
