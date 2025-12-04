@@ -191,16 +191,6 @@ describe('WorkerService (kernel)', async () => {
     });
     Context.contextAsyncLocalStorage.enterWith(new Map([['context', testKernel.root_context]]));
 
-    const withActor = async (actor: Actor, fn: () => any) => testKernel.root_context.arun(() => suService.sudo(actor, () => {
-        const svc = Context.get('services');
-        if ( ! svc ) {
-            throw new Error('context missing services');
-        }
-        Context.get().set('actor', actor);
-        Context.get().set('user', actor.type.user);
-        return fn();
-    }));
-
     beforeEach(() => {
         vi.clearAllMocks();
         cloudflareDeployMock.createWorker.mockResolvedValue({ success: true });
@@ -218,7 +208,7 @@ describe('WorkerService (kernel)', async () => {
             });
             const actor = makeActor();
 
-            const result = await withActor(actor, () => workerService.as('workers').create({
+            const result = await suService.sudo(actor, () => workerService.as('workers').create({
                 filePath: '/worker.js',
                 workerName: 'MyWorker',
                 authorization: 'auth-token',
@@ -237,7 +227,7 @@ describe('WorkerService (kernel)', async () => {
             })));
             const actor = makeActor();
 
-            await expect(withActor(actor, () => workerService.as('workers').create({
+            await expect(suService.sudo(actor, () => workerService.as('workers').create({
                 filePath: '/worker.js',
                 workerName: 'limited',
                 authorization: 'auth-token',
@@ -250,7 +240,7 @@ describe('WorkerService (kernel)', async () => {
             workerService.global_config.reserved_words = ['taken'];
             const actor = makeActor();
 
-            await expect(withActor(actor, () => workerService.as('workers').create({
+            await expect(suService.sudo(actor, () => workerService.as('workers').create({
                 filePath: '/worker.js',
                 workerName: 'taken',
                 authorization: 'auth-token',
@@ -262,7 +252,7 @@ describe('WorkerService (kernel)', async () => {
         it('returns undefined for invalid worker name patterns', async () => {
             const actor = makeActor();
 
-            const result = await withActor(actor, () => workerService.as('workers').create({
+            const result = await suService.sudo(actor, () => workerService.as('workers').create({
                 filePath: '/worker.js',
                 workerName: 'invalid name!',
                 authorization: 'auth-token',
@@ -284,7 +274,7 @@ describe('WorkerService (kernel)', async () => {
             });
             subdomainService.reset([domain]);
 
-            const response = await withActor(actor, () => workerService.as('workers').destroy({
+            const response = await suService.sudo(actor, () => workerService.as('workers').destroy({
                 workerName: 'test-worker',
             }));
 
@@ -302,7 +292,7 @@ describe('WorkerService (kernel)', async () => {
             subdomainService.reset([domain]);
             const deleteSpy = vi.spyOn(subdomainService, 'delete');
 
-            const result = await withActor(actor, () => workerService.as('workers').destroy({
+            const result = await suService.sudo(actor, () => workerService.as('workers').destroy({
                 workerName: 'test-worker',
             }));
 
