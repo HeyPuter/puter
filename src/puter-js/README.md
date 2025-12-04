@@ -88,6 +88,15 @@ puter.ai.chat('What color was Napoleon\'s white horse?').then(response => {
 
 <br>
 
+## Starter Templates
+
+You can also use one of the following templates:
+
+- Client-side projects: [Angular](https://github.com/HeyPuter/angular), [React](https://github.com/HeyPuter/react), [Next.js](https://github.com/HeyPuter/next.js), [Vue.js](https://github.com/HeyPuter/vue.js), [Vanilla.js](https://github.com/HeyPuter/vanilla.js)
+- Node.js + Express: [Node.js + Express template](https://github.com/HeyPuter/node.js-express.js)
+
+<br>
+
 ## Setting Custom Origins
 By default puter.js uses the official Puter API and GUI origins. You can customize these origins by setting global variables before importing the SDK like so:
 
