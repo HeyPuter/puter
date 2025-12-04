@@ -59,7 +59,7 @@ const puter = require('@heyputer/puter.js');
 require('@heyputer/puter.js'); // puter will be available globally
 ```
 
-### Node.js (with Auth Token)
+#### Node.js (with Auth Token)
 
 ```js
 const {init} = require("@heyputer/puter.js/src/init.cjs"); // NODE JS ONLY
