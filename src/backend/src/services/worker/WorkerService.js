@@ -125,7 +125,7 @@ class WorkerService extends BaseService {
 
                 try {
                     // Create the worker
-                    const cfData = await createWorker((await data.node.get('owner')).type.user, authToken, workerName, preamble + fileData, PREAMBLE_LENGTH, result.values_.database);
+                    const cfData = await createWorker((await data.node.get('owner')).type.user, authToken, workerName, preamble + fileData, PREAMBLE_LENGTH, result.values_.database_id);
 
                     // Send user the appropriate notification
                     if ( ! cfData.success ) {
@@ -243,7 +243,7 @@ class WorkerService extends BaseService {
                     }
 
                     const fileData = (await readPuterFile(actor, filePath)).toString();
-                    const cfData = await createWorker(userData, authorization, calculateWorkerNameNew(workerName), preamble + fileData, PREAMBLE_LENGTH, newDatabaseUUID || rowData.database);
+                    const cfData = await createWorker(userData, authorization, calculateWorkerNameNew(workerName), preamble + fileData, PREAMBLE_LENGTH, newDatabaseUUID || rowData.database_id);
 
                     return cfData;
                 } catch (e) {
