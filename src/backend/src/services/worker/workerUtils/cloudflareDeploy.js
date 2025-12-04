@@ -55,7 +55,6 @@ async function createWorker (userData, authorization, workerName, body, PREAMBLE
         ],
 
     };
-    console.log('workerMetadata: ', workerMetaData);
     formData.append('metadata', JSON.stringify(workerMetaData));
     formData.append('swCode', new Blob([body], { type: 'application/javascript+module' }), 'worker.js');
     const cfReturnCodes = await (await cfFetch(`${WORKERS_BASE_URL}/scripts/${workerName}/`, 'PUT', formData)).json();
