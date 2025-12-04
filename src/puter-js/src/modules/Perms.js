@@ -233,6 +233,70 @@ export default class Perms {
     }
 
     /**
+     * Request read access to the user's apps. If the user has already granted
+     * this permission the user will not be prompted and `true` will be returned.
+     * If the user grants permission `true` will be returned. If the user does
+     * not allow access `false` will be returned.
+     *
+     * @return {boolean} Whether read access to apps was granted
+     */
+    async requestReadApps () {
+        const whoami = await this.puter.auth.whoami();
+        const granted = await this.puter.ui.requestPermission({
+            permission: `apps-of-user:${whoami.uuid}:read`,
+        });
+        return granted;
+    }
+
+    /**
+     * Request write (manage) access to the user's apps. If the user has already
+     * granted this permission the user will not be prompted and `true` will be
+     * returned. If the user grants permission `true` will be returned. If the
+     * user does not allow access `false` will be returned.
+     *
+     * @return {boolean} Whether manage access to apps was granted
+     */
+    async requestManageApps () {
+        const whoami = await this.puter.auth.whoami();
+        const granted = await this.puter.ui.requestPermission({
+            permission: `apps-of-user:${whoami.uuid}:write`,
+        });
+        return granted;
+    }
+
+    /**
+     * Request read access to the user's subdomains. If the user has already
+     * granted this permission the user will not be prompted and `true` will be
+     * returned. If the user grants permission `true` will be returned. If the
+     * user does not allow access `false` will be returned.
+     *
+     * @return {boolean} Whether read access to subdomains was granted
+     */
+    async requestReadSubdomains () {
+        const whoami = await this.puter.auth.whoami();
+        const granted = await this.puter.ui.requestPermission({
+            permission: `subdomains-of-user:${whoami.uuid}:read`,
+        });
+        return granted;
+    }
+
+    /**
+     * Request write (manage) access to the user's subdomains. If the user has
+     * already granted this permission the user will not be prompted and `true`
+     * will be returned. If the user grants permission `true` will be returned.
+     * If the user does not allow access `false` will be returned.
+     *
+     * @return {boolean} Whether manage access to subdomains was granted
+     */
+    async requestManageSubdomains () {
+        const whoami = await this.puter.auth.whoami();
+        const granted = await this.puter.ui.requestPermission({
+            permission: `subdomains-of-user:${whoami.uuid}:write`,
+        });
+        return granted;
+    }
+
+    /**
      * Internal helper to request access to a user's special folder.
      * @private
      * @param {string} folderName - The name of the folder (Desktop, Documents, Pictures, Videos)
@@ -246,7 +310,7 @@ export default class Perms {
         // Check if we already have access by trying to stat the folder
         try {
             await this.puter.fs.stat({ path: folderPath });
-            
+
             // If we can stat the folder, we have at least read access
             if ( accessLevel !== 'write' ) {
                 return folderPath;

@@ -526,6 +526,10 @@ const en = {
         'perm_folder_documents': 'your Documents folder',
         'perm_folder_pictures': 'your Pictures folder',
         'perm_folder_videos': 'your Videos folder',
+        'perm_apps_read': 'see your apps',
+        'perm_apps_write': 'manage your apps',
+        'perm_subdomains_read': 'see your subdomains',
+        'perm_subdomains_write': 'manage your subdomains',
 
         'error_user_or_path_not_found': 'User or path not found.',
         'error_invalid_username': 'Invalid username.',

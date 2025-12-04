@@ -205,7 +205,33 @@ async function get_permission_description (permission) {
         }
     }
 
-    return null;
+    if ( parts[0] === 'apps-of-user' ) {
+        const whoami = await puter.auth.whoami();
+        // An app can't ask to see other users' apps
+        if ( whoami.uuid !== parts[1] ) return null;
+
+        if ( parts[2] === 'read' ) {
+            return i18n('perm_apps_read');
+        }
+        if ( parts[2] === 'write' ) {
+            return i18n('perm_apps_write');
+        }
+    }
+
+    if ( parts[0] === 'subdomains-of-user' ) {
+        const whoami = await puter.auth.whoami();
+        // An app can't ask to see other users' subdomains
+        if ( whoami.uuid !== parts[1] ) return null;
+
+        if ( parts[2] === 'read' ) {
+            return i18n('perm_subdomains_read');
+        }
+        if ( parts[2] === 'write' ) {
+            return i18n('perm_subdomains_write');
+        }
+    }
+
+    return null
 }
 
 /**
