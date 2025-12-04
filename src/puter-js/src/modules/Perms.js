@@ -125,7 +125,7 @@ export default class Perms {
      */
     async requestEmail () {
         let whoami;
-        whoami = await puter.auth.whoami();
+        whoami = await this.puter.auth.whoami();
         if ( whoami.email !== undefined ) return whoami.email;
         const granted = await this.puter.ui.requestPermission({
             permission: `user:${whoami.uuid}:email:read`,
@@ -134,6 +134,136 @@ export default class Perms {
             whoami = await this.puter.auth.whoami();
         }
         return whoami.email;
+    }
+
+    /**
+     * Request read access to the user's Desktop folder. If the user has already
+     * granted this permission the user will not be prompted and the path will
+     * be returned. If the user grants permission the path will be returned.
+     * If the user does not allow access `undefined` will be returned.
+     *
+     * @return {string|undefined} The Desktop path or undefined
+     */
+    async requestReadDesktop () {
+        return this.requestFolder_('Desktop', 'read');
+    }
+
+    /**
+     * Request write access to the user's Desktop folder. If the user has already
+     * granted this permission the user will not be prompted and the path will
+     * be returned. If the user grants permission the path will be returned.
+     * If the user does not allow access `undefined` will be returned.
+     *
+     * @return {string|undefined} The Desktop path or undefined
+     */
+    async requestWriteDesktop () {
+        return this.requestFolder_('Desktop', 'write');
+    }
+
+    /**
+     * Request read access to the user's Documents folder. If the user has already
+     * granted this permission the user will not be prompted and the path will
+     * be returned. If the user grants permission the path will be returned.
+     * If the user does not allow access `undefined` will be returned.
+     *
+     * @return {string|undefined} The Documents path or undefined
+     */
+    async requestReadDocuments () {
+        return this.requestFolder_('Documents', 'read');
+    }
+
+    /**
+     * Request write access to the user's Documents folder. If the user has already
+     * granted this permission the user will not be prompted and the path will
+     * be returned. If the user grants permission the path will be returned.
+     * If the user does not allow access `undefined` will be returned.
+     *
+     * @return {string|undefined} The Documents path or undefined
+     */
+    async requestWriteDocuments () {
+        return this.requestFolder_('Documents', 'write');
+    }
+
+    /**
+     * Request read access to the user's Pictures folder. If the user has already
+     * granted this permission the user will not be prompted and the path will
+     * be returned. If the user grants permission the path will be returned.
+     * If the user does not allow access `undefined` will be returned.
+     *
+     * @return {string|undefined} The Pictures path or undefined
+     */
+    async requestReadPictures () {
+        return this.requestFolder_('Pictures', 'read');
+    }
+
+    /**
+     * Request write access to the user's Pictures folder. If the user has already
+     * granted this permission the user will not be prompted and the path will
+     * be returned. If the user grants permission the path will be returned.
+     * If the user does not allow access `undefined` will be returned.
+     *
+     * @return {string|undefined} The Pictures path or undefined
+     */
+    async requestWritePictures () {
+        return this.requestFolder_('Pictures', 'write');
+    }
+
+    /**
+     * Request read access to the user's Videos folder. If the user has already
+     * granted this permission the user will not be prompted and the path will
+     * be returned. If the user grants permission the path will be returned.
+     * If the user does not allow access `undefined` will be returned.
+     *
+     * @return {string|undefined} The Videos path or undefined
+     */
+    async requestReadVideos () {
+        return this.requestFolder_('Videos', 'read');
+    }
+
+    /**
+     * Request write access to the user's Videos folder. If the user has already
+     * granted this permission the user will not be prompted and the path will
+     * be returned. If the user grants permission the path will be returned.
+     * If the user does not allow access `undefined` will be returned.
+     *
+     * @return {string|undefined} The Videos path or undefined
+     */
+    async requestWriteVideos () {
+        return this.requestFolder_('Videos', 'write');
+    }
+
+    /**
+     * Internal helper to request access to a user's special folder.
+     * @private
+     * @param {string} folderName - The name of the folder (Desktop, Documents, Pictures, Videos)
+     * @param {string} accessLevel - The access level (read, write)
+     * @return {string|undefined} The folder path or undefined
+     */
+    async requestFolder_ (folderName, accessLevel) {
+        const whoami = await this.puter.auth.whoami();
+        const folderPath = `/${whoami.username}/${folderName}`;
+
+        // Check if we already have access by trying to stat the folder
+        try {
+            await this.puter.fs.stat({ path: folderPath });
+            
+            // If we can stat the folder, we have at least read access
+            if ( accessLevel !== 'write' ) {
+                return folderPath;
+            }
+        } catch (e) {
+            // No access yet, need to request permission
+        }
+
+        const granted = await this.puter.ui.requestPermission({
+            permission: `fs:${folderPath}:${accessLevel}`,
+        });
+
+        if ( granted ) {
+            return folderPath;
+        }
+
+        return undefined;
     }
     // #endregion
 }

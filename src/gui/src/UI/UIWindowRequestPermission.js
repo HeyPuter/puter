@@ -91,8 +91,8 @@ function create_window_content (requestingEntity, permission_description) {
     // title
     h += `<h1 class="perm-title">${html_encode(requestingEntity)}</h1>`;
 
-    // show the real description of action
-    h += `<p class="perm-description">${html_encode(requestingEntity)} is requesting for permission to ${html_encode(permission_description)}</p>`;
+    // description (already HTML encoded)
+    h += `<p class="perm-description">${html_encode(requestingEntity)} is requesting permission to ${permission_description}</p>`;
 
     // Allow/Don't Allow
     h += `<button type="button" class="app-auth-allow button button-primary button-block" style="margin-top: 10px;">${i18n('allow')}</button>`;
@@ -145,7 +145,8 @@ async function setup_window_events (el_window, options, resolve) {
 
 /**
  * Generates user-friendly description of permission string. Currently handles:
- * fs:UUID-OF-FILE:read, thread:UUID-OF-THREAD:post, service:name-of-service:ii:name-of-interface, driver:driver-name:action-name
+ * fs:UUID-OF-FILE:read, fs:/path/to/file:read, thread:UUID-OF-THREAD:post,
+ * service:name-of-service:ii:name-of-interface, driver:driver-name:action-name
  */
 async function get_permission_description (permission) {
     const parts = split_permission(permission);
@@ -153,13 +154,31 @@ async function get_permission_description (permission) {
     if ( ['fs', 'thread', 'service', 'driver'].includes(parts[0]) ) {
         const [resource_type, resource_id, action, interface_name = null] = parts;
         let fsentry;
+        let fs_description = null;
 
         if ( resource_type === 'fs' ) {
-            fsentry = await puter.fs.stat({ uid: resource_id, consistency: 'eventual' });
+            // Check for standard folders using whoami().directories
+            const standard_folder_description = await get_standard_folder_description(resource_id, action);
+            if ( standard_folder_description ) {
+                fs_description = standard_folder_description;
+            } else {
+                // Try to stat by path or UUID
+                try {
+                    if ( resource_id.startsWith('/') ) {
+                        fsentry = await puter.fs.stat({ path: resource_id, consistency: 'eventual' });
+                    } else {
+                        fsentry = await puter.fs.stat({ uid: resource_id, consistency: 'eventual' });
+                    }
+                    fs_description = `use ${fsentry.name} located at ${fsentry.dirpath} with ${action} access.`;
+                } catch (e) {
+                    // Can't stat, use resource_id directly
+                    fs_description = `access ${resource_id} with ${action} access.`;
+                }
+            }
         }
 
         const permission_mappings = {
-            'fs': fsentry ? `use ${fsentry.name} located at ${fsentry.dirpath} with ${action} access.` : null,
+            'fs': fs_description,
             'thread': action === 'post' ? `post to thread ${resource_id}.` : null,
             'service': action === 'ii' ? `use ${resource_id} to invoke ${interface_name}.` : null,
             'driver': `use ${resource_id} to ${action}.`,
@@ -176,6 +195,45 @@ async function get_permission_description (permission) {
         if ( parts[2] === 'email' && parts[3] === 'read' ) {
             return 'see your email address';
         }
+    }
+
+    return null;
+}
+
+/**
+ * Returns a user-friendly description for standard folder permissions.
+ * Uses whoami().directories to verify the path/UUID belongs to the current user.
+ * @param {string} resource_id - The filesystem path or UUID
+ * @param {string} action - The access level (read, write, list, see)
+ * @returns {string|null} A friendly HTML description or null if not a standard folder belonging to current user
+ */
+async function get_standard_folder_description (resource_id, action) {
+    const whoami = await puter.auth.whoami();
+    const directories = whoami.directories || {};
+
+    // Standard folder names we recognize
+    const folder_descriptions = {
+        'Desktop': 'your Desktop folder',
+        'Documents': 'your Documents folder',
+        'Pictures': 'your Pictures folder',
+        'Videos': 'your Videos folder',
+    };
+
+    // Check if resource_id matches any of the user's standard directories
+    // directories is an object like { "/username/Desktop": "uuid-here", ... }
+    for ( const [path, uuid] of Object.entries(directories) ) {
+        // Check if resource_id matches either the path or the UUID
+        if ( resource_id !== path && resource_id !== uuid ) continue;
+
+        // Extract folder name from path (e.g., "/username/Desktop" -> "Desktop")
+        const path_parts = path.split('/').filter(Boolean);
+        if ( path_parts.length !== 2 ) continue;
+
+        const folder_name = path_parts[1];
+        const folder_desc = folder_descriptions[folder_name];
+        if ( ! folder_desc ) continue;
+
+        return `<strong>${html_encode(action)}</strong> ${folder_desc}.`;
     }
 
     return null;
