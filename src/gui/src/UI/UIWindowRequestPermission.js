@@ -170,19 +170,26 @@ async function get_permission_description (permission) {
                     } else {
                         fsentry = await puter.fs.stat({ uid: resource_id, consistency: 'eventual' });
                     }
-                    fs_description_html = `use ${html_encode(fsentry.name)} located at ${html_encode(fsentry.dirpath)} with ${html_encode(action)} access.`;
+                    fs_description_html = i18n('perm_fs_file_access', {
+                        name: fsentry.name,
+                        path: fsentry.dirpath,
+                        access: action,
+                    });
                 } catch (e) {
                     // Can't stat, use resource_id directly
-                    fs_description_html = `access ${html_encode(resource_id)} with ${html_encode(action)} access.`;
+                    fs_description_html = i18n('perm_fs_resource_access', {
+                        resource_id: resource_id,
+                        access: action,
+                    });
                 }
             }
         }
 
         const permission_mappings = {
             'fs': fs_description_html,
-            'thread': action === 'post' ? `post to thread ${html_encode(resource_id)}.` : null,
-            'service': action === 'ii' ? `use ${html_encode(resource_id)} to invoke ${html_encode(interface_name)}.` : null,
-            'driver': `use ${html_encode(resource_id)} to ${html_encode(action)}.`,
+            'thread': action === 'post' ? i18n('perm_thread_post', { thread: resource_id }) : null,
+            'service': action === 'ii' ? i18n('perm_service_invoke', { service: resource_id, interface: interface_name }) : null,
+            'driver': i18n('perm_driver_use', { driver: resource_id, action: action }),
         };
 
         return permission_mappings[resource_type];
@@ -194,7 +201,7 @@ async function get_permission_description (permission) {
         if ( whoami.uuid !== parts[1] ) return null;
 
         if ( parts[2] === 'email' && parts[3] === 'read' ) {
-            return 'see your email address';
+            return i18n('perm_email_read');
         }
     }
 
@@ -212,12 +219,12 @@ async function get_standard_folder_description (resource_id, action) {
     const whoami = await puter.auth.whoami();
     const directories = whoami.directories || {};
 
-    // Standard folder names we recognize
-    const folder_descriptions = {
-        'Desktop': 'your Desktop folder',
-        'Documents': 'your Documents folder',
-        'Pictures': 'your Pictures folder',
-        'Videos': 'your Videos folder',
+    // Standard folder names we recognize - maps to i18n keys
+    const folder_i18n_keys = {
+        'Desktop': 'perm_folder_desktop',
+        'Documents': 'perm_folder_documents',
+        'Pictures': 'perm_folder_pictures',
+        'Videos': 'perm_folder_videos',
     };
 
     // Check if resource_id matches any of the user's standard directories
@@ -231,10 +238,14 @@ async function get_standard_folder_description (resource_id, action) {
         if ( path_parts.length !== 2 ) continue;
 
         const folder_name = path_parts[1];
-        const folder_desc = folder_descriptions[folder_name];
-        if ( ! folder_desc ) continue;
+        const folder_i18n_key = folder_i18n_keys[folder_name];
+        if ( ! folder_i18n_key ) continue;
 
-        return `<strong>${html_encode(action)}</strong> ${folder_desc}.`;
+        const folder_desc = i18n(folder_i18n_key);
+        return i18n('perm_folder_access', {
+            access: `<strong>${html_encode(action)}</strong>`,
+            folder: folder_desc,
+        }, false);
     }
 
     return null;

@@ -514,6 +514,19 @@ const en = {
 
         'set_as_background': 'Set as Desktop Background',
 
+        // Permission Descriptions
+        'perm_fs_file_access': 'use {{name}} located at {{path}} with {{access}} access.',
+        'perm_fs_resource_access': 'access {{resource_id}} with {{access}} access.',
+        'perm_folder_access': '{{access}} {{folder}}.',
+        'perm_thread_post': 'post to thread {{thread}}.',
+        'perm_service_invoke': 'use {{service}} to invoke {{interface}}.',
+        'perm_driver_use': 'use {{driver}} to {{action}}.',
+        'perm_email_read': 'see your email address',
+        'perm_folder_desktop': 'your Desktop folder',
+        'perm_folder_documents': 'your Documents folder',
+        'perm_folder_pictures': 'your Pictures folder',
+        'perm_folder_videos': 'your Videos folder',
+
         'error_user_or_path_not_found': 'User or path not found.',
         'error_invalid_username': 'Invalid username.',
     },
