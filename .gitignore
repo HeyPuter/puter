@@ -8,6 +8,7 @@ node_modules/
 *.tgz
 license.config.json
 license-header.txt
+.wrangler
 
 # Build Outputs
 dist/

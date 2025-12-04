@@ -26,6 +26,10 @@ async function createDB (databaseName) {
     }))).json();
 }
 
+async function deleteDB (databaseId) {
+    return await (await cfFetch(`${D1_BASE_URL}/${databaseId}`, 'DELETE')).json();
+}
+
 async function createWorker (userData, authorization, workerName, body, PREAMBLE_LENGTH, databaseID) {
     const formData = new FormData();
     const workerMetaData = {
@@ -109,4 +113,5 @@ module.exports = {
     getWorker,
     setCloudflareKeys,
     createDB,
+    deleteDB,
 };

@@ -22,7 +22,7 @@ const { Endpoint } = require('../../util/expressutil');
 const BaseService = require('../BaseService');
 const fs = require('node:fs');
 
-const { createWorker, setCloudflareKeys, deleteWorker, createDB } = require('./workerUtils/cloudflareDeploy');
+const { createWorker, setCloudflareKeys, deleteWorker, createDB, deleteDB } = require('./workerUtils/cloudflareDeploy');
 const { getUserInfo } = require('./workerUtils/puterUtils');
 const { LLRead } = require('../../filesystem/ll_operations/ll_read');
 const { Context } = require('../../util/context');
@@ -268,7 +268,17 @@ class WorkerService extends BaseService {
                         throw new Error('This is not your worker!');
                     }
 
+                    let databaseId = null;
+                    try {
+                        databaseId = await result.get('database_id');
+                    } catch (e) {
+                        // ignore; database binding is optional
+                    }
+
                     const cfData = await deleteWorker(userData, workerName);
+                    if ( databaseId ) {
+                        await deleteDB(databaseId);
+                    }
 
                     await es_subdomain.delete(await result.get('uid'));
                     return cfData;
