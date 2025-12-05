@@ -113,12 +113,19 @@ export default class Perms {
     }
 
     /**
+     * @deprecated use .request() instead
+     */
+    requestPermission (...a) {
+        return this.request(...a);
+    };
+
+    /**
      * Request a specific permission string to be granted. Note that some
      * permission strings are not supported and will be denied silently.
      * @param {string} permission - permission string to request
      * @returns {boolean} true if permission was granted, false otherwise
      */
-    async requestPermission (permission) {
+    async request (permission) {
         // note: we cannot move this fully from "puter.ui" without
         // a significant refactor because the UI module contains
         // all of the IPC communication logic.
