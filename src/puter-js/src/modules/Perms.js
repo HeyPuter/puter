@@ -112,6 +112,19 @@ export default class Perms {
         return await this.req_('/group/list');
     }
 
+    /**
+     * Request a specific permission string to be granted. Note that some
+     * permission strings are not supported and will be denied silently.
+     * @param {string} permission - permission string to request
+     * @returns {boolean} true if permission was granted, false otherwise
+     */
+    async requestPermission (permission) {
+        // note: we cannot move this fully from "puter.ui" without
+        // a significant refactor because the UI module contains
+        // all of the IPC communication logic.
+        return await this.puter.ui.requestPermission({ permission });
+    };
+
     // #region shorthand functions
     /**
      * Request to see a user's email. If the user has already granted this
