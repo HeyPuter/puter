@@ -93,11 +93,6 @@ export interface Speech2SpeechOptions {
 }
 
 export class AI {
-    constructor (context: { authToken?: string; APIOrigin: string; appID?: string });
-
-    setAuthToken (authToken: string): void;
-    setAPIOrigin (APIOrigin: string): void;
-
     listModels (provider?: string): Promise<Record<string, unknown>[]>;
     listModelProviders (): Promise<string[]>;
 
