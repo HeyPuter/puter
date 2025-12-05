@@ -533,6 +533,29 @@ const en = {
 
         'error_user_or_path_not_found': 'User or path not found.',
         'error_invalid_username': 'Invalid username.',
+
+        // Keyboard Shortcuts
+        'keyboard_shortcuts': 'Keyboard Shortcuts',
+        'keyboard_shortcuts_subtitle': 'Quick reference for navigating Puter like a pro',
+        'shortcuts_general': 'General',
+        'shortcuts_file_management': 'File Management',
+        'shortcuts_navigation': 'Navigation',
+        'shortcuts_windows': 'Windows',
+        'shortcut_search': 'Open Search',
+        'shortcut_show_shortcuts': 'Show Keyboard Shortcuts',
+        'shortcut_close_dialog': 'Close dialog or menu',
+        'shortcut_select_all': 'Select all items',
+        'shortcut_copy': 'Copy selected items',
+        'shortcut_cut': 'Cut selected items',
+        'shortcut_paste': 'Paste items',
+        'shortcut_undo': 'Undo last action',
+        'shortcut_move_to_trash': 'Move to Trash',
+        'shortcut_delete_permanently': 'Delete permanently',
+        'shortcut_navigate_items': 'Navigate between items',
+        'shortcut_open_selected': 'Open selected item',
+        'shortcut_extend_selection': 'Extend selection',
+        'shortcut_close_window': 'Close active window',
+        'keyboard_shortcuts_tip': 'Tip: Press Ctrl+? or F1 anytime to see this guide',
     },
 };
 
