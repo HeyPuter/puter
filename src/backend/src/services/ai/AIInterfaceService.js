@@ -1,0 +1,342 @@
+/*
+ * Copyright (C) 2024-present Puter Technologies Inc.
+ *
+ * This file is part of Puter.
+ *
+ * Puter is free software: you can redistribute it and/or modify
+ * it under the terms of the GNU Affero General Public License as published
+ * by the Free Software Foundation, either version 3 of the License, or
+ * (at your option) any later version.
+ *
+ * This program is distributed in the hope that it will be useful,
+ * but WITHOUT ANY WARRANTY; without even the implied warranty of
+ * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+ * GNU Affero General Public License for more details.
+ *
+ * You should have received a copy of the GNU Affero General Public License
+ * along with this program.  If not, see <https://www.gnu.org/licenses/>.
+ */
+
+// METADATA // {"ai-commented":{"service":"claude"}}
+const BaseService = require('../BaseService');
+
+/**
+* Service class that manages AI interface registrations and configurations.
+* Handles registration of various AI services including OCR, chat completion,
+* image generation, and text-to-speech interfaces. Each interface defines
+* its available methods, parameters, and expected results.
+* @extends BaseService
+*/
+class AIInterfaceService extends BaseService {
+    /**
+    * Service class for managing AI interface registrations and configurations.
+    * Extends the base service to provide AI-related interface management.
+    * Handles registration of OCR, chat completion, image generation, and TTS interfaces.
+    */
+    async ['__on_driver.register.interfaces'] () {
+        const svc_registry = this.services.get('registry');
+        const col_interfaces = svc_registry.get('interfaces');
+
+        col_interfaces.set('puter-ocr', {
+            description: 'Optical character recognition',
+            methods: {
+                recognize: {
+                    description: 'Recognize text in an image or document.',
+                    parameters: {
+                        source: {
+                            type: 'file',
+                        },
+                        model: {
+                            type: 'string',
+                            optional: true,
+                        },
+                        pages: {
+                            type: 'json',
+                            subtype: 'array',
+                            optional: true,
+                        },
+                        includeImageBase64: {
+                            type: 'flag',
+                            optional: true,
+                        },
+                        imageLimit: {
+                            type: 'number',
+                            optional: true,
+                        },
+                        imageMinSize: {
+                            type: 'number',
+                            optional: true,
+                        },
+                        bboxAnnotationFormat: {
+                            type: 'json',
+                            optional: true,
+                        },
+                        documentAnnotationFormat: {
+                            type: 'json',
+                            optional: true,
+                        },
+                    },
+                    result: {
+                        type: {
+                            $: 'stream',
+                            content_type: 'image',
+                        },
+                    },
+                },
+            },
+        });
+
+        col_interfaces.set('puter-chat-completion', {
+            description: 'Chatbot.',
+            methods: {
+                models: {
+                    description: 'List supported models and their details.',
+                    result: { type: 'json' },
+                    parameters: {},
+                },
+                list: {
+                    description: 'List supported models',
+                    result: { type: 'json' },
+                    parameters: {},
+                },
+                complete: {
+                    description: 'Get completions for a chat log.',
+                    parameters: {
+                        messages: { type: 'json' },
+                        tools: { type: 'json' },
+                        vision: { type: 'flag' },
+                        stream: { type: 'flag' },
+                        response: { type: 'json' },
+                        model: { type: 'string' },
+                        temperature: { type: 'number' },
+                        max_tokens: { type: 'number' },
+                    },
+                    result: { type: 'json' },
+                },
+            },
+        });
+
+        col_interfaces.set('puter-image-generation', {
+            description: 'AI Image Generation.',
+            methods: {
+                generate: {
+                    description: 'Generate an image from a prompt.',
+                    parameters: {
+                        prompt: { type: 'string' },
+                        quality: { type: 'string' },
+                        model: { type: 'string' },
+                        ratio: { type: 'json' },
+                        width: { type: 'number', optional: true },
+                        height: { type: 'number', optional: true },
+                        aspect_ratio: { type: 'string', optional: true },
+                        steps: { type: 'number', optional: true },
+                        seed: { type: 'number', optional: true },
+                        negative_prompt: { type: 'string', optional: true },
+                        n: { type: 'number', optional: true },
+                        input_image: { type: 'string', optional: true },
+                        input_image_mime_type: { type: 'string', optional: true },
+                        image_url: { type: 'string', optional: true },
+                        image_base64: { type: 'string', optional: true },
+                        mask_image_url: { type: 'string', optional: true },
+                        mask_image_base64: { type: 'string', optional: true },
+                        prompt_strength: { type: 'number', optional: true },
+                        disable_safety_checker: { type: 'flag', optional: true },
+                        response_format: { type: 'string', optional: true },
+                    },
+                    result_choices: [
+                        {
+                            names: ['image'],
+                            type: {
+                                $: 'stream',
+                                content_type: 'image',
+                            },
+                        },
+                        {
+                            names: ['url'],
+                            type: {
+                                $: 'string:url:web',
+                                content_type: 'image',
+                            },
+                        },
+                    ],
+                    result: {
+                        description: 'URL of the generated image.',
+                        type: 'string',
+                    },
+                },
+            },
+        });
+
+        col_interfaces.set('puter-video-generation', {
+            description: 'AI Video Generation.',
+            methods: {
+                generate: {
+                    description: 'Generate a video from a prompt.',
+                    parameters: {
+                        prompt: { type: 'string' },
+                        model: { type: 'string', optional: true },
+                        seconds: { type: 'number', optional: true },
+                        duration: { type: 'number', optional: true },
+                        size: { type: 'string', optional: true },
+                        resolution: { type: 'string', optional: true },
+                        width: { type: 'number', optional: true },
+                        height: { type: 'number', optional: true },
+                        fps: { type: 'number', optional: true },
+                        steps: { type: 'number', optional: true },
+                        guidance_scale: { type: 'number', optional: true },
+                        seed: { type: 'number', optional: true },
+                        output_format: { type: 'string', optional: true },
+                        output_quality: { type: 'number', optional: true },
+                        negative_prompt: { type: 'string', optional: true },
+                        reference_images: { type: 'json', optional: true },
+                        frame_images: { type: 'json', optional: true },
+                        metadata: { type: 'json', optional: true },
+                        input_reference: { type: 'file', optional: true },
+                    },
+                    result_choices: [
+                        {
+                            names: ['url'],
+                            type: {
+                                $: 'string:url:web',
+                                content_type: 'video',
+                            },
+                        },
+                        {
+                            names: ['video'],
+                            type: {
+                                $: 'stream',
+                                content_type: 'video',
+                            },
+                        },
+                    ],
+                    result: {
+                        description: 'Video asset descriptor or URL for the generated video.',
+                        type: 'json',
+                    },
+                },
+            },
+        });
+
+        col_interfaces.set('puter-tts', {
+            description: 'Text-to-speech.',
+            methods: {
+                list_voices: {
+                    description: 'List available voices.',
+                    parameters: {
+                        engine: { type: 'string', optional: true },
+                        provider: { type: 'string', optional: true },
+                    },
+                },
+                list_engines: {
+                    description: 'List available TTS engines with pricing information.',
+                    parameters: {
+                        provider: { type: 'string', optional: true },
+                    },
+                    result: { type: 'json' },
+                },
+                synthesize: {
+                    description: 'Synthesize speech from text.',
+                    parameters: {
+                        text: { type: 'string' },
+                        voice: { type: 'string' },
+                        language: { type: 'string' },
+                        ssml: { type: 'flag' },
+                        engine: { type: 'string', optional: true },
+                        model: { type: 'string', optional: true },
+                        response_format: { type: 'string', optional: true },
+                        instructions: { type: 'string', optional: true },
+                        provider: { type: 'string', optional: true },
+                    },
+                    result_choices: [
+                        {
+                            names: ['audio'],
+                            type: {
+                                $: 'stream',
+                                content_type: 'audio',
+                            },
+                        },
+                    ],
+                },
+            },
+        });
+
+        col_interfaces.set('puter-speech2speech', {
+            description: 'Speech to speech voice conversion (voice changer).',
+            methods: {
+                convert: {
+                    description: 'Convert input audio to a target voice.',
+                    parameters: {
+                        audio: { type: 'file' },
+                        voice: { type: 'string', optional: true },
+                        voice_id: { type: 'string', optional: true },
+                        model: { type: 'string', optional: true },
+                        output_format: { type: 'string', optional: true },
+                        voice_settings: { type: 'json', optional: true },
+                        seed: { type: 'number', optional: true },
+                        remove_background_noise: { type: 'flag', optional: true },
+                        file_format: { type: 'string', optional: true },
+                        optimize_streaming_latency: { type: 'number', optional: true },
+                        enable_logging: { type: 'flag', optional: true },
+                    },
+                    result_choices: [
+                        {
+                            names: ['audio'],
+                            type: {
+                                $: 'stream',
+                                content_type: 'audio',
+                            },
+                        },
+                    ],
+                },
+            },
+        });
+
+        col_interfaces.set('puter-speech2txt', {
+            description: 'Speech to text transcription and translation.',
+            methods: {
+                list_models: {
+                    description: 'List available speech-to-text models.',
+                    result: { type: 'json' },
+                },
+                transcribe: {
+                    description: 'Transcribe audio into text.',
+                    parameters: {
+                        file: { type: 'file' },
+                        model: { type: 'string', optional: true },
+                        response_format: { type: 'string', optional: true },
+                        language: { type: 'string', optional: true },
+                        prompt: { type: 'string', optional: true },
+                        temperature: { type: 'number', optional: true },
+                        logprobs: { type: 'flag', optional: true },
+                        timestamp_granularities: { type: 'json', optional: true },
+                        stream: { type: 'flag', optional: true },
+                        chunking_strategy: { type: 'string', optional: true },
+                        known_speaker_names: { type: 'json', optional: true },
+                        known_speaker_references: { type: 'json', optional: true },
+                        extra_body: { type: 'json', optional: true },
+                    },
+                    result: { type: 'json' },
+                },
+                translate: {
+                    description: 'Translate audio into English text.',
+                    parameters: {
+                        file: { type: 'file' },
+                        model: { type: 'string', optional: true },
+                        response_format: { type: 'string', optional: true },
+                        prompt: { type: 'string', optional: true },
+                        temperature: { type: 'number', optional: true },
+                        logprobs: { type: 'flag', optional: true },
+                        timestamp_granularities: { type: 'json', optional: true },
+                        stream: { type: 'flag', optional: true },
+                        extra_body: { type: 'json', optional: true },
+                    },
+                    result: { type: 'json' },
+                },
+            },
+        });
+    }
+}
+
+module.exports = {
+    AIInterfaceService,
+};

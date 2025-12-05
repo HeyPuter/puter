@@ -11,6 +11,7 @@ export class Actor {
         user: IUser
     };
     get uid (): string;
+    get private_uid (): string;
     clone (): Actor;
     static get_system_actor (): Actor;
     static adapt (actor?: Actor): Actor;

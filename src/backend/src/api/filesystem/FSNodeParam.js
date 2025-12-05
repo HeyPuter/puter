@@ -21,9 +21,8 @@ const { is_valid_uuid4 } = require('../../helpers');
 const { Context } = require('../../util/context');
 const { PathBuilder } = require('../../util/pathutil');
 const APIError = require('../APIError');
-const _path = require('path');
 
-module.exports = class FSNodeParam {
+class FSNodeParam {
     constructor (srckey, options) {
         this.srckey = srckey;
         this.options = options ?? {};
@@ -78,3 +77,6 @@ module.exports = class FSNodeParam {
         return await fs.node({ path: resolved_path });
     }
 };
+
+module.exports = FSNodeParam;
+module.exports.FSNodeParam = FSNodeParam;
