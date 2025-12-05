@@ -19,6 +19,7 @@
 
 import UIAlert from './UI/UIAlert.js';
 import UIWindowSearch from './UI/UIWindowSearch.js';
+import UIWindowKeyboardShortcuts from './UI/UIWindowKeyboardShortcuts.js';
 import launch_app from './helpers/launch_app.js';
 import open_item from './helpers/open_item.js';
 import determine_active_container_parent from './helpers/determine_active_container_parent.js';
@@ -33,6 +34,20 @@ $(document).bind('keydown', async function (e) {
         e.preventDefault();
         e.stopPropagation();
         UIWindowSearch();
+        return false;
+    }
+
+    //-----------------------------------------------------------------------------
+    // Keyboard Shortcuts Guide
+    // ctrl/command + ? (shift + /) or F1, will open UIWindowKeyboardShortcuts
+    //-----------------------------------------------------------------------------
+    if (
+        (((e.ctrlKey || e.metaKey) && e.shiftKey && e.which === 191) || e.which === 112) &&
+        !$(focused_el).is('input') && !$(focused_el).is('textarea')
+    ) {
+        e.preventDefault();
+        e.stopPropagation();
+        UIWindowKeyboardShortcuts();
         return false;
     }
 

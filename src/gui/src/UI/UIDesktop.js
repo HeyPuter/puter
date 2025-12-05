@@ -43,6 +43,7 @@ import UIWindowWelcome from './UIWindowWelcome.js';
 import launch_app from '../helpers/launch_app.js';
 import item_icon from '../helpers/item_icon.js';
 import UIWindowSearch from './UIWindowSearch.js';
+import UIWindowKeyboardShortcuts from './UIWindowKeyboardShortcuts.js';
 
 async function UIDesktop (options) {
     // start a transaction if we're not in embedded or fullpage mode
@@ -2262,6 +2263,16 @@ $(document).on('click', '.user-options-menu-btn', async function (e) {
                 id: 'contact_us',
                 onClick: async function () {
                     UIWindowFeedback();
+                },
+            },
+            //--------------------------------------------------
+            // Keyboard Shortcuts
+            //--------------------------------------------------
+            {
+                html: i18n('keyboard_shortcuts'),
+                id: 'keyboard_shortcuts',
+                onClick: async function () {
+                    UIWindowKeyboardShortcuts();
                 },
             },
             // -------------------------------------------
