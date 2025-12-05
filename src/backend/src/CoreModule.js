@@ -158,6 +158,7 @@ const install = async ({ context, services, app, useapi, modapi }) => {
             SQLES, { table: 'app', debug: true },
             AppES,
             AppLimitedES, {
+                permission_prefix: 'apps-of-user',
                 // When apps query es:apps, they're allowed to see apps which
                 // are approved for listing and they're allowed to see their
                 // own entry.
@@ -202,7 +203,7 @@ const install = async ({ context, services, app, useapi, modapi }) => {
         upstream: ESBuilder.create([
             SQLES, { table: 'subdomains', debug: true },
             SubdomainES,
-            AppLimitedES,
+            AppLimitedES, { permission_prefix: 'subdomains-of-user' },
             WriteByOwnerOnlyES,
             ValidationES,
             SetOwnerES,

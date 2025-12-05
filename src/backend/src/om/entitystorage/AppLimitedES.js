@@ -35,7 +35,7 @@ class AppLimitedES extends BaseES {
         app_under_user_check:
         if ( actor.type instanceof AppUnderUserActorType ) {
             const svc_permission = Context.get('services').get('permission');
-            const perm = PermissionUtil.join('apps-of-user', actor.type.user.uuid, 'read');
+            const perm = PermissionUtil.join(this.permission_prefix, actor.type.user.uuid, 'read');
             const can_read_any = await svc_permission.check(actor, perm);
 
             if ( can_read_any ) break app_under_user_check;
@@ -124,7 +124,7 @@ class AppLimitedES extends BaseES {
         // (in which case we return early)
         {
             const svc_permission = Context.get('services').get('permission');
-            const perm = PermissionUtil.join('apps-of-user', actor.type.user.uuid, 'write');
+            const perm = PermissionUtil.join(this.permission_prefix, actor.type.user.uuid, 'write');
             const can_write_any = await svc_permission.check(actor, perm);
             if ( can_write_any ) return;
         }
