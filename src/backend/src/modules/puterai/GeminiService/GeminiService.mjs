@@ -6,6 +6,7 @@ import OpenAIUtil from '../lib/OpenAIUtil.js';
 import { Context } from '../../../util/context.js';
 import { models } from './models.mjs';
 
+
 export class GeminiService extends BaseService {
     /**
     * @type {import('../../services/MeteringService/MeteringService').MeteringService}
@@ -16,14 +17,14 @@ export class GeminiService extends BaseService {
 
     static IMPLEMENTS = {
         ['puter-chat-completion']: {
-            async models (...args) {
-                return await this.models(...args);
+            async models () {
+                return await this.models();
             },
             async complete (...args) {
                 return await this.complete(...args);
             },
-            async list (...args) {
-                return await this.list(...args);
+            async list () {
+                return await this.list();
             },
         },
     };
@@ -88,7 +89,7 @@ export class GeminiService extends BaseService {
             console.error('Gemini completion error: ', e);
             throw e;
         }
-
+        
         const modelDetails =  (await this.models()).find(m => m.id === model);
         return OpenAIUtil.handle_completion_output({
             usage_calculator: ({ usage }) => {
