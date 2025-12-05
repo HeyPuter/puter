@@ -8,7 +8,8 @@ class AppPermissionService extends BaseService {
         svc_permission.register_implicator(PermissionImplicator.create({
             id: 'user-can-grant-read-own-apps',
             matcher: permission => {
-                return permission.startsWith('apps-of-user:');
+                return permission.startsWith('apps-of-user:') ||
+                    permission.startsWith('subdomains-of-user:');
             },
             checker: async ({ actor, permission }) => {
                 if ( ! (actor.type instanceof UserActorType) ) {
