@@ -3,27 +3,26 @@ export type AIMessageContent = string | { image_url?: { url: string } } | Record
 export interface ChatMessage {
     role?: string;
     content: AIMessageContent | AIMessageContent[];
-    [key: string]: unknown;
 }
 
 export interface ChatOptions {
     model?: string;
     temperature?: number;
     max_tokens?: number;
-    stream?: boolean;
     vision?: boolean;
-    [key: string]: unknown;
+}
+
+export interface StreamingChatOptions extends ChatOptions {
+    stream: boolean;
 }
 
 export interface ChatResponse {
     message?: ChatMessage;
     choices?: unknown;
-    [key: string]: unknown;
 }
 
 export interface ChatResponseChunk {
     text?: string;
-    [key: string]: unknown;
 }
 
 export interface Img2TxtOptions {
@@ -96,13 +95,27 @@ export class AI {
     listModels (provider?: string): Promise<Record<string, unknown>[]>;
     listModelProviders (): Promise<string[]>;
 
-    chat (prompt: string, options?: ChatOptions): Promise<ChatResponse>;
-    chat (prompt: string, imageURL: string | File, options?: ChatOptions): Promise<ChatResponse>;
-    chat (messages: ChatMessage[], options?: ChatOptions): Promise<ChatResponse>;
-    chat (prompt: string, options: ChatOptions & { stream: true }): AsyncIterable<ChatResponseChunk>;
-    chat (prompt: string, imageURL: string | File, options: ChatOptions & { stream: true }): AsyncIterable<ChatResponseChunk>;
-    chat (messages: ChatMessage[], options: ChatOptions & { stream: true }): AsyncIterable<ChatResponseChunk>;
-    chat (...args: unknown[]): Promise<ChatResponse> | AsyncIterable<ChatResponseChunk>;
+    chat (prompt: string, testMode?: boolean): Promise<ChatResponse>;
+    chat (prompt: string, options: ChatOptions, testMode?: boolean): Promise<ChatResponse>;
+    chat (prompt: string, imageURL: string | File, testMode?: boolean): Promise<ChatResponse>;
+    chat (prompt: string, imageURLArray: string[], testMode?: boolean): Promise<ChatResponse>;
+    chat (prompt: string, imageURL: string | File, options: ChatOptions, testMode?: boolean): Promise<ChatResponse>;
+    chat (prompt: string, imageURLArray: string[], options: ChatOptions, testMode?: boolean): Promise<ChatResponse>;
+
+    chat (messages: ChatMessage[], testMode?: boolean): Promise<ChatResponse>;
+    chat (messages: ChatMessage[], options: ChatOptions, testMode?: boolean): Promise<ChatResponse>;
+    chat (messages: ChatMessage[], imageURL: string | File, testMode?: boolean): Promise<ChatResponse>;
+    chat (messages: ChatMessage[], imageURLArray: string[], testMode?: boolean): Promise<ChatResponse>;
+    chat (messages: ChatMessage[], imageURL: string | File, options: ChatOptions, testMode?: boolean): Promise<ChatResponse>;
+    chat (messages: ChatMessage[], imageURLArray: string[], options: ChatOptions, testMode?: boolean): Promise<ChatResponse>;
+
+    chat (prompt: string, options: StreamingChatOptions, testMode?: boolean): AsyncIterable<ChatResponseChunk>;
+    chat (prompt: string, imageURL: string | File, options: StreamingChatOptions, testMode?: boolean): AsyncIterable<ChatResponseChunk>;
+    chat (prompt: string, imageURLArray: string[], options: StreamingChatOptions, testMode?: boolean): AsyncIterable<ChatResponseChunk>;
+
+    chat (messages: ChatMessage[], options: StreamingChatOptions, testMode?: boolean): AsyncIterable<ChatResponseChunk>;
+    chat (messages: ChatMessage[], imageURL: string | File, options: StreamingChatOptions, testMode?: boolean): AsyncIterable<ChatResponseChunk>;
+    chat (messages: ChatMessage[], imageURLArray: string[], options: StreamingChatOptions, testMode?: boolean): AsyncIterable<ChatResponseChunk>;
 
     img2txt (source: string | File | Blob | Img2TxtOptions, testMode?: boolean): Promise<string>;
     txt2img (prompt: string, testMode?: boolean): Promise<HTMLImageElement>;
