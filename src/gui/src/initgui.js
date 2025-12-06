@@ -1133,13 +1133,7 @@ window.initgui = async function (options) {
         // Dashboard mode: open explorer pointing to home directory
         // -------------------------------------------------------------------------------------
         else if ( window.is_dashboard_mode ) {
-            UIWindow({
-                path: window.home_path,
-                title: path.basename(window.home_path),
-                icon: await item_icon({ is_dir: true, path: window.home_path }),
-                is_dir: true,
-                app: 'explorer',
-            });
+            UIDashboard();
         }
         // -------------------------------------------------------------------------------------
         // If embedded in a popup, send the 'ready' event to referrer and close the popup

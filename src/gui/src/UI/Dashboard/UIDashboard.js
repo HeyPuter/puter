@@ -21,6 +21,9 @@ import UIWindow from '../UIWindow.js';
 import UIContextMenu from '../UIContextMenu.js';
 import UIWindowSettings from '../Settings/UIWindowSettings.js';
 import UIAlert from '../UIAlert.js';
+import UIWindowSaveAccount from '../UIWindowSaveAccount.js';
+import UIWindowLogin from '../UIWindowLogin.js';
+import UIWindowFeedback from '../UIWindowFeedback.js';
 
 async function UIDashboard (options) {
     options = options ?? {};
@@ -122,20 +125,87 @@ async function UIDashboard (options) {
             return;
         }
 
+        let items = [];
+
+        // Save Session (if temp user)
+        if (window.user.is_temp) {
+            items.push({
+                html: i18n('save_session'),
+                icon: '<svg style="margin-bottom: -4px; width: 16px; height: 16px;" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 48 48"><path d="M45.521,39.04L27.527,5.134c-1.021-1.948-3.427-2.699-5.375-1.679-.717,.376-1.303,.961-1.679,1.679L2.479,39.04c-.676,1.264-.635,2.791,.108,4.017,.716,1.207,2.017,1.946,3.42,1.943H41.993c1.403,.003,2.704-.736,3.42-1.943,.743-1.226,.784-2.753,.108-4.017ZM23.032,15h1.937c.565,0,1.017,.467,1,1.031l-.438,14c-.017,.54-.459,.969-1,.969h-1.062c-.54,0-.983-.429-1-.969l-.438-14c-.018-.564,.435-1.031,1-1.031Zm.968,25c-1.657,0-3-1.343-3-3s1.343-3,3-3,3,1.343,3,3-1.343,3-3,3Z" fill="#ffbb00"/></svg>',
+                onClick: async function () {
+                    UIWindowSaveAccount({
+                        send_confirmation_code: false,
+                        default_username: window.user.username,
+                    });
+                },
+            });
+            items.push('-');
+        }
+
+        // Logged in users
+        if (window.logged_in_users.length > 0) {
+            let users_arr = window.logged_in_users;
+
+            // bring logged in user's item to top
+            users_arr.sort(function (x, y) {
+                return x.uuid === window.user.uuid ? -1 : y.uuid == window.user.uuid ? 1 : 0;
+            });
+
+            // create menu items for each user
+            users_arr.forEach(l_user => {
+                items.push({
+                    html: l_user.username,
+                    icon: l_user.username === window.user.username ? '✓' : '',
+                    onClick: async function () {
+                        if (l_user.username === window.user.username) {
+                            return;
+                        }
+                        window.update_auth_data(l_user.auth_token, l_user);
+                        location.reload();
+                    },
+                });
+            });
+
+            items.push('-');
+
+            items.push({
+                html: i18n('add_existing_account'),
+                onClick: async function () {
+                    await UIWindowLogin({
+                        reload_on_success: true,
+                        send_confirmation_code: false,
+                        window_options: {
+                            has_head: true,
+                            stay_on_top: true,
+                        },
+                    });
+                },
+            });
+
+            items.push('-');
+        }
+
+        // Build final menu items
         const menuItems = [
+            ...items,
             // Settings
             {
                 html: i18n('settings'),
-                icon: `<svg style="width:13px; height:13px;margin-bottom:-2px;" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1 0 2.83 2 2 0 0 1-2.83 0l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-2 2 2 2 0 0 1-2-2v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83 0 2 2 0 0 1 0-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1-2-2 2 2 0 0 1 2-2h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 0-2.83 2 2 0 0 1 2.83 0l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 2-2 2 2 0 0 1 2 2v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 0 2 2 0 0 1 0 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 2 2 2 2 0 0 1-2 2h-.09a1.65 1.65 0 0 0-1.51 1z"/></svg>`,
-                onClick: function () {
+                onClick: async function () {
                     UIWindowSettings();
-                }
+                },
+            },
+            // Contact Us
+            {
+                html: i18n('contact_us'),
+                onClick: async function () {
+                    UIWindowFeedback();
+                },
             },
             '-',
             // Log out
             {
                 html: i18n('log_out'),
-                icon: `<svg style="width:13px; height:13px;margin-bottom:-2px;" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"/><polyline points="16 17 21 12 16 7"/><line x1="21" y1="12" x2="9" y2="12"/></svg>`,
                 onClick: async function () {
                     // Check for open windows
                     if ($('.window-app').length > 0) {
@@ -158,8 +228,8 @@ async function UIDashboard (options) {
                     } else {
                         window.logout();
                     }
-                }
-            }
+                },
+            },
         ];
 
         UIContextMenu({

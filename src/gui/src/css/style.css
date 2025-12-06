@@ -4017,7 +4017,7 @@ fieldset[name=number-code] {
 }
 
 .signup-terms {
-    font-size: 11px;
+    font-size: 10px;
     color: #666;
     margin-top: 10px;
     bottom: 10px;
@@ -5508,6 +5508,10 @@ fieldset[name=number-code] {
 }
 
 .dashboard-user-btn:hover {
+    background: #e8e8e8;
+}
+
+.dashboard-user-btn.has-open-contextmenu {
     background: #e8e8e8;
 }
 
