@@ -466,12 +466,6 @@ async function UIWindowLogin (options) {
         $(el_window).find('.signup-c2a-clickable').on('click', async function (e) {
             //destroy this window
             $(el_window).close();
-
-            if(!options.window_options){
-                options.window_options = {};
-            }
-            options.window_options.dominant = true;
-            options.window_options.center = true;
             // create Signup window
             const signup = await UIWindowSignup({
                 referrer: options.referrer,
