@@ -25,6 +25,54 @@ import UIWindowSaveAccount from '../UIWindowSaveAccount.js';
 import UIWindowLogin from '../UIWindowLogin.js';
 import UIWindowFeedback from '../UIWindowFeedback.js';
 
+function buildAppsSection () {
+    let apps_str = '';
+
+    // -------------------------------------------
+    // Recent apps
+    // -------------------------------------------
+    if ( window.launch_apps?.recent?.length > 0 ) {
+        apps_str += `<h3 class="dashboard-apps-heading">${i18n('recent')}</h3>`;
+        apps_str += '<div class="dashboard-apps-grid">';
+        for ( let index = 0; index < window.launch_recent_apps_count && index < window.launch_apps.recent.length; index++ ) {
+            const app_info = window.launch_apps.recent[index];
+            apps_str += `<div title="${html_encode(app_info.title)}" data-name="${html_encode(app_info.name)}" class="dashboard-app-card start-app-card">`;
+            apps_str += `<div class="start-app" data-app-name="${html_encode(app_info.name)}" data-app-uuid="${html_encode(app_info.uuid)}" data-app-icon="${html_encode(app_info.icon)}" data-app-title="${html_encode(app_info.title)}">`;
+            apps_str += `<img class="dashboard-app-icon" src="${html_encode(app_info.icon ? app_info.icon : window.icons['app.svg'])}">`;
+            apps_str += `<span class="dashboard-app-title">${html_encode(app_info.title)}</span>`;
+            apps_str += '</div>';
+            apps_str += '</div>';
+        }
+        apps_str += '</div>';
+    }
+
+    // -------------------------------------------
+    // Recommended apps
+    // -------------------------------------------
+    if ( window.launch_apps?.recommended?.length > 0 ) {
+        apps_str += `<h3 class="dashboard-apps-heading" style="${window.launch_apps?.recent?.length > 0 ? 'margin-top: 32px;' : ''}">${i18n('recommended')}</h3>`;
+        apps_str += '<div class="dashboard-apps-grid">';
+        for ( let index = 0; index < window.launch_apps.recommended.length; index++ ) {
+            const app_info = window.launch_apps.recommended[index];
+            apps_str += `<div title="${html_encode(app_info.title)}" data-name="${html_encode(app_info.name)}" class="dashboard-app-card start-app-card">`;
+            apps_str += `<div class="start-app" data-app-name="${html_encode(app_info.name)}" data-app-uuid="${html_encode(app_info.uuid)}" data-app-icon="${html_encode(app_info.icon)}" data-app-title="${html_encode(app_info.title)}">`;
+            apps_str += `<img class="dashboard-app-icon" src="${html_encode(app_info.icon ? app_info.icon : window.icons['app.svg'])}">`;
+            apps_str += `<span class="dashboard-app-title">${html_encode(app_info.title)}</span>`;
+            apps_str += '</div>';
+            apps_str += '</div>';
+        }
+        apps_str += '</div>';
+    }
+
+    // No apps message
+    if ( (!window.launch_apps?.recent || window.launch_apps.recent.length === 0) && 
+         (!window.launch_apps?.recommended || window.launch_apps.recommended.length === 0) ) {
+        apps_str += '<p class="dashboard-no-apps">No apps available yet.</p>';
+    }
+
+    return apps_str;
+}
+
 async function UIDashboard (options) {
     options = options ?? {};
 
@@ -67,7 +115,7 @@ async function UIDashboard (options) {
             h += '</div>';
             h += '<div class="dashboard-section" data-section="apps">';
                 h += '<h2>My Apps</h2>';
-                h += '<p>Your apps will appear here.</p>';
+                h += '<div class="dashboard-apps-container"></div>';
             h += '</div>';
         h += '</div>';
 
@@ -91,6 +139,31 @@ async function UIDashboard (options) {
 
     const $el_window = $(el_window);
 
+    // Function to load and refresh apps
+    async function loadApps () {
+        // If launch_apps is not populated yet, fetch from server
+        if ( !window.launch_apps || !window.launch_apps.recent || window.launch_apps.recent.length === 0 ) {
+            try {
+                window.launch_apps = await $.ajax({
+                    url: `${window.api_origin}/get-launch-apps?icon_size=64`,
+                    type: 'GET',
+                    async: true,
+                    contentType: 'application/json',
+                    headers: {
+                        'Authorization': `Bearer ${window.auth_token}`,
+                    },
+                });
+            } catch (e) {
+                console.error('Failed to load launch apps:', e);
+            }
+        }
+        // Populate the apps container
+        $el_window.find('.dashboard-apps-container').html(buildAppsSection());
+    }
+
+    // Load apps initially
+    loadApps();
+
     // Sidebar item click handler
     $el_window.on('click', '.dashboard-sidebar-item', function () {
         const $this = $(this);
@@ -103,6 +176,11 @@ async function UIDashboard (options) {
         // Update active content section
         $el_window.find('.dashboard-section').removeClass('active');
         $el_window.find(`.dashboard-section[data-section="${section}"]`).addClass('active');
+
+        // Refresh apps when navigating to apps section
+        if ( section === 'apps' ) {
+            loadApps();
+        }
 
         // Close sidebar on mobile after selection
         $el_window.find('.dashboard-sidebar').removeClass('open');
