@@ -109,12 +109,11 @@ async function UIDashboard (options) {
 
         // Main content area
         h += '<div class="dashboard-content">';
-            h += '<div class="dashboard-section active" data-section="files">';
+            h += '<div class="dashboard-section dashboard-section-files active" data-section="files">';
                 h += '<h2>My Files</h2>';
                 h += '<p>Your files will appear here.</p>';
             h += '</div>';
-            h += '<div class="dashboard-section" data-section="apps">';
-                h += '<h2>My Apps</h2>';
+            h += '<div class="dashboard-section dashboard-section-apps" data-section="apps">';
                 h += '<div class="dashboard-apps-container"></div>';
             h += '</div>';
         h += '</div>';

@@ -5568,6 +5568,11 @@ fieldset[name=number-code] {
     font-size: 14px;
 }
 
+.dashboard-section-apps {
+    max-width: 500px;
+    margin: 0 auto;
+}
+
 /* Dashboard Apps */
 .dashboard-apps-container {
     margin-top: 8px;
