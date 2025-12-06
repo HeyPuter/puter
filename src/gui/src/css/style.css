@@ -5606,7 +5606,7 @@ fieldset[name=number-code] {
 }
 
 .dashboard-app-card:hover {
-    background-color: #f0f0f0;
+    background: none !important;
 }
 
 .dashboard-app-card:hover .start-app, .dashboard-app-card .start-app:hover {
