@@ -19,6 +19,8 @@
  */
 const { AdvancedBase } = require('@heyputer/putility');
 const BaseService = require('./BaseService');
+const { kv } = require('../util/kvSingleton');
+const uuidv4 = require('uuid').v4;
 
 /**
 * @class MapCollection
@@ -29,10 +31,6 @@ const BaseService = require('./BaseService');
 * This class provides methods for basic CRUD operations (create, read, update, delete) on the key-value pairs, as well as methods for checking the existence of a key and retrieving all keys in the collection.
 */
 class MapCollection extends AdvancedBase {
-    static MODULES = {
-        kv: globalThis.kv,
-        uuidv4: require('uuid').v4,
-    };
     /**
     * @method MapCollection#_mk_key
     * @description Creates a unique key for the map collection.
@@ -43,7 +41,7 @@ class MapCollection extends AdvancedBase {
         super();
         // We use kvjs instead of a plain object because it doesn't
         // have a limit on the number of keys it can store.
-        this.map_id = this.modules.uuidv4();
+        this.map_id = uuidv4();
         this.kv = kv;
     }
 

@@ -3,25 +3,23 @@ import { existsSync, mkdtempSync, readFileSync } from 'node:fs';
 import fs from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
+import { Readable } from 'node:stream';
 import { setTimeout as delay } from 'node:timers/promises';
-import { beforeEach, describe, expect, it, vi } from 'vitest';
-
+import { fileURLToPath } from 'node:url';
+import { beforeEach, describe, expect, it, vi, test } from 'vitest';
 import { createTestKernel } from '../../../tools/test.mjs';
-import APIError from '../../api/APIError';
-import { FilesystemService } from '../../filesystem/FilesystemService';
-import { Eq, StartsWith } from '../../om/query/query';
-import { Context } from '../../util/context';
-import BaseService from '../BaseService';
-import { EventService } from '../EventService';
-import { FeatureFlagService } from '../FeatureFlagService';
-import { NotificationService } from '../NotificationService';
-import { SUService } from '../SUService';
-import { ScriptService } from '../ScriptService';
-import { SessionService } from '../SessionService';
+import { AppLimitedES } from '../../om/entitystorage/AppLimitedES.js';
+import { ESBuilder } from '../../om/entitystorage/ESBuilder.js';
+import { MaxLimitES } from '../../om/entitystorage/MaxLimitES.js';
+import SQLES from '../../om/entitystorage/SQLES.js';
+import { SetOwnerES } from '../../om/entitystorage/SetOwnerES.js';
+import SubdomainES from '../../om/entitystorage/SubdomainES.js';
+import ValidationES from '../../om/entitystorage/ValidationES.js';
+import WriteByOwnerOnlyES from '../../om/entitystorage/WriteByOwnerOnlyES.js';
+import { Eq, StartsWith } from '../../om/query/query.js';
+import { EntityStoreService } from '../EntityStoreService.js';
+import { SUService } from '../SUService.js';
 import { Actor, UserActorType } from '../auth/Actor';
-import { AuthService } from '../auth/AuthService';
-import { TokenService } from '../auth/TokenService';
-import { InformationService } from '../information/InformationService';
 import { WorkerService } from './WorkerService';
 
 const cloudflareDeployMock = vi.hoisted(() => ({
@@ -32,28 +30,49 @@ const cloudflareDeployMock = vi.hoisted(() => ({
     deleteDB: vi.fn().mockResolvedValue({ success: true }),
 }));
 
-vi.mock('./workerUtils/cloudflareDeploy', () => cloudflareDeployMock);
-const helperMocks = vi.hoisted(() => ({
-    get_app: vi.fn(),
-    subdomain: vi.fn(),
-}));
-vi.mock('../../helpers', () => helperMocks);
-vi.mock('../../api/filesystem/FSNodeParam', () => class MockFSNodeParam {
-    async consolidate ({ getParam }: any) {
-        const value = typeof getParam === 'function' ? getParam() : getParam;
-        return {
-            async get (key: string) {
-                if ( key === 'path' ) return value;
-                return null;
-            },
-        };
+const FakeEntity = vi.hoisted(() => class FakeEntity {
+    values_: Record<string, any>;
+    constructor (values: Record<string, any>) {
+        this.values_ = values;
+    }
+    async get (key: string) {
+        return this.values_[key];
+    }
+    static async create (_opts: any, data: Record<string, any>) {
+        return new FakeEntity(data);
     }
 });
 
+vi.mock('./workerUtils/cloudflareDeploy', () => cloudflareDeployMock);
+vi.mock('../../api/filesystem/FSNodeParam.js', () => ({
+    default: class MockFSNodeParam {
+        async consolidate ({ getParam }: { getParam: () => string }) {
+            const path = getParam();
+            return {
+                get: async (key: string) => key === 'path' ? path : null,
+            };
+        }
+    },
+}));
+vi.mock('../../om/entitystorage/Entity.js', () => ({
+    Entity: FakeEntity,
+    default: FakeEntity,
+}));
+
+const llReadRunMock = vi.hoisted(() => vi.fn());
+
+vi.mock('../../filesystem/ll_operations/ll_read.js', () => ({
+    LLRead: class {
+        async run (...args) {
+            return await llReadRunMock(...args);
+        }
+    },
+}));
+
 class DomainRecord {
     uid: string;
-    values_: Record<string, any>;
-    constructor ({ uid, values }: { uid: string, values: Record<string, any> }) {
+    values_: Record<string, unknown>;
+    constructor ({ uid, values }: { uid: string, values: Record<string, unknown> }) {
         this.uid = uid;
         this.values_ = values;
     }
@@ -64,46 +83,11 @@ class DomainRecord {
     }
 }
 
-class InMemorySubdomainService extends BaseService {
-    domains: DomainRecord[] = [];
-
-    reset (domains: DomainRecord[] = []) {
-        this.domains = domains;
-    }
-
-    async select ({ predicate }: { predicate: any }) {
-        return this.domains.filter(domain => {
-            const subdomain = domain.values_.subdomain;
-            if ( predicate instanceof StartsWith ) {
-                return `${subdomain}`.startsWith(predicate.value);
-            }
-            if ( predicate instanceof Eq ) {
-                return subdomain === predicate.value;
-            }
-            return true;
-        });
-    }
-
-    async upsert (entity: any) {
-        const values = entity.values_ ?? entity;
-        const record = new DomainRecord({
-            uid: values.uid ?? `uid-${this.domains.length + 1}`,
-            values,
-        });
-        this.domains.push(record);
-        return { ...record.values_, uid: record.uid };
-    }
-
-    async delete (uid: string) {
-        this.domains = this.domains.filter(domain => domain.uid !== uid);
-    }
-}
-
-const makeActor = (overrides?: Partial<{ id: string, uuid: string, username: string }>) => {
+const makeActor = (overrides?: Partial<{ id: number, uuid: string, username: string }>) => {
     const actor = new Actor({
         type: new UserActorType({
             user: {
-                id: 'user-id',
+                id: 1,
                 uuid: 'user-uuid',
                 username: 'tester',
                 ...overrides,
@@ -120,16 +104,337 @@ const makeActor = (overrides?: Partial<{ id: string, uuid: string, username: str
     return actor;
 };
 
-const makeDomain = (values: Record<string, any>) => new DomainRecord({
+const makeDomain = (values: Record<string, unknown>) => new DomainRecord({
     uid: values.uid ?? `uid-${Math.random().toString(16).slice(2)}`,
     values,
 });
 
-const serviceDir = path.resolve(__dirname);
+describe('WorkerService', async () => {
+    const testKernel = await createTestKernel({
+        serviceMap: {
+            worker: WorkerService,
+            'es:subdomain': EntityStoreService,
+        },
+        serviceMapArgs: {
+            'es:subdomain': {
+                entity: 'subdomain',
+                upstream: ESBuilder.create([
+                    SQLES,
+                    { table: 'subdomains', debug: true },
+                    SubdomainES,
+                    AppLimitedES,
+                    WriteByOwnerOnlyES,
+                    ValidationES,
+                    SetOwnerES,
+                    MaxLimitES, { max: 5000 },
+                ]),
+            },
+        },
+        serviceConfigOverrideMap: {
+            worker: { loggingUrl: 'https://logs.puter.test' },
+            database: {
+                path: ':memory:',
+            },
+        },
+        initLevelString: 'init',
+        testCore: true,
+        globalConfigOverrideMap: {
+            worker: { reserved_words: [] },
+        },
+
+    });
+
+    const workerService = testKernel.services!.get('worker') as WorkerService;
+    const esSubdomain = testKernel.services!.get('es:subdomain') as EntityStoreService;
+    const filesystemService = testKernel.services!.get('filesystem');
+    const su = testKernel.services!.get('su') as SUService;
+    const selectSpy = vi.spyOn(esSubdomain, 'select');
+    const upsertSpy = vi.spyOn(esSubdomain, 'upsert');
+    const deleteSpy = vi.spyOn(esSubdomain, 'delete');
+    const filesystemNodeSpy = vi.spyOn(filesystemService as any, 'node');
+
+    const makeNode = (path: string, uid = 'node-uid', owner: any = makeActor().type.user) => ({
+        get: vi.fn().mockImplementation(async (key: string) => {
+            if ( key === 'path' ) return path;
+            if ( key === 'uid' ) return uid;
+            if ( key === 'owner' ) return owner;
+            throw new Error(`Unknown key ${key}`);
+        }),
+    });
+
+    beforeEach(() => {
+        cloudflareDeployMock.createWorker.mockClear();
+        cloudflareDeployMock.deleteWorker.mockClear();
+        cloudflareDeployMock.createDB.mockClear();
+        cloudflareDeployMock.deleteDB.mockClear();
+        llReadRunMock.mockReset();
+        selectSpy.mockReset();
+        upsertSpy.mockReset();
+        deleteSpy.mockReset();
+        filesystemNodeSpy.mockReset();
+
+        llReadRunMock.mockImplementation(async () => Readable.from([Buffer.from('console.log("worker")')]));
+        selectSpy.mockResolvedValue([]);
+        upsertSpy.mockResolvedValue({ database_id: 'db-uuid' });
+        deleteSpy.mockResolvedValue(true);
+        filesystemNodeSpy.mockImplementation(async (selector?: { value?: string }) => makeNode(selector?.value ?? '/worker.js'));
+        cloudflareDeployMock.createWorker.mockResolvedValue({ success: true });
+        cloudflareDeployMock.deleteWorker.mockResolvedValue({ success: true });
+        cloudflareDeployMock.createDB.mockResolvedValue({ success: true, result: { uuid: 'db-uuid' } });
+        cloudflareDeployMock.deleteDB.mockResolvedValue({ success: true });
+        workerService.global_config.reserved_words = [];
+    });
+
+    it('exposes the worker driver facade', () => {
+        expect(workerService).toBeInstanceOf(WorkerService);
+        const driver = workerService.as('workers') as unknown as WorkerService;
+        expect(driver.create).toBeTypeOf('function');
+        expect(driver.destroy).toBeTypeOf('function');
+        expect(driver.getFilePaths).toBeTypeOf('function');
+        expect(driver.getLoggingUrl).toBeTypeOf('function');
+    });
+
+    it('creates a worker with a fresh database and uploads code', async () => {
+        const actor = makeActor({ id: 7, uuid: 'create-uuid', username: 'creator' });
+        filesystemNodeSpy.mockImplementation(async () => makeNode('/worker.js', 'node-create', actor.type.user));
+
+        const result = await su.sudo(actor, () => workerService.create({
+            filePath: '/worker.js',
+            workerName: 'MyWorker',
+            authorization: 'auth-token',
+        }));
+
+        if ( ! result?.success ) {
+            throw result?.errors ?? result;
+        }
+        expect(result).toMatchObject({ success: true });
+        expect(selectSpy).toHaveBeenCalledWith(expect.objectContaining({
+            predicate: expect.any(StartsWith),
+        }));
+        expect(cloudflareDeployMock.createDB).toHaveBeenCalledTimes(1);
+        expect(cloudflareDeployMock.createWorker).toHaveBeenCalledWith(
+                        actor.type.user,
+                        'auth-token',
+                        'myworker',
+                        expect.stringContaining('console.log("worker")'),
+                        expect.any(Number),
+                        'db-uuid');
+
+        const [entityArg] = upsertSpy.mock.calls[0] ?? [];
+        expect(await entityArg.get('subdomain')).toBe('workers.puter.myworker');
+        expect(result).toMatchObject({ success: true });
+    });
+
+    it('reuses an existing worker record instead of creating a new database', async () => {
+        const actor = makeActor({ uuid: 'owner-uuid', username: 'owner' });
+        selectSpy.mockResolvedValue([
+            makeDomain({
+                subdomain: 'workers.puter.existing',
+                database_id: 'existing-db',
+                owner: { uuid: actor.type.user.uuid },
+                root_dir: makeNode('/existing.js', 'node-existing', actor.type.user),
+                created_at: Date.now(),
+            }),
+        ]);
+        filesystemNodeSpy.mockImplementation(async () => makeNode('/existing.js', 'node-existing', actor.type.user));
+        upsertSpy.mockResolvedValue({ database_id: 'existing-db' });
+
+        const result = await su.sudo(actor, () => workerService.create({
+            filePath: '/existing.js',
+            workerName: 'existing',
+            authorization: 'auth-token',
+        }));
+
+        if ( ! result?.success ) {
+            throw result?.errors ?? result;
+        }
+        expect(result).toMatchObject({ success: true });
+        expect(cloudflareDeployMock.createDB).not.toHaveBeenCalled();
+        expect(cloudflareDeployMock.createWorker).toHaveBeenCalledWith(
+                        actor.type.user,
+                        'auth-token',
+                        'existing',
+                        expect.any(String),
+                        expect.any(Number),
+                        'existing-db');
+        expect(result).toMatchObject({ success: true });
+    });
+
+    it('rejects creation when subdomain limit is reached', async () => {
+        const actor = makeActor();
+        selectSpy.mockResolvedValue(Array.from({ length: 100 }, (_, i) => makeDomain({
+            subdomain: `workers.puter.${i}`,
+        })));
+
+        await expect(su.sudo(actor, () => workerService.create({
+            filePath: '/worker.js',
+            workerName: 'limited',
+            authorization: 'auth-token',
+        }))).rejects.toMatchObject({
+            fields: expect.objectContaining({ code: 'subdomain_limit_reached', isWorker: true, limit: 100 }),
+        });
+        expect(cloudflareDeployMock.createWorker).not.toHaveBeenCalled();
+    });
+
+    it('rejects reserved worker names', async () => {
+        workerService.global_config.reserved_words = ['taken'];
+        const actor = makeActor();
+
+        await expect(su.sudo(actor, () => workerService.create({
+            filePath: '/worker.js',
+            workerName: 'taken',
+            authorization: 'auth-token',
+        }))).rejects.toMatchObject({
+            fields: expect.objectContaining({ code: 'subdomain_reserved', subdomain: 'taken' }),
+        });
+        expect(cloudflareDeployMock.createWorker).not.toHaveBeenCalled();
+    });
+
+    it('returns undefined for invalid worker name patterns', async () => {
+        const actor = makeActor();
+
+        const result = await su.sudo(actor, () => workerService.create({
+            filePath: '/worker.js',
+            workerName: 'invalid name!',
+            authorization: 'auth-token',
+        }));
+
+        expect(result).toBeUndefined();
+        expect(cloudflareDeployMock.createWorker).not.toHaveBeenCalled();
+    });
+
+    it('rejects destroying a worker that is not owned by the actor', async () => {
+        const actor = makeActor({ uuid: 'actor-uuid' });
+        selectSpy.mockResolvedValue([
+            makeDomain({
+                subdomain: 'workers.puter.alpha',
+                owner: { uuid: 'another-uuid' },
+                database_id: 'db-1',
+            }),
+        ]);
+
+        const response = await su.sudo(actor, () => workerService.destroy({ workerName: 'alpha' }));
+
+        expect(response).toMatchObject({
+            success: false,
+            e: expect.objectContaining({ message: 'This is not your worker!' }),
+        });
+        expect(cloudflareDeployMock.deleteWorker).not.toHaveBeenCalled();
+        expect(deleteSpy).not.toHaveBeenCalled();
+    });
+
+    it('destroys a worker, drops its database, and deletes the subdomain row', async () => {
+        const actor = makeActor({ uuid: 'owner-uuid' });
+        selectSpy.mockResolvedValue([
+            makeDomain({
+                uid: 'sd-123',
+                subdomain: 'workers.puter.cleanup',
+                owner: { uuid: actor.type.user.uuid },
+                database_id: 'db-123',
+            }),
+        ]);
+        deleteSpy.mockResolvedValue(true);
+
+        const response = await su.sudo(actor, () => {
+            return workerService.destroy({ workerName: 'cleanup' });
+        });
+
+        expect(cloudflareDeployMock.deleteWorker).toHaveBeenCalledWith(actor.type.user, 'cleanup');
+        expect(cloudflareDeployMock.deleteDB).toHaveBeenCalledWith('db-123');
+        expect(deleteSpy).toHaveBeenCalledWith('sd-123');
+        expect(response).toMatchObject({ success: true });
+    });
+
+    it('returns worker file paths for the current user', async () => {
+        const actor = makeActor({ uuid: 'path-uuid' });
+        const createdAt = new Date('2024-01-01T00:00:00Z');
+        selectSpy.mockResolvedValue([
+            makeDomain({
+                subdomain: 'workers.puter.alpha',
+                root_dir: makeNode('/code/alpha.js', 'node-alpha'),
+                created_at: createdAt.getTime(),
+            }),
+        ]);
+
+        const paths = await su.sudo(actor, () => workerService.getFilePaths({}));
+
+        expect(selectSpy.mock.calls[0]?.[0].predicate).toBeInstanceOf(StartsWith);
+        expect(paths).toEqual([{
+            name: 'alpha',
+            url: 'https://alpha.puter.work',
+            file_path: '/code/alpha.js',
+            file_uid: 'node-alpha',
+            created_at: createdAt.toISOString(),
+        }]);
+    });
+
+    it('filters getFilePaths by worker name when provided', async () => {
+        const actor = makeActor({ uuid: 'path-filter' });
+        selectSpy.mockResolvedValue([
+            makeDomain({
+                subdomain: 'workers.puter.beta',
+                root_dir: makeNode('/code/beta.js', 'node-beta'),
+                created_at: 1_700_000_000_000,
+            }),
+        ]);
+
+        const paths = await su.sudo(actor, () => workerService.getFilePaths({ workerName: 'beta' }));
+
+        expect(selectSpy.mock.calls[0]?.[0].predicate).toBeInstanceOf(Eq);
+        expect(paths?.[0]?.name).toBe('beta');
+    });
+
+    it('tolerates missing file metadata when listing worker file paths', async () => {
+        const actor = makeActor({ uuid: 'path-missing' });
+        const createdAtAlpha = new Date('2024-01-02T00:00:00.000Z');
+        const createdAtBeta = new Date('2024-02-03T00:00:00.000Z');
+        selectSpy.mockResolvedValue([
+            makeDomain({
+                subdomain: 'workers.puter.alpha',
+                root_dir: makeNode('/apps/alpha.js', 'alpha-uid'),
+                created_at: createdAtAlpha.getTime(),
+            }),
+            makeDomain({
+                subdomain: 'workers.puter.beta',
+                root_dir: {
+                    get: async () => {
+                        throw new Error('missing');
+                    },
+                },
+                created_at: createdAtBeta.getTime(),
+            }),
+        ]);
+
+        const paths = await su.sudo(actor, () => workerService.getFilePaths({}));
+
+        expect(paths).toEqual([
+            {
+                name: 'alpha',
+                url: 'https://alpha.puter.work',
+                file_path: '/apps/alpha.js',
+                file_uid: 'alpha-uid',
+                created_at: createdAtAlpha.toISOString(),
+            },
+            {
+                name: 'beta',
+                url: 'https://beta.puter.work',
+                file_path: null,
+                file_uid: null,
+                created_at: createdAtBeta.toISOString(),
+            },
+        ]);
+    });
+
+    it('returns the configured logging URL', async () => {
+        await expect(workerService.getLoggingUrl()).resolves.toBe('https://logs.puter.test');
+    });
+});
+
+const serviceDir = path.dirname(fileURLToPath(import.meta.url));
+const repoRoot = path.resolve(serviceDir, '../../../../..');
 const wranglerAvailable = spawnSync('wrangler', ['--version'], { stdio: 'ignore' }).status === 0;
-const wranglerIt = (wranglerAvailable && process.env.RUN_WORKER_WRANGLER_TEST === '1') ? it : it.skip;
+
 const ensureWorkerArtifacts = () => {
-    const repoRoot = path.resolve(__dirname, '../../../../..');
     const preamblePath = path.join(serviceDir, 'dist/workerPreamble.js');
     const puterJsDist = path.join(repoRoot, 'src/puter-js/dist/puter.js');
     if ( existsSync(preamblePath) && existsSync(puterJsDist) ) {
@@ -137,7 +442,7 @@ const ensureWorkerArtifacts = () => {
     }
     const builds = [
         { cmd: ['npm', 'run', 'build'], cwd: path.join(repoRoot, 'src/puter-js') },
-        { cmd: ['npm', 'run', 'build'], cwd: path.join(serviceDir) },
+        { cmd: ['npm', 'run', 'build'], cwd: serviceDir },
     ];
     for ( const { cmd, cwd } of builds ) {
         const [bin, ...args] = cmd;
@@ -147,210 +452,8 @@ const ensureWorkerArtifacts = () => {
     return existsSync(preamblePath) && existsSync(puterJsDist);
 };
 
-describe('WorkerService (kernel)', async () => {
-    const testKernel = await createTestKernel({
-        serviceMap: {
-            worker: WorkerService,
-            su: SUService,
-            event: EventService,
-            'feature-flag': FeatureFlagService,
-            token: TokenService,
-            information: InformationService,
-            auth: AuthService,
-            session: SessionService,
-            notification: NotificationService,
-            script: ScriptService,
-            filesystem: FilesystemService,
-            'es:subdomain': InMemorySubdomainService,
-        },
-        initLevelString: 'init',
-        testCore: true,
-        serviceConfigOverrideMap: {
-            worker: { loggingUrl: 'https://logs.puter.test' },
-            database: {
-                path: ':memory:',
-            },
-        },
-        globalConfigOverrideMap: {
-            worker: { reserved_words: [] },
-        },
-    });
-
-    const workerService = testKernel.services!.get('worker') as any;
-    const subdomainService = testKernel.services!.get('es:subdomain') as InMemorySubdomainService;
-    const suService = testKernel.services!.get('su') as SUService;
-
-    globalThis.services = testKernel.services;
-    Context.root.set('services', testKernel.services);
-    const originalContextGet = Context.get.bind(Context);
-    vi.spyOn(Context, 'get').mockImplementation((key?: any, opts?: any) => {
-        if ( key === 'services' ) {
-            return testKernel.services;
-        }
-        return originalContextGet(key, opts);
-    });
-    Context.contextAsyncLocalStorage.enterWith(new Map([['context', testKernel.root_context]]));
-
-    beforeEach(() => {
-        vi.clearAllMocks();
-        cloudflareDeployMock.createWorker.mockResolvedValue({ success: true });
-        cloudflareDeployMock.deleteWorker.mockResolvedValue({ success: true });
-        cloudflareDeployMock.createDB.mockResolvedValue({ success: true, result: { uuid: 'db-uuid' } });
-        cloudflareDeployMock.deleteDB.mockResolvedValue({ success: true });
-        subdomainService.reset();
-        workerService.global_config.reserved_words = [];
-    });
-
-    describe('create', () => {
-        it.skip('throws when appId is provided but user is not the owner', async () => {
-            helperMocks.get_app.mockImplementation(() => {
-                throw APIError.create('no_suitable_app', null, { entry_name: 'myworker' });
-            });
-            const actor = makeActor();
-
-            const result = await suService.sudo(actor, () => workerService.as('workers').create({
-                filePath: '/worker.js',
-                workerName: 'MyWorker',
-                authorization: 'auth-token',
-                appId: 'app-123',
-            }));
-
-            expect(result).toMatchObject({
-                success: false,
-            });
-            expect(helperMocks.get_app).toHaveBeenCalledWith({ uid: 'app-123' });
-        });
-
-        it('throws when subdomain limit is reached', async () => {
-            subdomainService.reset(Array.from({ length: 100 }, (_, i) => makeDomain({
-                subdomain: `workers.puter.${i}`,
-            })));
-            const actor = makeActor();
-
-            await expect(suService.sudo(actor, () => workerService.as('workers').create({
-                filePath: '/worker.js',
-                workerName: 'limited',
-                authorization: 'auth-token',
-            }))).rejects.toMatchObject({
-                fields: expect.objectContaining({ code: 'subdomain_limit_reached', isWorker: true, limit: 100 }),
-            });
-        });
-
-        it('rejects reserved worker names', async () => {
-            workerService.global_config.reserved_words = ['taken'];
-            const actor = makeActor();
-
-            await expect(suService.sudo(actor, () => workerService.as('workers').create({
-                filePath: '/worker.js',
-                workerName: 'taken',
-                authorization: 'auth-token',
-            }))).rejects.toMatchObject({
-                fields: expect.objectContaining({ code: 'subdomain_reserved', subdomain: 'taken' }),
-            });
-        });
-
-        it('returns undefined for invalid worker name patterns', async () => {
-            const actor = makeActor();
-
-            const result = await suService.sudo(actor, () => workerService.as('workers').create({
-                filePath: '/worker.js',
-                workerName: 'invalid name!',
-                authorization: 'auth-token',
-            }));
-
-            expect(result).toBeUndefined();
-            expect(cloudflareDeployMock.createWorker).not.toHaveBeenCalled();
-        });
-    });
-
-    describe('destroy', () => {
-        it('throws when the actor does not own the worker', async () => {
-            const actor = makeActor();
-            const domain = makeDomain({
-                uid: 'uid-123',
-                subdomain: 'workers.puter.test-worker',
-                owner: { uuid: 'other-owner' },
-                database_id: 'db-uuid',
-            });
-            subdomainService.reset([domain]);
-
-            const response = await suService.sudo(actor, () => workerService.as('workers').destroy({
-                workerName: 'test-worker',
-            }));
-
-            expect(response).toMatchObject({ success: false });
-        });
-
-        it.skip('deletes the worker when ownership matches', async () => {
-            const actor = makeActor();
-            const domain = makeDomain({
-                uid: 'uid-123',
-                subdomain: 'workers.puter.test-worker',
-                owner: { uuid: 'user-uuid' },
-                database_id: 'db-uuid',
-            });
-            subdomainService.reset([domain]);
-            const deleteSpy = vi.spyOn(subdomainService, 'delete');
-
-            const result = await suService.sudo(actor, () => workerService.as('workers').destroy({
-                workerName: 'test-worker',
-            }));
-
-            expect(result).toEqual({ success: true });
-        });
-    });
-
-    describe('getFilePaths', () => {
-        it('maps domains to path information and tolerates missing paths', async () => {
-            const domainWithPath = makeDomain({
-                subdomain: 'workers.puter.alpha',
-                created_at: '2024-01-02T00:00:00.000Z',
-                root_dir: {
-                    get: async (key: string) => key === 'path' ? '/apps/alpha.js' : 'alpha-uid',
-                },
-            });
-
-            const domainMissingPath = makeDomain({
-                subdomain: 'workers.puter.beta',
-                created_at: '2024-02-03T00:00:00.000Z',
-                root_dir: {
-                    get: async () => {
-                        throw new Error('missing');
-                    },
-                },
-            });
-
-            subdomainService.reset([domainWithPath, domainMissingPath]);
-
-            const results = await workerService.as('workers').getFilePaths({ workerName: undefined as any });
-
-            expect(results[0]).toMatchObject({
-                name: 'alpha',
-                url: 'https://alpha.puter.work',
-                file_path: '/apps/alpha.js',
-                file_uid: 'alpha-uid',
-                created_at: '2024-01-02T00:00:00.000Z',
-            });
-            expect(results[1]).toMatchObject({
-                name: 'beta',
-                url: 'https://beta.puter.work',
-                file_path: null,
-                file_uid: null,
-                created_at: '2024-02-03T00:00:00.000Z',
-            });
-        });
-    });
-
-    describe('getLoggingUrl', () => {
-        it('returns logging URL from config', async () => {
-            const result = await workerService.as('workers').getLoggingUrl();
-            expect(result).toBe('https://logs.puter.test');
-        });
-    });
-});
-
 describe('Worker runtime integration', () => {
-    wranglerIt('executes worker code with preamble via wrangler dev', async () => {
+    test.skipIf(!wranglerAvailable)('executes worker code with preamble via wrangler dev', async () => {
         const preamblePath = path.join(serviceDir, 'dist/workerPreamble.js');
         expect(ensureWorkerArtifacts()).toBe(true);
 

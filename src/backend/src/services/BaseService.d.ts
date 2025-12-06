@@ -8,11 +8,11 @@ export interface ServiceResources {
 
 export type EventHandler = (id: string, ...args: any[]) => any;
 
-export type Logger = {
+export interface Logger {
     debug: (...args: any[]) => any;
     info: (...args: any[]) => any;
     [key: string]: any;
-};
+}
 
 export class BaseService {
     constructor (service_resources: ServiceResources, ...a: any[]);
@@ -26,7 +26,7 @@ export class BaseService {
     log: Logger;
     errors: any;
 
-    as(interfaceName: string): Record<string, unknown>;
+    as (interfaceName: string): Record<string, unknown>;
 
     run_as_early_as_possible (): Promise<void>;
     construct (): Promise<void>;
