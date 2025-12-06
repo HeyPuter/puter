@@ -44,6 +44,7 @@ function UIWindowSignup (options) {
 
         // Form
         h += '<div style="padding: 20px; border-bottom: 1px solid #ced7e1;">';
+        
         // title
         h += `<h1 class="signup-form-title">${i18n('create_free_account')}</h1>`;
         // signup form
@@ -122,7 +123,7 @@ function UIWindowSignup (options) {
             allow_native_ctxmenu: true,
             allow_user_select: true,
             ...options.window_options,
-            dominant: false,
+            dominant: true,
             center: true,
             onAppend: function (el_window) {
                 $(el_window).find('.username').get(0).focus({ preventScroll: true });
