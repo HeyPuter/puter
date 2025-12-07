@@ -5917,6 +5917,7 @@ fieldset[name=number-code] {
     transition: all 0.15s ease;
     background: #f8f9fa;
     border: 1px solid transparent;
+    width: 100px;
 }
 
 .bento-recent-app:hover {
