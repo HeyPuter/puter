@@ -36,10 +36,11 @@ function buildRecentAppsHTML () {
             h += `<div class="bento-recent-app" data-app-name="${html_encode(app_info.name)}">`;
             h += `<img class="bento-recent-app-icon" src="${html_encode(app_info.icon || window.icons['app.svg'])}">`;
 
-            // if title is the same as name, then show the hostname of index_url
-            if ( app_info.name === app_info.title === app_info.uuid && app_info.index_url ) {
+            // if title, name and uuid are the same and index_url is set, then show the hostname of index_url
+            if ( app_info.name === app_info.title && app_info.name === app_info.uuid && app_info.index_url ) {
                 app_info.title = new URL(app_info.index_url).hostname;
             }
+
             h += `<span class="bento-recent-app-title">${html_encode(app_info.title)}</span>`;
             h += '</div>';
         }
