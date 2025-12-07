@@ -19,30 +19,7 @@
 
 function buildAppsSection () {
     let apps_str = '';
-
-    // -------------------------------------------
-    // Recent apps
-    // -------------------------------------------
-    if ( window.launch_apps?.recent?.length > 0 ) {
-        apps_str += `<h3 class="dashboard-apps-heading">${i18n('recent')}</h3>`;
-        apps_str += '<div class="dashboard-apps-grid">';
-        for ( let index = 0; index < window.launch_recent_apps_count && index < window.launch_apps.recent.length; index++ ) {
-            const app_info = window.launch_apps.recent[index];
-            apps_str += `<div title="${html_encode(app_info.title)}" data-name="${html_encode(app_info.name)}" class="dashboard-app-card start-app-card">`;
-            apps_str += `<div class="start-app" data-app-name="${html_encode(app_info.name)}" data-app-uuid="${html_encode(app_info.uuid)}" data-app-icon="${html_encode(app_info.icon)}" data-app-title="${html_encode(app_info.title)}">`;
-            apps_str += `<img class="dashboard-app-icon" src="${html_encode(app_info.icon ? app_info.icon : window.icons['app.svg'])}">`;
-            apps_str += `<span class="dashboard-app-title">${html_encode(app_info.title)}</span>`;
-            apps_str += '</div>';
-            apps_str += '</div>';
-        }
-        apps_str += '</div>';
-    }
-
-    // -------------------------------------------
-    // Recommended apps
-    // -------------------------------------------
     if ( window.launch_apps?.recommended?.length > 0 ) {
-        apps_str += `<h3 class="dashboard-apps-heading" style="${window.launch_apps?.recent?.length > 0 ? 'margin-top: 32px;' : ''}">${i18n('recommended')}</h3>`;
         apps_str += '<div class="dashboard-apps-grid">';
         for ( let index = 0; index < window.launch_apps.recommended.length; index++ ) {
             const app_info = window.launch_apps.recommended[index];
@@ -77,6 +54,18 @@ const TabApps = {
     init ($el_window) {
         // Load apps initially
         this.loadApps($el_window);
+
+        // Handle app clicks - open in new browser tab
+        $el_window.on('click', '.dashboard-apps-container .start-app', function (e) {
+            e.preventDefault();
+            e.stopPropagation();
+
+            const appName = $(this).attr('data-app-name');
+            if ( appName ) {
+                const appUrl = `/app/${appName}`;
+                window.open(appUrl, '_blank');
+            }
+        });
     },
 
     async loadApps ($el_window) {

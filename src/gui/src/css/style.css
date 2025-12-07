@@ -5569,7 +5569,7 @@ fieldset[name=number-code] {
 }
 
 .dashboard-section-apps {
-    max-width: 500px;
+    max-width: 600px;
     margin: 0 auto;
 }
 
@@ -5595,16 +5595,14 @@ fieldset[name=number-code] {
 }
 
 .dashboard-app-card {
-    display: flex;
-    flex-direction: column;
-    align-items: center;
-    border-radius: 8px;
-    padding: 12px 8px;
     width: 100%;
-    cursor: pointer;
     transition: background-color 0.15s, transform 0.1s;
+    transition: transform 0.15s ease;
 }
 
+.dashboard-app-card .start-app {
+    cursor: pointer;
+}
 .dashboard-app-card:hover {
     background: none !important;
 }
@@ -5630,6 +5628,13 @@ fieldset[name=number-code] {
     height: 48px;
     margin-bottom: 8px;
     filter: drop-shadow(0px 1px 2px rgba(0, 0, 0, 0.1));
+}
+
+.dashboard-app-card .start-app{
+    transition: transform 0.15s ease;
+}
+.dashboard-app-card .start-app:hover {
+    transform: scale(1.1);
 }
 
 .dashboard-app-title {
