@@ -68,6 +68,7 @@ class CleanEmailService extends BaseService {
     // Service providers may have multiple subdomains a user can choose
     static DOMAIN_TO_PROVIDER = {
         'gmail.com': 'gmail',
+        'googlemail.com': 'gmail',
         'yahoo.com': 'yahoo',
         'yahoo.co.uk': 'yahoo',
         'yahoo.ca': 'yahoo',
