@@ -5620,7 +5620,6 @@ fieldset[name=number-code] {
     flex-direction: column;
     align-items: center;
     text-align: center;
-    width: 100%;
 }
 
 .dashboard-app-icon {
