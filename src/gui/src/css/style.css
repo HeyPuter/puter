@@ -4650,6 +4650,31 @@ fieldset[name=number-code] {
     font-weight: 500;
 }
 
+.driver-usage-details-content-table thead th.sortable-th {
+    cursor: pointer;
+    user-select: none;
+    transition: background-color 0.15s ease;
+}
+
+.driver-usage-details-content-table thead th.sortable-th:hover {
+    background-color: #e5e5e5;
+}
+
+.driver-usage-details-content-table thead th .sort-icon {
+    margin-left: 4px;
+    display: inline-flex;
+    vertical-align: middle;
+}
+
+.driver-usage-details-content-table thead th .sort-icon-neutral {
+    opacity: 0.35;
+}
+
+.driver-usage-details-content-table thead th .sort-icon-asc,
+.driver-usage-details-content-table thead th .sort-icon-desc {
+    opacity: 0.85;
+}
+
 .driver-usage-details-content-table td {
     padding: 7px 5px;
     border: 1px solid #e0e0e0;
@@ -5573,6 +5598,11 @@ fieldset[name=number-code] {
     margin: 0 auto;
 }
 
+.dashboard-section-usage {
+    max-width: 600px;
+    margin: 0 auto;
+}
+
 /* Dashboard Apps */
 .dashboard-apps-container {
     margin-top: 8px;
@@ -5691,6 +5721,12 @@ fieldset[name=number-code] {
 
 .dashboard-sidebar-toggle.open span:nth-child(3) {
     transform: rotate(-45deg) translate(4px, -4px);
+}
+
+.dashboard-sidebar-separator {
+    height: 1px;
+    background: #e0e0e0;
+    margin: 8px 0;
 }
 
 /* Responsive: tablet and below */
