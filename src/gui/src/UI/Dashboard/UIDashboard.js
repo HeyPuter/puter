@@ -26,14 +26,16 @@ import UIWindowLogin from '../UIWindowLogin.js';
 import UIWindowFeedback from '../UIWindowFeedback.js';
 
 // Import tab modules
+import TabHome from './TabHome.js';
 import TabFiles from './TabFiles.js';
 import TabApps from './TabApps.js';
 import TabUsage from './TabUsage.js';
 
 // Registry of all available tabs
 const tabs = [
-    TabFiles,
+    TabHome,
     TabApps,
+    TabFiles,
     TabUsage,
 ];
 
@@ -53,20 +55,14 @@ async function UIDashboard (options) {
         h += '<div class="dashboard-sidebar">';
             // Navigation items container
             h += '<div class="dashboard-sidebar-nav">';
-                h += `<div class="dashboard-sidebar-item active" data-section="${TabFiles.id}">`;
-                    h += TabFiles.icon;
-                    h += TabFiles.label;
+            for ( let i = 0; i < tabs.length; i++ ) {
+                const tab = tabs[i];
+                const isActive = i === 0 ? ' active' : '';
+                h += `<div class="dashboard-sidebar-item${isActive}" data-section="${tab.id}">`;
+                    h += tab.icon;
+                    h += tab.label;
                 h += '</div>';
-
-                h += `<div class="dashboard-sidebar-item" data-section="${TabApps.id}">`;
-                    h += TabApps.icon;
-                    h += TabApps.label;
-                h += '</div>';
-
-                h += `<div class="dashboard-sidebar-item" data-section="${TabUsage.id}">`;
-                    h += TabUsage.icon;
-                    h += TabUsage.label;
-                h += '</div>';
+            }
             h += '</div>';
             
             // User options button at bottom

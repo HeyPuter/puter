@@ -5589,7 +5589,7 @@ fieldset[name=number-code] {
 }
 
 .dashboard-section p {
-    color: #666;
+    color: #ffffff;
     font-size: 14px;
 }
 
@@ -5766,5 +5766,240 @@ fieldset[name=number-code] {
     .dashboard-app-icon {
         width: 40px;
         height: 40px;
+    }
+}
+
+/* ============================================== */
+/* Bento Box Home Dashboard                       */
+/* ============================================== */
+
+.bento-container {
+    display: grid;
+    grid-template-columns: 280px 1fr;
+    gap: 20px;
+    max-width: 900px;
+    margin: 0 auto;
+    padding: 8px 0;
+    align-items: stretch;
+}
+
+.bento-card {
+    background: #fff;
+    border-radius: 20px;
+    overflow: hidden;
+    box-shadow: 
+        0 1px 3px rgba(0, 0, 0, 0.04),
+        0 4px 12px rgba(0, 0, 0, 0.03);
+    border: 1px solid rgba(0, 0, 0, 0.06);
+}
+
+/* Welcome Card */
+.bento-welcome {
+    position: relative;
+    background: linear-gradient(135deg, #1a1a2e 0%, #16213e 50%, #0f3460 100%);
+    color: #fff;
+    min-height: 280px;
+}
+
+.bento-welcome-inner {
+    position: relative;
+    width: 100%;
+    height: 100%;
+    display: flex;
+    flex-direction: column;
+    justify-content: flex-end;
+    padding: 24px;
+    box-sizing: border-box;
+}
+
+.bento-welcome-pattern {
+    position: absolute;
+    top: 0;
+    left: 0;
+    right: 0;
+    bottom: 0;
+    background-image: 
+        radial-gradient(circle at 20% 30%, rgba(255, 255, 255, 0.08) 0%, transparent 50%),
+        radial-gradient(circle at 80% 70%, rgba(99, 102, 241, 0.15) 0%, transparent 40%),
+        radial-gradient(circle at 60% 20%, rgba(236, 72, 153, 0.1) 0%, transparent 35%);
+    pointer-events: none;
+}
+
+.bento-welcome-content {
+    position: relative;
+    z-index: 1;
+}
+
+.bento-greeting {
+    font-size: 14px;
+    opacity: 0.7;
+    font-weight: 400;
+    letter-spacing: 0.02em;
+    display: block;
+    margin-bottom: 4px;
+}
+
+.bento-username {
+    font-size: 28px;
+    font-weight: 700;
+    margin: 0 0 8px 0;
+    line-height: 1.1;
+    letter-spacing: -0.02em;
+    background: linear-gradient(135deg, #fff 0%, rgba(255, 255, 255, 0.85) 100%);
+    -webkit-background-clip: text;
+    -webkit-text-fill-color: transparent;
+    background-clip: text;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.bento-tagline {
+    font-size: 13px;
+    opacity: 0.5;
+    margin: 0;
+    font-weight: 400;
+}
+
+/* Recent Apps Card - Rectangle */
+.bento-recent {
+    min-height: 280px;
+    display: flex;
+    flex-direction: column;
+}
+
+.bento-card-header {
+    padding: 20px 24px 0;
+}
+
+.bento-card-header h2 {
+    margin: 0;
+    font-size: 15px;
+    font-weight: 600;
+    color: #1a1a1a;
+    letter-spacing: -0.01em;
+}
+
+.bento-recent-apps-container {
+    flex: 1;
+    padding: 16px 24px 24px;
+}
+
+.bento-recent-apps-grid {
+    display: grid;
+    grid-template-columns: repeat(3, 1fr);
+    gap: 12px;
+}
+
+.bento-recent-app {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    padding: 16px 12px;
+    border-radius: 14px;
+    cursor: pointer;
+    transition: all 0.15s ease;
+    background: #f8f9fa;
+    border: 1px solid transparent;
+}
+
+.bento-recent-app:hover {
+    background: #f0f1f3;
+    transform: translateY(-2px);
+    border-color: rgba(0, 0, 0, 0.04);
+    box-shadow: 0 4px 12px rgba(0, 0, 0, 0.06);
+}
+
+.bento-recent-app:active {
+    transform: scale(0.97);
+}
+
+.bento-recent-app-icon {
+    width: 44px;
+    height: 44px;
+    margin-bottom: 10px;
+    border-radius: 10px;
+}
+
+.bento-recent-app-title {
+    font-size: 12px;
+    color: #333;
+    text-align: center;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    max-width: 100%;
+    font-weight: 500;
+}
+
+/* Empty state for recent apps */
+.bento-recent-apps-empty {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    height: 100%;
+    min-height: 200px;
+    text-align: center;
+    color: #888;
+}
+
+.bento-recent-apps-empty svg {
+    width: 48px;
+    height: 48px;
+    stroke: #ccc;
+    margin-bottom: 16px;
+}
+
+.bento-recent-apps-empty p {
+    margin: 0 0 4px 0;
+    font-size: 14px;
+    font-weight: 500;
+    color: #666;
+}
+
+.bento-recent-apps-empty span {
+    font-size: 13px;
+    color: #999;
+}
+
+/* Responsive bento layout */
+@media (max-width: 768px) {
+    .bento-container {
+        grid-template-columns: 1fr;
+        gap: 16px;
+        padding: 0;
+    }
+
+    .bento-welcome {
+        aspect-ratio: auto;
+        min-height: 180px;
+    }
+
+    .bento-welcome-inner {
+        padding: 20px;
+    }
+
+    .bento-username {
+        font-size: 24px;
+    }
+
+    .bento-recent-apps-grid {
+        grid-template-columns: repeat(3, 1fr);
+        gap: 8px;
+    }
+
+    .bento-recent-app {
+        padding: 12px 8px;
+    }
+
+    .bento-recent-app-icon {
+        width: 36px;
+        height: 36px;
+        margin-bottom: 8px;
+    }
+
+    .bento-recent-app-title {
+        font-size: 11px;
     }
 }
