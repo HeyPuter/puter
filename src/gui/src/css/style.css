@@ -5777,7 +5777,7 @@ fieldset[name=number-code] {
     display: grid;
     grid-template-columns: 280px 1fr;
     gap: 20px;
-    max-width: 900px;
+    max-width: 800px;
     margin: 0 auto;
     padding: 8px 0;
     align-items: stretch;
@@ -5870,6 +5870,9 @@ fieldset[name=number-code] {
 
 .bento-card-header {
     padding: 20px 24px 0;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
 }
 
 .bento-card-header h2 {
@@ -5878,6 +5881,19 @@ fieldset[name=number-code] {
     font-weight: 600;
     color: #1a1a1a;
     letter-spacing: -0.01em;
+}
+
+.bento-view-more {
+    font-size: 13px;
+    color: #5271ff;
+    text-decoration: none;
+    font-weight: 500;
+    transition: color 0.15s ease;
+}
+
+.bento-view-more:hover {
+    color: #3d5bd9;
+    text-decoration: underline;
 }
 
 .bento-recent-apps-container {
@@ -5963,6 +5979,80 @@ fieldset[name=number-code] {
     color: #999;
 }
 
+/* Usage bento card */
+.bento-usage {
+    grid-column: 1 / -1;
+    min-height: auto;
+}
+
+.bento-usage-container {
+    padding: 16px 24px 24px;
+}
+
+.bento-usage-grid {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 24px;
+}
+
+.bento-usage-section {
+    display: flex;
+    flex-direction: column;
+}
+
+.bento-usage-section-header {
+    display: flex;
+    flex-direction: row;
+    align-items: baseline;
+    margin-bottom: 8px;
+}
+
+.bento-usage-section-header h3 {
+    margin: 0;
+    font-size: 14px;
+    font-weight: 500;
+    color: #3c4963;
+    flex-grow: 1;
+}
+
+.bento-usage-section-values {
+    font-size: 13px;
+    color: #3c4963;
+    opacity: 0.85;
+}
+
+.bento-usage-bar-wrapper {
+    width: 100%;
+    height: 20px;
+    border: 1px solid #dddddd;
+    border-radius: 3px;
+    background-color: #fbfbfb;
+    position: relative;
+    display: flex;
+    align-items: center;
+}
+
+.bento-usage-bar {
+    height: 20px;
+    background: linear-gradient(#dbe3ef, #c2ccdc, #dbe3ef);
+    border-top-left-radius: 3px;
+    border-bottom-left-radius: 3px;
+    width: 0;
+    transition: width 0.3s ease;
+}
+
+.bento-storage-percent,
+.bento-resources-percent {
+    position: absolute;
+    left: 50%;
+    transform: translateX(-50%);
+    text-align: center;
+    font-size: 13px;
+    line-height: 20px;
+    color: #3c4963;
+    z-index: 1;
+}
+
 /* Responsive bento layout */
 @media (max-width: 768px) {
     .bento-container {
@@ -6001,5 +6091,14 @@ fieldset[name=number-code] {
 
     .bento-recent-app-title {
         font-size: 11px;
+    }
+
+    .bento-usage-grid {
+        grid-template-columns: 1fr;
+        gap: 16px;
+    }
+
+    .bento-usage-container {
+        padding: 16px 20px 20px;
     }
 }

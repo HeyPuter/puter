@@ -52,6 +52,46 @@ function buildRecentAppsHTML () {
     return h;
 }
 
+function buildUsageHTML () {
+    let h = '';
+    h += '<div class="bento-usage-grid">';
+    
+    // Storage section
+    h += '<div class="bento-usage-section">';
+    h += '<div class="bento-usage-section-header">';
+    h += `<h3>${i18n('Storage')}</h3>`;
+    h += '<div class="bento-usage-section-values">';
+    h += '<span class="bento-storage-used">--</span>';
+    h += '<span> of </span>';
+    h += '<span class="bento-storage-capacity">--</span>';
+    h += '</div>';
+    h += '</div>';
+    h += '<div class="bento-usage-bar-wrapper">';
+    h += '<span class="bento-storage-percent">--%</span>';
+    h += '<div class="bento-usage-bar bento-storage-bar"></div>';
+    h += '</div>';
+    h += '</div>';
+    
+    // Resources section
+    h += '<div class="bento-usage-section">';
+    h += '<div class="bento-usage-section-header">';
+    h += `<h3>${i18n('Resources')}</h3>`;
+    h += '<div class="bento-usage-section-values">';
+    h += '<span class="bento-resources-used">--</span>';
+    h += '<span> of </span>';
+    h += '<span class="bento-resources-capacity">--</span>';
+    h += '</div>';
+    h += '</div>';
+    h += '<div class="bento-usage-bar-wrapper">';
+    h += '<span class="bento-resources-percent">--%</span>';
+    h += '<div class="bento-usage-bar bento-resources-bar"></div>';
+    h += '</div>';
+    h += '</div>';
+    
+    h += '</div>';
+    return h;
+}
+
 const TabHome = {
     id: 'home',
     label: 'Home',
@@ -86,12 +126,24 @@ const TabHome = {
         h += '</div>';
         h += '</div>';
         
+        // Usage card (spans full width on second row)
+        h += '<div class="bento-card bento-usage">';
+        h += '<div class="bento-card-header">';
+        h += `<h2>${i18n('usage')}</h2>`;
+        h += '<a href="#" class="bento-view-more" data-target-tab="usage">View details →</a>';
+        h += '</div>';
+        h += '<div class="bento-usage-container" style="margin-top: 20px;">';
+        h += buildUsageHTML();
+        h += '</div>';
+        h += '</div>';
+        
         h += '</div>';
         return h;
     },
 
     init ($el_window) {
         this.loadRecentApps($el_window);
+        this.loadUsageData($el_window);
 
         // Handle app clicks
         $el_window.on('click', '.bento-recent-app', function (e) {
@@ -100,6 +152,16 @@ const TabHome = {
             const appName = $(this).attr('data-app-name');
             if ( appName ) {
                 window.open(`/app/${appName}`, '_blank');
+            }
+        });
+
+        // Handle "View details" link clicks
+        $el_window.on('click', '.bento-view-more', function (e) {
+            e.preventDefault();
+            const targetTab = $(this).attr('data-target-tab');
+            if ( targetTab ) {
+                // Trigger click on the corresponding sidebar item
+                $el_window.find(`.dashboard-sidebar-item[data-section="${targetTab}"]`).click();
             }
         });
     },
@@ -123,8 +185,46 @@ const TabHome = {
         $el_window.find('.bento-recent-apps-container').html(buildRecentAppsHTML());
     },
 
+    async loadUsageData ($el_window) {
+        // Load storage data
+        try {
+            const res = await puter.fs.space();
+            let usage_percentage = (res.used / res.capacity * 100).toFixed(0);
+            usage_percentage = usage_percentage > 100 ? 100 : usage_percentage;
+
+            let general_used = res.used;
+            if ( res.host_used ) {
+                general_used = res.host_used;
+            }
+
+            $el_window.find('.bento-storage-used').text(window.byte_format(general_used));
+            $el_window.find('.bento-storage-capacity').text(window.byte_format(res.capacity));
+            $el_window.find('.bento-storage-percent').text(`${usage_percentage}%`);
+            $el_window.find('.bento-storage-bar').css('width', `${usage_percentage}%`);
+        } catch (e) {
+            console.error('Failed to load storage data:', e);
+        }
+
+        // Load monthly usage data
+        try {
+            const res = await puter.auth.getMonthlyUsage();
+            let monthlyAllowance = res.allowanceInfo?.monthUsageAllowance;
+            let remaining = res.allowanceInfo?.remaining;
+            let totalUsage = monthlyAllowance - remaining;
+            let totalUsagePercentage = (totalUsage / monthlyAllowance * 100).toFixed(0);
+
+            $el_window.find('.bento-resources-used').text(window.number_format(totalUsage / 100_000_000, { decimals: 2, prefix: '$' }));
+            $el_window.find('.bento-resources-capacity').text(window.number_format(monthlyAllowance / 100_000_000, { decimals: 2, prefix: '$' }));
+            $el_window.find('.bento-resources-percent').text(`${totalUsagePercentage}%`);
+            $el_window.find('.bento-resources-bar').css('width', `${totalUsagePercentage}%`);
+        } catch (e) {
+            console.error('Failed to load monthly usage data:', e);
+        }
+    },
+
     onActivate ($el_window) {
         this.loadRecentApps($el_window);
+        this.loadUsageData($el_window);
     },
 };
 
