@@ -130,7 +130,7 @@ const TabHome = {
         // Recent apps card (rectangle)
         h += '<div class="bento-card bento-recent">';
             h += '<div class="bento-card-header">';
-                h += '<h2>Recent Apps</h2>';
+                h += '<h2>Recently used</h2>';
             h += '</div>';
             h += '<div class="bento-recent-apps-container">';
                 h += buildRecentAppsHTML();

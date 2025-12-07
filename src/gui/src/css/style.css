@@ -5872,8 +5872,10 @@ fieldset[name=number-code] {
     min-height: 280px;
     display: flex;
     flex-direction: column;
-    background: #f8f9fa;
-
+    background: 
+        radial-gradient(circle at 90% 10%, rgba(99, 102, 241, 0.06) 0%, transparent 40%),
+        radial-gradient(circle at 10% 90%, rgba(236, 72, 153, 0.04) 0%, transparent 35%),
+        linear-gradient(135deg, #f8fafc 0%, #f1f5f9 100%);
 }
 
 .bento-card-header {
@@ -5989,6 +5991,10 @@ fieldset[name=number-code] {
 .bento-usage {
     grid-column: 1 / -1;
     min-height: auto;
+    background: 
+        radial-gradient(circle at 5% 50%, rgba(34, 197, 94, 0.05) 0%, transparent 40%),
+        radial-gradient(circle at 95% 50%, rgba(59, 130, 246, 0.05) 0%, transparent 40%),
+        linear-gradient(135deg, #f8fafc 0%, #f1f5f9 100%);
 }
 
 .bento-usage-container {
