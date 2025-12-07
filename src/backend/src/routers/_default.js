@@ -346,6 +346,10 @@ router.all('*', async function (req, res, next) {
             else if ( path.startsWith('/settings') ) {
                 path = '/';
             }
+            // /dashboard
+            else if ( path === '/dashboard' || path === '/dashboard/' ) {
+                path = '/';
+            }
             // /app/
             else if ( path.startsWith('/app/') ) {
                 app_name = path.replace('/app/', '');

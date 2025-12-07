@@ -4017,7 +4017,7 @@ fieldset[name=number-code] {
 }
 
 .signup-terms {
-    font-size: 11px;
+    font-size: 10px;
     color: #666;
     margin-top: 10px;
     bottom: 10px;
@@ -5436,4 +5436,300 @@ fieldset[name=number-code] {
 .update-usage-details svg{
     width: 20px;
     height: 20px;
+}
+
+/* ======================================
+   Dashboard
+   ====================================== */
+
+.dashboard {
+    display: flex;
+    height: 100%;
+    background: #fff;
+}
+
+.dashboard-sidebar {
+    width: 200px;
+    min-width: 200px;
+    background: #f5f5f5;
+    border-right: 1px solid #e0e0e0;
+    padding: 16px 12px;
+    display: flex;
+    flex-direction: column;
+}
+
+.dashboard-sidebar-nav {
+    flex: 1;
+}
+
+.dashboard-sidebar-item {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    padding: 10px 12px;
+    margin-bottom: 4px;
+    border-radius: 6px;
+    cursor: pointer;
+    font-size: 14px;
+    color: #444;
+    transition: background-color 0.15s;
+}
+
+.dashboard-sidebar-item svg {
+    width: 18px;
+    height: 18px;
+    flex-shrink: 0;
+}
+
+.dashboard-sidebar-item:hover {
+    background: #e8e8e8;
+}
+
+.dashboard-sidebar-item.active {
+    background: #e0e0e0;
+    font-weight: 500;
+}
+
+/* User options button at bottom of sidebar */
+.dashboard-user-options {
+    border-top: 1px solid #e0e0e0;
+    padding-top: 12px;
+    margin-top: 8px;
+}
+
+.dashboard-user-btn {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    padding: 10px 12px;
+    border-radius: 6px;
+    cursor: pointer;
+    transition: background-color 0.15s;
+}
+
+.dashboard-user-btn:hover {
+    background: #e8e8e8;
+}
+
+.dashboard-user-btn.has-open-contextmenu {
+    background: #e8e8e8;
+}
+
+.dashboard-user-avatar {
+    width: 28px;
+    height: 28px;
+    border-radius: 50%;
+    background-size: cover;
+    background-position: center;
+    background-color: #ddd;
+    flex-shrink: 0;
+}
+
+.dashboard-user-name {
+    flex: 1;
+    font-size: 14px;
+    color: #333;
+    font-weight: 500;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.dashboard-user-chevron {
+    width: 16px;
+    height: 16px;
+    color: #888;
+    flex-shrink: 0;
+}
+
+.dashboard-content {
+    flex: 1;
+    padding: 24px 32px;
+    overflow-y: auto;
+}
+
+.dashboard-section {
+    display: none;
+}
+
+.dashboard-section.active {
+    display: block;
+}
+
+.dashboard-section h2 {
+    margin: 0 0 16px 0;
+    font-size: 20px;
+    font-weight: 600;
+    color: #333;
+}
+
+.dashboard-section p {
+    color: #666;
+    font-size: 14px;
+}
+
+.dashboard-section-apps {
+    max-width: 600px;
+    margin: 0 auto;
+}
+
+/* Dashboard Apps */
+.dashboard-apps-container {
+    margin-top: 8px;
+}
+
+.dashboard-apps-heading {
+    font-size: 14px;
+    font-weight: 600;
+    color: #666;
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+    margin: 0 0 16px 0;
+}
+
+.dashboard-apps-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(90px, 1fr));
+    gap: 8px;
+    margin-bottom: 8px;
+}
+
+.dashboard-app-card {
+    width: 100%;
+    transition: background-color 0.15s, transform 0.1s;
+    transition: transform 0.15s ease;
+}
+
+.dashboard-app-card .start-app {
+    cursor: pointer;
+}
+.dashboard-app-card:hover {
+    background: none !important;
+}
+
+.dashboard-app-card:hover .start-app, .dashboard-app-card .start-app:hover {
+    background: none !important;
+}
+
+.dashboard-app-card:active {
+    transform: scale(0.97);
+}
+
+.dashboard-app-card .start-app {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    text-align: center;
+    width: 100%;
+}
+
+.dashboard-app-icon {
+    width: 48px;
+    height: 48px;
+    margin-bottom: 8px;
+    filter: drop-shadow(0px 1px 2px rgba(0, 0, 0, 0.1));
+}
+
+.dashboard-app-card .start-app{
+    transition: transform 0.15s ease;
+}
+.dashboard-app-card .start-app:hover {
+    transform: scale(1.1);
+}
+
+.dashboard-app-title {
+    font-size: 12px;
+    color: #333;
+    text-align: center;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    max-width: 100%;
+    line-height: 1.3;
+}
+
+.dashboard-no-apps {
+    color: #888;
+    font-size: 14px;
+    padding: 24px 0;
+}
+
+/* Mobile sidebar toggle */
+.dashboard-sidebar-toggle {
+    display: none;
+    position: fixed;
+    top: 12px;
+    left: 12px;
+    z-index: 100;
+    width: 40px;
+    height: 40px;
+    background: #fff;
+    border: 1px solid #e0e0e0;
+    border-radius: 6px;
+    cursor: pointer;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    gap: 4px;
+}
+
+.dashboard-sidebar-toggle span {
+    display: block;
+    width: 18px;
+    height: 2px;
+    background: #444;
+    border-radius: 1px;
+    transition: transform 0.2s, opacity 0.2s;
+}
+
+.dashboard-sidebar-toggle.open span:nth-child(1) {
+    transform: rotate(45deg) translate(4px, 4px);
+}
+
+.dashboard-sidebar-toggle.open span:nth-child(2) {
+    opacity: 0;
+}
+
+.dashboard-sidebar-toggle.open span:nth-child(3) {
+    transform: rotate(-45deg) translate(4px, -4px);
+}
+
+/* Responsive: tablet and below */
+@media (max-width: 768px) {
+    .dashboard-sidebar-toggle {
+        display: flex;
+    }
+
+    .dashboard-sidebar {
+        position: fixed;
+        left: 0;
+        top: 0;
+        height: 100%;
+        z-index: 99;
+        transform: translateX(-100%);
+        transition: transform 0.2s ease;
+        box-shadow: 2px 0 8px rgba(0, 0, 0, 0.1);
+    }
+
+    .dashboard-sidebar.open {
+        transform: translateX(0);
+    }
+
+    .dashboard-content {
+        padding: 64px 16px 24px;
+    }
+
+    .dashboard-apps-grid {
+        grid-template-columns: repeat(auto-fill, minmax(80px, 1fr));
+        gap: 4px;
+    }
+
+    .dashboard-app-card {
+        padding: 10px 6px;
+    }
+
+    .dashboard-app-icon {
+        width: 40px;
+        height: 40px;
+    }
 }

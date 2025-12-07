@@ -47,6 +47,7 @@ import { ProcessService } from './services/ProcessService.js';
 import { SettingsService } from './services/SettingsService.js';
 import { ThemeService } from './services/ThemeService.js';
 import { privacy_aware_path } from './util/desktop.js';
+import UIDashboard from './UI/Dashboard/UIDashboard.js';
 
 const launch_services = async function (options) {
     // === Services Data Structures ===
@@ -148,6 +149,11 @@ if ( jQuery ) {
             this.addEventListener('mousewheel', handle, { passive: true });
         },
     };
+}
+
+// are we in dashboard mode?
+if(window.location.pathname === '/dashboard' || window.location.pathname === '/dashboard/'){
+    window.is_dashboard_mode = true;
 }
 
 /**
@@ -347,6 +353,8 @@ window.initgui = async function (options) {
         window.taskbar_height = 0;
 
         // Puter is in fullpage mode.
+        window.is_fullpage_mode = true;
+    } else if (window.is_dashboard_mode) {
         window.is_fullpage_mode = true;
     }
 
@@ -601,13 +609,19 @@ window.initgui = async function (options) {
             window.update_auth_data(whoami.token || window.auth_token, whoami);
 
             // -------------------------------------------------------------------------------------
-            // Load desktop, only if we're not embedded in a popup
+            // Load desktop, only if we're not embedded in a popup and not on the dashboard page
             // -------------------------------------------------------------------------------------
-            if ( ! window.embedded_in_popup ) {
+            if ( ! window.embedded_in_popup && ! window.is_dashboard_mode ) {
                 await window.get_auto_arrange_data();
                 puter.fs.stat({ path: window.desktop_path, consistency: 'eventual' }).then(desktop_fsentry => {
                     UIDesktop({ desktop_fsentry: desktop_fsentry });
                 });
+            }
+            // -------------------------------------------------------------------------------------
+            // Dashboard mode
+            // -------------------------------------------------------------------------------------
+            else if ( window.is_dashboard_mode ) {
+                UIDashboard();
             }
             // -------------------------------------------------------------------------------------
             // If embedded in a popup, send the token to the opener and close the popup
@@ -1107,13 +1121,19 @@ window.initgui = async function (options) {
         $('.window').close();
 
         // -------------------------------------------------------------------------------------
-        // Load desktop, if not embedded in a popup
+        // Load desktop, if not embedded in a popup and not on the dashboard page
         // -------------------------------------------------------------------------------------
-        if ( ! window.embedded_in_popup ) {
+        if ( ! window.embedded_in_popup && ! window.is_dashboard_mode ) {
             await window.get_auto_arrange_data();
             puter.fs.stat({ path: window.desktop_path, consistency: 'eventual' }).then(desktop_fsentry => {
                 UIDesktop({ desktop_fsentry: desktop_fsentry });
             });
+        }
+        // -------------------------------------------------------------------------------------
+        // Dashboard mode: open explorer pointing to home directory
+        // -------------------------------------------------------------------------------------
+        else if ( window.is_dashboard_mode ) {
+            UIDashboard();
         }
         // -------------------------------------------------------------------------------------
         // If embedded in a popup, send the 'ready' event to referrer and close the popup
