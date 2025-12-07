@@ -29,19 +29,17 @@ function buildRecentAppsHTML () {
     
     if ( window.launch_apps?.recent?.length > 0 ) {
         h += '<div class="bento-recent-apps-grid">';
-        // if name === title === uuid, then app title will be the hostname of index_url
-        // otherwise, use the title
-        for ( const app_info of window.launch_apps.recent ) {
-            if ( app_info.name === app_info.title === app_info.uuid  && app_info.index_url ) {
-                app_info.title = new URL(app_info.index_url).hostname;
-            }
-        }
 
         // Show up to 6 recent apps
         const recentApps = window.launch_apps.recent.slice(0, 6);
         for ( const app_info of recentApps ) {
             h += `<div class="bento-recent-app" data-app-name="${html_encode(app_info.name)}">`;
             h += `<img class="bento-recent-app-icon" src="${html_encode(app_info.icon || window.icons['app.svg'])}">`;
+
+            // if title is the same as name, then show the hostname of index_url
+            if ( app_info.name === app_info.title === app_info.uuid && app_info.index_url ) {
+                app_info.title = new URL(app_info.index_url).hostname;
+            }
             h += `<span class="bento-recent-app-title">${html_encode(app_info.title)}</span>`;
             h += '</div>';
         }

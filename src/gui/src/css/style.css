@@ -5664,11 +5664,11 @@ fieldset[name=number-code] {
     transition: transform 0.15s ease;
 }
 .dashboard-app-card .start-app:hover {
-    transform: scale(1.1);
+    transform: scale(1.05);
 }
 
 .dashboard-app-title {
-    font-size: 12px;
+    font-size: 13px;
     color: #333;
     text-align: center;
     white-space: nowrap;
@@ -5924,7 +5924,7 @@ fieldset[name=number-code] {
 
 .bento-recent-app:hover {
     background: none !important;
-    transform: scale(1.1);
+    transform: scale(1.05);
 }
 
 .bento-recent-app:active {
@@ -5939,14 +5939,13 @@ fieldset[name=number-code] {
 }
 
 .bento-recent-app-title {
-    font-size: 12px;
+    font-size: 13px;
     color: #333;
     text-align: center;
     white-space: nowrap;
     overflow: hidden;
     text-overflow: ellipsis;
     max-width: 100%;
-    font-weight: 500;
 }
 
 /* Empty state for recent apps */
