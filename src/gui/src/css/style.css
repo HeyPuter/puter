@@ -5590,7 +5590,7 @@ fieldset[name=number-code] {
 .dashboard-apps-grid {
     display: grid;
     grid-template-columns: repeat(auto-fill, minmax(90px, 1fr));
-    gap: 8px;
+    gap: 20px;
     margin-bottom: 8px;
 }
 
