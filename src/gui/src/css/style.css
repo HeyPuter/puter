@@ -5830,6 +5830,18 @@ fieldset[name=number-code] {
     z-index: 1;
 }
 
+.bento-welcome-avatar {
+    width: 72px;
+    height: 72px;
+    border-radius: 50%;
+    background-size: cover;
+    background-position: center;
+    background-color: rgba(255, 255, 255, 0.15);
+    border: 3px solid rgba(255, 255, 255, 0.3);
+    margin-bottom: 16px;
+    box-shadow: 0 4px 20px rgba(0, 0, 0, 0.3);
+}
+
 .bento-greeting {
     font-size: 14px;
     opacity: 0.7;
@@ -6072,6 +6084,13 @@ fieldset[name=number-code] {
 
     .bento-username {
         font-size: 24px;
+    }
+
+    .bento-welcome-avatar {
+        width: 56px;
+        height: 56px;
+        margin-bottom: 12px;
+        border-width: 2px;
     }
 
     .bento-recent-apps-grid {

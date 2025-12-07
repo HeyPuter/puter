@@ -109,6 +109,7 @@ const TabHome = {
     html () {
         const username = window.user?.username || 'User';
         const greeting = getTimeGreeting();
+        const profilePicture = window.user?.profile?.picture || window.icons['profile.svg'];
         
         let h = '';
         h += '<div class="bento-container">';
@@ -118,6 +119,7 @@ const TabHome = {
             h += '<div class="bento-welcome-inner">';
                 h += '<div class="bento-welcome-pattern"></div>';
                 h += `<div class="bento-welcome-content">`;
+                    h += `<div class="bento-welcome-avatar" style="background-image: url(${html_encode(profilePicture)})"></div>`;
                     h += `<span class="bento-greeting">${greeting},</span>`;
                     h += `<h1 class="bento-username">${html_encode(username)}</h1>`;
                     h += '<p class="bento-tagline">Your personal cloud computer</p>';
