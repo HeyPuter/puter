@@ -37,6 +37,9 @@ class GeminiImageGenerationService extends BaseService {
     static MODULES = {
     };
 
+    // Maximum number of concurrent image generation tasks
+    static MAX_CONCURRENT_GENERATIONS = 3;
+
     _construct () {
         this.models_ = {
             'gemini-2.5-flash-image-preview': {
@@ -46,6 +49,10 @@ class GeminiImageGenerationService extends BaseService {
                 '1024x1024': 0.156,
             },
         };
+        // Queue for pending generation tasks
+        this.generationQueue_ = [];
+        // Number of currently active generation tasks
+        this.activeGenerations_ = 0;
     }
 
     /**
@@ -158,6 +165,65 @@ class GeminiImageGenerationService extends BaseService {
             });
         }
 
+        // Queue the generation task
+        return new Promise((resolve, reject) => {
+            this.generationQueue_.push({
+                prompt,
+                ratio,
+                model,
+                input_image,
+                input_image_mime_type,
+                resolve,
+                reject,
+            });
+
+            // Try to process the queue
+            this._processGenerationQueue();
+        });
+    }
+
+    /**
+     * Processes the generation queue, respecting the concurrency limit
+     * @private
+     */
+    async _processGenerationQueue () {
+        // Don't process if we're at the limit or queue is empty
+        if ( this.activeGenerations_ >= this.constructor.MAX_CONCURRENT_GENERATIONS ) {
+            return;
+        }
+
+        if ( this.generationQueue_.length === 0 ) {
+            return;
+        }
+
+        // Dequeue a task
+        const task = this.generationQueue_.shift();
+        this.activeGenerations_++;
+
+        // Execute the generation asynchronously
+        this._executeGeneration(task)
+            .then(result => {
+                task.resolve(result);
+            })
+            .catch(error => {
+                task.reject(error);
+            })
+            .finally(() => {
+                this.activeGenerations_--;
+                // Process next task in queue
+                this._processGenerationQueue();
+            });
+    }
+
+    /**
+     * Executes a single generation task
+     * @private
+     * @param {Object} task - The generation task to execute
+     * @returns {Promise<string>} URL of the generated image
+     */
+    async _executeGeneration (task) {
+        const { prompt, ratio, model, input_image, input_image_mime_type } = task;
+
         const actor = Context.get('actor');
         const user_private_uid = actor?.private_uid ?? 'UNKNOWN';
         if ( user_private_uid === 'UNKNOWN' ) {
@@ -168,6 +234,7 @@ class GeminiImageGenerationService extends BaseService {
             });
         }
 
+        const price_key = `${ratio.w}x${ratio.h}`;
         const usageType = `gemini:${model}:${price_key}`;
 
         const usageAllowed = await this.meteringService.hasEnoughCreditsFor(actor, usageType, 1);
