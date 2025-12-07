@@ -5589,7 +5589,6 @@ fieldset[name=number-code] {
 }
 
 .dashboard-section p {
-    color: #ffffff;
     font-size: 14px;
 }
 
@@ -5796,8 +5795,8 @@ fieldset[name=number-code] {
 /* Welcome Card */
 .bento-welcome {
     position: relative;
-    background: linear-gradient(135deg, #1a1a2e 0%, #16213e 50%, #0f3460 100%);
-    color: #fff;
+    background: linear-gradient(135deg, #f8fafc 0%, #e2e8f0 100%);
+    color: #1e293b;
     min-height: 280px;
 }
 
@@ -5819,9 +5818,8 @@ fieldset[name=number-code] {
     right: 0;
     bottom: 0;
     background-image: 
-        radial-gradient(circle at 20% 30%, rgba(255, 255, 255, 0.08) 0%, transparent 50%),
-        radial-gradient(circle at 80% 70%, rgba(99, 102, 241, 0.15) 0%, transparent 40%),
-        radial-gradient(circle at 60% 20%, rgba(236, 72, 153, 0.1) 0%, transparent 35%);
+        radial-gradient(circle at 20% 30%, rgba(99, 102, 241, 0.08) 0%, transparent 50%),
+        radial-gradient(circle at 80% 70%, rgba(168, 85, 247, 0.06) 0%, transparent 40%);
     pointer-events: none;
 }
 
@@ -5836,15 +5834,15 @@ fieldset[name=number-code] {
     border-radius: 50%;
     background-size: cover;
     background-position: center;
-    background-color: rgba(255, 255, 255, 0.15);
-    border: 3px solid rgba(255, 255, 255, 0.3);
+    background-color: #e2e8f0;
+    border: 3px solid #fff;
     margin-bottom: 16px;
-    box-shadow: 0 4px 20px rgba(0, 0, 0, 0.3);
+    box-shadow: 0 4px 16px rgba(0, 0, 0, 0.1);
 }
 
 .bento-greeting {
     font-size: 14px;
-    opacity: 0.7;
+    color: #64748b;
     font-weight: 400;
     letter-spacing: 0.02em;
     display: block;
@@ -5852,15 +5850,12 @@ fieldset[name=number-code] {
 }
 
 .bento-username {
-    font-size: 28px;
+    font-size: 25px;
     font-weight: 700;
     margin: 0 0 8px 0;
     line-height: 1.1;
     letter-spacing: -0.02em;
-    background: linear-gradient(135deg, #fff 0%, rgba(255, 255, 255, 0.85) 100%);
-    -webkit-background-clip: text;
-    -webkit-text-fill-color: transparent;
-    background-clip: text;
+    color: #414b62;
     overflow: hidden;
     text-overflow: ellipsis;
     white-space: nowrap;
@@ -5868,7 +5863,6 @@ fieldset[name=number-code] {
 
 .bento-tagline {
     font-size: 13px;
-    opacity: 0.5;
     margin: 0;
     font-weight: 400;
 }
