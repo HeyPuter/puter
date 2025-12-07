@@ -5632,6 +5632,7 @@ fieldset[name=number-code] {
 
 .dashboard-app-card .start-app {
     cursor: pointer;
+    width: 90px;
 }
 .dashboard-app-card:hover {
     background: none !important;
@@ -5674,7 +5675,6 @@ fieldset[name=number-code] {
     overflow: hidden;
     text-overflow: ellipsis;
     max-width: 100%;
-    line-height: 1.3;
 }
 
 .dashboard-no-apps {
