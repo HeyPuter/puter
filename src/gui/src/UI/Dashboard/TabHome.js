@@ -33,15 +33,17 @@ function buildRecentAppsHTML () {
         // Show up to 6 recent apps
         const recentApps = window.launch_apps.recent.slice(0, 6);
         for ( const app_info of recentApps ) {
-            h += `<div class="bento-recent-app" data-app-name="${html_encode(app_info.name)}">`;
-            h += `<img class="bento-recent-app-icon" src="${html_encode(app_info.icon || window.icons['app.svg'])}">`;
-
             // if title, name and uuid are the same and index_url is set, then show the hostname of index_url
             if ( app_info.name === app_info.title && app_info.name === app_info.uuid && app_info.index_url ) {
                 app_info.title = new URL(app_info.index_url).hostname;
+                app_info.target_link = app_info.index_url;
             }
 
-            h += `<span class="bento-recent-app-title">${html_encode(app_info.title)}</span>`;
+            h += `<div class="bento-recent-app" data-app-name="${html_encode(app_info.name)}" data-target-link="${html_encode(app_info.target_link)}">`;
+                // Icon
+                h += `<img class="bento-recent-app-icon" src="${html_encode(app_info.icon || window.icons['app.svg'])}">`;
+                // Title
+                h += `<span class="bento-recent-app-title">${html_encode(app_info.title)}</span>`;
             h += '</div>';
         }
         h += '</div>';
@@ -65,34 +67,34 @@ function buildUsageHTML () {
     
     // Storage section
     h += '<div class="bento-usage-section">';
-    h += '<div class="bento-usage-section-header">';
-    h += `<h3>${i18n('Storage')}</h3>`;
-    h += '<div class="bento-usage-section-values">';
-    h += '<span class="bento-storage-used">--</span>';
-    h += '<span> of </span>';
-    h += '<span class="bento-storage-capacity">--</span>';
-    h += '</div>';
-    h += '</div>';
-    h += '<div class="bento-usage-bar-wrapper">';
-    h += '<span class="bento-storage-percent">--%</span>';
-    h += '<div class="bento-usage-bar bento-storage-bar"></div>';
-    h += '</div>';
+        h += '<div class="bento-usage-section-header">';
+            h += `<h3>${i18n('Storage')}</h3>`;
+            h += '<div class="bento-usage-section-values">';
+                h += '<span class="bento-storage-used">--</span>';
+                h += '<span> of </span>';
+                h += '<span class="bento-storage-capacity">--</span>';
+            h += '</div>';
+        h += '</div>';
+        h += '<div class="bento-usage-bar-wrapper">';
+            h += '<span class="bento-storage-percent">--%</span>';
+            h += '<div class="bento-usage-bar bento-storage-bar"></div>';
+        h += '</div>';
     h += '</div>';
     
     // Resources section
     h += '<div class="bento-usage-section">';
-    h += '<div class="bento-usage-section-header">';
-    h += `<h3>${i18n('Resources')}</h3>`;
-    h += '<div class="bento-usage-section-values">';
-    h += '<span class="bento-resources-used">--</span>';
-    h += '<span> of </span>';
-    h += '<span class="bento-resources-capacity">--</span>';
-    h += '</div>';
-    h += '</div>';
-    h += '<div class="bento-usage-bar-wrapper">';
-    h += '<span class="bento-resources-percent">--%</span>';
-    h += '<div class="bento-usage-bar bento-resources-bar"></div>';
-    h += '</div>';
+        h += '<div class="bento-usage-section-header">';
+            h += `<h3>${i18n('Resources')}</h3>`;
+            h += '<div class="bento-usage-section-values">';
+                h += '<span class="bento-resources-used">--</span>';
+                h += '<span> of </span>';
+                h += '<span class="bento-resources-capacity">--</span>';
+            h += '</div>';
+        h += '</div>';
+        h += '<div class="bento-usage-bar-wrapper">';
+            h += '<span class="bento-resources-percent">--%</span>';
+            h += '<div class="bento-usage-bar bento-resources-bar"></div>';
+        h += '</div>';
     h += '</div>';
     
     h += '</div>';
@@ -113,35 +115,35 @@ const TabHome = {
         
         // Welcome card (square)
         h += '<div class="bento-card bento-welcome">';
-        h += '<div class="bento-welcome-inner">';
-        h += '<div class="bento-welcome-pattern"></div>';
-        h += `<div class="bento-welcome-content">`;
-        h += `<span class="bento-greeting">${greeting},</span>`;
-        h += `<h1 class="bento-username">${html_encode(username)}</h1>`;
-        h += '<p class="bento-tagline">Your personal cloud computer</p>';
-        h += '</div>';
-        h += '</div>';
+            h += '<div class="bento-welcome-inner">';
+                h += '<div class="bento-welcome-pattern"></div>';
+                h += `<div class="bento-welcome-content">`;
+                    h += `<span class="bento-greeting">${greeting},</span>`;
+                    h += `<h1 class="bento-username">${html_encode(username)}</h1>`;
+                    h += '<p class="bento-tagline">Your personal cloud computer</p>';
+                h += '</div>';
+            h += '</div>';
         h += '</div>';
         
         // Recent apps card (rectangle)
         h += '<div class="bento-card bento-recent">';
-        h += '<div class="bento-card-header">';
-        h += '<h2>Recent Apps</h2>';
-        h += '</div>';
-        h += '<div class="bento-recent-apps-container">';
-        h += buildRecentAppsHTML();
-        h += '</div>';
+            h += '<div class="bento-card-header">';
+                h += '<h2>Recent Apps</h2>';
+            h += '</div>';
+            h += '<div class="bento-recent-apps-container">';
+                h += buildRecentAppsHTML();
+            h += '</div>';
         h += '</div>';
         
         // Usage card (spans full width on second row)
         h += '<div class="bento-card bento-usage">';
-        h += '<div class="bento-card-header">';
-        h += `<h2>${i18n('usage')}</h2>`;
-        h += '<a href="#" class="bento-view-more" data-target-tab="usage">View details →</a>';
-        h += '</div>';
-        h += '<div class="bento-usage-container" style="margin-top: 20px;">';
-        h += buildUsageHTML();
-        h += '</div>';
+            h += '<div class="bento-card-header">';
+                h += `<h2>${i18n('usage')}</h2>`;
+                h += '<a href="#" class="bento-view-more" data-target-tab="usage">View details →</a>';
+            h += '</div>';
+            h += '<div class="bento-usage-container" style="margin-top: 20px;">';
+                h += buildUsageHTML();
+            h += '</div>';
         h += '</div>';
         
         h += '</div>';
@@ -157,7 +159,11 @@ const TabHome = {
             e.preventDefault();
             e.stopPropagation();
             const appName = $(this).attr('data-app-name');
-            if ( appName ) {
+            const targetLink = $(this).attr('data-target-link');
+            if ( targetLink && targetLink !== '' ) {
+                window.open(targetLink, '_blank');
+            }
+            else if ( appName ) {
                 window.open(`/app/${appName}`, '_blank');
             }
         });
