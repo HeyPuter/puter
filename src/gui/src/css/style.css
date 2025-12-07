@@ -5866,6 +5866,8 @@ fieldset[name=number-code] {
     min-height: 280px;
     display: flex;
     flex-direction: column;
+    background: #f8f9fa;
+
 }
 
 .bento-card-header {
@@ -5914,17 +5916,15 @@ fieldset[name=number-code] {
     padding: 16px 12px;
     border-radius: 14px;
     cursor: pointer;
-    transition: all 0.15s ease;
-    background: #f8f9fa;
+    transition: transform 0.15s ease;
+    background: transparent;
     border: 1px solid transparent;
     width: 100px;
 }
 
 .bento-recent-app:hover {
-    background: #f0f1f3;
-    transform: translateY(-2px);
-    border-color: rgba(0, 0, 0, 0.04);
-    box-shadow: 0 4px 12px rgba(0, 0, 0, 0.06);
+    background: none !important;
+    transform: scale(1.1);
 }
 
 .bento-recent-app:active {
