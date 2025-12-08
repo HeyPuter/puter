@@ -146,7 +146,7 @@ export class AI {
     img2txt (options: Img2TxtOptions, testMode?: boolean): Promise<string>;
 
     txt2img (prompt: string, testMode?: boolean): Promise<HTMLImageElement>;
-    txt2img (prompt: string, options: Txt2ImgOptions, testMode?: boolean): Promise<HTMLImageElement>;
+    txt2img (prompt: string, options: Txt2ImgOptions): Promise<HTMLImageElement>;
     txt2img (options: Txt2ImgOptions, testMode?: boolean): Promise<HTMLImageElement>;
 
     txt2vid (prompt: string, testMode?: boolean): Promise<HTMLVideoElement>;
