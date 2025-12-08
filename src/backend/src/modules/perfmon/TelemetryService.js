@@ -23,8 +23,7 @@ const { PeriodicExportingMetricReader, ConsoleMetricExporter } = require('@opent
 
 const { Resource } = require('@opentelemetry/resources');
 const { SemanticResourceAttributes } = require('@opentelemetry/semantic-conventions');
-const { NodeTracerProvider } = require('@opentelemetry/sdk-trace-node');
-const { ConsoleSpanExporter, BatchSpanProcessor } = require('@opentelemetry/sdk-trace-base');
+const { ConsoleSpanExporter } = require('@opentelemetry/sdk-trace-base');
 const config = require('../../config');
 const { OTLPTraceExporter } = require('@opentelemetry/exporter-trace-otlp-grpc');
 
@@ -40,16 +39,10 @@ class TelemetryService extends BaseService {
 
         const exporter = this.#getConfiguredExporter();
         this.exporter = exporter;
-        const processor = new BatchSpanProcessor(exporter);
-        const provider = new NodeTracerProvider({ resource,
-            spanProcessors: [
-                processor,
-            ] });
-
-        provider.register();
 
         const sdk = new NodeSDK({
-            traceExporter: new ConsoleSpanExporter(),
+            resource,
+            traceExporter: exporter,
             metricReader: new PeriodicExportingMetricReader({
                 exporter: new ConsoleMetricExporter(),
             }),
