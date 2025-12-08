@@ -188,7 +188,9 @@ export class AI {
 
     txt2speech (text: string, testMode?: boolean): Promise<HTMLAudioElement>;
     txt2speech (text: string, options: Txt2SpeechOptions, testMode?: boolean): Promise<HTMLAudioElement>;
-    txt2speech (text: string, language: string, voice?: string, engine?: string): Promise<HTMLAudioElement>;
+    txt2speech (text: string, language: string, testMode?: boolean): Promise<HTMLAudioElement>;
+    txt2speech (text: string, language: string, voice: string, testMode?: boolean): Promise<HTMLAudioElement>;
+    txt2speech (text: string, language: string, voice: string, engine: string, testMode?: boolean): Promise<HTMLAudioElement>;
 }
 
 // NOTE: AI responses contain provider-specific payloads that are not fully typed here because
