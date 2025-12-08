@@ -93,14 +93,9 @@ export interface Txt2SpeechOptions {
     provider?: string;
     model?: string;
     response_format?: string;
-    [key: string]: unknown;
-}
-
-export interface Txt2SpeechCallable {
-    (text: string, options?: Txt2SpeechOptions): Promise<HTMLAudioElement>;
-    (text: string, language?: string, voice?: string, engine?: string): Promise<HTMLAudioElement>;
-    listEngines: (options?: string | Record<string, unknown>) => Promise<unknown>;
-    listVoices: (options?: string | Record<string, unknown>) => Promise<unknown>;
+    output_format?: string;
+    instructions?: string;
+    voice_settings?: Record<string, unknown>;
 }
 
 export interface Speech2TxtOptions {
@@ -184,7 +179,9 @@ export class AI {
     speech2speech (source: string | File | Blob, options: Speech2SpeechOptions, testMode?: boolean): Promise<HTMLAudioElement>;
     speech2speech (options: Speech2SpeechOptions, testMode?: boolean): Promise<HTMLAudioElement>;
 
-    txt2speech: Txt2SpeechCallable;
+    txt2speech (text: string, testMode?: boolean): Promise<HTMLAudioElement>;
+    txt2speech (text: string, options: Txt2SpeechOptions, testMode?: boolean): Promise<HTMLAudioElement>;
+    txt2speech (text: string, language: string, voice?: string, engine?: string): Promise<HTMLAudioElement>;
 }
 
 // NOTE: AI responses contain provider-specific payloads that are not fully typed here because
