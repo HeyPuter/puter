@@ -10,6 +10,13 @@ export interface ChatOptions {
     temperature?: number;
     max_tokens?: number;
     vision?: boolean;
+    driver?: string;
+    tools?: unknown;
+    response?: unknown;
+    reasoning?: unknown;
+    reasoning_effort?: string;
+    text?: unknown;
+    verbosity?: unknown;
 }
 
 export interface StreamingChatOptions extends ChatOptions {
