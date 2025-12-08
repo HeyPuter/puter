@@ -78,6 +78,10 @@ const install = async ({ context, services, app, useapi, modapi }) => {
 
         def('core.database', require('./services/database/consts.js'));
 
+        // Add otelutil functions to `core.`
+        def('core.spanify', require('./util/otelutil').spanify);
+        def('core.abtest', require('./util/otelutil').abtest);
+
         // Extension compatibility
         const runtimeModule = new RuntimeModule({ name: 'core' });
         context.get('runtime-modules').register(runtimeModule);

@@ -52,7 +52,7 @@ class TraceService extends BaseService {
      * @param {opentelemetry.SpanOptions} [options] - The opentelemetry options object
      * @returns {Promise} - A promise that resolves to the return value of `fn`.
      */
-    async spanify (name, fn, options) {
+    async span (name, fn, options) {
         const args = [name];
         if ( options !== null && typeof options === 'object' ) {
             args.push(options);
@@ -71,6 +71,14 @@ class TraceService extends BaseService {
             // This block intentionally left blank
         });
         return await this.tracer.startActiveSpan(...args);
+    }
+
+    /**
+     * @deprecated use `span` instead to avoid confusion with the spanify
+     * function from otelutil.
+     */
+    async spanify (name, fn, options) {
+        return await this.span(name, fn, options);
     }
 }
 
