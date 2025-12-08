@@ -112,7 +112,13 @@ export interface Speech2TxtOptions {
     prompt?: string;
     stream?: boolean;
     translate?: boolean;
-    [key: string]: unknown;
+    temperature?: number;
+    logprobs?: boolean;
+    timestamp_granularities?: string[];
+    chunking_strategy?: string;
+    known_speaker_names?: string[];
+    known_speaker_references?: string[];
+    extra_body?: Record<string, unknown>;
 }
 
 export interface Speech2SpeechOptions {
@@ -155,7 +161,10 @@ export class AI {
     txt2vid (prompt: string, options: Txt2VidOptions): Promise<HTMLVideoElement>;
     txt2vid (options: Txt2VidOptions, testMode?: boolean): Promise<HTMLVideoElement>;
 
-    speech2txt (source: string | File | Blob | Speech2TxtOptions, options?: Speech2TxtOptions): Promise<string | Record<string, unknown>>;
+    speech2txt (source: string | File | Blob, testMode?: boolean): Promise<string | Record<string, unknown>>;
+    speech2txt (source: string | File | Blob, options: Speech2TxtOptions, testMode?: boolean): Promise<string | Record<string, unknown>>;
+    speech2txt (options: Speech2TxtOptions, testMode?: boolean): Promise<string | Record<string, unknown>>;
+
     speech2speech (source: string | File | Blob | Speech2SpeechOptions, options?: Speech2SpeechOptions): Promise<Record<string, unknown>>;
 
     txt2speech: Txt2SpeechCallable;
