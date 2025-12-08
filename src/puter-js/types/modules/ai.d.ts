@@ -3,6 +3,12 @@ export type AIMessageContent = string | { image_url?: { url: string } } | Record
 export interface ChatMessage {
     role?: string;
     content: AIMessageContent | AIMessageContent[];
+    tool_calls?: ToolCall[];
+}
+
+export interface ToolCall {
+    id: string;
+    function: { name: string, arguments: string };
 }
 
 export interface ChatOptions {
@@ -30,6 +36,7 @@ export interface ChatResponse {
 
 export interface ChatResponseChunk {
     text?: string;
+    reasoning?: string;
 }
 
 export interface Img2TxtOptions {
