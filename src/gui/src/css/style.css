@@ -5893,6 +5893,70 @@ fieldset[name=number-code] {
     letter-spacing: -0.01em;
 }
 
+/* Fancy header with icon */
+.bento-card-fancy-header {
+    display: flex;
+    align-items: center;
+    gap: 14px;
+    padding: 20px 24px;
+    background: linear-gradient(135deg, rgba(200, 220, 255, 0.5) 0%, rgba(180, 210, 255, 0.3) 100%);
+    border-bottom: 1px solid rgba(255, 255, 255, 0.6);
+}
+
+.bento-card-fancy-icon {
+    width: 48px;
+    height: 48px;
+    border-radius: 12px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    flex-shrink: 0;
+}
+
+.bento-card-fancy-icon svg {
+    width: 28px;
+    height: 28px;
+}
+
+.bento-card-fancy-icon-apps {
+    background: linear-gradient(135deg, #3b82f6 0%, #2563eb 100%);
+    color: white;
+    box-shadow: 0 4px 12px rgba(59, 130, 246, 0.3);
+}
+
+.bento-card-fancy-icon-usage {
+    background: linear-gradient(135deg, #10b981 0%, #059669 100%);
+    color: white;
+    box-shadow: 0 4px 12px rgba(16, 185, 129, 0.3);
+}
+
+.bento-card-fancy-text {
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+}
+
+.bento-card-fancy-text h2 {
+    margin: 0;
+    font-size: 20px;
+    font-weight: 600;
+    color: #1e293b;
+    letter-spacing: -0.02em;
+}
+
+.bento-card-fancy-subtitle {
+    display: flex;
+    align-items: center;
+    gap: 5px;
+    font-size: 13px;
+    color: #64748b;
+}
+
+.bento-card-fancy-subtitle svg {
+    width: 14px;
+    height: 14px;
+}
+
 .bento-view-more {
     font-size: 13px;
     color: #5271ff;
@@ -6003,13 +6067,43 @@ fieldset[name=number-code] {
 
 .bento-usage-grid {
     display: grid;
-    grid-template-columns: 1fr 1fr;
+    grid-template-columns: 1fr 1fr 1fr;
     gap: 24px;
 }
 
 .bento-usage-section {
     display: flex;
     flex-direction: column;
+}
+
+/* Your Plan section styles */
+.bento-plan-section {
+    justify-content: flex-start;
+}
+
+.bento-plan-info {
+    flex-grow: 1;
+}
+
+.bento-plan-badge {
+    font-weight: 400;
+}
+
+.bento-plan-badge.active {
+    color: #16a34a;
+}
+
+.bento-plan-upgrade {
+    font-size: 14px;
+    font-weight: 500;
+    color: #3b82f6;
+    text-decoration: none;
+    transition: color 0.2s;
+}
+
+.bento-plan-upgrade:hover {
+    color: #2563eb;
+    text-decoration: underline;
 }
 
 .bento-usage-section-header {
@@ -6033,6 +6127,74 @@ fieldset[name=number-code] {
     opacity: 0.85;
 }
 
+/* New card-based usage styles */
+.bento-usage-card {
+    display: flex;
+    flex-direction: column;
+    gap: 16px;
+}
+
+.bento-usage-card-header {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    text-decoration: none;
+    cursor: pointer;
+    transition: opacity 0.2s;
+}
+
+.bento-usage-card-header:hover {
+    opacity: 0.7;
+}
+
+.bento-usage-card-header h3 {
+    margin: 0;
+    font-size: 16px;
+    font-weight: 500;
+    color: #1e293b;
+}
+
+.bento-usage-card-arrow {
+    font-size: 18px;
+    font-weight: 300;
+    color: #64748b;
+    line-height: 1;
+}
+
+.bento-usage-card-bar-wrapper {
+    width: 100%;
+    height: 14px;
+    background-color: #e5e7eb;
+    border-radius: 7px;
+    overflow: hidden;
+}
+
+.bento-usage-card-bar {
+    height: 100%;
+    background: linear-gradient(90deg, #f59e0b, #f97316);
+    border-radius: 7px;
+    width: 0;
+    transition: width 0.4s ease;
+}
+
+.bento-usage-card-info {
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+}
+
+.bento-usage-card-used {
+    font-size: 20px;
+    font-weight: 600;
+    color: #1e293b;
+}
+
+.bento-usage-card-details {
+    font-size: 14px;
+    color: #64748b;
+}
+
+/* Legacy bar styles (kept for compatibility) */
 .bento-usage-bar-wrapper {
     width: 100%;
     height: 20px;
@@ -6051,18 +6213,6 @@ fieldset[name=number-code] {
     border-bottom-left-radius: 3px;
     width: 0;
     transition: width 0.3s ease;
-}
-
-.bento-storage-percent,
-.bento-resources-percent {
-    position: absolute;
-    left: 50%;
-    transform: translateX(-50%);
-    text-align: center;
-    font-size: 13px;
-    line-height: 20px;
-    color: #3c4963;
-    z-index: 1;
 }
 
 /* Responsive bento layout */
@@ -6119,5 +6269,45 @@ fieldset[name=number-code] {
 
     .bento-usage-container {
         padding: 16px 20px 20px;
+    }
+
+    .bento-usage-card-header h3 {
+        font-size: 15px;
+    }
+
+    .bento-usage-card-arrow {
+        font-size: 17px;
+    }
+
+    .bento-usage-card-used {
+        font-size: 18px;
+    }
+
+    .bento-usage-card-details {
+        font-size: 13px;
+    }
+
+    .bento-card-fancy-header {
+        padding: 16px 20px;
+        gap: 12px;
+    }
+
+    .bento-card-fancy-icon {
+        width: 40px;
+        height: 40px;
+        border-radius: 10px;
+    }
+
+    .bento-card-fancy-icon svg {
+        width: 22px;
+        height: 22px;
+    }
+
+    .bento-card-fancy-text h2 {
+        font-size: 17px;
+    }
+
+    .bento-card-fancy-subtitle {
+        font-size: 12px;
     }
 }

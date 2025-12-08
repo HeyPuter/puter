@@ -295,6 +295,7 @@ const en = {
         'Storage': 'Storage',
         storage_usage: 'Storage Usage',
         storage_puter_used: 'used by Puter',
+        'your_plan': 'Your Plan',
         taking_longer_than_usual: 'Taking a little longer than usual. Please wait...',
         task_manager: 'Task Manager',
         taskmgr_header_name: 'Name',

@@ -65,35 +65,46 @@ function buildUsageHTML () {
     let h = '';
     h += '<div class="bento-usage-grid">';
     
-    // Storage section
-    h += '<div class="bento-usage-section">';
-        h += '<div class="bento-usage-section-header">';
-            h += `<h3>${i18n('Storage')}</h3>`;
-            h += '<div class="bento-usage-section-values">';
-                h += '<span class="bento-storage-used">--</span>';
-                h += '<span> of </span>';
-                h += '<span class="bento-storage-capacity">--</span>';
-            h += '</div>';
+    // Your Plan section
+    h += '<div class="bento-usage-section bento-usage-card bento-plan-section">';
+        h += '<a href="#" class="bento-usage-card-header bento-plan-header">';
+            h += `<h3>${i18n('your_plan')}</h3>`;
+            h += '<span class="bento-usage-card-arrow">›</span>';
+        h += '</a>';
+        h += '<div class="bento-usage-card-info bento-plan-info">';
+            h += '<span class="bento-usage-card-used bento-plan-name">--</span>';
+            h += '<span class="bento-usage-card-details bento-plan-details"><span class="bento-plan-badge"></span></span>';
         h += '</div>';
-        h += '<div class="bento-usage-bar-wrapper">';
-            h += '<span class="bento-storage-percent">--%</span>';
-            h += '<div class="bento-usage-bar bento-storage-bar"></div>';
+        h += '<a href="#" class="bento-plan-upgrade" style="display: none;">Upgrade →</a>';
+    h += '</div>';
+    
+    // Storage section
+    h += '<div class="bento-usage-section bento-usage-card">';
+        h += '<a href="#" class="bento-usage-card-header" data-target-tab="usage">';
+            h += `<h3>Your ${i18n('Storage')}</h3>`;
+            h += '<span class="bento-usage-card-arrow">›</span>';
+        h += '</a>';
+        h += '<div class="bento-usage-card-bar-wrapper">';
+            h += '<div class="bento-usage-card-bar bento-storage-bar"></div>';
+        h += '</div>';
+        h += '<div class="bento-usage-card-info">';
+            h += '<span class="bento-usage-card-used bento-storage-used">-- Used</span>';
+            h += '<span class="bento-usage-card-details"><span class="bento-storage-percent">--%</span> of <span class="bento-storage-capacity">--</span></span>';
         h += '</div>';
     h += '</div>';
     
     // Resources section
-    h += '<div class="bento-usage-section">';
-        h += '<div class="bento-usage-section-header">';
-            h += `<h3>${i18n('Resources')}</h3>`;
-            h += '<div class="bento-usage-section-values">';
-                h += '<span class="bento-resources-used">--</span>';
-                h += '<span> of </span>';
-                h += '<span class="bento-resources-capacity">--</span>';
-            h += '</div>';
+    h += '<div class="bento-usage-section bento-usage-card">';
+        h += '<a href="#" class="bento-usage-card-header" data-target-tab="usage">';
+            h += `<h3>Your ${i18n('Resources')}</h3>`;
+            h += '<span class="bento-usage-card-arrow">›</span>';
+        h += '</a>';
+        h += '<div class="bento-usage-card-bar-wrapper">';
+            h += '<div class="bento-usage-card-bar bento-resources-bar"></div>';
         h += '</div>';
-        h += '<div class="bento-usage-bar-wrapper">';
-            h += '<span class="bento-resources-percent">--%</span>';
-            h += '<div class="bento-usage-bar bento-resources-bar"></div>';
+        h += '<div class="bento-usage-card-info">';
+            h += '<span class="bento-usage-card-used bento-resources-used">-- Used</span>';
+            h += '<span class="bento-usage-card-details"><span class="bento-resources-percent">--%</span> of <span class="bento-resources-capacity">--</span></span>';
         h += '</div>';
     h += '</div>';
     
@@ -129,8 +140,17 @@ const TabHome = {
         
         // Recent apps card (rectangle)
         h += '<div class="bento-card bento-recent">';
-            h += '<div class="bento-card-header">';
-                h += '<h2>Recently used</h2>';
+            h += '<div class="bento-card-fancy-header">';
+                h += '<div class="bento-card-fancy-icon bento-card-fancy-icon-apps">';
+                    h += '<svg viewBox="0 0 24 24" fill="currentColor"><rect x="3" y="3" width="7" height="7" rx="1.5"/><rect x="14" y="3" width="7" height="7" rx="1.5"/><rect x="3" y="14" width="7" height="7" rx="1.5"/><rect x="14" y="14" width="7" height="7" rx="1.5"/></svg>';
+                h += '</div>';
+                h += '<div class="bento-card-fancy-text">';
+                    h += '<h2>Apps</h2>';
+                    h += '<span class="bento-card-fancy-subtitle">';
+                        h += '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg>';
+                        h += 'Recently used';
+                    h += '</span>';
+                h += '</div>';
             h += '</div>';
             h += '<div class="bento-recent-apps-container">';
                 h += buildRecentAppsHTML();
@@ -139,11 +159,19 @@ const TabHome = {
         
         // Usage card (spans full width on second row)
         h += '<div class="bento-card bento-usage">';
-            h += '<div class="bento-card-header">';
-                h += `<h2>${i18n('usage')}</h2>`;
-                h += '<a href="#" class="bento-view-more" data-target-tab="usage">View details →</a>';
+            h += '<div class="bento-card-fancy-header">';
+                h += '<div class="bento-card-fancy-icon bento-card-fancy-icon-usage">';
+                    h += '<svg viewBox="0 0 16 16" fill="currentColor"><path d="M8 4a.5.5 0 0 1 .5.5V6a.5.5 0 0 1-1 0V4.5A.5.5 0 0 1 8 4M3.732 5.732a.5.5 0 0 1 .707 0l.915.914a.5.5 0 1 1-.708.708l-.914-.915a.5.5 0 0 1 0-.707M2 10a.5.5 0 0 1 .5-.5h1.586a.5.5 0 0 1 0 1H2.5A.5.5 0 0 1 2 10m9.5 0a.5.5 0 0 1 .5-.5h1.5a.5.5 0 0 1 0 1H12a.5.5 0 0 1-.5-.5m.754-4.246a.39.39 0 0 0-.527-.02L7.547 9.31a.91.91 0 1 0 1.302 1.258l3.434-4.297a.39.39 0 0 0-.029-.518z"/><path fill-rule="evenodd" d="M0 10a8 8 0 1 1 15.547 2.661c-.442 1.253-1.845 1.602-2.932 1.25C11.309 13.488 9.475 13 8 13c-1.474 0-3.31.488-4.615.911-1.087.352-2.49.003-2.932-1.25A8 8 0 0 1 0 10m8-7a7 7 0 0 0-6.603 9.329c.203.575.923.876 1.68.63C4.397 12.533 6.358 12 8 12s3.604.532 4.923.96c.757.245 1.477-.056 1.68-.631A7 7 0 0 0 8 3"/></svg>';
+                h += '</div>';
+                h += '<div class="bento-card-fancy-text">';
+                    h += `<h2>${i18n('usage')}</h2>`;
+                    h += '<span class="bento-card-fancy-subtitle">';
+                        h += '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M22 12h-4l-3 9L9 3l-3 9H2"/></svg>';
+                        h += 'Monthly overview';
+                    h += '</span>';
+                h += '</div>';
             h += '</div>';
-            h += '<div class="bento-usage-container" style="margin-top: 20px;">';
+            h += '<div class="bento-usage-container">';
                 h += buildUsageHTML();
             h += '</div>';
         h += '</div>';
@@ -171,13 +199,20 @@ const TabHome = {
         });
 
         // Handle "View details" link clicks
-        $el_window.on('click', '.bento-view-more', function (e) {
+        $el_window.on('click', '.bento-view-more, .bento-usage-card-header', function (e) {
             e.preventDefault();
             const targetTab = $(this).attr('data-target-tab');
             if ( targetTab ) {
                 // Trigger click on the corresponding sidebar item
                 $el_window.find(`.dashboard-sidebar-item[data-section="${targetTab}"]`).click();
             }
+        });
+
+        // Handle plan header and upgrade button clicks
+        $el_window.on('click', '.bento-plan-header, .bento-plan-upgrade', function (e) {
+            e.preventDefault();
+            // Open settings to billing tab
+            window.UIWindowSettings({ active_tab: 'billing' });
         });
     },
 
@@ -201,6 +236,26 @@ const TabHome = {
     },
 
     async loadUsageData ($el_window) {
+        // Load plan data
+        try {
+            const hasSubscription = window.user?.subscription?.active;
+            const planName = hasSubscription 
+                ? (window.user?.subscription?.plan_name || i18n('billing.offering.pro'))
+                : i18n('billing.offering.free');
+            
+            $el_window.find('.bento-plan-name').text(planName);
+            
+            if ( hasSubscription ) {
+                $el_window.find('.bento-plan-badge').text('Active subscription').addClass('active');
+                $el_window.find('.bento-plan-upgrade').hide();
+            } else {
+                $el_window.find('.bento-plan-badge').text('Upgrade for more features').addClass('free');
+                $el_window.find('.bento-plan-upgrade').show();
+            }
+        } catch (e) {
+            console.error('Failed to load plan data:', e);
+        }
+
         // Load storage data
         try {
             const res = await puter.fs.space();
@@ -212,7 +267,7 @@ const TabHome = {
                 general_used = res.host_used;
             }
 
-            $el_window.find('.bento-storage-used').text(window.byte_format(general_used));
+            $el_window.find('.bento-storage-used').text(`${window.byte_format(general_used)} Used`);
             $el_window.find('.bento-storage-capacity').text(window.byte_format(res.capacity));
             $el_window.find('.bento-storage-percent').text(`${usage_percentage}%`);
             $el_window.find('.bento-storage-bar').css('width', `${usage_percentage}%`);
@@ -228,7 +283,7 @@ const TabHome = {
             let totalUsage = monthlyAllowance - remaining;
             let totalUsagePercentage = (totalUsage / monthlyAllowance * 100).toFixed(0);
 
-            $el_window.find('.bento-resources-used').text(window.number_format(totalUsage / 100_000_000, { decimals: 2, prefix: '$' }));
+            $el_window.find('.bento-resources-used').text(`${window.number_format(totalUsage / 100_000_000, { decimals: 2, prefix: '$' })} Used`);
             $el_window.find('.bento-resources-capacity').text(window.number_format(monthlyAllowance / 100_000_000, { decimals: 2, prefix: '$' }));
             $el_window.find('.bento-resources-percent').text(`${totalUsagePercentage}%`);
             $el_window.find('.bento-resources-bar').css('width', `${totalUsagePercentage}%`);
