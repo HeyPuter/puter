@@ -51,7 +51,25 @@ export interface Txt2ImgOptions {
     quality?: string;
     input_image?: string;
     input_image_mime_type?: string;
-    [key: string]: unknown;
+    test_mode?: boolean;
+    driver?: string;
+    provider?: string;
+    service?: string;
+    ratio?: { w: number; h: number };
+    width?: number;
+    height?: number;
+    aspect_ratio?: string;
+    steps?: number;
+    seed?: number;
+    negative_prompt?: string;
+    n?: number;
+    image_url?: string;
+    image_base64?: string;
+    mask_image_url?: string;
+    mask_image_base64?: string;
+    prompt_strength?: number;
+    disable_safety_checker?: boolean;
+    response_format?: string;
 }
 
 export interface Txt2VidOptions {
@@ -128,7 +146,9 @@ export class AI {
     img2txt (options: Img2TxtOptions, testMode?: boolean): Promise<string>;
 
     txt2img (prompt: string, testMode?: boolean): Promise<HTMLImageElement>;
-    txt2img (prompt: string, options: Txt2ImgOptions): Promise<HTMLImageElement>;
+    txt2img (prompt: string, options: Txt2ImgOptions, testMode?: boolean): Promise<HTMLImageElement>;
+    txt2img (options: Txt2ImgOptions, testMode?: boolean): Promise<HTMLImageElement>;
+
     txt2vid (prompt: string, testMode?: boolean): Promise<HTMLVideoElement>;
     txt2vid (prompt: string, options: Txt2VidOptions): Promise<HTMLVideoElement>;
     speech2txt (source: string | File | Blob | Speech2TxtOptions, options?: Speech2TxtOptions): Promise<string | Record<string, unknown>>;
