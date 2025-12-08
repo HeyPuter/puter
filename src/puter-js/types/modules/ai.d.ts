@@ -126,8 +126,23 @@ export interface Speech2SpeechOptions {
     file?: string | File | Blob;
     provider?: string;
     model?: string;
+    modelId?: string;
+    model_id?: string;
     voice?: string;
-    [key: string]: unknown;
+    voiceId?: string;
+    voice_id?: string;
+    output_format?: string;
+    outputFormat?: string;
+    voice_settings?: Record<string, unknown>;
+    voiceSettings?: Record<string, unknown>;
+    file_format?: string;
+    fileFormat?: string;
+    remove_background_noise?: boolean;
+    removeBackgroundNoise?: boolean;
+    optimize_streaming_latency?: number;
+    optimizeStreamingLatency?: number;
+    enable_logging?: boolean;
+    enableLogging?: boolean;
 }
 
 export class AI {
@@ -165,7 +180,9 @@ export class AI {
     speech2txt (source: string | File | Blob, options: Speech2TxtOptions, testMode?: boolean): Promise<string | Record<string, unknown>>;
     speech2txt (options: Speech2TxtOptions, testMode?: boolean): Promise<string | Record<string, unknown>>;
 
-    speech2speech (source: string | File | Blob | Speech2SpeechOptions, options?: Speech2SpeechOptions): Promise<Record<string, unknown>>;
+    speech2speech (source: string | File | Blob, testMode?: boolean): Promise<HTMLAudioElement>;
+    speech2speech (source: string | File | Blob, options: Speech2SpeechOptions, testMode?: boolean): Promise<HTMLAudioElement>;
+    speech2speech (options: Speech2SpeechOptions, testMode?: boolean): Promise<HTMLAudioElement>;
 
     txt2speech: Txt2SpeechCallable;
 }
