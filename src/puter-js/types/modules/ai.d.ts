@@ -36,7 +36,13 @@ export interface Img2TxtOptions {
     source?: string | File | Blob;
     provider?: string;
     testMode?: boolean;
-    [key: string]: unknown;
+    model?: string;
+    pages?: number[];
+    includeImageBase64?: boolean;
+    imageLimit?: number;
+    imageMinSize?: number;
+    bboxAnnotationFormat?: string;
+    documentAnnotationFormat?: string;
 }
 
 export interface Txt2ImgOptions {
@@ -117,7 +123,10 @@ export class AI {
     chat (messages: ChatMessage[], options: ChatOptions, testMode?: boolean): Promise<ChatResponse>;
     chat (messages: ChatMessage[], options: StreamingChatOptions, testMode?: boolean): AsyncIterable<ChatResponseChunk>;
 
-    img2txt (source: string | File | Blob | Img2TxtOptions, testMode?: boolean): Promise<string>;
+    img2txt (source: string | File | Blob, testMode?: boolean): Promise<string>;
+    img2txt (source: string | File | Blob, options: Img2TxtOptions, testMode?: boolean): Promise<string>;
+    img2txt (options: Img2TxtOptions, testMode?: boolean): Promise<string>;
+
     txt2img (prompt: string, testMode?: boolean): Promise<HTMLImageElement>;
     txt2img (prompt: string, options: Txt2ImgOptions): Promise<HTMLImageElement>;
     txt2vid (prompt: string, testMode?: boolean): Promise<HTMLVideoElement>;
