@@ -109,20 +109,13 @@ export class AI {
     chat (prompt: string, imageURL: string | File, options: ChatOptions, testMode?: boolean): Promise<ChatResponse>;
     chat (prompt: string, imageURLArray: string[], options: ChatOptions, testMode?: boolean): Promise<ChatResponse>;
 
-    chat (messages: ChatMessage[], testMode?: boolean): Promise<ChatResponse>;
-    chat (messages: ChatMessage[], options: ChatOptions, testMode?: boolean): Promise<ChatResponse>;
-    chat (messages: ChatMessage[], imageURL: string | File, testMode?: boolean): Promise<ChatResponse>;
-    chat (messages: ChatMessage[], imageURLArray: string[], testMode?: boolean): Promise<ChatResponse>;
-    chat (messages: ChatMessage[], imageURL: string | File, options: ChatOptions, testMode?: boolean): Promise<ChatResponse>;
-    chat (messages: ChatMessage[], imageURLArray: string[], options: ChatOptions, testMode?: boolean): Promise<ChatResponse>;
-
     chat (prompt: string, options: StreamingChatOptions, testMode?: boolean): AsyncIterable<ChatResponseChunk>;
     chat (prompt: string, imageURL: string | File, options: StreamingChatOptions, testMode?: boolean): AsyncIterable<ChatResponseChunk>;
     chat (prompt: string, imageURLArray: string[], options: StreamingChatOptions, testMode?: boolean): AsyncIterable<ChatResponseChunk>;
 
+    chat (messages: ChatMessage[], testMode?: boolean): Promise<ChatResponse>;
+    chat (messages: ChatMessage[], options: ChatOptions, testMode?: boolean): Promise<ChatResponse>;
     chat (messages: ChatMessage[], options: StreamingChatOptions, testMode?: boolean): AsyncIterable<ChatResponseChunk>;
-    chat (messages: ChatMessage[], imageURL: string | File, options: StreamingChatOptions, testMode?: boolean): AsyncIterable<ChatResponseChunk>;
-    chat (messages: ChatMessage[], imageURLArray: string[], options: StreamingChatOptions, testMode?: boolean): AsyncIterable<ChatResponseChunk>;
 
     img2txt (source: string | File | Blob | Img2TxtOptions, testMode?: boolean): Promise<string>;
     txt2img (prompt: string, testMode?: boolean): Promise<HTMLImageElement>;
