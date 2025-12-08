@@ -51,7 +51,6 @@ export interface Txt2ImgOptions {
     quality?: string;
     input_image?: string;
     input_image_mime_type?: string;
-    test_mode?: boolean;
     driver?: string;
     provider?: string;
     service?: string;
@@ -76,11 +75,14 @@ export interface Txt2VidOptions {
     prompt?: string;
     model?: string;
     duration?: number;
+    seconds?: number;
     width?: number;
     height?: number;
     fps?: number;
     steps?: number;
-    [key: string]: unknown;
+    driver?: string;
+    provider?: string;
+    service?: string;
 }
 
 export interface Txt2SpeechOptions {
@@ -151,6 +153,8 @@ export class AI {
 
     txt2vid (prompt: string, testMode?: boolean): Promise<HTMLVideoElement>;
     txt2vid (prompt: string, options: Txt2VidOptions): Promise<HTMLVideoElement>;
+    txt2vid (options: Txt2VidOptions, testMode?: boolean): Promise<HTMLVideoElement>;
+
     speech2txt (source: string | File | Blob | Speech2TxtOptions, options?: Speech2TxtOptions): Promise<string | Record<string, unknown>>;
     speech2speech (source: string | File | Blob | Speech2SpeechOptions, options?: Speech2SpeechOptions): Promise<Record<string, unknown>>;
 
