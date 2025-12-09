@@ -5995,6 +5995,22 @@ fieldset[name=number-code] {
     justify-items: center;
 }
 
+/* Hide 7th and 8th apps on screens below 4K (show only 6) */
+.bento-recent-app:nth-child(n+7) {
+    display: none;
+}
+
+/* Show all 8 apps on 4K UHD screens */
+@media (min-width: 2560px) {
+    .bento-recent-apps-grid {
+        grid-template-columns: repeat(4, minmax(0, 1fr));
+    }
+    
+    .bento-recent-app:nth-child(n+7) {
+        display: flex;
+    }
+}
+
 .bento-recent-app {
     display: flex;
     flex-direction: column;
