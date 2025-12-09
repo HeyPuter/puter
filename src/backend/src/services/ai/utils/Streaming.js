@@ -74,7 +74,11 @@ export class AIChatStream {
         this.stream = stream;
     }
 
-    end () {
+    end (/** @type {Record<string,number>} */ usage) {
+        this.stream.write(`${JSON.stringify({
+            type: 'usage',
+            usage,
+        }) }\n`);
         this.stream.end();
     }
 

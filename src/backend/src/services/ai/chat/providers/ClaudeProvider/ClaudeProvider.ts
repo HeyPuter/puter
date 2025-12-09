@@ -73,7 +73,7 @@ export class ClaudeProvider implements IChatProvider {
     async complete ({ messages, stream, model, tools, max_tokens, temperature }: ICompleteArguments): ReturnType<IChatProvider['complete']> {
         tools = make_claude_tools(tools);
 
-        let system_prompts;
+        let system_prompts: string | any[];
         // unsure why system_prompts is an array but it always seems to only have exactly one element,
         // and the real array of system_prompts seems to be the [0].content -- NS
         [system_prompts, messages] = extract_and_remove_system_messages(messages);
@@ -270,7 +270,7 @@ export class ClaudeProvider implements IChatProvider {
                         }
                     }
                 }
-                chatStream.end();
+                chatStream.end(usageSum);
                 const costsOverrideFromModel = Object.fromEntries(Object.entries(usageSum).map(([k, v]) => {
                     return [k, v * (modelUsed.costs[k] || 0)];
                 }));

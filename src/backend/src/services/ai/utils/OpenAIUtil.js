@@ -164,12 +164,13 @@ export const create_chat_stream_handler = ({
     }
 
     // TODO DS: this is a bit too abstracted... this is basically just doing the metering now
-    usage_calculator({ usage: last_usage });
+    const usage = usage_calculator({ usage: last_usage });
 
     if ( mode === 'text' ) textblock.end();
     if ( mode === 'tool' ) toolblock.end();
+
     message.end();
-    chatStream.end();
+    chatStream.end(usage);
 };
 
 /**
