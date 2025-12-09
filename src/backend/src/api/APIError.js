@@ -26,7 +26,7 @@ const { quot } = require('@heyputer/putility').libs.string;
  * @property {string} message the error message
  * @property {object} source the source of the error
  */
-module.exports = class APIError {
+class APIError {
     static codes = {
         // General
         'unknown_error': {
@@ -560,14 +560,14 @@ module.exports = class APIError {
      *
      * @static
      * @param {number|string} status
-     * @param {object} source
+     * @param {Error} source
      * @param {string|Error|object} fields one of the following:
      * - a string to use as the error message
      * - an Error object to use as the source of the error
      * - an object with a message property to use as the error message
      * @returns
      */
-    static create (status, source, fields = {}) {
+    static create (status, source = {}, fields = {}) {
         // Just the error code
         if ( typeof status === 'string' ) {
             const code = this.codes[status];
@@ -669,3 +669,6 @@ module.exports = class APIError {
         return `APIError(${this.status}, ${this.message})`;
     }
 };
+
+module.exports = APIError;
+module.exports.APIError = APIError;

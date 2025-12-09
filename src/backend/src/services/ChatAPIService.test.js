@@ -51,8 +51,8 @@ describe('ChatAPIService', () => {
     beforeEach(() => {
         // Mock AIChatService
         mockAIChatService = {
-            simple_model_list: ['model1', 'model2'],
-            detail_model_list: [
+            list: () => ['model1', 'model2'],
+            models: () => [
                 { id: 'model1', name: 'Model 1', cost: { input: 1, output: 2 } },
                 { id: 'model2', name: 'Model 2', cost: { input: 3, output: 4 } },
             ],
@@ -159,7 +159,7 @@ describe('ChatAPIService', () => {
             // Verify
             expect(mockSUService.sudo).toHaveBeenCalled();
             expect(mockRes.json).toHaveBeenCalledWith({
-                models: mockAIChatService.simple_model_list,
+                models: mockAIChatService.list(),
             });
         });
     });
@@ -179,7 +179,7 @@ describe('ChatAPIService', () => {
             // Verify
             expect(mockSUService.sudo).toHaveBeenCalled();
             expect(mockRes.json).toHaveBeenCalledWith({
-                models: mockAIChatService.detail_model_list,
+                models: mockAIChatService.models(),
             });
         });
     });

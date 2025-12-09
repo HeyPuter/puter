@@ -18,7 +18,6 @@
  */
 const { AdvancedBase } = require('@heyputer/putility');
 const { WeakConstructorFeature } = require('../../traits/WeakConstructorFeature');
-const { Context } = require('../../util/context');
 
 /**
  * BaseES is a base class for Entity Store classes.
@@ -82,11 +81,6 @@ class BaseES extends AdvancedBase {
 
             this[k] = this.impl_methods[k];
         }
-
-        this.log = Context.get('services').get('log-service')
-            .create(`ES:${this.entity_name}:${this.constructor.name}`, {
-                concern: 'es',
-            });
     }
 
     async provide_context ( args ) {
@@ -97,9 +91,6 @@ class BaseES extends AdvancedBase {
         if ( this._on_context_provided ) {
             await this._on_context_provided(args);
         }
-
-        this.log = Context.get('services').get('log-service')
-            .create(`ES:${this.entity_name}:${this.constructor.name}`);
     }
     async read (uid) {
         let entity = await this.call_on_impl_('read', uid);

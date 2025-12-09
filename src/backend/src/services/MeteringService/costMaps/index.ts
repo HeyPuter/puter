@@ -1,19 +1,19 @@
-import { AWS_POLLY_COST_MAP } from './awsPollyCostMap';
-import { AWS_TEXTRACT_COST_MAP } from './awsTextractCostMap';
-import { CLAUDE_COST_MAP } from './claudeCostMap';
-import { DEEPSEEK_COST_MAP } from './deepSeekCostMap';
-import { FILE_SYSTEM_COST_MAP } from './fileSystemCostMap';
-import { GEMINI_COST_MAP } from './geminiCostMap';
-import { GROQ_COST_MAP } from './groqCostMap';
-import { KV_COST_MAP } from './kvCostMap';
-import { MISTRAL_COST_MAP } from './mistralCostMap';
-import { OPENAI_COST_MAP } from './openAiCostMap';
-import { OPENAI_IMAGE_COST_MAP } from './openaiImageCostMap';
-import { OPENROUTER_COST_MAP } from './openrouterCostMap';
-import { OPENAI_VIDEO_COST_MAP } from './openaiVideoCostMap';
-import { TOGETHER_COST_MAP } from './togetherCostMap';
-import { XAI_COST_MAP } from './xaiCostMap';
-import { ELEVENLABS_COST_MAP } from './elevenlabsCostMap';
+import { AWS_POLLY_COST_MAP } from './awsPollyCostMap.js';
+import { AWS_TEXTRACT_COST_MAP } from './awsTextractCostMap.js';
+import { CLAUDE_COST_MAP } from './claudeCostMap.js';
+import { DEEPSEEK_COST_MAP } from './deepSeekCostMap.js';
+import { FILE_SYSTEM_COST_MAP } from './fileSystemCostMap.js';
+import { GEMINI_COST_MAP } from './geminiCostMap.js';
+import { GROQ_COST_MAP } from './groqCostMap.js';
+import { KV_COST_MAP } from './kvCostMap.js';
+import { MISTRAL_COST_MAP } from './mistralCostMap.js';
+import { OPENAI_COST_MAP } from './openAiCostMap.js';
+import { OPENAI_IMAGE_COST_MAP } from './openaiImageCostMap.js';
+import { OPENROUTER_COST_MAP } from './openrouterCostMap.js';
+import { OPENAI_VIDEO_COST_MAP } from './openaiVideoCostMap.js';
+import { TOGETHER_COST_MAP } from './togetherCostMap.js';
+import { XAI_COST_MAP } from './xaiCostMap.js';
+import { ELEVENLABS_COST_MAP } from './elevenlabsCostMap.js';
 
 export const COST_MAPS = {
     ...AWS_POLLY_COST_MAP,

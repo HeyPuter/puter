@@ -14,6 +14,7 @@
     "@eslint/js": "^9.35.0",
     "@playwright/test": "^1.56.1",
     "@stylistic/eslint-plugin": "^5.3.1",
+    "@types/mime-types": "^3.0.1",
     "@types/uuid": "^10.0.0",
     "@typescript-eslint/eslint-plugin": "^8.46.1",
     "@typescript-eslint/parser": "^8.46.1",
@@ -53,7 +54,7 @@
     "build": "npx eslint --quiet -c eslint/mandatory.eslint.config.js src/backend/src extensions && npm run build:ts && cd src/gui && node ./build.js",
     "check-translations": "node tools/check-translations.js",
     "prepare": "husky",
-    "build:ts": "tsc",
+    "build:ts": "tsc -p tsconfig.build.json",
     "gen": "./scripts/gen.sh"
   },
   "workspaces": [

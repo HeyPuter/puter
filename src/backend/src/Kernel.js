@@ -35,6 +35,7 @@ const readline = require('node:readline/promises');
 const { RuntimeModuleRegistry } = require('./extension/RuntimeModuleRegistry');
 const { RuntimeModule } = require('./extension/RuntimeModule');
 const deep_proto_merge = require('./config/deep_proto_merge');
+const { kv } = require('./util/kvSingleton');
 
 const { quot } = libs.string;
 
@@ -63,8 +64,6 @@ class Kernel extends AdvancedBase {
     }
 
     _runtime_init (boot_parameters) {
-        const kvjs = require('@heyputer/kv.js');
-        const kv = new kvjs();
         global.kv = kv;
         global.cl = console.log;
 

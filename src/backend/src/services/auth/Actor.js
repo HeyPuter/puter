@@ -17,23 +17,24 @@
  * You should have received a copy of the GNU Affero General Public License
  * along with this program.  If not, see <https://www.gnu.org/licenses/>.
  */
-const { AdvancedBase } = require('../../../../putility');
-const { Context } = require('../../util/context');
-const { get_user, get_app } = require('../../helpers');
-const config = require('../../config');
-
+import { AdvancedBase } from '../../../../putility/index.js';
+import { Context } from '../../util/context.js';
+import { get_user, get_app } from '../../helpers.js';
+import * as config from '../../config.js';
+import { v5 as uuidv5 } from 'uuid';
+import crypto from 'crypto';
 // TODO: add these to configuration; production deployments should change these!
 
 const PRIVATE_UID_NAMESPACE = config.private_uid_namespace
-    ?? require('crypto').randomUUID();
+    ?? crypto.randomUUID();
 const PRIVATE_UID_SECRET = config.private_uid_secret
-    ?? require('crypto').randomBytes(24).toString('hex');
+    ?? crypto.randomBytes(24).toString('hex');
 
 /**
  * Base class for all actor types in the system.
  * Provides common initialization functionality for actor type instances.
  */
-class ActorType {
+export class ActorType {
     /**
      * Initializes the ActorType with the provided properties.
      *
@@ -52,7 +53,7 @@ class ActorType {
  * represents a system-level entity and provides methods for UID retrieval
  * and related type management.
  */
-class SystemActorType extends ActorType {
+export class SystemActorType extends ActorType {
     /**
      * Gets the unique identifier for the system actor.
      *
@@ -83,14 +84,9 @@ class SystemActorType extends ActorType {
  * creating new actors, generating unique identifiers, and handling related types
  * that represent different roles within the context of the application.
  */
-class Actor extends AdvancedBase {
+export class Actor extends AdvancedBase {
     /** @type {ActorType} */
     type;
-
-    static MODULES = {
-        uuidv5: require('uuid').v5,
-        crypto: require('crypto'),
-    };
 
     static system_actor_ = null;
 
@@ -182,7 +178,7 @@ class Actor extends AdvancedBase {
     get private_uid () {
         // Pass the UUID through SHA-2 first because UUIDv5
         // is not cryptographically secure (it uses SHA-1)
-        const hmac = this.modules.crypto.createHmac('sha256', PRIVATE_UID_SECRET)
+        const hmac = crypto.createHmac('sha256', PRIVATE_UID_SECRET)
             .update(this.uid)
             .digest('hex');
 
@@ -190,7 +186,7 @@ class Actor extends AdvancedBase {
         // Note: this effectively does an additional SHA-1 hash,
         // but this is done only to format the result as a UUID
         // and not for cryptographic purposes
-        let str = this.modules.uuidv5(hmac, PRIVATE_UID_NAMESPACE);
+        let str = uuidv5(hmac, PRIVATE_UID_NAMESPACE);
 
         // Uppercase UUID to avoid inference of what uuid library is being used
         str = (`${str}`).toUpperCase();
@@ -226,7 +222,7 @@ class Actor extends AdvancedBase {
  * specific to user actors. This class extends the base functionality to uniquely identify
  * user actors and define how they relate to other types of actors within the system.
  */
-class UserActorType extends ActorType {
+export class UserActorType extends ActorType {
     /**
      * Gets the unique identifier for the user actor.
      *
@@ -257,7 +253,7 @@ class UserActorType extends ActorType {
  * retrieving related actor types. It extends the base actor type functionality
  * to cater to user-specific needs.
  */
-class AppUnderUserActorType extends ActorType {
+export class AppUnderUserActorType extends ActorType {
     /**
      * Gets the unique identifier for the app-under-user actor.
      *
@@ -290,7 +286,7 @@ class AppUnderUserActorType extends ActorType {
  * An AccessTokenActorType associates an authorizer and an authorized actor
  * with a string token, facilitating permission checks and identity management.
  */
-class AccessTokenActorType extends ActorType {
+export class AccessTokenActorType extends ActorType {
     // authorizer: an Actor who authorized the token
     // authorized: an Actor who is authorized by the token
     // token: a string
@@ -326,7 +322,7 @@ class AccessTokenActorType extends ActorType {
  * This class is used to manage details related to the site and implement functionalities
  * pertinent to site-level operations and interactions in the actor framework.
  */
-class SiteActorType {
+export class SiteActorType {
     /**
      * Constructor for the SiteActorType class.
      * Initializes a new instance of SiteActorType with the provided properties.
@@ -376,13 +372,4 @@ Actor.adapt = function (actor) {
     }
 
     return actor;
-};
-
-module.exports = {
-    Actor,
-    SystemActorType,
-    UserActorType,
-    AppUnderUserActorType,
-    AccessTokenActorType,
-    SiteActorType,
 };
