@@ -151,7 +151,7 @@ export class DBKVStore implements IDBKVStore {
                 key_hash,
                 key,
                 JSON.stringify(value),
-                expireAt ?? null,
+                expireAt ?? undefined,
                 ...this.#db.case({ mysql: [value], otherwise: [] }),
             ]);
         } catch ( e: unknown ) {
@@ -213,7 +213,7 @@ export class DBKVStore implements IDBKVStore {
         as = as || 'entries';
 
         if ( ! ['keys', 'values', 'entries'].includes(as) ) {
-            throw APIError.create('field_invalid', null, {
+            throw APIError.create('field_invalid', undefined, {
                 key: 'as',
                 expected: '"keys", "values", or "entries"',
             });
@@ -250,7 +250,7 @@ export class DBKVStore implements IDBKVStore {
 
     async expireAt ({ key, timestamp }: { key: string, timestamp: number }) {
         if ( key === '' ) {
-            throw APIError.create('field_empty', null, {
+            throw APIError.create('field_empty', undefined, {
                 key: 'key',
             });
         }
@@ -262,7 +262,7 @@ export class DBKVStore implements IDBKVStore {
 
     async expire ({ key, ttl }: { key: string, ttl: number }) {
         if ( key === '' ) {
-            throw APIError.create('field_empty', null, {
+            throw APIError.create('field_empty', undefined, {
                 key: 'key',
             });
         }
@@ -351,7 +351,7 @@ export class DBKVStore implements IDBKVStore {
                 app?.uid ?? GLOBAL_APP_KEY,
                 key_hash,
                 key,
-                null, // empty value
+                undefined, // empty value
                 timestamp,
                 ...this.#db.case({ mysql: [timestamp], otherwise: [] }),
             ]);

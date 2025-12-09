@@ -514,7 +514,7 @@ export class MeteringService {
         const currentMonth = this.#getMonthYearString();
         const keyPrefix = `${METRICS_PREFIX}:puter:`;
         return this.#superUserService.sudo(async () => {
-            const keys = [];
+            const keys: string[] = [];
             for ( let shard = 0; shard < MeteringService.GLOBAL_SHARD_COUNT; shard++ ) {
                 keys.push(`${keyPrefix}${shard}:${currentMonth}`);
             }

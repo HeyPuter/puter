@@ -16,10 +16,15 @@
  * You should have received a copy of the GNU Affero General Public License
  * along with this program.  If not, see <https://www.gnu.org/licenses/>.
  */
-const { AsyncLocalStorage } = require('async_hooks');
-const context_config = {};
+import { AsyncLocalStorage } from 'async_hooks';
+import { randomUUID } from 'crypto';
+import { v4 as uuidv4 } from 'uuid';
 
-class Context {
+export const context_config = {};
+
+export class Context {
+    static testId = randomUUID();
+
     static USE_NAME_FALLBACK = {};
     static next_name_ = 0;
     static other_next_names_ = {};
@@ -224,9 +229,7 @@ class Context {
     }
 }
 
-const uuidv4 = require('uuid').v4;
-
-class ContextExpressMiddleware {
+export class ContextExpressMiddleware {
     constructor ({ parent }) {
         this.parent_ = parent;
     }
@@ -246,9 +249,3 @@ class ContextExpressMiddleware {
         });
     }
 }
-
-module.exports = {
-    Context,
-    ContextExpressMiddleware,
-    context_config,
-};

@@ -18,7 +18,7 @@
  */
 
 import { describe, it, expect, beforeEach, vi } from 'vitest';
-const kvjs = require('@heyputer/kv.js');
+import { kv } from '../util/kvSingleton';
 const uuid = require('uuid');
 const proxyquire = require('proxyquire');
 
@@ -156,7 +156,7 @@ const get_mock_context = () => {
 };
 
 describe('GET /launch-apps', () => {
-    globalThis.kv = new kvjs();
+    globalThis.kv = kv;
 
     it('should return expected format', async () => {
         // First call
@@ -164,52 +164,6 @@ describe('GET /launch-apps', () => {
             const { get_launch_apps, req_mock, res_mock, spies } = get_mock_context();
             req_mock.query = {};
             await get_launch_apps(req_mock, res_mock);
-
-            // TODO: bring this back, figure out what it's testing,
-            //       document why it needs to be here (if it does)
-            //       or remove it.
-            if ( false ) {
-
-                expect(res_mock.send).toHaveBeenCalledOnce();
-
-                const call = res_mock.send.mock.calls[0];
-                const response = call[0];
-                console.log('response', response);
-
-                expect(response).toBeTypeOf('object');
-
-                expect(response).toHaveProperty('recommended');
-                expect(response.recommended).toBeInstanceOf(Array);
-                expect(response.recommended).toHaveLength(apps_names_expected_to_exist.length);
-                expect(response.recommended).toEqual(
-                                data_mockapps
-                                    .filter(app => apps_names_expected_to_exist.includes(app.name))
-                                    .map(app => ({
-                                        uuid: app.uid,
-                                        name: app.name,
-                                        title: app.title,
-                                        icon: app.icon,
-                                        godmode: app.godmode,
-                                        maximize_on_start: app.maximize_on_start,
-                                        index_url: app.index_url,
-                                    })));
-
-                expect(response).toHaveProperty('recent');
-                expect(response.recent).toBeInstanceOf(Array);
-                expect(response.recent).toHaveLength(data_appopens.length);
-                expect(response.recent).toEqual(
-                                data_mockapps
-                                    .filter(app => data_appopens.map(app_open => app_open.app_uid).includes(app.uid))
-                                    .map(app => ({
-                                        uuid: app.uid,
-                                        name: app.name,
-                                        title: app.title,
-                                        icon: app.icon,
-                                        godmode: app.godmode,
-                                        maximize_on_start: app.maximize_on_start,
-                                        index_url: app.index_url,
-                                    })));
-            }
 
             // << HOW TO FIX >>
             // If you updated the list of recommended apps,

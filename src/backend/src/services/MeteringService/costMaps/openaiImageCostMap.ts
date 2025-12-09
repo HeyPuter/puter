@@ -3,7 +3,7 @@
 // All costs are in microcents (1/1,000,000th of a cent). Example: 1,000,000 microcents = $0.01 USD.//
 // Naming pattern: "openai:{model}:{size}" or "openai:{model}:hd:{size}" for HD images
 
-import { toMicroCents } from '../utils';
+import { toMicroCents } from '../utils.js';
 
 export const OPENAI_IMAGE_COST_MAP = {
     // DALL-E 3

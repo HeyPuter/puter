@@ -1,0 +1,23 @@
+{
+  "extends": "./tsconfig.base.json",
+  "compilerOptions": {
+    "allowJs": false,
+    "checkJs": false,
+    "noEmit": false
+  },
+  "include": ["./src/backend"],
+  "exclude": [
+    "**/*.test.ts",
+    "**/*.test.mts",
+    "**/vitest.config.ts",
+    "**/vitest.config.mts",
+    "**/*.spec.ts",
+    "**/*.spec.mts",
+    "**/tests/**",
+    "node_modules",
+    "dist",
+    "volatile",
+    "extensions",
+    "src/backend/src/services/worker/template/puter-portable.js"
+  ]
+}

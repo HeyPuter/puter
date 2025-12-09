@@ -18,10 +18,10 @@
  */
 
 // METADATA // {"ai-commented":{"service":"openai-completion","model":"gpt-4o-mini"}}
-const { Context } = require('../util/context');
-const { TeePromise } = require('@heyputer/putility').libs.promise;
-const { Actor, UserActorType } = require('./auth/Actor');
-const BaseService = require('./BaseService');
+import { TeePromise } from '@heyputer/putility/src/libs/promise.js';
+import { Context } from '../util/context.js';
+import { Actor, UserActorType } from './auth/Actor.js';
+import BaseService from './BaseService.js';
 
 /**
 * "SUS"-Service (Super-User Service)
@@ -33,7 +33,7 @@ const BaseService = require('./BaseService');
 * instances, providing methods to retrieve the system actor
 * and perform actions with elevated privileges.
 */
-class SUService extends BaseService {
+export class SUService extends BaseService {
     /**
     * Initializes the SUService instance, creating promises for system user
     * and system actor. This method does not take any parameters and does
@@ -111,7 +111,3 @@ class SUService extends BaseService {
         }).arun(callback);
     }
 }
-
-module.exports = {
-    SUService,
-};

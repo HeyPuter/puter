@@ -132,15 +132,20 @@ export class TestKernel extends AdvancedBase {
         const mod_install_root_context = Context.get();
 
         for ( const module of this.modules ) {
-            const mod_context = this._create_mod_context(mod_install_root_context,
-                            {
-                                name: module.constructor.name,
-                                ['module']: module,
-                                external: false,
-                            });
-            await this.root_context.arun(async () => {
-                await module.install(mod_context);
-            });
+            try {
+                const mod_context = this._create_mod_context(mod_install_root_context,
+                                {
+                                    name: module.constructor.name,
+                                    ['module']: module,
+                                    external: false,
+                                });
+                await this.root_context.arun(async () => {
+                    await module.install(mod_context);
+                });
+            } catch (e) {
+                console.log(e);
+                throw e;
+            }
         }
 
         // Real kernel initializes services here, but in this test kernel
@@ -282,6 +287,7 @@ export const createTestKernel = async ({
     testCore = false,
     serviceConfigOverrideMap = {},
     globalConfigOverrideMap = {},
+    serviceMapArgs = {},
 }) => {
 
     const initLevelMap = { CONSTRUCT: 1, INIT: 2 };
@@ -293,7 +299,7 @@ export const createTestKernel = async ({
         testKernel.add_module({
             install: context => {
                 const services = context.get('services');
-                services.registerService(name, service);
+                services.registerService(name, service, serviceMapArgs[name] || undefined);
             },
         });
     }

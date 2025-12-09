@@ -67,3 +67,4 @@ AGENTS.md
 
 
 coverage/
+*.log

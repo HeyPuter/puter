@@ -75,7 +75,7 @@ class ChatAPIService extends BaseService {
                     const models = await svc_su.sudo(async () => {
                         const svc_aiChat = this.services.get('ai-chat');
                         // Return the simple model list which contains basic model information
-                        return svc_aiChat.simple_model_list;
+                        return svc_aiChat.list();
                     });
 
                     // Return the list of models
@@ -98,7 +98,7 @@ class ChatAPIService extends BaseService {
                     const models = await svc_su.sudo(async () => {
                         const svc_aiChat = this.services.get('ai-chat');
                         // Return the detailed model list which includes cost and capability information
-                        return svc_aiChat.detail_model_list;
+                        return svc_aiChat.models();
                     });
 
                     // Return the detailed list of models

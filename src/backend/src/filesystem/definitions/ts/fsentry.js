@@ -1,8 +1,5 @@
-"use strict";
-Object.defineProperty(exports, "__esModule", { value: true });
-exports.FSEntry = exports.protobufPackage = void 0;
-const wire_1 = require("@bufbuild/protobuf/wire");
-exports.protobufPackage = "";
+import { BinaryReader, BinaryWriter } from "@bufbuild/protobuf/wire";
+export const protobufPackage = "";
 function createBaseFSEntry() {
     return {
         uuid: "",
@@ -19,8 +16,8 @@ function createBaseFSEntry() {
         size: 0,
     };
 }
-exports.FSEntry = {
-    encode(message, writer = new wire_1.BinaryWriter()) {
+export const FSEntry = {
+    encode(message, writer = new BinaryWriter()) {
         if (message.uuid !== "") {
             writer.uint32(10).string(message.uuid);
         }
@@ -60,7 +57,7 @@ exports.FSEntry = {
         return writer;
     },
     decode(input, length) {
-        const reader = input instanceof wire_1.BinaryReader ? input : new wire_1.BinaryReader(input);
+        const reader = input instanceof BinaryReader ? input : new BinaryReader(input);
         const end = length === undefined ? reader.len : reader.pos + length;
         const message = createBaseFSEntry();
         while (reader.pos < end) {
@@ -215,7 +212,7 @@ exports.FSEntry = {
         return obj;
     },
     create(base) {
-        return exports.FSEntry.fromPartial(base ?? {});
+        return FSEntry.fromPartial(base ?? {});
     },
     fromPartial(object) {
         const message = createBaseFSEntry();

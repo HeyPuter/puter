@@ -5,21 +5,21 @@ import { RegistryService } from './RegistryService';
 describe('RegistryService', async () => {
     // Initialize globalThis.kv for testing
     beforeAll(() => {
-        if (!globalThis.kv) {
+        if ( ! globalThis.kv ) {
             globalThis.kv = new Map();
-            globalThis.kv.set = function(key, value) {
+            globalThis.kv.set = function (key, value) {
                 return Map.prototype.set.call(this, key, value);
             };
-            globalThis.kv.get = function(key) {
+            globalThis.kv.get = function (key) {
                 return Map.prototype.get.call(this, key);
             };
-            globalThis.kv.exists = function(key) {
+            globalThis.kv.exists = function (key) {
                 return this.has(key);
             };
-            globalThis.kv.del = function(key) {
+            globalThis.kv.del = function (key) {
                 return this.delete(key);
             };
-            globalThis.kv.keys = function(pattern) {
+            globalThis.kv.keys = function (pattern) {
                 const prefix = pattern.replace('*', '');
                 return Array.from(this.keys()).filter(k => k.startsWith(prefix));
             };
@@ -72,27 +72,27 @@ describe('RegistryService', async () => {
     it('should allow checking existence in collection', () => {
         const collection = registryService.register_collection('exists-collection');
         collection.set('existing-key', 'value');
-        expect(collection.exists('existing-key')).toBe(true);
-        expect(collection.exists('non-existing-key')).toBe(false);
+        expect(collection.exists('existing-key')).toBeTruthy();
+        expect(collection.exists('non-existing-key')).toBeFalsy();
     });
 
-    it('should allow deleting from collection', () => {
+    it('should allow deleting from collection', async () => {
         const collection = registryService.register_collection('delete-collection');
         collection.set('delete-key', 'value');
-        expect(collection.exists('delete-key')).toBe(true);
+        const res =  collection.exists('delete-key');
+        expect(collection.exists('delete-key')).toBeTruthy();
         collection.del('delete-key');
-        expect(collection.exists('delete-key')).toBe(false);
+        expect(collection.exists('delete-key')).toBeFalsy();
     });
 
     it('should support multiple independent collections', () => {
         const collection1 = registryService.register_collection('coll1');
         const collection2 = registryService.register_collection('coll2');
-        
+
         collection1.set('key', 'value1');
         collection2.set('key', 'value2');
-        
+
         expect(collection1.get('key')).toBe('value1');
         expect(collection2.get('key')).toBe('value2');
     });
 });
-

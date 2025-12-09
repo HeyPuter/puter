@@ -253,7 +253,6 @@ class DriverService extends BaseService {
             return await this._call(o);
         } catch ( e ) {
             this.log.error(`Driver error response: ${ e.toString()}`);
-            console.error(e);
             if ( ! (e instanceof APIError) ) {
                 this.errors.report('driver', {
                     source: e,

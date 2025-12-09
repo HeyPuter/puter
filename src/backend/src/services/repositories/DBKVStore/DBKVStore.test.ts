@@ -3,6 +3,7 @@ import { createTestKernel } from '../../../../tools/test.mjs';
 import * as config from '../../../config';
 import { Actor } from '../../auth/Actor';
 import { DBKVServiceWrapper } from './index.mjs';
+import { SUService } from '../../SUService';
 
 describe('DBKVStore', async () => {
 
@@ -27,7 +28,7 @@ describe('DBKVStore', async () => {
 
     const kvServiceWrapper = testKernel.services!.get('puter-kvstore') as DBKVServiceWrapper;
     const kvStore = kvServiceWrapper.kvStore;
-    const su = testKernel.services!.get('su');
+    const su = testKernel.services!.get('su') as SUService;
 
     const makeActor = (userId: number | string, appUid?: string) => ({
         type: {

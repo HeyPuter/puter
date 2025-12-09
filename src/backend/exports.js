@@ -16,35 +16,34 @@
  * You should have received a copy of the GNU Affero General Public License
  * along with this program.  If not, see <https://www.gnu.org/licenses/>.
  */
-const CoreModule = require('./src/CoreModule.js');
-const { Kernel } = require('./src/Kernel.js');
-const DatabaseModule = require('./src/DatabaseModule.js');
-const LocalDiskStorageModule = require('./src/LocalDiskStorageModule.js');
-const MemoryStorageModule = require('./src/MemoryStorageModule.js');
-const SelfHostedModule = require('./src/modules/selfhosted/SelfHostedModule.js');
-const { testlaunch } = require('./src/index.js');
-const BaseService = require('./src/services/BaseService.js');
-const { Context } = require('./src/util/context.js');
-const { TestDriversModule } = require('./src/modules/test-drivers/TestDriversModule.js');
-const { PuterAIModule } = require('./src/modules/puterai/PuterAIModule.js');
-const { BroadcastModule } = require('./src/modules/broadcast/BroadcastModule.js');
-const { WebModule } = require('./src/modules/web/WebModule.js');
-const { Core2Module } = require('./src/modules/core/Core2Module.js');
-const { TemplateModule } = require('./src/modules/template/TemplateModule.js');
-const { PuterFSModule } = require('./src/modules/puterfs/PuterFSModule.js');
-const { PerfMonModule } = require('./src/modules/perfmon/PerfMonModule.js');
-const { AppsModule } = require('./src/modules/apps/AppsModule.js');
-const { DevelopmentModule } = require('./src/modules/development/DevelopmentModule.js');
-const { HostOSModule } = require('./src/modules/hostos/HostOSModule.js');
-const { InternetModule } = require('./src/modules/internet/InternetModule.js');
-const { CaptchaModule } = require('./src/modules/captcha/CaptchaModule.js');
-const { EntityStoreModule } = require('./src/modules/entitystore/EntityStoreModule.js');
-const { KVStoreModule } = require('./src/modules/kvstore/KVStoreModule.js');
-const { DomainModule } = require('./src/modules/domain/DomainModule.js');
-const { DNSModule } = require('./src/modules/dns/DNSModule.js');
-const { TestConfigModule } = require('./src/modules/test-config/TestConfigModule.js');
+import CoreModule from './src/CoreModule.js';
+import DatabaseModule from './src/DatabaseModule.js';
+import { testlaunch } from './src/index.js';
+import { Kernel } from './src/Kernel.js';
+import LocalDiskStorageModule from './src/LocalDiskStorageModule.js';
+import MemoryStorageModule from './src/MemoryStorageModule.js';
+import { PuterAIModule } from './src/modules/ai/PuterAIChatModule.js';
+import { AppsModule } from './src/modules/apps/AppsModule.js';
+import { BroadcastModule } from './src/modules/broadcast/BroadcastModule.js';
+import { CaptchaModule } from './src/modules/captcha/CaptchaModule.js';
+import { Core2Module } from './src/modules/core/Core2Module.js';
+import { DevelopmentModule } from './src/modules/development/DevelopmentModule.js';
+import { DNSModule } from './src/modules/dns/DNSModule.js';
+import { DomainModule } from './src/modules/domain/DomainModule.js';
+import { EntityStoreModule } from './src/modules/entitystore/EntityStoreModule.js';
+import { HostOSModule } from './src/modules/hostos/HostOSModule.js';
+import { InternetModule } from './src/modules/internet/InternetModule.js';
+import { KVStoreModule } from './src/modules/kvstore/KVStoreModule.js';
+import { PerfMonModule } from './src/modules/perfmon/PerfMonModule.js';
+import { PuterFSModule } from './src/modules/puterfs/PuterFSModule.js';
+import SelfHostedModule from './src/modules/selfhosted/SelfHostedModule.js';
+import { TestConfigModule } from './src/modules/test-config/TestConfigModule.js';
+import { TestDriversModule } from './src/modules/test-drivers/TestDriversModule.js';
+import { WebModule } from './src/modules/web/WebModule.js';
+import BaseService from './src/services/BaseService.js';
+import { Context } from './src/util/context.js';
 
-module.exports = {
+export default {
     helloworld: () => {
         console.log('Hello, World!');
         process.exit(0);
