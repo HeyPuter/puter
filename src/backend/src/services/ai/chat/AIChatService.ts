@@ -47,6 +47,7 @@ import { OllamaChatProvider } from './providers/OllamaProvider.js';
 import { DeepSeekProvider } from './providers/DeepSeekProvider/DeepSeekProvider.js';
 import { XAIProvider } from './providers/XAIProvider/XAIProvider.js';
 import { TogetherAIProvider } from './providers/TogetherAiProvider/TogetherAIProvider.js';
+import { OpenRouterProvider } from './providers/OpenRouterProvider/OpenRouterProvider.js';
 
 // Maximum number of fallback attempts when a model fails, including the first attempt
 const MAX_FALLBACKS = 3 + 1; // includes first attempt
@@ -111,6 +112,9 @@ export class AIChatService extends BaseService {
     getModel ({ modelId, provider}: { modelId: string, provider?: string }) {
         const models = this.#modelIdMap[modelId];
 
+        if ( ! models ) {
+            throw new Error(`Model not found, please try one of the following models: ${ Object.keys(this.#modelIdMap).join(', ')}`);
+        }
         if ( ! provider ) {
             return models[0];
         }
@@ -131,30 +135,29 @@ export class AIChatService extends BaseService {
         if ( geminiConfig && geminiConfig.apiKey ) {
             this.#providers['gemini'] = new GeminiChatProvider(this.meteringService, geminiConfig);
         }
-
         const groqConfig = this.config.providers?.['groq'] || this.global_config?.services?.['groq'];
         if ( groqConfig && groqConfig.apiKey ) {
             this.#providers['groq'] = new GroqAIProvider(groqConfig, this.meteringService);
         }
-
         const deepSeekConfig = this.config.providers?.['deepseek'] || this.global_config?.services?.['deepseek'];
         if ( deepSeekConfig && deepSeekConfig.apiKey ) {
             this.#providers['deepseek'] = new DeepSeekProvider(deepSeekConfig, this.meteringService);
         }
-
         const mistralConfig = this.config.providers?.['mistral'] || this.global_config?.services?.['mistral'];
         if ( mistralConfig && mistralConfig.apiKey ) {
             this.#providers['mistral'] = new MistralAIProvider(mistralConfig, this.meteringService);
         }
-
+        const xaiConfig = this.config.providers?.['xai'] || this.global_config?.services?.['xai'];
+        if ( xaiConfig && xaiConfig.apiKey ) {
+            this.#providers['xai'] = new XAIProvider(xaiConfig, this.meteringService);
+        }
         const togetherConfig = this.config.providers?.['together-ai'] || this.global_config?.services?.['together-ai'];
         if ( togetherConfig && togetherConfig.apiKey ) {
             this.#providers['together-ai'] = new TogetherAIProvider(togetherConfig, this.meteringService);
         }
-
-        const xaiConfig = this.config.providers?.['xai'] || this.global_config?.services?.['xai'];
-        if ( xaiConfig && xaiConfig.apiKey ) {
-            this.#providers['xai'] = new XAIProvider(xaiConfig, this.meteringService);
+        const openrouterConfig = this.config.providers?.['openrouter'] || this.global_config?.services?.['openrouter'];
+        if ( openrouterConfig && openrouterConfig.apiKey ) {
+            this.#providers['openrouter'] = new OpenRouterProvider(openrouterConfig, this.meteringService);
         }
 
         // ollama if local instance detected
@@ -461,6 +464,7 @@ export class AIChatService extends BaseService {
             throw new Error('No response from AI chat provider');
         }
 
+        res.via_ai_chat_service = true; // legacy field always true now
         if ( res.stream ) {
             if ( res.init_chat_stream ) {
                 const stream = new PassThrough();

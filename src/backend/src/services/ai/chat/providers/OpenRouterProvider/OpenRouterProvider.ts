@@ -19,14 +19,14 @@
 
 // METADATA // {"ai-commented":{"service":"claude"}}
 import axios from 'axios';
-import openai, { OpenAI } from 'openai';
+import { OpenAI } from 'openai';
 import { ChatCompletionCreateParams } from 'openai/resources';
-import APIError from '../../../../../api/APIError';
-import { Context } from '../../../../../util/context';
-import { kv } from '../../../../../util/kvSingleton';
-import { MeteringService } from '../../../../MeteringService/MeteringService';
-import OpenAIUtil from '../../../utils/OpenAIUtil';
-import { IChatModel, IChatProvider } from '../types';
+import APIError from '../../../../../api/APIError.js';
+import { Context } from '../../../../../util/context.js';
+import { kv } from '../../../../../util/kvSingleton.js';
+import { MeteringService } from '../../../../MeteringService/MeteringService.js';
+import * as OpenAIUtil from '../../../utils/OpenAIUtil.js';
+import { IChatModel, IChatProvider } from '../types.js';
 
 export class OpenRouterProvider implements IChatProvider {
 
@@ -38,7 +38,7 @@ export class OpenRouterProvider implements IChatProvider {
 
     constructor (config: { apiBaseUrl?: string, apiKey: string }, meteringService: MeteringService) {
         this.#apiBaseUrl = config.apiBaseUrl || 'https://openrouter.ai/api/v1';
-        this.#openai = new openai.OpenAI({
+        this.#openai = new OpenAI({
             apiKey: config.apiKey,
             baseURL: this.#apiBaseUrl,
         });

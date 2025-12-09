@@ -21,7 +21,7 @@ export const CLAUDE_MODELS: IChatModel[] = [
     },
     {
         id: 'claude-haiku-4-5-20251001',
-        aliases: ['claude-haiku-4.5', 'claude-haiku-4-5'],
+        aliases: ['claude-haiku-4.5', 'claude-haiku-4-5', 'claude-4-5-haiku'],
         name: 'Claude Haiku 4.5',
         costs_currency: 'usd-cents',
         input_cost_key: 'input_tokens',
