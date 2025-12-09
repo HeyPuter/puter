@@ -213,17 +213,36 @@ class ServerHealthService extends BaseService {
 
     /**
     * Retrieves the current health status of the server.
+    * Results are cached for 30 seconds to reduce computation overhead.
     *
     * @returns {Object} An object containing:
     * - `ok` {boolean}: Indicates if all health checks passed.
     * - `failed` {Array<string>}: An array of names of failed health checks, if any.
     */
-    get_status () {
+    async get_status () {
+        const cache_key = 'server-health:status';
+        
+        // Check cache first
+        if ( globalThis.kv ) {
+            const cached = globalThis.kv.get(cache_key);
+            if ( cached ) {
+                return cached;
+            }
+        }
+        
+        // Compute status
         const failures = this.failures_.map(v => v.name);
-        return {
+        const status = {
             ok: failures.length === 0,
             ...(failures.length ? { failed: failures } : {}),
         };
+        
+        // Cache with 30 second TTL
+        if ( globalThis.kv ) {
+            globalThis.kv.set(cache_key, status, { EX: 30 });
+        }
+        
+        return status;
     }
 }
 
