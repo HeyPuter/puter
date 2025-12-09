@@ -1,8 +1,18 @@
-export interface AuthUser {
+export interface User {
     uuid: string;
     username: string;
-    email_confirmed?: boolean;
-    [key: string]: unknown;
+    email_confirmed?: boolean | number;
+    actual_free_storage?: number;
+    app_name?: string;
+    feature_flags?: Record<string, unknown>;
+    hasDevAccountAccess?: boolean;
+    is_temp?: boolean;
+    last_activity_ts?: number;
+    otp?: boolean;
+    paid_storage?: number;
+    referral_code?: string;
+    requires_email_confirmation?: boolean | number;
+    subscribed?: boolean;
 }
 
 export interface AllowanceInfo {
@@ -32,17 +42,21 @@ export interface DetailedAppUsage {
     [key: string]: APIUsage;
 }
 
+export interface SignInResult {
+    success: boolean;
+    token: string;
+    app_uid: string;
+    username: string;
+    error?: string;
+    msg?: string;
+}
+
 export class Auth {
-    constructor (context: { authToken?: string; APIOrigin: string; appID?: string });
-
-    setAuthToken (authToken: string): void;
-    setAPIOrigin (APIOrigin: string): void;
-
-    signIn (options?: { attempt_temp_user_creation?: boolean }): Promise<AuthUser | { token?: string }>;
+    signIn (options?: { attempt_temp_user_creation?: boolean }): Promise<SignInResult>;
     signOut (): void;
     isSignedIn (): boolean;
-    getUser (): Promise<AuthUser>;
-    whoami (): Promise<AuthUser>;
+    getUser (): Promise<User>;
+    whoami (): Promise<User>;
     getMonthlyUsage (): Promise<MonthlyUsage>;
     getDetailedAppUsage (appId: string): Promise<DetailedAppUsage>;
 }
