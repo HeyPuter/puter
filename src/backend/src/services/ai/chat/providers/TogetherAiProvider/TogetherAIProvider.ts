@@ -52,7 +52,7 @@ export class TogetherAIProvider implements IChatProvider {
             if ( model.type === 'chat' || model.type === 'code' || model.type === 'language' || model.type === 'moderation' ) {
                 models.push({
                     id: `togetherai:${model.id}`,
-                    aliases: [model.id],
+                    aliases: [model.id, `togetherai/${model.id}`, model.id.split('/').slice(1).join('/')],
                     name: model.display_name,
                     context: model.context_length,
                     description: model.display_name,

@@ -56,6 +56,7 @@ export interface IChatProvider {
         message?: never;
         usage?: never;
         finish_reason?: never;
+        via_ai_chat_service?: true, // legacy field always true now
     } | {
         message: PuterMessage;
         usage: Record<string, number>;
@@ -64,5 +65,6 @@ export interface IChatProvider {
         stream?: never;
         finally_fn?: never;
         normalized?: boolean;
+        via_ai_chat_service?: true, // legacy field always true now
     }>
 }

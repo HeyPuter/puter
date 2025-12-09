@@ -211,12 +211,14 @@ export class AIChatService extends BaseService {
 
             // build model id map
             for ( const model of await provider.models() ) {
+                model.id = model.id.trim().toLowerCase();
                 if ( ! this.#modelIdMap[model.id] ) {
                     this.#modelIdMap[model.id] = [];
                 }
                 this.#modelIdMap[model.id].push({ ...model, provider: providerName });
                 if ( model.aliases ) {
-                    for ( const alias of model.aliases ) {
+                    for ( let alias of model.aliases ) {
+                        alias = alias.trim().toLowerCase();
                         // join arrays which are aliased the same
                         if ( ! this.#modelIdMap[alias] ) {
                             this.#modelIdMap[alias] = this.#modelIdMap[model.id];
@@ -229,15 +231,28 @@ export class AIChatService extends BaseService {
                         }
                     }
                 }
-                this.#modelIdMap[model.id].sort((a, b) => a.costs[a.input_cost_key || 'input_tokens'] - b.costs[b.input_cost_key || 'input_tokens']);
+                this.#modelIdMap[model.id].sort((a, b) => {
+                    if ( a.costs[a.input_cost_key || 'input_tokens'] === b.costs[b.input_cost_key || 'input_tokens'] ) {
+                        return a.id.length - b.id.length; // use shorter id since its likely the official one
+                    }
+                    return a.costs[a.input_cost_key || 'input_tokens'] - b.costs[b.input_cost_key || 'input_tokens'];
+                });
             }
         }
     }
 
     models () {
+        const seen = new Set<string>();
         return Object.entries(this.#modelIdMap)
             .map(([_, models]) => models)
             .flat()
+            .filter(model => {
+                if ( seen.has(model.id) ) {
+                    return false;
+                }
+                seen.add(model.id);
+                return true;
+            })
             .sort((a, b) => {
                 if ( a.provider === b.provider ) {
                     return a.id.localeCompare(b.id);
@@ -247,7 +262,7 @@ export class AIChatService extends BaseService {
     }
 
     list () {
-        return Object.keys(this.#modelIdMap).sort();
+        return this.models().map(m => m.id).sort();
     }
 
     async complete (parameters: ICompleteArguments) {
