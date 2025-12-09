@@ -5869,7 +5869,7 @@ fieldset[name=number-code] {
 
 /* Recent Apps Card - Rectangle */
 .bento-recent {
-    min-height: 300px;
+    min-height: 350px;
     display: flex;
     flex-direction: column;
     background: 
