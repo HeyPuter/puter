@@ -5768,6 +5768,19 @@ fieldset[name=number-code] {
     }
 }
 
+/* Full HD */
+@media (min-width: 1920px) {
+    .dashboard-section-home .bento-container {
+        max-width: 1000px;
+    }
+}
+/* 4K UHD */
+@media (min-width: 2560px) {
+    .dashboard-section-home .bento-container {
+        max-width: 1200px;
+    }
+}
+
 /* ============================================== */
 /* Bento Box Home Dashboard                       */
 /* ============================================== */
@@ -5977,8 +5990,9 @@ fieldset[name=number-code] {
 
 .bento-recent-apps-grid {
     display: grid;
-    grid-template-columns: repeat(3, 1fr);
-    gap: 12px;
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+    gap: 16px 12px;
+    justify-items: center;
 }
 
 .bento-recent-app {
@@ -5991,7 +6005,8 @@ fieldset[name=number-code] {
     transition: transform 0.15s ease;
     background: transparent;
     border: 1px solid transparent;
-    width: 100px;
+    width: 100%;
+    max-width: 110px;
 }
 
 .bento-recent-app:hover {
@@ -6244,12 +6259,13 @@ fieldset[name=number-code] {
     }
 
     .bento-recent-apps-grid {
-        grid-template-columns: repeat(3, 1fr);
-        gap: 8px;
+        grid-template-columns: repeat(3, minmax(0, 1fr));
+        gap: 12px 8px;
     }
 
     .bento-recent-app {
         padding: 12px 8px;
+        max-width: 90px;
     }
 
     .bento-recent-app-icon {
