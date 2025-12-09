@@ -207,13 +207,6 @@ const TabHome = {
                 $el_window.find(`.dashboard-sidebar-item[data-section="${targetTab}"]`).click();
             }
         });
-
-        // Handle plan header and upgrade button clicks
-        $el_window.on('click', '.bento-plan-header, .bento-plan-upgrade', function (e) {
-            e.preventDefault();
-            // Open settings to billing tab
-            window.UIWindowSettings({ active_tab: 'billing' });
-        });
     },
 
     async loadRecentApps ($el_window) {
