@@ -361,6 +361,29 @@ class Extension extends AdvancedBase {
         return extensionConsole;
     }
 
+    get tracer () {
+        const trace = this.import('tel').trace;
+        return trace.getTracer(`extension:${this.name}`);
+    }
+
+    get span () {
+        const span = (label, fn) => {
+            const spanify = this.import('core').spanify;
+            return spanify(label, fn, this.tracer);
+        };
+
+        // Add `.run` for more readable immediate invocation
+        span.run = (label, fn) => {
+            if ( typeof label === 'function' ) {
+                fn = label;
+                label = fn.name || 'span.run';
+            }
+            return span(label, fn)();
+        };
+
+        return span;
+    }
+
     /**
      * This method will create the "default service" for an extension.
      * This is specifically for Puter extensions that do not define their

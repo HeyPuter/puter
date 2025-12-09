@@ -1,7 +1,6 @@
 const { kv } = extension.import('data');
 
-const spanify = extension.import('core').spanify;
-const svc_trace = extension.import('service:traceService');
+const span = extension.span;
 
 /**
  * Here we create an interface called 'hello-world'. This interface
@@ -69,7 +68,11 @@ extension.on('create.drivers', event => {
 
 extension.on('create.drivers', event => {
     event.createDriver('hello-world', 'slow-hello', {
-        greet: spanify('slow-hello:greet', async ({ subject }) => {
+        greet: span('slow-hello:greet', async ({ subject }) => {
+            await new Promise(rslv => setTimeout(rslv, 1000));
+            await span.run(async () => {
+                await new Promise(rslv => setTimeout(rslv, 1000));
+            });
             await new Promise(rslv => setTimeout(rslv, 1000));
             return `Hello, ${subject ?? 'World'}!`;
         }),

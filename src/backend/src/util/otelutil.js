@@ -42,7 +42,7 @@ promises.push(tracer.startActiveSpan(`job:${job.id}`, (span) => {
 }));
 */
 
-const spanify = (label, fn) => async (...args) => {
+const spanify = (label, fn, tracer) => async (...args) => {
     const context = Context.get();
     if ( ! context ) {
         // We don't use the proper logger here because we would normally
@@ -50,7 +50,7 @@ const spanify = (label, fn) => async (...args) => {
         console.error('spanify failed', new Error('missing context'));
     }
 
-    const tracer = context.get('services').get('traceService').tracer;
+    tracer = tracer ?? context.get('services').get('traceService').tracer;
     let result;
     await tracer.startActiveSpan(label, async span => {
         result = await fn(...args);
