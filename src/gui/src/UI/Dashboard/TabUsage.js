@@ -94,6 +94,12 @@ const TabUsage = {
             usageTableExpanded = true;
             renderUsageTable();
         });
+
+        // Click handler for "Show less" to collapse the table
+        $($el_window).on('click', '.usage-table-show-less', function () {
+            usageTableExpanded = false;
+            renderUsageTable();
+        });
     },
 };
 
@@ -186,15 +192,19 @@ function renderUsageTable() {
         </div>`;
     }
 
+    // Add "Show less" button when expanded and there are more rows than the initial limit
+    if ( usageTableExpanded && hasMoreRows ) {
+        h += `<div class="usage-table-show-less-wrapper">
+            <button class="usage-table-show-less">Show less</button>
+        </div>`;
+    }
+
     h += '</div>';
 
     $('.driver-usage-details-content').html(h);
 }
 
 async function update_usage_details ($el_window) {
-    // Reset expanded state on refresh
-    usageTableExpanded = false;
-    
     // Add spinning animation and record start time
     const startTime = Date.now();
     $($el_window).find('.update-usage-details-icon').css('animation', 'spin 1s linear infinite');

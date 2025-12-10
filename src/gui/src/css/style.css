@@ -4653,6 +4653,42 @@ html.dark-mode .usage-table-fade-overlay {
     transform: translateY(0);
 }
 
+/* Show less button wrapper */
+.usage-table-show-less-wrapper {
+    display: flex;
+    justify-content: center;
+    padding: 12px 0 20px;
+}
+
+.usage-table-show-less {
+    background: transparent;
+    color: #6b7280;
+    border: 1px solid #d1d5db;
+    padding: 6px 16px;
+    border-radius: 5px;
+    font-size: 12px;
+    font-weight: 500;
+    cursor: pointer;
+    transition: all 0.15s ease;
+}
+
+.usage-table-show-less:hover {
+    background: #f3f4f6;
+    border-color: #9ca3af;
+    color: #374151;
+}
+
+html.dark-mode .usage-table-show-less {
+    color: #9ca3af;
+    border-color: #4b5563;
+}
+
+html.dark-mode .usage-table-show-less:hover {
+    background: #374151;
+    border-color: #6b7280;
+    color: #d1d5db;
+}
+
 
 .driver-usage-details-content-table {
     width: 100%;
