@@ -50,7 +50,7 @@ export class OpenAiChatProvider implements IChatProvider {
      */
     #openAi: OpenAI;
 
-    #defaultModel = 'gpt-5-nano';
+    #defaultModel = 'openai/gpt-5-nano';
 
     #meteringService: MeteringService;
 

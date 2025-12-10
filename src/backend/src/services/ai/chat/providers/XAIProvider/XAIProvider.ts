@@ -39,7 +39,7 @@ export class XAIProvider implements IChatProvider {
     }
 
     getDefaultModel () {
-        return 'grok-beta';
+        return 'xai/grok-beta';
     }
 
     models () {
