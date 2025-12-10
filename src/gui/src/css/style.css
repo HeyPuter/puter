@@ -5949,7 +5949,7 @@ html.dark-mode .usage-table-show-less:hover {
 
 /* Recent Apps Card - Rectangle */
 .bento-recent {
-    min-height: 350px;
+    min-height: 310px;
     display: flex;
     flex-direction: column;
     background: 
@@ -5980,7 +5980,7 @@ html.dark-mode .usage-table-show-less:hover {
     gap: 14px;
     padding: 20px 24px;
     background: linear-gradient(135deg, rgba(200, 220, 255, 0.5) 0%, rgba(180, 210, 255, 0.3) 100%);
-    border-bottom: 1px solid rgba(255, 255, 255, 0.6);
+    border-bottom: 1px solid rgb(0 0 0 / 1%);
 }
 
 .bento-card-fancy-icon {
@@ -6057,12 +6057,11 @@ html.dark-mode .usage-table-show-less:hover {
 
 .bento-recent-apps-grid {
     display: grid;
-    grid-template-columns: repeat(3, minmax(0, 1fr));
-    gap: 16px 12px;
-    justify-items: center;
+    grid-template-columns: repeat(2, 1fr);
+    gap: 12px 20px;
 }
 
-/* Hide 7th and 8th apps on screens below 4K (show only 6) */
+/* Hide apps beyond 6 on smaller screens */
 .bento-recent-app:nth-child(n+7) {
     display: none;
 }
@@ -6070,7 +6069,7 @@ html.dark-mode .usage-table-show-less:hover {
 /* Show all 8 apps on 4K UHD screens */
 @media (min-width: 2560px) {
     .bento-recent-apps-grid {
-        grid-template-columns: repeat(4, minmax(0, 1fr));
+        grid-template-columns: repeat(2, 1fr);
     }
     
     .bento-recent-app:nth-child(n+7) {
@@ -6080,42 +6079,40 @@ html.dark-mode .usage-table-show-less:hover {
 
 .bento-recent-app {
     display: flex;
-    flex-direction: column;
+    flex-direction: row;
     align-items: center;
-    padding: 16px 12px;
-    border-radius: 14px;
+    padding: 8px 0;
     cursor: pointer;
     transition: transform 0.15s ease;
-    background: transparent;
-    border: 1px solid transparent;
-    width: 100%;
-    max-width: 110px;
+    gap: 12px;
+    width: 200px;
 }
 
 .bento-recent-app:hover {
-    background: none !important;
-    transform: scale(1.05);
+    transform: scale(1.02);
 }
 
 .bento-recent-app:active {
-    transform: scale(0.97);
+    transform: scale(0.98);
 }
 
 .bento-recent-app-icon {
-    width: 44px;
-    height: 44px;
-    margin-bottom: 10px;
-    border-radius: 10px;
+    width: 36px;
+    height: 36px;
+    border-radius: 8px;
+    flex-shrink: 0;
 }
 
 .bento-recent-app-title {
     font-size: 13px;
+    font-weight: 500;
     color: #333;
-    text-align: center;
+    text-align: left;
     white-space: nowrap;
     overflow: hidden;
     text-overflow: ellipsis;
-    max-width: 100%;
+    flex: 1;
+    min-width: 0;
 }
 
 /* Empty state for recent apps */
@@ -6342,23 +6339,21 @@ html.dark-mode .usage-table-show-less:hover {
     }
 
     .bento-recent-apps-grid {
-        grid-template-columns: repeat(3, minmax(0, 1fr));
-        gap: 12px 8px;
+        grid-template-columns: 1fr;
+        gap: 8px;
     }
 
     .bento-recent-app {
-        padding: 12px 8px;
-        max-width: 90px;
+        padding: 6px 0;
     }
 
     .bento-recent-app-icon {
-        width: 36px;
-        height: 36px;
-        margin-bottom: 8px;
+        width: 32px;
+        height: 32px;
     }
 
     .bento-recent-app-title {
-        font-size: 11px;
+        font-size: 12px;
     }
 
     .bento-usage-grid {

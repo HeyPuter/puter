@@ -30,8 +30,8 @@ function buildRecentAppsHTML () {
     if ( window.launch_apps?.recent?.length > 0 ) {
         h += '<div class="bento-recent-apps-grid">';
 
-        // Show up to 8 recent apps (4 columns x 2 rows on 4K, 3x2 on smaller screens with last 2 hidden via CSS)
-        const recentApps = window.launch_apps.recent.slice(0, 8);
+        // Show up to 6 recent apps (2 columns x 3 rows)
+        const recentApps = window.launch_apps.recent.slice(0, 6);
         for ( const app_info of recentApps ) {
             // if title, name and uuid are the same and index_url is set, then show the hostname of index_url
             if ( app_info.name === app_info.title && app_info.name === app_info.uuid && app_info.index_url ) {
