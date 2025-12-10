@@ -4,8 +4,7 @@ import { IChatModel } from '../types';
 
 export const OPEN_AI_MODELS: IChatModel[] = [
     {
-        id: 'openai/gpt-5.1',
-        aliases: ['gpt-5.1'],
+        id: 'gpt-5.1',
         costs_currency: 'usd-cents',
         input_cost_key: 'prompt_tokens',
         output_cost_key: 'completion_tokens',
@@ -18,8 +17,7 @@ export const OPEN_AI_MODELS: IChatModel[] = [
         max_tokens: 128000,
     },
     {
-        id: 'openai/gpt-5.1-codex',
-        aliases: ['gpt-5.1-codex'],
+        id: 'gpt-5.1-codex',
         costs_currency: 'usd-cents',
         input_cost_key: 'prompt_tokens',
         output_cost_key: 'completion_tokens',
@@ -32,8 +30,7 @@ export const OPEN_AI_MODELS: IChatModel[] = [
         max_tokens: 128000,
     },
     {
-        id: 'openai/gpt-5.1-codex-mini',
-        aliases: ['gpt-5.1-codex-mini'],
+        id: 'gpt-5.1-codex-mini',
         costs_currency: 'usd-cents',
         input_cost_key: 'prompt_tokens',
         output_cost_key: 'completion_tokens',
@@ -46,8 +43,7 @@ export const OPEN_AI_MODELS: IChatModel[] = [
         max_tokens: 128000,
     },
     {
-        id: 'openai/gpt-5.1-chat-latest',
-        aliases: ['gpt-5.1-chat-latest'],
+        id: 'gpt-5.1-chat-latest',
         costs_currency: 'usd-cents',
         input_cost_key: 'prompt_tokens',
         output_cost_key: 'completion_tokens',
@@ -60,8 +56,8 @@ export const OPEN_AI_MODELS: IChatModel[] = [
         max_tokens: 16384,
     },
     {
-        id: 'openai/gpt-5-2025-08-07',
-        aliases: ['gpt-5-2025-08-07', 'gpt-5'],
+        id: 'gpt-5-2025-08-07',
+        aliases: ['gpt-5'],
         costs_currency: 'usd-cents',
         input_cost_key: 'prompt_tokens',
         output_cost_key: 'completion_tokens',
@@ -74,8 +70,8 @@ export const OPEN_AI_MODELS: IChatModel[] = [
         max_tokens: 128000,
     },
     {
-        id: 'openai/gpt-5-mini-2025-08-07',
-        aliases: ['gpt-5-mini-2025-08-07', 'gpt-5-mini'],
+        id: 'gpt-5-mini-2025-08-07',
+        aliases: ['gpt-5-mini'],
         costs_currency: 'usd-cents',
         input_cost_key: 'prompt_tokens',
         output_cost_key: 'completion_tokens',
@@ -88,8 +84,8 @@ export const OPEN_AI_MODELS: IChatModel[] = [
         max_tokens: 128000,
     },
     {
-        id: 'openai/gpt-5-nano-2025-08-07',
-        aliases: ['gpt-5-nano-2025-08-07', 'gpt-5-nano'],
+        id: 'gpt-5-nano-2025-08-07',
+        aliases: ['gpt-5-nano'],
         costs_currency: 'usd-cents',
         input_cost_key: 'prompt_tokens',
         output_cost_key: 'completion_tokens',
@@ -102,8 +98,7 @@ export const OPEN_AI_MODELS: IChatModel[] = [
         max_tokens: 128000,
     },
     {
-        id: 'openai/gpt-5-chat-latest',
-        aliases: ['gpt-5-chat-latest'],
+        id: 'gpt-5-chat-latest',
         costs_currency: 'usd-cents',
         input_cost_key: 'prompt_tokens',
         output_cost_key: 'completion_tokens',
@@ -116,8 +111,7 @@ export const OPEN_AI_MODELS: IChatModel[] = [
         max_tokens: 16384,
     },
     {
-        id: 'openai/gpt-4o',
-        aliases: ['gpt-4o'],
+        id: 'gpt-4o',
         costs_currency: 'usd-cents',
         input_cost_key: 'prompt_tokens',
         output_cost_key: 'completion_tokens',
@@ -130,8 +124,7 @@ export const OPEN_AI_MODELS: IChatModel[] = [
         max_tokens: 16384,
     },
     {
-        id: 'openai/gpt-4o-mini',
-        aliases: ['gpt-4o-mini'],
+        id: 'gpt-4o-mini',
         max_tokens: 16384,
         costs_currency: 'usd-cents',
         input_cost_key: 'prompt_tokens',
@@ -144,8 +137,7 @@ export const OPEN_AI_MODELS: IChatModel[] = [
         },
     },
     {
-        id: 'openai/o1',
-        aliases: ['o1'],
+        id: 'o1',
         costs_currency: 'usd-cents',
         input_cost_key: 'prompt_tokens',
         output_cost_key: 'completion_tokens',
@@ -158,8 +150,7 @@ export const OPEN_AI_MODELS: IChatModel[] = [
         max_tokens: 100000,
     },
     {
-        id: 'openai/o1-mini',
-        aliases: ['o1-mini'],
+        id: 'o1-mini',
         costs_currency: 'usd-cents',
         input_cost_key: 'prompt_tokens',
         output_cost_key: 'completion_tokens',
@@ -171,8 +162,7 @@ export const OPEN_AI_MODELS: IChatModel[] = [
         max_tokens: 65536,
     },
     {
-        id: 'openai/o1-pro',
-        aliases: ['o1-pro'],
+        id: 'o1-pro',
         costs_currency: 'usd-cents',
         input_cost_key: 'prompt_tokens',
         output_cost_key: 'completion_tokens',
@@ -184,8 +174,7 @@ export const OPEN_AI_MODELS: IChatModel[] = [
         max_tokens: 100000,
     },
     {
-        id: 'openai/o3',
-        aliases: ['o3'],
+        id: 'o3',
         costs_currency: 'usd-cents',
         input_cost_key: 'prompt_tokens',
         output_cost_key: 'completion_tokens',
@@ -198,8 +187,7 @@ export const OPEN_AI_MODELS: IChatModel[] = [
         max_tokens: 100000,
     },
     {
-        id: 'openai/o3-mini',
-        aliases: ['o3-mini'],
+        id: 'o3-mini',
         costs_currency: 'usd-cents',
         input_cost_key: 'prompt_tokens',
         output_cost_key: 'completion_tokens',
@@ -212,8 +200,7 @@ export const OPEN_AI_MODELS: IChatModel[] = [
         max_tokens: 100000,
     },
     {
-        id: 'openai/o4-mini',
-        aliases: ['o4-mini'],
+        id: 'o4-mini',
         costs_currency: 'usd-cents',
         input_cost_key: 'prompt_tokens',
         output_cost_key: 'completion_tokens',
@@ -225,8 +212,7 @@ export const OPEN_AI_MODELS: IChatModel[] = [
         max_tokens: 100000,
     },
     {
-        id: 'openai/gpt-4.1',
-        aliases: ['gpt-4.1'],
+        id: 'gpt-4.1',
         costs_currency: 'usd-cents',
         input_cost_key: 'prompt_tokens',
         output_cost_key: 'completion_tokens',
@@ -239,8 +225,7 @@ export const OPEN_AI_MODELS: IChatModel[] = [
         max_tokens: 32768,
     },
     {
-        id: 'openai/gpt-4.1-mini',
-        aliases: ['gpt-4.1-mini'],
+        id: 'gpt-4.1-mini',
         costs_currency: 'usd-cents',
         input_cost_key: 'prompt_tokens',
         output_cost_key: 'completion_tokens',
@@ -253,8 +238,7 @@ export const OPEN_AI_MODELS: IChatModel[] = [
         max_tokens: 32768,
     },
     {
-        id: 'openai/gpt-4.1-nano',
-        aliases: ['gpt-4.1-nano'],
+        id: 'gpt-4.1-nano',
         costs_currency: 'usd-cents',
         input_cost_key: 'prompt_tokens',
         output_cost_key: 'completion_tokens',
@@ -267,8 +251,7 @@ export const OPEN_AI_MODELS: IChatModel[] = [
         max_tokens: 32768,
     },
     {
-        id: 'openai/gpt-4.5-preview',
-        aliases: ['gpt-4.5-preview'],
+        id: 'gpt-4.5-preview',
         costs_currency: 'usd-cents',
         input_cost_key: 'prompt_tokens',
         output_cost_key: 'completion_tokens',

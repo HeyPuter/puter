@@ -39,7 +39,7 @@ export class GroqAIProvider implements IChatProvider {
     }
 
     getDefaultModel () {
-        return 'groq/llama-3.1-8b-instant';
+        return 'llama-3.1-8b-instant';
     }
 
     models () {
