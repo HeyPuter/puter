@@ -23,6 +23,8 @@ let usageTableSortState = {
     direction: 'desc' // default descending (highest cost first)
 };
 let usageTableData = []; // Store raw data for sorting
+let usageTableExpanded = false; // Track if table is showing all rows
+const USAGE_TABLE_INITIAL_ROWS = 10;
 
 const TabUsage = {
     id: 'usage',
@@ -60,11 +62,8 @@ const TabUsage = {
                             <span class="usage-progbar-percent"></span>
                         </div>
                     </div>
-                    <div class="driver-usage-details" style="margin-top: 5px; font-size: 13px; cursor: pointer;">
-                        <div class="caret"><svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" fill="currentColor" class="bi bi-caret-right-fill" viewBox="0 0 16 16"><path d="m12.14 8.753-5.482 4.796c-.646.566-1.658.106-1.658-.753V3.204a1 1 0 0 1 1.659-.753l5.48 4.796a1 1 0 0 1 0 1.506z"/></svg></div>
-                        <span class="driver-usage-details-text disable-user-select">View usage details</span>
-                    </div>
-                    <div class="driver-usage-details-content hide-scrollbar" style="display: none;">
+                    <h3 style="margin:15px 0 10px 0; font-size: 14px; font-weight: 500;">Usage Details</h3>
+                    <div class="driver-usage-details-content visible">
                     </div>
                 </div>
             </div>`;
@@ -73,20 +72,6 @@ const TabUsage = {
         update_usage_details($el_window);
         $($el_window).find('.update-usage-details').on('click', function () {
             update_usage_details($el_window);
-        });
-
-        // Scoped click handler for usage details toggle
-        $($el_window).on('click', '.driver-usage-details', function () {
-            const $container = $(this).closest('.driver-usage');
-            $container.find('.driver-usage-details-content').toggleClass('active');
-            $(this).toggleClass('active');
-
-            // change the text of the driver-usage-details-text depending on the class
-            if ( $(this).hasClass('active') ) {
-                $(this).find('.driver-usage-details-text').text('Hide usage details');
-            } else {
-                $(this).find('.driver-usage-details-text').text('View usage details');
-            }
         });
 
         // Click handler for sortable table headers
@@ -101,6 +86,12 @@ const TabUsage = {
                 usageTableSortState.direction = 'desc';
             }
 
+            renderUsageTable();
+        });
+
+        // Click handler for "Show more" to expand the table
+        $($el_window).on('click', '.usage-table-show-more', function () {
+            usageTableExpanded = true;
             renderUsageTable();
         });
     },
@@ -156,8 +147,17 @@ function renderUsageTable() {
         return 0;
     });
 
+    // Determine how many rows to show
+    const hasMoreRows = sortedData.length > USAGE_TABLE_INITIAL_ROWS;
+    const rowsToShow = usageTableExpanded ? sortedData : sortedData.slice(0, USAGE_TABLE_INITIAL_ROWS);
+    const hiddenRowCount = sortedData.length - USAGE_TABLE_INITIAL_ROWS;
+
+    // Build the wrapper with potential collapsed state
+    const isCollapsed = hasMoreRows && !usageTableExpanded;
+    let h = `<div class="usage-table-wrapper${isCollapsed ? ' collapsed' : ''}">`;
+
     // Build the table
-    let h = '<table class="driver-usage-details-content-table">';
+    h += '<table class="driver-usage-details-content-table">';
 
     h += `<thead>
         <tr>
@@ -168,7 +168,7 @@ function renderUsageTable() {
     </thead>`;
 
     h += '<tbody>';
-    for ( const row of sortedData ) {
+    for ( const row of rowsToShow ) {
         h += `
         <tr>
             <td>${row.resource}</td>
@@ -179,10 +179,22 @@ function renderUsageTable() {
     h += '</tbody>';
     h += '</table>';
 
+    // Add "Show more" overlay if there are hidden rows
+    if ( isCollapsed ) {
+        h += `<div class="usage-table-fade-overlay">
+            <button class="usage-table-show-more">Show ${hiddenRowCount} more</button>
+        </div>`;
+    }
+
+    h += '</div>';
+
     $('.driver-usage-details-content').html(h);
 }
 
 async function update_usage_details ($el_window) {
+    // Reset expanded state on refresh
+    usageTableExpanded = false;
+    
     // Add spinning animation and record start time
     const startTime = Date.now();
     $($el_window).find('.update-usage-details-icon').css('animation', 'spin 1s linear infinite');

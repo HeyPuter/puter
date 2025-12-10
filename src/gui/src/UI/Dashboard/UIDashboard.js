@@ -34,8 +34,8 @@ import TabUsage from './TabUsage.js';
 // Registry of all available tabs
 const tabs = [
     TabHome,
-    TabApps,
-    TabFiles,
+    // TabApps,
+    // TabFiles,
     TabUsage,
 ];
 
