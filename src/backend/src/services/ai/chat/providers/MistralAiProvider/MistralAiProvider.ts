@@ -38,7 +38,7 @@ export class MistralAIProvider implements IChatProvider {
     }
 
     getDefaultModel () {
-        return 'mistral/mistral-small-2506';
+        return 'mistral-small-2506';
     }
 
     async models () {
