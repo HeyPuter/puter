@@ -159,13 +159,7 @@ const TabAccount = {
             });
         });
         $el_window.find('.dashboard-section-account .delete-account').on('click', function (e) {
-            UIWindowConfirmUserDeletion({
-                window_options: {
-                    parent_uuid: $el_window.attr('data-element_uuid'),
-                    disable_parent_window: true,
-                    parent_center: true,
-                },
-            });
+            UIWindowConfirmUserDeletion();
         });
         $el_window.find('.dashboard-section-account .change-profile-picture').on('click', async function (e) {
             // open dialog
