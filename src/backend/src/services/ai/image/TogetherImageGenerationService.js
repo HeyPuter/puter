@@ -18,9 +18,9 @@
  */
 
 // METADATA // {"ai-commented":{"service":"claude"}}
-import { Context } from '../../../util/context.js';
-import { Together } from 'together-ai';
 import { APIError } from 'openai';
+import { Together } from 'together-ai';
+import { Context } from '../../../util/context.js';
 import BaseService from '../../BaseService.js';
 import { TypedValue } from '../../drivers/meta/Runtime.js';
 
@@ -220,9 +220,8 @@ export class TogetherImageGenerationService extends BaseService {
 
         const ratioWidth = (ratio && ratio.w !== undefined) ? Number(ratio.w) : undefined;
         const ratioHeight = (ratio && ratio.h !== undefined) ? Number(ratio.h) : undefined;
-
-        const normalizedWidth = this.#normalizeDimension(width !== undefined ? Number(width) : (ratioWidth ?? this.constructor.DEFAULT_RATIO.w));
-        const normalizedHeight = this.#normalizeDimension(height !== undefined ? Number(height) : (ratioHeight ?? this.constructor.DEFAULT_RATIO.h));
+        const normalizedWidth = this.#normalizeDimension(width !== undefined ? Number(width) : (ratioWidth ?? this.DEFAULT_RATIO.w));
+        const normalizedHeight = this.#normalizeDimension(height !== undefined ? Number(height) : (ratioHeight ?? this.DEFAULT_RATIO.h));
 
         if ( aspect_ratio ) {
             request.aspect_ratio = aspect_ratio;
