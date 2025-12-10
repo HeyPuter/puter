@@ -424,6 +424,14 @@ export class AIChatService extends BaseService {
 
                 const fallback = this.getFallbackModel(model.id, tried, triedProviders);
 
+                tried.push(model.id);
+                triedProviders.push(model.provider!);
+
+                if ( tried.length >= MAX_FALLBACKS ) {
+                    console.error('max fallbacks reached', { tried, triedProviders });
+                    break;
+                }
+
                 if ( ! fallback ) {
                     throw new Error('no fallback model available');
                 }
