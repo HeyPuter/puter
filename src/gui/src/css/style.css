@@ -6595,6 +6595,24 @@ html.dark-mode .usage-table-show-less:hover {
     flex-shrink: 0;
 }
 
+.dashboard-settings-card-success {
+    border-color: #08bf4e;
+    background: #e6ffed;
+}
+
+.dashboard-settings-card-success .dashboard-settings-card-info span {
+    color: #03933a;
+}
+
+.dashboard-settings-card-warning {
+    border-color: #f0a500;
+    background: #fff7e6;
+}
+
+.dashboard-settings-card-warning .dashboard-settings-card-info span {
+    color: #c98900;
+}
+
 /* Danger zone */
 .dashboard-danger-zone {
     margin-top: 40px;

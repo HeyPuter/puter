@@ -31,6 +31,7 @@ import TabFiles from './TabFiles.js';
 import TabApps from './TabApps.js';
 import TabUsage from './TabUsage.js';
 import TabAccount from './TabAccount.js';
+import TabSecurity from './TabSecurity.js';
 
 // Registry of all available tabs
 const tabs = [
@@ -39,6 +40,7 @@ const tabs = [
     // TabFiles,
     TabUsage,
     TabAccount,
+    TabSecurity,
 ];
 
 async function UIDashboard (options) {
