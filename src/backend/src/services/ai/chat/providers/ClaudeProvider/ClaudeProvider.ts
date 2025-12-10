@@ -55,7 +55,7 @@ export class ClaudeProvider implements IChatProvider {
         });
     }
     getDefaultModel () {
-        return 'claude-haiku-4-5-20251001';
+        return 'claude/claude-haiku-4-5-20251001';
     }
 
     async list () {

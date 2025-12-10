@@ -138,7 +138,7 @@ export class OpenRouterProvider implements IChatProvider {
             coerced_models.push({
                 id: `openrouter:${model.id}`,
                 name: `${model.name} (OpenRouter)`,
-                aliases: [model.id, model.name, `openrouter/${model.id}`, model.id.split('/').slice(1).join('/')],
+                aliases: [model.id, `openrouter/${model.id}`, model.id.split('/').slice(1).join('/')],
                 max_tokens: model.top_provider.max_completion_tokens,
                 costs_currency: 'usd-cents',
                 input_cost_key: 'prompt',

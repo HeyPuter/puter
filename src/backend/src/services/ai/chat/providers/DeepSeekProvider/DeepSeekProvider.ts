@@ -40,7 +40,7 @@ export class DeepSeekProvider implements IChatProvider {
     }
 
     getDefaultModel () {
-        return 'deepseek-chat';
+        return 'deepseek/deepseek-chat';
     }
 
     models () {

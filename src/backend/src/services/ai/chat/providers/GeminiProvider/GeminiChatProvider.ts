@@ -13,7 +13,7 @@ export class GeminiChatProvider implements IChatProvider {
     meteringService: MeteringService;
     openai: OpenAI;
 
-    defaultModel = 'gemini-2.5-flash';
+    defaultModel = 'gemini/gemini-2.5-flash';
 
     constructor ( meteringService: MeteringService, config: { apiKey: string })
     {
