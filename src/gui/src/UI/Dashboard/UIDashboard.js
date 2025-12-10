@@ -146,12 +146,16 @@ async function UIDashboard (options) {
     // User options button click handler
     $el_window.on('click', '.dashboard-user-btn', function (e) {
         const $btn = $(this);
+        const $chevron = $btn.find('.dashboard-user-chevron');
         const pos = this.getBoundingClientRect();
         
         // Don't open if already open
         if ($('.context-menu[data-id="dashboard-user-menu"]').length > 0) {
             return;
         }
+
+        // Rotate chevron to point upwards
+        $chevron.addClass('open');
 
         let items = [];
 
@@ -275,7 +279,11 @@ async function UIDashboard (options) {
                 top: pos.top - 8,
                 left: pos.left
             },
-            items: menuItems
+            items: menuItems,
+            onClose: () => {
+                // Rotate chevron back to point downwards
+                $chevron.removeClass('open');
+            }
         });
     });
 

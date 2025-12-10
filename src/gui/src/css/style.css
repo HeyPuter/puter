@@ -5626,6 +5626,11 @@ html.dark-mode .usage-table-show-less:hover {
     height: 16px;
     color: #888;
     flex-shrink: 0;
+    transition: transform 0.1s ease;
+}
+
+.dashboard-user-chevron.open {
+    transform: rotate(180deg);
 }
 
 .dashboard-content {
