@@ -14,7 +14,7 @@ import type * as ExtensionControllerExports from './ExtensionController/src/Exte
 declare global {
     namespace Express {
         interface Request {
-            services: { get: <T extends (keyof ServiceNameMap) | (string & {}) >(string: T) => T extends keyof ServiceNameMap ? ServiceNameMap[T] : unknown }
+            services: { get: <T extends (keyof ServiceNameMap) | (string & {})>(string: T) => T extends keyof ServiceNameMap ? ServiceNameMap[T] : unknown }
             actor: Actor,
             rawBody: Buffer,
             /** @deprecated use actor instead */
