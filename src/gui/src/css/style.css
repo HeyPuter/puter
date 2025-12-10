@@ -5798,11 +5798,17 @@ html.dark-mode .usage-table-fade-overlay {
     .dashboard-section-home .bento-container {
         max-width: 1000px;
     }
+    .dashboard-section-usage{
+        max-width: 800px;
+    }
 }
 /* 4K UHD */
 @media (min-width: 2560px) {
     .dashboard-section-home .bento-container {
         max-width: 1200px;
+    }
+    .dashboard-section-usage{
+        max-width: 900px;
     }
 }
 
