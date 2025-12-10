@@ -2,9 +2,9 @@ import { IChatModel } from '../types.js';
 
 export const DEEPSEEK_MODELS: IChatModel[] = [
     {
-        id: 'deepseek/deepseek-chat',
+        id: 'deepseek-chat',
         name: 'DeepSeek Chat',
-        aliases: ['deepseek-chat'],
+        aliases: [],
         context: 128000,
         costs_currency: 'usd-cents',
         input_cost_key: 'prompt_tokens',
@@ -18,9 +18,9 @@ export const DEEPSEEK_MODELS: IChatModel[] = [
         max_tokens: 8000,
     },
     {
-        id: 'deepseek/deepseek-reasoner',
+        id: 'deepseek-reasoner',
         name: 'DeepSeek Reasoner',
-        aliases: ['deepseek-reasoner'],
+        aliases: [],
         context: 128000,
         costs_currency: 'usd-cents',
         input_cost_key: 'prompt_tokens',

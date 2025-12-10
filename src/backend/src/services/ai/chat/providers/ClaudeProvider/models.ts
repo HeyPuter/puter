@@ -2,8 +2,8 @@ import { IChatModel } from '../types';
 
 export const CLAUDE_MODELS: IChatModel[] = [
     {
-        id: 'claude/claude-opus-4-5-20251101',
-        aliases: ['claude-opus-4-5-20251101', 'claude-opus-4-5-latest', 'claude-opus-4-5', 'claude-opus-4.5'],
+        id: 'claude-opus-4-5-20251101',
+        aliases: ['claude-opus-4-5-latest', 'claude-opus-4-5', 'claude-opus-4.5'],
         name: 'Claude Opus 4.5',
         costs_currency: 'usd-cents',
         input_cost_key: 'input_tokens',
@@ -20,8 +20,8 @@ export const CLAUDE_MODELS: IChatModel[] = [
         max_tokens: 64000,
     },
     {
-        id: 'claude/claude-haiku-4-5-20251001',
-        aliases: ['claude-haiku-4-5-20251001', 'claude-haiku-4.5', 'claude-haiku-4-5', 'claude-4-5-haiku'],
+        id: 'claude-haiku-4-5-20251001',
+        aliases: ['claude-haiku-4.5', 'claude-haiku-4-5', 'claude-4-5-haiku'],
         name: 'Claude Haiku 4.5',
         costs_currency: 'usd-cents',
         input_cost_key: 'input_tokens',
@@ -38,8 +38,8 @@ export const CLAUDE_MODELS: IChatModel[] = [
         max_tokens: 64000,
     },
     {
-        id: 'claude/claude-sonnet-4-5-20250929',
-        aliases: ['claude-sonnet-4-5-20250929', 'claude-sonnet-4.5', 'claude-sonnet-4-5'],
+        id: 'claude-sonnet-4-5-20250929',
+        aliases: ['claude-sonnet-4.5', 'claude-sonnet-4-5'],
         name: 'Claude Sonnet 4.5',
         costs_currency: 'usd-cents',
         input_cost_key: 'input_tokens',
@@ -56,8 +56,8 @@ export const CLAUDE_MODELS: IChatModel[] = [
         max_tokens: 64000,
     },
     {
-        id: 'claude/claude-opus-4-1-20250805',
-        aliases: ['claude-opus-4-1-20250805', 'claude-opus-4-1'],
+        id: 'claude-opus-4-1-20250805',
+        aliases: ['claude-opus-4-1'],
         name: 'Claude Opus 4.1',
         costs_currency: 'usd-cents',
         input_cost_key: 'input_tokens',
@@ -74,8 +74,8 @@ export const CLAUDE_MODELS: IChatModel[] = [
         max_tokens: 32000,
     },
     {
-        id: 'claude/claude-opus-4-20250514',
-        aliases: ['claude-opus-4-20250514', 'claude-opus-4', 'claude-opus-4-latest'],
+        id: 'claude-opus-4-20250514',
+        aliases: ['claude-opus-4', 'claude-opus-4-latest'],
         name: 'Claude Opus 4',
         costs_currency: 'usd-cents',
         input_cost_key: 'input_tokens',
@@ -92,8 +92,8 @@ export const CLAUDE_MODELS: IChatModel[] = [
         max_tokens: 32000,
     },
     {
-        id: 'claude/claude-sonnet-4-20250514',
-        aliases: ['claude-sonnet-4-20250514', 'claude-sonnet-4', 'claude-sonnet-4-latest'],
+        id: 'claude-sonnet-4-20250514',
+        aliases: ['claude-sonnet-4', 'claude-sonnet-4-latest'],
         name: 'Claude Sonnet 4',
         costs_currency: 'usd-cents',
         input_cost_key: 'input_tokens',
@@ -110,8 +110,8 @@ export const CLAUDE_MODELS: IChatModel[] = [
         max_tokens: 64000,
     },
     {
-        id: 'claude/claude-3-7-sonnet-20250219',
-        aliases: ['claude-3-7-sonnet-20250219', 'claude-3-7-sonnet-latest'],
+        id: 'claude-3-7-sonnet-20250219',
+        aliases: ['claude-3-7-sonnet-latest'],
         succeeded_by: 'claude-sonnet-4-20250514',
         costs_currency: 'usd-cents',
         input_cost_key: 'input_tokens',
@@ -128,9 +128,9 @@ export const CLAUDE_MODELS: IChatModel[] = [
         max_tokens: 8192,
     },
     {
-        id: 'claude/claude-3-5-sonnet-20241022',
+        id: 'claude-3-5-sonnet-20241022',
         name: 'Claude 3.5 Sonnet',
-        aliases: ['claude-3-5-sonnet-20241022', 'claude-3-5-sonnet-latest'],
+        aliases: ['claude-3-5-sonnet-latest'],
         costs_currency: 'usd-cents',
         input_cost_key: 'input_tokens',
         output_cost_key: 'output_tokens',
@@ -148,9 +148,8 @@ export const CLAUDE_MODELS: IChatModel[] = [
         max_tokens: 8192,
     },
     {
-        id: 'claude/claude-3-5-sonnet-20240620',
+        id: 'claude-3-5-sonnet-20240620',
         succeeded_by: 'claude-3-5-sonnet-20241022',
-        aliases: ['claude-3-5-sonnet-20240620'],
         costs_currency: 'usd-cents',
         input_cost_key: 'input_tokens',
         output_cost_key: 'output_tokens',
@@ -166,8 +165,7 @@ export const CLAUDE_MODELS: IChatModel[] = [
         max_tokens: 8192,
     },
     {
-        id: 'claude/claude-3-haiku-20240307',
-        aliases: ['claude-3-haiku-20240307'],
+        id: 'claude-3-haiku-20240307',
         costs_currency: 'usd-cents',
         input_cost_key: 'input_tokens',
         output_cost_key: 'output_tokens',

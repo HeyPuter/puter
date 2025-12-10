@@ -2,10 +2,9 @@ import { IChatModel } from '../types';
 
 export const MISTRAL_MODELS: IChatModel[] = [
     {
-        id: 'mistral/mistral-medium-2508',
+        id: 'mistral-medium-2508',
         name: 'mistral-medium-2508',
         aliases: [
-            'mistral-medium-2508',
             'mistral-medium-latest',
             'mistral-medium',
         ],
@@ -22,10 +21,9 @@ export const MISTRAL_MODELS: IChatModel[] = [
         },
     },
     {
-        id: 'mistral/open-mistral-7b',
+        id: 'open-mistral-7b',
         name: 'open-mistral-7b',
         aliases: [
-            'open-mistral-7b',
             'mistral-tiny',
             'mistral-tiny-2312',
         ],
@@ -42,10 +40,9 @@ export const MISTRAL_MODELS: IChatModel[] = [
         },
     },
     {
-        id: 'mistral/open-mistral-nemo',
+        id: 'open-mistral-nemo',
         name: 'open-mistral-nemo',
         aliases: [
-            'open-mistral-nemo',
             'open-mistral-nemo-2407',
             'mistral-tiny-2407',
             'mistral-tiny-latest',
@@ -63,10 +60,9 @@ export const MISTRAL_MODELS: IChatModel[] = [
         },
     },
     {
-        id: 'mistral/pixtral-large-2411',
+        id: 'pixtral-large-2411',
         name: 'pixtral-large-2411',
         aliases: [
-            'pixtral-large-2411',
             'pixtral-large-latest',
             'mistral-large-pixtral-2411',
         ],
@@ -83,10 +79,9 @@ export const MISTRAL_MODELS: IChatModel[] = [
         },
     },
     {
-        id: 'mistral/codestral-2508',
+        id: 'codestral-2508',
         name: 'codestral-2508',
         aliases: [
-            'codestral-2508',
             'codestral-latest',
         ],
         max_tokens: 256000,
@@ -102,10 +97,9 @@ export const MISTRAL_MODELS: IChatModel[] = [
         },
     },
     {
-        id: 'mistral/devstral-small-2507',
+        id: 'devstral-small-2507',
         name: 'devstral-small-2507',
         aliases: [
-            'devstral-small-2507',
             'devstral-small-latest',
         ],
         max_tokens: 131072,
@@ -122,10 +116,9 @@ export const MISTRAL_MODELS: IChatModel[] = [
         },
     },
     {
-        id: 'mistral/devstral-medium-2507',
+        id: 'devstral-medium-2507',
         name: 'devstral-medium-2507',
         aliases: [
-            'devstral-medium-2507',
             'devstral-medium-latest',
         ],
         max_tokens: 131072,
@@ -142,10 +135,9 @@ export const MISTRAL_MODELS: IChatModel[] = [
         },
     },
     {
-        id: 'mistral/mistral-small-2506',
+        id: 'mistral-small-2506',
         name: 'mistral-small-2506',
         aliases: [
-            'mistral-small-2506',
             'mistral-small-latest',
         ],
         max_tokens: 131072,
@@ -161,10 +153,9 @@ export const MISTRAL_MODELS: IChatModel[] = [
         },
     },
     {
-        id: 'mistral/magistral-medium-2509',
+        id: 'magistral-medium-2509',
         name: 'magistral-medium-2509',
         aliases: [
-            'magistral-medium-2509',
             'magistral-medium-latest',
         ],
         max_tokens: 131072,
@@ -180,10 +171,9 @@ export const MISTRAL_MODELS: IChatModel[] = [
         },
     },
     {
-        id: 'mistral/magistral-small-2509',
+        id: 'magistral-small-2509',
         name: 'magistral-small-2509',
         aliases: [
-            'magistral-small-2509',
             'magistral-small-latest',
         ],
         max_tokens: 131072,
@@ -199,10 +189,9 @@ export const MISTRAL_MODELS: IChatModel[] = [
         },
     },
     {
-        id: 'mistral/voxtral-mini-2507',
+        id: 'voxtral-mini-2507',
         name: 'voxtral-mini-2507',
         aliases: [
-            'voxtral-mini-2507',
             'voxtral-mini-latest',
         ],
         max_tokens: 32768,
@@ -218,10 +207,9 @@ export const MISTRAL_MODELS: IChatModel[] = [
         },
     },
     {
-        id: 'mistral/voxtral-small-2507',
+        id: 'voxtral-small-2507',
         name: 'voxtral-small-2507',
         aliases: [
-            'voxtral-small-2507',
             'voxtral-small-latest',
         ],
         max_tokens: 32768,
@@ -237,10 +225,9 @@ export const MISTRAL_MODELS: IChatModel[] = [
         },
     },
     {
-        id: 'mistral/mistral-large-latest',
+        id: 'mistral-large-latest',
         name: 'mistral-large-2512',
         aliases: [
-            'mistral-large-latest',
             'mistral-large-2512',
         ],
         max_tokens: 262144,
@@ -256,10 +243,9 @@ export const MISTRAL_MODELS: IChatModel[] = [
         },
     },
     {
-        id: 'mistral/ministral-3b-2512',
+        id: 'ministral-3b-2512',
         name: 'ministral-3b-2512',
         aliases: [
-            'ministral-3b-2512',
             'ministral-3b-latest',
         ],
         max_tokens: 131072,
@@ -275,10 +261,9 @@ export const MISTRAL_MODELS: IChatModel[] = [
         },
     },
     {
-        id: 'mistral/ministral-8b-2512',
+        id: 'ministral-8b-2512',
         name: 'ministral-8b-2512',
         aliases: [
-            'ministral-8b-2512',
             'ministral-8b-latest',
         ],
         max_tokens: 262144,
@@ -294,10 +279,9 @@ export const MISTRAL_MODELS: IChatModel[] = [
         },
     },
     {
-        id: 'mistral/ministral-14b-2512',
+        id: 'ministral-14b-2512',
         name: 'ministral-14b-2512',
         aliases: [
-            'ministral-14b-2512',
             'ministral-14b-latest',
         ],
         max_tokens: 262144,
