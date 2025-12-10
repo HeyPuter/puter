@@ -68,6 +68,10 @@ interface ServiceNameMap {
 }
 interface Extension extends RouterMethods {
     exports: Record<string, unknown>,
+    span: (<T>(label: string, fn: () => T) => () => T) & {
+        run<T>(label: string, fn: () => T): T;
+        run<T>(fn: () => T): T;
+    },
     on<T extends unknown[]>(event: string, listener: (...args: T) => void): void, // TODO DS: type events better
     import(module: 'data'): { db: BaseDatabaseAccessService, kv: DBKVStore, cache: unknown }// TODO DS: type cache better
     import(module: 'core'): CoreRuntimeModule,
