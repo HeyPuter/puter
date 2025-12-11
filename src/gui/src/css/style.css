@@ -5952,6 +5952,38 @@ html.dark-mode .usage-table-show-less:hover {
     font-weight: 400;
 }
 
+.bento-save-account-warning {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    margin-top: 12px;
+    padding: 8px 14px;
+    background-color: #fef3c7;
+    border: 1px solid #f59e0b;
+    border-radius: 8px;
+    color: #92400e;
+    font-size: 13px;
+    font-weight: 500;
+    cursor: pointer;
+    text-decoration: none;
+    transition: all 0.15s ease;
+}
+
+.bento-save-account-warning:hover {
+    background-color: #fde68a;
+    border-color: #d97706;
+    color: #78350f;
+}
+
+.bento-save-account-warning svg {
+    flex-shrink: 0;
+    color: #f59e0b;
+}
+
+.bento-save-account-warning:hover svg {
+    color: #d97706;
+}
+
 /* Recent Apps Card - Rectangle */
 .bento-recent {
     min-height: 310px;
