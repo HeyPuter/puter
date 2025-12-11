@@ -49,7 +49,6 @@ export default defineConfig([
         files: [
             'src/backend/**/*.{js,mjc,cjs}',
             'extensions/**/*.{js,mjc,cjs}',
-            'src/backend-core-0/**/*.{js,mjc,cjs}',
         ],
         ignores: [
             'src/backend/src/services/database/sqlite_setup/**/*.js',
@@ -77,7 +76,6 @@ export default defineConfig([
         files: [
             'src/backend/**/*.{ts}',
             'extensions/**/*.{ts}',
-            'src/backend-core-0/**/*.{ts}',
         ],
         rules: mandatoryRules,
         languageOptions: {

@@ -1713,7 +1713,7 @@ module.exports = {
     is_empty,
     is_shared_with,
     is_shared_with_anyone,
-    ...require('@heyputer/backend-core-0').validation,
+    ...require('./validation'),
     is_temp_users_disabled,
     is_user_signup_disabled,
     jwt_auth,

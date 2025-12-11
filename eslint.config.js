@@ -111,7 +111,6 @@ const backendConfig = {
     ...recommendedJsConfig,
     files: [
         'src/backend/**/*.{js,mjs,cjs,ts}',
-        'src/backend-core-0/**/*.{js,mjs,cjs,ts}',
         'src/putility/**/*.{js,mjs,cjs,ts}',
     ],
     ignores: [
@@ -151,7 +150,6 @@ const frontendConfig = {
     ignores: [
         'src/backend/**/*.{js,mjs,cjs,ts}',
         'extensions/**/*.{js,mjs,cjs,ts}',
-        'src/backend-core-0/**/*.{js,mjs,cjs,ts}',
         'submodules/**',
         '**/*.test.{js,ts,mts,mjs}',
         '**/*.min.js',
