@@ -102,8 +102,11 @@ const TabSecurity = {
             UIWindowChangePassword({
                 window_options: {
                     parent_uuid: $el_window.attr('data-element_uuid'),
-                    disable_parent_window: true,
+                    backdrop: true,
+                    close_on_backdrop_click: true,
                     parent_center: true,
+                    stay_on_top: true,
+                    has_head: false,
                 },
             });
         });
@@ -112,14 +115,27 @@ const TabSecurity = {
             UIWindowManageSessions({
                 window_options: {
                     parent_uuid: $el_window.attr('data-element_uuid'),
-                    disable_parent_window: true,
+                    backdrop: true,
+                    close_on_backdrop_click: true,
+                    parent_center: true,
+                    stay_on_top: true,
+                    has_head: false,
                     parent_center: true,
                 },
             });
         });
 
         $el_window.find('.dashboard-section-security .enable-2fa').on('click', async function (e) {
-            const { promise } = await UIWindow2FASetup();
+            const { promise } = await UIWindow2FASetup({
+                window_options: {
+                    parent_uuid: $el_window.attr('data-element_uuid'),
+                    backdrop: true,
+                    close_on_backdrop_click: true,
+                    stay_on_top: true,
+                    has_head: false,
+                    parent_center: true,
+                },
+            });
             const tfa_was_enabled = await promise;
 
             if ( tfa_was_enabled ) {

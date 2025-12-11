@@ -6615,9 +6615,7 @@ html.dark-mode .usage-table-show-less:hover {
 
 /* Danger zone */
 .dashboard-danger-zone {
-    margin-top: 40px;
     padding-top: 24px;
-    border-top: 1px solid #fee2e2;
 }
 
 .dashboard-danger-zone h3 {

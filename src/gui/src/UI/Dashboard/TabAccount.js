@@ -21,7 +21,6 @@ import UIWindowChangePassword from '../UIWindowChangePassword.js';
 import UIWindowChangeEmail from '../Settings/UIWindowChangeEmail.js';
 import UIWindowChangeUsername from '../UIWindowChangeUsername.js';
 import UIWindowConfirmUserDeletion from '../Settings/UIWindowConfirmUserDeletion.js';
-import UIWindowManageSessions from '../UIWindowManageSessions.js';
 import UIWindow from '../UIWindow.js';
 
 const TabAccount = {
@@ -101,11 +100,8 @@ const TabAccount = {
             h += '</div>';
         }
 
-        h += '</div>'; // end settings-grid
-
         // Danger zone
         h += '<div class="dashboard-danger-zone">';
-            h += '<h3>Danger Zone</h3>';
             h += '<div class="dashboard-card dashboard-danger-card">';
                 h += '<div class="dashboard-danger-card-content">';
                     h += '<div class="dashboard-danger-card-info">';
@@ -117,6 +113,8 @@ const TabAccount = {
             h += '</div>';
         h += '</div>';
 
+        h += '</div>'; // end settings-grid
+
         h += '</div>'; // end dashboard-tab-content
         return h;
     },
@@ -126,8 +124,11 @@ const TabAccount = {
             UIWindowChangePassword({
                 window_options: {
                     parent_uuid: $el_window.attr('data-element_uuid'),
-                    disable_parent_window: true,
+                    backdrop: true,
+                    close_on_backdrop_click: true,
                     parent_center: true,
+                    stay_on_top: true,
+                    has_head: false,
                 },
             });
         });
@@ -135,8 +136,11 @@ const TabAccount = {
             UIWindowChangeUsername({
                 window_options: {
                     parent_uuid: $el_window.attr('data-element_uuid'),
-                    disable_parent_window: true,
+                    backdrop: true,
+                    close_on_backdrop_click: true,
                     parent_center: true,
+                    stay_on_top: true,
+                    has_head: false,
                 },
             });
         });
@@ -144,22 +148,25 @@ const TabAccount = {
             UIWindowChangeEmail({
                 window_options: {
                     parent_uuid: $el_window.attr('data-element_uuid'),
-                    disable_parent_window: true,
+                    backdrop: true,
+                    close_on_backdrop_click: true,
                     parent_center: true,
-                },
-            });
-        });
-        $el_window.find('.dashboard-section-account .manage-sessions').on('click', function (e) {
-            UIWindowManageSessions({
-                window_options: {
-                    parent_uuid: $el_window.attr('data-element_uuid'),
-                    disable_parent_window: true,
-                    parent_center: true,
+                    stay_on_top: true,
+                    has_head: false,
                 },
             });
         });
         $el_window.find('.dashboard-section-account .delete-account').on('click', function (e) {
-            UIWindowConfirmUserDeletion();
+            UIWindowConfirmUserDeletion({
+                window_options: {
+                    parent_uuid: $el_window.attr('data-element_uuid'),
+                    backdrop: true,
+                    close_on_backdrop_click: true,
+                    parent_center: true,
+                    stay_on_top: true,
+                    has_head: false,
+                },
+            });
         });
         $el_window.find('.dashboard-section-account .change-profile-picture').on('click', async function (e) {
             // open dialog
@@ -174,6 +181,10 @@ const TabAccount = {
                 is_dir: true,
                 is_openFileDialog: true,
                 selectable_body: false,
+                backdrop: true,
+                close_on_backdrop_click: true,
+                parent_center: true,
+                stay_on_top: true,
             });
         });
         $el_window.on('file_opened', async function (e) {

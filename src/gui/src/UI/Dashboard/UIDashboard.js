@@ -19,7 +19,6 @@
 
 import UIWindow from '../UIWindow.js';
 import UIContextMenu from '../UIContextMenu.js';
-import UIWindowSettings from '../Settings/UIWindowSettings.js';
 import UIAlert from '../UIAlert.js';
 import UIWindowSaveAccount from '../UIWindowSaveAccount.js';
 import UIWindowLogin from '../UIWindowLogin.js';
@@ -224,13 +223,6 @@ async function UIDashboard (options) {
         // Build final menu items
         const menuItems = [
             ...items,
-            // Settings
-            {
-                html: i18n('settings'),
-                onClick: async function () {
-                    UIWindowSettings();
-                },
-            },
             // Developer
             {
                 html: 'Developers<svg style="width: 11px; height: 11px; margin-left:2px; margin-bottom:-1px;" height="32" viewBox="0 0 32 32" width="32" xmlns="http://www.w3.org/2000/svg"><path d="m26 28h-20a2.0027 2.0027 0 0 1 -2-2v-20a2.0027 2.0027 0 0 1 2-2h10v2h-10v20h20v-10h2v10a2.0027 2.0027 0 0 1 -2 2z"/><path d="m20 2v2h6.586l-8.586 8.586 1.414 1.414 8.586-8.586v6.586h2v-10z"/><path d="m0 0h32v32h-32z" fill="none"/></svg>',
