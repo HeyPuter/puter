@@ -172,6 +172,13 @@ async function UIDashboard (options) {
                     UIWindowSaveAccount({
                         send_confirmation_code: false,
                         default_username: window.user.username,
+                        window_options: {
+                            backdrop: true,
+                            close_on_backdrop_click: true,
+                            parent_center: true,
+                            stay_on_top: true,
+                            has_head: false,
+                        },
                     });
                 },
             });
@@ -211,8 +218,10 @@ async function UIDashboard (options) {
                         reload_on_success: true,
                         send_confirmation_code: false,
                         window_options: {
-                            has_head: true,
-                            stay_on_top: true,
+                            has_head: false,
+                            backdrop: true,
+                            close_on_backdrop_click: true,
+                            parent_center: true,
                         },
                     });
                 },
@@ -236,7 +245,15 @@ async function UIDashboard (options) {
             {
                 html: i18n('contact_us'),
                 onClick: async function () {
-                    UIWindowFeedback();
+                    UIWindowFeedback({
+                        window_options: {
+                            backdrop: true,
+                            close_on_backdrop_click: true,
+                            parent_center: true,
+                            stay_on_top: true,
+                            has_head: false,
+                        },
+                    });
                 },
             },
             '-',
