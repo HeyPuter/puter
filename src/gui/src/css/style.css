@@ -5542,6 +5542,7 @@ html.dark-mode .usage-table-show-less:hover {
     padding: 16px 12px;
     display: flex;
     flex-direction: column;
+    box-sizing: border-box;
 }
 
 .dashboard-sidebar-nav {
@@ -5796,6 +5797,9 @@ html.dark-mode .usage-table-show-less:hover {
 
 /* Responsive: tablet and below */
 @media (max-width: 768px) {
+    .dashboard-sidebar-nav {
+        padding-top: 45px;
+    }
     .dashboard-sidebar-toggle {
         display: flex;
     }
