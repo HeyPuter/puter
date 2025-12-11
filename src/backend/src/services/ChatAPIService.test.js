@@ -124,7 +124,11 @@ describe('ChatAPIService', () => {
 
             // Verify
             expect(mockEndpoint).toHaveBeenCalledWith(expect.objectContaining({
-                route: '/models',
+                route: '/chat/models',
+                methods: ['GET'],
+            }));
+            expect(mockEndpoint).toHaveBeenCalledWith(expect.objectContaining({
+                route: '/image/models',
                 methods: ['GET'],
             }));
         });
@@ -138,7 +142,11 @@ describe('ChatAPIService', () => {
 
             // Verify
             expect(mockEndpoint).toHaveBeenCalledWith(expect.objectContaining({
-                route: '/models/details',
+                route: '/chat/models/details',
+                methods: ['GET'],
+            }));
+            expect(mockEndpoint).toHaveBeenCalledWith(expect.objectContaining({
+                route: '/image/models/details',
                 methods: ['GET'],
             }));
         });
