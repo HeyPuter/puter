@@ -3,7 +3,7 @@ import type { Apps } from './modules/apps.d.ts';
 import type { Auth } from './modules/auth.d.ts';
 import type { Debug } from './modules/debug.d.ts';
 import type { Drivers } from './modules/drivers.d.ts';
-import type { PuterJSFileSystemModule, SpaceInfo } from './modules/filesystem.d.ts';
+import type { FS } from './modules/filesystem.d.ts';
 import type { FSItem } from './modules/fs-item.d.ts';
 import type { Hosting } from './modules/hosting.d.ts';
 import type { KV } from './modules/kv.d.ts';
@@ -51,7 +51,7 @@ export class Puter {
     apps: Apps;
     auth: Auth;
     os: OS;
-    fs: PuterJSFileSystemModule;
+    fs: FS;
     ui: UI;
     hosting: Hosting;
     kv: KV;

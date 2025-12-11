@@ -7,37 +7,43 @@ export interface SpaceInfo {
 }
 
 export interface CopyOptions extends RequestCallbacks<FSItem> {
-    source: string;
-    destination: string;
+    source?: string;
+    destination?: string;
     overwrite?: boolean;
     newName?: string;
     createMissingParents?: boolean;
     dedupeName?: boolean;
     newMetadata?: Record<string, unknown>;
     excludeSocketID?: string;
+    original_client_socket_id?: string;
 }
 
 export interface MoveOptions extends RequestCallbacks<FSItem> {
-    source: string;
-    destination: string;
+    source?: string;
+    destination?: string;
     overwrite?: boolean;
     newName?: string;
     createMissingParents?: boolean;
     newMetadata?: Record<string, unknown>;
     excludeSocketID?: string;
+    original_client_socket_id?: string;
 }
 
 export interface MkdirOptions extends RequestCallbacks<FSItem> {
     path?: string;
     overwrite?: boolean;
     dedupeName?: boolean;
+    rename?: boolean;
     createMissingParents?: boolean;
+    recursive?: boolean;
+    shortcutTo?: string;
 }
 
 export interface DeleteOptions extends RequestCallbacks<void> {
-    path?: string;
+    paths?: string | string[];
     recursive?: boolean;
     descendantsOnly?: boolean;
+    descendants_only?: boolean;
 }
 
 export interface ReadOptions extends RequestCallbacks<Blob> {
@@ -57,24 +63,48 @@ export interface ReaddirOptions extends RequestCallbacks<FSItem[]> {
 export interface RenameOptions extends RequestCallbacks<FSItem> {
     uid?: string;
     path?: string;
-    newName: string;
+    newName?: string;
+    excludeSocketID?: string;
+    original_client_socket_id?: string;
 }
 
-export interface UploadOptions extends RequestCallbacks<FSItem[]> {
+export interface StatOptions extends RequestCallbacks<FSItem> {
+    path?: string;
+    uid?: string;
+    consistency?: 'strong' | 'eventual';
+    returnSubdomains?: boolean;
+    returnPermissions?: boolean;
+    returnVersions?: boolean;
+    returnSize?: boolean;
+}
+
+export interface UploadOptions extends RequestCallbacks<FSItem | FSItem[]> {
     overwrite?: boolean;
     dedupeName?: boolean;
     name?: string;
     parsedDataTransferItems?: boolean;
     createFileParent?: boolean;
+    createMissingAncestors?: boolean;
+    createMissingParents?: boolean;
+    shortcutTo?: string;
+    appUID?: string;
+    strict?: boolean;
     init?: (operationId: string, xhr: XMLHttpRequest) => void;
-    error?: (e: unknown) => void;
+    start?: () => void;
+    progress?: (operationId: string, progress: number) => void;
+    abort?: (operationId: string) => void;
 }
 
 export interface WriteOptions extends RequestCallbacks<FSItem> {
     overwrite?: boolean;
     dedupeName?: boolean;
     createMissingParents?: boolean;
+    createMissingAncestors?: boolean;
     name?: string;
+    init?: (operationId: string, xhr: XMLHttpRequest) => void;
+    start?: () => void;
+    progress?: (operationId: string, progress: number) => void;
+    abort?: (operationId: string) => void;
 }
 
 export interface SignResult<T = Record<string, unknown>> {
@@ -82,23 +112,51 @@ export interface SignResult<T = Record<string, unknown>> {
     items: T | T[];
 }
 
-export class PuterJSFileSystemModule {
-    constructor (context: Record<string, unknown>);
+export type UploadItems = DataTransferItemList | DataTransferItem | FileList | File[] | Blob[] | Blob | File | string | unknown[];
 
-    space (options?: RequestCallbacks<SpaceInfo>): Promise<SpaceInfo>;
-    mkdir (pathOrOptions: string | MkdirOptions, options?: MkdirOptions): Promise<FSItem>;
-    copy (sourceOrOptions: string | CopyOptions, destination?: string, options?: CopyOptions): Promise<FSItem>;
-    rename (pathOrUid: string, newName: string, options?: RenameOptions): Promise<FSItem>;
-    upload (items: FileList | File[] | Blob[] | Blob | string | unknown[], dirPath?: string, options?: UploadOptions): Promise<FSItem[]>;
-    read (pathOrOptions: string | ReadOptions, options?: ReadOptions): Promise<Blob>;
-    delete (pathOrOptions: string | DeleteOptions, options?: DeleteOptions): Promise<void>;
-    move (sourceOrOptions: string | MoveOptions, destination?: string, options?: MoveOptions): Promise<FSItem>;
-    write (path: string, data?: string | File | Blob | ArrayBuffer | ArrayBufferView, options?: WriteOptions): Promise<FSItem>;
+export class FS {
+    space (): Promise<SpaceInfo>;
+    space (options: RequestCallbacks<SpaceInfo>): Promise<SpaceInfo>;
+    space (success: (value: SpaceInfo) => void, error?: (reason: unknown) => void): Promise<SpaceInfo>;
+
+    mkdir (options: MkdirOptions): Promise<FSItem>;
+    mkdir (path: string, options?: MkdirOptions): Promise<FSItem>;
+    mkdir (path: string, options: MkdirOptions, success: (value: FSItem) => void, error?: (reason: unknown) => void): Promise<FSItem>;
+    mkdir (path: string, success: (value: FSItem) => void, error?: (reason: unknown) => void): Promise<FSItem>;
+
+    copy (options: CopyOptions): Promise<FSItem>;
+    copy (source: string, destination: string, options?: CopyOptions): Promise<FSItem>;
+    copy (source: string, destination: string, options: CopyOptions | undefined, success: (value: FSItem) => void, error?: (reason: unknown) => void): Promise<FSItem>;
+
+    move (options: MoveOptions): Promise<FSItem>;
+    move (source: string, destination: string, options?: MoveOptions): Promise<FSItem>;
+
+    rename (options: RenameOptions): Promise<FSItem>;
+    rename (path: string, newName: string, success?: (value: FSItem) => void, error?: (reason: unknown) => void): Promise<FSItem>;
+
+    read (options: ReadOptions): Promise<Blob>;
+    read (path: string, options?: ReadOptions): Promise<Blob>;
+    read (path: string, success: (value: Blob) => void, error?: (reason: unknown) => void): Promise<Blob>;
+
+    readdir (options: ReaddirOptions): Promise<FSItem[]>;
+    readdir (path: string, success?: (value: FSItem[]) => void, error?: (reason: unknown) => void): Promise<FSItem[]>;
+
+    stat (options: StatOptions): Promise<FSItem>;
+    stat (path: string, options?: StatOptions): Promise<FSItem>;
+    stat (path: string, options: StatOptions, success: (value: FSItem) => void, error?: (reason: unknown) => void): Promise<FSItem>;
+    stat (path: string, success: (value: FSItem) => void, error?: (reason: unknown) => void): Promise<FSItem>;
+
+    delete (options: DeleteOptions): Promise<void>;
+    delete (paths: string | string[], options?: DeleteOptions): Promise<void>;
+
+    upload (items: UploadItems, dirPath?: string, options?: UploadOptions): Promise<FSItem | FSItem[]>;
+
+    write (file: File): Promise<FSItem>;
+    write (path: string, data: string | File | Blob | ArrayBuffer | ArrayBufferView, options?: WriteOptions): Promise<FSItem>;
+
     sign (appUid: string, items: unknown | unknown[], success?: (result: SignResult) => void, error?: (reason: unknown) => void): Promise<SignResult>;
-    symlink (targetPath: string, linkPath: string, options?: Record<string, unknown>): Promise<FSItem>;
-    getReadURL (path: string, expiresIn?: number): Promise<string>;
-    readdir (pathOrOptions?: string | ReaddirOptions, options?: ReaddirOptions): Promise<FSItem[]>;
-    stat (pathOrUid: string, options?: Record<string, unknown>): Promise<FSItem>;
 
-    FSItem: typeof FSItem;
+    symlink (target: string, linkPath: string): Promise<void>;
+
+    getReadURL (path: string, expiresIn?: string): Promise<string>;
 }
