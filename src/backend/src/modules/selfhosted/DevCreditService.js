@@ -40,23 +40,6 @@ class PermissiveCreditService extends BaseService {
             // event.available = 149_999;
         });
 
-        svc_event.on('credit.record-cost', (_, event) => {
-            const username = event.actor.type.user.username;
-            event.available = this.consume_user_credit_(username, event.cost);
-            if ( ! this.config.simulated_credit ) return;
-
-            // Update usage settings tab in UI
-            svc_event.emit('outer.gui.usage.update', {
-                user_id_list: [event.actor.type.user.id],
-                response: {
-                    id: 'dev-credit',
-                    used: this.config.simulated_credit -
-                        this.get_user_credit_(username),
-                    available: this.config.simulated_credit,
-                },
-            });
-        });
-
         svc_event.on('usages.query', (_, event) => {
             const username = event.actor.type.user.username;
             if ( ! this.config.simulated_credit ) {
