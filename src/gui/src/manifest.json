@@ -40,12 +40,6 @@
             "short_name":"Recorder",
             "description":"Record audio notes and voice memos", 
             "url":"/app/recorder"
-        },
-        {
-            "name": "Terminal",
-            "short_name": "Terminal",
-            "description": "Terminal",
-            "url": "/app/terminal"
         }
     ],
     "icons": [

@@ -53,20 +53,6 @@ class SelfHostedModule extends AdvancedBase {
                 root: path_.resolve(__dirname, RELATIVE_PATH),
                 webpack: [
                     {
-                        name: 'phoenix',
-                        directory: 'src/phoenix',
-                        env: {
-                            PUTER_JS_URL: ({ global_config: config }) => config?.origin ? `${config.origin }/puter.js/v2` : '',
-                        },
-                    },
-                    {
-                        name: 'terminal',
-                        directory: 'src/terminal',
-                        env: {
-                            PUTER_JS_URL: ({ global_config: config }) => config?.origin ? `${config.origin }/puter.js/v2` : '',
-                        },
-                    },
-                    {
                         name: 'puter.js',
                         directory: 'src/puter-js',
                         onConfig: config => {
@@ -98,14 +84,6 @@ class SelfHostedModule extends AdvancedBase {
                 {
                     prefix: '/sdk',
                     path: path_.resolve(__dirname, RELATIVE_PATH, 'src/puter-js/dist'),
-                },
-                {
-                    prefix: '/builtin/terminal',
-                    path: path_.resolve(__dirname, RELATIVE_PATH, 'src/terminal/dist'),
-                },
-                {
-                    prefix: '/builtin/phoenix',
-                    path: path_.resolve(__dirname, RELATIVE_PATH, 'src/phoenix/dist'),
                 },
                 {
                     prefix: '/builtin/git',
