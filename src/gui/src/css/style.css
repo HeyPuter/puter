@@ -6163,7 +6163,7 @@ html.dark-mode .usage-table-show-less:hover {
     align-items: center;
     justify-content: center;
     height: 100%;
-    min-height: 200px;
+    height: 180px;
     text-align: center;
     color: #888;
 }
