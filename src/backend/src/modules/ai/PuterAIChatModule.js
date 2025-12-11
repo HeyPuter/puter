@@ -22,14 +22,17 @@ import { AdvancedBase } from '@heyputer/putility';
 import config from '../../config.js';
 import { AIInterfaceService } from '../../services/ai/AIInterfaceService.js';
 import { AIChatService } from '../../services/ai/chat/AIChatService.js';
-import { AIImageGenerationService } from '../../services/ai/image/AIImageGenerationService.js';
+import { GeminiImageGenerationService } from '../../services/ai/image/GeminiImageGenerationService.js';
+import { OpenAIImageGenerationService } from '../../services/ai/image/OpenAIImageGenerationService.js';
+import { TogetherImageGenerationService } from '../../services/ai/image/TogetherImageGenerationService.js';
 import { AWSTextractService } from '../../services/ai/ocr/AWSTextractService.js';
 import { ElevenLabsVoiceChangerService } from '../../services/ai/sts/ElevenLabsVoiceChangerService.js';
 import { OpenAISpeechToTextService } from '../../services/ai/stt/OpenAISpeechToTextService.js';
 import { AWSPollyService } from '../../services/ai/tts/AWSPollyService.js';
 import { ElevenLabsTTSService } from '../../services/ai/tts/ElevenLabsTTSService.js';
 import { OpenAITTSService } from '../../services/ai/tts/OpenAITTSService.js';
-// import { AIVideoGenerationService } from '../../services/ai/video/AIVideoGenerationService.js';
+import { OpenAIVideoGenerationService } from '../../services/ai/video/OpenAIVideoGenerationService.js';
+import { TogetherVideoGenerationService } from '../../services/ai/video/TogetherVideoGenerationService.js';
 
 /**
 * PuterAIModule class extends AdvancedBase to manage and register various AI services.
@@ -54,13 +57,8 @@ export class PuterAIModule extends AdvancedBase {
         // completion ai service
         services.registerService('ai-chat', AIChatService);
 
-        // image generation ai service
-        services.registerService('ai-image', AIImageGenerationService);
-
-        // video generation ai service
-        // services.registerService('ai-video', AIVideoGenerationService);
-
         // TODO DS: centralize other service types too
+
         // TODO: services should govern their own availability instead of the module deciding what to register
         if ( config?.services?.['aws-textract']?.aws ) {
 
@@ -80,9 +78,25 @@ export class PuterAIModule extends AdvancedBase {
 
         if ( config?.services?.openai || config?.openai ) {
 
+            services.registerService('openai-image-generation', OpenAIImageGenerationService);
+
+            services.registerService('openai-video-generation', OpenAIVideoGenerationService);
+
             services.registerService('openai-tts', OpenAITTSService);
 
             services.registerService('openai-speech2txt', OpenAISpeechToTextService);
+        }
+
+        if ( config?.services?.['together-ai'] ) {
+
+            services.registerService('together-image-generation', TogetherImageGenerationService);
+
+            services.registerService('together-video-generation', TogetherVideoGenerationService);
+        }
+
+        if ( config?.services?.['gemini'] ) {
+
+            services.registerService('gemini-image-generation', GeminiImageGenerationService);
         }
     }
 }

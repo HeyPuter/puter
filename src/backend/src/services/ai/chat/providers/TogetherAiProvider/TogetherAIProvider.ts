@@ -46,9 +46,9 @@ export class TogetherAIProvider implements IChatProvider {
         let models: IChatModel[] | undefined = kv.get(this.#kvKey);
         if ( models ) return models;
 
-        const apiModels = await this.#together.models.list();
+        const api_models = await this.#together.models.list();
         models = [];
-        for ( const model of apiModels ) {
+        for ( const model of api_models ) {
             if ( model.type === 'chat' || model.type === 'code' || model.type === 'language' || model.type === 'moderation' ) {
                 models.push({
                     id: `togetherai:${model.id}`,

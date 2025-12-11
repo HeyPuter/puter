@@ -112,6 +112,7 @@ class PuterSiteService extends BaseService {
                 root_dir_id: this.config.devtest_directory,
             };
         }
+        console.log('???', subdomain, options);
         const rows = await this.db.read(`SELECT * FROM subdomains WHERE ${
             options.is_custom_domain ? 'domain' : 'subdomain'
         } = ? LIMIT 1`,
