@@ -100,6 +100,7 @@ async function UIDashboard (options) {
         is_maximized: true,
         has_head: false,
         body_content: h,
+        stay_on_top: false,
         window_class: 'window-dashboard',
         body_css: {
             height: '100%',
