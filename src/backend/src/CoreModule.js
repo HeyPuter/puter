@@ -384,9 +384,6 @@ const install = async ({ context, services, app, useapi, modapi }) => {
     const { RequestMeasureService } = require('./services/RequestMeasureService');
     services.registerService('request-measure', RequestMeasureService);
 
-    const { ThreadService } = require('./services/ThreadService');
-    services.registerService('thread', ThreadService);
-
     const { ChatAPIService } = require('./services/ChatAPIService');
     services.registerService('__chat-api', ChatAPIService);
 
