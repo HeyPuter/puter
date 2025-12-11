@@ -189,7 +189,7 @@ export const TOGETHER_IMAGE_GENERATION_MODELS: IImageModel[] = [
         index_cost_key: '1MP',
         name: 'black-forest-labs/FLUX.2-pro',
         allowedQualityLevels: [''],
-        costs: { '1MP': 0 },
+        costs: { '1MP': 3 },
     },
     {
         id: 'togetherai:black-forest-labs/FLUX.2-flex',
@@ -198,7 +198,7 @@ export const TOGETHER_IMAGE_GENERATION_MODELS: IImageModel[] = [
         index_cost_key: '1MP',
         name: 'black-forest-labs/FLUX.2-flex',
         allowedQualityLevels: [''],
-        costs: { '1MP': 0 },
+        costs: { '1MP': 3 },
     },
     {
         id: 'togetherai:black-forest-labs/FLUX.2-dev',
@@ -207,7 +207,7 @@ export const TOGETHER_IMAGE_GENERATION_MODELS: IImageModel[] = [
         index_cost_key: '1MP',
         name: 'black-forest-labs/FLUX.2-dev',
         allowedQualityLevels: [''],
-        costs: { '1MP': 0 },
+        costs: { '1MP': 3 },
     },
     {
         id: 'togetherai:google/flash-image-2.5',
@@ -252,7 +252,6 @@ export const TOGETHER_IMAGE_GENERATION_MODELS: IImageModel[] = [
             { w: 21, h: 9 },
         ],
         costs: { '1MP': 13.51 },
-
     },
     {
         id: 'togetherai:google/imagen-4.0-fast',
@@ -307,5 +306,14 @@ export const TOGETHER_IMAGE_GENERATION_MODELS: IImageModel[] = [
         name: 'stabilityai/stable-diffusion-xl-base-1.0',
         allowedQualityLevels: [''],
         costs: { '1MP': 0.19 },
+    },
+    {
+        id: 'togetherai:black-forest-labs/FLUX.1-schnell-Free',
+        aliases: ['black-forest-labs/FLUX.1-schnell-Free', 'FLUX.1-schnell-Free'],
+        costs_currency: 'usd-cents',
+        index_cost_key: '1MP',
+        name: 'black-forest-labs/FLUX.1-schnell-Free',
+        allowedQualityLevels: [''],
+        costs: { '1MP': 0 },
     },
 ];
