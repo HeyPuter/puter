@@ -169,7 +169,7 @@ export class TogetherImageGenerationService extends BaseService {
             throw APIError.create('insufficient_funds');
         }
 
-        const response = await this.client.images.create(request);
+        const response = await this.client.images.generate(request);
         if ( ! response?.data?.length ) {
             throw new Error('Together AI response did not include image data');
         }
