@@ -559,24 +559,37 @@ class AppInformationService extends BaseService {
 
         const db = this.services.get('database').get(DB_READ, 'apps');
 
-        // you know, it's interesting that I need to specify 'uid'
-        // meanwhile static analysis of the code could determine that
-        // no other column here is ever used.
-        // I'm not suggesting a specific solution for here, but it's
-        // interesting to think about.
+        // Fetch all stats in two aggregate queries instead of per-app queries
+        const [openCounts, userCounts] = await Promise.all([
+            db.read(`
+                SELECT app_uid, COUNT(_id) AS open_count 
+                FROM app_opens 
+                GROUP BY app_uid
+            `),
+            db.read(`
+                SELECT app_uid, COUNT(DISTINCT user_id) AS user_count 
+                FROM app_opens 
+                GROUP BY app_uid
+            `),
+        ]);
 
+        // Build maps for quick lookup
+        const openCountMap = new Map(
+            openCounts.map(row => [row.app_uid, row.open_count])
+        );
+        const userCountMap = new Map(
+            userCounts.map(row => [row.app_uid, row.user_count])
+        );
+
+        // Get all app UIDs and update the cache
         const apps = await db.read('SELECT uid FROM apps');
 
         for ( const app of apps ) {
             const key_open_count = `apps:open_count:uid:${app.uid}`;
-            const { open_count } = (await db.read('SELECT COUNT(_id) AS open_count FROM app_opens WHERE app_uid = ?',
-                            [app.uid]))[0];
-            kv.set(key_open_count, open_count);
-
             const key_user_count = `apps:user_count:uid:${app.uid}`;
-            const { user_count } = (await db.read('SELECT COUNT(DISTINCT user_id) AS user_count FROM app_opens WHERE app_uid = ?',
-                            [app.uid]))[0];
-            kv.set(key_user_count, user_count);
+
+            kv.set(key_open_count, openCountMap.get(app.uid) ?? 0);
+            kv.set(key_user_count, userCountMap.get(app.uid) ?? 0);
         }
     }
 
