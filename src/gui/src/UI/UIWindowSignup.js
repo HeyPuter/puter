@@ -35,7 +35,7 @@ function UIWindowSignup (options) {
         let h = '';
         h += '<div style="margin: 0 auto; max-width: 500px; min-width: 400px;">';
         // logo
-        h += `<img src="${window.icons['logo-white.svg']}" style="width: 40px; height: 40px; margin: 0 auto; display: block; padding: 15px; background-color: blue; border-radius: 5px;">`;
+        h += `<img src="${window.icons['logo-white.svg']}" style="width: 40px; height: 40px; margin: 0 auto; display: block; padding: 10px; background-color: blue; border-radius: 5px;">`;
         // close button
         if ( !options.has_head && options.show_close_button !== false )
         {
@@ -43,7 +43,7 @@ function UIWindowSignup (options) {
         }
 
         // Form
-        h += '<div style="padding: 20px; border-bottom: 1px solid #ced7e1;">';
+        h += '<div style="padding: 15px;">';
         
         // title
         h += `<h1 class="signup-form-title">${i18n('create_free_account')}</h1>`;
@@ -57,12 +57,12 @@ function UIWindowSignup (options) {
         h += `<input id="username-${internal_id}" value="${html_encode(options.username ?? '')}" class="username" type="text" autocomplete="username" spellcheck="false" autocorrect="off" autocapitalize="off" data-gramm_editor="false"/>`;
         h += '</div>';
         // email
-        h += '<div style="overflow: hidden; margin-top: 20px;">';
+        h += '<div style="overflow: hidden; margin-top: 10px;">';
         h += `<label for="email-${internal_id}">${i18n('email')}</label>`;
         h += `<input id="email-${internal_id}" value="${html_encode(options.email ?? '')}" class="email" type="email" autocomplete="email" spellcheck="false" autocorrect="off" autocapitalize="off" data-gramm_editor="false"/>`;
         h += '</div>';
         // password
-        h += '<div style="overflow: hidden; margin-top: 20px; margin-bottom: 20px; position: relative;">';
+        h += '<div style="overflow: hidden; margin-top: 10px; position: relative;">';
         h += `<label for="password-${internal_id}">${i18n('password')}</label>`;
         h += `<input id="password-${internal_id}" class="password" type="${options.show_password ? 'text' : 'password'}" name="password" autocomplete="new-password" />`;
         // show/hide icon
@@ -71,7 +71,7 @@ function UIWindowSignup (options) {
                               </span>`;
         h += '</div>';
         // confirm password
-        h += '<div style="overflow: hidden; margin-top: 20px; margin-bottom: 20px; position: relative">';
+        h += '<div style="overflow: hidden; margin-top: 10px; margin-bottom: 10px; position: relative">';
         h += `<label for="confirm-password-${internal_id}">${i18n('signup_confirm_password')}</label>`;
         h += `<input id="confirm-password-${internal_id}" class="confirm-password" type="${options.show_password ? 'text' : 'password'}" name="confirm-password" autocomplete="new-password" />`;
         // show/hide icon
@@ -99,7 +99,7 @@ function UIWindowSignup (options) {
         h += '</div>';
         // login link
         // create account link
-        h += '<div class="c2a-wrapper" style="padding:20px;">';
+        h += '<div class="c2a-wrapper" style="padding:15px;">';
         h += `<button class="login-c2a-clickable">${i18n('log_in')}</button>`;
         h += '</div>';
         h += '</div>';
@@ -168,7 +168,7 @@ function UIWindowSignup (options) {
                 'flex-direction': 'column',
                 'justify-content': 'center',
                 'align-items': 'center',
-                padding: '30px 10px 10px 10px',
+                padding: '20px 10px 10px 10px',
             },
             // Add custom CSS for CAPTCHA states
             custom_css: `
