@@ -5,6 +5,7 @@ import { IChatModel } from '../types';
 export const OPEN_AI_MODELS: IChatModel[] = [
     {
         id: 'gpt-5.2-chat-latest',
+        aliases: ['gpt-5.2-chat'],
         costs_currency: 'usd-cents',
         input_cost_key: 'prompt_tokens',
         output_cost_key: 'completion_tokens',
