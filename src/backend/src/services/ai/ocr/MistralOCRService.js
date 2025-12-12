@@ -79,12 +79,6 @@ export class MistralOCRService extends BaseService {
             apiKey: this.config.apiKey,
         });
 
-        const svc_aiChat = this.services.get('ai-chat');
-        svc_aiChat.register_provider({
-            service_name: this.service_name,
-            alias: true,
-        });
-
         this.meteringService = this.services.get('meteringService').meteringService;
     }
 
