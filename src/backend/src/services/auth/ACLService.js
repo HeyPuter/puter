@@ -433,10 +433,8 @@ class ACLService extends BaseService {
             const appdata_node = await svc_fs.node(new NodePathSelector(appdata_path));
 
             if (
-                await appdata_node.exists() && (
-                    await appdata_node.is(fsNode) ||
-                    await appdata_node.is_above(fsNode)
-                )
+                await appdata_node.is(fsNode) ||
+                await appdata_node.is_above(fsNode)
             ) {
                 this.log.debug('TRUE BECAUSE APPDATA');
                 return true;
