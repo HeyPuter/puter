@@ -76,20 +76,34 @@ export interface Txt2ImgOptions {
     prompt_strength?: number;
     disable_safety_checker?: boolean;
     response_format?: string;
+    test_mode?: boolean;
 }
 
 export interface Txt2VidOptions {
     prompt?: string;
+    provider?: string;
     model?: string;
-    duration?: number;
     seconds?: number;
+    test_mode?: boolean;
+
+    // OpenAI options
+    size?: string;
+    resolution?: string;
+    input_reference?: File;
+
+    // TogetherAI options
     width?: number;
     height?: number;
     fps?: number;
     steps?: number;
-    driver?: string;
-    provider?: string;
-    service?: string;
+    guidance_scale?: number;
+    seed?: number;
+    output_format?: string;
+    output_quality?: number;
+    negative_prompt?: string;
+    reference_images?: string[];
+    frame_images?: Array<{ input_image: string; frame: number }>;
+    metadata?: Record<string, unknown>;
 }
 
 export interface Txt2SpeechOptions {
@@ -103,6 +117,8 @@ export interface Txt2SpeechOptions {
     output_format?: string;
     instructions?: string;
     voice_settings?: Record<string, unknown>;
+    ssml?: boolean;
+    test_mode?: boolean;
 }
 
 export interface Speech2TxtOptions {
@@ -121,6 +137,7 @@ export interface Speech2TxtOptions {
     known_speaker_names?: string[];
     known_speaker_references?: string[];
     extra_body?: Record<string, unknown>;
+    test_mode?: boolean;
 }
 
 export interface Speech2SpeechOptions {
@@ -137,6 +154,7 @@ export interface Speech2SpeechOptions {
     outputFormat?: string;
     voice_settings?: Record<string, unknown>;
     voiceSettings?: Record<string, unknown>;
+    seed?: number;
     file_format?: string;
     fileFormat?: string;
     remove_background_noise?: boolean;
@@ -145,6 +163,7 @@ export interface Speech2SpeechOptions {
     optimizeStreamingLatency?: number;
     enable_logging?: boolean;
     enableLogging?: boolean;
+    test_mode?: boolean;
 }
 
 export class AI {
