@@ -787,6 +787,10 @@ module.exports = class FSNodeContext {
             return this.uid === fsNode.uid;
         }
 
+        if ( this.path && fsNode.path ) {
+            return await this.get('path') === await fsNode.get('path');
+        }
+
         await this.fetchEntry();
         await fsNode.fetchEntry();
         return this.uid === fsNode.uid;
