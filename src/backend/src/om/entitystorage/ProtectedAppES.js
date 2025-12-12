@@ -28,21 +28,16 @@ class ProtectedAppES extends BaseES {
         const actor = Context.get('actor');
         const services = Context.get('services');
 
-        const to_delete = [];
         for ( let i = 0 ; i < results.length ; i++ ) {
             const entity = results[i];
 
             if ( ! await this.check_({ actor, services }, entity) ) {
                 continue;
             }
-
-            to_delete.push(i);
+            results[i] = undefined;
         }
 
-        const svc_utilArray = services.get('util-array');
-        svc_utilArray.remove_marked_items(to_delete, results);
-
-        return results;
+        return results.filter(e => e !== undefined);
     }
 
     async read (uid) {

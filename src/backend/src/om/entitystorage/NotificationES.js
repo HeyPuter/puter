@@ -16,7 +16,6 @@
  * You should have received a copy of the GNU Affero General Public License
  * along with this program.  If not, see <https://www.gnu.org/licenses/>.
  */
-const { nou } = require('../../util/langutil');
 const { Eq, IsNotNull } = require('../query/query');
 const { BaseES } = require('./BaseES');
 
@@ -49,7 +48,7 @@ class NotificationES extends BaseES {
             if ( typeof value === 'string' ) {
                 value = JSON.parse(value);
             }
-            if ( nou(value) ) {
+            if ( ! value ) {
                 value = {};
             }
             await entity.set('value', value);

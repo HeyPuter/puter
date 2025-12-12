@@ -18,7 +18,6 @@
  */
 
 // METADATA // {"ai-commented":{"service":"claude"}}
-const { can } = require('../util/langutil');
 const BaseService = require('./BaseService');
 
 /**
@@ -157,7 +156,7 @@ class CleanEmailService extends BaseService {
         email = this.clean(email);
         const config = this.global_config;
 
-        if ( can(config.blocked_email_domains, 'iterate') ) {
+        if ( Array.isArray(config.blocked_email_domains) ) {
             for ( const suffix of config.blocked_email_domains ) {
                 if ( email.endsWith(suffix) ) {
                     return false;

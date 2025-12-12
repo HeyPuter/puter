@@ -20,7 +20,6 @@
 // METADATA // {"ai-commented":{"service":"xai"}}
 const { LLRead } = require('../filesystem/ll_operations/ll_read');
 const { Context } = require('../util/context');
-const { whatis } = require('../util/langutil');
 const { stream_to_buffer } = require('../util/streamutil');
 const BaseService = require('./BaseService');
 
@@ -46,23 +45,25 @@ class SystemDataService extends BaseService {
     *   For special objects with a '$' property, it performs dereferencing.
     */
     async interpret (data) {
-        if ( whatis(data) === 'object' && data.$ ) {
+        if ( data?.$ ) {
             return await this.#dereference(data);
         }
-        if ( whatis(data) === 'object' ) {
-            const new_o = {};
-            for ( const k in data ) {
-                new_o[k] = await this.interpret(data[k]);
-            }
-            return new_o;
-        }
-        if ( whatis(data) === 'array' ) {
+
+        if ( Array.isArray(data) ) {
             const new_a = [];
             for ( const v of data ) {
                 new_a.push(await this.interpret(v));
             }
             return new_a;
         }
+        if ( data && typeof data === 'object' ) {
+            const new_o = {};
+            for ( const k in data ) {
+                new_o[k] = await this.interpret(data[k]);
+            }
+            return new_o;
+        }
+
         return data;
     }
 

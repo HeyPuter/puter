@@ -18,10 +18,7 @@
  */
 const { get_dir_size, id2path, get_user, invalidate_cached_user_by_id } = require('../../helpers');
 const BaseService = require('../../services/BaseService');
-
 const { DB_WRITE } = require('../../services/database/consts');
-const { Context } = require('../../util/context');
-const { nou } = require('../../util/langutil');
 
 // TODO: expose to a utility library
 class UserParameter {
@@ -99,9 +96,6 @@ class SizeService extends BaseService {
 
     // TODO: remove fs arg and update all calls
     async add_node_size (fs, node, user, factor = 1) {
-        const {
-            fsEntryService,
-        } = Context.get('services').values;
 
         let sz;
         if ( node.entry.is_dir ) {
@@ -125,7 +119,7 @@ class SizeService extends BaseService {
             return this.global_config.available_device_storage;
         }
 
-        if ( nou(user.free_storage) ) {
+        if ( !user.free_storage && user.free_storage !== 0 ) {
             return this.global_config.storage_capacity;
         }
 
@@ -160,7 +154,7 @@ class SizeService extends BaseService {
 
             const fields_ = Object.keys(entry);
             const fields = fields_.join(', ');
-            const placeholders = fields_.map(f => '?').join(', ');
+            const placeholders = fields_.map(_ => '?').join(', ');
             const values = fields_.map(f => entry[f]);
 
             try {

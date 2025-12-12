@@ -20,7 +20,6 @@
 const { APIError } = require('openai');
 const configurable_auth = require('../middleware/configurable_auth');
 const { Endpoint } = require('../util/expressutil');
-const { whatis } = require('../util/langutil');
 const BaseService = require('./BaseService');
 
 /**
@@ -86,18 +85,18 @@ class PermissionAPIService extends BaseService {
 
                 const extra = req.body.extra ?? {};
                 const metadata = req.body.metadata ?? {};
-                if ( whatis(extra) !== 'object' ) {
+                if ( !extra || typeof extra !== 'object' || Array.isArray(extra) ) {
                     throw APIError.create('field_invalid', null, {
                         key: 'extra',
                         expected: 'object',
-                        got: whatis(extra),
+                        got: extra,
                     });
                 }
-                if ( whatis(metadata) !== 'object' ) {
+                if ( !metadata || typeof metadata !== 'object' || Array.isArray(metadata) ) {
                     throw APIError.create('field_invalid', null, {
                         key: 'metadata',
                         expected: 'object',
-                        got: whatis(metadata),
+                        got: metadata,
                     });
                 }
 
@@ -135,21 +134,21 @@ class PermissionAPIService extends BaseService {
                     throw APIError.create('forbidden');
                 }
 
-                if ( whatis(req.body.users) !== 'array' ) {
+                if ( ! Array.isArray(req.body.users) ) {
                     throw APIError.create('field_invalid', null, {
                         key: 'users',
                         expected: 'array',
-                        got: whatis(req.body.users),
+                        got: req.body.users,
                     });
                 }
 
                 for ( let i = 0 ; i < req.body.users.length ; i++ ) {
                     const value = req.body.users[i];
-                    if ( whatis(value) === 'string' ) continue;
+                    if ( typeof value === 'string' ) continue;
                     throw APIError.create('field_invalid', null, {
                         key: `users[${i}]`,
                         expected: 'string',
-                        got: whatis(value),
+                        got: value,
                     });
                 }
 
@@ -184,21 +183,21 @@ class PermissionAPIService extends BaseService {
                     throw APIError.create('forbidden');
                 }
 
-                if ( whatis(req.body.users) !== 'array' ) {
+                if ( Array.isArray(req.body.users) ) {
                     throw APIError.create('field_invalid', null, {
                         key: 'users',
                         expected: 'array',
-                        got: whatis(req.body.users),
+                        got: req.body.users,
                     });
                 }
 
                 for ( let i = 0 ; i < req.body.users.length ; i++ ) {
                     const value = req.body.users[i];
-                    if ( whatis(value) === 'string' ) continue;
+                    if ( typeof value === 'string' ) continue;
                     throw APIError.create('field_invalid', null, {
                         key: `users[${i}]`,
                         expected: 'string',
-                        got: whatis(value),
+                        got: value,
                     });
                 }
 

@@ -20,9 +20,7 @@
 const APIError = require('../api/APIError');
 const { get_user } = require('../helpers');
 const configurable_auth = require('../middleware/configurable_auth');
-const featureflag = require('../middleware/featureflag.js');
 const { Endpoint } = require('../util/expressutil');
-const { whatis } = require('../util/langutil');
 const { Actor, UserActorType } = require('./auth/Actor');
 const BaseService = require('./BaseService');
 const { DB_WRITE } = require('./database/consts');
@@ -365,7 +363,7 @@ class ShareService extends BaseService {
             throw new Error('email must be a string');
         }
         // track: type check
-        if ( whatis(data) !== 'object' ) {
+        if ( !data || typeof data !== 'object' || Array.isArray(data) ) {
             throw new Error('data must be an object');
         }
 

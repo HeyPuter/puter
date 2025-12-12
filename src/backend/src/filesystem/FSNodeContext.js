@@ -47,11 +47,14 @@ const { MANAGE_PERM_PREFIX } = require('../services/auth/permissionConts.mjs');
  * @property {string} path the path to the filesystem entry
  * @property {string} uid the UUID of the filesystem entry
  */
+
+const TYPE_FILE = { label: 'File' };
+const TYPE_DIRECTORY = { label: 'Directory' };
 module.exports = class FSNodeContext {
     static CONCERN = 'filesystem';
 
-    static TYPE_FILE = { label: 'File' };
-    static TYPE_DIRECTORY = { label: 'Directory' };
+    static TYPE_FILE = TYPE_FILE;
+    static TYPE_DIRECTORY = TYPE_DIRECTORY;
     static TYPE_SYMLINK = {};
     static TYPE_SHORTCUT = {};
     static TYPE_UNDETERMINED = {};
@@ -946,3 +949,6 @@ module.exports = class FSNodeContext {
         return fsentry;
     }
 };
+
+module.exports.TYPE_FILE = TYPE_FILE;
+module.exports.TYPE_DIRECTORY = TYPE_DIRECTORY;

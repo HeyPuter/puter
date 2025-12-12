@@ -20,7 +20,7 @@ const APIError = require('../../api/APIError');
 const { Sequence } = require('../../codex/Sequence');
 const config = require('../../config');
 const { WorkList } = require('../../util/workutil');
-
+const { processSharesSequence } = require('./share/process_shares.js');
 const { UsernameNotifSelector } = require('../../services/NotificationService');
 const { quot } = require('@heyputer/putility').libs.string;
 
@@ -92,7 +92,7 @@ module.exports = new Sequence([
         a.values({ recipients_work, shares_work });
     },
     require('./share/process_recipients.js'),
-    require('./share/process_shares.js'),
+    processSharesSequence,
     function abort_on_error_if_mode_is_strict (a) {
         const strict_mode = a.get('strict_mode');
         if ( ! strict_mode ) return;
