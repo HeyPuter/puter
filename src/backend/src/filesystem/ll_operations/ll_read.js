@@ -82,7 +82,7 @@ class LLRead extends LLFilesystemOperation {
         ) || range !== undefined;
 
         // timestamp access
-        await db.write('UPDATE `fsentries` SET `accessed` = ? WHERE `id` = ?',
+        db.write('UPDATE `fsentries` SET `accessed` = ? WHERE `id` = ?',
                         [Date.now() / 1000, await fsNode.get('mysql-id')]);
 
         const ownerId = await fsNode.get('user_id');
