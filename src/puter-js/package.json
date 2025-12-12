@@ -19,7 +19,7 @@
     "repository": {
         "type": "git",
         "url": "git+https://github.com/HeyPuter/puter.git",
-        "directory": "/src/puter-js"
+        "directory": "src/puter-js"
     },
     "keywords": [
         "puter",
