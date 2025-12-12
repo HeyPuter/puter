@@ -55,7 +55,7 @@ async function UIDashboard (options) {
         h += '</button>';
         
         // Sidebar
-        h += '<div class="dashboard-sidebar">';
+        h += '<div class="dashboard-sidebar hide-scrollbar">';
             // Navigation items container
             h += '<div class="dashboard-sidebar-nav">';
             for ( let i = 0; i < tabs.length; i++ ) {
@@ -69,8 +69,8 @@ async function UIDashboard (options) {
             h += '</div>';
             
             // User options button at bottom
-            h += '<div class="dashboard-user-options">';
-                h += `<div class="dashboard-user-btn">`;
+            h += '<div class="dashboard-user-options hide-scrollbar">';
+                h += `<div class="dashboard-user-btn hide-scrollbar">`;
                     h += `<div class="dashboard-user-avatar" style="background-image: url(${window.user?.profile?.picture || window.icons['profile.svg']})"></div>`;
                     h += `<span class="dashboard-user-name">${html_encode(window.user?.username || 'User')}</span>`;
                     h += `<svg class="dashboard-user-chevron" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="6 9 12 15 18 9"/></svg>`;
