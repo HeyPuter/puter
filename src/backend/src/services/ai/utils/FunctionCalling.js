@@ -1,3 +1,29 @@
+
+export const normalize_json_schema =  (schema) => {
+    if ( ! schema ) return schema;
+
+    if ( schema.type === 'object' ) {
+        if ( ! schema.properties ) {
+            return schema;
+        }
+
+        const keys = Object.keys(schema.properties);
+        for ( const key of keys ) {
+            schema.properties[key] = normalize_json_schema(schema.properties[key]);
+        }
+    }
+
+    if ( schema.type === 'array' ) {
+        if ( ! schema.items ) {
+            schema.items = {};
+        } else {
+            schema.items = normalize_json_schema(schema.items);
+        }
+    }
+
+    return schema;
+};
+
 /**
      * Normalizes the 'tools' object in-place.
      *
@@ -28,7 +54,7 @@ export const normalize_tools_object =  (tools) => {
             };
 
             if ( parameters.properties ) {
-                parameters = this.normalize_json_schema(parameters);
+                parameters = normalize_json_schema(parameters);
             }
 
             if ( fn.name ) {
@@ -62,31 +88,6 @@ export const normalize_tools_object =  (tools) => {
         tools[i] = normalized_tool;
     }
     return tools;
-};
-
-export const normalize_json_schema =  (schema) => {
-    if ( ! schema ) return schema;
-
-    if ( schema.type === 'object' ) {
-        if ( ! schema.properties ) {
-            return schema;
-        }
-
-        const keys = Object.keys(schema.properties);
-        for ( const key of keys ) {
-            schema.properties[key] = this.normalize_json_schema(schema.properties[key]);
-        }
-    }
-
-    if ( schema.type === 'array' ) {
-        if ( ! schema.items ) {
-            schema.items = {};
-        } else {
-            schema.items = this.normalize_json_schema(schema.items);
-        }
-    }
-
-    return schema;
 };
 
 /**
