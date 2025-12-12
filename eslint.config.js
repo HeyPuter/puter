@@ -157,7 +157,6 @@ const frontendConfig = {
         '**/*.min.mjs',
         '**/socket.io.js',
         '**/dist/*.js',
-        'src/phoenix/**',
         'src/gui/src/lib/**',
         'src/gui/dist/**',
     ],

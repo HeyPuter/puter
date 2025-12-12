@@ -43,7 +43,7 @@
     "yaml": "^2.8.1"
   },
   "scripts": {
-    "test": "npx mocha src/phoenix/test && npx vitest run --config=src/backend/vitest.config.ts && node src/backend/tools/test.mjs",
+    "test": "npx vitest run --config=src/backend/vitest.config.ts && node src/backend/tools/test.mjs",
     "test:puterjs-api": "vitest run tests/puterJsApiTests",
     "test:backend": "npm run build:ts; vitest run --config=src/backend/vitest.config.ts",
     "test:backend-coverage": "npm run build:ts; vitest run --config=src/backend/vitest.config.ts",
