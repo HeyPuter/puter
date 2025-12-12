@@ -68,10 +68,6 @@ class SelfHostedModule extends AdvancedBase {
                         name: 'gui',
                         directory: 'src/gui',
                     },
-                    {
-                        name: 'emulator',
-                        directory: 'src/emulator',
-                    },
                 ],
                 commands: [
                 ],
@@ -96,14 +92,6 @@ class SelfHostedModule extends AdvancedBase {
                 {
                     prefix: '/builtin/dev-center',
                     path: path_.resolve(__dirname, RELATIVE_PATH, 'src/dev-center'),
-                },
-                {
-                    prefix: '/builtin/emulator/image',
-                    path: path_.resolve(__dirname, RELATIVE_PATH, 'src/emulator/image'),
-                },
-                {
-                    prefix: '/builtin/emulator',
-                    path: path_.resolve(__dirname, RELATIVE_PATH, 'src/emulator/dist'),
                 },
                 {
                     prefix: '/vendor/v86/bios',
