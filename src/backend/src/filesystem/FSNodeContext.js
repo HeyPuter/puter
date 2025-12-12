@@ -261,6 +261,9 @@ module.exports = class FSNodeContext {
     }
 
     async exists ({ fetch_options } = {}) {
+        if ( this.found !== undefined ) {
+            return this.found;
+        }
         await this.fetchEntry(fetch_options);
         if ( ! this.found ) {
             this.log.debug(`here's why it doesn't exist: ${
