@@ -11,13 +11,8 @@ export interface KVIncrementPath {
 }
 
 export class KV {
-    constructor (context: { authToken?: string; APIOrigin: string; appID?: string });
-
     readonly MAX_KEY_SIZE: number;
     readonly MAX_VALUE_SIZE: number;
-
-    setAuthToken (authToken: string): void;
-    setAPIOrigin (APIOrigin: string): void;
 
     set<T = KVScalar>(key: string, value: T, expireAt?: number): Promise<boolean>;
     get<T = unknown>(key: string): Promise<T | undefined>;
