@@ -111,7 +111,6 @@
 - support readdir for directory symlinks ([7f1b870](https://github.com/HeyPuter/puter/commit/7f1b870d302421972c4f6221ae6d93b5979d51dd))
 - allow passing cli args via url ([5317adf](https://github.com/HeyPuter/puter/commit/5317adf8a4961be3f0ca2a8c403c922633f934fa))
 - add -c flag for phoenix ([b6c0cb6](https://github.com/HeyPuter/puter/commit/b6c0cb6abc1c29846b4b7e696812476bea24bbc7))
-- progress indicator for emulator ([08601ae](https://github.com/HeyPuter/puter/commit/08601ae2af7b1f564690e6a9cae7e689cb7ba48a))
 - translate README.md to Dutch ([31e2773](https://github.com/HeyPuter/puter/commit/31e2773743c336630c917e893b0148441f5fc515))
 - add connectToInstance method to puter.ui ([62634b0](https://github.com/HeyPuter/puter/commit/62634b0afe4d33da08768975322d4deb23041442))
 - add method to list models ([fd86934](https://github.com/HeyPuter/puter/commit/fd86934bc9021541810447cf7e2a5f33b3e283b3))

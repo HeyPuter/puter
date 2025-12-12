@@ -128,14 +128,8 @@ class SqliteDatabaseAccessService extends BaseDatabaseAccessService {
             [23, [
                 '0026_user-groups.dbmig.js',
             ]],
-            [24, [
-                '0027_emulator-app.dbmig.js',
-            ]],
             [25, [
                 '0028_clean-email.sql',
-            ]],
-            [26, [
-                '0029_emulator_priv.sql',
             ]],
             [27, [
                 '0030_comments.sql',

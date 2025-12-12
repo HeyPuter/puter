@@ -53,20 +53,6 @@ class SelfHostedModule extends AdvancedBase {
                 root: path_.resolve(__dirname, RELATIVE_PATH),
                 webpack: [
                     {
-                        name: 'phoenix',
-                        directory: 'src/phoenix',
-                        env: {
-                            PUTER_JS_URL: ({ global_config: config }) => config?.origin ? `${config.origin }/puter.js/v2` : '',
-                        },
-                    },
-                    {
-                        name: 'terminal',
-                        directory: 'src/terminal',
-                        env: {
-                            PUTER_JS_URL: ({ global_config: config }) => config?.origin ? `${config.origin }/puter.js/v2` : '',
-                        },
-                    },
-                    {
                         name: 'puter.js',
                         directory: 'src/puter-js',
                         onConfig: config => {
@@ -82,10 +68,6 @@ class SelfHostedModule extends AdvancedBase {
                         name: 'gui',
                         directory: 'src/gui',
                     },
-                    {
-                        name: 'emulator',
-                        directory: 'src/emulator',
-                    },
                 ],
                 commands: [
                 ],
@@ -100,14 +82,6 @@ class SelfHostedModule extends AdvancedBase {
                     path: path_.resolve(__dirname, RELATIVE_PATH, 'src/puter-js/dist'),
                 },
                 {
-                    prefix: '/builtin/terminal',
-                    path: path_.resolve(__dirname, RELATIVE_PATH, 'src/terminal/dist'),
-                },
-                {
-                    prefix: '/builtin/phoenix',
-                    path: path_.resolve(__dirname, RELATIVE_PATH, 'src/phoenix/dist'),
-                },
-                {
                     prefix: '/builtin/git',
                     path: path_.resolve(__dirname, RELATIVE_PATH, 'src/git/dist'),
                 },
@@ -118,14 +92,6 @@ class SelfHostedModule extends AdvancedBase {
                 {
                     prefix: '/builtin/dev-center',
                     path: path_.resolve(__dirname, RELATIVE_PATH, 'src/dev-center'),
-                },
-                {
-                    prefix: '/builtin/emulator/image',
-                    path: path_.resolve(__dirname, RELATIVE_PATH, 'src/emulator/image'),
-                },
-                {
-                    prefix: '/builtin/emulator',
-                    path: path_.resolve(__dirname, RELATIVE_PATH, 'src/emulator/dist'),
                 },
                 {
                     prefix: '/vendor/v86/bios',

@@ -1,4 +1,0 @@
-{
-    cert: '/var/puter/credentials/puter.local/cert.pem',
-    key: '/var/puter/credentials/puter.local/key.pem',
-}
