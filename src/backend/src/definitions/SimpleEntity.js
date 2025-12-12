@@ -24,7 +24,7 @@ module.exports = function SimpleEntity ({ name, methods, fetchers }) {
         Object.assign(entity, methods);
         for ( const fetcher_name in fetchers ) {
             entity[`fetch_${ fetcher_name}`] = async function () {
-                if ( this.values.hasOwnProperty(fetcher_name) ) {
+                if ( Object.prototype.hasOwnProperty.call(this.values, fetcher_name) ) {
                     return this.values[fetcher_name];
                 }
                 const value = await fetchers[fetcher_name].call(this);

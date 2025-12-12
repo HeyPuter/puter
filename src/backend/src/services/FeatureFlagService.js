@@ -19,7 +19,6 @@
 
 // METADATA // {"ai-commented":{"service":"claude"}}
 const { Context } = require('../util/context');
-const { whatis } = require('../util/langutil');
 const { PermissionUtil } = require('./auth/permissionUtils.mjs');
 const BaseService = require('./BaseService');
 
@@ -84,7 +83,7 @@ class FeatureFlagService extends BaseService {
             let value;
             const options = {};
             for ( const arg of a ) {
-                if ( whatis(arg) === 'object' ) {
+                if ( arg && typeof arg === 'object' && !Array.isArray(arg) ) {
                     Object.assign(options, arg);
                     continue;
                 }

@@ -1,4 +1,3 @@
-import { whatis } from '../../../util/langutil.js';
 
 /**
      * Normalizes a single message into a standardized format with role and content array.
@@ -22,7 +21,7 @@ export const normalize_single_message = (message, params = {}) => {
             content: [message],
         };
     }
-    if ( whatis(message) !== 'object' ) {
+    if ( !message || typeof message !== 'object' || Array.isArray(message) ) {
         throw new Error('each message must be a string or object');
     }
     if ( ! message.role ) {
@@ -45,18 +44,18 @@ export const normalize_single_message = (message, params = {}) => {
             throw new Error('each message must have a \'content\' property');
         }
     }
-    if ( whatis(message.content) !== 'array' ) {
+    if ( ! Array.isArray(message.content) ) {
         message.content = [message.content];
     }
     // Coerce each content block into an object
     for ( let i = 0 ; i < message.content.length ; i++ ) {
-        if ( whatis(message.content[i]) === 'string' ) {
+        if ( typeof message.content[i] === 'string' ) {
             message.content[i] = {
                 type: 'text',
                 text: message.content[i],
             };
         }
-        if ( whatis(message.content[i]) !== 'object' ) {
+        if ( !message || typeof message.content[i] !== 'object' || Array.isArray(message.content[i]) ) {
             throw new Error('each message content item must be a string or object');
         }
         if ( typeof message.content[i].text === 'string' && !message.content[i].type ) {
@@ -158,22 +157,22 @@ export const extract_and_remove_system_messages = (messages) => {
      */
 export const extract_text = (messages) => {
     return messages.map(m => {
-        if ( whatis(m) === 'string' ) {
+        if ( typeof m === 'string' ) {
             return m;
         }
-        if ( whatis(m) !== 'object' ) {
+        if ( !m || typeof m !== 'object' || Array.isArray(m) ) {
             return '';
         }
-        if ( whatis(m.content) === 'array' ) {
+        if ( Array.isArray(m.content) ) {
             return m.content.map(c => c.text).join(' ');
         }
-        if ( whatis(m.content) === 'string' ) {
+        if ( typeof m.content === 'string' ) {
             return m.content;
         } else {
             const is_text_type = m.content.type === 'text' ||
                 !Object.prototype.hasOwnProperty.call(m.content, 'type');
             if ( is_text_type ) {
-                if ( whatis(m.content.text) !== 'string' ) {
+                if ( typeof m.content.text !== 'string' ) {
                     throw new Error('text content must be a string');
                 }
                 return m.content.text;

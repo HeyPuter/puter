@@ -18,7 +18,6 @@
  * along with this program.  If not, see <https://www.gnu.org/licenses/>.
  */
 const { AdvancedBase } = require('@heyputer/putility');
-const Library = require('./definitions/Library');
 const { NotificationES } = require('./om/entitystorage/NotificationES');
 const { ProtectedAppES } = require('./om/entitystorage/ProtectedAppES');
 const { Context } = require('./util/context');
@@ -41,7 +40,6 @@ const install = async ({ context, services, app, useapi, modapi }) => {
     useapi.withuse(() => {
         def('Service', require('./services/BaseService'));
         def('Module', AdvancedBase);
-        def('Library', Library);
 
         def('core.util.helpers', require('./helpers'));
         def('core.util.permission', require('./services/auth/permissionUtils.mjs').PermissionUtil);
@@ -88,22 +86,11 @@ const install = async ({ context, services, app, useapi, modapi }) => {
         runtimeModule.exports = useapi.use('core');
     });
 
-    useapi.withuse(() => {
-        const ArrayUtil = require('./libraries/ArrayUtil');
-        services.registerService('util-array', ArrayUtil);
-
-        const LibTypeTagged = require('./libraries/LibTypeTagged');
-        services.registerService('lib-type-tagged', LibTypeTagged);
-    });
-
     modapi.libdir('core.util', './util');
 
     // === SERVICES ===
 
-    // /!\ IMPORTANT /!\
-    // For new services, put the import immediately above the
-    // call to services.registerService. We'll clean this up
-    // in a future PR.
+    // TODO: move these to top level imports or await imports and esm this file
 
     const { CommandService } = require('./services/CommandService');
     const { HTTPThumbnailService } = require('./services/thumbnails/HTTPThumbnailService');

@@ -25,7 +25,6 @@ const BaseService = require('../BaseService');
 const { PermissionUtil } = require('../auth/permissionUtils.mjs');
 const { Invoker } = require('../../../../putility/src/libs/invoker');
 const { get_user } = require('../../helpers');
-const { whatis } = require('../../util/langutil');
 const { AdvancedBase } = require('@heyputer/putility');
 
 const strutil = require('@heyputer/putility').libs.string;
@@ -578,7 +577,7 @@ class DriverService extends BaseService {
             throw svc_apiError.create('method_not_found', { interface_name, method_name });
         }
 
-        if ( method.hasOwnProperty('default_parameter') && whatis(args) !== 'object' ) {
+        if ( Object.prototype.hasOwnProperty.call(method, 'default_parameter') && (typeof args !== 'object' || Array.isArray(args)) ) {
             args = { [method.default_parameter]: args };
         }
 

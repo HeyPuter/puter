@@ -40,20 +40,6 @@ class Extension extends AdvancedBase {
         }),
     ];
 
-    randomBrightColor () {
-        // Bright colors in ANSI (foreground codes 90–97)
-        const brightColors = [
-            // 91, // Bright Red
-            92, // Bright Green
-            // 93, // Bright Yellow
-            94, // Bright Blue
-            95, // Bright Magenta
-            // 96, // Bright Cyan
-        ];
-
-        return brightColors[Math.floor(Math.random() * brightColors.length)];
-    }
-
     constructor (...a) {
         super(...a);
         this.service = null;
@@ -95,6 +81,20 @@ class Extension extends AdvancedBase {
                 };
             },
         };
+    }
+
+    randomBrightColor () {
+        // Bright colors in ANSI (foreground codes 90–97)
+        const brightColors = [
+            // 91, // Bright Red
+            92, // Bright Green
+            // 93, // Bright Yellow
+            94, // Bright Blue
+            95, // Bright Magenta
+            // 96, // Bright Cyan
+        ];
+
+        return brightColors[Math.floor(Math.random() * brightColors.length)];
     }
 
     example () {

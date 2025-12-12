@@ -22,7 +22,6 @@ const { FileFacade } = require('../../services/drivers/FileFacade');
 const { TypeSpec } = require('../../services/drivers/meta/Construct');
 const { TypedValue } = require('../../services/drivers/meta/Runtime');
 const { Context } = require('../../util/context');
-const { whatis } = require('../../util/langutil');
 const { TeePromise } = require('@heyputer/putility').libs.promise;
 const { valid_file_size } = require('../../util/validutil');
 
@@ -143,12 +142,12 @@ _handle_multipart = async (req) => {
             if ( ! Object.prototype.hasOwnProperty.call(dst, key_parts[i]) ) {
                 dst[key_parts[i]] = {};
             }
-            if ( whatis(dst[key_parts[i]]) !== 'object' ) {
+            if ( !dst[key_parts[i]] || typeof dst[key_parts[i]] !== 'object' || Array.isArray(dst[key_parts[i]]) ) {
                 throw new Error(`Tried to set member of non-object: ${key_parts[i]} in ${fieldname}`);
             }
             dst = dst[key_parts[i]];
         }
-        if ( whatis(value) === 'object' && value.$ === 'file' ) {
+        if ( value && value.$ === 'file' ) {
             const fileinfo = value;
             const { v: size, ok: size_ok } =
                 valid_file_size(fileinfo.size);

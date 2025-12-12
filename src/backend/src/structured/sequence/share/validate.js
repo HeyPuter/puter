@@ -19,7 +19,6 @@
 
 const APIError = require('../../../api/APIError');
 const { Sequence } = require('../../../codex/Sequence');
-const { whatis } = require('../../../util/langutil');
 
 /*
     This code is optimized for editors supporting folding.
@@ -46,7 +45,7 @@ module.exports = new Sequence({
             throw APIError.create('field_invalid', null, {
                 key: 'metadata',
                 expected: 'object',
-                got: whatis(metadata),
+                got: metadata,
             });
         }
 
@@ -68,7 +67,7 @@ module.exports = new Sequence({
                 throw APIError.create('field_invalid', null, {
                     key: `metadata.${key}`,
                     expected: 'string or number',
-                    got: whatis(value),
+                    got: value,
                 });
             }
             if ( key === 'message' ) {
@@ -76,7 +75,7 @@ module.exports = new Sequence({
                     throw APIError.create('field_invalid', null, {
                         key: `metadata.${key}`,
                         expected: 'string',
-                        got: whatis(value),
+                        got: value,
                     });
                 }
                 if ( value.length > MAX_MESSAGE_STRING ) {
