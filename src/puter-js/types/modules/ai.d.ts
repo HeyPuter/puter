@@ -121,11 +121,16 @@ export interface Txt2SpeechOptions {
     test_mode?: boolean;
 }
 
-export interface Speech2TxtOptions {
+export interface Speech2TxtResult {
+    text: string;
+    language: string;
+    segments?: Record<string, unknown>[];
+}
+
+interface BaseSpeech2TxtOptions {
     file?: string | File | Blob;
     audio?: string | File | Blob;
     model?: string;
-    response_format?: string;
     language?: string;
     prompt?: string;
     stream?: boolean;
@@ -138,6 +143,14 @@ export interface Speech2TxtOptions {
     known_speaker_references?: string[];
     extra_body?: Record<string, unknown>;
     test_mode?: boolean;
+}
+
+export interface TextFormatSpeech2TxtOptions extends BaseSpeech2TxtOptions {
+    response_format: "text";
+}
+
+export interface Speech2TxtOptions extends BaseSpeech2TxtOptions {
+    response_format?: Exclude<string, "text">;
 }
 
 export interface Speech2SpeechOptions {
@@ -197,9 +210,11 @@ export class AI {
     txt2vid (prompt: string, options: Txt2VidOptions): Promise<HTMLVideoElement>;
     txt2vid (options: Txt2VidOptions, testMode?: boolean): Promise<HTMLVideoElement>;
 
-    speech2txt (source: string | File | Blob, testMode?: boolean): Promise<string | Record<string, unknown>>;
-    speech2txt (source: string | File | Blob, options: Speech2TxtOptions, testMode?: boolean): Promise<string | Record<string, unknown>>;
-    speech2txt (options: Speech2TxtOptions, testMode?: boolean): Promise<string | Record<string, unknown>>;
+    speech2txt (source: string | File | Blob, testMode?: boolean): Promise<string>;
+    speech2txt (source: string | File | Blob, options: TextFormatSpeech2TxtOptions, testMode?: boolean): Promise<string>;
+    speech2txt (source: string | File | Blob, options: Speech2TxtOptions, testMode?: boolean): Promise<Speech2TxtResult>;
+    speech2txt (options: TextFormatSpeech2TxtOptions, testMode?: boolean): Promise<string>;
+    speech2txt (options: Speech2TxtOptions, testMode?: boolean): Promise<Speech2TxtResult>;
 
     speech2speech (source: string | File | Blob, testMode?: boolean): Promise<HTMLAudioElement>;
     speech2speech (source: string | File | Blob, options: Speech2SpeechOptions, testMode?: boolean): Promise<HTMLAudioElement>;
