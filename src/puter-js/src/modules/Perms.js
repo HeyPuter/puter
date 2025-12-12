@@ -1,7 +1,8 @@
 export default class Perms {
-    constructor (context) {
-        this.authToken = context.authToken;
-        this.APIOrigin = context.APIOrigin;
+    constructor (puter) {
+        this.puter = puter;
+        this.authToken = puter.authToken;
+        this.APIOrigin = puter.APIOrigin;
     }
     setAuthToken (authToken) {
         this.authToken = authToken;

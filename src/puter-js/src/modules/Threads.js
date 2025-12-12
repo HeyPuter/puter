@@ -1,9 +1,10 @@
 import { RequestError } from '../lib/RequestError.js';
 
 export default class Threads {
-    constructor (context) {
-        this.authToken = context.authToken;
-        this.APIOrigin = context.APIOrigin;
+    constructor (puter) {
+        this.puter = puter;
+        this.authToken = puter.authToken;
+        this.APIOrigin = puter.APIOrigin;
     }
     setAuthToken (authToken) {
         this.authToken = authToken;

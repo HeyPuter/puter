@@ -1,4 +1,4 @@
-import { TeePromise } from '@heyputer/putility/src/libs/promise.js';
+import { TeePromise } from '../lib/utils.js';
 import * as utils from '../lib/utils.js';
 
 const gui_cache_keys = [
@@ -29,10 +29,11 @@ class KV {
      * @param {string} APIOrigin - Origin of the API server. Used to build the API endpoint URLs.
      * @param {string} appID - ID of the app to use.
      */
-    constructor (context) {
-        this.authToken = context.authToken;
-        this.APIOrigin = context.APIOrigin;
-        this.appID = context.appID;
+    constructor (puter) {
+        this.puter = puter;
+        this.authToken = puter.authToken;
+        this.APIOrigin = puter.APIOrigin;
+        this.appID = puter.appID;
 
         this.gui_cached = new TeePromise();
         this.gui_cache_init = new TeePromise();
