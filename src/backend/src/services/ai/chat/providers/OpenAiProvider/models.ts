@@ -4,6 +4,20 @@ import { IChatModel } from '../types';
 
 export const OPEN_AI_MODELS: IChatModel[] = [
     {
+        id: 'gpt-5.2-2025-12-11',
+        aliases: ['gpt-5.2'],
+        costs_currency: 'usd-cents',
+        input_cost_key: 'prompt_tokens',
+        output_cost_key: 'completion_tokens',
+        costs: {
+            tokens: 1_000_000,
+            prompt_tokens: 175,
+            cached_tokens: 17.5,
+            completion_tokens: 1400,
+        },
+        max_tokens: 128000,
+    },
+    {
         id: 'gpt-5.1',
         costs_currency: 'usd-cents',
         input_cost_key: 'prompt_tokens',
