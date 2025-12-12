@@ -22,6 +22,7 @@ const { MINUTE } = require('@heyputer/putility').libs.time;
 const { origin_from_url } = require('../../util/urlutil');
 const { DB_READ } = require('../../services/database/consts');
 const BaseService = require('../../services/BaseService');
+const { kv } = require('../../util/kvSingleton');
 
 // Currently leaks memory (not sure why yet, but icons are a factor)
 const ENABLE_REFRESH_APP_CACHE = false;
@@ -574,12 +575,8 @@ class AppInformationService extends BaseService {
         ]);
 
         // Build maps for quick lookup
-        const openCountMap = new Map(
-            openCounts.map(row => [row.app_uid, row.open_count])
-        );
-        const userCountMap = new Map(
-            userCounts.map(row => [row.app_uid, row.user_count])
-        );
+        const openCountMap = new Map(openCounts.map(row => [row.app_uid, row.open_count]));
+        const userCountMap = new Map(userCounts.map(row => [row.app_uid, row.user_count]));
 
         // Get all app UIDs and update the cache
         const apps = await db.read('SELECT uid FROM apps');
@@ -612,27 +609,64 @@ class AppInformationService extends BaseService {
 
         const apps = await db.read('SELECT uid, index_url FROM apps');
 
+        // First, build a map of valid app origins to UIDs
+        const validApps = [];
+        const svc_auth = this.services.get('auth');
+
         for ( const app of apps ) {
             const origin = origin_from_url(app.index_url);
 
             // only count the referral if the origin hashes to the app's uid
-            const svc_auth = this.services.get('auth');
             let expected_uid;
             try {
                 expected_uid = await svc_auth.app_uid_from_origin(origin);
             } catch (e) {
-                // This happens if the app origin isn't valid
+            // This happens if the app origin isn't valid
                 continue;
             }
             if ( expected_uid !== app.uid ) {
                 continue;
             }
 
-            const key_referral_count = `apps:referral_count:uid:${app.uid}`;
-            const { referral_count } = (await db.read('SELECT COUNT(id) AS referral_count FROM user WHERE referrer LIKE ?',
-                            [`${origin }%`]))[0];
+            validApps.push({ uid: app.uid, origin });
+        }
 
-            kv.set(key_referral_count, referral_count);
+        if ( validApps.length === 0 ) {
+            return;
+        }
+
+        // Build a single query to get all referral counts
+        const likeConditions = validApps.map(() => 'referrer LIKE ?').join(' OR ');
+        const queryParams = validApps.map(app => `${app.origin}%`);
+
+        const referralResults = await db.read(`
+            SELECT 
+            referrer,
+            COUNT(id) as referral_count 
+            FROM user 
+            WHERE ${likeConditions}
+            GROUP BY referrer
+        `, queryParams);
+
+        // Create a map to store referral counts by origin
+        const referralMap = new Map();
+
+        for ( const result of referralResults ) {
+            // Find which app this referrer belongs to
+            for ( const app of validApps ) {
+                if ( result.referrer.startsWith(app.origin) ) {
+                    const currentCount = referralMap.get(app.uid) || 0;
+                    referralMap.set(app.uid, currentCount + parseInt(result.referral_count));
+                    break;
+                }
+            }
+        }
+
+        // Update cache with results
+        for ( const app of validApps ) {
+            const key_referral_count = `apps:referral_count:uid:${app.uid}`;
+            const count = referralMap.get(app.uid) || 0;
+            kv.set(key_referral_count, count);
         }
 
         this.log.info('DONE refresh app stat referrals');
@@ -786,16 +820,13 @@ class AppInformationService extends BaseService {
                 period = currentDate.toISOString().slice(0, 10);
                 currentDate.setDate(currentDate.getDate() + 1);
                 break;
-            case 'week':
+            case 'week': {
                 // Get the ISO week number
-                // TODO: Fix this use of `getWeekNumber`, which doesn't exist.
-                //       I was not able to invoke this branch due to other
-                //       blockers when testing locally so I'm leaving this as-is
-                //       because I can't test for regressions.
-                const weekNum = String(getWeekNumber(currentDate)).padStart(2, '0');
+                const weekNum = String(this.getWeekNumber(currentDate)).padStart(2, '0');
                 period = `${currentDate.getFullYear()}-${weekNum}`;
                 currentDate.setDate(currentDate.getDate() + 7);
                 break;
+            }
             case 'month':
                 period = currentDate.toISOString().slice(0, 7);
                 currentDate.setMonth(currentDate.getMonth() + 1);
@@ -838,10 +869,11 @@ class AppInformationService extends BaseService {
                 case 'day':
                     period = item.period.toISOString().slice(0, 10);
                     break;
-                case 'week':
+                case 'week': {
                     const weekNum = String(this.getWeekNumber(item.period)).padStart(2, '0');
                     period = `${item.period.getFullYear()}-${weekNum}`;
                     break;
+                }
                 case 'month':
                     period = item.period.toISOString().slice(0, 7);
                     break;
