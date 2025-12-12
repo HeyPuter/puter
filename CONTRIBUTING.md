@@ -47,13 +47,6 @@ We'll review your pull request and work with you to get your changes merged into
 
 <br>
 
-## Documentation for Contributors
-
-### Backend
-See [src/backend/CONTRIBUTING.md](src/backend/CONTRIBUTING.md)
-
-<br>
-
 ## PR Standards
 
 We expect the following from pull requests (it makes things easier):
