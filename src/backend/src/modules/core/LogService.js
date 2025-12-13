@@ -480,31 +480,22 @@ class LogService extends BaseService {
                     new winston.transports.DailyRotateFile({
                         filename: `${this.log_directory}/%DATE%.log`,
                         datePattern: 'YYYY-MM-DD',
-                        zippedArchive: true,
                         maxSize: '20m',
-
-                    // TODO: uncomment when we have a log backup strategy
-                    // maxFiles: '14d',
+                        maxFiles: '14d',
                     }),
                     new winston.transports.DailyRotateFile({
                         level: 'error',
                         filename: `${this.log_directory}/error-%DATE%.log`,
                         datePattern: 'YYYY-MM-DD',
-                        zippedArchive: true,
                         maxSize: '20m',
-
-                    // TODO: uncomment when we have a log backup strategy
-                    // maxFiles: '14d',
+                        maxFiles: '14d',
                     }),
                     new winston.transports.DailyRotateFile({
                         level: 'system',
                         filename: `${this.log_directory}/system-%DATE%.log`,
                         datePattern: 'YYYY-MM-DD',
-                        zippedArchive: true,
                         maxSize: '20m',
-
-                    // TODO: uncomment when we have a log backup strategy
-                    // maxFiles: '14d',
+                        maxFiles: '14d',
                     }),
                 ],
             }));

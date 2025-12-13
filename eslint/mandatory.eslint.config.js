@@ -25,6 +25,7 @@ const mandatoryRules = {
     'no-use-before-define': ['error', {
         'functions': false,
     }],
+    'no-invalid-this': 'error',
 };
 
 export default defineConfig([

@@ -9,6 +9,7 @@ import controlStructureSpacing from './eslint/control-structure-spacing.js';
 import spaceUnaryOpsWithException from './eslint/space-unary-ops-with-exception.js';
 
 export const rules = {
+    'no-invalid-this': 'error',
     'no-unused-vars': ['error', {
         vars: 'all',
         args: 'after-used',

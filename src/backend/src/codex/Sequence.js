@@ -360,7 +360,8 @@ class Sequence {
             if ( opt_values && opt_values instanceof Sequence.SequenceState ) {
                 opt_values = opt_values.scope_;
             }
-            const state = new Sequence.SequenceState(sequence, this);
+            // eslint-disable-next-line no-invalid-this
+            const state = new Sequence.SequenceState(sequence, this); // TODO: fix this odd structure, what is this even bound to ?
             await state.run(opt_values ?? undefined);
             return state.last_return_;
         };

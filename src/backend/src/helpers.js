@@ -24,10 +24,10 @@ const { ManagedError } = require('./util/errorutil.js');
 const { spanify } = require('./util/otelutil.js');
 const APIError = require('./api/APIError.js');
 const { DB_READ, DB_WRITE } = require('./services/database/consts.js');
-const { BaseDatabaseAccessService } = require('./services/database/BaseDatabaseAccessService.js');
 const { Context } = require('./util/context');
 const { NodeUIDSelector } = require('./filesystem/node/selectors');
 const { object_returned_by_get_app } = require('./annotatedobjects.js');
+const { kv } = require('./util/kvSingleton');
 
 let services = null;
 const tmp_provide_services = async ss => {
@@ -1314,8 +1314,6 @@ function seconds_to_string (seconds) {
  * @param {*} options
  */
 async function suggest_app_for_fsentry (fsentry, options) {
-    const svc_performanceMonitor = services.get('performance-monitor');
-    const monitor = svc_performanceMonitor.createContext('suggest_app_for_fsentry');
     const suggested_apps_promises = [];
 
     let content_type = mime.contentType(fsentry.name);
@@ -1470,7 +1468,6 @@ async function suggest_app_for_fsentry (fsentry, options) {
     //---------------------------------------------
     const apps = kv.get(`assocs:${file_extension.slice(1)}:apps`) ?? [];
 
-    monitor.label('third party associations');
     for ( const app_id of apps ) {
         suggested_apps_promises.push((async () => {
             // retrieve app from DB
@@ -1484,8 +1481,6 @@ async function suggest_app_for_fsentry (fsentry, options) {
             }
         })());
     }
-    monitor.stamp();
-    monitor.end();
 
     // return list
     const suggested_apps = await Promise.all(suggested_apps_promises);

@@ -42,7 +42,8 @@ class CodeUtil {
 
         return async function (...a) {
             const op = new cls();
-            op.self = this;
+            // eslint-disable-next-line no-invalid-this
+            op.self = this; // TODO: fix this odd structure, what is this even bound to ?
             return await op.run(...a);
         };
     }
