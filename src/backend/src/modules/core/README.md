@@ -242,10 +242,6 @@ Creates an OSC 8 hyperlink sequence for terminal output
 
 - **url:** The URL to link to
 
-##### `format_as_usd`
-
-Formats a number as a USD currency string with appropriate decimal places
-
 ###### Parameters
 
 - **amount:** The amount to format

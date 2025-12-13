@@ -38,24 +38,7 @@ const osclink = (url, text) => {
     return `\x1B]8;;${url}\x1B\\${text}\x1B]8;;\x1B\\`;
 };
 
-/**
-* Formats a number as a USD currency string with appropriate decimal places
-* @param {number} amount - The amount to format
-* @returns {string} The formatted USD string
-*/
-const format_as_usd = (amount) => {
-    if ( amount < 0.01 ) {
-        if ( amount < 0.00001 ) {
-            // scientific notation
-            return `$${ amount.toExponential(2)}`;
-        }
-        return `$${ amount.toFixed(5)}`;
-    }
-    return `$${ amount.toFixed(2)}`;
-};
-
 module.exports = {
     quot,
     osclink,
-    format_as_usd,
 };

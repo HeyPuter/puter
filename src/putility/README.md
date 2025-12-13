@@ -58,10 +58,6 @@ solution to disambiguating backticks is allowed to change in the future.
 
 Wrap text in OSC escape code to output links in a terminal emulator.
 
-#### `format_as_usd(amount)`
-
-Formats a USD currency amount that may have fractional cents.
-
 ### `putility.libs.promise`
 
 Utilities for working with promises.
