@@ -340,9 +340,6 @@ const install = async ({ context, services, app, useapi, modapi }) => {
     const { DriverUsagePolicyService } = require('./services/drivers/DriverUsagePolicyService');
     services.registerService('driver-usage-policy', DriverUsagePolicyService);
 
-    const { CommentService } = require('./services/CommentService');
-    services.registerService('comment', CommentService);
-
     const { ReferralCodeService } = require('./services/ReferralCodeService');
     services.registerService('referral-code', ReferralCodeService);
 
