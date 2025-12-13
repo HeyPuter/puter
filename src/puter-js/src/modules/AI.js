@@ -11,33 +11,6 @@ const normalizeTTSProvider = (value) => {
     return value;
 };
 
-const TOGETHER_IMAGE_MODEL_PREFIXES = [
-    'black-forest-labs/',
-    'stabilityai/',
-    'togethercomputer/',
-    'playgroundai/',
-    'runwayml/',
-    'lightricks/',
-    'sg161222/',
-    'wavymulder/',
-    'prompthero/',
-    'bytedance-seed/',
-    'hidream-ai/',
-    'lykon/',
-    'qwen/',
-    'rundiffusion/',
-    'google/',
-    'ideogram/',
-];
-
-const TOGETHER_IMAGE_MODEL_KEYWORDS = [
-    'flux',
-    'kling',
-    'sd3',
-    'stable-diffusion',
-    'kolors',
-];
-
 const TOGETHER_VIDEO_MODEL_PREFIXES = [
     'minimax/',
     'google/',
@@ -867,16 +840,6 @@ class AI {
         }
 
         const driverHint = typeof options.driver === 'string' ? options.driver : undefined;
-        const providerRaw = typeof options.provider === 'string'
-            ? options.provider
-            : (typeof options.service === 'string' ? options.service : undefined);
-        const providerHint = typeof providerRaw === 'string' ? providerRaw.toLowerCase() : undefined;
-        const modelLower = typeof options.model === 'string' ? options.model.toLowerCase() : '';
-
-        const looksLikeTogetherModel =
-            typeof options.model === 'string' &&
-            (TOGETHER_IMAGE_MODEL_PREFIXES.some(prefix => modelLower.startsWith(prefix)) ||
-                TOGETHER_IMAGE_MODEL_KEYWORDS.some(keyword => modelLower.includes(keyword)));
 
         if ( driverHint ) {
             AIService = driverHint;
