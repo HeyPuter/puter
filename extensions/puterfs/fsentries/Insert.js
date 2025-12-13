@@ -45,7 +45,6 @@ export default class extends BaseOperation {
         }
 
         for ( const k of requiredForCreate ) {
-            console.log('checking for key', entry, k, typeof entry[k], entry[k], safeHasOwnProperty(entry, k));
             if ( ! safeHasOwnProperty(entry, k) ) {
                 throw new Error(`Missing required property: ${k}`);
             }

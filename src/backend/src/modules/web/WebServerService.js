@@ -26,7 +26,6 @@ const config = require('../../config.js');
 var http = require('http');
 const auth = require('../../middleware/auth.js');
 const measure = require('../../middleware/measure.js');
-const { surrounding_box, es_import_promise } = require('../../fun/dev-console-ui-utils.js');
 
 const relative_require = require;
 const strutil = require('@heyputer/putility').libs.string;
@@ -125,8 +124,6 @@ class WebServerService extends BaseService {
     * @return {Promise} A promise that resolves when the server is up and running.
     */
     async ['__on_start.webserver'] () {
-        await es_import_promise;
-
         // error handling middleware goes last, as per the
         // expressjs documentation:
         // https://expressjs.com/en/guide/error-handling.html
@@ -217,28 +214,25 @@ class WebServerService extends BaseService {
         const lines = [
             `Puter is now live at: ${link}`,
         ];
-        this.startup_widget = () => {
-
-            const lengths = [
-                ('Puter is now live at: ').length + url.length,
-                lines[1].length,
-            ];
-            surrounding_box('34;1', lines, lengths);
-            return lines;
-        };
+        const svc_devConsole = this.services.get('dev-console', { optional: true });
         if ( this.config.old_widget_behavior ) {
-            const svc_devConsole = this.services.get('dev-console', { optional: true });
+            this.startup_widget = () => {
+                const output = [...lines];
+                if ( ! this.global_config.minimal_console ) {
+                    output.unshift('\x1B[34;1mPuter is live!\x1B[0m');
+                    output.push('Type web:dismiss to un-stick this message');
+                }
+                return output;
+            };
+            this.startup_widget.unimportant = true;
             if ( svc_devConsole ) svc_devConsole.add_widget(this.startup_widget);
-        } else {
-            const svc_devConsole = this.services.get('dev-console', { optional: true });
-            if ( svc_devConsole ) {
-                svc_devConsole.notice({
-                    colors: { bg: '38;2;0;0;0;48;2;0;202;252;1', bginv: '38;2;0;202;252' },
-                    style: 'stars',
-                    title: 'Puter is live!',
-                    lines,
-                });
-            }
+        } else if ( svc_devConsole ) {
+            svc_devConsole.notice({
+                colors: { bg: '38;2;0;0;0;48;2;0;202;252;1', bginv: '38;2;0;202;252' },
+                style: 'stars',
+                title: 'Puter is live!',
+                lines,
+            });
         }
 
         server.timeout = 1000 * 60 * 60 * 2; // 2 hours
