@@ -358,9 +358,6 @@ const install = async ({ context, services, app, useapi, modapi }) => {
     const { SNSService } = require('./services/SNSService');
     services.registerService('sns', SNSService);
 
-    const { PerformanceMonitor } = require('./monitor/PerformanceMonitor');
-    services.registerService('performance-monitor', PerformanceMonitor);
-
     const { WispService } = require('./services/WispService');
     services.registerService('wisp', WispService);
     // const { AWSSecretsPopulator } = require('./services/AWSSecretsPopulator.js');
