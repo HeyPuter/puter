@@ -63,7 +63,7 @@ class AppInformationService extends BaseService {
         };
     }
 
-    async _init () {
+    async '__on_boot.consolidation' () {
         ENABLE_REFRESH_APP_CACHE && await this._refresh_app_cache();
         await this._refresh_app_stats();
         await this._refresh_app_stat_referrals();
