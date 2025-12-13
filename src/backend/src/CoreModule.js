@@ -288,9 +288,6 @@ const install = async ({ context, services, app, useapi, modapi }) => {
     const { DetailProviderService } = require('./services/DetailProviderService');
     services.registerService('whoami', DetailProviderService);
 
-    const { DevTODService } = require('./services/DevTODService');
-    services.registerService('__dev-tod', DevTODService);
-
     const { DriverService } = require('./services/drivers/DriverService');
     services.registerService('driver', DriverService);
 
