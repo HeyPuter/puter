@@ -565,9 +565,12 @@ class LogService extends BaseService {
                     return util.inspect(arg, undefined, undefined, true);
                 }).join(' '));
             };
+
             logconsole.log = logfn('info');
+            logconsole.info = logfn('info');
             logconsole.warn = logfn('warn');
             logconsole.error = logfn('error');
+            logconsole.debug = logfn('debug');
 
             globalThis.console = logconsole;
         }

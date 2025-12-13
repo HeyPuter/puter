@@ -1,5 +1,7 @@
 # Logging in Services
 
+# NOTE: You can, and maybe should, just use console log methods, as they are overriden to log through our logger
+
 Services all have a logger available at `this.log`.
 
 ```javascript

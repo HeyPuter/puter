@@ -118,14 +118,10 @@ class PrankGreetService extends BaseService {
         await new Promise(rslv => setTimeout(rslv), 5000);
 
         // Display a log message
-        this.log.noticeme('Hello from PrankGreetService!');
+        console.debug('Hello from PrankGreetService!');
     }
 }
 ```
-
-Typically you'll use `this.log.info('some message')` in your logs
-as opposed to `this.log.noticeme(...)`, but the `noticeme` log
-level is helpful when debugging.
 
 ## Part 4: Implement the Driver Interface in your Service
 
