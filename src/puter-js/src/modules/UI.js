@@ -1,7 +1,16 @@
-import { TeePromise } from '../lib/utils.js';
 import EventListener from '../lib/EventListener.js';
 import FSItem from './FSItem.js';
 import PuterDialog from './PuterDialog.js';
+
+const createDeferred = () => {
+    let resolve;
+    let reject;
+    const promise = new Promise((res, rej) => {
+        resolve = res;
+        reject = rej;
+    });
+    return { promise, resolve, reject };
+};
 
 const FILE_SAVE_CANCELLED = Symbol('FILE_SAVE_CANCELLED');
 const FILE_OPEN_CANCELLED = Symbol('FILE_OPEN_CANCELLED');
@@ -744,7 +753,7 @@ class UI extends EventListener {
     };
 
     showOpenFilePicker (options, callback) {
-        const undefinedOnCancel = new TeePromise();
+        const undefinedOnCancel = createDeferred();
         const resolveOnlyPromise = new Promise((resolve, reject) => {
             if ( ! globalThis.open ) {
                 return reject('This API is not compatible in Web Workers.');
@@ -780,7 +789,7 @@ class UI extends EventListener {
                 resolve(maybe_result);
             };
         });
-        resolveOnlyPromise.undefinedOnCancel = undefinedOnCancel;
+        resolveOnlyPromise.undefinedOnCancel = undefinedOnCancel.promise;
         return resolveOnlyPromise;
     };
 
@@ -803,7 +812,7 @@ class UI extends EventListener {
     };
 
     showSaveFilePicker (content, suggestedName, type) {
-        const undefinedOnCancel = new TeePromise();
+        const undefinedOnCancel = createDeferred();
         const resolveOnlyPromise = new Promise((resolve, reject) => {
             if ( ! globalThis.open ) {
                 return reject('This API is not compatible in Web Workers.');
@@ -871,7 +880,7 @@ class UI extends EventListener {
             };
         });
 
-        resolveOnlyPromise.undefinedOnCancel = undefinedOnCancel;
+        resolveOnlyPromise.undefinedOnCancel = undefinedOnCancel.promise;
 
         return resolveOnlyPromise;
     };

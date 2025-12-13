@@ -65,6 +65,16 @@ function uuidv4 () {
         (c ^ crypto.getRandomValues(new Uint8Array(1))[0] & 15 >> c / 4).toString(16));
 }
 
+const createDeferred = () => {
+    let resolve;
+    let reject;
+    const promise = new Promise((res, rej) => {
+        resolve = res;
+        reject = rej;
+    });
+    return { promise, resolve, reject };
+};
+
 /**
  * Initializes and returns an XMLHttpRequest object configured for a specific API endpoint, method, and headers.
  *
@@ -266,11 +276,11 @@ function make_driver_method (arg_defs, driverInterface, driverName, driverMethod
 }
 
 async function driverCall (options, driverInterface, driverName, driverMethod, driverArgs, settings) {
-    const tp = new TeePromise();
+    const deferred = createDeferred();
 
     driverCall_(options,
-                    tp.resolve.bind(tp),
-                    tp.reject.bind(tp),
+                    deferred.resolve,
+                    deferred.reject,
                     driverInterface,
                     driverName,
                     driverMethod,
@@ -279,7 +289,7 @@ async function driverCall (options, driverInterface, driverName, driverMethod, d
                     undefined,
                     settings);
 
-    return await tp;
+    return await deferred.promise;
 }
 
 // This function encapsulates the logic for sending a driver call request
@@ -368,9 +378,9 @@ async function driverCall_ (
             is_stream = true;
             const Stream = async function* Stream () {
                 while ( !response_complete ) {
-                    const tp = new TeePromise();
-                    signal_stream_update = tp.resolve.bind(tp);
-                    await tp;
+                    const signal = createDeferred();
+                    signal_stream_update = signal.resolve;
+                    await signal.promise;
                     if ( response_complete ) break;
                     while ( lines_received.length > 0 ) {
                         const line = lines_received.shift();
@@ -543,58 +553,13 @@ async function driverCall_ (
         args: driverArgs,
         auth_token: puter.authToken,
     }));
-}
-
-class TeePromise {
-    static STATUS_PENDING = {};
-    static STATUS_RUNNING = {};
-    static STATUS_DONE = {};
-    constructor () {
-        this.status_ = this.constructor.STATUS_PENDING;
-        this.donePromise = new Promise((resolve, reject) => {
-            this.doneResolve = resolve;
-            this.doneReject = reject;
-        });
-    }
-    get status () {
-        return this.status_;
-    }
-    set status (status) {
-        this.status_ = status;
-        if ( status === this.constructor.STATUS_DONE ) {
-            this.doneResolve();
-        }
-    }
-    resolve (value) {
-        this.status_ = this.constructor.STATUS_DONE;
-        this.doneResolve(value);
-    }
-    awaitDone () {
-        return this.donePromise;
-    }
-    then (fn, rfn) {
-        return this.donePromise.then(fn, rfn);
-    }
-
-    reject (err) {
-        this.status_ = this.constructor.STATUS_DONE;
-        this.doneReject(err);
-    }
-
-    /**
-     * @deprecated use then() instead
-     */
-    onComplete (fn) {
-        return this.then(fn);
-    }
-}
-
 async function blob_to_url (blob) {
-    const tp = new TeePromise();
     const reader = new (globalThis.FileReader || FileReaderPoly)();
-    reader.onloadend = () => tp.resolve(reader.result);
-    reader.readAsDataURL(blob);
-    return await tp;
+    return await new Promise((resolve, reject) => {
+        reader.onloadend = () => resolve(reader.result);
+        reader.onerror = reject;
+        reader.readAsDataURL(blob);
+    });
 }
 
 function blobToDataUri (blob) {
@@ -625,5 +590,5 @@ function arrayBufferToDataUri (arrayBuffer) {
 }
 
 export {
-    arrayBufferToDataUri, blob_to_url, blobToDataUri, driverCall, handle_error, handle_resp, initXhr, make_driver_method, parseResponse, setupXhrEventHandlers, TeePromise, uuidv4
+    arrayBufferToDataUri, blob_to_url, blobToDataUri, driverCall, handle_error, handle_resp, initXhr, make_driver_method, parseResponse, setupXhrEventHandlers, uuidv4
 };

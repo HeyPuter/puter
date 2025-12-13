@@ -22,7 +22,6 @@ import Threads from './modules/Threads.js';
 import UI from './modules/UI.js';
 import Util from './modules/Util.js';
 import { WorkersHandler } from './modules/Workers.js';
-import { TeePromise } from './lib/utils.js';
 
 class SimpleLogger {
     constructor (fields = {}) {
@@ -387,12 +386,9 @@ const puterInit = (function () {
             // Lock to prevent multiple requests to `/rao`
             this.lock_rao_ = new Lock();
             // Promise that resolves when it's okay to request `/rao`
-            this.p_can_request_rao_ = new TeePromise();
+            this.p_can_request_rao_ = Promise.resolve();
             // Flag that indicates if a request to `/rao` has been made
             this.rao_requested_ = false;
-
-            // In case we're already auth'd, request `/rao`
-            this.p_can_request_rao_.resolve();
 
             this.net = {
                 generateWispV1URL: async () => {
