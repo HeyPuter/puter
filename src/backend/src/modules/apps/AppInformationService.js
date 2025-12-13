@@ -16,7 +16,6 @@
  * You should have received a copy of the GNU Affero General Public License
  * along with this program.  If not, see <https://www.gnu.org/licenses/>.
  */
-const { asyncSafeSetInterval } = require('@heyputer/putility').libs.promise;
 const { MINUTE } = require('@heyputer/putility').libs.time;
 const { origin_from_url } = require('../../util/urlutil');
 const { DB_READ } = require('../../services/database/consts');
@@ -64,63 +63,17 @@ class AppInformationService extends BaseService {
         };
     }
 
-    ['__on_boot.consolidation'] () {
-        (async () => {
-            if ( ENABLE_REFRESH_APP_CACHE ) {
-                this._refresh_app_cache();
-                /**
-                * Refreshes the application cache by querying the database for all apps and updating the key-value store.
-                *
-                * This method is called periodically to ensure that the in-memory cache reflects the latest
-                * state from the database. It uses the 'database' service to fetch app data and then updates
-                * multiple cache entries for quick lookups by name, ID, and UID.
-                *
-                * @async
-                */
-                asyncSafeSetInterval(async () => {
-                    this._refresh_app_cache();
-                }, 30 * 1000);
-            }
+    async _init () {
+        ENABLE_REFRESH_APP_CACHE && await this._refresh_app_cache();
+        await this._refresh_app_stats();
+        await this._refresh_app_stat_referrals();
+        await this._refresh_recent_cache();
 
-            /**
-            * Refreshes the cache of recently opened apps.
-            * This method updates the 'recent' collection with the UIDs of apps sorted by their most recent timestamp.
-            *
-            * @async
-            * @returns {Promise<void>} A promise that resolves when the cache has been refreshed.
-            */
-            this._refresh_app_stats();
-            asyncSafeSetInterval(async () => {
-                this._refresh_app_stats();
-            }, 240 * 1000);
-
-            /**
-            * Refreshes the app referral statistics.
-            * This method is computationally expensive and thus runs less frequently.
-            * It queries the database for user counts referred by each app's origin URL.
-            *
-            * This stat is more expensive so we don't update it as often
-            * 
-            * @async
-            */
-            this._refresh_app_stat_referrals();
-            asyncSafeSetInterval(async () => {
-                this._refresh_app_stat_referrals();
-            }, 15 * MINUTE);
-
-            /**
-            * Refreshes the recent cache by updating the list of recently added or updated apps.
-            * This method fetches all app data, filters for approved apps, sorts them by timestamp,
-            * and updates the `this.collections.recent` array with the UIDs of the most recent 50 apps.
-            *
-            * @async
-            * @private
-            */
-            this._refresh_recent_cache();
-            asyncSafeSetInterval(async () => {
-                this._refresh_recent_cache();
-            }, 240 * 1000);
-        })();
+        ENABLE_REFRESH_APP_CACHE && setInterval(this._refresh_app_cache, 30 * 1000);
+        setInterval(async () => {
+            await this._refresh_app_stats();await this._refresh_recent_cache();
+        }, 4 * 60 * 1000);
+        setInterval(this._refresh_app_stat_referrals, 10.5 * 60 * 1000);// trying this to have both hit less often
     }
 
     /**
@@ -511,14 +464,8 @@ class AppInformationService extends BaseService {
     *
     * @async
     * @returns {Promise<void>} A promise that resolves when the cache refresh operation is complete.
-    *
-    * @notes
-    * - This method logs a tick event for performance monitoring.
-    * - It populates the cache with app data indexed by name, id, and uid.
     */
     async _refresh_app_cache () {
-        this.log.tick('refresh app cache');
-
         const db = this.services.get('database').get(DB_READ, 'apps');
 
         let apps = await db.read('SELECT * FROM apps');
