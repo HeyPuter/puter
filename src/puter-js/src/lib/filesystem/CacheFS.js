@@ -186,7 +186,6 @@ export class CachedFilesystem extends ProxyFilesystem {
                     l.unlock();
                 }
 
-                console.log('STATS????', stats);
                 if ( stats ) {
                     return stats;
                 }

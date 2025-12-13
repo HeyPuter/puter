@@ -478,6 +478,7 @@ class LogService extends BaseService {
                 levels: WINSTON_LEVELS,
                 transports: [
                     new winston.transports.DailyRotateFile({
+                        level: 'http',
                         filename: `${this.log_directory}/%DATE%.log`,
                         datePattern: 'YYYY-MM-DD',
                         maxSize: '20m',

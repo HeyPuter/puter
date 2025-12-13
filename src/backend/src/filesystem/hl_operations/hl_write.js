@@ -141,7 +141,6 @@ class HLWrite extends HLFilesystemOperation {
                 });
             }
             const path = parent.selector.value;
-            this.log.noticeme('EXPECTED PATH', { path });
             const tree_op = new MkTree();
             await tree_op.run({
                 parent: await fs.node(new RootNodeSelector()),

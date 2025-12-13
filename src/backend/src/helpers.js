@@ -399,8 +399,7 @@ async function change_username (user_id, new_username) {
         'WHERE `user_id` = ? AND parent_uid IS NULL LIMIT 1',
     [new_username, `/${ new_username}`, user_id]);
 
-    const log = services.get('log-service').create('change_username');
-    log.noticeme(`User ${old_username} changed username to ${new_username}`);
+    console.log(`User ${old_username} changed username to ${new_username}`);
     await services.get('filesystem').update_child_paths(`/${old_username}`, `/${new_username}`, user_id);
 
     invalidate_cached_user_by_id(user_id);
@@ -733,8 +732,6 @@ async function getDescendantsHelper (path, user, depth, return_thumbnail = false
 
     let rows = await db.read(`SELECT root_dir_id FROM subdomains WHERE root_dir_id IN (${qmarks}) AND user_id=?`,
                     [...ids, user.id]);
-
-    log.debug('rows???', rows);
 
     const websiteMap = {};
     for ( const row of rows ) websiteMap[row.root_dir_id] = true;

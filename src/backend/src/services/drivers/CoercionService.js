@@ -64,7 +64,7 @@ class CoercionService extends BaseService {
                 content_type: 'image',
             },
             coerce: async typed_value => {
-                this.log.noticeme('coercion is running!');
+                console.debug('coercion is running!');
 
                 const response = await (async () => {
                     try {
@@ -129,8 +129,6 @@ class CoercionService extends BaseService {
                 content_type: 'image',
             },
             coerce: async typed_value => {
-                this.log.noticeme('data URL coercion is running!');
-
                 const data_url = typed_value.value;
                 const data = data_url.split(',')[1];
                 const buffer = Buffer.from(data, 'base64');

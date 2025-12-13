@@ -85,7 +85,7 @@ class BroadcastService extends BaseService {
 
             conn.channels.message.on(({ key, data, meta }) => {
                 if ( meta.from_outside ) {
-                    this.log.noticeme('possible over-sending');
+                    console.warn('possible over-sending');
                     return;
                 }
 

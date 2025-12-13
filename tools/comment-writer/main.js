@@ -1,18 +1,18 @@
 /*
  * Copyright (C) 2024-present Puter Technologies Inc.
- * 
+ *
  * This file is part of Puter.
- * 
+ *
  * Puter is free software: you can redistribute it and/or modify
  * it under the terms of the GNU Affero General Public License as published
  * by the Free Software Foundation, either version 3 of the License, or
  * (at your option) any later version.
- * 
+ *
  * This program is distributed in the hope that it will be useful,
  * but WITHOUT ANY WARRANTY; without even the implied warranty of
  * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
  * GNU Affero General Public License for more details.
- * 
+ *
  * You should have received a copy of the GNU Affero General Public License
  * along with this program.  If not, see <https://www.gnu.org/licenses/>.
  */
@@ -70,20 +70,16 @@ const models_to_try = [
     // }
 ];
 
-
 const axi = axios.create({
-    httpsAgent: new https.Agent({  
-        rejectUnauthorized: false
-    })
+    httpsAgent: new https.Agent({
+        rejectUnauthorized: false,
+    }),
 });
 
 const cwd = process.cwd();
 const context = {};
 
-context.config = JSON.parse(
-    fs.readFileSync('config.json')
-);
-
+context.config = JSON.parse(fs.readFileSync('config.json'));
 
 /**
 * @class AI
@@ -96,16 +92,15 @@ class AI {
     constructor (context) {
         //
     }
-    
 
     /**
     * Sends a chat completion request to the Puter API and returns the response message.
-    * 
+    *
     * @param {Object} params - The parameters for the completion request
     * @param {Array} params.messages - Array of message objects to send to the API
     * @param {Object} params.driver_params - Additional parameters for the driver interface
     * @returns {Promise<Object>} The response message from the API
-    * 
+    *
     * Makes a POST request to the configured API endpoint with the provided messages and
     * driver parameters. Authenticates using the configured auth token and returns the
     * message content from the response.
@@ -120,12 +115,12 @@ class AI {
             },
         }, {
             headers: {
-                "Content-Type": "application/json",
+                'Content-Type': 'application/json',
                 Origin: 'https://puter.local',
                 Authorization: `Bearer ${context.config.auth_token}`,
             },
         });
-        
+
         return response.data.result.message;
     }
 }
@@ -142,7 +137,7 @@ const ai_message_to_lines = text => {
         }
     }
     return text.split('\n');
-}
+};
 
 /**
 * @class JavascriptFileProcessor
@@ -157,7 +152,7 @@ class JavascriptFileProcessor {
         this.context = context;
         this.parameters = parameters;
     }
-    
+
     process (lines) {
         const definitions = [];
         // Collect definitions by iterating through each line
@@ -206,7 +201,7 @@ const js_processor = new JavascriptFileProcessor(context, {
                     name,
                     parent,
                 };
-            }
+            },
         },
         {
             name: 'if',
@@ -221,7 +216,7 @@ const js_processor = new JavascriptFileProcessor(context, {
             */
             handler: () => {
                 return { type: 'if' };
-            }
+            },
         },
         {
             name: 'while',
@@ -236,7 +231,7 @@ const js_processor = new JavascriptFileProcessor(context, {
             */
             handler: () => {
                 return { type: 'while' };
-            }
+            },
         },
         {
             name: 'for',
@@ -248,7 +243,7 @@ const js_processor = new JavascriptFileProcessor(context, {
             */
             handler: () => {
                 return { type: 'for' };
-            }
+            },
         },
         {
             name: 'method',
@@ -260,7 +255,7 @@ const js_processor = new JavascriptFileProcessor(context, {
                     type: 'method',
                     name,
                 };
-            }
+            },
         },
         {
             name: 'method',
@@ -279,7 +274,7 @@ const js_processor = new JavascriptFileProcessor(context, {
                     type: 'method',
                     name,
                 };
-            }
+            },
         },
         {
             name: 'function',
@@ -291,7 +286,7 @@ const js_processor = new JavascriptFileProcessor(context, {
                     scope: 'function',
                     name,
                 };
-            }
+            },
         },
         {
             name: 'function',
@@ -304,7 +299,7 @@ const js_processor = new JavascriptFileProcessor(context, {
                     name,
                     args: (args ?? '').split(',').map(arg => arg.trim()),
                 };
-            }
+            },
         },
         {
             name: 'const',
@@ -317,11 +312,10 @@ const js_processor = new JavascriptFileProcessor(context, {
                     name,
                     value,
                 };
-            }
-        }
+            },
+        },
     ],
 });
-
 
 /**
 * Creates a limited view of the code file by showing specific ranges around key lines.
@@ -339,19 +333,19 @@ const create_limited_view = (lines, key_places) => {
         const b_start = Math.max(0, b.anchor - b.lines_above);
         return a_start - b_start;
     });
-    
+
     const visible_ranges = [];
-    
+
     // Create visible ranges for each key place
     // Create visible ranges for each key place in the limited view
     for ( const key_place of key_places ) {
         const anchor = key_place.anchor;
         const lines_above = key_place.lines_above;
         const lines_below = key_place.lines_below;
-        
+
         const start = Math.max(0, anchor - lines_above);
         const end = Math.min(lines.length, anchor + lines_below);
-        
+
         visible_ranges.push({
             anchor: key_place.anchor,
             comment: key_place.comment,
@@ -359,15 +353,15 @@ const create_limited_view = (lines, key_places) => {
             end,
         });
     }
-    
+
     // Merge overlapping visible ranges
     const merged_ranges = [];
-    
+
     // Iterate through each visible range and merge overlapping ones
     for ( const range of visible_ranges ) {
         range.comments = [{
             anchor: range.anchor,
-            text: range.comment
+            text: range.comment,
         }];
 
         // If no merged ranges exist yet, add this range as the first one
@@ -375,31 +369,31 @@ const create_limited_view = (lines, key_places) => {
             merged_ranges.push(range);
             continue;
         }
-        
+
         const last_range = merged_ranges[merged_ranges.length - 1];
-        
+
         // Check if the current range overlaps with the last range in merged_ranges
         if ( last_range.end >= range.start ) {
             last_range.end = Math.max(last_range.end, range.end);
             last_range.comments.push({
                 anchor: range.anchor,
-                text: range.comment
+                text: range.comment,
             });
         } else {
             merged_ranges.push(range);
         }
     }
-    
+
     // Create the limited view, adding line numbers and comments
     let limited_view = '';
-    
+
     let previous_visible_range = null;
     // Iterate through visible ranges and add line numbers and comments
     for ( let i = 0 ; i < lines.length ; i++ ) {
         const line = lines[i];
-        
+
         let visible_range = null;
-        
+
         if ( i === 22 ) debugger;
 
         // Iterate through merged ranges to find which range contains the current line
@@ -410,14 +404,14 @@ const create_limited_view = (lines, key_places) => {
                 break;
             }
         }
-        
+
         // console.log('visible_range', visible_range, i);
-        
+
         // Check if this line is visible in the current range
         if ( visible_range === null ) {
             continue;
         }
-        
+
         // Check if visible range is different from previous range
         if ( visible_range !== previous_visible_range ) {
             if ( i !== 0 ) limited_view += '\n';
@@ -433,12 +427,12 @@ const create_limited_view = (lines, key_places) => {
                 }
             }
         }
-        
+
         previous_visible_range = visible_range;
-        
+
         limited_view += `${i + 1}: ${line}\n`;
     }
-    
+
     return limited_view;
 };
 
@@ -446,7 +440,7 @@ const create_limited_view = (lines, key_places) => {
  * Inject comments into lines
  * @param {*} lines - Array of original file lines
  * @param {*} comments - Array of comment objects
- * 
+ *
  * Comment object structure:
  * {
  *    position: 0, // Position in lines array
@@ -463,25 +457,24 @@ const create_limited_view = (lines, key_places) => {
 const inject_comments = (lines, comments) => {
     // Sort comments in reverse order
     comments.sort((a, b) => b.position - a.position);
-    
+
     // Inject comments into lines
     // Inject comments into lines array based on comment objects
     for ( const comment of comments ) {
         // AI might have been stupid and added a comment above a blank line,
         // despite that we told it not to do that. So we need to adjust the position.
         // Adjust comment position if it would be above a blank line
-        while ( comment.position < lines.length && ! lines[comment.position].trim() ) {
+        while ( comment.position < lines.length && !lines[comment.position].trim() ) {
             comment.position++;
         }
-        
+
         const indentation = lines[comment.position].match(/^\s*/)[0];
-        console.log('????', comment.position, lines[comment.position], '|' + indentation + '|');
         const comment_lines = comment.lines.map(line => `${indentation}${line}`);
         lines.splice(comment.position, 0, ...comment_lines);
-        
+
         // If the first line of the comment lines starts with '/*`, ensure there is
         // a blank line above it.
-        
+
         // Check if comment starts with '/*' to ensure proper spacing above JSDoc comments
         if ( comment_lines[0].trim().startsWith('/*') ) {
             // Check if comment starts with JSDoc style to add blank line above
@@ -490,18 +483,17 @@ const inject_comments = (lines, comments) => {
             }
         }
     }
-}
+};
 
 const textutil = {};
 textutil.format = text => {
     return wrap(dedent(text), {
         width: 80,
-        indent: '| '
+        indent: '| ',
     });
 };
 
 context.ai = new AI(context);
-
 
 /**
 * Creates a new AI instance for handling chat completions
@@ -530,22 +522,22 @@ const main = async () => {
         Hello! I am the Puter Comment Writer, an AI designed to enhance your code files with meaningful comments. As you walk through your source files, I will provide insights, explanations, and clarifications tailored to the specific content of each file. You can choose to accept my comments, request edits for more clarity or detail, or even reject them if they don't meet your needs. Each time we move to a new file, I'll start fresh with a clean context, ready to help you improve your code documentation. Let's get started!
     `);
     console.log(intro);
-    
+
     console.log(`Enter a path relative to: ${process.cwd()}`);
     console.log('arg?', process.argv[2]);
     let rootpath = process.argv[2] ? { path: process.argv[2] } : await enq.prompt({
         type: 'input',
         name: 'path',
-        message: 'Enter path:'
+        message: 'Enter path:',
     });
-    
+
     rootpath = path_.resolve(rootpath.path);
     console.log('rootpath:', rootpath);
 
     const walk_iter = walk({
         excludes: FILE_EXCLUDES,
     }, rootpath);
-    
+
     let i = 0, limit = undefined;
     for await ( const value of walk_iter ) {
         if ( limit !== undefined && i >= limit ) break;
@@ -562,7 +554,7 @@ const main = async () => {
         }
         console.log('file:', value.path);
         const lines = fs.readFileSync(value.path, 'utf8').split('\n');
-        
+
         let metadata, has_metadata_line = false;
         // Check if metadata line exists and parse it
         if ( lines[0].startsWith('// METADATA // ') ) {
@@ -574,14 +566,14 @@ const main = async () => {
                 continue;
             }
         } else metadata = {};
-        
+
         let refs = null;
         // Check if there are any references in the metadata
         if ( metadata['ai-refs'] ) {
             const relative_file_paths = metadata['ai-refs'];
             // name of file is the key, value is the contents
             const references = {};
-            
+
             let n  = 0;
             // Iterate through each relative file path in the metadata
             for ( const relative_file_path of relative_file_paths ) {
@@ -590,28 +582,28 @@ const main = async () => {
                 const ref_text = fs.readFileSync(full_path, 'utf8');
                 references[relative_file_path] = ref_text;
             }
-            
+
             // Check if there are any references in the metadata and process them
             if ( n === 1 ) {
                 refs = dedent(`
                     The following documentation contains relevant information about the code.
                     The code will follow after this documentation.
                 `);
-                
-                refs += '\n\n' + dedent(references[Object.keys(references)[0]]);
+
+                refs += `\n\n${ dedent(references[Object.keys(references)[0]])}`;
             } else if ( n > 2 ) {
                 refs = dedent(`
                     The following documentation contains relevant information about the code.
                     The code will follow after a number of documentation files.
                 `);
-                
+
                 // Iterate through each key in the references object
                 for ( const key of Object.keys(references) ) {
-                    refs += '\n\n' + dedent(references[key]);
+                    refs += `\n\n${ dedent(references[key])}`;
                 }
             }
         }
-        
+
         const action = limit === undefined ? await enq.prompt({
             type: 'select',
             name: 'action',
@@ -622,15 +614,15 @@ const main = async () => {
                 'all',
                 'limit',
                 'exit',
-            ]
+            ],
         }) : 'generate';
         // const action = 'generate';
-        
+
         // Check if user wants to exit the program
         if ( action.action === 'exit' ) {
             break;
         }
-        
+
         // Skip if user chose to exit
         if ( action.action === 'skip' ) {
             continue;
@@ -640,7 +632,7 @@ const main = async () => {
             limit = await enq.prompt({
                 type: 'input',
                 name: 'limit',
-                message: 'Enter limit:'
+                message: 'Enter limit:',
             });
             i = 1;
             limit = Number(limit.limit);
@@ -657,13 +649,13 @@ const main = async () => {
             anchor: 0,
             lines_above: 2,
             lines_below: 200,
-            comment: `Top of file: ${value.path}`
+            comment: `Top of file: ${value.path}`,
         });
         key_places.push({
             anchor: lines.length - 1,
             lines_above: 200,
             lines_below: 2,
-            comment: `Bottom of ${value.name}`
+            comment: `Bottom of ${value.name}`,
         });
         // Iterate through each definition and add comments based on its type
         for ( const definition of definitions ) {
@@ -671,13 +663,13 @@ const main = async () => {
                 anchor: definition.line,
                 lines_above: 40,
                 lines_below: 40,
-                comment: `${definition.type}.`
+                comment: `${definition.type}.`,
             });
         }
         let limited_view = create_limited_view(lines, key_places);
         console.log('--- view ---');
         console.log(limited_view);
-        
+
         const comments = [];
         // comments.push({
         //     position: 0,
@@ -688,7 +680,7 @@ const main = async () => {
         //         definition,
         //     });
         // }
-        
+
         // This was worth a try but the LLM is very bad at this
         /*
         const message = await context.ai.complete({
@@ -713,7 +705,7 @@ const main = async () => {
                 console.log('Invalid number:', n);
                 continue;
             }
-            
+
             comments.push({
                 position: n - 1,
             });
@@ -724,7 +716,7 @@ const main = async () => {
         for ( const def of definitions ) {
             console.log('def?', def);
             let instruction = '';
-            
+
             // Check if the line starts with an if statement and has curly braces
             if ( def.type === 'class' ) {
                 instruction = dedent(`
@@ -750,7 +742,7 @@ const main = async () => {
                     notes about its behavior, and any parameters or return values.
                 `);
             }
-            
+
             // Check if comment is for a constant definition and set appropriate instruction
             if ( def.type === 'const' ) {
                 instruction = dedent(`
@@ -759,7 +751,7 @@ const main = async () => {
                     The comment should be only one or two lines long, and should use line comments.
                 `);
             }
-            
+
             comments.push({
                 position: def.line,
                 instruction: instruction,
@@ -768,7 +760,7 @@ const main = async () => {
 
         const driver_params = metadata['ai-params'] ??
             models_to_try[Math.floor(Math.random() * models_to_try.length)];
-        
+
         // Iterate through each comment object to add comments to the code
         for ( const comment of comments ) {
             // This doesn't work very well yet
@@ -780,9 +772,9 @@ const main = async () => {
                         content: dedent(`
                             Please only respond with comma-separated number ranges in this format with no surrounding text:
                             11-21, 25-30, 35-40
-                            
+
                             You may also respond with "none".
-                            
+
                             A comment will be added above line ${comment.position} in the code which follows.
                             You are seeing a limited view of the code that includes chunks around interesting lines.
                             Please specify ranges of lines that might provide useful context for this comment.
@@ -792,14 +784,14 @@ const main = async () => {
                     }
                 ]
             });
-            
+
             // Check if the comment lines start with '/*' and ensure there's a blank line above it
             if ( ranges_message.content.trim() !== 'none' ) {
                 const ranges = ranges_message.content.split(',').map(range => {
                     const [ start, end ] = range.split('-').map(n => Number(n));
                     return { start, end };
                 });
-                
+
                 // Iterate through ranges and add key places for each range
                 for ( const range of ranges ) {
                     key_places.push({
@@ -809,79 +801,79 @@ const main = async () => {
                         comment: `Requested range by AI agent: ${range.start}-${range.end}`
                     });
                 }
-                
+
                 limited_view = create_limited_view(lines, key_places);
                 console.log('--- updated view ---');
                 console.log(limited_view);
             }
             */
-           
+
             const prompt =
-                dedent(`
+                `${dedent(`
                     Please write a comment to be added above line ${comment.position}.
                     Do not write any surrounding text; just the comment itself.
                     Please include comment markers. If the comment is on a class, function, or method, please use jsdoc style.
                     The code is written in JavaScript.
                 `).trim() +
-                (refs ? '\n\n' + dedent(refs) : '') +
-                (comment.instruction ? '\n\n' + dedent(comment.instruction) : '') +
-                '\n\n' + limited_view
+                (refs ? `\n\n${ dedent(refs)}` : '') +
+                (comment.instruction ? `\n\n${ dedent(comment.instruction)}` : '')
+                }\n\n${ limited_view}`
                 ;
-           
+
             // console.log('prompt:', prompt);
-           
+
             const message = await context.ai.complete({
                 messages: [
                     {
                         role: 'user',
-                        content: prompt
-                    }
+                        content: prompt,
+                    },
                 ],
                 driver_params,
             });
             console.log('message:', message);
             comment.lines = ai_message_to_lines(message.content);
-            
+
             // Remove leading and trailing blank lines
             // Remove leading and trailing blank lines from comment lines array
-            while ( comment.lines.length && ! comment.lines[0].trim() ) {
+            while ( comment.lines.length && !comment.lines[0].trim() ) {
                 comment.lines.shift();
             }
             // Remove trailing blank lines from comment lines array
-            while ( comment.lines.length && ! comment.lines[comment.lines.length - 1].trim() ) {
+            while ( comment.lines.length && !comment.lines[comment.lines.length - 1].trim() ) {
                 comment.lines.pop();
             }
-            
+
             // Remove leading "```" or "```<language>" lines
             // Remove leading "```" or "```<language>" lines
             if ( comment.lines[0].startsWith('```') ) {
                 comment.lines.shift();
             }
-            
+
             // Remove trailing "```" lines
             // Remove trailing "```" lines if present
             if ( comment.lines[comment.lines.length - 1].startsWith('```') ) {
                 comment.lines.pop();
             }
-            
+
             comment.lines = dedent(comment.lines.join('\n')).split('\n');
         }
 
         inject_comments(lines, comments);
-        
+
         console.log('--- lines ---');
         console.log(lines);
-        
+
         // Check if file has metadata line and remove it before adding new metadata
         if ( has_metadata_line ) {
             lines.shift();
         }
-        
-        lines.unshift('// METADATA // ' + JSON.stringify({
+
+        lines.unshift(`// METADATA // ${ JSON.stringify({
             ...metadata,
             'ai-commented': driver_params,
-        }));
-        
+        })}`);
+
         // Write the modified file
         fs.writeFileSync(value.path, lines.join('\n'));
     }

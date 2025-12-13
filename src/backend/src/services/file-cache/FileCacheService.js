@@ -198,13 +198,10 @@ class FileCacheService extends BaseService {
         }
 
         if ( tracker.phase === FileTracker.PHASE_PRECACHE ) {
-            this.log.noticeme('obtained from precache');
             return this.precache.get(await fsNode.get('uid'));
         }
 
         if ( tracker.phase === FileTracker.PHASE_DISK ) {
-            this.log.noticeme('obtained from disk');
-
             const { fs } = this.modules;
             const path = this._get_path(await fsNode.get('uid'));
             try {

@@ -841,7 +841,7 @@ module.exports = class FSNodeContext {
         const info = this.services.get('information');
 
         if ( !this.uid && !this.entry.uuid ) {
-            this.log.noticeme(`whats even happening!?!? ${
+            console.warn(`Potential Error in getSafeEntry with no uid or entry.uuid ${
                 this.selector.describe() } ${
                 JSON.stringify(this.entry, null, '  ')}`);
         }
