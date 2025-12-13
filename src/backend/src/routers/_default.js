@@ -490,7 +490,6 @@ router.all('*', async function (req, res, next) {
     // WWW, redirect to root domain
     // --------------------------------------
     else if ( subdomain === 'www' ) {
-        console.log('redirecting from www to root domain');
         return res.redirect(config.origin);
     }
     //------------------------------------------

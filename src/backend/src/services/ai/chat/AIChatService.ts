@@ -175,7 +175,7 @@ export class AIChatService extends BaseService {
         });
         // User can disable ollama in the config, but by default it should be enabled if discovery is successful
         if ( ollama_available || ollamaConfig?.enabled ) {
-            console.log('Local AI support detected! Registering Ollama');
+            console.log('🦙 Ollama support detected! Enabling local AI support');
             this.#providers['ollama'] = new OllamaChatProvider(ollamaConfig, this.meteringService);
         }
 

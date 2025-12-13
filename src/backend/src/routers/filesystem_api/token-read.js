@@ -58,7 +58,6 @@ module.exports = eggspress('/token-read', {
 
     const context = Context.get();
     context.set('actor', actor);
-    console.log('actor', actor);
 
     if ( line_count && (!Number.isInteger(line_count) || line_count < 1) ) {
         throw new APIError(400, '`line_count` must be a positive integer');

@@ -379,12 +379,6 @@ class PuterSiteMiddleware extends AdvancedBase {
                         : `bytes=${start}-`;
                 }
             }
-            console.log('wow! range!!!: ', req.headers['range'], {
-                no_acl: acl_config.no_acl,
-                actor: acl_config.actor,
-                fsNode: target_node,
-                ...(req.headers['range'] ? { range: req.headers['range'] } : {}),
-            });
         }
         res.set({ 'Accept-Ranges': 'bytes' });
 

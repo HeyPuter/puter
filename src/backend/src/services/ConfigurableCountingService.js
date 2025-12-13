@@ -205,8 +205,6 @@ class ConfigurableCountingService extends BaseService {
             ...custom_col_values,
         ];
 
-        console.log('SQL QUERY', sql, value_array);
-
         await this.db.write(sql, value_array);
     }
 }
