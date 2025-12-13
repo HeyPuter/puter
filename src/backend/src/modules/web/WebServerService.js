@@ -213,7 +213,9 @@ class WebServerService extends BaseService {
         ];
         const realConsole = globalThis.original_console_object ?? console;
         lines.forEach(line => realConsole.log(line));
-        this.log.info(`Puter is now live at: ${url}`);
+        console.log('\n*********************************************');
+        console.log('* Puter is now live at: ${url}');
+        console.log('*********************************************');
 
         server.timeout = 1000 * 60 * 60 * 2; // 2 hours
         server.requestTimeout = 1000 * 60 * 60 * 2; // 2 hours
