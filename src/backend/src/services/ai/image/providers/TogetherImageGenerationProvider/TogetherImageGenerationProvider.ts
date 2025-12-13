@@ -108,7 +108,7 @@ export class TogetherImageGenerationProvider implements IImageProvider {
             throw new Error(`No pricing configured for model ${selectedModel.id}`);
         }
 
-        const usageType = `together-image:${selectedModel.id}:${priceKey}`;
+        const usageType = `${selectedModel.id}:${priceKey}`;
 
         let MP = (ratio.h * ratio.w) / 1_000_000;
         if ( quality ) {
