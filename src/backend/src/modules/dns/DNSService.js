@@ -93,7 +93,6 @@ class DNSService extends BaseService {
 
         server.on('close', () => {
             console.log('Fake DNS server closed');
-            this.log.noticeme('Fake DNS server closed');
         });
 
         server.on('request', (request, response, rinfo) => {

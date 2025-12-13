@@ -206,7 +206,6 @@ class HTTPThumbnailService extends BaseService {
         *              It uses axios to make a ping request to the thumbnail service.
         */
         svc_serverHealth.add_check('thumbnail-ping', async () => {
-            this.log.noticeme('THUMBNAIL PING');
             await axios.request({
                 method: 'get',
                 url: `${this.host_}/ping`,
@@ -351,8 +350,8 @@ class HTTPThumbnailService extends BaseService {
 
         const results = resp.data;
 
-        this.log.noticeme('response?', { resp });
-        this.log.noticeme('data?', { data: resp.data });
+        console.debug('response?', { resp });
+        console.debug('data?', { data: resp.data });
 
         if ( results.length !== queue.length ) {
             this.log.error('Thumbnail service returned wrong number of results');
@@ -362,8 +361,6 @@ class HTTPThumbnailService extends BaseService {
         for ( let i = 0 ; i < queue.length ; i++ ) {
             const result = results[i];
             const job = queue[i];
-
-            this.log.noticeme('result?', { result });
             job.resolve(result.encoded
                 && `data:image/png;base64,${result.encoded}`);
         }

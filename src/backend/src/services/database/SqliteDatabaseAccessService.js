@@ -199,15 +199,14 @@ class SqliteDatabaseAccessService extends BaseDatabaseAccessService {
         }
 
         if ( upgrade_files.length > 0 ) {
-            this.log.noticeme(`Database out of date: ${this.config.path}`);
-            this.log.noticeme(`UPGRADING DATABASE: ${user_version} -> ${TARGET_VERSION}`);
-            this.log.noticeme(`${upgrade_files.length} .sql files to apply`);
+            console.debug(`Database out of date: ${this.config.path}`);
+            console.debug(`UPGRADING DATABASE: ${user_version} -> ${TARGET_VERSION}`);
+            console.debug(`${upgrade_files.length} .sql files to apply`);
 
             const sql_files = upgrade_files.map(p => path_.join(__dirname, 'sqlite_setup', p));
             const fs = require('fs');
             for ( const filename of sql_files ) {
                 const basename = path_.basename(filename);
-                this.log.noticeme(`applying ${basename}`);
                 const contents = fs.readFileSync(filename, 'utf8');
                 switch ( path_.extname(filename) ) {
                 case '.sql':

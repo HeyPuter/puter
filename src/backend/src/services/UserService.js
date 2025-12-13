@@ -57,8 +57,6 @@ class UserService extends BaseService {
     // used to be called: generate_system_fsentries
     async generate_default_fsentries ({ user }) {
 
-        this.log.noticeme('YES THIS WAS USED');
-
         // Note: The comment below is outdated as we now do parallel writes for
         //       all filesystem operations. However, there may still be some
         //       performance hit so this requires further investigation.

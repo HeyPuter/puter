@@ -103,7 +103,6 @@ class WispService extends BaseService {
                 };
                 await svc_event.emit('wisp.get-policy', event);
                 if ( ! event.allow ) {
-                    this.log.noticeme('here');
                     throw svc_apiError.create('forbidden');
                 }
 

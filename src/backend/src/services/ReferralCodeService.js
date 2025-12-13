@@ -90,7 +90,7 @@ class ReferralCodeService extends BaseService {
 
         let last_error = null;
         for ( let i = 0 ; i < TRIES; i++ ) {
-            this.log.noticeme(`trying referral code ${referral_code}`);
+            this.log.debug(`trying referral code ${referral_code}`);
             if ( i > 0 ) {
                 rng = seedrandom(`gen1-${user.id}-${++iteration}`);
                 referral_code = generate_random_code(8, { rng });
