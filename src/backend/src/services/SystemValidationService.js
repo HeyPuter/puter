@@ -62,20 +62,10 @@ class SystemValidationService extends BaseService {
 
         // If we're in dev mode...
         if ( this.global_config.env === 'dev' ) {
-            // Display a permanent message in the console
-            const svc_devConsole = this.services.get('dev-console');
-            svc_devConsole.turn_on_the_warning_lights();
-            /**
-            * Turns on the warning lights in the developer console and adds a widget indicating that the system is in an invalid state.
-            * This is used in development mode to provide a visual indicator of the invalid state without shutting down the server.
-            *
-            * @returns {void}
-            */
-            svc_devConsole.add_widget(() => {
-                return '\x1B[33;1m *** SYSTEM IS IN AN INVALID STATE *** \x1B[0m';
-            });
-
-            // Don't shut down
+            const realConsole = globalThis.original_console_object ?? console;
+            realConsole.error('\n*** SYSTEM IS IN AN INVALID STATE ***');
+            realConsole.error(message);
+            realConsole.error('Resolve the error above to clear this state.\n');
             return;
         }
 

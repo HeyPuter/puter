@@ -93,29 +93,6 @@ module.exports = eggspress('/batch', {
         initial: 1,
     });
 
-    const batch_widget = {
-        ic: 0,
-        ops: 0,
-        sc: 0,
-        ec: 0,
-        wc: 0,
-        output () {
-            let s = `Batch Operation: ${this.ic}`;
-            s += `; oc = ${this.ops}`;
-            s += `; sc = ${this.sc}`;
-            s += `; ec = ${this.ec}`;
-            s += `; wc = ${this.wc}`;
-            s += `; cz = ${globalThis.average_chunk_size.get()}`;
-            return s;
-        },
-    };
-    if ( config.env == 'dev' ) {
-        const svc_devConsole = x.get('services').get('dev-console');
-        svc_devConsole.remove_widget('batch');
-        svc_devConsole.add_widget(batch_widget.output.bind(batch_widget), 'batch');
-        x.set('dev_batch-widget', batch_widget);
-    }
-
     //-------------------------------------------------------------
     // Variables used by busboy callbacks
     //-------------------------------------------------------------
@@ -221,7 +198,6 @@ module.exports = eggspress('/batch', {
     busboy.on('file', async (fieldname, stream ) => {
         if ( batch_exe.total_tbd ) {
             batch_exe.total_tbd = false;
-            batch_widget.ic = pending_operations.length;
             on_nonfile_data_end();
         }
 

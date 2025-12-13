@@ -213,26 +213,9 @@ class WebServerService extends BaseService {
         const lines = [
             `Puter is now live at: ${link}`,
         ];
-        const svc_devConsole = this.services.get('dev-console', { optional: true });
-        if ( this.config.old_widget_behavior ) {
-            this.startup_widget = () => {
-                const output = [...lines];
-                if ( ! this.global_config.minimal_console ) {
-                    output.unshift('\x1B[34;1mPuter is live!\x1B[0m');
-                    output.push('Type web:dismiss to un-stick this message');
-                }
-                return output;
-            };
-            this.startup_widget.unimportant = true;
-            if ( svc_devConsole ) svc_devConsole.add_widget(this.startup_widget);
-        } else if ( svc_devConsole ) {
-            svc_devConsole.notice({
-                colors: { bg: '38;2;0;0;0;48;2;0;202;252;1', bginv: '38;2;0;202;252' },
-                style: 'stars',
-                title: 'Puter is live!',
-                lines,
-            });
-        }
+        const realConsole = globalThis.original_console_object ?? console;
+        lines.forEach(line => realConsole.log(line));
+        this.log.info(`Puter is now live at: ${url}`);
 
         server.timeout = 1000 * 60 * 60 * 2; // 2 hours
         server.requestTimeout = 1000 * 60 * 60 * 2; // 2 hours
@@ -317,7 +300,6 @@ class WebServerService extends BaseService {
         this.app = app;
 
         app.set('services', this.services);
-        this._register_commands(this.services.get('commands'));
 
         this.middlewares = { auth };
 
@@ -670,23 +652,6 @@ class WebServerService extends BaseService {
 
             next();
         });
-    }
-
-    _register_commands (commands) {
-        commands.registerCommands('web', [
-            {
-                id: 'dismiss',
-                description: 'Dismiss the startup message',
-                handler: async (_, log) => {
-                    if ( ! this.startup_widget ) return;
-                    const svc_devConsole = this.services.get('dev-console', { optional: true });
-                    if ( svc_devConsole ) svc_devConsole.remove_widget(this.startup_widget);
-                    const lines = this.startup_widget();
-                    for ( const line of lines ) log.log(line);
-                    this.startup_widget = null;
-                },
-            },
-        ]);
     }
 
     /**

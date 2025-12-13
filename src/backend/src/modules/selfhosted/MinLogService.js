@@ -9,17 +9,12 @@ class MinLogService extends BaseService {
     _construct () {
         this.on = false;
         this.visible = new Set();
-
-        this.widget_ = null;
     }
 
     _init () {
         // On operating systems where low-level config (high customization) is
         // expected, we can turn off minlog by default.
         if ( this.global_config.os.refined ) this.on = false;
-
-        // Show console widget so developer knows logs are hidden
-        this.add_dev_console_widget_();
 
         // Register log middleware to hide logs
         const svc_log = this.services.get('log-service');
@@ -39,31 +34,6 @@ class MinLogService extends BaseService {
         this._register_commands(this.services.get('commands'));
     }
 
-    add_dev_console_widget_ () {
-        const svc_devConsole = this.services.get('dev-console', { optional: true });
-        if ( ! svc_devConsole ) return;
-
-        this.widget_ = () => {
-            if ( ! this.on ) return ['minlog is off'];
-            const lines = [
-                '\x1B[31;1mSome logs hidden! Type minlog:off to see all logs.\x1B[0m',
-            ];
-            return lines;
-        };
-        svc_devConsole.add_widget(this.widget_);
-    }
-
-    rm_dev_console_widget_ () {
-        const svc_devConsole = this.services.get('dev-console', { optional: true });
-        if ( ! svc_devConsole ) return;
-
-        const lines = this.widget_();
-        this.log.info(lines[0]);
-
-        svc_devConsole.remove_widget(this.widget_);
-        this.widget_ = null;
-    }
-
     _register_commands (commands) {
         commands.registerCommands('minlog', [
             {
@@ -75,7 +45,6 @@ class MinLogService extends BaseService {
             {
                 id: 'off',
                 handler: async (args, log) => {
-                    this.rm_dev_console_widget_();
                     this.on = false;
                 },
             },
