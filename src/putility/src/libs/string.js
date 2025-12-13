@@ -27,18 +27,6 @@ const quot = (str) => {
     return str;
 };
 
-/**
-* Creates an OSC 8 hyperlink sequence for terminal output
-* @param {string} url - The URL to link to
-* @param {string} [text] - Optional display text, defaults to URL if not provided
-* @returns {string} Terminal escape sequence containing the hyperlink
-*/
-const osclink = (url, text) => {
-    if ( ! text ) text = url;
-    return `\x1B]8;;${url}\x1B\\${text}\x1B]8;;\x1B\\`;
-};
-
 module.exports = {
     quot,
-    osclink,
 };

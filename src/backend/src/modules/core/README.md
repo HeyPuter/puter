@@ -234,18 +234,6 @@ preserving ANSI escape sequences, and return an array of lines.
 
 METADATA // {"def":"core.util.strutil","ai-params":{"service":"claude"},"ai-commented":{"service":"claude"}}
 
-##### `osclink`
-
-Creates an OSC 8 hyperlink sequence for terminal output
-
-###### Parameters
-
-- **url:** The URL to link to
-
-###### Parameters
-
-- **amount:** The amount to format
-
 ## Notes
 
 ### Outside Imports

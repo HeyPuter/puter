@@ -54,10 +54,6 @@ Wraps a string in backticks, escaping any present backticks as needed to
 disambiguate. Note that this is meant for human-readable text, so the exact
 solution to disambiguating backticks is allowed to change in the future.
 
-#### `osclink(url, text)`
-
-Wrap text in OSC escape code to output links in a terminal emulator.
-
 ### `putility.libs.promise`
 
 Utilities for working with promises.
