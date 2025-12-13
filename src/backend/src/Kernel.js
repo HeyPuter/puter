@@ -140,7 +140,7 @@ class Kernel extends AdvancedBase {
             await this._boot_services();
         });
 
-        Error.stackTraceLimit = 200;
+        Error.stackTraceLimit = 20;
     }
 
     async _install_modules () {
