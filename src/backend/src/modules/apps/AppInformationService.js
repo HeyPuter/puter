@@ -66,10 +66,8 @@ class AppInformationService extends BaseService {
 
     ['__on_boot.consolidation'] () {
         (async () => {
-            // await new Promise(rslv => setTimeout(rslv, 500))
-
             if ( ENABLE_REFRESH_APP_CACHE ) {
-                await this._refresh_app_cache();
+                this._refresh_app_cache();
                 /**
                 * Refreshes the application cache by querying the database for all apps and updating the key-value store.
                 *
@@ -84,7 +82,6 @@ class AppInformationService extends BaseService {
                 }, 30 * 1000);
             }
 
-            await this._refresh_app_stats();
             /**
             * Refreshes the cache of recently opened apps.
             * This method updates the 'recent' collection with the UIDs of apps sorted by their most recent timestamp.
@@ -92,24 +89,25 @@ class AppInformationService extends BaseService {
             * @async
             * @returns {Promise<void>} A promise that resolves when the cache has been refreshed.
             */
+            this._refresh_app_stats();
             asyncSafeSetInterval(async () => {
                 this._refresh_app_stats();
-            }, 120 * 1000);
+            }, 240 * 1000);
 
-            // This stat is more expensive so we don't update it as often
-            await this._refresh_app_stat_referrals();
             /**
             * Refreshes the app referral statistics.
             * This method is computationally expensive and thus runs less frequently.
             * It queries the database for user counts referred by each app's origin URL.
             *
+            * This stat is more expensive so we don't update it as often
+            * 
             * @async
             */
+            this._refresh_app_stat_referrals();
             asyncSafeSetInterval(async () => {
                 this._refresh_app_stat_referrals();
             }, 15 * MINUTE);
 
-            await this._refresh_recent_cache();
             /**
             * Refreshes the recent cache by updating the list of recently added or updated apps.
             * This method fetches all app data, filters for approved apps, sorts them by timestamp,
@@ -118,23 +116,10 @@ class AppInformationService extends BaseService {
             * @async
             * @private
             */
+            this._refresh_recent_cache();
             asyncSafeSetInterval(async () => {
                 this._refresh_recent_cache();
-            }, 120 * 1000);
-
-            await this._refresh_tags();
-            /**
-            * Refreshes the tags cache by iterating through all approved apps,
-            * extracting their tags, and organizing them into a structured format.
-            * This method updates the `this.tags` object with the latest tag information.
-            *
-            * @async
-            * @method
-            * @memberof AppInformationService
-            */
-            asyncSafeSetInterval(async () => {
-                this._refresh_tags();
-            }, 120 * 1000);
+            }, 240 * 1000);
         })();
     }
 
@@ -695,52 +680,6 @@ class AppInformationService extends BaseService {
         });
 
         this.collections.recent = apps.map(app => app.uid).slice(0, 50);
-    }
-
-    /**
-    * Refreshes the cache of tags associated with apps.
-    *
-    * This method iterates through all approved apps, extracts their tags,
-    * and organizes them into a structured format for quick lookups.
-    *
-    * This data is used by the `/query/app` router to facilitate tag-based
-    * app discovery and categorization.
-    *
-    * @async
-    * @returns {Promise<void>}
-    */
-    async _refresh_tags () {
-        const app_keys = kv.keys('apps:uid:*');
-
-        let apps = [];
-        for ( const key of app_keys ) {
-            const app = kv.get(key);
-            apps.push(app);
-        }
-
-        apps = apps.filter(app => app.approved_for_listing);
-        apps.sort((a, b) => {
-            return b.timestamp - a.timestamp;
-        });
-
-        const new_tags = {};
-
-        for ( const app of apps ) {
-            const app_tags = (app.tags ?? '').split(',')
-                .map(tag => tag.trim())
-                .filter(tag => tag.length > 0);
-
-            for ( const tag of app_tags ) {
-                if ( ! new_tags[tag] ) new_tags[tag] = {};
-                new_tags[tag][app.uid] = true;
-            }
-        }
-
-        for ( const tag in new_tags ) {
-            new_tags[tag] = Object.keys(new_tags[tag]);
-        }
-
-        this.tags = new_tags;
     }
 
     /**
