@@ -63,7 +63,7 @@ export const TOGETHER_IMAGE_GENERATION_MODELS: IImageModel[] = [
         index_cost_key: '1MP',
         name: 'HiDream-ai/HiDream-I1-Full',
         allowedQualityLevels: [''],
-        costs: { '1MP': 0.9 },
+        costs: { '1MP': 0.10 },
     },
     {
         id: 'togetherai:Lykon/DreamShaper',
@@ -72,7 +72,7 @@ export const TOGETHER_IMAGE_GENERATION_MODELS: IImageModel[] = [
         index_cost_key: '1MP',
         name: 'Lykon/DreamShaper',
         allowedQualityLevels: [''],
-        costs: { '1MP': 0.06 },
+        costs: { '1MP': 0 },
     },
     {
         id: 'togetherai:Qwen/Qwen-Image',
@@ -305,7 +305,7 @@ export const TOGETHER_IMAGE_GENERATION_MODELS: IImageModel[] = [
         index_cost_key: '1MP',
         name: 'stabilityai/stable-diffusion-xl-base-1.0',
         allowedQualityLevels: [''],
-        costs: { '1MP': 0.19 },
+        costs: { '1MP': 0 },
     },
     {
         id: 'togetherai:black-forest-labs/FLUX.1-schnell-Free',
