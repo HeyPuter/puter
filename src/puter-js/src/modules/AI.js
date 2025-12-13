@@ -11,33 +11,6 @@ const normalizeTTSProvider = (value) => {
     return value;
 };
 
-const TOGETHER_IMAGE_MODEL_PREFIXES = [
-    'black-forest-labs/',
-    'stabilityai/',
-    'togethercomputer/',
-    'playgroundai/',
-    'runwayml/',
-    'lightricks/',
-    'sg161222/',
-    'wavymulder/',
-    'prompthero/',
-    'bytedance-seed/',
-    'hidream-ai/',
-    'lykon/',
-    'qwen/',
-    'rundiffusion/',
-    'google/',
-    'ideogram/',
-];
-
-const TOGETHER_IMAGE_MODEL_KEYWORDS = [
-    'flux',
-    'kling',
-    'sd3',
-    'stable-diffusion',
-    'kolors',
-];
-
 const TOGETHER_VIDEO_MODEL_PREFIXES = [
     'minimax/',
     'google/',
@@ -57,10 +30,11 @@ class AI {
      * @param {string} APIOrigin - Origin of the API server. Used to build the API endpoint URLs.
      * @param {string} appID - ID of the app to use.
      */
-    constructor (context) {
-        this.authToken = context.authToken;
-        this.APIOrigin = context.APIOrigin;
-        this.appID = context.appID;
+    constructor (puter) {
+        this.puter = puter;
+        this.authToken = puter.authToken;
+        this.APIOrigin = puter.APIOrigin;
+        this.appID = puter.appID;
     }
 
     /**
@@ -666,7 +640,7 @@ class AI {
         let testMode = false;
 
         // default driver is openai-completion
-        let driver = 'openai-completion';
+        let driver = 'ai-chat';
 
         // Check that the argument is not undefined or null
         if ( ! args ) {
@@ -764,160 +738,6 @@ class AI {
 
         // convert undefined to empty string so that .startsWith works
         requestParams.model = requestParams.model ?? '';
-
-        // If model starts with "anthropic/", remove it
-        // later on we should standardize the model names to [vendor]/[model]
-        // for example: "claude-3-5-sonnet" should become "anthropic/claude-3-5-sonnet"
-        // but for now, we want to keep the old behavior
-        // so we remove the "anthropic/" prefix if it exists
-        if ( requestParams.model && requestParams.model.startsWith('anthropic/') ) {
-            requestParams.model = requestParams.model.replace('anthropic/', '');
-        }
-
-        // convert to the correct model name if necessary
-        if ( requestParams.model === 'claude-3-5-sonnet' ) {
-            requestParams.model = 'claude-3-5-sonnet-latest';
-        }
-        if ( requestParams.model === 'claude-3-7-sonnet' || requestParams.model === 'claude' ) {
-            requestParams.model = 'claude-3-7-sonnet-latest';
-        }
-        if ( requestParams.model === 'claude-sonnet-4' || requestParams.model === 'claude-sonnet-4-latest' ) {
-            requestParams.model = 'claude-sonnet-4-20250514';
-        }
-        if ( requestParams.model === 'claude-opus-4' || requestParams.model === 'claude-opus-4-latest' ) {
-            requestParams.model = 'claude-opus-4-20250514';
-        }
-        if ( requestParams.model === 'mistral' ) {
-            requestParams.model = 'mistral-large-latest';
-        }
-        if ( requestParams.model === 'groq' ) {
-            requestParams.model = 'llama3-8b-8192';
-        }
-        if ( requestParams.model === 'deepseek' ) {
-            requestParams.model = 'deepseek-chat';
-        }
-
-        // o1-mini to openrouter:openai/o1-mini
-        if ( requestParams.model === 'o1-mini' ) {
-            requestParams.model = 'openrouter:openai/o1-mini';
-        }
-
-        // if a model is prepended with "openai/", remove it
-        if ( requestParams.model && requestParams.model.startsWith('openai/') ) {
-            requestParams.model = requestParams.model.replace('openai/', '');
-            driver = 'openai-completion';
-        }
-        // For the following providers, we need to prepend "openrouter:" to the model name so that the backend driver can handle it
-        if (
-            requestParams.model.startsWith('agentica-org/') ||
-            requestParams.model.startsWith('ai21/') ||
-            requestParams.model.startsWith('aion-labs/') ||
-            requestParams.model.startsWith('alfredpros/') ||
-            requestParams.model.startsWith('allenai/') ||
-            requestParams.model.startsWith('alpindale/') ||
-            requestParams.model.startsWith('amazon/') ||
-            requestParams.model.startsWith('anthracite-org/') ||
-            requestParams.model.startsWith('arcee-ai/') ||
-            requestParams.model.startsWith('arliai/') ||
-            requestParams.model.startsWith('baidu/') ||
-            requestParams.model.startsWith('bytedance/') ||
-            requestParams.model.startsWith('cognitivecomputations/') ||
-            requestParams.model.startsWith('cohere/') ||
-            requestParams.model.startsWith('deepseek/') ||
-            requestParams.model.startsWith('eleutherai/') ||
-            requestParams.model.startsWith('google/') ||
-            requestParams.model.startsWith('gryphe/') ||
-            requestParams.model.startsWith('inception/') ||
-            requestParams.model.startsWith('infermatic/') ||
-            requestParams.model.startsWith('liquid/') ||
-            requestParams.model.startsWith('mancer/') ||
-            requestParams.model.startsWith('meta-llama/') ||
-            requestParams.model.startsWith('microsoft/') ||
-            requestParams.model.startsWith('minimax/') ||
-            requestParams.model.startsWith('mistralai/') ||
-            requestParams.model.startsWith('moonshotai/') ||
-            requestParams.model.startsWith('morph/') ||
-            requestParams.model.startsWith('neversleep/') ||
-            requestParams.model.startsWith('nousresearch/') ||
-            requestParams.model.startsWith('nvidia/') ||
-            requestParams.model.startsWith('openrouter/') ||
-            requestParams.model.startsWith('perplexity/') ||
-            requestParams.model.startsWith('pygmalionai/') ||
-            requestParams.model.startsWith('qwen/') ||
-            requestParams.model.startsWith('raifle/') ||
-            requestParams.model.startsWith('rekaai/') ||
-            requestParams.model.startsWith('sao10k/') ||
-            requestParams.model.startsWith('sarvamai/') ||
-            requestParams.model.startsWith('scb10x/') ||
-            requestParams.model.startsWith('shisa-ai/') ||
-            requestParams.model.startsWith('sophosympatheia/') ||
-            requestParams.model.startsWith('switchpoint/') ||
-            requestParams.model.startsWith('tencent/') ||
-            requestParams.model.startsWith('thedrummer/') ||
-            requestParams.model.startsWith('thudm/') ||
-            requestParams.model.startsWith('tngtech/') ||
-            requestParams.model.startsWith('undi95/') ||
-            requestParams.model.startsWith('x-ai/') ||
-            requestParams.model.startsWith('z-ai/')
-        ) {
-            requestParams.model = `openrouter:${ requestParams.model}`;
-        }
-
-        // map model to the appropriate driver
-        if ( !requestParams.model || requestParams.model.startsWith('gpt-') ) {
-            driver = 'openai-completion';
-        } else if (
-            requestParams.model.startsWith('claude-')
-        ) {
-            driver = 'claude';
-        } else if ( requestParams.model === 'meta-llama/Meta-Llama-3.1-8B-Instruct-Turbo' || requestParams.model === 'meta-llama/Meta-Llama-3.1-70B-Instruct-Turbo' || requestParams.model === 'meta-llama/Meta-Llama-3.1-405B-Instruct-Turbo' || requestParams.model === 'google/gemma-2-27b-it' ) {
-            driver = 'together-ai';
-        } else if ( requestParams.model.startsWith('mistral-') || requestParams.model.startsWith('codestral-') || requestParams.model.startsWith('pixtral-') || requestParams.model.startsWith('magistral-') || requestParams.model.startsWith('devstral-') || requestParams.model.startsWith('mistral-ocr-') || requestParams.model.startsWith('open-mistral-') ) {
-            driver = 'mistral';
-        } else if ( [
-            'distil-whisper-large-v3-en',
-            'gemma2-9b-it',
-            'gemma-7b-it',
-            'llama-3.1-70b-versatile',
-            'llama-3.1-8b-instant',
-            'llama3-70b-8192',
-            'llama3-8b-8192',
-            'llama3-groq-70b-8192-tool-use-preview',
-            'llama3-groq-8b-8192-tool-use-preview',
-            'llama-guard-3-8b',
-            'mixtral-8x7b-32768',
-            'whisper-large-v3',
-        ].includes(requestParams.model) ) {
-            driver = 'groq';
-        } else if ( requestParams.model === 'grok-beta' ) {
-            driver = 'xai';
-        }
-        else if ( requestParams.model.startsWith('grok-') ) {
-            driver = 'openrouter';
-        }
-        else if (
-            requestParams.model === 'deepseek-chat' ||
-            requestParams.model === 'deepseek-reasoner'
-        ) {
-            driver = 'deepseek';
-        }
-        else if (
-            requestParams.model === 'gemini-1.5-flash' ||
-            requestParams.model === 'gemini-2.0-flash' ||
-            requestParams.model === 'gemini-2.5-flash' ||
-            requestParams.model === 'gemini-2.5-flash-lite' ||
-            requestParams.model === 'gemini-2.0-flash-lite' ||
-            requestParams.model === 'gemini-3-pro-preview' ||
-            requestParams.model === 'gemini-2.5-pro'
-        ) {
-            driver = 'gemini';
-        }
-        else if ( requestParams.model.startsWith('openrouter:') ) {
-            driver = 'openrouter';
-        }
-        else if ( requestParams.model.startsWith('ollama:') ) {
-            driver = 'ollama';
-        }
 
         // stream flag from userParams
         if ( userParams.stream !== undefined && typeof userParams.stream === 'boolean' ) {
@@ -1020,27 +840,11 @@ class AI {
         }
 
         const driverHint = typeof options.driver === 'string' ? options.driver : undefined;
-        const providerRaw = typeof options.provider === 'string'
-            ? options.provider
-            : (typeof options.service === 'string' ? options.service : undefined);
-        const providerHint = typeof providerRaw === 'string' ? providerRaw.toLowerCase() : undefined;
-        const modelLower = typeof options.model === 'string' ? options.model.toLowerCase() : '';
-
-        const looksLikeTogetherModel =
-            typeof options.model === 'string' &&
-            (TOGETHER_IMAGE_MODEL_PREFIXES.some(prefix => modelLower.startsWith(prefix)) ||
-                TOGETHER_IMAGE_MODEL_KEYWORDS.some(keyword => modelLower.includes(keyword)));
 
         if ( driverHint ) {
             AIService = driverHint;
-        } else if ( providerHint === 'gemini' ) {
-            AIService = 'gemini-image-generation';
-        } else if ( providerHint === 'together' || providerHint === 'together-ai' ) {
-            AIService = 'together-image-generation';
-        } else if (options.model === 'gemini-2.5-flash-image-preview' || options.model === "gemini-3-pro-image-preview" ) {
-            AIService = 'gemini-image-generation';
-        } else if ( looksLikeTogetherModel ) {
-            AIService = 'together-image-generation';
+        } else {
+            AIService = 'ai-image';
         }
         // Call the original chat.complete method
         return await utils.make_driver_method(['prompt'], 'puter-image-generation', AIService, 'generate', {

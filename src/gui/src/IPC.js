@@ -36,6 +36,7 @@ import UIWindowSaveAccount from './UI/UIWindowSaveAccount.js';
 import UIWindowSignup from './UI/UIWindowSignup.js';
 
 import { PROCESS_IPC_ATTACHED } from './definitions.js';
+import TeePromise from './util/TeePromise.js';
 
 window.ipc_handlers = {};
 /**
@@ -1911,7 +1912,20 @@ const ipc_listener = async (event, handled) => {
 
 if ( ! window.when_puter_happens ) window.when_puter_happens = [];
 window.when_puter_happens.push(async () => {
-    await puter.services.wait_for_init(['xd-incoming']);
-    const svc_xdIncoming = puter.services.get('xd-incoming');
-    svc_xdIncoming.register_filter_listener(ipc_listener);
+    // puter.services was removed during the recent puter.js refactor. If the
+    // service layer exists (older builds), use it; otherwise, attach the IPC
+    // listener directly so apps can still communicate with the GUI.
+    const svc_mgr = puter.services;
+    const svc_xdIncoming = svc_mgr?.get?.('xd-incoming');
+    if ( svc_mgr?.wait_for_init && svc_xdIncoming?.register_filter_listener ) {
+        await svc_mgr.wait_for_init(['xd-incoming']);
+        svc_xdIncoming.register_filter_listener(ipc_listener);
+        return;
+    }
+
+    // Fallback: register message handler directly
+    window.addEventListener('message', (event) => {
+        const handled = new TeePromise();
+        ipc_listener(event, handled);
+    });
 });

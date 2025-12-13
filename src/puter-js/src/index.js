@@ -1,5 +1,3 @@
-import putility from '@heyputer/putility';
-
 import kvjs from '@heyputer/kv.js';
 import APICallLogger from './lib/APICallLogger.js';
 import path from './lib/path.js';
@@ -24,12 +22,69 @@ import Threads from './modules/Threads.js';
 import UI from './modules/UI.js';
 import Util from './modules/Util.js';
 import { WorkersHandler } from './modules/Workers.js';
-import { APIAccessService } from './services/APIAccess.js';
-import { FilesystemService } from './services/Filesystem.js';
-import { FSRelayService } from './services/FSRelay.js';
-import { NoPuterYetService } from './services/NoPuterYet.js';
-import { XDIncomingService } from './services/XDIncoming.js';
 
+class SimpleLogger {
+    constructor (fields = {}) {
+        this.fieldsObj = fields;
+        this.enabled = new Set();
+    }
+
+    on (category) {
+        this.enabled.add(category);
+    }
+
+    fields (extra = {}) {
+        return new SimpleLogger({ ...this.fieldsObj, ...extra });
+    }
+
+    info (...args) {
+        console.log(...this._prefix(), ...args);
+    }
+
+    warn (...args) {
+        console.warn(...this._prefix(), ...args);
+    }
+
+    error (...args) {
+        console.error(...this._prefix(), ...args);
+    }
+
+    debug (...args) {
+        console.debug(...this._prefix(), ...args);
+    }
+
+    _prefix () {
+        const entries = Object.entries(this.fieldsObj);
+        if ( !entries.length ) return [];
+        return [`[${ entries.map(([k, v]) => `${k}=${v}`).join(' ')}]`];
+    }
+}
+
+class Lock {
+    constructor () {
+        this.locked = false;
+        this.queue = [];
+    }
+
+    async acquire () {
+        if ( !this.locked ) {
+            this.locked = true;
+            return;
+        }
+
+        await new Promise(resolve => this.queue.push(resolve));
+        this.locked = true;
+    }
+
+    release () {
+        const next = this.queue.shift();
+        if ( next ) {
+            next();
+            return;
+        }
+        this.locked = false;
+    }
+}
 // TODO: This is for a safe-guard below; we should check if we can
 //       generalize this behavior rather than hard-coding it.
 //       (using defaultGUIOrigin breaks locally-hosted apps)
@@ -135,15 +190,6 @@ const puterInit = (function () {
 
             // "modules" in puter.js are external interfaces for the developer
             this.modules_ = [];
-            // "services" in puter.js are used by modules and may interact with each other
-            const context = new putility.libs.context.Context()
-                .follow(this, ['env', 'util', 'authToken', 'APIOrigin', 'appID']);
-
-            context.puter = this;
-
-            this.services = new putility.system.ServiceManager({ context });
-            this.context = context;
-            context.services = this.services;
 
             // Holds the query parameters found in the current URL
             let URLParams = new URLSearchParams(globalThis.location?.search);
@@ -261,56 +307,14 @@ const puterInit = (function () {
 
             // === START :: Logger ===
 
-            // logger will log to console
-            let logger = new putility.libs.log.ConsoleLogger();
-
-            // logs can be toggled based on categories
-            logger = new putility.libs.log.CategorizedToggleLogger({ delegate: logger });
-            const cat_logger = logger;
-
-            // create facade for easy logging
-            this.logger = new putility.libs.log.LoggerFacade({
-                impl: logger,
-                cat: cat_logger,
-            });
+            // Basic logger replacement (console-based)
+            let logger = new SimpleLogger();
+            this.logger = logger;
 
             // Initialize API call logger
             this.apiCallLogger = new APICallLogger({
                 enabled: false, // Disabled by default
             });
-
-            // === START :: Services === //
-
-            this.services.register('no-puter-yet', NoPuterYetService);
-            this.services.register('filesystem', FilesystemService);
-            this.services.register('api-access', APIAccessService);
-            this.services.register('xd-incoming', XDIncomingService);
-            if ( this.env !== 'app' ) {
-                this.services.register('fs-relay', FSRelayService);
-            }
-
-            // When api-access is initialized, bind `.authToken` and
-            // `.APIOrigin` as a 1-1 mapping with the `puter` global
-            (async () => {
-                await this.services.wait_for_init(['api-access']);
-                const svc_apiAccess = this.services.get('api-access');
-
-                svc_apiAccess.auth_token = this.authToken;
-                svc_apiAccess.api_origin = this.APIOrigin;
-                [
-                    ['authToken', 'auth_token'],
-                    ['APIOrigin', 'api_origin'],
-                ].forEach(([k1, k2]) => {
-                    Object.defineProperty(this, k1, {
-                        get () {
-                            return svc_apiAccess[k2];
-                        },
-                        set (v) {
-                            svc_apiAccess[k2] = v;
-                        },
-                    });
-                });
-            })();
 
             // === Start :: Modules === //
 
@@ -365,30 +369,26 @@ const puterInit = (function () {
 
             // Add prefix logger (needed to happen after modules are initialized)
             (async () => {
-                await this.services.wait_for_init(['api-access']);
-                const whoami = await this.auth.whoami();
-                logger = new putility.libs.log.PrefixLogger({
-                    delegate: logger,
-                    prefix: `[${
+                try {
+                    const whoami = await this.auth.whoami();
+                    const prefix = `[${
                         whoami?.app_name ?? this.appInstanceID ?? 'HOST'
-                    }] `,
-                });
-
-                this.logger.impl = logger;
+                    }]`;
+                    logger = logger.fields({ prefix });
+                    this.logger = logger;
+                } catch (error) {
+                    if ( this.debugMode ) {
+                        console.error('Failed to initialize prefix logger', error);
+                    }
+                }
             })();
 
             // Lock to prevent multiple requests to `/rao`
-            this.lock_rao_ = new putility.libs.promise.Lock();
+            this.lock_rao_ = new Lock();
             // Promise that resolves when it's okay to request `/rao`
-            this.p_can_request_rao_ = new putility.libs.promise.TeePromise();
+            this.p_can_request_rao_ = Promise.resolve();
             // Flag that indicates if a request to `/rao` has been made
             this.rao_requested_ = false;
-
-            // In case we're already auth'd, request `/rao`
-            (async () => {
-                await this.services.wait_for_init(['api-access']);
-                this.p_can_request_rao_.resolve();
-            })();
 
             this.net = {
                 generateWispV1URL: async () => {
@@ -457,7 +457,7 @@ const puterInit = (function () {
         }
 
         registerModule (name, cls, parameters = {}) {
-            const instance = new cls(this.context, parameters);
+            const instance = new cls(this, parameters);
             instance.puter = this;
             this.modules_.push(name);
             this[name] = instance;
@@ -516,6 +516,25 @@ const puterInit = (function () {
             this.APIOrigin = APIOrigin;
             // reinitialize submodules
             this.updateSubmodules();
+        };
+
+        runWhenPuterHappensCallbacks = function () {
+            if ( this.env !== 'gui' ) return;
+            if ( ! globalThis.when_puter_happens ) return;
+
+            const callbacks = Array.isArray(globalThis.when_puter_happens)
+                ? globalThis.when_puter_happens
+                : [globalThis.when_puter_happens];
+
+            for ( const fn of callbacks ) {
+                try {
+                    fn({ puter: this });
+                } catch ( error ) {
+                    if ( this.debugMode ) {
+                        console.error('when_puter_happens callback failed', error);
+                    }
+                }
+            }
         };
 
         resetAuthToken = function () {
@@ -785,6 +804,7 @@ const puterInit = (function () {
 export const puter =  puterInit();
 export default puter;
 globalThis.puter = puter;
+puter.runWhenPuterHappensCallbacks();
 
 puter.tools = [];
 /**

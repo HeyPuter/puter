@@ -1,5 +1,14 @@
-import { TeePromise } from '@heyputer/putility/src/libs/promise.js';
 import * as utils from '../lib/utils.js';
+
+const createDeferred = () => {
+    let resolve;
+    let reject;
+    const promise = new Promise((res, rej) => {
+        resolve = res;
+        reject = rej;
+    });
+    return { promise, resolve, reject };
+};
 
 const gui_cache_keys = [
     'has_set_default_app_user_permissions',
@@ -29,15 +38,16 @@ class KV {
      * @param {string} APIOrigin - Origin of the API server. Used to build the API endpoint URLs.
      * @param {string} appID - ID of the app to use.
      */
-    constructor (context) {
-        this.authToken = context.authToken;
-        this.APIOrigin = context.APIOrigin;
-        this.appID = context.appID;
+    constructor (puter) {
+        this.puter = puter;
+        this.authToken = puter.authToken;
+        this.APIOrigin = puter.APIOrigin;
+        this.appID = puter.appID;
 
-        this.gui_cached = new TeePromise();
-        this.gui_cache_init = new TeePromise();
+        this.gui_cached = createDeferred();
+        this.gui_cache_init = createDeferred();
         (async () => {
-            await this.gui_cache_init;
+            await this.gui_cache_init.promise;
             this.gui_cache_init = null;
             const resp = await fetch(`${this.APIOrigin}/drivers/call`, {
                 method: 'POST',
@@ -142,7 +152,7 @@ class KV {
             this.gui_cached !== null
         ) {
             this.gui_cache_init && this.gui_cache_init.resolve();
-            const cache = await this.gui_cached;
+            const cache = await this.gui_cached.promise;
             return cache[args[0]];
         }
 

@@ -1,6 +1,7 @@
 class FetchDriverCallBackend {
-    constructor ({ context }) {
-        this.context = context;
+    constructor ({ getAPIOrigin, getAuthToken }) {
+        this.getAPIOrigin = getAPIOrigin;
+        this.getAuthToken = getAuthToken;
         this.response_handlers = this.constructor.response_handlers;
     }
 
@@ -32,7 +33,7 @@ class FetchDriverCallBackend {
 
     async call ({ driver, method_name, parameters }) {
         try {
-            const resp = await fetch(`${this.context.APIOrigin}/drivers/call`, {
+            const resp = await fetch(`${this.getAPIOrigin()}/drivers/call`, {
                 headers: {
                     'Content-Type': 'text/plain;actually=json',
                 },
@@ -44,7 +45,7 @@ class FetchDriverCallBackend {
                         : {}),
                     method: method_name,
                     args: parameters,
-                    auth_token: this.context.authToken,
+                    auth_token: this.getAuthToken(),
                 }),
             });
 
@@ -131,22 +132,15 @@ class Drivers {
      * @param {string} APIOrigin - Origin of the API server. Used to build the API endpoint URLs.
      * @param {string} appID - ID of the app to use.
      */
-    constructor (context) {
-        this.authToken = context.authToken;
-        this.APIOrigin = context.APIOrigin;
-        this.appID = context.appID;
+    constructor (puter) {
+        this.puter = puter;
+        this.authToken = puter.authToken;
+        this.APIOrigin = puter.APIOrigin;
+        this.appID = puter.appID;
 
         // Driver-specific
         this.drivers_ = {};
 
-        // TODO: replace with `context` from constructor and test site login
-        this.context = {};
-        Object.defineProperty(this.context, 'authToken', {
-            get: () => this.authToken,
-        });
-        Object.defineProperty(this.context, 'APIOrigin', {
-            get: () => this.APIOrigin,
-        });
     }
 
     _init ({ puter }) {
@@ -226,7 +220,8 @@ class Drivers {
 
         return this.drivers_[key] = new Driver ({
             call_backend: new FetchDriverCallBackend({
-                context: this.context,
+                getAPIOrigin: () => this.APIOrigin,
+                getAuthToken: () => this.authToken,
             }),
             // iface: interfaces[iface_name],
             iface_name,

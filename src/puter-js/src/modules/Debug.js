@@ -1,6 +1,6 @@
 export class Debug {
-    constructor (context, parameters) {
-        this.context = context;
+    constructor (puter, parameters) {
+        this.puter = puter;
         this.parameters = parameters;
 
         this._init();
@@ -14,7 +14,7 @@ export class Debug {
         enabled_logs = enabled_logs.split(';');
         for ( const category of enabled_logs ) {
             if ( category === '' ) continue;
-            this.context.puter.logger.on(category);
+            this.puter.logger.on(category);
         }
 
         globalThis.addEventListener('message', async e => {
@@ -32,7 +32,7 @@ export class Debug {
 
             if ( e.data.cmd === 'log.on' ) {
                 console.log('Got instruction to turn logs on!');
-                this.context.puter.logger.on(e.data.category);
+                this.puter.logger.on(e.data.category);
             }
         });
     }

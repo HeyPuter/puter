@@ -1,7 +1,16 @@
-import putility from '@heyputer/putility';
 import EventListener from '../lib/EventListener.js';
 import FSItem from './FSItem.js';
 import PuterDialog from './PuterDialog.js';
+
+const createDeferred = () => {
+    let resolve;
+    let reject;
+    const promise = new Promise((res, rej) => {
+        resolve = res;
+        reject = rej;
+    });
+    return { promise, resolve, reject };
+};
 
 const FILE_SAVE_CANCELLED = Symbol('FILE_SAVE_CANCELLED');
 const FILE_OPEN_CANCELLED = Symbol('FILE_OPEN_CANCELLED');
@@ -22,10 +31,12 @@ class AppConnection extends EventListener {
     // (Closing and close events will still function.)
     #usesSDK;
 
-    static from (values, context) {
-        const connection = new AppConnection(context, {
+    static from (values, puter, { messageTarget, appInstanceID }) {
+        const connection = new AppConnection(puter, {
             target: values.appInstanceID,
             usesSDK: values.usesSDK,
+            messageTarget,
+            appInstanceID,
         });
 
         // When a connection is established the app is able to
@@ -35,23 +46,23 @@ class AppConnection extends EventListener {
         return connection;
     }
 
-    constructor (context, { target, usesSDK }) {
+    constructor (puter, { target, usesSDK, messageTarget, appInstanceID }) {
         super([
             'message', // The target sent us something with postMessage()
             'close', // The target app was closed
         ]);
-        this.messageTarget = context.messageTarget;
-        this.appInstanceID = context.appInstanceID;
+        this.messageTarget = messageTarget;
+        this.appInstanceID = appInstanceID;
         this.targetAppInstanceID = target;
         this.#isOpen = true;
         this.#usesSDK = usesSDK;
 
-        this.log = context.puter.logger.fields({
+        this.log = puter.logger.fields({
             category: 'ipc',
         });
         this.log.fields({
-            cons_source: context.appInstanceID,
-            source: context.puter.appInstanceID,
+            cons_source: appInstanceID,
+            source: puter.appInstanceID,
             target,
         }).info(`AppConnection created to ${target}`, this);
 
@@ -232,7 +243,7 @@ class UI extends EventListener {
         return ret;
     };
 
-    constructor (context, { appInstanceID, parentInstanceID }) {
+    constructor (puter, { appInstanceID, parentInstanceID }) {
         const eventNames = [
             'localeChanged',
             'themeChanged',
@@ -240,12 +251,12 @@ class UI extends EventListener {
         ];
         super(eventNames);
         this.#eventNames = eventNames;
-        this.context = context;
+        this.puter = puter;
         this.appInstanceID = appInstanceID;
         this.parentInstanceID = parentInstanceID;
-        this.appID = context.appID;
-        this.env = context.env;
-        this.util = context.util;
+        this.appID = puter.appID;
+        this.env = puter.env;
+        this.util = puter.util;
 
         if ( this.env === 'app' ) {
             this.messageTarget = window.parent;
@@ -254,16 +265,12 @@ class UI extends EventListener {
             return;
         }
 
-        // Context to pass to AppConnection instances
-        this.context = this.context.sub({
-            appInstanceID: this.appInstanceID,
-            messageTarget: this.messageTarget,
-        });
-
         if ( this.parentInstanceID ) {
-            this.#parentAppConnection = new AppConnection(this.context, {
+            this.#parentAppConnection = new AppConnection(this.puter, {
                 target: this.parentInstanceID,
                 usesSDK: true,
+                messageTarget: this.messageTarget,
+                appInstanceID: this.appInstanceID,
             });
         }
 
@@ -535,7 +542,10 @@ class UI extends EventListener {
             }
             else if ( e.data.msg === 'connection' ) {
                 e.data.usesSDK = true; // we can safely assume this
-                const conn = AppConnection.from(e.data, this.context);
+                const conn = AppConnection.from(e.data, this.puter, {
+                    messageTarget: this.messageTarget,
+                    appInstanceID: this.appInstanceID,
+                });
                 const accept = value => {
                     this.messageTarget?.postMessage({
                         $: 'connection-resp',
@@ -743,7 +753,7 @@ class UI extends EventListener {
     };
 
     showOpenFilePicker (options, callback) {
-        const undefinedOnCancel = new putility.libs.promise.TeePromise();
+        const undefinedOnCancel = createDeferred();
         const resolveOnlyPromise = new Promise((resolve, reject) => {
             if ( ! globalThis.open ) {
                 return reject('This API is not compatible in Web Workers.');
@@ -779,7 +789,7 @@ class UI extends EventListener {
                 resolve(maybe_result);
             };
         });
-        resolveOnlyPromise.undefinedOnCancel = undefinedOnCancel;
+        resolveOnlyPromise.undefinedOnCancel = undefinedOnCancel.promise;
         return resolveOnlyPromise;
     };
 
@@ -802,7 +812,7 @@ class UI extends EventListener {
     };
 
     showSaveFilePicker (content, suggestedName, type) {
-        const undefinedOnCancel = new putility.libs.promise.TeePromise();
+        const undefinedOnCancel = createDeferred();
         const resolveOnlyPromise = new Promise((resolve, reject) => {
             if ( ! globalThis.open ) {
                 return reject('This API is not compatible in Web Workers.');
@@ -870,7 +880,7 @@ class UI extends EventListener {
             };
         });
 
-        resolveOnlyPromise.undefinedOnCancel = undefinedOnCancel;
+        resolveOnlyPromise.undefinedOnCancel = undefinedOnCancel.promise;
 
         return resolveOnlyPromise;
     };
@@ -1203,7 +1213,10 @@ class UI extends EventListener {
             },
         });
 
-        return AppConnection.from(app_info, this.context);
+        return AppConnection.from(app_info, this.puter, {
+            messageTarget: this.messageTarget,
+            appInstanceID: this.appInstanceID,
+        });
     };
 
     connectToInstance = async function connectToInstance (app_name) {
@@ -1214,7 +1227,10 @@ class UI extends EventListener {
             },
         });
 
-        return AppConnection.from(app_info, this.context);
+        return AppConnection.from(app_info, this.puter, {
+            messageTarget: this.messageTarget,
+            appInstanceID: this.appInstanceID,
+        });
     };
 
     parentApp () {

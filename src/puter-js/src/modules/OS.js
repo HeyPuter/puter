@@ -9,10 +9,11 @@ class OS {
      * @param {string} APIOrigin - Origin of the API server. Used to build the API endpoint URLs.
      * @param {string} appID - ID of the app to use.
      */
-    constructor (context) {
-        this.authToken = context.authToken;
-        this.APIOrigin = context.APIOrigin;
-        this.appID = context.appID;
+    constructor (puter) {
+        this.puter = puter;
+        this.authToken = puter.authToken;
+        this.APIOrigin = puter.APIOrigin;
+        this.appID = puter.appID;
     }
 
     /**

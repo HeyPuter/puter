@@ -20,14 +20,11 @@ import stat from './operations/stat.js';
 import symlink from './operations/symlink.js';
 import upload from './operations/upload.js';
 import write from './operations/write.js';
-// Why is this called deleteFSEntry instead of just delete? because delete is
-// a reserved keyword in javascript
-import { AdvancedBase } from '../../../../putility/index.js';
 import FSItem from '../FSItem.js';
 import deleteFSEntry from './operations/deleteFSEntry.js';
 import getReadURL from './operations/getReadUrl.js';
 
-export class PuterJSFileSystemModule extends AdvancedBase {
+export class PuterJSFileSystemModule {
 
     space = space;
     mkdir = mkdir;
@@ -48,16 +45,7 @@ export class PuterJSFileSystemModule extends AdvancedBase {
 
     FSItem = FSItem;
 
-    static NARI_METHODS = {
-        // stat: {
-        //     positional: ['path'],
-        //     firstarg_options: true,
-        //     async fn (parameters) {
-        //         const svc_fs = await this.context.services.aget('filesystem');
-        //         return svc_fs.filesystem.stat(parameters);
-        //     }
-        // },
-    };
+    static NARI_METHODS = {};
 
     /**
      * Creates a new instance with the given authentication token, API origin, and app ID,
@@ -68,12 +56,11 @@ export class PuterJSFileSystemModule extends AdvancedBase {
      * @param {string} APIOrigin - Origin of the API server. Used to build the API endpoint URLs.
      * @param {string} appID - ID of the app to use.
      */
-    constructor (context) {
-        super();
-        this.authToken = context.authToken;
-        this.APIOrigin = context.APIOrigin;
-        this.appID = context.appID;
-        this.context = context;
+    constructor (puter) {
+        this.puter = puter;
+        this.authToken = puter.authToken;
+        this.APIOrigin = puter.APIOrigin;
+        this.appID = puter.appID;
         this.cacheUpdateTimer = null;
         // Connect socket.
         this.initializeSocket();
@@ -107,7 +94,7 @@ export class PuterJSFileSystemModule extends AdvancedBase {
             auth: {
                 auth_token: this.authToken,
             },
-            autoUnref: this.context.env === 'nodejs',
+            autoUnref: this.puter.env === 'nodejs',
         });
 
         this.bindSocketEvents();
@@ -212,7 +199,7 @@ export class PuterJSFileSystemModule extends AdvancedBase {
         this.authToken = authToken;
 
         // Check cache timestamp and purge if needed (only in GUI environment)
-        if ( this.context.env === 'gui' ) {
+        if ( this.puter.env === 'gui' ) {
             this.checkCacheAndPurge();
             // Start background task to update LAST_VALID_TS every 1 second
             this.startCacheUpdateTimer();
@@ -305,7 +292,7 @@ export class PuterJSFileSystemModule extends AdvancedBase {
      * @returns {void}
      */
     startCacheUpdateTimer () {
-        if ( this.context.env !== 'gui' ) {
+        if ( this.puter.env !== 'gui' ) {
             return;
         }
 
