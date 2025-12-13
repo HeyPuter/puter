@@ -553,6 +553,9 @@ async function driverCall_ (
         args: driverArgs,
         auth_token: puter.authToken,
     }));
+
+}
+
 async function blob_to_url (blob) {
     const reader = new (globalThis.FileReader || FileReaderPoly)();
     return await new Promise((resolve, reject) => {
