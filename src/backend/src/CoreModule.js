@@ -234,10 +234,6 @@ const install = async ({ context, services, app, useapi, modapi }) => {
     });
     services.registerService('__refresh-assocs', RefreshAssociationsService);
     services.registerService('__prod-debugging', MakeProdDebuggingLessAwfulService);
-    if ( config.env == 'dev' && !config.no_devsocket ) {
-        const { DevSocketService } = require('./services/DevSocketService.js');
-        services.registerService('dev-socket', DevSocketService);
-    }
     const { EventService } = require('./services/EventService');
     services.registerService('event', EventService);
 
