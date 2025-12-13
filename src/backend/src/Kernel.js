@@ -222,6 +222,15 @@ class Kernel extends AdvancedBase {
 
         await services.emit('boot.activation');
         await services.emit('boot.ready');
+
+        // Notify process managers (e.g., PM2 wait_ready) that boot completed
+        if ( typeof process.send === 'function' ) {
+            try {
+                process.send('ready');
+            } catch ( err ) {
+                this.bootLogger?.error?.('failed to send ready signal', err);
+            }
+        }
     }
 
     async install_extern_mods_ () {
