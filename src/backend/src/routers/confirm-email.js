@@ -54,8 +54,6 @@ router.post('/confirm-email', auth, express.json(), async (req, res, next) => {
     // Set expiry for rate limit
     kv.expire(`confirm-email|${req.ip}|${req.user.email ?? req.user.username}`, 60 * 10, 'NX');
 
-    console.log('need to check these', typeof req.body.code, typeof req.user.email_confirm_code, req.body.code, req.user.email_confirm_code);
-
     if ( req.body.code !== req.user.email_confirm_code ) {
         res.send({ email_confirmed: false });
         return;

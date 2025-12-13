@@ -115,7 +115,6 @@ class BaseDatabaseAccessService extends BaseService {
     async insert (table_name, data) {
         const values = Object.values(data);
         const sql = this._gen_insert_sql(table_name, data);
-        console.log('INSERT SQL', sql);
         return this.write(sql, values);
     }
 

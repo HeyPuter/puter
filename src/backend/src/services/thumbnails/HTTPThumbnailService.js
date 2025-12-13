@@ -377,7 +377,6 @@ class HTTPThumbnailService extends BaseService {
         if ( this.test_mode ) {
             const results = [];
             for ( const job of queue ) {
-                console.log('file?', job.file);
                 if ( job.file?.behavior === 'fail' ) {
                     throw new Error('test fail');
                 }

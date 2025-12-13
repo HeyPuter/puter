@@ -142,15 +142,12 @@ module.exports = eggspress(['/up', '/write'], {
     });
 
     busboy.on('close', () => {
-        console.log('GOT DNE RADINGR');
         p_ready.resolve();
     });
 
     req.pipe(busboy);
 
-    console.log('Awaiting ready');
     await p_ready;
-    console.log('Done awaiting ready');
 
     // Copied from eggspress; needed here because we're using busboy
     for ( const key in parameters ) {
@@ -168,8 +165,6 @@ module.exports = eggspress(['/up', '/write'], {
             keys: ['size'],
         });
     }
-
-    console.log('TRGET', req.values.target);
 
     const hl_write = new HLWrite();
     const response = await hl_write.run({

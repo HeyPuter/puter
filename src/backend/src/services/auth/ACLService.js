@@ -491,8 +491,6 @@ class ACLService extends BaseService {
             const reading = await svc_permission.scan(actor, permissionsToCheck);
             const options = PermissionUtil.reading_to_options(reading);
             if ( options.length > 0 ) {
-                // console.log('TRUE BECAUSE PERMISSION', perm)
-                // console.log(`fs:${await perm_fsNode.get('uid')}:${mode}`)
                 return true;
             }
             perm_fsNode = await perm_fsNode.getParent();

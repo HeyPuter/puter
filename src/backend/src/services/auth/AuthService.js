@@ -152,7 +152,6 @@ class AuthService extends BaseService {
 
         if ( decoded.type === 'access-token' ) {
             const token = decoded.token_uid;
-            console.log('DECODED', decoded);
             if ( ! token ) {
                 throw APIError.create('token_auth_failed');
             }

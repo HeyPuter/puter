@@ -70,8 +70,6 @@ class SNSService extends BaseService {
             handler: async (req, res) => {
                 const message = req.body;
 
-                console.log('SNS message', { message });
-
                 const REQUIRED_FIELDS = ['SignatureVersion', 'SigningCertURL', 'Type', 'Signature'];
                 for ( const field of REQUIRED_FIELDS ) {
                     if ( ! message[field] ) {

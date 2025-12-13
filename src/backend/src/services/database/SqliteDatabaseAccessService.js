@@ -17,8 +17,6 @@
  * You should have received a copy of the GNU Affero General Public License
  * along with this program.  If not, see <https://www.gnu.org/licenses/>.
  */
-const { es_import_promise } = require('../../fun/dev-console-ui-utils');
-const { surrounding_box } = require('../../fun/dev-console-ui-utils');
 const { Context } = require('../../util/context');
 const { CompositeError } = require('../../util/errorutil');
 const structutil = require('../../util/structutil');
@@ -256,15 +254,17 @@ class SqliteDatabaseAccessService extends BaseDatabaseAccessService {
                     `Current version: ${TARGET_VERSION}`,
                     'Type sqlite:dismiss to dismiss this message',
                 ];
-                surrounding_box('33;1', lines);
+                if ( ! this.global_config.minimal_console ) {
+                    lines.unshift('\x1B[33;1m-----------------------------\x1B[0m');
+                    lines.push('\x1B[33;1m-----------------------------\x1B[0m');
+                }
                 return lines;
             };
 
-            (async () => {
-                await es_import_promise;
-                const svc_devConsole = this.services.get('dev-console');
+            const svc_devConsole = this.services.get('dev-console', { optional: true });
+            if ( svc_devConsole ) {
                 svc_devConsole.add_widget(this.database_update_notice);
-            })();
+            }
         }
 
         const svc_serverHealth = this.services.get('server-health');

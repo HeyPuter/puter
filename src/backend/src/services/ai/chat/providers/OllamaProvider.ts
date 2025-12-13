@@ -93,7 +93,6 @@ export class OllamaChatProvider implements IChatProvider {
                 },
             });
         }
-        console.log('coerced_models', coerced_models);
         return coerced_models;
     }
     async list () {

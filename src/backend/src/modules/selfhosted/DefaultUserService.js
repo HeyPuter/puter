@@ -19,7 +19,6 @@
 const { QuickMkdir } = require('../../filesystem/hl_operations/hl_mkdir');
 const { HLWrite } = require('../../filesystem/hl_operations/hl_write');
 const { NodePathSelector } = require('../../filesystem/node/selectors');
-const { surrounding_box } = require('../../fun/dev-console-ui-utils');
 const { get_user, invalidate_cached_user } = require('../../helpers');
 const { Context } = require('../../util/context');
 const { asyncSafeSetInterval } = require('@heyputer/putility').libs.promise;
@@ -127,7 +126,10 @@ class DefaultUserService extends BaseService {
                 `\x1B[32;1mpassword:\x1B[0m ${tmp_password}`,
                 '(change the password to remove this message)',
             ];
-            surrounding_box('31;1', lines);
+            if ( ! this.global_config.minimal_console ) {
+                lines.unshift('\x1B[31;1m==========================\x1B[0m');
+                lines.push('\x1B[31;1m==========================\x1B[0m');
+            }
             return lines;
         };
         this.default_user_widget.critical = true;

@@ -18,7 +18,6 @@
  * along with this program.  If not, see <https://www.gnu.org/licenses/>.
  */
 const putility = require('@heyputer/putility');
-const { surrounding_box } = require('../fun/dev-console-ui-utils');
 const BaseService = require('./BaseService');
 const config = require('../config');
 
@@ -43,21 +42,6 @@ const tips = (
     .map((line) => line.trim())
     .filter((line) => line.length)
     ;
-
-/**
-* Wraps text to specified width by breaking it into lines
-* @param {string} text - The text to wrap
-* @param {number} width - Maximum width of each line
-* @returns {string[]} Array of wrapped text lines
-*/
-const wordwrap = (text, width) => {
-    const lines = [];
-    while ( text.length ) {
-        lines.push(text.substring(0, width));
-        text = text.substring(width);
-    }
-    return lines;
-};
 
 /**
 * @class DevTODService
@@ -88,38 +72,22 @@ class DevTODService extends BaseService {
     */
     async ['__on_boot.consolidation'] () {
         if ( ! config.tipofday ) return;
-        let random_tip = tips[Math.floor(Math.random() * tips.length)];
-        if ( this.config.old_widget_behavior ) {
-            random_tip = wordwrap(random_tip,
-                            process.stdout.columns
-                                ? process.stdout.columns - 6 : 50);
+        const random_tip = tips[Math.floor(Math.random() * tips.length)];
+        const svc_devConsole = this.services.get('dev-console', { optional: true });
+        if ( ! svc_devConsole ) return;
 
-            this.tod_widget = () => {
-                const lines = [
-                    ...random_tip,
-                ];
-                if ( ! this.global_config.minimal_console ) {
-                    lines.unshift('\x1B[1mTip of the Day\x1B[0m');
-                    lines.push('Type tod:dismiss to un-stick this message');
-                }
-                surrounding_box('33;1', lines);
-                return lines;
-            };
+        // Keep a widget so it can be dismissed, but render with simple lines.
+        this.tod_widget = () => {
+            const lines = putility.libs.string.wrap_text(random_tip);
+            if ( ! this.global_config.minimal_console ) {
+                lines.unshift('\x1B[1mTip of the Day\x1B[0m');
+                lines.push('Type tod:dismiss to un-stick this message');
+            }
+            return lines;
+        };
 
-            this.tod_widget.unimportant = true;
-
-            const svc_devConsole = this.services.get('dev-console', { optional: true });
-            if ( ! svc_devConsole ) return;
-            svc_devConsole.add_widget(this.tod_widget);
-        } else {
-            const svc_devConsole = this.services.get('dev-console', { optional: true });
-            if ( ! svc_devConsole ) return;
-            svc_devConsole.notice({
-                colors: { bg: '38;2;0;0;0;48;2;255;255;0;1', bginv: '38;2;255;255;0' },
-                title: 'Tip of the Day',
-                lines: putility.libs.string.wrap_text(random_tip),
-            });
-        }
+        this.tod_widget.unimportant = true;
+        svc_devConsole.add_widget(this.tod_widget);
     }
 
     _register_commands (commands) {
@@ -128,9 +96,14 @@ class DevTODService extends BaseService {
                 id: 'dismiss',
                 description: 'Dismiss the startup message',
                 handler: async (_, log) => {
+                    if ( ! this.tod_widget ) {
+                        log.log('No Tip of the Day message to dismiss.');
+                        return;
+                    }
                     const svc_devConsole = this.services.get('dev-console', { optional: true });
-                    if ( ! svc_devConsole ) return;
-                    svc_devConsole.remove_widget(this.tod_widget);
+                    if ( svc_devConsole ) {
+                        svc_devConsole.remove_widget(this.tod_widget);
+                    }
                     const lines = this.tod_widget();
                     for ( const line of lines ) log.log(line);
                     this.tod_widget = null;

@@ -145,7 +145,6 @@ class PuterSiteMiddleware extends AdvancedBase {
             !req.query['puter.app_instance_id'] &&
             ( path === '' || path.endsWith('/') )
         ) {
-            console.log('ASSOC APP ID', site.associated_app_id);
             const app = await get_app({ id: site.associated_app_id });
             return res.redirect(`${config.origin}/app/${app.name}/`);
         }
@@ -380,19 +379,11 @@ class PuterSiteMiddleware extends AdvancedBase {
                         : `bytes=${start}-`;
                 }
             }
-            console.log('wow! range!!!: ', req.headers['range'], {
-                no_acl: acl_config.no_acl,
-                actor: acl_config.actor,
-                fsNode: target_node,
-                ...(req.headers['range'] ? { range: req.headers['range'] } : {}),
-            });
         }
         res.set({ 'Accept-Ranges': 'bytes' });
 
         const ll_read = new LLRead();
         // const actor = Actor.adapt(req.user);
-        console.log('what user?', req.user);
-        console.log('what actor?', acl_config.actor);
         const stream = await ll_read.run({
             no_acl: acl_config.no_acl,
             actor: acl_config.actor,
