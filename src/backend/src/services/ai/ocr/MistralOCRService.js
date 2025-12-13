@@ -17,7 +17,6 @@
  * along with this program.  If not, see <https://www.gnu.org/licenses/>.
  */
 
-// METADATA // {"ai-commented":{"service":"claude"}}
 import { Context } from '@heyputer/putility/src/libs/context.js';
 import { Mistral } from '@mistralai/mistralai';
 import mime from 'mime-types';

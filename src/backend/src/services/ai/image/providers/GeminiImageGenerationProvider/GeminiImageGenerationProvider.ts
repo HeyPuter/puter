@@ -17,7 +17,6 @@
  * along with this program.  If not, see <https://www.gnu.org/licenses/>.
  */
 
-// METADATA // {"ai-commented":{"service":"claude"}}
 import { GenerateContentResponse, GoogleGenAI } from '@google/genai';
 import APIError from '../../../../../api/APIError.js';
 import { ErrorService } from '../../../../../modules/core/ErrorService.js';

@@ -17,7 +17,6 @@
  * along with this program.  If not, see <https://www.gnu.org/licenses/>.
  */
 
-// METADATA // {"ai-commented":{"service":"claude"}}
 import Anthropic, { toFile } from '@anthropic-ai/sdk';
 import { Message } from '@anthropic-ai/sdk/resources';
 import { BetaUsage } from '@anthropic-ai/sdk/resources/beta.js';

@@ -17,7 +17,6 @@
  * along with this program.  If not, see <https://www.gnu.org/licenses/>.
  */
 
-// METADATA // {"ai-commented":{"service":"claude"}}
 const APIError = require('../../../api/APIError');
 const BaseService = require('../../BaseService');
 const { TypedValue } = require('../../drivers/meta/Runtime');

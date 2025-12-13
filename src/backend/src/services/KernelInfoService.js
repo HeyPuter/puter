@@ -17,7 +17,6 @@
  * along with this program.  If not, see <https://www.gnu.org/licenses/>.
  */
 
-// METADATA // {"ai-commented":{"service":"claude"}}
 const configurable_auth = require('../middleware/configurable_auth');
 const { Context } = require('../util/context');
 const { Endpoint } = require('../util/expressutil');

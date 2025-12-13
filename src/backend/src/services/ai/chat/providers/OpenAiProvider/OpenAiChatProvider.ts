@@ -31,7 +31,6 @@ import { OPEN_AI_MODELS } from './models.js';
 
 ;
 
-// METADATA // {"ai-commented":{"service":"claude"}}
 
 // We're capping at 5MB, which sucks, but Chat Completions doesn't suuport
 // file inputs.

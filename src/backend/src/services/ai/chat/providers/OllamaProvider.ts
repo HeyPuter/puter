@@ -17,7 +17,6 @@
  * along with this program.  If not, see <https://www.gnu.org/licenses/>.
  */
 
-// METADATA // {"ai-commented":{"service":"claude"}}
 import axios from 'axios';
 import { default as openai, default as OpenAI } from 'openai';
 import { Context } from '../../../../util/context.js';

@@ -26,16 +26,6 @@ Checks for missing translations in `src/gui/src/i18n/translations`
 
 ## Utilities
 
-### `comment-writer`
-
-Generates comments in source files using generative AI via Puter's AI drivers.
-
-To use this:
-- `cd` into the `tools/comment-writer` directory
-- Edit `config.json` and replace `auth_token` with your own
-- Run with a specified direcotry; for example:
-  `node main.js ../../src/backend/services`
-
 ### `module-docgen`
 
 Document a module.
@@ -49,5 +39,5 @@ comments.
 
 ### file-walker
 
-This is used by `license-headers` and `comment-writer` to walk through
+This is used by `license-headers` to walk through
 source files.

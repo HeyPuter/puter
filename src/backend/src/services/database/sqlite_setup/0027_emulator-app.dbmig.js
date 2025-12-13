@@ -17,7 +17,6 @@
  * along with this program.  If not, see <https://www.gnu.org/licenses/>.
  */
 
-// METADATA // {"ai-commented":{"service":"xai"}}
 const insert = async (tbl, subject) => {
     const keys = Object.keys(subject);
 

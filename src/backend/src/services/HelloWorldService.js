@@ -17,7 +17,6 @@
  * along with this program.  If not, see <https://www.gnu.org/licenses/>.
  */
 
-// METADATA // {"ai-commented":{"service":"mistral","model":"mistral-large-latest"}}
 const BaseService = require('./BaseService');
 
 /**

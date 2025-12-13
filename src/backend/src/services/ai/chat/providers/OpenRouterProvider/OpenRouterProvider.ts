@@ -17,7 +17,6 @@
  * along with this program.  If not, see <https://www.gnu.org/licenses/>.
  */
 
-// METADATA // {"ai-commented":{"service":"claude"}}
 import axios from 'axios';
 import { OpenAI } from 'openai';
 import { ChatCompletionCreateParams } from 'openai/resources';

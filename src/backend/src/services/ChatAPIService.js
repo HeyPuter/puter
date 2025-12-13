@@ -17,7 +17,6 @@
  * along with this program.  If not, see <https://www.gnu.org/licenses/>.
  */
 
-// METADATA // {"ai-commented":{"service":"claude"}}
 const { Endpoint } = require('../util/expressutil');
 const BaseService = require('./BaseService');
 const APIError = require('../api/APIError');

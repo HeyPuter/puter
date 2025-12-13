@@ -17,7 +17,6 @@
  * along with this program.  If not, see <https://www.gnu.org/licenses/>.
  */
 
-// METADATA // {"ai-commented":{"service":"claude"}}
 import openai, { OpenAI } from 'openai';
 import { ImageGenerateParamsNonStreaming } from 'openai/resources/images.js';
 import APIError from '../../../../../api/APIError.js';

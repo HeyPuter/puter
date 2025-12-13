@@ -17,7 +17,6 @@
  * along with this program.  If not, see <https://www.gnu.org/licenses/>.
  */
 
-// METADATA // {"ai-commented":{"service":"xai"}}
 const { LLRead } = require('../filesystem/ll_operations/ll_read');
 const { Context } = require('../util/context');
 const { stream_to_buffer } = require('../util/streamutil');

@@ -17,7 +17,6 @@
  * along with this program.  If not, see <https://www.gnu.org/licenses/>.
  */
 
-// METADATA // {"ai-commented":{"service":"openai-completion","model":"gpt-4o-mini"}}
 import { TeePromise } from '@heyputer/putility/src/libs/promise.js';
 import { Context } from '../util/context.js';
 import { Actor, UserActorType } from './auth/Actor.js';

@@ -17,7 +17,6 @@
  * along with this program.  If not, see <https://www.gnu.org/licenses/>.
  */
 
-// METADATA // {"ai-params":{"service":"claude"},"ai-commented":{"service":"claude"}}
 const BaseService = require('../../services/BaseService');
 const socketio = require('socket.io');
 

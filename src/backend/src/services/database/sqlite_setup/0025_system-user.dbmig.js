@@ -17,7 +17,6 @@
  * along with this program.  If not, see <https://www.gnu.org/licenses/>.
  */
 
-// METADATA // {"ai-commented":{"service":"openai-completion","model":"gpt-4o"}}
 /*
 Add a user called `system`.
 

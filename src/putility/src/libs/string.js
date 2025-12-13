@@ -1,4 +1,4 @@
-// METADATA // {"def":"core.util.strutil","ai-params":{"service":"claude"},"ai-commented":{"service":"claude"}}
+// METADATA // {"def":"core.util.strutil","ai-params":{"service":"claude"},"":{"service":"claude"}}
 
 /*
  * Copyright (C) 2024-present Puter Technologies Inc.

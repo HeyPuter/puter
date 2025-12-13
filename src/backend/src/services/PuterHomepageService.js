@@ -1,4 +1,3 @@
-// METADATA // {"ai-commented":{"service":"openai-completion","model":"gpt-4o"}}
 /*
  * Copyright (C) 2024-present Puter Technologies Inc.
  *

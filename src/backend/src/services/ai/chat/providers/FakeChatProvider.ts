@@ -16,7 +16,6 @@
  * You should have received a copy of the GNU Affero General Public License
  * along with this program.  If not, see <https://www.gnu.org/licenses/>.
  */
-// METADATA // {"ai-commented":{"service":"claude"}}
 
 import dedent from 'dedent';
 import { LoremIpsum } from 'lorem-ipsum';

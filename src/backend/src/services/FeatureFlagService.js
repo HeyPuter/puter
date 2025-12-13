@@ -17,7 +17,6 @@
  * along with this program.  If not, see <https://www.gnu.org/licenses/>.
  */
 
-// METADATA // {"ai-commented":{"service":"claude"}}
 const { Context } = require('../util/context');
 const { PermissionUtil } = require('./auth/permissionUtils.mjs');
 const BaseService = require('./BaseService');

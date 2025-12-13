@@ -17,7 +17,6 @@
  * along with this program.  If not, see <https://www.gnu.org/licenses/>.
  */
 
-// METADATA // {"ai-commented":{"service":"claude"}}
 import { AdvancedBase } from '@heyputer/putility';
 import config from '../../config.js';
 import { AIInterfaceService } from '../../services/ai/AIInterfaceService.js';

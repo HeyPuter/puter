@@ -17,7 +17,6 @@
  * along with this program.  If not, see <https://www.gnu.org/licenses/>.
  */
 
-// METADATA // {"ai-commented":{"service":"openai-completion","model":"gpt-4o"}}
 const { insertId: temp_group_id } = await write('INSERT INTO `group` (`uid`, `owner_user_id`, `extra`, `metadata`) ' +
     'VALUES (?, ?, ?, ?)',
 [
