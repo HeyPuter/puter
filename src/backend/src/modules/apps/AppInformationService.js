@@ -272,7 +272,6 @@ class AppInformationService extends BaseService {
             }
             case 'all':{
                 const start = new Date(app_creation_ts);
-                console.log('NARIMAN', start.getTime(), now.getTime());
                 return {
                     start: start.getTime(),
                     end: now.getTime(),

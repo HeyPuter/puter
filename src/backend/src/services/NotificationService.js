@@ -252,7 +252,6 @@ class NotificationService extends BaseService {
     * @param {string} params.response.uid - The unique identifier of the notification.
     */
     async on_sent_to_user ({ user_id, response }) {
-        console.log('GOT IT AND IT WORKED!!!', user_id, response);
         const shown_ts = Math.floor(Date.now() / 1000);
         if ( this.notifs_pending_write[response.uid] ) {
             await this.notifs_pending_write[response.uid];

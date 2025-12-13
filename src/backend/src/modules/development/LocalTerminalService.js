@@ -96,8 +96,6 @@ class LocalTerminalService extends BaseService {
                     cwd: profile.cwd,
                 });
 
-                console.log('process??', proc);
-
                 // stdout to websocket
                 {
                     const svc_socketio = req.services.get('socketio');

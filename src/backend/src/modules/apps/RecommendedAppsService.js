@@ -80,8 +80,6 @@ class RecommendedAppsService extends BaseService {
         svc_event.on('apps.invalidate', (_, { app }) => {
             const sizes = svc_appIcon.get_sizes();
 
-            console.log('Invalidating recommended apps', { app, sizes });
-
             // If it's a single-app invalidation, only invalidate if the
             // app is in the list of recommended apps
             if ( app ) {

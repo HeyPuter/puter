@@ -59,7 +59,6 @@ class GetUserService extends BaseService {
     async _init () {
 
         const svc_permission = this.services.get('permission');
-        console.log('reg imppl');
         svc_permission.register_implicator(PermissionImplicator.create({
             id: 'user-set-own',
             shortcut: true,

@@ -101,7 +101,6 @@ class LockService extends BaseService {
         if ( Array.isArray(name) ) {
             const names = name;
             // TODO: verbose log option by service
-            // console.log('LOCKING NAMES', names)
             const section = names.reduce((current_callback, name) => {
                 return async () => {
                     return await this.lock(name, opt_options, current_callback);

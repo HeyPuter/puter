@@ -83,8 +83,6 @@ module.exports = {
             }),
         });
 
-        console.log('app?', app);
-
         res.json({
             allowed: await svc_acl.check(app_actor, subject,
                             // If mode is not specified, check the HIGHEST mode, because this

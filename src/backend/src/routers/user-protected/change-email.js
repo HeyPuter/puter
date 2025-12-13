@@ -32,8 +32,6 @@ module.exports = {
         const user = req.user;
         const new_email = req.body.new_email;
 
-        console.log('DID REACH HERE');
-
         // TODO: DRY: signup.js
         // validation
         if ( ! new_email ) {

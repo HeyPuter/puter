@@ -452,7 +452,6 @@ class HLMkdir extends HLFilesystemOperation {
         const node = await fs.node(current);
 
         if ( ! await node.exists() ) {
-            // console.log('HERE FROM', node.selector.describe(), parent_node.selector.describe());
             throw APIError.create('dest_does_not_exist');
         }
 

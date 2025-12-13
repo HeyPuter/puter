@@ -82,7 +82,6 @@ class ValidationES extends BaseES {
                     }
                 } catch ( e ) {
                     if ( ! (e instanceof APIError) ) {
-                        console.log('THIS IS HAPPENING', e);
                         // eslint-disable-next-line no-ex-assign
                         e = APIError.create('field_invalid', null, {
                             key: prop.name,

@@ -35,7 +35,6 @@ class KeyPairHelper extends AdvancedBase {
     }
 
     to_nacl_key_ (key) {
-        console.log('WUT', key);
         const full_buffer = Buffer.from(key, 'base64');
 
         // Remove version byte (assumed to be 0x31 and ignored for now)

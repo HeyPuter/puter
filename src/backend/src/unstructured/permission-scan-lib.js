@@ -34,8 +34,6 @@ const remove_paths_through_user = ({ reading, user }) => {
             if (
                 node.issuer_username === user.username
             ) {
-                console.log('filtered out one');
-                // process.exit(0);
                 continue;
             }
 

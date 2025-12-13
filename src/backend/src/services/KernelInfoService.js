@@ -76,7 +76,6 @@ class KernelInfoService extends BaseService {
                 const col_interfaces = svc_registry.get('interfaces');
                 for ( const interface_name of col_interfaces.keys() ) {
                     const iface = col_interfaces.get(interface_name);
-                    console.log('-->', interface_name, iface);
                     if ( iface === undefined ) continue;
                     if ( iface.no_sdk ) continue;
                     interfaces[interface_name] = {
