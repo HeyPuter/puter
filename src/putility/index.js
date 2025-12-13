@@ -18,8 +18,6 @@ module.exports = {
         listener: require('./src/libs/listener'),
         log: require('./src/libs/log'),
         string: require('./src/libs/string'),
-        time: require('./src/libs/time'),
-        smol: require('./src/libs/smol'),
         event: require('./src/libs/event'),
     },
     features: {

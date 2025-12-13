@@ -26,7 +26,7 @@ const {
 const auth = require('../middleware/auth.js');
 const config = require('../config');
 const { DB_WRITE } = require('../services/database/consts');
-const { SECOND } = require('@heyputer/putility/src/libs/time.js');
+const SECOND = 1000;
 
 // -----------------------------------------------------------------------//
 // POST /save_account

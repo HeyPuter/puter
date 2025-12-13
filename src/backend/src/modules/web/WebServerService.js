@@ -27,7 +27,6 @@ const auth = require('../../middleware/auth.js');
 const measure = require('../../middleware/measure.js');
 
 const relative_require = require;
-const strutil = require('@heyputer/putility').libs.string;
 
 /**
 * This class, WebServerService, is responsible for starting and managing the Puter web server.
@@ -207,7 +206,7 @@ class WebServerService extends BaseService {
             }
         }
 
-        const link = `\x1B[34;1m${strutil.osclink(url)}\x1B[0m`;
+        const link = `\x1B[34;1m${url}\x1B[0m`;
         const lines = [
             `Puter is now live at: ${link}`,
         ];

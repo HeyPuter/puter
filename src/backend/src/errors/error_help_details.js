@@ -16,7 +16,7 @@
  * You should have received a copy of the GNU Affero General Public License
  * along with this program.  If not, see <https://www.gnu.org/licenses/>.
  */
-const { quot, osclink } = require('@heyputer/putility').libs.string;
+const { quot } = require('@heyputer/putility').libs.string;
 
 const reused = {
     runtime_env_references: [
@@ -93,8 +93,7 @@ const error_help_details = [
         apply (more) {
             more.solutions = [
                 'ensure config_name is present in your config file',
-                `Seek help on ${ osclink('https://discord.gg/PQcx7Teh8u',
-                                'our Discord server')}`,
+                'Seek help on https://discord.gg/PQcx7Teh8u (our Discord server)',
             ];
         },
     },
@@ -122,15 +121,8 @@ const error_help_details = [
                 'It looks like this might be our fault.',
             ];
             more.solutions = [
-                {
-                    title: `Check for an issue on ${
-                        osclink('https://github.com/HeyPuter/puter/issues')}`,
-                },
-                {
-                    title: `If there's no issue, please ${
-                        osclink('https://github.com/HeyPuter/puter/issues/new',
-                                        'create one') }.`,
-                },
+                { title: 'Check for an issue on https://github.com/HeyPuter/puter/issues' },
+                { title: 'If there is no issue, please create one: https://github.com/HeyPuter/puter/issues/new' },
             ];
         },
     },
@@ -220,7 +212,7 @@ const print_error_help = (err, out = process.stdout) => {
                 `${vis('(', ')', ref.location)};\n`);
             write(`      ${ref.use}\n`);
             if ( ref.url ) {
-                write(`      ${osclink(ref.url)}\n`);
+                write(`      ${ref.url}\n`);
             }
         }
     }

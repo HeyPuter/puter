@@ -17,7 +17,8 @@
  * along with this program.  If not, see <https://www.gnu.org/licenses/>.
  */
 const BaseService = require('../../services/BaseService');
-const { time, promise } = require('@heyputer/putility').libs;
+const { promise } = require('@heyputer/putility').libs;
+const SECOND = 1000;
 
 /**
 * The ServerHealthService class provides comprehensive health monitoring for the server.
@@ -145,7 +146,7 @@ class ServerHealthService extends BaseService {
                 */
                 const timeout = setTimeout(() => {
                     p_timeout.reject(new Error('Health check timed out'));
-                }, 5 * time.SECOND);
+                }, 5 * SECOND);
                 try {
                     await Promise.race([
                         fn(),
@@ -178,7 +179,7 @@ class ServerHealthService extends BaseService {
             }
 
             this.failures_ = check_failures;
-        }, 10 * time.SECOND, null, {
+        }, 10 * SECOND, null, {
             onBehindSchedule: (drift) => {
                 svc_alarm.create('health-checks-behind-schedule',
                                 'Health checks are behind schedule',

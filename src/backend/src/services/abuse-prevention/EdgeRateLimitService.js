@@ -20,7 +20,8 @@ const { Context } = require('../../util/context');
 const { asyncSafeSetInterval } = require('@heyputer/putility').libs.promise;
 const { quot } = require('@heyputer/putility').libs.string;
 
-const { MINUTE, HOUR } = require('@heyputer/putility').libs.time;
+const MINUTE = 60 * 1000;
+const HOUR = 60 * MINUTE;
 const BaseService = require('../BaseService');
 
 /* INCREMENTAL CHANGES
