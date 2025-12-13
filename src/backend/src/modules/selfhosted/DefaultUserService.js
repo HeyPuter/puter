@@ -21,12 +21,10 @@ const { HLWrite } = require('../../filesystem/hl_operations/hl_write');
 const { NodePathSelector } = require('../../filesystem/node/selectors');
 const { get_user, invalidate_cached_user } = require('../../helpers');
 const { Context } = require('../../util/context');
-const { asyncSafeSetInterval } = require('@heyputer/putility').libs.promise;
 const { buffer_to_stream } = require('../../util/streamutil');
 const BaseService = require('../../services/BaseService');
 const { Actor, UserActorType } = require('../../services/auth/Actor');
 const { DB_WRITE } = require('../../services/database/consts');
-const { TEAL } = require('../../services/NullDevConsoleService');
 const { quot } = require('@heyputer/putility').libs.string;
 const bcrypt = require('bcrypt');
 const uuidv4 = require('uuid').v4;
@@ -89,66 +87,16 @@ class DefaultUserService extends BaseService {
         if ( ! is_default_password ) return;
 
         // console.log(`password for admin is: ${tmp_password}`);
-        const svc_devConsole = this.services.get('dev-console');
-
         // NB: this is needed for the CI to extract the password
         console.log(`password for admin is: ${tmp_password}`);
 
         const realConsole = globalThis.original_console_object ?? console;
-        realConsole.log('\n');
-        svc_devConsole.notice({
-            colors: TEAL,
-            style: 'stars',
-            title: 'Your default login credentials are',
-            lines: [
-                'Username: \x1b[1madmin\x1b[0m',
-                `Password: \x1b[1m${tmp_password}\x1b[0m`,
-            ],
-        });
-        realConsole.log('\n');
-
-        // show console widget
-        this.default_user_widget = ({ is_docker }) => {
-            if ( is_docker ) {
-                // In Docker we keep the output as simple as possible because
-                // we're unable to determine the size of the terminal
-                return [
-                    `Password for \`admin\`: ${ tmp_password}`,
-                    // TODO: possible bug
-                    // These blank lines are necessary for it to render and
-                    // I'm not entirely sure why anymore.
-                    '', '',
-                ];
-            }
-            const lines = [
-                'Your admin user has been created!',
-                `\x1B[31;1musername:\x1B[0m ${USERNAME}`,
-                `\x1B[32;1mpassword:\x1B[0m ${tmp_password}`,
-                '(change the password to remove this message)',
-            ];
-            if ( ! this.global_config.minimal_console ) {
-                lines.unshift('\x1B[31;1m==========================\x1B[0m');
-                lines.push('\x1B[31;1m==========================\x1B[0m');
-            }
-            return lines;
-        };
-        this.default_user_widget.critical = true;
-        this.start_poll_({ tmp_password, user });
-        svc_devConsole.add_widget(this.default_user_widget);
-    }
-    start_poll_ ({ tmp_password }) {
-        const interval = 1000 * 3; // 3 seconds
-        const poll_interval = asyncSafeSetInterval(async () => {
-            const user = await get_user({ username: USERNAME });
-            const is_default_password = await bcrypt.compare(tmp_password,
-                            user.password);
-            if ( ! is_default_password ) {
-                const svc_devConsole = this.services.get('dev-console');
-                svc_devConsole.remove_widget(this.default_user_widget);
-                clearInterval(poll_interval);
-                return;
-            }
-        }, interval);
+        realConsole.log('\n************************************************************');
+        realConsole.log('* Your default login credentials are:');
+        realConsole.log(`* Username: admin`);
+        realConsole.log(`* Password: ${tmp_password}`);
+        realConsole.log('* (change the password to remove this message)');
+        realConsole.log('************************************************************\n');
     }
     async create_default_user_ () {
         const db = this.services.get('database').get(DB_WRITE, USERNAME);

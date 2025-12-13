@@ -82,7 +82,7 @@ jobs:
   api-test:
     name: API tests (node env, api-test)
     runs-on: ubuntu-latest
-    timeout-minutes: 5
+    timeout-minutes: 10
 
     strategy:
       matrix:
@@ -111,7 +111,7 @@ jobs:
   vitest:
     name: puterjs (node env, vitest)
     runs-on: ubuntu-latest
-    timeout-minutes: 5
+    timeout-minutes: 10
 
     strategy:
       matrix:

@@ -34,20 +34,6 @@ describe('SystemValidationService', async () => {
             report: mockReport,
         };
 
-        // Mock dev-console service
-        const mockTurnOn = vi.fn();
-        const mockAddWidget = vi.fn();
-        const mockDevConsole = {
-            turn_on_the_warning_lights: mockTurnOn,
-            add_widget: mockAddWidget,
-        };
-        
-        const originalGet = testKernel.services.get.bind(testKernel.services);
-        testKernel.services.get = vi.fn((name: string) => {
-            if (name === 'dev-console') return mockDevConsole;
-            return originalGet(name);
-        }) as any;
-
         try {
             await systemValidationService.mark_invalid('test message', new Error('test error'));
 
@@ -57,16 +43,11 @@ describe('SystemValidationService', async () => {
                 trace: true,
                 alarm: true,
             }));
-
-            // Verify dev console was called
-            expect(mockTurnOn).toHaveBeenCalled();
-            expect(mockAddWidget).toHaveBeenCalled();
         } finally {
             // Restore original environment
             if (systemValidationService.global_config) {
                 systemValidationService.global_config.env = originalEnv;
             }
-            testKernel.services.get = originalGet as any;
         }
     });
 
@@ -81,17 +62,6 @@ describe('SystemValidationService', async () => {
             report: mockReport,
         };
 
-        const mockDevConsole = {
-            turn_on_the_warning_lights: vi.fn(),
-            add_widget: vi.fn(),
-        };
-        
-        const originalGet = testKernel.services.get.bind(testKernel.services);
-        testKernel.services.get = vi.fn((name: string) => {
-            if (name === 'dev-console') return mockDevConsole;
-            return originalGet(name);
-        }) as any;
-
         try {
             await systemValidationService.mark_invalid('test without source');
 
@@ -102,7 +72,6 @@ describe('SystemValidationService', async () => {
             if (systemValidationService.global_config) {
                 systemValidationService.global_config.env = originalEnv;
             }
-            testKernel.services.get = originalGet as any;
         }
     });
 
@@ -116,17 +85,6 @@ describe('SystemValidationService', async () => {
         systemValidationService.errors = {
             report: mockReport,
         };
-
-        const mockDevConsole = {
-            turn_on_the_warning_lights: vi.fn(),
-            add_widget: vi.fn(),
-        };
-        
-        const originalGet = testKernel.services.get.bind(testKernel.services);
-        testKernel.services.get = vi.fn((name: string) => {
-            if (name === 'dev-console') return mockDevConsole;
-            return originalGet(name);
-        }) as any;
 
         try {
             const testError = new Error('specific error');
@@ -142,8 +100,6 @@ describe('SystemValidationService', async () => {
             if (systemValidationService.global_config) {
                 systemValidationService.global_config.env = originalEnv;
             }
-            testKernel.services.get = originalGet as any;
         }
     });
 });
-

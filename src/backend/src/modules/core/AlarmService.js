@@ -58,27 +58,6 @@ class AlarmService extends BaseService {
         // TODO:[self-hosted] fix this properly
         this.known_errors = [];
 
-        if ( this.global_config.env === 'dev' ) {
-            /**
-            * This method initializes the AlarmService instance by registering commands, setting up the pager, and initializing the known errors.
-            * It also sets up the widget to display alarms in the dev environment.
-            *
-            * @param {BaseService} services - The BaseService instance that provides access to other services.
-            * @returns {void}
-            */
-            this.alarm_widget = () => {
-                const lines = [];
-                for ( const alarm of Object.values(this.alarms) ) {
-                    const line =
-                        '\x1B[31;1m [alarm]\x1B[0m ' +
-                        `${alarm.id_string}: ${alarm.message} (${alarm.count})`;
-                    const line_lines = this.stdioutil.split_lines(line);
-                    lines.push(...line_lines);
-                }
-
-                return lines;
-            };
-        }
     }
 
     /**
@@ -288,12 +267,10 @@ class AlarmService extends BaseService {
 
         this.apply_known_errors_(alarm);
 
-        // dev console
         if ( this.global_config.env === 'dev' && !this.attached_dev ) {
             this.attached_dev = true;
-            const svc_devConsole = this.services.get('dev-console');
-            svc_devConsole.turn_on_the_warning_lights();
-            svc_devConsole.add_widget(this.alarm_widget);
+            const realConsole = globalThis.original_console_object ?? console;
+            realConsole.error('\x1B[33;1m[alarm]\x1B[0m Active alarms detected; see logs for details.');
         }
 
         const args = this.Context.get('args') ?? {};

@@ -237,40 +237,13 @@ class SqliteDatabaseAccessService extends BaseDatabaseAccessService {
             // Update version number
             await this.db.exec(`PRAGMA user_version = ${TARGET_VERSION};`);
 
-            // Add sticky notification
-            /**
-            * This method is responsible for applying database migrations. It checks the current version of the database against the available migrations, and if the database is out of date, it applies the necessary SQL files to bring it up to date.
-            *
-            * @param {void}
-            * @returns {void}
-            */
-            // Add this comment above line 222
-            // It describes the purpose of the method and its behavior
-            // It does not include any parameters or return values since the method does not take any inputs and does not return any output.
-            this.database_update_notice = () => {
-                const lines = [
-                    'Database has been updated!',
-                    `Current version: ${TARGET_VERSION}`,
-                    'Type sqlite:dismiss to dismiss this message',
-                ];
-                if ( ! this.global_config.minimal_console ) {
-                    lines.unshift('\x1B[33;1m-----------------------------\x1B[0m');
-                    lines.push('\x1B[33;1m-----------------------------\x1B[0m');
-                }
-                return lines;
-            };
-
-            const svc_devConsole = this.services.get('dev-console', { optional: true });
-            if ( svc_devConsole ) {
-                svc_devConsole.add_widget(this.database_update_notice);
-            }
+            this.log.info(`Database has been updated to version ${TARGET_VERSION}`);
         }
 
         const svc_serverHealth = this.services.get('server-health');
 
         /**
-        * @description This method is used to register SQLite database-related commands with the dev-console service.
-        * @param {object} commands - The dev-console service commands object.
+        * Register a health check to ensure the SQLite schema matches the expected version.
         */
         svc_serverHealth.add_check('sqlite', async () => {
             const [{ user_version }] = await this.requireRead('PRAGMA user_version');
@@ -411,19 +384,6 @@ class SqliteDatabaseAccessService extends BaseDatabaseAccessService {
                     } catch ( err ) {
                         log.error(err.message);
                     }
-                },
-            },
-            {
-                id: 'dismiss',
-                description: 'dismiss the database update notice',
-                handler: async (_, log) => {
-                    const svc_devConsole = this.services.get('dev-console');
-                    if ( ! svc_devConsole ) return;
-                    if ( ! this.database_update_notice ) return;
-                    svc_devConsole.remove_widget(this.database_update_notice);
-                    const lines = this.database_update_notice();
-                    for ( const line of lines ) log.log(line);
-                    this.database_update_notice = null;
                 },
             },
         ]);
