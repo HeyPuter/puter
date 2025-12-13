@@ -207,8 +207,6 @@ class WebServerService extends BaseService {
             }
         }
 
-        if ( ! config.disable_fun ) this.print_puter_logo_();
-
         const link = `\x1B[34;1m${strutil.osclink(url)}\x1B[0m`;
         const lines = [
             `Puter is now live at: ${link}`,
@@ -652,43 +650,6 @@ class WebServerService extends BaseService {
 
             next();
         });
-    }
-
-    /**
-    * Prints the Puter logo seen in the console after the server is started.
-    *
-    * Depending on the size of the terminal, a different version of the
-    * logo is displayed. The logo is displayed in blue text.
-    *
-    * @returns {void}
-    * @private
-    */
-    // comment above line 497
-    print_puter_logo_ () {
-        const realConsole = globalThis.original_console_object;
-        if ( this.global_config.env !== 'dev' ) return;
-        const logos = require('../../fun/logos.js');
-        let last_logo = undefined;
-        for ( const logo of logos ) {
-            if ( logo.sz <= (process.stdout.columns ?? 0) ) {
-                last_logo = logo;
-            } else break;
-        }
-        if ( last_logo ) {
-            const lines = last_logo.txt.split('\n');
-            const width = process.stdout.columns;
-            const pad = (width - last_logo.sz) / 2;
-            const pad_left = Math.floor(pad);
-            const pad_right = Math.ceil(pad);
-            for ( let i = 0 ; i < lines.length ; i++ ) {
-                lines[i] = ' '.repeat(pad_left) + lines[i] + ' '.repeat(pad_right);
-            }
-            const txt = lines.join('\n');
-            realConsole.log(`\n\x1B[34;1m${ txt }\x1B[0m\n`);
-        }
-        if ( config.os.archbtw ) {
-            realConsole.log('\x1B[34;1mPuter is running on Arch btw\x1B[0m');
-        }
     }
 }
 

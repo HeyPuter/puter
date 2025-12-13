@@ -63,4 +63,3 @@ extension.
 - `../../middleware/auth.js`
 - `../../util/strutil.js`
 - `../../helpers.js`
-- `../../fun/logos.js`
