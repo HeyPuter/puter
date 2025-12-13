@@ -123,15 +123,13 @@ class CLink extends BaseLink {
             });
         });
         socket.on('connect_error', e => {
-            this.log.info('connection error', {
+            console.error('connection error', {
                 address,
-                message: e.message,
+                e: e,
             });
         });
         socket.on('error', e => {
-            this.log.info('error', {
-                message: e.message,
-            });
+            console.error(e);
         });
         socket.on('message', data => {
             if ( this.state.on_message ) {
