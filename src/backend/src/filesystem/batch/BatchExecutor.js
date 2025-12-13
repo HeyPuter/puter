@@ -63,10 +63,6 @@ class BatchExecutor extends AdvancedBase {
         }
 
         this.concurrent_ops++;
-        if ( config.env == 'dev' ) {
-            const wid = this.x.get('dev_batch-widget');
-            wid.ops++;
-        }
 
         const { expectations } = this;
         const command_cls = commands[op.op];
@@ -153,10 +149,6 @@ class BatchExecutor extends AdvancedBase {
                 const serialized_error = e.serialize();
                 return serialized_error;
             } finally {
-                if ( config.env == 'dev' ) {
-                    const wid = x.get('dev_batch-widget');
-                    wid.ops--;
-                }
                 this.concurrent_ops--;
                 if ( this.ops_promise && this.concurrent_ops < this.max_concurrent_ops ) {
                     this.ops_promise.resolve();
