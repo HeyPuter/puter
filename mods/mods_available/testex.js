@@ -1,9 +1,5 @@
 // Test extension for event listeners
 
-extension.on('ai.prompt.check-usage', event => {
-    console.log('GOT AI.PROMPT.CHECK-USAGE EVENT', event);
-});
-
 extension.on('ai.prompt.complete', event => {
     console.log('GOT AI.PROMPT.COMPLETE EVENT', event);
 });

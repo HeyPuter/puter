@@ -40,7 +40,7 @@ if ( existing_user ) {
         replace_name = `system_${ replace_num++}`;
     }
 
-    log.noticeme('updating existing user called system', {
+    console.debug('updating existing user called system', {
         replace_num,
         replace_name,
     });

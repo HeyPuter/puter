@@ -187,7 +187,7 @@ class SqliteDatabaseAccessService extends BaseDatabaseAccessService {
 
         for ( const [v_lt_or_eq, files] of available_migrations ) {
             if ( v_lt_or_eq + 1 >= TARGET_VERSION && TARGET_VERSION !== HIGHEST_VERSION ) {
-                this.log.noticeme(`Early exit: target version set to ${TARGET_VERSION}`);
+                console.warn(`Early exit: target version set to ${TARGET_VERSION}`);
                 break;
             }
             if ( user_version <= v_lt_or_eq ) {

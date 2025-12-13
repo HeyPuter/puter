@@ -248,7 +248,7 @@ class WebServerService extends BaseService {
                     // }, 1000);
                     next();
                 } catch (e) {
-                    console.log('socket auth err', e);
+                    console.warn('socket auth err', e);
                 }
             }
         });
