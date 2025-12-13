@@ -880,14 +880,8 @@ class AI {
 
         if ( driverHint ) {
             AIService = driverHint;
-        } else if ( providerHint === 'gemini' ) {
-            AIService = 'gemini-image-generation';
-        } else if ( providerHint === 'together' || providerHint === 'together-ai' ) {
-            AIService = 'together-image-generation';
-        } else if (options.model === 'gemini-2.5-flash-image-preview' || options.model === "gemini-3-pro-image-preview" ) {
-            AIService = 'gemini-image-generation';
-        } else if ( looksLikeTogetherModel ) {
-            AIService = 'together-image-generation';
+        } else {
+            AIService = 'ai-image';
         }
         // Call the original chat.complete method
         return await utils.make_driver_method(['prompt'], 'puter-image-generation', AIService, 'generate', {
