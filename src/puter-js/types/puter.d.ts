@@ -10,7 +10,6 @@ import type { KV } from './modules/kv.d.ts';
 import type { Networking } from './modules/networking.d.ts';
 import type { OS } from './modules/os.d.ts';
 import type { Perms } from './modules/perms.d.ts';
-import type Threads from './modules/threads.d.ts';
 import type { UI } from './modules/ui.d.ts';
 import type Util from './modules/util.d.ts';
 import type { WorkersHandler } from './modules/workers.d.ts';
@@ -55,7 +54,6 @@ export class Puter {
     ui: UI;
     hosting: Hosting;
     kv: KV;
-    threads: Threads;
     perms: Perms;
     drivers: Drivers;
     debug: Debug;

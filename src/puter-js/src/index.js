@@ -18,7 +18,6 @@ import { PTLSSocket } from './modules/networking/PTLS.js';
 import { pFetch } from './modules/networking/requests.js';
 import OS from './modules/OS.js';
 import Perms from './modules/Perms.js';
-import Threads from './modules/Threads.js';
 import UI from './modules/UI.js';
 import Util from './modules/Util.js';
 import { WorkersHandler } from './modules/Workers.js';
@@ -170,7 +169,6 @@ const puterInit = (function () {
             this.registerModule('apps', Apps);
             this.registerModule('ai', AI);
             this.registerModule('kv', KV);
-            this.registerModule('threads', Threads);
             this.registerModule('perms', Perms);
             this.registerModule('drivers', Drivers);
             this.registerModule('debug', Debug);
