@@ -20,15 +20,12 @@
 const BaseService = require('./BaseService');
 const fs = require('node:fs');
 
-const { Entity } = require('../om/entitystorage/Entity');;
 // const { get_app, subdomain } = require("../helpers");
 let parseDomain ;
-const { Eq } = require('../om/query/query');
 const { Endpoint } = require('../util/expressutil');
 const { IncomingMessage } = require('node:http');
 const { Context } = require('../util/context');
 const { createHash } = require('crypto');
-const { NULL } = require('../om/proptypes/__all__');
 const APIError = require('../api/APIError');
 
 // async function generateJWT(applicationId, secret, domain, ) {
@@ -73,14 +70,11 @@ class EntriService extends BaseService {
                 const es_subdomain = this.services.get('es:subdomain');
 
                 await svc_su.sudo(async () => {
-                    const rows = (await es_subdomain.select({ predicate: new Eq({ key: 'domain', value: `in-progress:${ realDomain}` }) }));
+                    const rows = await es_subdomain.select({
+                        predicate: { op: 'eq', key: 'domain', value: `in-progress:${ realDomain}` },
+                    });
                     for ( const row of rows ) {
-                        const entity = await Entity.create({ om: es_subdomain.om }, {
-                            uid: row.values_.uid,
-                            domain: realDomain,
-                        });
-                        await es_subdomain.upsert(entity);
-
+                        await es_subdomain.upsert(row.uid, { domain: realDomain });
                     }
                     return true;
                 });
@@ -102,8 +96,10 @@ class EntriService extends BaseService {
                 let rootDomain = (parseDomain(domain)).icann.subDomains.length === 0;
 
                 const exists = await svc_su.sudo(async () => {
-                    const row = (await es_subdomain.select({ predicate: new Eq({ key: 'domain', value: domain }) }))[0] || (await es_subdomain.select({ predicate: new Eq({ key: 'domain', value: `in-progress:${ domain}` }) }))[0];
-                    if ( !!row && row.values_.subdomain === userHostedSite.replace('.puter.site', '') ) {
+                    const row =
+                        (await es_subdomain.select({ predicate: { op: 'eq', key: 'domain', value: domain } }))[0] ||
+                        (await es_subdomain.select({ predicate: { op: 'eq', key: 'domain', value: `in-progress:${ domain}` } }))[0];
+                    if ( row && row.subdomain === userHostedSite.replace('.puter.site', '') ) {
                         return false;
                     }
                     return !!row;
@@ -137,13 +133,10 @@ class EntriService extends BaseService {
                     }),
                 });
 
-                const row = (await es_subdomain.select({ predicate: new Eq({ key: 'subdomain', value: userHostedSite.replace('.puter.site', '') }) }))[0];
-                const entity = await Entity.create({ om: es_subdomain.om }, {
-                    uid: row.values_.uid,
-                    domain: `in-progress:${ domain}`,
-                });
-
-                await es_subdomain.upsert(entity);
+                const row = (await es_subdomain.select({
+                    predicate: { op: 'eq', key: 'subdomain', value: userHostedSite.replace('.puter.site', '') },
+                }))[0];
+                await es_subdomain.upsert(row.uid, { domain: `in-progress:${ domain}` });
 
                 return {
                     token: (await response.json()).auth_token,
@@ -180,10 +173,11 @@ class EntriService extends BaseService {
                     throw APIError.create('field_invalid', null, { key: 'domain', expected: 'valid domain' });
                 }
 
-                /** @type {import("../om/entitystorage/SubdomainES")} */
                 const es_subdomain = this.services.get('es:subdomain');
 
-                const row = (await es_subdomain.select({ predicate: new Eq({ key: 'domain', value: domain }) }))[0] || (await es_subdomain.select({ predicate: new Eq({ key: 'domain', value: `in-progress:${ domain}` }) }))[0];
+                const row =
+                    (await es_subdomain.select({ predicate: { op: 'eq', key: 'domain', value: domain } }))[0] ||
+                    (await es_subdomain.select({ predicate: { op: 'eq', key: 'domain', value: `in-progress:${ domain}` } }))[0];
                 if ( ! row ) {
                     throw APIError.create('forbidden', null, {});
                 }
@@ -202,11 +196,7 @@ class EntriService extends BaseService {
                     }),
                 }).then(r => r.json()));
 
-                const entity = await Entity.create({ om: es_subdomain.om }, {
-                    uid: row.values_.uid,
-                    domain: NULL,
-                });
-                await es_subdomain.upsert(entity);
+                await es_subdomain.upsert(row.uid, { domain: null });
                 const errors = [];
                 // Even if the domain is in progress, still send the delete incase it's just propgation taking a while
                 const deleteRequest = await (fetch('https://api.goentri.com/power', {
@@ -226,7 +216,9 @@ class EntriService extends BaseService {
             },
             async fullyRegistered ({ domain, userHostedSite }) {
                 const es_subdomain = this.services.get('es:subdomain');
-                const row = (await es_subdomain.select({ predicate: new Eq({ key: 'subdomain', value: userHostedSite.replace('.puter.site', '') }) }))[0];
+                const row = (await es_subdomain.select({
+                    predicate: { op: 'eq', key: 'subdomain', value: userHostedSite.replace('.puter.site', '') },
+                }))[0];
 
             },
         },

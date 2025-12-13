@@ -26,12 +26,9 @@ const { createWorker, setCloudflareKeys, deleteWorker } = require('./workerUtils
 const { getUserInfo } = require('./workerUtils/puterUtils');
 const { LLRead } = require('../../filesystem/ll_operations/ll_read');
 const { Context } = require('../../util/context');
-const { NodePathSelector, NodeUIDSelector } = require('../../filesystem/node/selectors');
+const { NodePathSelector, NodeInternalIDSelector } = require('../../filesystem/node/selectors');
 const { calculateWorkerNameNew } = require('./workerUtils/nameUtils');
-const { Entity } = require('../../om/entitystorage/Entity');
-const { SKIP_ES_VALIDATION } = require('../../om/entitystorage/consts');
-const { Eq, StartsWith } = require('../../om/query/query');
-const { get_app, subdomain } = require('../../helpers');
+const { get_app } = require('../../helpers');
 const { UsernameNotifSelector } = require('../NotificationService');
 const APIError = require('../../api/APIError');
 const FSNodeParam = require('../../api/filesystem/FSNodeParam');
@@ -90,13 +87,22 @@ class WorkerService extends BaseService {
         const svc_auth = this.services.get('auth');
         const svc_notification = this.services.get('notification');
 
+        const resolveNodeId = (node) => {
+            if ( !node ) return null;
+            if ( typeof node === 'number' ) return node;
+            if ( node.mysql_id ) return node.mysql_id;
+            if ( node.id ) return node.id;
+            if ( node.private_meta?.mysql_id ) return node.private_meta.mysql_id;
+            return node;
+        };
+
         svc_event.on('fs.write.file', async (_key, data, meta) => {
             // Code should only run on the same server as the write
             if ( meta.from_outside ) return;
 
             // Check if the file that was written correlates to a worker
             const results = await svc_su.sudo(async () => {
-                return await es_subdomain.select({ predicate: new Eq({ key: 'root_dir', value: data.node }) });
+                return await es_subdomain.select({ predicate: { op: 'eq', key: 'root_dir', value: resolveNodeId(data.node) } });
             });
             if ( !results || results.length === 0 )
             {
@@ -109,13 +115,15 @@ class WorkerService extends BaseService {
 
                 // Worker data
                 const fileData = (await readPuterFile(Context.get('actor'), data.node.path)).toString();
-                const workerName = (await result.get('subdomain')).split('.').pop();
+                const workerName = (result.subdomain || '').split('.').pop();
 
                 // Get appropriate deploy time auth token to give to the worker
                 let authToken;
-                const appOwner = await result.get('app_owner');
+                const appOwner = result.app_owner;
                 if ( appOwner ) { // If the deployer is an app...
-                    const appID = await appOwner.get('uid');
+                    const es_app = this.services.get('es:app');
+                    const app = await es_app.read({ op: 'eq', key: 'id', value: appOwner });
+                    const appID = app?.uid;
                     authToken = await svc_su.sudo(await data.node.get('owner'), async () => {
                         return await svc_auth.get_user_app_token(appID);
                     });
@@ -192,7 +200,7 @@ class WorkerService extends BaseService {
                     const svc_auth = this.services.get('auth');
 
                     const currentDomains = await svc_su.sudo(Context.get('actor').get_related_actor(UserActorType), async () => {
-                        return (await es_subdomain.select({ predicate: new StartsWith({ key: 'subdomain', value: 'workers.puter.' }) }));
+                        return await es_subdomain.select({ predicate: { op: 'starts-with', key: 'subdomain', value: 'workers.puter.' } });
                     });
 
                     if ( appId ) {
@@ -221,26 +229,23 @@ class WorkerService extends BaseService {
                         req: { user: Context.get('actor').type.user },
                         getParam: () => filePath,
                     })).get('path');
+                    const svc_fs = this.services.get('filesystem');
+                    const node = await svc_fs.node(new NodePathSelector(filePath));
+                    const root_dir_id = node.mysql_id ?? node.id ?? await node.get?.('id');
 
                     const userData = await getUserInfo(authorization, this.global_config.api_base_url);
                     const actor = Context.get('actor');
                     if ( appId ) {
                         await svc_su.sudo(await svc_auth.authenticate_from_token(authorization), async () => {
-                            await Context.sub({ [SKIP_ES_VALIDATION]: true }).arun(async () => {
-                                const entity = await Entity.create({ om: es_subdomain.om }, {
-                                    subdomain: `workers.puter.${ calculateWorkerNameNew(userData, workerName)}`,
-                                    root_dir: filePath,
-                                });
-                                await es_subdomain.upsert(entity);
+                            await es_subdomain.upsert(null, {
+                                subdomain: `workers.puter.${ calculateWorkerNameNew(userData, workerName)}`,
+                                root_dir: root_dir_id,
                             });
                         });
                     } else {
-                        await Context.sub({ [SKIP_ES_VALIDATION]: true }).arun(async () => {
-                            const entity = await Entity.create({ om: es_subdomain.om }, {
-                                subdomain: `workers.puter.${ calculateWorkerNameNew(userData, workerName)}`,
-                                root_dir: filePath,
-                            });
-                            await es_subdomain.upsert(entity);
+                        await es_subdomain.upsert(null, {
+                            subdomain: `workers.puter.${ calculateWorkerNameNew(userData, workerName)}`,
+                            root_dir: root_dir_id,
                         });
                     }
 
@@ -265,15 +270,15 @@ class WorkerService extends BaseService {
 
                     const userData = await getUserInfo(authorization, this.global_config.api_base_url);
 
-                    const [result] = (await es_subdomain.select({ predicate: new Eq({ key: 'subdomain', value: `workers.puter.${ calculateWorkerNameNew(undefined, workerName)}` }) }));
+                    const [result] = await es_subdomain.select({ predicate: { op: 'eq', key: 'subdomain', value: `workers.puter.${ calculateWorkerNameNew(undefined, workerName)}` } });
 
-                    if ( result.values_.owner.uuid !== userData.uuid ) {
-                        throw new Error('This is not your worker!');
+                    if ( !result ) {
+                        throw new Error('Worker not found');
                     }
 
                     const cfData = await deleteWorker(userData, authorization, workerName);
 
-                    await es_subdomain.delete(await result.get('uid'));
+                    await es_subdomain.delete(result.uid);
                     return cfData;
 
                 } catch (e) {
@@ -290,25 +295,34 @@ class WorkerService extends BaseService {
                     const es_subdomain = this.services.get('es:subdomain');
                     let currentDomains;
                     if ( typeof (workerName) !== 'string' ) {
-                        currentDomains = (await es_subdomain.select({ predicate: new StartsWith({ key: 'subdomain', value: 'workers.puter.' }) }));
+                        currentDomains = await es_subdomain.select({ predicate: { op: 'starts-with', key: 'subdomain', value: 'workers.puter.' } });
                     } else {
-                        currentDomains = (await es_subdomain.select({ predicate: new Eq({ key: 'subdomain', value: `workers.puter.${ workerName}` }) }));
+                        currentDomains = await es_subdomain.select({ predicate: { op: 'eq', key: 'subdomain', value: `workers.puter.${ workerName}` } });
                     }
 
                     const domainToPath = [];
+                    const svc_fs = this.services.get('filesystem');
                     for ( const domain of currentDomains ) {
-                        const node = await domain.get('root_dir');
-                        const subdomainString = (await domain.get('subdomain'));
+                        let node = null;
+                        try {
+                            node = await svc_fs.node(new NodeInternalIDSelector(domain.root_dir));
+                        } catch (e) {
+                            node = null;
+                        }
+                        const subdomainString = domain.subdomain;
                         let file_path = null;
                         let file_uid = null;
                         try {
-                            file_path = await node.get('path');
-                            file_uid = await node.get('uid');
+                            if ( node ) {
+                                file_path = await node.get('path');
+                                file_uid = await node.get('uid');
+                            }
                         } catch (e) {
                         }
                         const name = subdomainString.split('.').pop();
                         const url = `https://${name}.puter.work`;
-                        domainToPath.push({ name, url, file_path, file_uid, created_at: (new Date(await domain.get('created_at'))).toISOString() });
+                        const created_at = domain.created_at ? (new Date(domain.created_at)).toISOString() : null;
+                        domainToPath.push({ name, url, file_path, file_uid, created_at });
                     }
 
                     return domainToPath;

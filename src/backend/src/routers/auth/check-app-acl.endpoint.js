@@ -22,7 +22,6 @@ const FSNodeParam = require('../../api/filesystem/FSNodeParam');
 const StringParam = require('../../api/filesystem/StringParam');
 const { get_app } = require('../../helpers');
 const configurable_auth = require('../../middleware/configurable_auth');
-const { Eq, Or } = require('../../om/query/query');
 const { UserActorType, Actor, AppUnderUserActorType } = require('../../services/auth/Actor');
 const { Context } = require('../../util/context');
 
@@ -62,12 +61,11 @@ module.exports = {
 
         const es_app = context.get('services').get('es:app');
         const app = await es_app.read({
-            predicate: new Or({
-                children: [
-                    new Eq({ key: 'uid', value: req.values.app }),
-                    new Eq({ key: 'name', value: req.values.app }),
-                ],
-            }),
+            op: 'or',
+            conditions: [
+                { op: 'eq', key: 'uid', value: req.values.app },
+                { op: 'eq', key: 'name', value: req.values.app },
+            ],
         });
         if ( ! app ) {
             throw APIError.create('app_does_not_exist', null, {
@@ -79,7 +77,7 @@ module.exports = {
             type: new AppUnderUserActorType({
                 user: actor.type.user,
                 // TODO: get legacy app object from entity instead of fetching again
-                app: await get_app({ uid: await app.get('uid') }),
+                app: await get_app({ uid: app.uid }),
             }),
         });
 

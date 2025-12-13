@@ -18,8 +18,6 @@
  * along with this program.  If not, see <https://www.gnu.org/licenses/>.
  */
 const { AdvancedBase } = require('@heyputer/putility');
-const { NotificationES } = require('./om/entitystorage/NotificationES');
-const { ProtectedAppES } = require('./om/entitystorage/ProtectedAppES');
 const { Context } = require('./util/context');
 const { LLOWrite } = require('./filesystem/ll_operations/ll_write');
 const { LLRead } = require('./filesystem/ll_operations/ll_read');
@@ -107,21 +105,10 @@ const install = async ({ context, services, app, useapi, modapi }) => {
     const { IdentificationService } = require('./services/abuse-prevention/IdentificationService');
     const { AuthAuditService } = require('./services/abuse-prevention/AuthAuditService');
     const { RegistryService } = require('./services/RegistryService');
-    const { RegistrantService } = require('./services/RegistrantService');
-    const { SystemValidationService } = require('./services/SystemValidationService');
-    const { EntityStoreService } = require('./services/EntityStoreService');
-    const SQLES = require('./om/entitystorage/SQLES');
-    const ValidationES = require('./om/entitystorage/ValidationES');
-    const { SetOwnerES } = require('./om/entitystorage/SetOwnerES');
-    const AppES = require('./om/entitystorage/AppES');
-    const WriteByOwnerOnlyES = require('./om/entitystorage/WriteByOwnerOnlyES');
-    const SubdomainES = require('./om/entitystorage/SubdomainES');
-    const { MaxLimitES } = require('./om/entitystorage/MaxLimitES');
-    const { AppLimitedES } = require('./om/entitystorage/AppLimitedES');
-    const { ReadOnlyES } = require('./om/entitystorage/ReadOnlyES');
-    const { OwnerLimitedES } = require('./om/entitystorage/OwnerLimitedES');
-    const { ESBuilder } = require('./om/entitystorage/ESBuilder');
-    const { Eq, Or } = require('./om/query/query');
+const { SystemValidationService } = require('./services/SystemValidationService');
+const { AppStoreService } = require('./services/AppStoreService');
+const { SubdomainStoreService } = require('./services/SubdomainStoreService');
+const { NotificationStoreService } = require('./services/NotificationStoreService');
     const { MakeProdDebuggingLessAwfulService } = require('./services/MakeProdDebuggingLessAwfulService');
     const { ConfigurableCountingService } = require('./services/ConfigurableCountingService');
     const { FSLockService } = require('./services/fs/FSLockService');
@@ -141,41 +128,8 @@ const install = async ({ context, services, app, useapi, modapi }) => {
     services.registerService('__api', PuterAPIService);
     services.registerService('__gui', ServeGUIService);
     services.registerService('registry', RegistryService);
-    services.registerService('__registrant', RegistrantService);
     services.registerService('fslock', FSLockService);
-    services.registerService('es:app', EntityStoreService, {
-        entity: 'app',
-        upstream: ESBuilder.create([
-            SQLES, { table: 'app', debug: true },
-            AppES,
-            AppLimitedES, {
-                permission_prefix: 'apps-of-user',
-                // When apps query es:apps, they're allowed to see apps which
-                // are approved for listing and they're allowed to see their
-                // own entry.
-                exception: async () => {
-                    const actor = Context.get('actor');
-                    return new Or({
-                        children: [
-                            new Eq({
-                                key: 'approved_for_listing',
-                                value: 1,
-                            }),
-                            new Eq({
-                                key: 'uid',
-                                value: actor.type.app.uid,
-                            }),
-                        ],
-                    });
-                },
-            },
-            WriteByOwnerOnlyES,
-            ValidationES,
-            SetOwnerES,
-            ProtectedAppES,
-            MaxLimitES, { max: 5000 },
-        ]),
-    });
+    services.registerService('es:app', AppStoreService);
 
     const { EntriService } = require('./services/EntriService.js');
     services.registerService('entri-service', EntriService);
@@ -189,29 +143,8 @@ const install = async ({ context, services, app, useapi, modapi }) => {
     const { FilesystemService } = require('./filesystem/FilesystemService');
     services.registerService('filesystem', FilesystemService);
 
-    services.registerService('es:subdomain', EntityStoreService, {
-        entity: 'subdomain',
-        upstream: ESBuilder.create([
-            SQLES, { table: 'subdomains', debug: true },
-            SubdomainES,
-            AppLimitedES, { permission_prefix: 'subdomains-of-user' },
-            WriteByOwnerOnlyES,
-            ValidationES,
-            SetOwnerES,
-            MaxLimitES, { max: 5000 },
-        ]),
-    });
-    services.registerService('es:notification', EntityStoreService, {
-        entity: 'notification',
-        upstream: ESBuilder.create([
-            SQLES, { table: 'notification', debug: true },
-            NotificationES,
-            OwnerLimitedES,
-            ReadOnlyES,
-            SetOwnerES,
-            MaxLimitES, { max: 200 },
-        ]),
-    });
+    services.registerService('es:subdomain', SubdomainStoreService);
+    services.registerService('es:notification', NotificationStoreService);
     services.registerService('rate-limit', RateLimitService);
     services.registerService('auth', AuthService);
     // services.registerService('preauth', PreAuthService);
