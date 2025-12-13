@@ -63,16 +63,39 @@ class AppInformationService extends BaseService {
     }
 
     async '__on_boot.consolidation' () {
-        ENABLE_REFRESH_APP_CACHE && await this._refresh_app_cache();
-        await this._refresh_app_stats();
-        await this._refresh_app_stat_referrals();
-        await this._refresh_recent_cache();
+        (async () => {
+            try {
+                ENABLE_REFRESH_APP_CACHE && await this._refresh_app_cache();
+                await this._refresh_app_stats();
+                await this._refresh_app_stat_referrals();
+                await this._refresh_recent_cache();
+            } catch (e) {
+                console.error('Some app cache portion failed to populate:', e);
+            }
+            ENABLE_REFRESH_APP_CACHE && setInterval(async () => {
+                try {
+                    await this._refresh_app_cache();
+                } catch (e) {
+                    console.error('App cache failed to update:', e);
+                }
+            }, 30 * 1000);
+            setInterval(async () => {
+                try {
+                    await this._refresh_app_stats();
+                    await this._refresh_recent_cache();
+                } catch (e) {
+                    console.error('App stats cache failed to update:', e);
 
-        ENABLE_REFRESH_APP_CACHE && setInterval(this._refresh_app_cache, 30 * 1000);
-        setInterval(async () => {
-            await this._refresh_app_stats();await this._refresh_recent_cache();
-        }, 4 * 60 * 1000);
-        setInterval(this._refresh_app_stat_referrals, 10.5 * 60 * 1000);// trying this to have both hit less often
+                }
+            }, 4 * 60 * 1000);
+            setInterval(async () => {
+                try {
+                    await this._refresh_app_stat_referrals();// trying this to have both hit less often
+                } catch (e) {
+                    console.error('App referral cache failed to update', e);
+                }
+            }, 10.5 * 60 * 1000);
+        })();
     }
 
     /**
