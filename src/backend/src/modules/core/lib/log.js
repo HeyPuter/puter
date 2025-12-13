@@ -16,8 +16,30 @@
  * You should have received a copy of the GNU Affero General Public License
  * along with this program.  If not, see <https://www.gnu.org/licenses/>.
  */
-const { display_time, module_epoch } = require('@heyputer/putility/src/libs/time.js');
 const config = require('../../../config.js');
+
+const module_epoch = Date.now();
+const module_epoch_d = new Date();
+const display_time = (now) => {
+    const pad2 = n => String(n).padStart(2, '0');
+
+    const yyyy = now.getFullYear();
+    const mm   = pad2(now.getMonth() + 1);
+    const dd   = pad2(now.getDate());
+    const HH   = pad2(now.getHours());
+    const MM   = pad2(now.getMinutes());
+    const SS   = pad2(now.getSeconds());
+    const time = `${HH}:${MM}:${SS}`;
+
+    const needYear  = yyyy !== module_epoch_d.getFullYear();
+    const needMonth = needYear || (now.getMonth() !== module_epoch_d.getMonth());
+    const needDay   = needMonth || (now.getDate() !== module_epoch_d.getDate());
+
+    if ( needYear ) return `${yyyy}-${mm}-${dd} ${time}`;
+    if ( needMonth ) return `${mm}-${dd} ${time}`;
+    if ( needDay ) return `${dd} ${time}`;
+    return time;
+};
 
 // Example:
 // log("booting");            // → "14:07:12 booting"

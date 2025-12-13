@@ -16,7 +16,6 @@
  * You should have received a copy of the GNU Affero General Public License
  * along with this program.  If not, see <https://www.gnu.org/licenses/>.
  */
-const { MINUTE } = require('@heyputer/putility').libs.time;
 const { origin_from_url } = require('../../util/urlutil');
 const { DB_READ } = require('../../services/database/consts');
 const BaseService = require('../../services/BaseService');

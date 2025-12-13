@@ -46,15 +46,6 @@ a.some_key = 'changed';
 b.some_key; // "changed"
 ```
 
-### `putility.libs.time`
-
-This library contains constants for time values in milliseconds.
-Available constants are: **DAY**, **HOUR**, **MINUTE**, **SECOND**, **MILLISECOND**.
-
-Please note that while DAY is a constant value of `86400000` milliseconds,
-an actual "day" may have 1000 more or 1000 less milliseconds due to the
-possibility of a leap second. This library does not account for leap seconds.
-
 ### `putility.libs.string`
 
 #### `quote(text)`

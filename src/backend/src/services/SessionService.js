@@ -18,7 +18,8 @@
  */
 const { get_user } = require('../helpers');
 const { asyncSafeSetInterval } = require('@heyputer/putility').libs.promise;
-const { MINUTE, SECOND } = require('@heyputer/putility').libs.time;
+const SECOND = 1000;
+const MINUTE = 60 * SECOND;
 const BaseService = require('./BaseService');
 const { DB_WRITE } = require('./database/consts');
 
