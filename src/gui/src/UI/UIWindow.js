@@ -2779,24 +2779,41 @@ async function UIWindow (options) {
         }).disableSelection(); // Prevent text selection while dragging
 
         // Make the sortable operation more responsive
-        let grabTimeout;
         $sidebar.on('mousedown', '.window-sidebar-item', function (e) {
             if ( ! $(this).hasClass('window-sidebar-title') ) {
+                const $item = $(this);
 
-                grabTimeout = setTimeout(() => {
-                    $(this).addClass('grabbing');
+                // Clear any existing timeout for this item
+                const existingTimeout = $item.data('grabTimeout');
+                if (existingTimeout) {
+                    clearTimeout(existingTimeout);
+                }
+
+                const grabTimeout = setTimeout(() => {
+                    $item.addClass('grabbing');
                 }, 300);
+                // Store timeout reference on the element
+                $item.data('grabTimeout', grabTimeout);
 
                 $(document).one('mouseup', function () {
-                    clearTimeout(grabTimeout);
-                    $(this).removeClass('grabbing');
+                    const timeout = $item.data('grabTimeout');
+                    if(timeout){
+                        clearTimeout(timeout);
+                        $item.removeData('grabTimeout');
+                    }
+                    $item.removeClass('grabbing');
                 });
             }
         });
 
         $sidebar.on('mouseup mouseleave', '.window-sidebar-item', function () {
-            $(this).removeClass('grabbing');
-            clearTimeout(grabTimeout);
+            const $item = $(this);
+            const timeout = $item.data('grabTimeout');
+            if (timeout) {
+                clearTimeout(timeout);
+                $item.removeData('grabTimeout');
+            }
+            $item.removeClass('grabbing');
         });
     }
 
