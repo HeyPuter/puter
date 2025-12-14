@@ -28,6 +28,8 @@ import { OpenAISpeechToTextService } from '../../services/ai/stt/OpenAISpeechToT
 import { AWSPollyService } from '../../services/ai/tts/AWSPollyService.js';
 import { ElevenLabsTTSService } from '../../services/ai/tts/ElevenLabsTTSService.js';
 import { OpenAITTSService } from '../../services/ai/tts/OpenAITTSService.js';
+import { TogetherVideoGenerationService } from '../../services/ai/video/TogetherVideoGenerationService.js';
+import { OpenAIVideoGenerationService } from '../../services/ai/video/OpenAIVideoGenerationService.js';
 // import { AIVideoGenerationService } from '../../services/ai/video/AIVideoGenerationService.js';
 
 /**
@@ -80,8 +82,15 @@ export class PuterAIModule extends AdvancedBase {
         if ( config?.services?.openai || config?.openai ) {
 
             services.registerService('openai-tts', OpenAITTSService);
-
             services.registerService('openai-speech2txt', OpenAISpeechToTextService);
+
+            // TODO DS: move to video service
+            services.registerService('openai-video-generation', OpenAIVideoGenerationService);
+        }
+
+        if ( config?.services?.['together-ai'] ) {
+            // TODO DS: move to video service
+            services.registerService('together-video-generation', TogetherVideoGenerationService);
         }
     }
 }
