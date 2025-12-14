@@ -2044,10 +2044,10 @@ async function UIWindow (options) {
                         }
                     }
 
-                    if ( ! activeZone ) {
-                        hideSnapPlaceholder();
+                        if ( ! activeZone ) {
+                            hideSnapPlaceholder();
+                        }
                     }
-                }
             },
             stop: function () {
                 window.a_window_is_being_dragged = false;
@@ -2779,14 +2779,24 @@ async function UIWindow (options) {
         }).disableSelection(); // Prevent text selection while dragging
 
         // Make the sortable operation more responsive
+        let grabTimeout;
         $sidebar.on('mousedown', '.window-sidebar-item', function (e) {
             if ( ! $(this).hasClass('window-sidebar-title') ) {
-                $(this).addClass('grabbing');
+
+                grabTimeout = setTimeout(() => {
+                    $(this).addClass('grabbing');
+                }, 300);
+
+                $(document).one('mouseup', function () {
+                    clearTimeout(grabTimeout);
+                    $(this).removeClass('grabbing');
+                });
             }
         });
 
         $sidebar.on('mouseup mouseleave', '.window-sidebar-item', function () {
             $(this).removeClass('grabbing');
+            clearTimeout(grabTimeout);
         });
     }
 
