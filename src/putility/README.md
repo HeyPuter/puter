@@ -10,33 +10,6 @@ Each class in this module is best described as an _idea_:
 
 Putility contains general purpose library functions.
 
-### `putility.libs.smol`
-
-A small ("smol") library with commonly useful utility functions. This was
-moved here from a utility class called SmolUtil that used to be in Puter's
-backend.
-
-#### `ensure_array(value)`
-
-Wraps a value in an array if that value is not an array already.
-
-#### `add(...v)`
-
-Variadic sum function; nothing more.
-
-#### `split(str, sep, options)`
-
-Split a string by the specified separator.
-
-The parameter `options` is optional. It provided, it must be an object
-and can have any of the following values:
-
-- `trim` - trim leading and trailing whitespace from each separated component
-- `discard_empty` - discard empty components
-
-It is recommended to enable `trim` when `discard_empty` is enabled to also
-remove whitespace-only strings.
-
 ### `putility.libs.context`
 
 This library exports class **Context**. This provides a context object
@@ -73,15 +46,6 @@ a.some_key = 'changed';
 b.some_key; // "changed"
 ```
 
-### `putility.libs.time`
-
-This library contains constants for time values in milliseconds.
-Available constants are: **DAY**, **HOUR**, **MINUTE**, **SECOND**, **MILLISECOND**.
-
-Please note that while DAY is a constant value of `86400000` milliseconds,
-an actual "day" may have 1000 more or 1000 less milliseconds due to the
-possibility of a leap second. This library does not account for leap seconds.
-
 ### `putility.libs.string`
 
 #### `quote(text)`
@@ -89,14 +53,6 @@ possibility of a leap second. This library does not account for leap seconds.
 Wraps a string in backticks, escaping any present backticks as needed to
 disambiguate. Note that this is meant for human-readable text, so the exact
 solution to disambiguating backticks is allowed to change in the future.
-
-#### `osclink(url, text)`
-
-Wrap text in OSC escape code to output links in a terminal emulator.
-
-#### `format_as_usd(amount)`
-
-Formats a USD currency amount that may have fractional cents.
 
 ### `putility.libs.promise`
 

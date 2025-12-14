@@ -16,8 +16,6 @@
  * You should have received a copy of the GNU Affero General Public License
  * along with this program.  If not, see <https://www.gnu.org/licenses/>.
  */
-const smol = require('@heyputer/putility').libs.smol;
-
 const parse_meminfo = text => {
     const lines = text.split('\n');
 
@@ -26,10 +24,13 @@ const parse_meminfo = text => {
     for ( const line of lines ) {
         if ( line.trim().length == 0 ) continue;
 
-        const [key, value_and_unit] = smol.split(line, ':', { trim: true });
-        const [value, _] = smol.split(value_and_unit, ' ', { trim: true });
-        // note: unit is always 'kB' so we discard it
-        meminfo[key] = Number.parseInt(value);
+        const [keyPart, rest] = line.split(':');
+        if ( rest === undefined ) continue;
+
+        const key = keyPart.trim();
+        // rest looks like "      123 kB"; parseInt ignores the unit.
+        const value = Number.parseInt(rest, 10);
+        meminfo[key] = value;
     }
 
     return meminfo;

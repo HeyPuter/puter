@@ -45,8 +45,6 @@ export class PuterJSFileSystemModule {
 
     FSItem = FSItem;
 
-    static NARI_METHODS = {};
-
     /**
      * Creates a new instance with the given authentication token, API origin, and app ID,
      * and connects to the socket.
