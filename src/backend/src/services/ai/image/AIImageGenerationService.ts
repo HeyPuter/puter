@@ -30,6 +30,7 @@ import { MeteringService } from '../../MeteringService/MeteringService.js';
 import { GeminiImageGenerationProvider } from './providers/GeminiImageGenerationProvider/GeminiImageGenerationProvider.js';
 import { OpenAiImageGenerationProvider } from './providers/OpenAiImageGenerationProvider/OpenAiImageGenerationProvider.js';
 import { TogetherImageGenerationProvider } from './providers/TogetherImageGenerationProvider/TogetherImageGenerationProvider.js';
+import { XAIImageGenerationProvider } from './providers/XAIImageGenerationProvider/XAIImageGenerationProvider.js';
 import { IGenerateParams, IImageModel, IImageProvider } from './providers/types.js';
 
 export class AIImageGenerationService extends BaseService {
@@ -106,6 +107,11 @@ export class AIImageGenerationService extends BaseService {
         const togetherConfig = this.config.providers?.['together-image-generation'] || this.global_config?.services?.['together-ai'];
         if ( togetherConfig && (togetherConfig.apiKey || togetherConfig.secret_key) ) {
             this.#providers['together-image-generation'] = new TogetherImageGenerationProvider({ apiKey: togetherConfig.apiKey || togetherConfig.secret_key }, this.meteringService, this.errorService, this.eventService);
+        }
+
+        const xaiConfig = this.config.providers?.['xai-image-generation'] || this.config.providers?.['xai'] || this.global_config?.services?.['xai'];
+        if ( xaiConfig && (xaiConfig.apiKey || xaiConfig.secret_key) ) {
+            this.#providers['xai-image-generation'] = new XAIImageGenerationProvider({ apiKey: xaiConfig.apiKey || xaiConfig.secret_key }, this.meteringService, this.errorService);
         }
 
         // emit event for extensions to add providers

@@ -50,4 +50,7 @@ export const XAI_COST_MAP = {
     // Grok 2
     'xai:grok-2:prompt_tokens': 200,
     'xai:grok-2:completion-tokens': 1000,
+
+    // Grok Image
+    'xai:grok-2-image:output': 7_000_000,
 };
