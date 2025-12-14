@@ -29,9 +29,6 @@ class SelfHostedModule extends AdvancedBase {
         const DefaultUserService = require('./DefaultUserService');
         services.registerService('__default-user', DefaultUserService);
 
-        const ComplainAboutVersionsService = require('./ComplainAboutVersionsService');
-        services.registerService('complain-about-versions', ComplainAboutVersionsService);
-
         const DevWatcherService = require('./DevWatcherService');
         const path_ = require('path');
 
