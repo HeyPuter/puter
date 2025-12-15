@@ -191,6 +191,9 @@ export class AIImageGenerationService extends BaseService {
         }
 
         let intendedProvider = (parameters.provider || (legacyProviderName === AIImageGenerationService.SERVICE_NAME ? '' : legacyProviderName)) ?? '';
+        if ( intendedProvider === 'xai' ) {
+            intendedProvider = 'xai-image-generation';
+        }
 
         if ( !parameters.model && !intendedProvider ) {
             intendedProvider = configuredProviders.includes(AIImageGenerationService.DEFAULT_PROVIDER)
