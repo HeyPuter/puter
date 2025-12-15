@@ -27,6 +27,7 @@ const { TYPE_DIRECTORY, TYPE_FILE } = require('./filesystem/FSNodeContext.js');
 const { TDetachable } = require('@heyputer/putility/src/traits/traits.js');
 const { MultiDetachable } = require('@heyputer/putility/src/libs/listener.js');
 const { OperationFrame } = require('./services/OperationTraceService');
+const opentelemetry = require('@opentelemetry/api');
 
 /**
  * @footgun - real install method is defined above
@@ -79,10 +80,21 @@ const install = async ({ context, services, app, useapi, modapi }) => {
         def('core.spanify', require('./util/otelutil').spanify);
         def('core.abtest', require('./util/otelutil').abtest);
 
-        // Extension compatibility
-        const runtimeModule = new RuntimeModule({ name: 'core' });
-        context.get('runtime-modules').register(runtimeModule);
-        runtimeModule.exports = useapi.use('core');
+        // Extension module: 'core'
+        {
+            const runtimeModule = new RuntimeModule({ name: 'core' });
+            context.get('runtime-modules').register(runtimeModule);
+            runtimeModule.exports = useapi.use('core');
+        }
+
+        // Extension module: 'tel'
+        {
+            const runtimeModule = new RuntimeModule({ name: 'tel' });
+            runtimeModule.exports = {
+                trace: opentelemetry.trace,
+            };
+            context.get('runtime-modules').register(runtimeModule);
+        }
     });
 
     modapi.libdir('core.util', './util');
