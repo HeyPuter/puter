@@ -19,6 +19,7 @@
     "@opentelemetry/api": "^1.4.1",
     "@opentelemetry/auto-instrumentations-node": "^0.43.0",
     "@opentelemetry/exporter-trace-otlp-grpc": "^0.40.0",
+    "@opentelemetry/exporter-metrics-otlp-grpc": "^0.40.0",
     "@opentelemetry/sdk-metrics": "^1.14.0",
     "@opentelemetry/sdk-node": "^0.49.1",
     "@pagerduty/pdjs": "^2.2.4",
