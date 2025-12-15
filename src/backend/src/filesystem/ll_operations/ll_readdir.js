@@ -73,6 +73,27 @@ class LLReadDir extends LLFilesystemOperation {
         const capabilities = subject.provider.get_capabilities();
 
         // UUID Mode
+        optimization: {
+            const uuid_selector = subject.get_selector_of_type(NodeUIDSelector);
+
+            // Skip this optimization if there is no UUID
+            if ( ! uuid_selector ) {
+                break optimization;
+            }
+
+            // Skip this optimization if the filesystem doesn't implement
+            // the "readdirstat_uuid" macro operation.
+            if ( ! capabilities.has(fsCapabilities.READDIRSTAT_UUID) ) {
+                break optimization;
+            }
+
+            const uuid = uuid_selector.value;
+            return await subject.provider.readdirstat_uuid({
+                uuid,
+                options: { thumbnail: true },
+            });
+        }
+
         if ( capabilities.has(fsCapabilities.READDIR_UUID_MODE) ) {
             this.checkpoint('readdir uuid mode');
             const child_uuids = await subject.provider.readdir({

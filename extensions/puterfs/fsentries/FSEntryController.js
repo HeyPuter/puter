@@ -208,11 +208,36 @@ export default class {
         return answer.entry;
     }
 
+    /**
+     * Returns UUIDs of child fsentries under the specified
+     * parent fsentry
+     * @param {string} uuid - UUID of parent fsentry
+     * @returns fsentry[]
+     */
     async get_descendants (uuid) {
         return uuid === PuterPath.NULL_UUID
             ? await db.read('SELECT uuid FROM fsentries WHERE parent_uid IS NULL',
                             [uuid])
             : await db.read('SELECT uuid FROM fsentries WHERE parent_uid = ?',
+                            [uuid])
+        ;
+    }
+
+    /**
+     * Returns full fsentry nodes for entries under the specified
+     * parent fsentry
+     * @param {string} uuid - UUID of parent fsentry
+     * @returns fsentry[]
+     */
+    async get_descendants_full (uuid, fetch_entry_options) {
+        const { thumbnail } = fetch_entry_options;
+        const columns = `${
+            this.defaultProperties.join(', ')
+        }${thumbnail ? ', thumbnail' : ''}`;
+        return uuid === PuterPath.NULL_UUID
+            ? await db.read(`SELECT ${columns} FROM fsentries WHERE parent_uid IS NULL`,
+                            [uuid])
+            : await db.read(`SELECT ${columns} FROM fsentries WHERE parent_uid = ?`,
                             [uuid])
         ;
     }
