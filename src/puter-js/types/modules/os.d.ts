@@ -1,12 +1,7 @@
 import type { RequestCallbacks } from '../shared.d.ts';
-import type { AuthUser } from './auth.d.ts';
+import type { User } from './auth.d.ts';
 
 export class OS {
-    constructor (context: { authToken?: string; APIOrigin: string; appID?: string });
-
-    setAuthToken (authToken: string): void;
-    setAPIOrigin (APIOrigin: string): void;
-
-    user (options?: RequestCallbacks<AuthUser> & { query?: Record<string, string> }): Promise<AuthUser>;
+    user (options?: RequestCallbacks<User> & { query?: Record<string, string> }): Promise<User>;
     version (options?: RequestCallbacks<Record<string, unknown>>): Promise<Record<string, unknown>>;
 }
