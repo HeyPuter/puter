@@ -84,7 +84,7 @@ module.exports = class FSNodeContext {
     }) {
         const ecmap = Context.get(ECMAP.SYMBOL);
 
-        if ( ecmap ) {
+        if ( ecmap && !(selector instanceof NodeRawEntrySelector) ) {
             // We might return an existing FSNodeContext
             const maybe_node = ecmap
                 ?.get_fsNodeContext_from_selector?.(selector);

@@ -73,6 +73,7 @@ const {
     NodeChildSelector,
     NodeUIDSelector,
     NodeInternalIDSelector,
+    NodeRawEntrySelector,
 } = extension.import('core').fs.selectors;
 
 const {
@@ -112,6 +113,7 @@ export default class PuterFSProvider {
             capabilities.UUID,
             capabilities.OPERATION_TRACE,
             capabilities.READDIR_UUID_MODE,
+            capabilities.READDIRSTAT_UUID,
             capabilities.PUTER_SHORTCUT,
 
             capabilities.COPY_TREE,
@@ -204,6 +206,29 @@ export default class PuterFSProvider {
 
         return node;
     }
+    // #endregion
+
+    // #region Optimization
+    /**
+     * The readdirstat_uuid operation is only available for filesystem
+     * immplementations with READDIR_UUID_MODE enabled. This implements
+     * an optimized readdir operation when the UUID is already known.
+     * @param {*} param0
+     */
+    async readdirstat_uuid ({
+        uuid,
+        options = {},
+    }) {
+        const entries = await this.fsEntryController.get_descendants_full(uuid, options);
+        const nodes = Promise.all(Array.prototype.map.call(entries, raw_entry => {
+            const node = svc_fs.node(new NodeRawEntrySelector(raw_entry, {
+                found_thumbnail: options.thumbnail,
+            }));
+            node.found = true; // TODO: how is it possible for this to be false?
+            return node;
+        }));
+        return nodes;
+    };
     // #endregion
 
     // #region Standard FS
@@ -373,6 +398,11 @@ export default class PuterFSProvider {
         }
 
         let entry;
+
+        // stat doesn't work with RawEntrySelector
+        if ( selector instanceof NodeRawEntrySelector ) {
+            selector = new NodeUIDSelector(node.uid);
+        }
 
         await new Promise (rslv => {
             const detachables = new MultiDetachable();

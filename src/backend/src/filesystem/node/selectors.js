@@ -141,8 +141,13 @@ class RootNodeSelector extends NodeSelector {
 }
 
 class NodeRawEntrySelector extends NodeSelector {
-    constructor (entry) {
+    constructor (entry, details_about_fetch = {}) {
         super();
+
+        // The `details_about_fetch` object lets us simulate non-entry state
+        // that occurs after a node has been fetched
+        this.details_about_fetch = details_about_fetch;
+
         // Fix entries from get_descendants
         if ( !entry.uuid && entry.uid ) {
             entry.uuid = entry.uid;
@@ -156,6 +161,9 @@ class NodeRawEntrySelector extends NodeSelector {
     }
 
     setPropertiesKnownBySelector (node) {
+        if ( this.details_about_fetch.found_thumbnail ) {
+            node.found_thumbnail = true;
+        }
         node.found = true;
         node.entry = this.entry;
         node.uid = this.entry.uid ?? this.entry.uuid;

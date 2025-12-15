@@ -37,6 +37,7 @@ const capabilityNames = [
     'move-tree',
     'remove-tree',
     'get-recursive-size',
+    'readdirstat_uuid',
 
     // Behavior Capabilities
     'case-sensitive',
