@@ -1,4 +1,5 @@
 import { FileReaderPoly } from "./polyfills/fileReaderPoly.js";
+import { showUsageLimitDialog } from "../modules/UsageLimitDialog.js";
 
 /**
  * Parses a given response text into a JSON object. If the parsing fails due to invalid JSON format,
@@ -386,6 +387,14 @@ async function driverCall_ (
                         const line = lines_received.shift();
                         if ( line.trim() === '' ) continue;
                         const lineObject = (JSON.parse(line));
+
+                        // Check for usage limit errors in streaming responses
+                        if ( lineObject?.error?.code === 'insufficient_funds' || lineObject?.metadata?.usage_limited === true ) {
+                            if ( puter.env === 'web' ) {
+                                showUsageLimitDialog('You have reached your usage limit for this account.<br>Please upgrade to continue.');
+                            }
+                        }
+
                         if ( typeof (lineObject.text) === 'string' ) {
                             Object.defineProperty(lineObject, 'toString', {
                                 enumerable: false,
@@ -460,6 +469,16 @@ async function driverCall_ (
                 result: response.status >= 400 || resp?.success === false ? null : resp,
                 error: response.status >= 400 || resp?.success === false ? resp : null,
             });
+        }
+
+        // Check for usage limit errors and show upgrade dialog
+        const isInsufficientFunds = (response.target?.status === 402) ||
+            (resp?.error?.code === 'insufficient_funds') ||
+            (resp?.error?.status === 402);
+        const isUsageLimited = resp?.metadata?.usage_limited === true;
+
+        if ( (isInsufficientFunds || isUsageLimited) && puter.env === 'web' ) {
+            showUsageLimitDialog('You have reached your usage limit for this account.<br>Please upgrade to continue.');
         }
 
         // HTTP Error - unauthorized
