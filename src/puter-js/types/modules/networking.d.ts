@@ -8,7 +8,7 @@ export type SocketEvent =
     | 'tlsopen'
     | 'tlsclose';
 
-export class Socket {
+export class PSocket {
     constructor (host: string, port: number);
     write (data: ArrayBuffer | ArrayBufferView | string, callback?: () => void): void;
     close (): void;
@@ -19,15 +19,15 @@ export class Socket {
     addListener (event: SocketEvent, handler: (...args: unknown[]) => void): void;
 }
 
-export class TLSSocket extends Socket {
+export class PTLSSocket extends PSocket {
     constructor (host: string, port: number);
 }
 
 export interface Networking {
     generateWispV1URL(): Promise<string>;
-    Socket: typeof Socket;
+    Socket: typeof PSocket;
     tls: {
-        TLSSocket: typeof TLSSocket;
+        TLSSocket: typeof PTLSSocket;
     };
     fetch(input: RequestInfo | URL, init?: RequestInit): Promise<Response>;
 }
