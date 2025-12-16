@@ -1,7 +1,25 @@
 import { IImageModel } from '../types';
 
 export const OPEN_AI_IMAGE_GENERATION_MODELS: IImageModel[] = [
-
+    { id: 'gpt-image-1.5',
+        name: 'GPT Image 1.5',
+        version: '1.5',
+        costs_currency: 'usd-cents',
+        index_cost_key: 'low:1024x1024',
+        costs: {
+            'low:1024x1024': 0.9,
+            'low:1024x1536': 1.3,
+            'low:1536x1024': 1.3,
+            'medium:1024x1024': 3.4,
+            'medium:1024x1536': 5.1,
+            'medium:1536x1024': 5,
+            'high:1024x1024': 13.3,
+            'high:1024x1536': 20,
+            'high:1536x1024': 19.9,
+        },
+        allowedQualityLevels: ['low', 'medium', 'high'],
+        allowedRatios: [{ w: 1024, h: 1024 }, { w: 1024, h: 1536 }, { w: 1536, h: 1024 }],
+    },
     { id: 'gpt-image-1-mini',
         name: 'GPT Image 1 Mini',
         version: '1.0',
