@@ -13,6 +13,8 @@ import type helpers from '../src/backend/src/helpers.js';
 import type * as ExtensionControllerExports from './ExtensionController/src/ExtensionController.ts';
 import { Context } from '@heyputer/backend/src/util/context.js';
 import config from '../volatile/config/config.json'
+import APIError from '@heyputer/backend/src/api/APIError.js';
+import query from '@heyputer/backend/src/om/query/query';
 
 declare global {
     namespace Express {
@@ -70,7 +72,8 @@ interface CoreRuntimeModule {
     util: {
         helpers: typeof helpers,
     }
-    Context: typeof Context
+    Context: typeof Context,
+    APIError: typeof APIError
 }
 
 interface FilesystemModule {
@@ -102,6 +105,7 @@ interface Extension extends RouterMethods {
     import(module: 'data'): { db: BaseDatabaseAccessService, kv: DBKVStore & {get: (string) => void, set: (string, string) => void}, cache: unknown }// TODO DS: type cache better
     import(module: 'core'): CoreRuntimeModule,
     import(module: 'fs'): FilesystemModule,
+    import(module: 'query'): typeof query,
     import(module: 'extensionController'): typeof ExtensionControllerExports
     import<T extends `service:${keyof ServiceNameMap}` | (string & {})>(module: T): T extends `service:${infer R extends keyof ServiceNameMap}`
         ? ServiceNameMap[R]

@@ -1,9 +1,8 @@
-import APIError from "@heyputer/backend/src/api/APIError.js";
-import { Eq } from '@heyputer/backend/src/om/query/query.js'
+const { Eq } = extension.import('query')
 const { kv } = extension.import('data');
 const span = extension.span;
 const { db } = extension.import('data');
-const { Context } = extension.import('core');
+const { Context, APIError } = extension.import('core');
 const app_es: any = extension.import('service:es:app');
 
 extension.on('create.interfaces', (event) => {
@@ -45,7 +44,6 @@ extension.on('create.drivers', event => {
         async get_users({ app_uuid, limit = 100, offset = 0 }: {app_uuid: string, limit: number, offset: number}) {
             // first lets make sure executor owns this app
             const [result] = (await app_es.select({ predicate: new Eq({ key: 'uid', value: app_uuid }) }));
-            console.log("app result: ", result)
             if (!result) {
                 throw APIError.create('permission_denied');
             }
@@ -62,7 +60,6 @@ extension.on('create.drivers', event => {
         async user_count({ app_uuid }: {app_uuid: string}) {
             // first lets make sure executor owns this app
             const [result] = (await app_es.select({ predicate: new Eq({ key: 'uid', value: app_uuid }) }));
-            console.log("app result: ", result)
             if (!result) {
                 throw APIError.create('permission_denied');
             }
@@ -80,6 +77,5 @@ extension.on('create.drivers', event => {
 });
 
 extension.on('create.permissions', (event) => {
-    console.log("permissions event: ", event);
     event.grant_to_everyone('service:app-telemetry:ii:app-telemetry');
 });
