@@ -29,7 +29,7 @@ class PerfMonModule extends AdvancedBase {
     async install (context) {
         const services = context.get('services');
 
-        const TelemetryService = require('./TelemetryService');
+        const { TelemetryService } = require('./TelemetryService');
         services.registerService('telemetry', TelemetryService);
     }
 }
