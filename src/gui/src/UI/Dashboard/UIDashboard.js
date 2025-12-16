@@ -24,6 +24,23 @@ import UIWindowSaveAccount from '../UIWindowSaveAccount.js';
 import UIWindowLogin from '../UIWindowLogin.js';
 import UIWindowFeedback from '../UIWindowFeedback.js';
 
+/**
+ * Creates and displays the Dashboard window.
+ *
+ * @param {Object} [options] - Configuration options for the dashboard
+ * @returns {Promise<HTMLElement>} The dashboard window element
+ *
+ * @fires dashboard-will-open - Dispatched on window before dashboard renders.
+ *   Extensions can use this to add custom tabs. The event detail contains { tabs: [] }
+ *   where tabs is an array that extensions can push new tab objects to.
+ *   Tab objects should have: id, label, icon (SVG string), html() function,
+ *   and optionally init($el_window) and onActivate($el_window) methods.
+ *
+ * @fires dashboard-ready - Dispatched on window when dashboard is fully initialized and ready.
+ *   The event detail contains { window: $el_window } where $el_window is the jQuery-wrapped
+ *   dashboard window element. Extensions can listen for this event to add custom functionality.
+ */
+
 // Import tab modules
 import TabHome from './TabHome.js';
 import TabFiles from './TabFiles.js';
@@ -32,8 +49,8 @@ import TabUsage from './TabUsage.js';
 import TabAccount from './TabAccount.js';
 import TabSecurity from './TabSecurity.js';
 
-// Registry of all available tabs
-const tabs = [
+// Registry of built-in tabs
+const builtinTabs = [
     TabHome,
     // TabApps,
     // TabFiles,
@@ -44,6 +61,12 @@ const tabs = [
 
 async function UIDashboard (options) {
     options = options ?? {};
+
+    // Create mutable tabs array from built-in tabs
+    const tabs = [...builtinTabs];
+
+    // Dispatch 'dashboard-will-open' event to allow extensions to add tabs
+    window.dispatchEvent(new CustomEvent('dashboard-will-open', { detail: { tabs } }));
 
     let h = '';
 
@@ -116,6 +139,9 @@ async function UIDashboard (options) {
             tab.init($el_window);
         }
     }
+
+    // Dispatch 'dashboard-ready' event for extensions
+    window.dispatchEvent(new CustomEvent('dashboard-ready', { detail: { window: $el_window } }));
 
     // Sidebar item click handler
     $el_window.on('click', '.dashboard-sidebar-item', function () {
