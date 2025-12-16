@@ -478,7 +478,7 @@ async function driverCall_ (
         const isUsageLimited = resp?.metadata?.usage_limited === true;
 
         if ( (isInsufficientFunds || isUsageLimited) && puter.env === 'web' ) {
-            showUsageLimitDialog('You have reached your usage limit for this account.<br>Please upgrade to continue.');
+            showUsageLimitDialog('Your account has not enough funding to complete this request.<br>Please upgrade to continue.');
         }
 
         // HTTP Error - unauthorized
