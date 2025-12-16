@@ -158,24 +158,14 @@ export interface Speech2SpeechOptions {
     file?: string | File | Blob;
     provider?: string;
     model?: string;
-    modelId?: string;
-    model_id?: string;
     voice?: string;
-    voiceId?: string;
-    voice_id?: string;
     output_format?: string;
-    outputFormat?: string;
     voice_settings?: Record<string, unknown>;
-    voiceSettings?: Record<string, unknown>;
     seed?: number;
     file_format?: string;
-    fileFormat?: string;
     remove_background_noise?: boolean;
-    removeBackgroundNoise?: boolean;
     optimize_streaming_latency?: number;
-    optimizeStreamingLatency?: number;
     enable_logging?: boolean;
-    enableLogging?: boolean;
     test_mode?: boolean;
 }
 
