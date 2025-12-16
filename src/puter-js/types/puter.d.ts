@@ -15,8 +15,6 @@ import type Util from './modules/util.d.ts';
 import type { WorkersHandler } from './modules/workers.d.ts';
 import type { APICallLogger, APILoggingConfig, PuterEnvironment, ToolSchema } from './shared.d.ts';
 
-export interface NetAPI extends Networking {}
-
 export interface PuterArgs {
     [key: string]: unknown;
 }
@@ -65,12 +63,10 @@ export class Puter {
         [key: string]: unknown;
     };
 
-    net: NetAPI;
+    net: Networking;
     workers: WorkersHandler;
 
     static FSItem: typeof FSItem;
-
-    constructor();
 
     setAuthToken(authToken: string): void;
     resetAuthToken(): void;

@@ -14,7 +14,7 @@ export class PSocket {
     close (): void;
     on (event: 'open', handler: () => void): void;
     on (event: 'data', handler: (buffer: Uint8Array) => void): void;
-    on (event: 'error', handler: (reason: unknown) => void): void;
+    on (event: 'error', handler: (reason: string) => void): void;
     on (event: 'close', handler: (hadError: boolean) => void): void;
     addListener (event: SocketEvent, handler: (...args: unknown[]) => void): void;
 }

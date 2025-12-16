@@ -1,4 +1,3 @@
-import type { RequestCallbacks } from '../shared.d.ts';
 import type { FSItem } from './fs-item.d.ts';
 
 export interface AlertButton {
@@ -36,8 +35,12 @@ export interface WindowOptions {
 
 export interface LaunchAppOptions {
     name?: string;
+    app_name?: string;
     args?: Record<string, unknown>;
-    appInstanceID?: string;
+    file_paths?: string[];
+    items?: FSItem[];
+    pseudonym?: string;
+    callback?: (connection: AppConnection) => void;
 }
 
 export interface ThemeData {
@@ -90,17 +93,17 @@ export class AppConnection {
 }
 
 export class UI {
-    constructor (context: Record<string, unknown>, parameters: { appInstanceID?: string; parentInstanceID?: string });
-
     alert (message?: string, buttons?: AlertButton[]): Promise<string>;
-    prompt (message?: string, defaultValue?: string): Promise<string | null>;
-    authenticateWithPuter (): Promise<unknown>;
+    prompt (message?: string, placeholder?: string): Promise<string | null>;
+    authenticateWithPuter (): Promise<void>;
     contextMenu (options: ContextMenuOptions): void;
     createWindow (options?: WindowOptions): void;
     exit (statusCode?: number): void;
     getLanguage (): Promise<string>;
     hideSpinner (): void;
+    hideWindow (): void;
     showSpinner (): void;
+    showWindow (): void;
     showColorPicker (defaultColor?: string | Record<string, unknown>): Promise<string>;
     showDirectoryPicker (options?: DirectoryPickerOptions): Promise<FSItem | FSItem[]>;
     showFontPicker (defaultFont?: string | Record<string, unknown>): Promise<{ fontFamily: string }>;
@@ -127,7 +130,7 @@ export class UI {
     on (eventName: 'localeChanged', handler: (data: { language: string }) => void): void;
     on (eventName: 'themeChanged', handler: (data: ThemeData) => void): void;
     parentApp (): AppConnection | null;
-    launchApp (appName?: string, args?: Record<string, unknown>): Promise<AppConnection>;
+    launchApp (appName?: string, args?: Record<string, unknown>, callback?: (connection: AppConnection) => void): Promise<AppConnection>;
     launchApp (options: LaunchAppOptions): Promise<AppConnection>;
 
     getEntriesFromDataTransferItems (dataTransferItems: DataTransferItemList, options?: { raw?: boolean }): Promise<Array<File | FileSystemEntry>>;

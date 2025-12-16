@@ -7,6 +7,5 @@ export class UtilRPC {
 }
 
 export default class Util {
-    constructor ();
     rpc: UtilRPC;
 }

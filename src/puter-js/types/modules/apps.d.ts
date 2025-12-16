@@ -1,6 +1,6 @@
 import type { PaginationOptions, RequestCallbacks } from '../shared.d.ts';
 
-export interface AppRecord {
+export interface App {
     uid: string;
     name: string;
     index_url: string;
@@ -21,7 +21,7 @@ export interface AppListOptions extends PaginationOptions {
     icon_size?: null | 16 | 32 | 64 | 128 | 256 | 512;
 }
 
-export interface CreateAppOptions extends RequestCallbacks<AppRecord> {
+export interface CreateAppOptions extends RequestCallbacks<App> {
     name: string;
     indexURL: string;
     title?: string;
@@ -34,7 +34,7 @@ export interface CreateAppOptions extends RequestCallbacks<AppRecord> {
     dedupeName?: boolean;
 }
 
-export interface UpdateAppAttributes extends RequestCallbacks<AppRecord> {
+export interface UpdateAppAttributes extends RequestCallbacks<App> {
     name?: string;
     indexURL?: string;
     title?: string;
@@ -47,16 +47,11 @@ export interface UpdateAppAttributes extends RequestCallbacks<AppRecord> {
 }
 
 export class Apps {
-    constructor (context: { authToken?: string; APIOrigin: string; appID?: string });
-
-    setAuthToken (authToken: string): void;
-    setAPIOrigin (APIOrigin: string): void;
-
-    list (options?: AppListOptions): Promise<AppRecord[]>;
-    create (name: string, indexURL: string, title?: string): Promise<AppRecord>;
-    create (options: CreateAppOptions): Promise<AppRecord>;
-    update (name: string, attributes: UpdateAppAttributes): Promise<AppRecord>;
-    get (name: string, options?: AppListOptions): Promise<AppRecord>;
+    list (options?: AppListOptions): Promise<App[]>;
+    create (name: string, indexURL: string, title?: string): Promise<App>;
+    create (options: CreateAppOptions): Promise<App>;
+    update (name: string, attributes: UpdateAppAttributes): Promise<App>;
+    get (name: string, options?: AppListOptions): Promise<App>;
     delete (name: string): Promise<{ success?: boolean }>;
     getDeveloperProfile (options?: RequestCallbacks<Record<string, unknown>>): Promise<Record<string, unknown>>;
 }
