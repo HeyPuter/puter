@@ -30,6 +30,7 @@ export const TOGETHER_COST_MAP = {
     'together-image:black-forest-labs/FLUX.2-pro': 0.03 * 100_000_000,
     'together-image:black-forest-labs/FLUX.2-flex': 0.03 * 100_000_000,
     'together-image:black-forest-labs/FLUX.2-dev': 0.0154 * 100_000_000,
+    'together-image:black-forest-labs/FLUX.2-max': 0.07 * 100_000_000,
     'together-image:google/flash-image-2.5': 0.039 * 100_000_000,
     'together-image:google/gemini-3-pro-image': 0.134 * 100_000_000,
     'together-image:google/imagen-4.0-fast': 0.02 * 100_000_000,

@@ -316,4 +316,13 @@ export const TOGETHER_IMAGE_GENERATION_MODELS: IImageModel[] = [
         allowedQualityLevels: [''],
         costs: { '1MP': 0 },
     },
+    {
+        id: 'togetherai:black-forest-labs/FLUX.2-max',
+        aliases: ['black-forest-labs/FLUX.2-max', 'FLUX.2-max'],
+        costs_currency: 'usd-cents',
+        index_cost_key: '1MP',
+        name: 'black-forest-labs/FLUX.2-max',
+        allowedQualityLevels: [''],
+        costs: { '1MP': 7 },
+    },
 ];
