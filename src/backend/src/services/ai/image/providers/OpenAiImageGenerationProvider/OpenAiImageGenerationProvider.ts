@@ -139,15 +139,20 @@ export class OpenAiImageGenerationProvider implements IImageProvider {
         return url;
     }
 
+    #isGptImageModel (model: string) {
+        // Covers gpt-image-1, gpt-image-1-mini, gpt-image-1.5 and future variants.
+        return model.startsWith('gpt-image-1');
+    }
+
     #buildPriceKey (model: string, quality: string, size: string) {
-        if ( model === 'gpt-image-1' || model === 'gpt-image-1-mini' ) {
-            // gpt-image-1 and gpt-image-1-mini use format: "quality:size" - default to low if not specified
+        if ( this.#isGptImageModel(model) ) {
+            // GPT image models use format: "quality:size" - default to low if not specified
             const qualityLevel = quality || 'low';
             return `${qualityLevel}:${size}`;
-        } else {
-            // dall-e models use format: "hd:size" or just "size"
-            return (quality === 'hd' ? 'hd:' : '') + size;
         }
+
+        // DALL-E models use format: "hd:size" or just "size"
+        return (quality === 'hd' ? 'hd:' : '') + size;
     }
 
     #buildApiParams (model: string, baseParams: Partial<ImageGenerateParamsNonStreaming>): ImageGenerateParamsNonStreaming {
@@ -157,8 +162,8 @@ export class OpenAiImageGenerationProvider implements IImageProvider {
             size: baseParams.size,
         } as ImageGenerateParamsNonStreaming;
 
-        if ( model === 'gpt-image-1' || model === 'gpt-image-1-mini' ) {
-            // gpt-image-1 requires the model parameter and uses different quality mapping
+        if ( this.#isGptImageModel(model) ) {
+            // GPT image models require the model parameter and use quality mapping
             apiParams.model = model;
             // Default to low quality if not specified, consistent with _buildPriceKey
             apiParams.quality = baseParams.quality || 'low';
