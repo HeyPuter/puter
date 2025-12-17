@@ -12,7 +12,8 @@
     "sourceMap": true,
   },
   "include": [
-    "app-user-count.ts",
+    "./**/*.ts",
+    "./**/*.d.ts"
   ],
   "exclude": [
     "**/*.test.ts",

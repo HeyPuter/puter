@@ -54,15 +54,18 @@ def run():
     # =========================================================================
     cxc_toolkit.exec.run_command("npm install")
     common.init_backend_config()
-    admin_password = common.get_admin_password()
     update_server_config()
 
     # =========================================================================
     # config client
     # =========================================================================
-    cxc_toolkit.exec.run_background("npm start")
-    # wait 10s for the server to start
+    cxc_toolkit.exec.run_background(
+        "npm start", work_dir=common.PUTER_ROOT,  log_path="/tmp/backend.log"
+    )
+    admin_password = common.get_admin_password()
+    # wait 10 more sec for the server to start  
     time.sleep(10)
+
 
     token = common.get_token(admin_password)
     common.init_client_config(token)

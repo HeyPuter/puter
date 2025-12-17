@@ -15,23 +15,21 @@ def run():
     # clean port 4100 for backend server
     cxc_toolkit.exec.run_command("fuser -k 4100/tcp", ignore_failure=True)
 
-    # clean port 50052 for fs-tree-manager server
-    cxc_toolkit.exec.run_command("fuser -k 50052/tcp", ignore_failure=True)
 
     # =========================================================================
     # config server
     # =========================================================================
     cxc_toolkit.exec.run_command("npm install")
     common.init_backend_config()
-    admin_password = common.get_admin_password()
 
     # =========================================================================
     # start backend server
     # =========================================================================
     cxc_toolkit.exec.run_background(
-        "npm start", work_dir=common.PUTER_ROOT, log_path="/tmp/backend.log"
+        "npm start", work_dir=common.PUTER_ROOT,  log_path="/tmp/backend.log"
     )
-    # wait 10s for the server to start
+    admin_password = common.get_admin_password()
+    # wait 10 more sec for the server to start  
     time.sleep(10)
 
     # =========================================================================
