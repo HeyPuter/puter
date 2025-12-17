@@ -52,7 +52,7 @@ extension.on('create.drivers', event => {
             const users: Array<{username: string, uuid: string}> = await db.read(
                 `SELECT user.username, user.uuid FROM user_to_app_permissions 
                     INNER JOIN user ON user_to_app_permissions.user_id = user.id  
-                    WHERE permission = 'flag:app-is-authenticated' AND app_id=? ORDER BY (dt IS NOT NULL), dt, user_id LIMIT ? OFFSET ?;`,
+                    WHERE permission = 'flag:app-is-authenticated' AND app_id=? ORDER BY (dt IS NOT NULL), dt, user_id LIMIT ? OFFSET ?`,
                 [result.private_meta.mysql_id, limit, offset],
             );
             return users.map(e=>{return {user: e.username, user_uuid: e.uuid}});
