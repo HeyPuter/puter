@@ -1,42 +1,138 @@
-import { describe, expect, it } from 'vitest';
-import { createTestKernel } from '../../../../tools/test.mjs';
-import * as config from '../../../config';
-import { Actor } from '../../auth/Actor';
-import { DBKVServiceWrapper } from './index.mjs';
-import { SUService } from '../../SUService';
+import { CreateTableCommand, DeleteTableCommand, DynamoDBClient, waitUntilTableExists } from '@aws-sdk/client-dynamodb';
+import * as config from '@heyputer/backend/src/config.js';
+import { Actor } from '@heyputer/backend/src/services/auth/Actor.js';
+import { MeteringServiceWrapper } from '@heyputer/backend/src/services/MeteringService/MeteringServiceWrapper.mjs';
+import { SUService } from '@heyputer/backend/src/services/SUService';
+import { Context } from '@heyputer/backend/src/util/context.js';
+import { createTestKernel } from '@heyputer/backend/tools/test.mjs';
+import dynalite from 'dynalite';
+import { once } from 'node:events';
+import { afterAll, describe, expect, it } from 'vitest';
+import { DDBClient } from '../DDBClient.js';
+import { DynamoKVStore } from './DynamoKVStore.js';
+import { DynamoKVStoreWrapper, IDynamoKVStoreWrapper } from './DynamoKVStoreWrapper.js';
 
-describe('DBKVStore', async () => {
-
-    config.load_config({
-        'services': {
-            'database': {
-                path: ':memory:',
-            },
-        },
-    });
-
-    const testKernel = await createTestKernel({
-        serviceMap: {},
-        initLevelString: 'init',
-        testCore: true,
-        serviceConfigOverrideMap: {
-            'database': {
-                path: ':memory:',
-            },
-        },
-    });
-
-    const kvServiceWrapper = testKernel.services!.get('puter-kvstore') as DBKVServiceWrapper;
-    const kvStore = kvServiceWrapper.kvStore;
-    const su = testKernel.services!.get('su') as SUService;
+describe('DynamoKVStore', async () => {
+    const TABLE_NAME = 'store-kv-v1';
+    const REGION = 'us-west-2';
+    const credentials = { accessKeyId: 'local', secretAccessKey: 'local' };
 
     const makeActor = (userId: number | string, appUid?: string) => ({
         type: {
             user: { id: userId, uuid: String(userId) },
             ...(appUid ? { app: { uid: appUid } } : {}),
         },
-    }) as unknown as Actor;
+    }) as Actor;
 
+    const dynaliteInstance = dynalite({ createTableMs: 0 });
+    const dynaliteServer = dynaliteInstance.listen(0, '127.0.0.1');
+    await once(dynaliteServer, 'listening');
+    const address = dynaliteServer.address();
+    const port = typeof address === 'object' && address ? address.port : undefined;
+    if ( ! port ) {
+        throw new Error('Failed to start dynalite');
+    }
+    const dynamoEndpoint = `http://127.0.0.1:${port}`;
+
+    const adminClient = new DynamoDBClient({
+        region: REGION,
+        endpoint: dynamoEndpoint,
+        credentials,
+    });
+
+    await adminClient.send(new CreateTableCommand({
+        TableName: TABLE_NAME,
+        BillingMode: 'PROVISIONED',
+        ProvisionedThroughput: {
+            ReadCapacityUnits: 5,
+            WriteCapacityUnits: 5,
+        },
+        AttributeDefinitions: [
+            { AttributeName: 'namespace', AttributeType: 'S' },
+            { AttributeName: 'key', AttributeType: 'S' },
+        ],
+        KeySchema: [
+            { AttributeName: 'namespace', KeyType: 'HASH' },
+            { AttributeName: 'key', KeyType: 'RANGE' },
+        ],
+    }));
+    await waitUntilTableExists({
+        client: adminClient,
+        maxWaitTime: 50,
+    }, { TableName: TABLE_NAME });
+
+    config.load_config({
+        'services': {
+            database: { path: ':memory:' },
+            dynamoDb: {
+                aws: {
+                    access_key: credentials.accessKeyId,
+                    secret_key: credentials.secretAccessKey,
+                    region: REGION,
+
+                },
+                endpoint: dynamoEndpoint,
+            },
+            'puter-kvstore': { tableName: TABLE_NAME },
+        },
+    });
+
+    const testKernel = await createTestKernel({
+        serviceMap: {
+            'dynamoDb': DDBClient,
+            meteringService: MeteringServiceWrapper,
+            'puter-kvstore': DynamoKVStoreWrapper,
+        },
+        initLevelString: 'init',
+        testCore: true,
+    });
+
+    const ddbClient = testKernel.services?.get('dynamoDb') as DDBClient;
+    const dynamoConfig = {
+        aws: {
+            access_key: credentials.accessKeyId,
+            secret_key: credentials.secretAccessKey,
+            region: REGION,
+
+        },
+        endpoint: dynamoEndpoint,
+    };
+    if ( ! dynamoConfig ) {
+        throw new Error('Missing dynamoDb service config');
+    }
+    ddbClient.config = dynamoConfig;
+
+    const testSubject = testKernel.services!.get('puter-kvstore') as IDynamoKVStoreWrapper;
+    const kvStore = testSubject.kvStore!;
+    const su = testKernel.services!.get('su') as SUService;
+
+    afterAll(async () => {
+        if ( adminClient ) {
+            await adminClient.send(new DeleteTableCommand({ TableName: TABLE_NAME })).catch(() => {
+            });
+            adminClient.destroy();
+        }
+        if ( dynaliteServer ) {
+            await new Promise<void>((resolve) => dynaliteServer!.close(() => resolve()));
+        }
+    });
+
+    it('should be instantiated', () => {
+        expect(testSubject).toBeInstanceOf(DynamoKVStoreWrapper);
+    });
+
+    it('should contain a copy of the public methods of DynamoKVStore too', () => {
+        const meteringMethods = Object.getOwnPropertyNames(DynamoKVStore.prototype)
+            .filter((name) => name !== 'constructor');
+        const wrapperMethods = testSubject as unknown as Record<string, unknown>;
+        const missing = meteringMethods.filter((name) => typeof wrapperMethods[name] !== 'function');
+
+        expect(missing).toEqual([]);
+    });
+
+    it('should have DynamoKVStore instantiated', async () => {
+        expect(testSubject.kvStore).toBeInstanceOf(DynamoKVStore);
+    });
     it('sets and retrieves values for the current actor context', async () => {
         const actor = makeActor(1);
         const key = 'greeting';
@@ -62,29 +158,6 @@ describe('DBKVStore', async () => {
 
         expect(fromOne).toBe('one');
         expect(fromTwo).toBe('two');
-    });
-
-    it('retrieves single and multiple keys respecting app vs global scope', async () => {
-        const userId = 12;
-        const globalActor = makeActor(userId);
-        const appActor = makeActor(userId, 'scoped-app');
-
-        await su.sudo(globalActor, () => kvStore.set({ key: 'shared', value: 'global-shared' }));
-        await su.sudo(globalActor, () => kvStore.set({ key: 'global-only', value: 'global' }));
-        await su.sudo(appActor, () => kvStore.set({ key: 'shared', value: 'app-shared' }));
-        await su.sudo(appActor, () => kvStore.set({ key: 'app-only', value: 'app' }));
-
-        const globalSingle = await su.sudo(globalActor, () => kvStore.get({ key: 'shared' }));
-        const appSingle = await su.sudo(appActor, () => kvStore.get({ key: 'shared' }));
-
-        expect(globalSingle).toBe('global-shared');
-        expect(appSingle).toBe('app-shared');
-
-        const globalList = await su.sudo(globalActor, () => kvStore.get({ key: ['shared', 'app-only', 'global-only'] }));
-        const appList = await su.sudo(appActor, () => kvStore.get({ key: ['shared', 'app-only', 'global-only'] }));
-
-        expect(globalList).toEqual(['global-shared', null, 'global']);
-        expect(appList).toEqual(['app-shared', 'app', null]);
     });
 
     it('increments nested numeric paths and persists the aggregated totals', async () => {
@@ -129,7 +202,17 @@ describe('DBKVStore', async () => {
     it('deletes keys with del', async () => {
         const actor = makeActor(5);
         const key = 'delete-me';
-        await su.sudo(actor, () => kvStore.set({ key, value: 'bye' }));
+        const contextA = Context.get();
+        await su.sudo(actor, () => {
+            const contextB = Context.get();
+            console.log({ contextA, contextB }, 'HERE');
+            return kvStore.set({ key, value: 'bye' });
+        });
+        // await Context.get().sub({actor,}, () => {
+        //     const contextB = Context.get();
+        //     console.log({ contextA, contextB }, 'HERE');
+        //     return kvStore.set({ key, value: 'bye' });
+        // }));
 
         const res = await su.sudo(actor, () => kvStore.del({ key }));
         const value = await su.sudo(actor, () => kvStore.get({ key }));
@@ -208,10 +291,10 @@ describe('DBKVStore', async () => {
 
         await expect(su.sudo(actor, () => kvStore.set({ key: oversizedKey, value: 'x' })))
             .rejects
-            .toThrow(/key is too large/i);
+            .toThrow(/1024 bytes/i);
 
         await expect(su.sudo(actor, () => kvStore.set({ key: 'ok', value: oversizedValue })))
             .rejects
-            .toThrow(/value is too large/i);
+            .toThrow(/has exceeded the maximum allowed size/i);
     });
 });

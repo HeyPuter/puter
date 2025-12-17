@@ -152,6 +152,9 @@ const install = async ({ context, services, app, useapi, modapi }) => {
     // side-effects from the events of other services.
 
     // === Services which extend BaseService ===
+    const { DDBClientWrapper } = require('./services/repositories/DDBClientWrapper');
+    services.registerService('dynamoDb', DDBClientWrapper);
+
     services.registerService('system-validation', SystemValidationService);
     services.registerService('commands', CommandService);
     services.registerService('__api-filesystem', FilesystemAPIService);
@@ -375,6 +378,9 @@ const install = async ({ context, services, app, useapi, modapi }) => {
 
     const { MeteringServiceWrapper } = require('./services/MeteringService/MeteringServiceWrapper.mjs');
     services.registerService('meteringService', MeteringServiceWrapper);
+
+    const { DynamoKVStoreWrapper } = require('./services/repositories/DynamoKVStore/DynamoKVStoreWrapper');
+    services.registerService('puter-kvstore', DynamoKVStoreWrapper);
 
     const { PermissionShortcutService } = require('./services/auth/PermissionShortcutService');
     services.registerService('permission-shortcut', PermissionShortcutService);

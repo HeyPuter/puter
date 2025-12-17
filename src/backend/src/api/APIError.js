@@ -560,7 +560,7 @@ class APIError {
      *
      * @static
      * @param {number|string} status
-     * @param {Error} source
+     * @param {Error | null} source
      * @param {string|Error|object} fields one of the following:
      * - a string to use as the error message
      * - an Error object to use as the source of the error

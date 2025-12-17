@@ -5,7 +5,7 @@ import type { Actor } from '@heyputer/backend/src/services/auth/Actor.js';
 import type { BaseDatabaseAccessService } from '@heyputer/backend/src/services/database/BaseDatabaseAccessService.d.ts';
 import type { MeteringService } from '@heyputer/backend/src/services/MeteringService/MeteringService.ts';
 import type { MeteringServiceWrapper } from '@heyputer/backend/src/services/MeteringService/MeteringServiceWrapper.mjs';
-import type { DBKVStore } from '@heyputer/backend/src/services/repositories/DBKVStore/DBKVStore.ts';
+import { DynamoKVStore } from '@heyputer/backend/src/services/repositories/DynamoKVStore/DynamoKVStore.ts';
 import type { SUService } from '@heyputer/backend/src/services/SUService.js';
 import type { IUser } from '@heyputer/backend/src/services/User.js';
 import type { UserService } from '@heyputer/backend/src/services/UserService.d.ts';
@@ -14,7 +14,6 @@ import type { RequestHandler } from 'express';
 import type FSNodeContext from '../src/backend/src/filesystem/FSNodeContext.js';
 import type helpers from '../src/backend/src/helpers.js';
 import type * as ExtensionControllerExports from './ExtensionController/src/ExtensionController.ts';
-
 declare global {
     namespace Express {
         interface Request {
@@ -80,7 +79,7 @@ type StripPrefix<TPrefix extends string, T extends string> = T extends `${TPrefi
 // TODO DS: define this globally in core to use it there too
 interface ServiceNameMap {
     'meteringService': Pick<MeteringServiceWrapper, 'meteringService'> & MeteringService // TODO DS: squash into a single class without wrapper
-    'puter-kvstore': DBKVStore
+    'puter-kvstore': DynamoKVStore
     'su': SUService
     'database': BaseDatabaseAccessService
     'user': UserService
@@ -97,7 +96,7 @@ interface Extension extends RouterMethods {
     on(event: 'create.drivers', listener: (event: { createDriver: (interface: string, service: string, executors: any) => any }) => void),
     on(event: 'create.permissions', listener: (event: { grant_to_everyone: (permission: string) => void, grant_to_users: (permission: string) => void }) => void)
     on(event: 'create.interfaces', listener: (event: { createInterface: (interface: string, interfaces: DriverInterface) => void }) => void)
-    import(module: 'data'): { db: BaseDatabaseAccessService, kv: DBKVStore & { get: (string) => void, set: (string, string) => void }, cache: unknown }// TODO DS: type cache better
+    import(module: 'data'): { db: BaseDatabaseAccessService, kv: DynamoKVStore, cache: unknown } // TODO DS: type cache better
     import(module: 'core'): CoreRuntimeModule,
     import(module: 'fs'): FilesystemModule,
     import(module: 'query'): typeof query,

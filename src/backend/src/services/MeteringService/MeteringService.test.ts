@@ -2,17 +2,17 @@ import { describe, expect, it, vi } from 'vitest';
 import { createTestKernel } from '../../../tools/test.mjs';
 import { Actor } from '../auth/Actor';
 import type { EventService } from '../EventService.js';
-import { DBKVServiceWrapper } from '../repositories/DBKVStore/index.mjs';
 import { GLOBAL_APP_KEY, PERIOD_ESCAPE } from './consts.js';
 import { COST_MAPS } from './costMaps/index.js';
 import { MeteringService } from './MeteringService';
 import { MeteringServiceWrapper } from './MeteringServiceWrapper.mjs';
+import { DynamoKVStoreWrapper } from '../repositories/DynamoKVStore/DynamoKVStoreWrapper.js';
 
 describe('MeteringService', async () => {
     const testKernel = await createTestKernel({
         serviceMap: {
             meteringService: MeteringServiceWrapper,
-            'puter-kvstore': DBKVServiceWrapper,
+            'puter-kvstore': DynamoKVStoreWrapper,
         },
         initLevelString: 'init',
         testCore: true,
@@ -132,10 +132,10 @@ describe('MeteringService', async () => {
     it('getAllowedUsage respects subscription overrides and consumed usage', async () => {
         const actor = makeActor('limited-user');
         const customPolicy = { id: 'tiny', monthUsageAllowance: 10, monthlyStorageAllowance: 0 };
-        const detPolicies = eventService.on('metering:registerAvailablePolicies', (_key, data) => {
+        const detPolicies = eventService.on('metering:registerAvailablePolicies', (_key: string, data: Record<string, unknown[]>) => {
             data.availablePolicies.push(customPolicy);
         });
-        const detUserSub = eventService.on('metering:getUserSubscription', (_key, data) => {
+        const detUserSub = eventService.on('metering:getUserSubscription', (_key: string, data: Record<string, unknown>) => {
             data.userSubscriptionId = customPolicy.id;
         });
 
