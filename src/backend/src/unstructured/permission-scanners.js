@@ -297,25 +297,20 @@ const PERMISSION_SCANNERS = [
         },
     },
     {
-        name: 'user-app',
+        name: 'user-app-implied',
         documentation: `
-            If the actor is an app, this scans for permissions granted to the app
-            because the user has the permission and granted it to the app.
+            Some permissions are implied for apps as long as the user also has
+            these permissions.
         `,
         async scan (a) {
             const { reading, actor, permission_options } = a.values();
             if ( ! (actor.type instanceof AppUnderUserActorType) ) {
                 return;
             }
-            const db = a.iget('db');
-
-            const app_uid = actor.type.app.uid;
-
             const issuer_actor = actor.get_related_actor(UserActorType);
             const issuer_reading = await a.icall('scan', issuer_actor, permission_options);
-
             const has_terminal = reading_has_terminal({ reading: issuer_reading });
-
+            const app_uid = actor.type.app.uid;
             for ( const permission of permission_options ) {
                 {
 
@@ -353,6 +348,21 @@ const PERMISSION_SCANNERS = [
                     }
                 }
             }
+
+        },
+    },
+    {
+        name: 'user-app',
+        documentation: `
+            If the actor is an app, this scans for permissions granted to the app
+            because the user has the permission and granted it to the app.
+        `,
+        async scan (a) {
+            const { reading, actor, permission_options } = a.values();
+            if ( ! (actor.type instanceof AppUnderUserActorType) ) {
+                return;
+            }
+            const db = a.iget('db');
 
             let sql_perm = permission_options.map(() =>
                 '`permission` = ?').join(' OR ');
