@@ -24,6 +24,9 @@ const { Entity } = require('./Entity');
 const { WeakConstructorFeature } = require('../../traits/WeakConstructorFeature');
 const { And, Or, Eq, Like, Null, Predicate, PredicateUtil, IsNotNull, StartsWith } = require('../query/query');
 const { DB_WRITE } = require('../../services/database/consts');
+const { safeHasOwnProperty } = require('../../util/safety');
+const { ParallelTasks } = require('../../util/otelutil');
+const opentelemetry = require('@opentelemetry/api');
 
 class RawCondition extends AdvancedBase {
     // properties: sql:string, values:any[]
@@ -113,12 +116,9 @@ class SQLES extends BaseES {
 
             const rows = await this.db.read(stmt, values);
 
-            const entities = [];
-            for ( const data of rows ) {
-                const entity = await this.sql_row_to_entity_(data);
-                entities.push(entity);
-            }
-
+            const entities = await Promise.all(rows.map(async (data) => {
+                return await this.sql_row_to_entity_(data);
+            }));
             return entities;
         },
 
@@ -187,6 +187,7 @@ class SQLES extends BaseES {
 
         async sql_row_to_entity_ (data) {
             const entity_data = {};
+            const tasks = new ParallelTasks({ tracer: opentelemetry.trace.getTracer('sqles') });
             for ( const prop of Object.values(this.om.properties) ) {
                 const options = prop.descriptor.sql ?? {};
 
@@ -196,38 +197,23 @@ class SQLES extends BaseES {
 
                 const col_name = options.column_name ?? prop.name;
 
-                if ( ! data.hasOwnProperty(col_name) ) {
+                if ( ! safeHasOwnProperty(data, col_name) ) {
                     continue;
                 }
 
                 let value = data[col_name];
-                value = await prop.sql_dereference(value);
-
-                // TODO: This is not an ideal implementation,
-                // but this is only 6 lines of code so doing this
-                // "properly" is not sensible at this time.
-                //
-                // This is here because:
-                // - SQLES has access to the "db" object
-                //
-                // Writing this in `json`'s `sql_reference` method
-                // is also not ideal because that places the concern
-                // of supporting different database backends to
-                // property types.
-                //
-                // Best solution: SQLES has a SQLRefinements by
-                // composition. This SQLRefinements is applied
-                // to property types for the duration of this
-                // function.
-                if ( prop.typ.name === 'json' ) {
-                    value = this.db.case({
-                        mysql: () => value,
-                        otherwise: () => JSON.parse(value ?? '{}'),
-                    })();
-                }
-
-                entity_data[prop.name] = value;
+                tasks.add(`sql_row_to_entity_::${prop.name}`, async () => {
+                    value = await prop.sql_dereference(value);
+                    if ( prop.typ.name === 'json' ) {
+                        value = this.db.case({
+                            mysql: () => value,
+                            otherwise: () => JSON.parse(value ?? '{}'),
+                        })();
+                    }
+                    entity_data[prop.name] = value;
+                });
             }
+            await tasks.awaitAll();
             const entity = await Entity.create({ om: this.om }, entity_data);
             entity.private_meta.mysql_id = data.id;
             return entity;
