@@ -103,10 +103,11 @@ class EntityStoreService extends BaseService {
                     es_params: options?.params ?? {},
                 }).arun(async () => {
                     const entities = await this.select(options);
-                    const client_safe_entities = [];
+                    const promises = [];    
                     for ( const entity of entities ) {
-                        client_safe_entities.push(await entity.get_client_safe());
+                        promises.push(entity.get_client_safe());
                     }
+                    const client_safe_entities = await Promise.all(promises);
                     return client_safe_entities;
                 });
             },
