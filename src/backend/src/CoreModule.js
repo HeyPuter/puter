@@ -28,6 +28,7 @@ const { TDetachable } = require('@heyputer/putility/src/traits/traits.js');
 const { MultiDetachable } = require('@heyputer/putility/src/libs/listener.js');
 const { OperationFrame } = require('./services/OperationTraceService');
 const opentelemetry = require('@opentelemetry/api');
+const query = require('./om/query/query');
 
 /**
  * @footgun - real install method is defined above
@@ -85,6 +86,11 @@ const install = async ({ context, services, app, useapi, modapi }) => {
             const runtimeModule = new RuntimeModule({ name: 'core' });
             context.get('runtime-modules').register(runtimeModule);
             runtimeModule.exports = useapi.use('core');
+        }
+        {
+            const runtimeModule = new RuntimeModule({ name: 'query' });
+            context.get('runtime-modules').register(runtimeModule);
+            runtimeModule.exports = query;
         }
 
         // Extension module: 'tel'

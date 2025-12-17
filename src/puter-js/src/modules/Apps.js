@@ -159,8 +159,29 @@ class Apps {
         if ( typeof args[0] === 'object' && args[0] !== null ) {
             options.params = args[0];
         }
+        const app = await utils.make_driver_method(['uid'], 'puter-apps', undefined, 'read').call(this, options);
+        app.getUsers = async (params) => {
+            params = params ?? {};
+            return (await puter.drivers.call('app-telemetry', 'app-telemetry', 'get_users', { app_uuid: app.uid, limit: params.limit, offset: params.offset })).result;
+        }
+        app.users = async function* (pageSize = 100) {
+            let offset = 0;
 
-        return utils.make_driver_method(['uid'], 'puter-apps', undefined, 'read').call(this, options);
+            while (true) {
+                const users = await app.getUsers({ limit: pageSize, offset });
+
+                if (!users || users.length === 0) return;
+
+                for (const user of users) {
+                    yield user;
+                }
+
+                offset += users.length;
+                if (users.length < pageSize) return;
+            }
+        }
+        return app;
+
     };
 
     delete = async (...args) => {

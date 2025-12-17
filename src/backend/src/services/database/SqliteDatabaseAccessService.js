@@ -161,6 +161,12 @@ class SqliteDatabaseAccessService extends BaseDatabaseAccessService {
             [37, [
                 '0041_add_unique_constraint_user_uuid.sql',
             ]],
+            [38, [
+                '0042_add_cloudflare_d1.sql',
+            ]],
+            [39, [
+                '0043_add_dt.sql',
+            ]],
         ];
 
         // Database upgrade logic

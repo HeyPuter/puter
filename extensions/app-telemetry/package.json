@@ -1,0 +1,5 @@
+{
+  "name": "@heyputer/app-telemetry",
+  "main": "app-user-count.ts",
+  "type": "module"
+}
