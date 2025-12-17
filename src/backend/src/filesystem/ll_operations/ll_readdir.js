@@ -16,7 +16,6 @@
  * You should have received a copy of the GNU Affero General Public License
  * along with this program.  If not, see <https://www.gnu.org/licenses/>.
  */
-const APIError = require('../../api/APIError');
 const fsCapabilities = require('../definitions/capabilities');
 const { ECMAP } = require('../ECMAP');
 const { TYPE_SYMLINK } = require('../FSNodeContext');
@@ -35,10 +34,6 @@ class LLReadDir extends LLFilesystemOperation {
         const { context } = this;
         const { subject: subject_let, actor, no_acl } = this.values;
         let subject = subject_let;
-
-        if ( ! await subject.exists() ) {
-            throw APIError.create('subject_does_not_exist');
-        }
 
         const svc_acl = context.get('services').get('acl');
         if ( ! no_acl ) {
@@ -72,26 +67,10 @@ class LLReadDir extends LLFilesystemOperation {
 
         const capabilities = subject.provider.get_capabilities();
 
-        // UUID Mode
-        optimization: {
-            const uuid_selector = subject.get_selector_of_type(NodeUIDSelector);
-
-            // Skip this optimization if there is no UUID
-            if ( ! uuid_selector ) {
-                break optimization;
-            }
-
-            // Skip this optimization if the filesystem doesn't implement
-            // the "readdirstat_uuid" macro operation.
-            if ( ! capabilities.has(fsCapabilities.READDIRSTAT_UUID) ) {
-                break optimization;
-            }
-
-            const uuid = uuid_selector.value;
-            return await subject.provider.readdirstat_uuid({
-                uuid,
-                options: { thumbnail: true },
-            });
+        // Optimization for filesystems that implement it
+        {
+            const child_nodes = await this.#try_readdirstatUUID();
+            if ( child_nodes !== null ) return child_nodes;
         }
 
         if ( capabilities.has(fsCapabilities.READDIR_UUID_MODE) ) {
@@ -117,6 +96,28 @@ class LLReadDir extends LLFilesystemOperation {
         return await Promise.all(child_entries.map(async entry => {
             return await svc_fs.node(new NodeChildSelector(subject, entry.name));
         }));
+    }
+    async #try_readdirstatUUID () {
+        const subject = this.values.subject;
+        const capabilities = subject.provider.get_capabilities();
+        const uuid_selector = subject.get_selector_of_type(NodeUIDSelector);
+
+        // Skip this optimization if there is no UUID
+        if ( ! uuid_selector ) {
+            return null;
+        }
+
+        // Skip this optimization if the filesystem doesn't implement
+        // the "readdirstat_uuid" macro operation.
+        if ( ! capabilities.has(fsCapabilities.READDIRSTAT_UUID) ) {
+            return null;
+        }
+
+        const uuid = uuid_selector.value;
+        return await subject.provider.readdirstat_uuid({
+            uuid,
+            options: { thumbnail: true },
+        });
     }
 }
 
