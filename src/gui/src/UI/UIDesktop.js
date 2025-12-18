@@ -1285,14 +1285,12 @@ async function UIDesktop (options) {
     //--------------------------------------------------------
     // Open the AI app
     //--------------------------------------------------------
-    if ( window.user.email_confirmed ) {
-        launch_app({
-            name: 'ai',
-            window_options: {
-                is_panel: true,
-            },
-        });
-    }
+    launch_app({
+        name: 'ai',
+        window_options: {
+            is_panel: true,
+        },
+    });
 
     //--------------------------------------------------------------------------------------
     // Determine if an app was launched from URL
