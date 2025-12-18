@@ -10,6 +10,7 @@ import APIError from '../../../api/APIError.js';
 
 export class DynamoKVStore {
     static GLOBAL_APP_KEY = 'os-global';
+    static LEGACY_GLOBAL_APP_KEY = 'global';
 
     #ddbClient: DDBClient;
     #sqlClient: BaseDatabaseAccessService;
@@ -41,7 +42,7 @@ export class DynamoKVStore {
             if ( ! user ) throw new Error('User not found');
 
             return `v1:${app ? `${user.uuid}:${app.uid}`
-                : `${user.uuid}:${DynamoKVStore.GLOBAL_APP_KEY}`}`;
+                : `${user.uuid}:${this.#enableMigrationFromSQL ? DynamoKVStore.LEGACY_GLOBAL_APP_KEY : DynamoKVStore.GLOBAL_APP_KEY}`}`;
         }
     }
 
@@ -91,14 +92,14 @@ export class DynamoKVStore {
             if ( this.#enableMigrationFromSQL ) {
                 const key_hash = murmurhash.v3(key);
                 const kv_row = await this.#sqlClient.read('SELECT * FROM kv WHERE user_id=? AND app=? AND kkey_hash=? LIMIT 1',
-                                [user.id, app.uid ?? DynamoKVStore.GLOBAL_APP_KEY, key_hash]);
+                                [user.id, app?.uid ?? DynamoKVStore.LEGACY_GLOBAL_APP_KEY, key_hash]);
 
                 if ( kv_row[0]?.value ) {
                     // update and delete from this table
                     (async () => {
                         await this.set({ key: kv_row[0].key, value: kv_row[0].value });
                         await this.#sqlClient.write('DELETE FROM kv WHERE user_id=? AND app=? AND kkey_hash=?',
-                                        [user.id, app?.uid ?? DynamoKVStore.GLOBAL_APP_KEY, key_hash]);
+                                        [user.id, app?.uid ?? DynamoKVStore.LEGACY_GLOBAL_APP_KEY, key_hash]);
                     })();
                     values.push(kv_row[0]?.value);
                     continue;
@@ -190,7 +191,7 @@ export class DynamoKVStore {
         if ( this.#enableMigrationFromSQL ) {
             const key_hash = murmurhash.v3(key);
             await this.#sqlClient.write('DELETE FROM kv WHERE user_id=? AND app=? AND kkey_hash=?',
-                            [user.id, app?.uid ?? DynamoKVStore.GLOBAL_APP_KEY, key_hash]);
+                            [user.id, app?.uid ?? DynamoKVStore.LEGACY_GLOBAL_APP_KEY, key_hash]);
         }
 
         return true;
@@ -223,8 +224,8 @@ export class DynamoKVStore {
         });
 
         if ( this.#enableMigrationFromSQL ) {
-            const oldEntries =  await this.#sqlClient.write('SELECT * FROM kv WHERE user_id=? AND app=?',
-                            [user.id, app?.uid ?? DynamoKVStore.GLOBAL_APP_KEY]);
+            const oldEntries =  await this.#sqlClient.read('SELECT * FROM kv WHERE user_id=? AND app=?',
+                            [user.id, app?.uid ?? DynamoKVStore.LEGACY_GLOBAL_APP_KEY]);
             oldEntries.forEach(oldEntry => {
                 if ( ! entries.find(e => e.key === oldEntry.kkey) ) {
                     if ( oldEntry.ttl && oldEntry.ttl <= (Date.now() / 1000) ) {
@@ -291,7 +292,7 @@ export class DynamoKVStore {
 
         if ( this.#enableMigrationFromSQL ) {
             await this.#sqlClient.write('DELETE FROM kv WHERE user_id=? AND app=?',
-                            [user.id, app?.uid ?? DynamoKVStore.GLOBAL_APP_KEY]);
+                            [user.id, app?.uid ?? DynamoKVStore.LEGACY_GLOBAL_APP_KEY]);
         }
 
         return !!allRes;

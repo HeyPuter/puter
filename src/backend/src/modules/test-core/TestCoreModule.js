@@ -15,6 +15,7 @@ import { MeteringServiceWrapper } from '../../services/MeteringService/MeteringS
 import { NotificationService } from '../../services/NotificationService';
 import { RegistrantService } from '../../services/RegistrantService';
 import { RegistryService } from '../../services/RegistryService';
+import { DDBClientWrapper } from '../../services/repositories/DDBClientWrapper.js';
 import { DynamoKVStoreWrapper } from '../../services/repositories/DynamoKVStore/DynamoKVStoreWrapper';
 import { ScriptService } from '../../services/ScriptService';
 import { SessionService } from '../../services/SessionService';
@@ -27,6 +28,7 @@ import APIErrorService from '../web/APIErrorService';
 export class TestCoreModule {
     async install (context) {
         const services = context.get('services');
+        services.registerService('dynamo', DDBClientWrapper);
         services.registerService('whoami', DetailProviderService);
         services.registerService('get-user', GetUserService);
         services.registerService('database', SqliteDatabaseAccessService);

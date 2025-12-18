@@ -10,7 +10,7 @@ class DynamoKVStoreServiceWrapper extends BaseService {
     _init () {
         this.kvStore = new DynamoKVStore({
             ddbClient: this.services.get('dynamo'),
-            sqlClient: this.services.get('database'),
+            sqlClient: this.services.get('database').get(),
             meteringService: this.services.get('meteringService').meteringService,
             tableName: this.config.tableName || 'store-kv-v1',
         });

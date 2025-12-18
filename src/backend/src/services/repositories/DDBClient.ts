@@ -2,6 +2,7 @@ import { CreateTableCommand, CreateTableCommandInput, DynamoDBClient, UpdateTime
 import { BatchGetCommand, BatchGetCommandInput, DeleteCommand, DynamoDBDocumentClient, GetCommand, PutCommand, QueryCommand, UpdateCommand } from '@aws-sdk/lib-dynamodb';
 import { NodeHttpHandler } from '@smithy/node-http-handler';
 import dynalite from 'dynalite';
+import { once } from 'node:events';
 import { Agent as httpsAgent } from 'node:https';
 
 interface DBClientConfig {
@@ -14,23 +15,28 @@ interface DBClientConfig {
 }
 
 export class DDBClient {
-    documentClient: DynamoDBDocumentClient;
+    ddbClient: Promise<DynamoDBClient>;
+    #documentClient!: DynamoDBDocumentClient;
     config?: DBClientConfig;
 
     constructor (config?: DBClientConfig) {
         this.config = config;
-        this.documentClient = DynamoDBDocumentClient.from(this.#getClient(), {
-            marshallOptions: {
-                removeUndefinedValues: true,
-            } });
+        this.ddbClient = this.#getClient();
+        this.ddbClient.then(client => {
+            this.#documentClient = DynamoDBDocumentClient.from(client, {
+                marshallOptions: {
+                    removeUndefinedValues: true,
+                } });
+        });
     }
 
-    #getClient () {
+    async #getClient () {
         if ( ! this.config?.aws ) {
             console.warn('No config for DynamoDB, will fall back on local dynalite');
-            const dynaliteInstance = dynalite({ createTableMs: 0 });
+            const dynaliteInstance = dynalite({ createTableMs: 0, path: './puter-ddb' });
             const dynaliteServer = dynaliteInstance.listen(0, '127.0.0.1');
-            const address = dynaliteServer.address({ path: 'puter-ddb' });
+            await once(dynaliteServer, 'listening');
+            const address = dynaliteServer.address();
             const port = (typeof address === 'object' && address ? address.port : undefined) || 4567;
             const dynamoEndpoint = `http://127.0.0.1:${port}`;
 
@@ -75,7 +81,7 @@ export class DDBClient {
             ReturnConsumedCapacity: 'TOTAL',
         });
 
-        const response = await this.documentClient.send(command);
+        const response = await this.#documentClient.send(command);
 
         return response;
     }
@@ -87,7 +93,7 @@ export class DDBClient {
             ReturnConsumedCapacity: 'TOTAL',
         });
 
-        const response = await this.documentClient.send(command);
+        const response = await this.#documentClient.send(command);
         return response;
     }
 
@@ -114,7 +120,7 @@ export class DDBClient {
             ReturnConsumedCapacity: 'TOTAL',
         });
 
-        return this.documentClient.send(command);
+        return this.#documentClient.send(command);
     }
 
     async del<T extends Record<string, unknown>> (table: string, key: T) {
@@ -124,7 +130,7 @@ export class DDBClient {
             ReturnConsumedCapacity: 'TOTAL',
         });
 
-        return this.documentClient.send(command);
+        return this.#documentClient.send(command);
     }
 
     async query<T extends Record<string, unknown>> (table: string, keys: T, limit = 0, pageKey?: Record<string, unknown>, index = '', consistentRead = false) {
@@ -151,7 +157,7 @@ export class DDBClient {
             ReturnConsumedCapacity: 'TOTAL',
         });
 
-        return await this.documentClient.send(command);
+        return await this.#documentClient.send(command);
     }
 
     async update<T extends Record<string, unknown>> (table: string, key: T, expression: string, expressionValues: Record<string, unknown>, expressionNames: Record<string, string>) {
@@ -165,7 +171,7 @@ export class DDBClient {
             ReturnConsumedCapacity: 'TOTAL',
         });
         try {
-            return await this.documentClient.send(command);
+            return await this.#documentClient.send(command);
         } catch ( e ) {
             console.error('DDB Update Error', e);
             throw e;
@@ -178,7 +184,7 @@ export class DDBClient {
             return;
         }
         try {
-            await this.documentClient.send(new CreateTableCommand(params));
+            await this.#documentClient.send(new CreateTableCommand(params));
         } catch ( e ) {
             if ( (e as Error)?.name !== 'ResourceInUseException' ) {
                 throw e;
@@ -186,7 +192,7 @@ export class DDBClient {
             setTimeout(async () => {
                 if ( ttlAttribute ) {
                 // ensure TTL is set
-                    await this.documentClient.send(new UpdateTimeToLiveCommand({
+                    await this.#documentClient.send(new UpdateTimeToLiveCommand({
                         TableName: params.TableName!,
                         TimeToLiveSpecification: {
                             AttributeName: ttlAttribute,
