@@ -81,7 +81,7 @@ class UsageLimitDialog extends (globalThis.HTMLElement || Object) {
             
             .message {
                 text-align: center;
-                font-size: 15px;
+                font-size: 14px;
                 line-height: 1.5;
                 color: #666;
                 margin-bottom: 24px;
