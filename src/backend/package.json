@@ -5,6 +5,7 @@
   "main": "exports.js",
   "scripts": {
     "test": "npx mocha src/**/*.test.js && node ./tools/test.mjs",
+    "bench": "vitest bench --config=vitest.bench.config.ts --run",
     "build:worker": "cd src/services/worker && npm run build"
   },
   "dependencies": {
