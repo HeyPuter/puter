@@ -65,7 +65,6 @@ export class Apps {
     create (options: CreateAppOptions): Promise<CreateAppResult>;
     update (name: string, attributes: UpdateAppAttributes): Promise<App>;
     get (name: string, options?: AppListOptions): Promise<App>;
-    get (options?: AppListOptions): Promise<App>;
     delete (name: string): Promise<{ success?: boolean }>;
     getDeveloperProfile (options?: RequestCallbacks<Record<string, unknown>>): Promise<Record<string, unknown>>;
     getDeveloperProfile (success: (value: Record<string, unknown>) => void, error?: (reason: unknown) => void): Promise<Record<string, unknown>>;
