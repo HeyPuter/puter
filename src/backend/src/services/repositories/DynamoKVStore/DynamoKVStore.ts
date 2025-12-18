@@ -10,24 +10,25 @@ import APIError from '../../../api/APIError.js';
 
 export class DynamoKVStore {
     static GLOBAL_APP_KEY = 'os-global';
-    static MIGRATION_CUTOFF_TIMESTAMP = 1765939679666; // June 17, 2025
 
     #ddbClient: DDBClient;
     #sqlClient: BaseDatabaseAccessService;
     #meteringService: MeteringService;
     #tableName = 'store-kv-v1';
     #pathCleanerRegex = /[:\-+/*]/g;
+    #enableMigrationFromSQL = false;
 
     constructor ({ ddbClient, sqlClient, tableName, meteringService }: { ddbClient: DDBClient, sqlClient: BaseDatabaseAccessService, tableName: string, meteringService: MeteringService }) {
         this.#ddbClient = ddbClient;
         this.#sqlClient = sqlClient;
         this.#tableName = tableName;
         this.#meteringService = meteringService;
+        this.#enableMigrationFromSQL = !this.#ddbClient.config?.aws; // TODO: disable via config after some time passes
         this.#createTableIfNotExists();
     }
 
     async #createTableIfNotExists () {
-        if ( this.#ddbClient.config?.aws ) return;
+        if ( ! this.#enableMigrationFromSQL ) return;
         await this.#ddbClient.createTableIfNotExists({ ...PUTER_KV_STORE_TABLE_DEFINITION, TableName: this.#tableName }, 'ttl');
     }
 
@@ -87,12 +88,7 @@ export class DynamoKVStore {
                 continue;
             }
 
-            // Convert app.timestamp to epoch milliseconds for proper comparison
-            const app_timestamp_ms = app && app?.timestamp instanceof Date
-                ? app.timestamp.getTime()
-                : app && app.timestamp ? new Date(app.timestamp).getTime() : 0;
-
-            if ( app && app_timestamp_ms <= DynamoKVStore.MIGRATION_CUTOFF_TIMESTAMP && !this.#ddbClient.config?.aws ) {
+            if ( this.#enableMigrationFromSQL ) {
                 const key_hash = murmurhash.v3(key);
                 const kv_row = await this.#sqlClient.read('SELECT * FROM kv WHERE user_id=? AND app=? AND kkey_hash=? LIMIT 1',
                                 [user.id, app.uid ?? DynamoKVStore.GLOBAL_APP_KEY, key_hash]);
@@ -158,6 +154,10 @@ export class DynamoKVStore {
             throw new Error(`key is too large. Max size is ${1024}.`);
         }
 
+        if ( this.#enableMigrationFromSQL ) {
+            this.get({ key });
+        }
+
         const namespace = this.#getNameSpace(actor);
 
         const res = await this.#ddbClient.put(this.#tableName, {
@@ -187,12 +187,7 @@ export class DynamoKVStore {
 
         this.#meteringService.incrementUsage(actor, 'kv:write', res?.ConsumedCapacity?.CapacityUnits ?? 1);
 
-        // Convert app.timestamp to epoch milliseconds for proper comparison
-        const appTimestamp = app && app.timestamp instanceof Date
-            ? app.timestamp.getTime()
-            : app && app.timestamp ? new Date(app.timestamp).getTime() : 0;
-
-        if ( app && appTimestamp <= DynamoKVStore.MIGRATION_CUTOFF_TIMESTAMP && !this.#ddbClient.config?.aws ) {
+        if ( this.#enableMigrationFromSQL ) {
             const key_hash = murmurhash.v3(key);
             await this.#sqlClient.write('DELETE FROM kv WHERE user_id=? AND app=? AND kkey_hash=?',
                             [user.id, app?.uid ?? DynamoKVStore.GLOBAL_APP_KEY, key_hash]);
@@ -227,12 +222,7 @@ export class DynamoKVStore {
             return true;
         });
 
-        // Convert app.timestamp to epoch milliseconds for proper comparison
-        const appTimestamp = app && app.timestamp instanceof Date
-            ? app.timestamp.getTime()
-            : app && app.timestamp ? new Date(app.timestamp).getTime() : 0;
-
-        if ( app && appTimestamp <= DynamoKVStore.MIGRATION_CUTOFF_TIMESTAMP && !this.#ddbClient.config?.aws ) {
+        if ( this.#enableMigrationFromSQL ) {
             const oldEntries =  await this.#sqlClient.write('SELECT * FROM kv WHERE user_id=? AND app=?',
                             [user.id, app?.uid ?? DynamoKVStore.GLOBAL_APP_KEY]);
             oldEntries.forEach(oldEntry => {
@@ -299,11 +289,7 @@ export class DynamoKVStore {
         // meter usage
         this.#meteringService.incrementUsage(actor, 'kv:write', writeUsage);
 
-        const appTimestamp = app && app.timestamp instanceof Date
-            ? app.timestamp.getTime()
-            : app && app.timestamp ? new Date(app.timestamp).getTime() : 0;
-
-        if ( app && appTimestamp <= DynamoKVStore.MIGRATION_CUTOFF_TIMESTAMP && !this.#ddbClient.config?.aws ) {
+        if ( this.#enableMigrationFromSQL ) {
             await this.#sqlClient.write('DELETE FROM kv WHERE user_id=? AND app=?',
                             [user.id, app?.uid ?? DynamoKVStore.GLOBAL_APP_KEY]);
         }
@@ -397,6 +383,11 @@ export class DynamoKVStore {
 
         const namespace = this.#getNameSpace(actor);
 
+        if ( this.#enableMigrationFromSQL ) {
+            // trigger get to move element if exists
+            await this.get({ key });
+        }
+
         const cleanerRegex = /[:\-+/*]/g;
 
         let writeUnits = await this.#createPaths(namespace, key, Object.keys(pathAndAmountMap));
@@ -443,6 +434,11 @@ export class DynamoKVStore {
         if ( ! user ) throw new Error('User not found');
 
         const namespace = this.#getNameSpace(actor);
+
+        // if possibly migrating from old SQL store, get entry first to move to dynamo
+        if ( this.#enableMigrationFromSQL ) {
+            await this.get({ key });
+        }
 
         const res = await this.#ddbClient.update(this.#tableName,
                         { key, namespace },

@@ -153,7 +153,7 @@ const install = async ({ context, services, app, useapi, modapi }) => {
 
     // === Services which extend BaseService ===
     const { DDBClientWrapper } = require('./services/repositories/DDBClientWrapper');
-    services.registerService('dynamoDb', DDBClientWrapper);
+    services.registerService('dynamo', DDBClientWrapper);
 
     services.registerService('system-validation', SystemValidationService);
     services.registerService('commands', CommandService);
