@@ -20,76 +20,7 @@ const eggspress = require('../../api/eggspress');
 const config = require('../../config');
 const { subdomain } = require('../../helpers');
 const BaseService = require('../BaseService');
-
-/**
- * A utility class used by AntiCSRFService to manage a circular queue of
- * CSRF tokens (or, as we like to call them, "anti-CSRF" tokens).
- *
- * A token expires when it is evicted from the queue.
- */
-class CircularQueue {
-    /**
-     * Creates a new CircularQueue instance with the specified size.
-     *
-     * @param {number} size - The maximum number of items the queue can hold
-     */
-    constructor (size) {
-        this.size = size;
-        this.queue = [];
-        this.index = 0;
-        this.map = new Map();
-    }
-
-    /**
-     * Adds an item to the queue. If the queue is full, the oldest item is removed.
-     *
-     * @param {*} item - The item to add to the queue
-     */
-    push (item) {
-        if ( this.queue[this.index] ) {
-            this.map.delete(this.queue[this.index]);
-        }
-        this.queue[this.index] = item;
-        this.map.set(item, this.index);
-        this.index = (this.index + 1) % this.size;
-    }
-
-    /**
-     * Retrieves an item from the queue at the specified relative index.
-     *
-     * @param {number} index - The relative index from the current position
-     * @returns {*} The item at the specified index
-     */
-    get (index) {
-        return this.queue[(this.index + index) % this.size];
-    }
-
-    /**
-     * Checks if the queue contains the specified item.
-     *
-     * @param {*} item - The item to check for
-     * @returns {boolean} True if the item exists in the queue, false otherwise
-     */
-    has (item) {
-        return this.map.has(item);
-    }
-
-    /**
-     * Attempts to consume (remove) an item from the queue if it exists.
-     *
-     * @param {*} item - The item to consume
-     * @returns {boolean} True if the item was found and consumed, false otherwise
-     */
-    maybe_consume (item) {
-        if ( this.has(item) ) {
-            const index = this.map.get(item);
-            this.map.delete(item);
-            this.queue[index] = null;
-            return true;
-        }
-        return false;
-    }
-}
+const { CircularQueue } = require('../../util/CircularQueue');
 
 /**
 * Class AntiCSRFService extends BaseService to manage and protect against Cross-Site Request Forgery (CSRF) attacks.
