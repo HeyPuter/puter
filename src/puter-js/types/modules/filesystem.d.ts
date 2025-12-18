@@ -43,7 +43,6 @@ export interface DeleteOptions extends RequestCallbacks<void> {
     paths?: string | string[];
     recursive?: boolean;
     descendantsOnly?: boolean;
-    descendants_only?: boolean;
 }
 
 export interface ReadOptions extends RequestCallbacks<Blob> {
@@ -100,7 +99,6 @@ export interface WriteOptions extends RequestCallbacks<FSItem> {
     dedupeName?: boolean;
     createMissingParents?: boolean;
     createMissingAncestors?: boolean;
-    name?: string;
     init?: (operationId: string, xhr: XMLHttpRequest) => void;
     start?: () => void;
     progress?: (operationId: string, progress: number) => void;
