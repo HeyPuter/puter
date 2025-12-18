@@ -16,6 +16,37 @@ class Apps {
         this.appID = puter.appID;
     }
 
+    #addUserIterationToApp(app) {
+        app.getUsers = async (params) => {
+            params = params ?? {};
+            return (await puter.drivers.call('app-telemetry', 'app-telemetry', 'get_users', { app_uuid: app.uid, limit: params.limit, offset: params.offset })).result;
+        }
+        app.users = async function* (pageSize = 100) {
+            let offset = 0;
+
+            while (true) {
+                const users = await app.getUsers({ limit: pageSize, offset });
+
+                if (!users || users.length === 0) return;
+
+                for (const user of users) {
+                    yield user;
+                }
+
+                offset += users.length;
+                if (users.length < pageSize) return;
+            }
+        }
+        return app;
+    }
+
+    #addUserIterationToApps(apps) {
+        apps.forEach(app => {
+            this.#addUserIterationToApp(app);
+        });
+        return apps;
+    }
+
     /**
      * Sets a new authentication token.
      *
@@ -48,7 +79,7 @@ class Apps {
 
         options.predicate = ['user-can-edit'];
 
-        return utils.make_driver_method(['uid'], 'puter-apps', undefined, 'select').call(this, options);
+        return this.#addUserIterationToApps(await utils.make_driver_method(['uid'], 'puter-apps', undefined, 'select').call(this, options));
     };
 
     create = async (...args) => {
@@ -112,7 +143,7 @@ class Apps {
         }
 
         // Call the original chat.complete method
-        return await utils.make_driver_method(['object'], 'puter-apps', undefined, 'create').call(this, options);
+        return this.#addUserIterationToApp(await utils.make_driver_method(['object'], 'puter-apps', undefined, 'create').call(this, options));
     };
 
     update = async (...args) => {
@@ -138,7 +169,7 @@ class Apps {
         }
 
         // Call the original chat.complete method
-        return await utils.make_driver_method(['object'], 'puter-apps', undefined, 'update').call(this, options);
+        return this.#addUserIterationToApp(await utils.make_driver_method(['object'], 'puter-apps', undefined, 'update').call(this, options));
     };
 
     get = async (...args) => {
@@ -159,29 +190,7 @@ class Apps {
         if ( typeof args[0] === 'object' && args[0] !== null ) {
             options.params = args[0];
         }
-        const app = await utils.make_driver_method(['uid'], 'puter-apps', undefined, 'read').call(this, options);
-        app.getUsers = async (params) => {
-            params = params ?? {};
-            return (await puter.drivers.call('app-telemetry', 'app-telemetry', 'get_users', { app_uuid: app.uid, limit: params.limit, offset: params.offset })).result;
-        }
-        app.users = async function* (pageSize = 100) {
-            let offset = 0;
-
-            while (true) {
-                const users = await app.getUsers({ limit: pageSize, offset });
-
-                if (!users || users.length === 0) return;
-
-                for (const user of users) {
-                    yield user;
-                }
-
-                offset += users.length;
-                if (users.length < pageSize) return;
-            }
-        }
-        return app;
-
+        return this.#addUserIterationToApp(await utils.make_driver_method(['uid'], 'puter-apps', undefined, 'read').call(this, options));
     };
 
     delete = async (...args) => {
