@@ -95,7 +95,7 @@
     "yargs": "^17.7.2"
   },
   "devDependencies": {
-    "@types/node": "^20.5.3",
+    "@types/node": "^24.0.0",
     "chai": "^4.3.7",
     "jsdom": "^27.2.0",
     "mocha": "^10.2.0",

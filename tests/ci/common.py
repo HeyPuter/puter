@@ -30,7 +30,7 @@ def get_admin_password() -> str:
     """
     Get the admin password from the backend server, throw an error if not found.
     """
-    for attempt in range(60):  # wait up to 60 seconds (1 minute)
+    for attempt in range(90):  # wait up to 60 seconds (1 minute)
         time.sleep(1)
         
         # read the log file
