@@ -25,10 +25,9 @@ export class DynamoKVStore {
         this.#tableName = tableName;
         this.#meteringService = meteringService;
         this.#enableMigrationFromSQL = !this.#ddbClient.config?.aws; // TODO: disable via config after some time passes
-        this.#createTableIfNotExists();
     }
 
-    async #createTableIfNotExists () {
+    async createTableIfNotExists () {
         if ( ! this.#enableMigrationFromSQL ) return;
         await this.#ddbClient.createTableIfNotExists({ ...PUTER_KV_STORE_TABLE_DEFINITION, TableName: this.#tableName }, 'ttl');
     }

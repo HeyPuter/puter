@@ -27,6 +27,7 @@ import { HTTPThumbnailService } from '../src/services/thumbnails/HTTPThumbnailSe
 import { consoleLogManager } from '../src/util/consolelog.js';
 import { Context } from '../src/util/context.js';
 import { TestCoreModule } from '../src/modules/test-core/TestCoreModule.js';
+import { config } from '../src/loadTestConfig.js';
 const { BaseService, EssentialModules } = why;
 
 /**
@@ -291,6 +292,16 @@ export const createTestKernel = async ({
 
     const initLevelMap = { CONSTRUCT: 1, INIT: 2 };
     const initLevel = initLevelMap[(`${initLevelString}`).toUpperCase()];
+    config.load_config({
+        'services': {
+            database: {
+                path: ':memory:',
+            },
+            dynamo: {
+                path: ':memory:',
+            },
+        },
+    });
     const testKernel = new TestKernel();
     testKernel.add_module(new Core2Module());
     if ( testCore ) testKernel.add_module(new TestCoreModule());
@@ -308,8 +319,8 @@ export const createTestKernel = async ({
 
     for ( const name of service_names ) {
 
-        const serviceConfigOverride = serviceConfigOverrideMap[name] ;
-        const globalConfigOverride = globalConfigOverrideMap[name] ;
+        const serviceConfigOverride = serviceConfigOverrideMap[name];
+        const globalConfigOverride = globalConfigOverrideMap[name];
 
         if ( serviceConfigOverride ) {
             const ins = testKernel.services.instances_[name];

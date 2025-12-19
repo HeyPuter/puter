@@ -7,13 +7,14 @@ import { DynamoKVStore } from './DynamoKVStore.js';
 class DynamoKVStoreServiceWrapper extends BaseService {
 
     kvStore!: DynamoKVStore;
-    _init () {
+    async _init () {
         this.kvStore = new DynamoKVStore({
             ddbClient: this.services.get('dynamo'),
             sqlClient: this.services.get('database').get(),
             meteringService: this.services.get('meteringService').meteringService,
             tableName: this.config.tableName || 'store-kv-v1',
         });
+        await this.kvStore.createTableIfNotExists();
         Object.getOwnPropertyNames(DynamoKVStore.prototype).forEach(fn => {
             if ( fn === 'constructor' ) return;
             this[fn] = (...args: unknown[]) => this.kvStore[fn](...args);

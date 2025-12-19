@@ -11,6 +11,7 @@ interface DBClientConfig {
         secret_key: string
         region: string
     },
+    path?: string,
     endpoint?: string
 }
 
@@ -33,7 +34,7 @@ export class DDBClient {
     async #getClient () {
         if ( ! this.config?.aws ) {
             console.warn('No config for DynamoDB, will fall back on local dynalite');
-            const dynaliteInstance = dynalite({ createTableMs: 0, path: './puter-ddb' });
+            const dynaliteInstance = dynalite({ createTableMs: 0, path: this.config?.path === ':memory:' ? undefined : this.config?.path || './puter-ddb' });
             const dynaliteServer = dynaliteInstance.listen(0, '127.0.0.1');
             await once(dynaliteServer, 'listening');
             const address = dynaliteServer.address();

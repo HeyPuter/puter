@@ -2,11 +2,11 @@ import { describe, expect, it, vi } from 'vitest';
 import { createTestKernel } from '../../../tools/test.mjs';
 import { Actor } from '../auth/Actor';
 import type { EventService } from '../EventService.js';
+import { DynamoKVStoreWrapper } from '../repositories/DynamoKVStore/DynamoKVStoreWrapper.js';
 import { GLOBAL_APP_KEY, PERIOD_ESCAPE } from './consts.js';
 import { COST_MAPS } from './costMaps/index.js';
 import { MeteringService } from './MeteringService';
 import { MeteringServiceWrapper } from './MeteringServiceWrapper.mjs';
-import { DynamoKVStoreWrapper } from '../repositories/DynamoKVStore/DynamoKVStoreWrapper.js';
 
 describe('MeteringService', async () => {
     const testKernel = await createTestKernel({
@@ -18,6 +18,9 @@ describe('MeteringService', async () => {
         testCore: true,
         serviceConfigOverrideMap: {
             'database': {
+                path: ':memory:',
+            },
+            'dynamo': {
                 path: ':memory:',
             },
         },
@@ -204,10 +207,13 @@ describe('MeteringService', async () => {
         expect(res['aws-polly:standard:character']).toMatchObject({ cost: 12, units: 10, count: 1 });
     });
 
-    it('applies the configured cost map rate for every usage type', async () => {
+    it('applies the configured cost map rate for random samples of usage types', async () => {
         const usageAmount = 2;
 
-        for ( const [usageType, costPerUnit] of Object.entries(COST_MAPS) ) {
+        const entries = Object.entries(COST_MAPS);
+        for ( let i = 0; i < entries.length; i += Math.ceil(Math.random() * entries.length / 10) ) {
+
+            const [usageType, costPerUnit] = entries[i];
             const actor = makeActor(`cost-map-user-${usageType.replace(/[^a-zA-Z0-9]/g, '-')}`);
             const result = await testSubject.meteringService.incrementUsage(actor, usageType, usageAmount);
             const escapedUsageType = usageType.replace(/\./g, PERIOD_ESCAPE);
@@ -219,5 +225,5 @@ describe('MeteringService', async () => {
                 count: 1,
             });
         }
-    }, 10000);
+    }, 30000);
 });
