@@ -2,12 +2,12 @@ import murmurhash from 'murmurhash';
 import type { AlarmService } from '../../modules/core/AlarmService.js';
 import { SystemActorType, type Actor } from '../auth/Actor.js';
 import type { EventService } from '../EventService';
-import type { DBKVStore } from '../repositories/DBKVStore/DBKVStore';
 import type { SUService } from '../SUService.js';
 import { DEFAULT_FREE_SUBSCRIPTION, DEFAULT_TEMP_SUBSCRIPTION, GLOBAL_APP_KEY, METRICS_PREFIX, PERIOD_ESCAPE, POLICY_PREFIX } from './consts.js';
 import { COST_MAPS } from './costMaps/index.js';
 import { SUB_POLICIES } from './subPolicies/index.js';
 import { AppTotals, MeteringServiceDeps, UsageAddons, UsageByType, UsageRecord } from './types.js';
+import { DynamoKVStore } from '../repositories/DynamoKVStore/DynamoKVStore.js';
 /**
  * Handles usage metering and supports stubbs for billing methods for current scoped actor
  */
@@ -15,7 +15,7 @@ export class MeteringService {
 
     static GLOBAL_SHARD_COUNT = 1000; // number of global usage shards to spread writes across
     static APP_SHARD_COUNT = 100; // number of app usage shards to spread writes across
-    #kvStore: DBKVStore;
+    #kvStore: DynamoKVStore;
     #superUserService: SUService;
     #alarmService: AlarmService;
     #eventService: EventService;
@@ -416,7 +416,7 @@ export class MeteringService {
             if ( actorAppId && actorAppId !== appId && appId !== GLOBAL_APP_KEY ) {
                 throw new Error('Actor can only get usage details for their own app or global app');
             }
-            return usage || { total: 0 };
+            return usage || { total: 0 } as UsageByType;
         });
     }
 

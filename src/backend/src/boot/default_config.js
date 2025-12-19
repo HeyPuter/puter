@@ -31,6 +31,9 @@ module.exports = {
             engine: 'sqlite',
             path: 'puter-database.sqlite',
         },
+        dynamo: {
+            path: './puter-ddb',
+        },
         thumbnails: {
             engine: 'purejs',
         },

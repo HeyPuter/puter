@@ -18,6 +18,7 @@
  */
 import { SpanStatusCode, trace } from '@opentelemetry/api';
 import { getNodeAutoInstrumentations } from '@opentelemetry/auto-instrumentations-node';
+import { OTLPMetricExporter } from '@opentelemetry/exporter-metrics-otlp-grpc';
 import { OTLPTraceExporter } from '@opentelemetry/exporter-trace-otlp-grpc';
 import { Resource } from '@opentelemetry/resources';
 import { ConsoleMetricExporter, PeriodicExportingMetricReader } from '@opentelemetry/sdk-metrics';
@@ -26,7 +27,6 @@ import { ConsoleSpanExporter } from '@opentelemetry/sdk-trace-base';
 import { SemanticResourceAttributes } from '@opentelemetry/semantic-conventions';
 import config from '../../config.js';
 import BaseService from '../../services/BaseService.js';
-import { OTLPMetricExporter } from '@opentelemetry/exporter-metrics-otlp-grpc';
 
 export class TelemetryService extends BaseService {
     /** @type {import('@opentelemetry/api').Tracer} */

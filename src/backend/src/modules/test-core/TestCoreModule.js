@@ -12,21 +12,23 @@ import { FeatureFlagService } from '../../services/FeatureFlagService.js';
 import { GetUserService } from '../../services/GetUserService.js';
 import { InformationService } from '../../services/information/InformationService.js';
 import { MeteringServiceWrapper } from '../../services/MeteringService/MeteringServiceWrapper.mjs';
-import { NotificationService } from '../../services/NotificationService.js';
-import { RegistrantService } from '../../services/RegistrantService.js';
-import { RegistryService } from '../../services/RegistryService.js';
-import { DBKVServiceWrapper } from '../../services/repositories/DBKVStore/index.mjs';
-import { ScriptService } from '../../services/ScriptService.js';
-import { SessionService } from '../../services/SessionService.js';
-import { SUService } from '../../services/SUService.js';
-import { SystemValidationService } from '../../services/SystemValidationService.js';
-import { TraceService } from '../../services/TraceService.js';
-import { AlarmService } from '../core/AlarmService.js';
-import APIErrorService from '../web/APIErrorService.js';
+import { NotificationService } from '../../services/NotificationService';
+import { RegistrantService } from '../../services/RegistrantService';
+import { RegistryService } from '../../services/RegistryService';
+import { DDBClientWrapper } from '../../services/repositories/DDBClientWrapper.js';
+import { DynamoKVStoreWrapper } from '../../services/repositories/DynamoKVStore/DynamoKVStoreWrapper';
+import { ScriptService } from '../../services/ScriptService';
+import { SessionService } from '../../services/SessionService';
+import { SUService } from '../../services/SUService';
+import { SystemValidationService } from '../../services/SystemValidationService';
+import { TraceService } from '../../services/TraceService';
+import { AlarmService } from '../core/AlarmService';
+import APIErrorService from '../web/APIErrorService';
 
 export class TestCoreModule {
     async install (context) {
         const services = context.get('services');
+        services.registerService('dynamo', DDBClientWrapper);
         services.registerService('whoami', DetailProviderService);
         services.registerService('get-user', GetUserService);
         services.registerService('database', SqliteDatabaseAccessService);
@@ -36,7 +38,7 @@ export class TestCoreModule {
         services.registerService('event', EventService);
         services.registerService('commands', CommandService);
         services.registerService('meteringService', MeteringServiceWrapper);
-        services.registerService('puter-kvstore', DBKVServiceWrapper);
+        services.registerService('puter-kvstore', DynamoKVStoreWrapper);
         services.registerService('permission', PermissionService);
         services.registerService('group', GroupService);
         services.registerService('anomaly', AnomalyService);

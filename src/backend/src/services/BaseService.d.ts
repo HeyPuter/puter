@@ -1,5 +1,15 @@
+import { SqliteDatabaseAccessService } from './database/SqliteDatabaseAccessService';
+import type { MeteringService } from './MeteringService/MeteringService';
+import { MeteringServiceWrapper } from './MeteringService/MeteringServiceWrapper.mjs';
+import { DynamoKVStore } from './repositories/DynamoKVStore/DynamoKVStore';
+
 export interface ServiceResources {
-    services: { get (name: string): any };
+    services: {
+        get (name: 'meteringService'): MeteringServiceWrapper;
+        get (name: 'puter-kvstore'): DynamoKVStore;
+        get (name: 'database'): SqliteDatabaseAccessService
+        get (name: string): any
+    };
     config: Record<string, any> & { services?: Record<string, any>; server_id?: string };
     name?: string;
     args?: any;

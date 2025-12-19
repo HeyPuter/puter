@@ -12,6 +12,9 @@ describe('ClaudeProvider ', async () => {
             'database': {
                 path: ':memory:',
             },
+            'dynamo': {
+                path: ':memory:',
+            },
         },
     });
 
