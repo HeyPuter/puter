@@ -18,7 +18,7 @@
  */
 
 import { bench, describe } from 'vitest';
-const { CircularQueue } = require('./CircularQueue');
+import { CircularQueue } from './CircularQueue';
 
 /**
  * Naive array-based implementation for comparison (no Map optimization).
