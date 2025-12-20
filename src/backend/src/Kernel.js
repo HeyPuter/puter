@@ -516,12 +516,13 @@ class Kernel extends AdvancedBase {
                 const fullpath = path_.join(mod_path, directory);
                 const fsitems = fs.readdirSync(fullpath);
                 for ( const item of fsitems ) {
-                    if ( ! item.endsWith('.js') ) {
+                    if ( !item.endsWith('.js') && !item.endsWith('.cjs') && !item.endsWith('.mjs') ) {
                         continue;
                     }
-                    if ( item.endsWith('.test.js') ) {
+                    if ( item.endsWith('.test.js') || item.endsWith('.bench.js') ) {
                         continue;
                     }
+
                     const stat = fs.statSync(path_.join(fullpath, item));
                     if ( ! stat.isFile() ) {
                         continue;
