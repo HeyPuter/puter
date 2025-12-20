@@ -18,7 +18,7 @@
  */
 
 import { bench, describe } from 'vitest';
-const { RWLock } = require('./lockutil');
+import { RWLock } from './lockutil.js';
 
 describe('RWLock - Creation', () => {
     bench('create RWLock', () => {

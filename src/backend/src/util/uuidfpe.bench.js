@@ -17,9 +17,9 @@
  * along with this program.  If not, see <https://www.gnu.org/licenses/>.
  */
 
+import crypto from 'crypto';
 import { bench, describe } from 'vitest';
-const { UUIDFPE } = require('./uuidfpe');
-const crypto = require('crypto');
+import { UUIDFPE } from './uuidfpe.js';
 
 // Test data
 const testKey = Buffer.from('0123456789abcdef'); // 16-byte key

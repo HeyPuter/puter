@@ -18,7 +18,7 @@
  */
 
 import { bench, describe } from 'vitest';
-const { PathBuilder } = require('./pathutil');
+import { PathBuilder } from './pathutil.js';
 
 describe('PathBuilder - Creation', () => {
     bench('create PathBuilder (default)', () => {

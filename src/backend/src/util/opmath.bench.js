@@ -18,7 +18,7 @@
  */
 
 import { bench, describe } from 'vitest';
-const { EWMA, MovingMode, TimeWindow, normalize } = require('./opmath');
+import { EWMA, MovingMode, TimeWindow, normalize } from './opmath.js';
 
 describe('EWMA - Exponential Weighted Moving Average', () => {
     bench('EWMA put() with constant alpha', () => {

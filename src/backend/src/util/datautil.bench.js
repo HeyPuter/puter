@@ -18,7 +18,7 @@
  */
 
 import { bench, describe } from 'vitest';
-const { stringify_serializable_object, hash_serializable_object } = require('./datautil');
+import { hash_serializable_object, stringify_serializable_object } from './datautil.js';
 
 // Test data generators
 const createFlatObject = (size) => {

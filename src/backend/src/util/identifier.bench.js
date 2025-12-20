@@ -18,7 +18,7 @@
  */
 
 import { bench, describe } from 'vitest';
-const { generate_identifier, generate_random_code } = require('./identifier');
+import { generate_identifier, generate_random_code } from './identifier.js';
 
 describe('generate_identifier - Basic generation', () => {
     bench('generate single identifier (default separator)', () => {
