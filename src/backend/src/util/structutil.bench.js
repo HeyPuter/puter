@@ -18,7 +18,7 @@
  */
 
 import { bench, describe } from 'vitest';
-const { cart_product, apply_keys } = require('./structutil');
+import { apply_keys, cart_product } from './structutil.js';
 
 describe('cart_product - Small inputs', () => {
     bench('2 keys, 2 values each', () => {

@@ -18,7 +18,7 @@
  */
 
 import { bench, describe } from 'vitest';
-import { CircularQueue } from './CircularQueue';
+import { CircularQueue } from './CircularQueue.js';
 
 /**
  * Naive array-based implementation for comparison (no Map optimization).

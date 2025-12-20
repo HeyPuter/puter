@@ -18,7 +18,7 @@
  */
 
 import { bench, describe } from 'vitest';
-import { Context } from './context';
+import { Context } from './context.js';
 
 describe('Context - Creation', () => {
     bench('create empty context', () => {
