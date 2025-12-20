@@ -24,7 +24,7 @@
  * Items expire when they are evicted from the queue (when the queue is full
  * and a new item is pushed).
  */
-class CircularQueue {
+export class CircularQueue {
     /**
      * Creates a new CircularQueue instance with the specified size.
      *
@@ -87,7 +87,3 @@ class CircularQueue {
         return false;
     }
 }
-
-module.exports = {
-    CircularQueue,
-};
