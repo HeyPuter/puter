@@ -2664,6 +2664,21 @@ label {
     position: relative;
 }
 
+.embedded-in-popup .captcha-modal .modal-content {
+    max-width: 100%;
+    width: 100%;
+    height: 100%;
+    border-radius: 0;
+    box-shadow: none;
+    border: none;
+    margin: 0;
+    position: fixed;
+    top: 0;
+    left: 0;
+    right: 0;
+    bottom: 0;
+}
+
 .captcha-modal .captcha-logo {
     width: 40px; 
     height: 40px; 
