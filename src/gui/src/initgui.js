@@ -175,7 +175,7 @@ window.showTurnstileChallenge = function (options) {
         // message
         let message = 'Setting up your account...';
         if ( window.embedded_in_popup ) {
-            message = 'Setting up your <a href="https://puter.com" target="_blank">Puter.com</a> account for secure AI and Cloud features...';
+            message = 'Setting up your <a href="https://puter.com" target="_blank">Puter.com</a> account...';
         }
         // Create modal HTML
         let modalHtml = `
