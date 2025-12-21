@@ -2653,6 +2653,17 @@ label {
     font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
 }
 
+.embedded-in-popup .captcha-modal {
+    max-width: 100%;
+    width: 100%;
+    height: 100%;
+    border-radius: 0;
+    box-shadow: none;
+    border: none;
+    padding: 0;
+    margin: 0;
+}
+
 .captcha-modal .modal-content {
     background-color: white;
     padding: 30px;
@@ -2671,12 +2682,13 @@ label {
     border-radius: 0;
     box-shadow: none;
     border: none;
+    padding: 0;
     margin: 0;
-    position: fixed;
-    top: 0;
-    left: 0;
-    right: 0;
-    bottom: 0;
+    position: absolute;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
 }
 
 .captcha-modal .captcha-logo {

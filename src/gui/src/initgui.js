@@ -172,6 +172,11 @@ window.showTurnstileChallenge = function (options) {
             return resolve();
         }
 
+        // message
+        let message = 'Setting up your account...';
+        if ( window.embedded_in_popup ) {
+            message = 'Setting up your <a href="https://puter.com" target="_blank">Puter.com</a> account for secure AI and Cloud features...';
+        }
         // Create modal HTML
         let modalHtml = `
             <div id="${modalId}" class="captcha-modal">
@@ -187,7 +192,7 @@ window.showTurnstileChallenge = function (options) {
                     
                     <div class="loading-state">
                         <div class="loading-state-icon"></div>
-                        Setting up your account...
+                        ${message}
                     </div>
                     
                     <div class="error-message"></div>
