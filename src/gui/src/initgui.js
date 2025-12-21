@@ -997,10 +997,6 @@ window.initgui = async function (options) {
         const createTempUser = (turnstileToken) => {
             // if this is a popup, show a spinner
             let spinner_init_ts = Date.now();
-            if ( window.embedded_in_popup ) {
-                puter.ui.showSpinner('<span style="-webkit-font-smoothing: antialiased;">Setting up your <a href="https://puter.com" target="_blank">Puter.com</a> account for secure AI and Cloud features</span>');
-            }
-
             const requestData = {
                 referrer: referrer,
                 referral_code: window.referral_code,
@@ -1074,7 +1070,6 @@ window.initgui = async function (options) {
                             await window.sleep(2000 - spinner_duration);
                             resolve();
                         }
-                        puter.ui.hideSpinner();
                     });
                     /*eslint-enable*/
 
