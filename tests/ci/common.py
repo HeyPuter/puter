@@ -30,7 +30,7 @@ def get_admin_password() -> str:
     """
     Get the admin password from the backend server, throw an error if not found.
     """
-    for attempt in range(90):  # wait up to 60 seconds (1 minute)
+    for attempt in range(120):  # wait up to 60 seconds (1 minute)
         time.sleep(1)
         
         # read the log file
@@ -43,7 +43,7 @@ def get_admin_password() -> str:
                 print(f"Extracted admin password: {admin_password}")
                 return admin_password
     
-    raise RuntimeError(f"no admin password found after 60 seconds, check {LOG_PATH} for details")
+    raise RuntimeError(f"no admin password found after 120 seconds")
 
 
 def get_token(admin_password: str) -> str:

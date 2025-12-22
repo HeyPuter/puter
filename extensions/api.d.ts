@@ -14,6 +14,7 @@ import type { RequestHandler } from 'express';
 import type FSNodeContext from '../src/backend/src/filesystem/FSNodeContext.js';
 import type helpers from '../src/backend/src/helpers.js';
 import type * as ExtensionControllerExports from './ExtensionController/src/ExtensionController.ts';
+import kvjs from '@heyputer/kv.js';
 declare global {
     namespace Express {
         interface Request {
@@ -96,7 +97,7 @@ interface Extension extends RouterMethods {
     on(event: 'create.drivers', listener: (event: { createDriver: (interface: string, service: string, executors: any) => any }) => void),
     on(event: 'create.permissions', listener: (event: { grant_to_everyone: (permission: string) => void, grant_to_users: (permission: string) => void }) => void)
     on(event: 'create.interfaces', listener: (event: { createInterface: (interface: string, interfaces: DriverInterface) => void }) => void)
-    import(module: 'data'): { db: BaseDatabaseAccessService, kv: DynamoKVStore, cache: unknown } // TODO DS: type cache better
+    import(module: 'data'): { db: BaseDatabaseAccessService, kv: DynamoKVStore, cache: kvjs }
     import(module: 'core'): CoreRuntimeModule,
     import(module: 'fs'): FilesystemModule,
     import(module: 'query'): typeof query,
