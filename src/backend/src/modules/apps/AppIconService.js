@@ -79,6 +79,7 @@ class AppIconService extends BaseService {
                 } = await this.get_icon_stream({ app_uid, size });
 
                 res.set('Content-Type', mime);
+                res.set('Cache-Control', 'public, max-age=3600');
                 stream.pipe(res);
             },
         }).attach(app);
