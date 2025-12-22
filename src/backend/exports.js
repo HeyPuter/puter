@@ -27,6 +27,7 @@ import { AppsModule } from './src/modules/apps/AppsModule.js';
 import { BroadcastModule } from './src/modules/broadcast/BroadcastModule.js';
 import { CaptchaModule } from './src/modules/captcha/CaptchaModule.js';
 import { Core2Module } from './src/modules/core/Core2Module.js';
+import { DataAccessModule } from './src/modules/data-access/DataAccessModule.js';
 import { DevelopmentModule } from './src/modules/development/DevelopmentModule.js';
 import { DNSModule } from './src/modules/dns/DNSModule.js';
 import { DomainModule } from './src/modules/domain/DomainModule.js';
@@ -85,6 +86,7 @@ export default {
     KVStoreModule,
     DNSModule,
     DomainModule,
+    DataAccessModule,
 
     // Development modules
     PerfMonModule,

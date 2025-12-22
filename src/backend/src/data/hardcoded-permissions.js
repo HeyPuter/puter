@@ -112,6 +112,7 @@ const hardcoded_user_group_permissions = {
             'service:puter-notifications:ii:crud-q': policy_perm('temp.es'),
             'service:puter-apps:ii:crud-q': policy_perm('temp.es'),
             'service:puter-subdomains:ii:crud-q': policy_perm('temp.es'),
+            'service:apps:ii:crud-q': policy_perm('temp.es'),
             'service:es\\Cnotification:ii:crud-q': policy_perm('user.es'),
             'service:es\\Capp:ii:crud-q': policy_perm('user.es'),
             'service:es\\Csubdomain:ii:crud-q': policy_perm('user.es'),
@@ -123,6 +124,7 @@ const hardcoded_user_group_permissions = {
             'service:es\\Cnotification:ii:crud-q': policy_perm('user.es'),
             'service:es\\Capp:ii:crud-q': policy_perm('user.es'),
             'service:es\\Csubdomain:ii:crud-q': policy_perm('user.es'),
+            'service:apps:ii:crud-q': policy_perm('user.es'),
         },
     },
 };

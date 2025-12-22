@@ -99,6 +99,7 @@ const main = async () => {
         DevelopmentModule,
         DNSModule,
         PerfMonModule,
+        DataAccessModule,
     } = (await import('@heyputer/backend')).default;
 
     const k = new Kernel({
@@ -121,6 +122,7 @@ const main = async () => {
     if ( process.env.UNSAFE_PUTER_DEV ) {
         k.add_module(new DevelopmentModule());
     }
+    k.add_module(new DataAccessModule());
     k.boot();
 };
 
