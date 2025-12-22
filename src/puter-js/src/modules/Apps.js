@@ -79,7 +79,7 @@ class Apps {
 
         options.predicate = ['user-can-edit'];
 
-        return this.#addUserIterationToApps(await utils.make_driver_method(['uid'], 'puter-apps', undefined, 'select').call(this, options));
+        return this.#addUserIterationToApps(await utils.make_driver_method(['uid'], 'puter-apps', 'es:app', 'select').call(this, options));
     };
 
     create = async (...args) => {
@@ -143,7 +143,7 @@ class Apps {
         }
 
         // Call the original chat.complete method
-        return this.#addUserIterationToApp(await utils.make_driver_method(['object'], 'puter-apps', undefined, 'create').call(this, options));
+        return this.#addUserIterationToApp(await utils.make_driver_method(['object'], 'puter-apps', 'es:app', 'create').call(this, options));
     };
 
     update = async (...args) => {
@@ -169,7 +169,7 @@ class Apps {
         }
 
         // Call the original chat.complete method
-        return this.#addUserIterationToApp(await utils.make_driver_method(['object'], 'puter-apps', undefined, 'update').call(this, options));
+        return this.#addUserIterationToApp(await utils.make_driver_method(['object'], 'puter-apps', 'es:app', 'update').call(this, options));
     };
 
     get = async (...args) => {
@@ -190,7 +190,7 @@ class Apps {
         if ( typeof args[0] === 'object' && args[0] !== null ) {
             options.params = args[0];
         }
-        return this.#addUserIterationToApp(await utils.make_driver_method(['uid'], 'puter-apps', undefined, 'read').call(this, options));
+        return this.#addUserIterationToApp(await utils.make_driver_method(['uid'], 'puter-apps', 'es:app', 'read').call(this, options));
     };
 
     delete = async (...args) => {
@@ -200,7 +200,7 @@ class Apps {
         if ( Array.isArray(args) && typeof args[0] === 'string' ) {
             options = { id: { name: args[0] } };
         }
-        return utils.make_driver_method(['uid'], 'puter-apps', undefined, 'delete').call(this, options);
+        return utils.make_driver_method(['uid'], 'puter-apps', 'es:app', 'delete').call(this, options);
     };
 
     getDeveloperProfile = function (...args) {
