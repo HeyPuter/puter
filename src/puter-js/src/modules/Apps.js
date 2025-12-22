@@ -16,31 +16,31 @@ class Apps {
         this.appID = puter.appID;
     }
 
-    #addUserIterationToApp(app) {
+    #addUserIterationToApp (app) {
         app.getUsers = async (params) => {
             params = params ?? {};
             return (await puter.drivers.call('app-telemetry', 'app-telemetry', 'get_users', { app_uuid: app.uid, limit: params.limit, offset: params.offset })).result;
-        }
+        };
         app.users = async function* (pageSize = 100) {
             let offset = 0;
 
-            while (true) {
+            while ( true ) {
                 const users = await app.getUsers({ limit: pageSize, offset });
 
-                if (!users || users.length === 0) return;
+                if ( !users || users.length === 0 ) return;
 
-                for (const user of users) {
+                for ( const user of users ) {
                     yield user;
                 }
 
                 offset += users.length;
-                if (users.length < pageSize) return;
+                if ( users.length < pageSize ) return;
             }
-        }
+        };
         return app;
     }
 
-    #addUserIterationToApps(apps) {
+    #addUserIterationToApps (apps) {
         apps.forEach(app => {
             this.#addUserIterationToApp(app);
         });
