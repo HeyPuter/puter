@@ -3,6 +3,8 @@ import { DB_READ } from '../../services/database/consts.js';
 import { Context } from '../../util/context.js';
 import AppRepository from './AppRepository.js';
 import { as_bool } from './lib/coercion.js';
+import { user_to_client } from './lib/filter.js';
+import { extract_from_prefix } from './lib/sqlutil.js';
 
 /**
  * AppService contains an instance using the repository pattern
@@ -43,7 +45,13 @@ export default class AppService extends BaseService {
 
         const userCanEditOnly = Array.prototype.includes.call(predicate, 'user-can-edit');
 
-        const stmt = `SELECT * FROM apps ${userCanEditOnly ? 'WHERE owner_user_id=?' : ''} LIMIT 5000`;
+        const stmt = 'SELECT *, ' +
+            'owner_user.username AS owner_user_username, ' +
+            'owner_user.uuid AS owner_user_uuid ' +
+            'FROM apps ' +
+            'LEFT JOIN user owner_user ON owner_user_id = owner_user.id ' +
+            `${userCanEditOnly ? 'WHERE owner_user_id=?' : ''} ` +
+            'LIMIT 5000';
         const values = userCanEditOnly ? [Context.get('user').id] : [];
         const rows = await db.read(stmt, values);
 
@@ -74,6 +82,11 @@ export default class AppService extends BaseService {
             // app.app_owner;
             // app.filetype_associations = row.filetype_associations;
             // app.owner = row.owner;
+
+            {
+                const owner_user = extract_from_prefix(row, 'owner_user_');
+                app.owner_user = user_to_client(owner_user);
+            }
 
             // REFINED BY OTHER DATA
             // app.icon;
