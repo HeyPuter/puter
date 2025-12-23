@@ -2,6 +2,7 @@ import BaseService from '../../services/BaseService.js';
 import { DB_READ } from '../../services/database/consts.js';
 import { Context } from '../../util/context.js';
 import AppRepository from './AppRepository.js';
+import { as_bool } from './lib/coercion.js';
 
 /**
  * AppService contains an instance using the repository pattern
@@ -51,20 +52,20 @@ export default class AppService extends BaseService {
             const app = {};
 
             // FROM ROW
-            app.approved_for_incentive_program = row.approved_for_incentive_program;
-            app.approved_for_listing = row.approved_for_listing;
-            app.approved_for_opening_items = row.approved_for_opening_items;
-            app.background = row.background;
+            app.approved_for_incentive_program = as_bool(row.approved_for_incentive_program);
+            app.approved_for_listing = as_bool(row.approved_for_listing);
+            app.approved_for_opening_items = as_bool(row.approved_for_opening_items);
+            app.background = as_bool(row.background);
             app.created_at = row.created_at;
             app.created_from_origin = row.created_from_origin;
             app.description = row.description;
-            app.godmode = row.godmode;
+            app.godmode = as_bool(row.godmode);
             app.icon = row.icon;
             app.index_url = row.index_url;
-            app.maximize_on_start = row.maximize_on_start;
+            app.maximize_on_start = as_bool(row.maximize_on_start);
             app.metadata = row.metadata;
             app.name = row.name;
-            app.protected = row.protected;
+            app.protected = as_bool(row.protected);
             app.stats = row.stats;
             app.title = row.title;
             app.uid = row.uid;
