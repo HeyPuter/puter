@@ -1,3 +1,5 @@
+import { RequestCallbacks } from "../shared";
+
 export interface User {
     uuid: string;
     username: string;
@@ -55,7 +57,7 @@ export class Auth {
     signIn (options?: { attempt_temp_user_creation?: boolean }): Promise<SignInResult>;
     signOut (): void;
     isSignedIn (): boolean;
-    getUser (): Promise<User>;
+    getUser (options:? RequestCallbacks<User>): Promise<User>;
     whoami (): Promise<User>;
     getMonthlyUsage (): Promise<MonthlyUsage>;
     getDetailedAppUsage (appId: string): Promise<DetailedAppUsage>;
