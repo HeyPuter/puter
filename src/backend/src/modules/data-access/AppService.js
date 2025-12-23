@@ -45,12 +45,14 @@ export default class AppService extends BaseService {
 
         const userCanEditOnly = Array.prototype.includes.call(predicate, 'user-can-edit');
 
-        const stmt = 'SELECT *, ' +
+        const stmt = 'SELECT apps.*, ' +
             'owner_user.username AS owner_user_username, ' +
-            'owner_user.uuid AS owner_user_uuid ' +
+            'owner_user.uuid AS owner_user_uuid, ' +
+            'app_owner.uid AS app_owner_uid ' +
             'FROM apps ' +
-            'LEFT JOIN user owner_user ON owner_user_id = owner_user.id ' +
-            `${userCanEditOnly ? 'WHERE owner_user_id=?' : ''} ` +
+            'LEFT JOIN user owner_user ON apps.owner_user_id = owner_user.id ' +
+            'LEFT JOIN apps app_owner ON apps.app_owner = app_owner.id ' +
+            `${userCanEditOnly ? 'WHERE apps.owner_user_id=?' : ''} ` +
             'LIMIT 5000';
         const values = userCanEditOnly ? [Context.get('user').id] : [];
         const rows = await db.read(stmt, values);
@@ -82,6 +84,10 @@ export default class AppService extends BaseService {
             // app.app_owner;
             // app.filetype_associations = row.filetype_associations;
             // app.owner = row.owner;
+
+            app.app_owner = {
+                uid: row.app_owner_uid,
+            };
 
             {
                 const owner_user = extract_from_prefix(row, 'owner_user_');
