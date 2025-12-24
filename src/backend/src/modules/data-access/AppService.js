@@ -38,9 +38,11 @@ export default class AppService extends BaseService {
         },
     };
 
-    async #select ({ predicate, ...rest }) {
+    async #select ({ predicate, params, ...rest }) {
         const db = this.db;
 
+        if ( predicate === undefined ) predicate = [];
+        if ( params === undefined ) params = {};
         if ( ! Array.isArray(predicate) ) throw new Error('predicate must be an array');
 
         const userCanEditOnly = Array.prototype.includes.call(predicate, 'user-can-edit');
@@ -122,6 +124,22 @@ export default class AppService extends BaseService {
 
             // REFINED BY OTHER DATA
             // app.icon;
+            if ( params.icon_size ) {
+                const icon_size = params.icon_size;
+                const svc_appIcon = this.context.get('services').get('app-icon');
+                try {
+                    const icon_result = await svc_appIcon.get_icon_stream({
+                        app_uid: row.uid,
+                        app_icon: row.icon,
+                        size: icon_size,
+                    });
+                    console.log('this is working it looks like');
+                    app.icon = await icon_result.get_data_url();
+                } catch (e) {
+                    const svc_error = this.context.get('services').get('error-service');
+                    svc_error.report('AppES:read_transform', { source: e });
+                }
+            }
 
             client_safe_apps.push(app);
         }
