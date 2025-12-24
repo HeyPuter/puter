@@ -16,20 +16,17 @@
  * You should have received a copy of the GNU Affero General Public License
  * along with this program.  If not, see <https://www.gnu.org/licenses/>.
  */
-const { PathBuilder } = require('../util/pathutil');
-const BaseService = require('./BaseService');
-const { is_valid_url } = require('../helpers');
-const { Endpoint } = require('../util/expressutil');
-const { Context } = require('../util/context');
-
+import { encode } from 'html-entities';
+import { is_valid_url } from '../helpers.js';
+import { Endpoint } from '../util/expressutil.js';
+import { PathBuilder } from '../util/pathutil.js';
+import BaseService from './BaseService.js';
+import fs from 'node:fs';
 /**
  * PuterHomepageService serves the initial HTML page that loads the Puter GUI
  * and all of its assets.
  */
-class PuterHomepageService extends BaseService {
-    static MODULES = {
-        fs: require('node:fs'),
-    };
+export class PuterHomepageService extends BaseService {
 
     _construct () {
         this.service_scripts = [];
@@ -45,7 +42,7 @@ class PuterHomepageService extends BaseService {
     async _init () {
         // Load manifest
         const config = this.global_config;
-        const manifest_raw = this.modules.fs.readFileSync(PathBuilder
+        const manifest_raw = fs.readFileSync(PathBuilder
             .add(config.assets.gui, { allow_traversal: true })
             .add('puter-gui.json')
             .build(),
@@ -122,7 +119,7 @@ class PuterHomepageService extends BaseService {
         // cloudflare turnstile site key
         const turnstileSiteKey = config.services?.['cloudflare-turnstile']?.enabled ? config.services?.['cloudflare-turnstile']?.site_key : null;
 
-        return res.send(this.generate_puter_page_html({
+        return res.send(await this.generate_puter_page_html({
             env: config.env,
 
             app_origin: config.origin,
@@ -144,7 +141,7 @@ class PuterHomepageService extends BaseService {
                 app_name_max_length: config.app_name_max_length,
                 app_title_max_length: config.app_title_max_length,
                 hosting_domain: config.static_hosting_domain +
-                    (config.pub_port !== 80 && config.pub_port !== 443 ? `:${ config.pub_port}` : ''),
+                    (config.pub_port !== 80 && config.pub_port !== 443 ? `:${config.pub_port}` : ''),
                 subdomain_regex: config.subdomain_regex,
                 subdomain_max_length: config.subdomain_max_length,
                 domain: config.domain,
@@ -167,23 +164,19 @@ class PuterHomepageService extends BaseService {
         }));
     }
 
-    generate_puter_page_html ({
+    async generate_puter_page_html ({
         env,
-
         manifest,
-        gui_path,
+        gui_path: _gui_path,
         use_bundled_gui,
-
         app_origin,
         api_origin,
-
         meta,
         launch_options,
-
         gui_params,
     }) {
-        const require = this.require;
-        const { encode } = require('html-entities');
+
+        const eventService = this.services.get('event');
 
         const e = encode;
 
@@ -207,7 +200,7 @@ class PuterHomepageService extends BaseService {
         };
 
         const asset_dir = env === 'dev'
-            ? '/src' : '/dist' ;
+            ? '/src' : '/dist';
 
         gui_params.asset_dir = asset_dir;
 
@@ -239,11 +232,21 @@ class PuterHomepageService extends BaseService {
             custom_script_tags_str += tag;
         }
 
+        // emit extension event
+        const event = {
+            bodyContent: '',
+            headContent: '',
+            guiParams: {
+                ...gui_params,
+            },
+        };
+        await eventService.emit('puter.gui.addons', event);
         return `<!DOCTYPE html>
     <html lang="en">
 
     <head>
         <title>${e(title)}</title>
+        
         <meta name="author" content="${e(company)}">
         <meta name="description" content="${e((description).replace(/\n/g, ' ').trim())}">
         <meta name="facebook-domain-verification" content="e29w3hjbnnnypf4kzk2cewcdaxym1y" />
@@ -323,21 +326,27 @@ class PuterHomepageService extends BaseService {
         </script>
 
         <!-- Files from JSON (may be empty) -->
-        ${
-            ((!bundled && manifest?.css_paths)
+        ${((!bundled && manifest?.css_paths)
                 ? manifest.css_paths.map(path => `<link rel="stylesheet" href="${path}">\n`)
                 : []).join('')
         }
         <!-- END Files from JSON -->
+
+        <!-- Custom header content to be added tthe homepage by extensions -->
+        ${event.headContent || ''}
+        <!-- END Custom header -->
     </head>
 
     <body>
+    
+        <!-- Custom body content to be added to the homepage by extensions -->
+        ${event.bodyContent || ''}
+        <!-- END Custom body content -->
+
         <script>window.puter_gui_enabled = true;</script>
-        ${
-            custom_script_tags_str
+        ${custom_script_tags_str
         }
-        ${
-            use_bundled_gui
+        ${use_bundled_gui
                 ? '<script>window.gui_env = \'prod\';</script>'
                 : ''
         }
@@ -369,19 +378,18 @@ class PuterHomepageService extends BaseService {
         });
         </script>
         <!-- Initialize Service Scripts -->
-        ${
-            this.service_scripts
+        ${this.service_scripts
                 .map(path => `<script type="module" src="${path}"></script>\n`)
                 .join('')
         }
         <div id="templates" style="display: none;"></div>
+        
     </body>
 
     </html>`;
     };
 
     generate_error_html ({ message }) {
-        const { encode } = require('html-entities');
         return `
             <!DOCTYPE html>
             <html>
@@ -407,15 +415,10 @@ class PuterHomepageService extends BaseService {
                     </style>
                 </head>
                 <body>
-                    <h1>${
-                        encode(message, { mode: 'nonAsciiPrintable' })
+                    <h1>${encode(message, { mode: 'nonAsciiPrintable' })
                     }</h1>
                 </body>
             </html>
         `;
     }
 }
-
-module.exports = {
-    PuterHomepageService,
-};

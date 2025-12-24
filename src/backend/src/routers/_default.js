@@ -329,6 +329,7 @@ router.all('*', async function (req, res, next) {
         // GUI
         // ------------------------
         else {
+            let app;
             let canonical_url = config.origin + path;
             let app_name, app_title, app_description, app_icon, app_social_media_image;
             let launch_options = {
@@ -353,7 +354,7 @@ router.all('*', async function (req, res, next) {
             // /app/
             else if ( path.startsWith('/app/') ) {
                 app_name = path.replace('/app/', '');
-                const app = await get_app({
+                app = await get_app({
                     follow_old_names: true,
                     name: app_name,
                 });
@@ -388,14 +389,6 @@ router.all('*', async function (req, res, next) {
                 path = '/';
             }
 
-            const manifest =
-                _fs.existsSync(_path.join(config.assets.gui, 'puter-gui.json'))
-                    ? (() => {
-                        const text = _fs.readFileSync(_path.join(config.assets.gui, 'puter-gui.json'), 'utf8');
-                        return JSON.parse(text);
-                    })()
-                    : {};
-
             // index.js
             if ( path === '/' ) {
                 const svc_puterHomepage = Context.get('services').get('puter-homepage');
@@ -407,6 +400,7 @@ router.all('*', async function (req, res, next) {
                     company: 'Puter Technologies Inc.',
                     canonical_url: canonical_url,
                     icon: app_icon,
+                    app: app,
                 }, launch_options);
             }
 
