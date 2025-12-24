@@ -97,6 +97,29 @@ interface Extension extends RouterMethods {
     on(event: 'create.drivers', listener: (event: { createDriver: (interface: string, service: string, executors: any) => any }) => void),
     on(event: 'create.permissions', listener: (event: { grant_to_everyone: (permission: string) => void, grant_to_users: (permission: string) => void }) => void)
     on(event: 'create.interfaces', listener: (event: { createInterface: (interface: string, interfaces: DriverInterface) => void }) => void)
+    on(event: 'puter.gui.addons', listener: (event: {
+        divTagContent: string,
+        scriptTagContent: string,
+        headMetaTags: string,
+        guiParams: {
+            env: string,
+            app_origin: string,
+            api_origin: string,
+            gui_origin: string,
+            asset_dir: string,
+            launch_options: unknown,
+            app_name_regex: RegExp,
+            app_name_max_length: number,
+            app_title_max_length: number,
+            hosting_domain: string,
+            subdomain_regex: RegExp,
+            subdomain_max_length: number,
+            domain: string,
+            protocol: string,
+            api_base_url: string,
+            app?: unknown,
+            [key: string]: unknown,
+        } }) => void)
     import(module: 'data'): { db: BaseDatabaseAccessService, kv: DynamoKVStore, cache: kvjs }
     import(module: 'core'): CoreRuntimeModule,
     import(module: 'fs'): FilesystemModule,

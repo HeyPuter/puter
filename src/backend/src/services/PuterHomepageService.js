@@ -17,10 +17,10 @@
  * along with this program.  If not, see <https://www.gnu.org/licenses/>.
  */
 import { encode } from 'html-entities';
-import { is_valid_url } from '../helpers';
-import { Endpoint } from '../util/expressutil';
-import { PathBuilder } from '../util/pathutil';
-import BaseService from './BaseService';
+import { is_valid_url } from '../helpers.js';
+import { Endpoint } from '../util/expressutil.js';
+import { PathBuilder } from '../util/pathutil.js';
+import BaseService from './BaseService.js';
 import fs from 'node:fs';
 /**
  * PuterHomepageService serves the initial HTML page that loads the Puter GUI
@@ -237,11 +237,11 @@ export class PuterHomepageService extends BaseService {
             divTagContent: '',
             scriptTagContent: '',
             headMetaTags: '',
-            gui_params: {
+            guiParams: {
                 ...gui_params,
             },
         };
-        await eventService.emit('puter.gui.addons', {});
+        await eventService.emit('puter.gui.addons', event);
         return `<!DOCTYPE html>
     <html lang="en">
 
@@ -338,7 +338,7 @@ export class PuterHomepageService extends BaseService {
         <!-- END Files from JSON -->
 
         <!-- Custom script tags to be added to the homepage by extensions -->
-        <script id="puter-gui-script-extension">${event.scriptTagContent || ''} </script>
+        <script id="puter-gui-script-extension">${event.scriptTagContent || ''}</script>
         <!-- END Custom script tags -->
     </head>
 
@@ -383,9 +383,8 @@ export class PuterHomepageService extends BaseService {
                 .join('')
         }
         <div id="templates" style="display: none;"></div>
-        <div id="puter-gui-extension" style="display: none;">
-            ${event.divTagContent || ''}
-        </div>
+        ${event.divTagContent ? `<div id="puter-gui-extension">${event.divTagContent}</div>` : ''}
+        
     </body>
 
     </html>`;
