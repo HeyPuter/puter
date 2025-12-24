@@ -45,14 +45,22 @@ export default class AppService extends BaseService {
 
         const userCanEditOnly = Array.prototype.includes.call(predicate, 'user-can-edit');
 
+        const sql_associatedFiletypes = this.db.case({
+            mysql: 'COALESCE(JSON_ARRAYAGG(afa.type), JSON_ARRAY())',
+            sqlite: "COALESCE(json_group_array(afa.type), json('[]'))",
+        });
+
         const stmt = 'SELECT apps.*, ' +
             'owner_user.username AS owner_user_username, ' +
             'owner_user.uuid AS owner_user_uuid, ' +
-            'app_owner.uid AS app_owner_uid ' +
+            'app_owner.uid AS app_owner_uid, ' +
+            `${sql_associatedFiletypes} AS filetypes ` +
             'FROM apps ' +
             'LEFT JOIN user owner_user ON apps.owner_user_id = owner_user.id ' +
             'LEFT JOIN apps app_owner ON apps.app_owner = app_owner.id ' +
+            'LEFT JOIN app_filetype_association afa ON apps.id = afa.app_id ' +
             `${userCanEditOnly ? 'WHERE apps.owner_user_id=?' : ''} ` +
+            'GROUP BY apps.id ' +
             'LIMIT 5000';
         const values = userCanEditOnly ? [Context.get('user').id] : [];
         const rows = await db.read(stmt, values);
@@ -92,6 +100,24 @@ export default class AppService extends BaseService {
             {
                 const owner_user = extract_from_prefix(row, 'owner_user_');
                 app.owner_user = user_to_client(owner_user);
+            }
+
+            if ( typeof row.filetypes === 'string' ) {
+                try {
+                    const filetypesAsJSON = JSON.parse(row.filetypes);
+                    for ( let i = 0 ; i < filetypesAsJSON.length ; i++ ) {
+                        if ( filetypesAsJSON[i] === null ) continue;
+                        if ( typeof filetypesAsJSON[i] !== 'string' ) {
+                            throw new Error(`expected filetypesAsJSON[${i}] to be a string, got: ${filetypesAsJSON[i]}`);
+                        }
+                        if ( String.prototype.startsWith.call(filetypesAsJSON[i], '.') ) {
+                            filetypesAsJSON[i] = filetypesAsJSON[i].slice(1);
+                        }
+                    }
+                    app.filetype_associations = filetypesAsJSON;
+                } catch (e) {
+                    throw new Error(`failed to get app filetype associations: ${e.message}`, { cause: e });
+                }
             }
 
             // REFINED BY OTHER DATA
