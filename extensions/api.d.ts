@@ -111,9 +111,8 @@ export interface ExtensionEventTypeMap {
         createInterface: (interface: string, interfaces: DriverInterface) => void;
     };
     'puter.gui.addons': {
-        divTagContent: string;
-        scriptTagContent: string;
-        headMetaTags: string;
+        bodyContent: string;
+        headContent: string;
         guiParams: {
             env: string;
             app_origin: string;
@@ -143,14 +142,12 @@ interface Extension extends RouterMethods {
         run<T>(fn: () => T): T;
     };
     config: Record<string | number | symbol, any>;
-    on<T extends unknown[]>(
-        event: string,
-        listener: (...args: T) => void | Promise<void>
-    ); // TODO DS: type events better
+
     on<E extends keyof ExtensionEventTypeMap>(
-        event: E,
+        name: E,
         listener: (event: ExtensionEventTypeMap[E]) => void | Promise<void>
-    );
+    ): void;
+    on(name: string, listener: (event: unknown) => void | Promise<void>): void
 
     import(module: 'data'): {
         db: BaseDatabaseAccessService;
