@@ -234,9 +234,8 @@ export class PuterHomepageService extends BaseService {
 
         // emit extension event
         const event = {
-            divTagContent: '',
-            scriptTagContent: '',
-            headMetaTags: '',
+            bodyContent: '',
+            headContent: '',
             guiParams: {
                 ...gui_params,
             },
@@ -248,10 +247,6 @@ export class PuterHomepageService extends BaseService {
     <head>
         <title>${e(title)}</title>
         
-        <!-- Additional meta tags from extensions -->
-        ${event.headMetaTags || ''}
-        <!-- END Additional meta tags -->
-
         <meta name="author" content="${e(company)}">
         <meta name="description" content="${e((description).replace(/\n/g, ' ').trim())}">
         <meta name="facebook-domain-verification" content="e29w3hjbnnnypf4kzk2cewcdaxym1y" />
@@ -337,12 +332,17 @@ export class PuterHomepageService extends BaseService {
         }
         <!-- END Files from JSON -->
 
-        <!-- Custom script tags to be added to the homepage by extensions -->
-        <script id="puter-gui-script-extension">${event.scriptTagContent || ''}</script>
-        <!-- END Custom script tags -->
+        <!-- Custom header content to be added tthe homepage by extensions -->
+        ${event.headContent || ''}
+        <!-- END Custom header -->
     </head>
 
     <body>
+    
+        <!-- Custom body content to be added to the homepage by extensions -->
+        ${event.bodyContent || ''}
+        <!-- END Custom body content -->
+
         <script>window.puter_gui_enabled = true;</script>
         ${custom_script_tags_str
         }
@@ -383,7 +383,6 @@ export class PuterHomepageService extends BaseService {
                 .join('')
         }
         <div id="templates" style="display: none;"></div>
-        ${event.divTagContent ? `<div id="puter-gui-extension">${event.divTagContent}</div>` : ''}
         
     </body>
 
