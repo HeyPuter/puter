@@ -105,14 +105,14 @@ export default class AppService extends BaseService {
 
             {
                 const owner_user = extract_from_prefix(row, 'owner_user_');
-                app.owner_user = user_to_client(owner_user);
+                app.owner = user_to_client(owner_user);
             }
 
             if ( typeof row.filetypes === 'string' ) {
                 try {
-                    const filetypesAsJSON = JSON.parse(row.filetypes);
+                    let filetypesAsJSON = JSON.parse(row.filetypes);
+                    filetypesAsJSON = filetypesAsJSON.filter(ft => ft !== null);
                     for ( let i = 0 ; i < filetypesAsJSON.length ; i++ ) {
-                        if ( filetypesAsJSON[i] === null ) continue;
                         if ( typeof filetypesAsJSON[i] !== 'string' ) {
                             throw new Error(`expected filetypesAsJSON[${i}] to be a string, got: ${filetypesAsJSON[i]}`);
                         }
@@ -226,14 +226,14 @@ export default class AppService extends BaseService {
 
         {
             const owner_user = extract_from_prefix(row, 'owner_user_');
-            app.owner_user = user_to_client(owner_user);
+            app.owner = user_to_client(owner_user);
         }
 
         if ( typeof row.filetypes === 'string' ) {
             try {
-                const filetypesAsJSON = JSON.parse(row.filetypes);
+                let filetypesAsJSON = JSON.parse(row.filetypes);
+                filetypesAsJSON = filetypesAsJSON.filter(ft => ft !== null);
                 for ( let i = 0 ; i < filetypesAsJSON.length ; i++ ) {
-                    if ( filetypesAsJSON[i] === null ) continue;
                     if ( typeof filetypesAsJSON[i] !== 'string' ) {
                         throw new Error(`expected filetypesAsJSON[${i}] to be a string, got: ${filetypesAsJSON[i]}`);
                     }
