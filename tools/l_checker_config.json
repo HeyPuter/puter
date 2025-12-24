@@ -1,6 +1,8 @@
 {
     "ignore": [
-        "**/!(*.js|*.css)", "**/assets/**", "**/lib/**",
+        "**/!(*.js|*.css)",
+        "**/assets/**",
+        "**/lib/**",
         "eslint.config.js"
     ],
     "license": "doc/license_header.txt",
@@ -12,7 +14,7 @@
                 "prepend": " * "
             }
         },
-        "dotfile|^Dockerfile": {
+        "dotfile|Dockerfile": {
             "eachLine": {
                 "prepend": "# "
             }
@@ -27,3 +29,4 @@
     },
     "trailingWhitespace": "TRIM"
 }
+
