@@ -69,16 +69,6 @@ router.all('*', async function (req, res, next) {
         return next();
     }
     // --------------------------------------
-    // cloud.js must be accessible globally regardless of subdomain
-    // --------------------------------------
-    else if ( path === '/cloud.js' ) {
-        return res.sendFile(_path.join(__dirname, config.defaultjs_asset_path, 'puter.js/alpha.js'), function (err) {
-            if ( err && err.statusCode ) {
-                return res.status(err.statusCode).send('Error /cloud.js');
-            }
-        });
-    }
-    // --------------------------------------
     // /puter.js/v1 must be accessible globally regardless of subdomain
     // --------------------------------------
     else if ( path === '/puter.js/v1' || path === '/puter.js/v1/' ) {
