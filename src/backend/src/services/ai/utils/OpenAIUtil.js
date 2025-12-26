@@ -57,6 +57,76 @@ export const process_input_messages = async (messages) => {
     return messages;
 };
 
+export const process_input_messages_responses_api = async (messages) => {
+    for (const msg of messages) {
+        if (!msg.content) continue;
+        if (typeof msg.content !== 'object') continue;
+
+        const content = msg.content;
+
+        for (const o of content) {
+            if (!o['image_url']) continue;
+            if (o.type) continue;
+            o.type = 'image_url';
+        }
+
+        // coerce tool calls
+        let is_tool_call = false;
+        for (let i = content.length - 1; i >= 0; i--) {
+            const content_block = content[i];
+            if (content_block.type === "text" && (msg.role === "user" || msg.role === "system")) {
+                content_block.type = "input_text"
+            }
+            if (content_block.type === "text" && (msg.role === "assistant")) {
+                content_block.type = "output_text"
+            }
+
+            if (content_block.type === 'tool_use') {
+                if (!msg.tool_calls) {
+                    msg.tool_calls = [];
+                    is_tool_call = true;
+                }
+                msg.tool_calls.push({
+                    id: content_block.id,
+                    type: 'function',
+                    function: {
+                        name: content_block.name,
+                        arguments: JSON.stringify(content_block.input),
+                    },
+                    ...(content_block.extra_content ? { extra_content: content_block.extra_content } : {}),
+                });
+                content.splice(i, 1);
+            }
+        }
+
+        if (is_tool_call) {
+            msg.call_id = contentBlock.id;
+            msg.id = contentBlock.canonical_id;
+            msg.type = "function_call";
+
+            delete msg.role;
+            delete msg.content;
+
+        }
+
+        // coerce tool results
+        // (we assume multiple tool results were already split into separate messages)
+        for (let i = content.length - 1; i >= 0; i--) {
+            const content_block = content[i];
+            if (content_block.type !== 'tool_result') continue;
+            msg.type = 'function_call_output';
+            msg.call_id = content_block.tool_use_id;
+            msg.output = content_block.content;
+
+            delete msg.role;
+            delete msg.content;
+        }
+    }
+
+
+    return messages;
+};
+
 export const create_usage_calculator = ({ model_details }) => {
     return ({ usage }) => {
         const tokens = [];
@@ -173,6 +243,63 @@ export const create_chat_stream_handler = ({
     chatStream.end(usage);
 };
 
+export const create_chat_stream_handler_responses_api = ({
+    deviations,
+    completion,
+    usage_calculator,
+}) => async ({ chatStream }) => {
+    deviations = Object.assign({
+        // affected by: Groq
+        index_usage_from_stream_chunk: chunk => chunk.usage,
+        // affected by: Mistral
+        chunk_but_like_actually: chunk => chunk,
+        index_tool_calls_from_stream_choice: choice => choice.delta.tool_calls,
+    }, deviations);
+
+    const message = chatStream.message();
+    let textblock = message.contentBlock({ type: 'text' });
+    let toolblock = null;
+    let mode = 'text';
+    const tool_call_blocks = [];
+
+    let last_usage = null;
+    for await (let chunk of completion) {
+        console.log("Chunk from API: ", chunk)
+    
+        if (chunk.type === "response.output_text.delta") {
+            textblock.addText(chunk.delta);
+            continue;
+        }
+
+        
+        if (chunk.type === "response.completed") {
+            last_usage = chunk.response.usage;
+        }
+        
+        if (chunk.type === "response.output_item.done" && chunk.item?.type === "function_call") {
+            const tool_call = chunk.item;
+            toolblock = message.contentBlock({
+                type: 'tool_use',
+                canonical_id: tool_call.id,
+                id: tool_call.call_id,
+                name: tool_call.name,
+                ...(tool_call.extra_content ? { extra_content: tool_call.extra_content } : {}),
+            });
+            toolblock.addPartialJSON(tool_call.arguments);
+            toolblock.end();
+        }
+    }
+
+    // TODO DS: this is a bit too abstracted... this is basically just doing the metering now
+    const usage = usage_calculator({ usage: last_usage });
+
+    if (mode === 'text') textblock.end();
+    if (mode === 'tool') toolblock.end();
+
+    message.end();
+    chatStream.end(usage);
+};
+
 /**
  *
  * @param {object} params
@@ -235,4 +362,86 @@ export const handle_completion_output = async ({
         output_tokens: completion_usage.completion_tokens,
     };
     return ret;
+};
+
+/**
+ *
+ * @param {object} params
+ * @param {(args: {usage: import("openai/resources/completions.mjs").CompletionUsage})=> unknown } params.usage_calculator
+ * @returns
+ */
+export const handle_completion_output_responses_api = async ({
+    deviations,
+    stream,
+    completion,
+    moderate,
+    usage_calculator,
+    finally_fn,
+}) => {
+    deviations = Object.assign({
+        // affected by: Mistral
+        coerce_completion_usage: completion => completion.usage,
+    }, deviations);
+
+    if (stream) {
+        const init_chat_stream =
+            create_chat_stream_handler_responses_api({
+                deviations,
+                completion,
+                usage_calculator,
+            });
+
+        return {
+            stream: true,
+            init_chat_stream,
+            finally_fn,
+        };
+    }
+
+    if (finally_fn) await finally_fn();
+
+    const is_empty = completion.output_text.trim() === '';
+    if (is_empty && !completion.choices?.[0]?.message?.tool_calls) {
+        // GPT refuses to generate an empty response if you ask it to,
+        // so this will probably only happen on an error condition.
+        throw new Error('an empty response was generated');
+    }
+
+    // We need to moderate the completion too
+    const mod_text = completion.output_text;
+    if (moderate && mod_text !== null) {
+        const moderation_result = await moderate(mod_text);
+        if (moderation_result.flagged) {
+            throw new Error('message is not allowed');
+        }
+    }
+
+
+    console.log("Completion: ", completion);
+    console.log("output: ", completion.output[0]);
+
+    const ret = {
+        finish_reason: "stop",
+        index: 0,
+        message: {
+            content: completion.output_text,
+            reasoning: null, // Fix later to add proper reasoning
+            refusal: null,
+            role: "assistant"
+        }
+    }
+    ret.role = completion.output[0].role;
+
+    delete ret.type;
+
+    
+    ret.usage = usage_calculator ? usage_calculator({
+        ...completion,
+        usage: completion.usage,
+    }) : {
+        input_tokens: completion.usage.input_tokens,
+        output_tokens: completion.usage.output_tokens,
+    };
+    return ret;
+
 };
