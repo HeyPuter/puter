@@ -68,17 +68,31 @@ class AI {
         // Prefer the public API endpoint and fall back to the legacy driver call if needed.
         const headers = this.authToken ? { Authorization: `Bearer ${this.authToken}` } : {};
 
+        // More robust filter for image generation models
+        const shouldHideModel = (model) => {
+            const id = (model.id || model.model || model.name || '').toLowerCase();
+            const type = (model.type || '').toLowerCase();
+            const category = (model.category || '').toLowerCase();
+            const tags = Array.isArray(model.tags) ? model.tags.map(t => String(t).toLowerCase()) : [];
+            // Hide if id, type, category, or tags contain 'image', 'img', or 'vision'
+            const imageKeywords = ['image', 'img', 'vision'];
+            const fields = [id, type, category, ...tags];
+            return fields.some(field => imageKeywords.some(keyword => field.includes(keyword)));
+        };
+
         const tryFetchModels = async () => {
             const resp = await fetch(`${this.APIOrigin }/puterai/chat/models/details`, { headers });
             if ( !resp.ok ) return null;
             const data = await resp.json();
-            const models = Array.isArray(data?.models) ? data.models : [];
+            let models = Array.isArray(data?.models) ? data.models : [];
+            models = models.filter(model => !shouldHideModel(model));
             return provider ? models.filter(model => model.provider === provider) : models;
         };
 
         const tryDriverModels = async () => {
             const models = await puter.drivers.call('puter-chat-completion', 'ai-chat', 'models');
-            const result = Array.isArray(models?.result) ? models.result : [];
+            let result = Array.isArray(models?.result) ? models.result : [];
+            result = result.filter(model => !shouldHideModel(model));
             return provider ? result.filter(model => model.provider === provider) : result;
         };
 
