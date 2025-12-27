@@ -104,7 +104,6 @@ export class OpenAiResponsesChatProvider implements IChatProvider {
 
     async complete ({ messages, model, max_tokens, moderation, tools, verbosity, stream, reasoning, reasoning_effort, temperature, text }: ICompleteArguments): ReturnType<IChatProvider['complete']>
     {
-
         // Validate messages
         if ( ! Array.isArray(messages) ) {
             throw new Error('`messages` must be an array');

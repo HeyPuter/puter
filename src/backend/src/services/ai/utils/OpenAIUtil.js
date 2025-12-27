@@ -88,6 +88,7 @@ export const process_input_messages_responses_api = async (messages) => {
                 }
                 msg.tool_calls.push({
                     id: content_block.id,
+                    canonical_id: content_block.canonical_id,
                     type: 'function',
                     function: {
                         name: content_block.name,
@@ -95,22 +96,28 @@ export const process_input_messages_responses_api = async (messages) => {
                     },
                     ...(content_block.extra_content ? { extra_content: content_block.extra_content } : {}),
                 });
+                
                 content.splice(i, 1);
             }
         }
 
+        // Right now this does NOT support parallel tool calls! 
+        // We only allow sequential toolcalling right now so this shouldn't be an issue right now
+        // but this probably needs to be changed in the future to split "one completions message"
+        // into multiple responses inputs.
         if (is_tool_call) {
-            msg.call_id = contentBlock.id;
-            msg.id = contentBlock.canonical_id;
+            msg.call_id = msg.tool_calls[0].id;
+            msg.id = msg.tool_calls[0].canonical_id;
+            msg.name = msg.tool_calls[0].function.name;
+            msg.arguments = msg.tool_calls[0].function.arguments;
             msg.type = "function_call";
 
             delete msg.role;
             delete msg.content;
-
+            delete msg.tool_calls;
         }
 
         // coerce tool results
-        // (we assume multiple tool results were already split into separate messages)
         for (let i = content.length - 1; i >= 0; i--) {
             const content_block = content[i];
             if (content_block.type !== 'tool_result') continue;
@@ -122,7 +129,7 @@ export const process_input_messages_responses_api = async (messages) => {
             delete msg.content;
         }
     }
-
+    console.log("coreced ", messages)
 
     return messages;
 };
