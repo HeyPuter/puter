@@ -81,7 +81,7 @@ export class OpenAiChatProvider implements IChatProvider {
     * Each model object includes an ID and cost details (currency, tokens, input/output rates).
     */
     models () {
-        return OPEN_AI_MODELS;
+        return OPEN_AI_MODELS.filter(e=>!e.responses_api_only);
     }
 
     list () {
@@ -102,7 +102,6 @@ export class OpenAiChatProvider implements IChatProvider {
 
     async complete ({ messages, model, max_tokens, moderation, tools, verbosity, stream, reasoning, reasoning_effort, temperature, text }: ICompleteArguments): ReturnType<IChatProvider['complete']>
     {
-
         // Validate messages
         if ( ! Array.isArray(messages) ) {
             throw new Error('`messages` must be an array');

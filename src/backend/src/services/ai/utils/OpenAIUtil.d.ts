@@ -83,6 +83,7 @@ export interface CompletionDeviations<TCompletion = ChatCompletion> {
 }
 
 export function process_input_messages<TMessage extends NormalizedMessage> (messages: TMessage[]): Promise<TMessage[]>;
+export function process_input_messages_responses_api<TMessage extends NormalizedMessage> (messages: TMessage[]): Promise<TMessage[]>;
 
 export function create_usage_calculator (params: { model_details: IChatModel }): UsageCalculator;
 
@@ -114,3 +115,15 @@ export function handle_completion_output<TCompletion = ChatCompletion> (params: 
     usage_calculator?: UsageCalculator;
     finally_fn?: () => Promise<void>;
 }): ReturnType<IChatProvider['complete']>;
+
+export function handle_completion_output_responses_api<TCompletion = ChatCompletion> (params: {
+    deviations?: CompletionDeviations<TCompletion>;
+    stream?: boolean;
+    completion: AsyncIterable<CompletionChunk> | TCompletion;
+    moderate?: (text: string) => Promise<{ flagged: boolean }>;
+    usage_calculator?: UsageCalculator;
+    finally_fn?: () => Promise<void>;
+}): ReturnType<IChatProvider['complete']>;
+
+
+

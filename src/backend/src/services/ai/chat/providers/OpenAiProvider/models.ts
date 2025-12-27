@@ -29,6 +29,7 @@ export const OPEN_AI_MODELS: IChatModel[] = [
             completion_tokens: 16800,
         },
         max_tokens: 16384,
+        responses_api_only: true
     },
     {
         id: 'gpt-5.2-2025-12-11',
@@ -69,6 +70,7 @@ export const OPEN_AI_MODELS: IChatModel[] = [
             completion_tokens: 1000,
         },
         max_tokens: 128000,
+        responses_api_only: true
     },
     {
         id: 'gpt-5.1-codex-mini',
@@ -82,6 +84,7 @@ export const OPEN_AI_MODELS: IChatModel[] = [
             completion_tokens: 200,
         },
         max_tokens: 128000,
+        responses_api_only: true
     },
     {
         id: 'gpt-5.1-chat-latest',
@@ -226,6 +229,20 @@ export const OPEN_AI_MODELS: IChatModel[] = [
             completion_tokens: 800,
         },
         max_tokens: 100000,
+    },
+    {
+        id: 'o3-pro',
+        costs_currency: 'usd-cents',
+        input_cost_key: 'prompt_tokens',
+        output_cost_key: 'completion_tokens',
+        costs: {
+            tokens: 1_000_000,
+            prompt_tokens: 2000,
+            cached_tokens: 50,
+            completion_tokens: 8000,
+        },
+        max_tokens: 100000,
+        responses_api_only: true
     },
     {
         id: 'o3-mini',
