@@ -1,11 +1,21 @@
 import APIError from '../../api/APIError.js';
+import config from '../../config.js';
+import { app_name_exists, refresh_apps_cache } from '../../helpers.js';
+import { AppUnderUserActorType, UserActorType } from '../../services/auth/Actor.js';
 import BaseService from '../../services/BaseService.js';
-import { DB_READ } from '../../services/database/consts.js';
+import { DB_READ, DB_WRITE } from '../../services/database/consts.js';
 import { Context } from '../../util/context.js';
 import AppRepository from './AppRepository.js';
 import { as_bool } from './lib/coercion.js';
 import { user_to_client } from './lib/filter.js';
 import { extract_from_prefix } from './lib/sqlutil.js';
+import {
+    validate_array_of_strings,
+    validate_image_base64,
+    validate_json,
+    validate_string,
+    validate_url,
+} from './lib/validation.js';
 
 /**
  * AppService contains an instance using the repository pattern
@@ -14,7 +24,17 @@ export default class AppService extends BaseService {
     async _init () {
         this.repository = new AppRepository();
         this.db = this.services.get('database').get(DB_READ, 'apps');
+        this.db_write = this.services.get('database').get(DB_WRITE, 'apps');
     }
+
+    static PROTECTED_FIELDS = ['last_review'];
+    static READ_ONLY_FIELDS = [
+        'approved_for_listing',
+        'approved_for_opening_items',
+        'approved_for_incentive_program',
+        'godmode',
+    ];
+    static WRITE_ALL_OWNER_PERMISSION = 'system:es:write-all-owners';
 
     static IMPLEMENTS = {
         ['crud-q']: {
@@ -22,7 +42,7 @@ export default class AppService extends BaseService {
                 // TODO
             },
             async update ({ object, id, options }) {
-                // TODO
+                return await this.#update({ object, id, options });
             },
             async upsert ({ object, id, options }) {
                 // TODO
@@ -151,7 +171,7 @@ export default class AppService extends BaseService {
         return client_safe_apps;
     }
 
-    async #read ({ uid, id, params = {} }) {
+    async #read ({ uid, id, params = {}, backend_only_options = {} }) {
         const db = this.db;
 
         if ( uid === undefined && id === undefined ) {
@@ -226,7 +246,8 @@ export default class AppService extends BaseService {
 
         {
             const owner_user = extract_from_prefix(row, 'owner_user_');
-            app.owner = user_to_client(owner_user);
+            if ( backend_only_options.no_filter_owner ) app.owner = owner_user;
+            else app.owner = user_to_client(owner_user);
         }
 
         if ( typeof row.filetypes === 'string' ) {
@@ -264,6 +285,322 @@ export default class AppService extends BaseService {
         }
 
         return app;
+    }
+
+    async #update ({ object, id, options }) {
+        const old_app = await this.#read({
+            uid: object.uid,
+            id,
+            backend_only_options: { no_filter_owner: true },
+        });
+        if ( ! old_app ) {
+            throw APIError.create('entity_not_found', null, {
+                identifier: object.uid || JSON.stringify(id),
+            });
+        }
+
+        // Only UserActorType and AppUnderUserActorType are allowed to do this
+        const actor = Context.get('actor');
+        if ( ! (actor.type instanceof UserActorType || actor.type instanceof AppUnderUserActorType) ) {
+            throw APIError.create('forbidden');
+        }
+
+        // Check owner permission (WriteByOwnerOnlyES behavior)
+        await this.#check_owner_permission(old_app);
+
+        // Remove protected/read_only fields from the update (ValidationES behavior)
+        {
+            object = { ...object };
+            for ( const field of this.constructor.PROTECTED_FIELDS ) {
+                delete object[field];
+            }
+            for ( const field of this.constructor.READ_ONLY_FIELDS ) {
+                delete object[field];
+            }
+        }
+
+        // Validate fields
+        {
+            if ( object.name !== undefined ) {
+                validate_string(object.name, {
+                    key: 'name',
+                    maxlen: config.app_name_max_length,
+                    regex: config.app_name_regex,
+                });
+            }
+
+            if ( object.title !== undefined ) {
+                validate_string(object.title, {
+                    key: 'title',
+                    maxlen: config.app_title_max_length,
+                });
+            }
+
+            if ( object.description !== undefined && object.description !== null ) {
+                validate_string(object.description, {
+                    key: 'description',
+                    maxlen: 7000,
+                });
+            }
+
+            if ( object.icon !== undefined && object.icon !== null ) {
+                validate_image_base64(object.icon, { key: 'icon' });
+            }
+
+            if ( object.index_url !== undefined ) {
+                validate_url(object.index_url, {
+                    key: 'index_url',
+                    maxlen: 3000,
+                });
+            }
+
+            // Flag type - adapt values using as_bool
+            if ( object.maximize_on_start !== undefined ) {
+                object.maximize_on_start = as_bool(object.maximize_on_start);
+            }
+            if ( object.background !== undefined ) {
+                object.background = as_bool(object.background);
+            }
+
+            if ( object.metadata !== undefined && object.metadata !== null ) {
+                validate_json(object.metadata, { key: 'metadata' });
+            }
+
+            if ( object.filetype_associations !== undefined ) {
+                validate_array_of_strings(object.filetype_associations, {
+                    key: 'filetype_associations',
+                });
+            }
+        }
+
+        // Handle app-specific logic (AppES behavior)
+        const user = actor.type.user;
+
+        // Ensure puter.site subdomain is owned by user (if index_url changed)
+        if ( object.index_url && object.index_url !== old_app.index_url ) {
+            await this.#ensure_puter_site_subdomain_is_owned(object.index_url, user);
+        }
+
+        // Handle app name conflicts
+        if ( object.name !== undefined ) {
+            await this.#handle_name_conflict(object, old_app, options);
+        }
+
+        // Build and execute SQL UPDATE
+        const { insert_id } = await this.#execute_update(object, old_app);
+
+        // Handle file type associations
+        if ( object.filetype_associations !== undefined ) {
+            await this.#update_filetype_associations(insert_id, object.filetype_associations);
+        }
+
+        // Emit events for icon/name changes
+        await this.#emit_change_events(object, old_app);
+
+        // Update app cache
+        const merged_app = { ...old_app, ...object };
+        this.#refresh_cache(merged_app, old_app);
+
+        // Return the updated app (re-fetch for client-safe output)
+        // TODO: optimize this
+        return await this.#read({ uid: old_app.uid });
+    }
+
+    async #check_owner_permission (old_app) {
+        const svc_permission = this.services.get('permission');
+        const actor = Context.get('actor');
+
+        // Check if user has system-wide write permission
+        {
+            /* eslint-disable */ // We need to fix eslint rule for multi-line calls
+            const has_permission_to_write_all = await svc_permission.check(
+                actor,
+                this.constructor.WRITE_ALL_OWNER_PERMISSION,
+            );
+            /* eslint-enable */
+            if ( has_permission_to_write_all ) {
+                return;
+            }
+        }
+
+        // Check if user owns the app
+        {
+            const user = Context.get('user');
+            if ( ! old_app.owner ) {
+                throw APIError.create('forbidden');
+            }
+            if ( user.id !== old_app.owner.id ) {
+                throw APIError.create('forbidden');
+            }
+        }
+    }
+
+    async #ensure_puter_site_subdomain_is_owned (index_url, user) {
+        if ( ! user ) return;
+
+        let hostname;
+        try {
+            hostname = (new URL(index_url)).hostname.toLowerCase();
+        } catch {
+            return;
+        }
+
+        const hosting_domain = config.static_hosting_domain?.toLowerCase();
+        if ( ! hosting_domain ) return;
+
+        const suffix = `.${hosting_domain}`;
+        if ( ! hostname.endsWith(suffix) ) return;
+
+        const subdomain = hostname.slice(0, hostname.length - suffix.length);
+        if ( ! subdomain ) return;
+
+        const svc_puterSite = this.services.get('puter-site');
+        const site = await svc_puterSite.get_subdomain(subdomain, { is_custom_domain: false });
+
+        if ( !site || site.user_id !== user.id ) {
+            throw APIError.create('subdomain_not_owned', null, { subdomain });
+        }
+    }
+
+    async #handle_name_conflict (object, old_app, options) {
+        const new_name = object.name;
+        const old_name = old_app.name;
+
+        // If the name hasn't changed, nothing to do
+        if ( new_name === old_name ) {
+            delete object.name;
+            return;
+        }
+
+        // Check if the name is taken
+        if ( await app_name_exists(new_name) ) {
+            if ( options?.dedupe_name ) {
+                // Auto-deduplicate the name
+                let number = 1;
+                while ( await app_name_exists(`${new_name}-${number}`) ) {
+                    number++;
+                }
+                object.name = `${new_name}-${number}`;
+            } else {
+                // Check if this is an old name of the same app
+                const svc_oldAppName = this.services.get('old-app-name');
+                const name_info = await svc_oldAppName.check_app_name(new_name);
+                if ( !name_info || name_info.app_uid !== old_app.uid ) {
+                    throw APIError.create('app_name_already_in_use', null, {
+                        name: new_name,
+                    });
+                }
+                // Remove the old name from the old-app-name service
+                await svc_oldAppName.remove_name(name_info.id);
+            }
+        }
+    }
+
+    async #execute_update (object, old_app) {
+        // Map object fields to SQL columns
+        const sql_column_map = {
+            name: 'name',
+            title: 'title',
+            description: 'description',
+            icon: 'icon',
+            index_url: 'index_url',
+            maximize_on_start: 'maximize_on_start',
+            background: 'background',
+            metadata: 'metadata',
+        };
+
+        const set_clauses = [];
+        const values = [];
+
+        for ( const [field, column] of Object.entries(sql_column_map) ) {
+            if ( object[field] === undefined ) continue;
+
+            let value = object[field];
+
+            // Handle JSON fields
+            if ( field === 'metadata' && value !== null ) {
+                value = JSON.stringify(value);
+            }
+
+            // Handle boolean fields
+            if ( field === 'maximize_on_start' || field === 'background' ) {
+                value = value ? 1 : 0;
+            }
+
+            set_clauses.push(`${column} = ?`);
+            values.push(value);
+        }
+
+        if ( set_clauses.length === 0 ) {
+            // Nothing to update in the main table
+            // Fetch the internal ID for file associations
+            const rows = await this.db.read('SELECT id FROM apps WHERE uid = ?',
+                            [old_app.uid]);
+            return { insert_id: rows[0]?.id };
+        }
+
+        values.push(old_app.uid);
+
+        const stmt = `UPDATE apps SET ${set_clauses.join(', ')} WHERE uid = ?`;
+        await this.db_write.write(stmt, values);
+
+        // Fetch the internal ID
+        const rows = await this.db.read('SELECT id FROM apps WHERE uid = ?',
+                        [old_app.uid]);
+        return { insert_id: rows[0]?.id };
+    }
+
+    async #update_filetype_associations (app_id, filetype_associations) {
+        // Remove old file associations
+        await this.db_write.write('DELETE FROM app_filetype_association WHERE app_id = ?',
+                        [app_id]);
+
+        // Add new file associations
+        if ( filetype_associations && filetype_associations.length > 0 ) {
+            const stmt =
+                `INSERT INTO app_filetype_association (app_id, type) VALUES ${
+                    filetype_associations.map(() => '(?, ?)').join(', ')}`;
+            const values = filetype_associations.flatMap(ft => [app_id, ft.toLowerCase()]);
+            await this.db_write.write(stmt, values);
+        }
+    }
+
+    async #emit_change_events (object, old_app) {
+        const svc_event = this.services.get('event');
+
+        // Emit icon change event
+        if ( object.icon !== undefined && object.icon !== old_app.icon ) {
+            const event = {
+                app_uid: old_app.uid,
+                data_url: object.icon,
+            };
+            await svc_event.emit('app.new-icon', event);
+        }
+
+        // Emit name change event
+        if ( object.name !== undefined && object.name !== old_app.name ) {
+            const event = {
+                app_uid: old_app.uid,
+                new_name: object.name,
+                old_name: old_app.name,
+            };
+            await svc_event.emit('app.rename', event);
+        }
+    }
+
+    #refresh_cache (merged_app, old_app) {
+        const raw_app = {
+            uuid: merged_app.uid,
+            owner_user_id: old_app.owner?.id || old_app.owner,
+            name: merged_app.name,
+            title: merged_app.title,
+            description: merged_app.description,
+            icon: merged_app.icon,
+            index_url: merged_app.index_url,
+            maximize_on_start: merged_app.maximize_on_start,
+        };
+
+        refresh_apps_cache({ uid: raw_app.uuid }, raw_app);
     }
 
     #build_complex_id_where (id) {
