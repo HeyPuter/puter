@@ -434,7 +434,7 @@ class PuterDialog extends (globalThis.HTMLElement || Object) { // It will fall b
         // Add event listener to the button
         this.shadowRoot.querySelector('#launch-auth-popup')?.addEventListener('click', () => {
             let w = 600;
-            let h = 400;
+            let h = 500;
             let title = 'Puter';
             var left = (screen.width / 2) - (w / 2);
             var top = (screen.height / 2) - (h / 2);
@@ -454,7 +454,7 @@ class PuterDialog extends (globalThis.HTMLElement || Object) { // It will fall b
     open () {
         if ( this.hasUserActivation() ) {
             let w = 600;
-            let h = 400;
+            let h = 500;
             let title = 'Puter';
             var left = (screen.width / 2) - (w / 2);
             var top = (screen.height / 2) - (h / 2);

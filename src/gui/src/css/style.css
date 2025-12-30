@@ -1274,6 +1274,13 @@ span.header-sort-icon img {
     top: 0 !important;
 }
 
+.embedded-in-popup .window-login, .embedded-in-popup .window-signup {
+    top: 0 !important;
+    left: 0 !important;
+    width: 100% !important;
+    height: 100% !important;
+}
+
 .window-sidebar-title {
     margin: 0;
     font-weight: bold;
