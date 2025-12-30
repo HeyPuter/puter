@@ -494,6 +494,26 @@ export default class AppService extends BaseService {
         return result.insertId;
     }
 
+    async #check_app_owner_permission (old_app, actor) {
+        // Check if app has write permission to all user's apps
+        const svc_permission = this.services.get('permission');
+        const user = actor.type.user;
+        const perm = `es:app:${user.uuid}:write`;
+        const can_write_any = await svc_permission.check(actor, perm);
+        if ( can_write_any ) {
+            return;
+        }
+
+        // Otherwise verify the app owns this entity
+        const app = actor.type.app;
+        const app_owner = old_app.app_owner;
+        const app_owner_uid = app_owner?.uid;
+
+        if ( ! app_owner_uid || app_owner_uid !== app.uid ) {
+            throw APIError.create('forbidden');
+        }
+    }
+
     async #update ({ object, id, options }) {
         const old_app = await this.#read({
             uid: object.uid,
@@ -514,6 +534,11 @@ export default class AppService extends BaseService {
 
         // Check owner permission (WriteByOwnerOnlyES behavior)
         await this.#check_owner_permission(old_app);
+
+        // If actor is AppUnderUserActorType, check app_owner (AppLimitedES behavior)
+        if ( actor.type instanceof AppUnderUserActorType ) {
+            await this.#check_app_owner_permission(old_app, actor);
+        }
 
         // Remove protected/read_only fields from the update (ValidationES behavior)
         {
