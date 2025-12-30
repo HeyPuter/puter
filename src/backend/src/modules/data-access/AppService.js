@@ -47,7 +47,23 @@ export default class AppService extends BaseService {
                 return await this.#update({ object, id, options });
             },
             async upsert ({ object, id, options }) {
-                // TODO
+                // Try to find an existing entity
+                let existing = null;
+
+                if ( object.uid !== undefined || id !== undefined ) {
+                    existing = await this.#read({
+                        uid: object.uid,
+                        id,
+                    });
+                }
+
+                if ( existing ) {
+                    // Entity exists, call update
+                    return await this.#update({ object, id, options });
+                } else {
+                    // Entity doesn't exist, call create
+                    return await this.#create({ object, options });
+                }
             },
             async read ({ uid, id, params = {} }) {
                 return this.#read({ uid, id, params });
