@@ -531,18 +531,11 @@ export default class AppService extends BaseService {
             values.push(value);
         }
 
-        if ( set_clauses.length === 0 ) {
-            // Nothing to update in the main table
-            // Fetch the internal ID for file associations
-            const rows = await this.db.read('SELECT id FROM apps WHERE uid = ?',
-                            [old_app.uid]);
-            return { insert_id: rows[0]?.id };
+        if ( set_clauses.length > 0 ) {
+            values.push(old_app.uid);
+            const stmt = `UPDATE apps SET ${set_clauses.join(', ')} WHERE uid = ? LIMIT 1`;
+            await this.db_write.write(stmt, values);
         }
-
-        values.push(old_app.uid);
-
-        const stmt = `UPDATE apps SET ${set_clauses.join(', ')} WHERE uid = ?`;
-        await this.db_write.write(stmt, values);
 
         // Fetch the internal ID
         const rows = await this.db.read('SELECT id FROM apps WHERE uid = ?',
@@ -556,13 +549,15 @@ export default class AppService extends BaseService {
                         [app_id]);
 
         // Add new file associations
-        if ( filetype_associations && filetype_associations.length > 0 ) {
-            const stmt =
-                `INSERT INTO app_filetype_association (app_id, type) VALUES ${
-                    filetype_associations.map(() => '(?, ?)').join(', ')}`;
-            const values = filetype_associations.flatMap(ft => [app_id, ft.toLowerCase()]);
-            await this.db_write.write(stmt, values);
+        if ( !filetype_associations || !(filetype_associations.length > 0) ) {
+            return;
         }
+
+        const stmt =
+            `INSERT INTO app_filetype_association (app_id, type) VALUES ${
+                filetype_associations.map(() => '(?, ?)').join(', ')}`;
+        const values = filetype_associations.flatMap(ft => [app_id, ft.toLowerCase()]);
+        await this.db_write.write(stmt, values);
     }
 
     async #emit_change_events (object, old_app) {
