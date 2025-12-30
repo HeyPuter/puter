@@ -129,7 +129,7 @@ export interface ExtensionEventTypeMap {
             domain: string;
             protocol: string;
             api_base_url: string;
-            app?: unknown;
+            app?: { name: string, uid: string } & Record<string, unknown>;
             [key: string]: unknown;
         };
     };
