@@ -1195,6 +1195,62 @@ describe('AppService', () => {
                 expect.arrayContaining(['https://mysite.puter.site'])
             );
         });
+
+        it('should throw forbidden when app actor does not own the entity (AppLimitedES behavior)', async () => {
+            // App actor trying to update an app it didn't create
+            setupContextForWrite(createMockAppUnderUserActor(1, 999));
+            mockDb.read.mockResolvedValue([createMockAppRow({
+                owner_user_id: 1,
+                app_owner_uid: 'different-app-uid',
+            })]);
+
+            const crudQ = AppService.IMPLEMENTS['crud-q'];
+
+            await expect(crudQ.update.call(appService, {
+                object: { uid: 'app-uid-123', title: 'Hacked Title' },
+            })).rejects.toThrow();
+        });
+
+        it('should allow app actor to update entity it owns (AppLimitedES behavior)', async () => {
+            // App actor updating an app it created
+            const actor = createMockAppUnderUserActor(1, 100);
+            actor.type.app.uid = 'creator-app-uid';
+            setupContextForWrite(actor);
+            mockDb.read.mockResolvedValue([createMockAppRow({
+                owner_user_id: 1,
+                app_owner_uid: 'creator-app-uid',
+            })]);
+
+            const crudQ = AppService.IMPLEMENTS['crud-q'];
+            await crudQ.update.call(appService, {
+                object: { uid: 'app-uid-123', title: 'Updated by App' },
+            });
+
+            expect(mockDbWrite.write).toHaveBeenCalledWith(
+                expect.stringContaining('UPDATE apps SET'),
+                expect.arrayContaining(['Updated by App'])
+            );
+        });
+
+        it('should allow app actor with write permission to update any entity (AppLimitedES behavior)', async () => {
+            setupContextForWrite(createMockAppUnderUserActor(1, 999));
+            mockDb.read.mockResolvedValue([createMockAppRow({
+                owner_user_id: 1,
+                app_owner_uid: 'different-app-uid',
+            })]);
+            // Grant write permission
+            mockPermissionService.check.mockResolvedValue(true);
+
+            const crudQ = AppService.IMPLEMENTS['crud-q'];
+            await crudQ.update.call(appService, {
+                object: { uid: 'app-uid-123', title: 'Admin Update' },
+            });
+
+            expect(mockDbWrite.write).toHaveBeenCalledWith(
+                expect.stringContaining('UPDATE apps SET'),
+                expect.arrayContaining(['Admin Update'])
+            );
+        });
     });
 
     describe('#upsert', () => {
