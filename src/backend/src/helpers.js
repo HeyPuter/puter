@@ -36,7 +36,7 @@ const tmp_provide_services = async ss => {
 };
 
 // TTL for pending get_app queries (request coalescing)
-const PENDING_QUERY_TTL = 10; // 10 seconds
+const PENDING_QUERY_TTL = 2; // seconds
 
 async function is_empty (dir_uuid) {
     /** @type BaseDatabaseAccessService */
