@@ -35,6 +35,9 @@ const tmp_provide_services = async ss => {
     await services.ready;
 };
 
+// TTL for pending get_app queries (request coalescing)
+const PENDING_QUERY_TTL = 60; // 60 seconds
+
 async function is_empty (dir_uuid) {
     /** @type BaseDatabaseAccessService */
     const db = services.get('database').get(DB_READ, 'filesystem');
@@ -302,11 +305,8 @@ async function get_app (options) {
         kv.set(`apps:name:${app.name}`, app, { EX: 30 });
         kv.set(`apps:id:${app.id}`, app, { EX: 30 });
     };
-    /** @type BaseDatabaseAccessService */
-    const db = services.get('database').get(DB_READ, 'apps');
 
     const log = services.get('log-service').create('get_app');
-    let app;
 
     // This condition should be updated if the code below is re-ordered.
     if ( options.follow_old_names && !options.uid && options.name ) {
@@ -321,34 +321,74 @@ async function get_app (options) {
         }
     }
 
+    // Determine the query key for request coalescing
+    let queryKey;
+    let cacheKey;
     if ( options.uid ) {
-        // try cache first
-        app = kv.get(`apps:uid:${options.uid}`);
-        // not in cache, try db
-        if ( ! app ) {
-            log.cache(false, `apps:uid:${ options.uid}`);
-            app = (await db.read('SELECT * FROM `apps` WHERE `uid` = ? LIMIT 1', [options.uid]))[0];
-            cacheApp(app);
-        }
+        queryKey = `uid:${options.uid}`;
+        cacheKey = `apps:uid:${options.uid}`;
     } else if ( options.name ) {
-        // try cache first
-        app = kv.get(`apps:name:${options.name}`);
-        // not in cache, try db
-        if ( ! app ) {
-            log.cache(false, `apps:name:${ options.name}`);
-            app = (await db.read('SELECT * FROM `apps` WHERE `name` = ? LIMIT 1', [options.name]))[0];
-            cacheApp(app);
-        }
+        queryKey = `name:${options.name}`;
+        cacheKey = `apps:name:${options.name}`;
+    } else if ( options.id ) {
+        queryKey = `id:${options.id}`;
+        cacheKey = `apps:id:${options.id}`;
+    } else {
+        // No valid lookup parameter
+        return null;
     }
-    else if ( options.id ) {
-        // try cache first
-        app = kv.get(`apps:id:${options.id}`);
-        // not in cache, try db
-        if ( ! app ) {
-            log.cache(false, `apps:id:${ options.id}`);
+
+    // Check cache first
+    let app = kv.get(cacheKey);
+    if ( app ) {
+        // shallow clone because we use the `delete` operator
+        // and it corrupts the cache otherwise
+        return { ...app };
+    }
+
+    log.cache(false, cacheKey);
+
+    // Check if there's already a pending query for this key (request coalescing)
+    const pendingKey = `pending_app:${queryKey}`;
+    const pending = kv.get(pendingKey);
+    if ( pending ) {
+        // Reuse the existing pending query
+        log.info(`coalescing query for ${queryKey}`);
+        const result = await pending;
+        // shallow clone the result
+        return result ? { ...result } : null;
+    }
+
+    // Create a new pending query
+    let resolveQuery;
+    let rejectQuery;
+    const queryPromise = new Promise((resolve, reject) => {
+        resolveQuery = resolve;
+        rejectQuery = reject;
+    });
+
+    kv.set(pendingKey, queryPromise, { EX: PENDING_QUERY_TTL });
+
+    try {
+        /** @type BaseDatabaseAccessService */
+        const db = services.get('database').get(DB_READ, 'apps');
+
+        if ( options.uid ) {
+            app = (await db.read('SELECT * FROM `apps` WHERE `uid` = ? LIMIT 1', [options.uid]))[0];
+        } else if ( options.name ) {
+            app = (await db.read('SELECT * FROM `apps` WHERE `name` = ? LIMIT 1', [options.name]))[0];
+        } else if ( options.id ) {
             app = (await db.read('SELECT * FROM `apps` WHERE `id` = ? LIMIT 1', [options.id]))[0];
-            cacheApp(app);
         }
+
+        cacheApp(app);
+        resolveQuery(app);
+    } catch (err) {
+        rejectQuery(err);
+        throw err;
+    } finally {
+        // Clean up the pending query after completion
+        kv.del(pendingKey);
     }
 
     if ( ! app ) return null;
