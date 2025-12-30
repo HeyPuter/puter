@@ -278,7 +278,7 @@ async function refresh_associations_cache () {
         // Default file association entries were added with empty types;
         // this prevents those from showing up.
         if ( ext === '' ) continue;
-        if ( ! lists.hasOwnProperty(ext) ) lists[ext] = [];
+        if ( ! Object.prototype.hasOwnProperty.call(lists, ext) ) lists[ext] = [];
         lists[ext].push(association.app_id);
     }
 
@@ -298,7 +298,7 @@ async function get_app (options) {
     const db = services.get('database').get(DB_READ, 'apps');
 
     const log = services.get('log-service').create('get_app');
-    let app = [];
+    let app;
 
     // This condition should be updated if the code below is re-ordered.
     if ( options.follow_old_names && !options.uid && options.name ) {
@@ -315,34 +315,32 @@ async function get_app (options) {
 
     if ( options.uid ) {
         // try cache first
-        app[0] = kv.get(`apps:uid:${options.uid}`);
+        app = kv.get(`apps:uid:${options.uid}`);
         // not in cache, try db
-        if ( ! app[0] ) {
+        if ( ! app ) {
             log.cache(false, `apps:uid:${ options.uid}`);
-            app = await db.read('SELECT * FROM `apps` WHERE `uid` = ? LIMIT 1', [options.uid]);
+            app = (await db.read('SELECT * FROM `apps` WHERE `uid` = ? LIMIT 1', [options.uid]))[0];
         }
     } else if ( options.name ) {
         // try cache first
-        app[0] = kv.get(`apps:name:${options.name}`);
+        app = kv.get(`apps:name:${options.name}`);
         // not in cache, try db
-        if ( ! app[0] ) {
+        if ( ! app ) {
             log.cache(false, `apps:name:${ options.name}`);
-            app = await db.read('SELECT * FROM `apps` WHERE `name` = ? LIMIT 1', [options.name]);
+            app = (await db.read('SELECT * FROM `apps` WHERE `name` = ? LIMIT 1', [options.name]))[0];
         }
     }
     else if ( options.id ) {
         // try cache first
-        app[0] = kv.get(`apps:id:${options.id}`);
+        app = kv.get(`apps:id:${options.id}`);
         // not in cache, try db
-        if ( ! app[0] ) {
+        if ( ! app ) {
             log.cache(false, `apps:id:${ options.id}`);
-            app = await db.read('SELECT * FROM `apps` WHERE `id` = ? LIMIT 1', [options.id]);
+            app = (await db.read('SELECT * FROM `apps` WHERE `id` = ? LIMIT 1', [options.id]))[0];
         }
     }
-    app = app && app[0] ? app[0] : null;
 
-    if ( app === null ) return null;
-
+    if ( ! app ) return null;
     // kv.set(`apps:uid:${app.uid}`, app, { EX: 30 });
     // kv.set(`apps:name:${app.name}`, app, { EX: 30 });
     // kv.set(`apps:id:${app.id}`, app, { EX: 30 });
@@ -350,7 +348,12 @@ async function get_app (options) {
     // shallow clone because we use the `delete` operator
     // and it corrupts the cache otherwise
     app = { ...app };
-    return new object_returned_by_get_app(app);
+
+    kv.setex(`apps:uid:${app.uid}`, app, 60 * 1000);
+    kv.setex(`apps:name:${app.name}`, app, 60 * 1000);
+    kv.setex(`apps:id:${app.id}`, app, 60 * 1000);
+
+    return app;
 }
 
 /**
@@ -924,11 +927,6 @@ function cp (source_path, dest_path, user, overwrite, change_name, check_perms =
 
 function isString (variable) {
     return typeof variable === 'string' || variable instanceof String;
-}
-
-// checks to see if given variable is an object
-function isObject (variable) {
-    return variable !== null && typeof variable === 'object';
 }
 
 /**
