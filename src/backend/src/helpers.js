@@ -294,6 +294,14 @@ async function refresh_associations_cache () {
  * @returns {Promise}
  */
 async function get_app (options) {
+
+    const cacheApp = (app) => {
+        if ( ! app ) return;
+        app = { ...app };
+        kv.set(`apps:uid:${app.uid}`, app, { EX: 30 });
+        kv.set(`apps:name:${app.name}`, app, { EX: 30 });
+        kv.set(`apps:id:${app.id}`, app, { EX: 30 });
+    };
     /** @type BaseDatabaseAccessService */
     const db = services.get('database').get(DB_READ, 'apps');
 
@@ -320,6 +328,7 @@ async function get_app (options) {
         if ( ! app ) {
             log.cache(false, `apps:uid:${ options.uid}`);
             app = (await db.read('SELECT * FROM `apps` WHERE `uid` = ? LIMIT 1', [options.uid]))[0];
+            cacheApp(app);
         }
     } else if ( options.name ) {
         // try cache first
@@ -328,6 +337,7 @@ async function get_app (options) {
         if ( ! app ) {
             log.cache(false, `apps:name:${ options.name}`);
             app = (await db.read('SELECT * FROM `apps` WHERE `name` = ? LIMIT 1', [options.name]))[0];
+            cacheApp(app);
         }
     }
     else if ( options.id ) {
@@ -337,6 +347,7 @@ async function get_app (options) {
         if ( ! app ) {
             log.cache(false, `apps:id:${ options.id}`);
             app = (await db.read('SELECT * FROM `apps` WHERE `id` = ? LIMIT 1', [options.id]))[0];
+            cacheApp(app);
         }
     }
 
@@ -344,9 +355,6 @@ async function get_app (options) {
     // shallow clone because we use the `delete` operator
     // and it corrupts the cache otherwise
     app = { ...app };
-    kv.set(`apps:uid:${app.uid}`, app, { EX: 30 });
-    kv.set(`apps:name:${app.name}`, app, { EX: 30 });
-    kv.set(`apps:id:${app.id}`, app, { EX: 30 });
 
     return app;
 }
