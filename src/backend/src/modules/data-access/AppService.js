@@ -1,3 +1,5 @@
+import { v4 as uuidv4 } from 'uuid';
+
 import APIError from '../../api/APIError.js';
 import config from '../../config.js';
 import { app_name_exists, refresh_apps_cache } from '../../helpers.js';
@@ -39,7 +41,7 @@ export default class AppService extends BaseService {
     static IMPLEMENTS = {
         ['crud-q']: {
             async create ({ object, options }) {
-                // TODO
+                return await this.#create({ object, options });
             },
             async update ({ object, id, options }) {
                 return await this.#update({ object, id, options });
@@ -285,6 +287,195 @@ export default class AppService extends BaseService {
         }
 
         return app;
+    }
+
+    async #create ({ object, options }) {
+        // Only UserActorType and AppUnderUserActorType are allowed to do this
+        const actor = Context.get('actor');
+        if ( ! (actor.type instanceof UserActorType || actor.type instanceof AppUnderUserActorType) ) {
+            throw APIError.create('forbidden');
+        }
+
+        const user = actor.type.user;
+
+        // Remove protected/read_only fields from the input (ValidationES behavior)
+        {
+            object = { ...object };
+            for ( const field of this.constructor.PROTECTED_FIELDS ) {
+                delete object[field];
+            }
+            for ( const field of this.constructor.READ_ONLY_FIELDS ) {
+                delete object[field];
+            }
+        }
+
+        // Validate required fields
+        {
+            if ( object.name === undefined ) {
+                throw APIError.create('field_missing', null, { key: 'name' });
+            }
+            if ( object.title === undefined ) {
+                throw APIError.create('field_missing', null, { key: 'title' });
+            }
+            if ( object.index_url === undefined ) {
+                throw APIError.create('field_missing', null, { key: 'index_url' });
+            }
+        }
+
+        // Validate fields
+        {
+            validate_string(object.name, {
+                key: 'name',
+                maxlen: config.app_name_max_length,
+                regex: config.app_name_regex,
+            });
+
+            validate_string(object.title, {
+                key: 'title',
+                maxlen: config.app_title_max_length,
+            });
+
+            if ( object.description !== undefined && object.description !== null ) {
+                validate_string(object.description, {
+                    key: 'description',
+                    maxlen: 7000,
+                });
+            }
+
+            if ( object.icon !== undefined && object.icon !== null ) {
+                validate_image_base64(object.icon, { key: 'icon' });
+            }
+
+            validate_url(object.index_url, {
+                key: 'index_url',
+                maxlen: 3000,
+            });
+
+            if ( object.maximize_on_start !== undefined ) {
+                object.maximize_on_start = as_bool(object.maximize_on_start);
+            }
+            if ( object.background !== undefined ) {
+                object.background = as_bool(object.background);
+            }
+
+            if ( object.metadata !== undefined && object.metadata !== null ) {
+                validate_json(object.metadata, { key: 'metadata' });
+            }
+
+            if ( object.filetype_associations !== undefined ) {
+                validate_array_of_strings(object.filetype_associations, {
+                    key: 'filetype_associations',
+                });
+            }
+        }
+
+        // Ensure puter.site subdomain is owned by user (if index_url uses it)
+        await this.#ensure_puter_site_subdomain_is_owned(object.index_url, user);
+
+        // Handle app name conflicts (AppES behavior)
+        if ( await app_name_exists(object.name) ) {
+            if ( options?.dedupe_name ) {
+                const base = object.name;
+                let number = 1;
+                while ( await app_name_exists(`${base}-${number}`) ) {
+                    number++;
+                }
+                object.name = `${base}-${number}`;
+            } else {
+                throw APIError.create('app_name_already_in_use', null, {
+                    name: object.name,
+                });
+            }
+        }
+
+        // Generate UID for the new app (puter-uuid format: app-{uuid})
+        const uid = `app-${uuidv4()}`;
+
+        // Determine app_owner if actor is AppUnderUserActorType (SetOwnerES behavior)
+        let app_owner_id = null;
+        if ( actor.type instanceof AppUnderUserActorType ) {
+            app_owner_id = actor.type.app.id;
+        }
+
+        // Execute SQL INSERT
+        const insert_id = await this.#execute_insert(object, uid, user.id, app_owner_id);
+
+        // Handle file type associations
+        if ( object.filetype_associations ) {
+            await this.#update_filetype_associations(insert_id, object.filetype_associations);
+        }
+
+        // Emit icon event if icon is set
+        if ( object.icon ) {
+            const svc_event = this.services.get('event');
+            const event = {
+                app_uid: uid,
+                data_url: object.icon,
+            };
+            await svc_event.emit('app.new-icon', event);
+        }
+
+        // Update app cache
+        const raw_app = {
+            uuid: uid,
+            owner_user_id: user.id,
+            name: object.name,
+            title: object.title,
+            description: object.description,
+            icon: object.icon,
+            index_url: object.index_url,
+            maximize_on_start: object.maximize_on_start,
+        };
+        refresh_apps_cache({ uid: raw_app.uuid }, raw_app);
+
+        // Return the created app
+        return await this.#read({ uid });
+    }
+
+    async #execute_insert (object, uid, owner_user_id, app_owner_id) {
+        const columns = ['uid', 'owner_user_id'];
+        const values = [uid, owner_user_id];
+
+        if ( app_owner_id !== null ) {
+            columns.push('app_owner');
+            values.push(app_owner_id);
+        }
+
+        const sql_column_map = {
+            name: 'name',
+            title: 'title',
+            description: 'description',
+            icon: 'icon',
+            index_url: 'index_url',
+            maximize_on_start: 'maximize_on_start',
+            background: 'background',
+            metadata: 'metadata',
+        };
+
+        for ( const [field, column] of Object.entries(sql_column_map) ) {
+            if ( object[field] === undefined ) continue;
+
+            let value = object[field];
+
+            // Handle JSON fields
+            if ( field === 'metadata' && value !== null ) {
+                value = JSON.stringify(value);
+            }
+
+            // Handle boolean fields
+            if ( field === 'maximize_on_start' || field === 'background' ) {
+                value = value ? 1 : 0;
+            }
+
+            columns.push(column);
+            values.push(value);
+        }
+
+        const placeholders = columns.map(() => '?').join(', ');
+        const stmt = `INSERT INTO apps (${columns.join(', ')}) VALUES (${placeholders})`;
+        const result = await this.db_write.write(stmt, values);
+
+        return result.insertId;
     }
 
     async #update ({ object, id, options }) {
