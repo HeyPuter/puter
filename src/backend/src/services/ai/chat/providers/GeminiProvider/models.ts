@@ -4,7 +4,7 @@ export const GEMINI_MODELS: IChatModel[] = [
     {
         id: 'gemini-2.0-flash',
         name: 'Gemini 2.0 Flash',
-        context: 131072,
+        context: 1_048_576,
         costs_currency: 'usd-cents',
         input_cost_key: 'prompt_tokens',
         output_cost_key: 'completion_tokens',
@@ -74,7 +74,7 @@ export const GEMINI_MODELS: IChatModel[] = [
             completion_tokens: 1000,
             cached_tokens: 13,
         },
-        max_tokens: 200_000,
+        max_tokens: 65536,
     },
     {
         id: 'gemini-3-pro-preview',
@@ -89,7 +89,7 @@ export const GEMINI_MODELS: IChatModel[] = [
             completion_tokens: 1200,
             cached_tokens: 20,
         },
-        max_tokens: 200_000,
+        max_tokens: 65536,
     },
     {
         id: 'gemini-3-flash-preview',
