@@ -415,9 +415,20 @@ export class AIChatService extends BaseService {
 
                 if ( isRequestError ) {
                     console.error((error as Error));
+                    
+                    // try to extract the actual provider error message due to the way OpenRouter formats its errors
+                    const rawMeta = (error as any)?.error?.metadata?.raw;
+                    let detailedMessage = (error as Error).message;
+                    if ( rawMeta ) {
+                        try {
+                            const parsed = JSON.parse(rawMeta);
+                            detailedMessage = parsed?.error?.message ?? detailedMessage;
+                        } catch { /* ignore parse failures */ }
+                    }
+
                     throw APIError.create('error_400_from_delegate', error as Error, {
                         delegate: model.provider,
-                        message: (error as Error).message,
+                        message: detailedMessage,
                     });
                 }
 
