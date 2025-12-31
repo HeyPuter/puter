@@ -1294,5 +1294,168 @@ describe('AppService', () => {
             );
         });
     });
+
+    describe('#delete', () => {
+        let mockAppInformationService;
+
+        beforeEach(() => {
+            // Mock app-information service
+            mockAppInformationService = {
+                delete_app: vi.fn().mockResolvedValue(undefined),
+            };
+
+            // Update mockServices to include app-information
+            mockServices.get.mockImplementation((serviceName) => {
+                if ( serviceName === 'database' ) {
+                    return {
+                        get: vi.fn().mockImplementation((mode) => {
+                            if ( mode === 'write' ) return mockDbWrite;
+                            return mockDb;
+                        }),
+                    };
+                }
+                if ( serviceName === 'event' ) return mockEventService;
+                if ( serviceName === 'permission' ) return mockPermissionService;
+                if ( serviceName === 'puter-site' ) return mockPuterSiteService;
+                if ( serviceName === 'old-app-name' ) return mockOldAppNameService;
+                if ( serviceName === 'app-information' ) return mockAppInformationService;
+                return null;
+            });
+
+            // Default: return an existing app for deletes
+            mockDb.read.mockResolvedValue([createMockAppRow({
+                owner_user_id: 1,
+            })]);
+        });
+
+        it('should delete an app by uid', async () => {
+            setupContextForWrite(createMockUserActor(1));
+
+            const crudQ = AppService.IMPLEMENTS['crud-q'];
+            const result = await crudQ.delete.call(appService, { uid: 'app-uid-123' });
+
+            expect(mockAppInformationService.delete_app).toHaveBeenCalledWith('app-uid-123');
+            expect(result.success).toBe(true);
+            expect(result.uid).toBe('app-uid-123');
+        });
+
+        it('should delete an app by complex id (name)', async () => {
+            setupContextForWrite(createMockUserActor(1));
+
+            const crudQ = AppService.IMPLEMENTS['crud-q'];
+            const result = await crudQ.delete.call(appService, { id: { name: 'test-app' } });
+
+            expect(mockAppInformationService.delete_app).toHaveBeenCalledWith('app-uid-123');
+            expect(result.success).toBe(true);
+        });
+
+        it('should throw entity_not_found when app does not exist', async () => {
+            setupContextForWrite(createMockUserActor(1));
+            mockDb.read.mockResolvedValue([]);
+
+            const crudQ = AppService.IMPLEMENTS['crud-q'];
+
+            await expect(crudQ.delete.call(appService, { uid: 'nonexistent-uid' }))
+                .rejects.toThrow();
+        });
+
+        it('should throw forbidden for non-user actors', async () => {
+            Context.get.mockImplementation((key) => {
+                if ( key === 'actor' ) return { type: {} };
+                return null;
+            });
+
+            const crudQ = AppService.IMPLEMENTS['crud-q'];
+
+            await expect(crudQ.delete.call(appService, { uid: 'app-uid-123' }))
+                .rejects.toThrow();
+        });
+
+        it('should throw forbidden when user does not own the app', async () => {
+            // User 2 trying to delete app owned by user 1
+            setupContextForWrite(createMockUserActor(2), { id: 2 });
+            mockDb.read.mockResolvedValue([createMockAppRow({
+                owner_user_id: 1,
+            })]);
+
+            const crudQ = AppService.IMPLEMENTS['crud-q'];
+
+            await expect(crudQ.delete.call(appService, { uid: 'app-uid-123' }))
+                .rejects.toThrow();
+        });
+
+        it('should allow delete when user has write-all-owners permission', async () => {
+            setupContextForWrite(createMockUserActor(2), { id: 2 });
+            mockDb.read.mockResolvedValue([createMockAppRow({
+                owner_user_id: 1,
+            })]);
+            mockPermissionService.check.mockResolvedValue(true);
+
+            const crudQ = AppService.IMPLEMENTS['crud-q'];
+            const result = await crudQ.delete.call(appService, { uid: 'app-uid-123' });
+
+            expect(mockAppInformationService.delete_app).toHaveBeenCalled();
+            expect(result.success).toBe(true);
+        });
+
+        it('should invalidate app cache after delete', async () => {
+            setupContextForWrite(createMockUserActor(1));
+
+            const crudQ = AppService.IMPLEMENTS['crud-q'];
+            await crudQ.delete.call(appService, { uid: 'app-uid-123' });
+
+            expect(refresh_apps_cache).toHaveBeenCalledWith(
+                { uid: 'app-uid-123' },
+                null
+            );
+        });
+
+        it('should throw forbidden when app actor does not own the entity', async () => {
+            // App actor trying to delete an app it didn't create
+            setupContextForWrite(createMockAppUnderUserActor(1, 999));
+            mockDb.read.mockResolvedValue([createMockAppRow({
+                owner_user_id: 1,
+                app_owner_uid: 'different-app-uid',
+            })]);
+
+            const crudQ = AppService.IMPLEMENTS['crud-q'];
+
+            await expect(crudQ.delete.call(appService, { uid: 'app-uid-123' }))
+                .rejects.toThrow();
+        });
+
+        it('should allow app actor to delete entity it owns', async () => {
+            // App actor deleting an app it created
+            const actor = createMockAppUnderUserActor(1, 100);
+            actor.type.app.uid = 'creator-app-uid';
+            setupContextForWrite(actor);
+            mockDb.read.mockResolvedValue([createMockAppRow({
+                owner_user_id: 1,
+                app_owner_uid: 'creator-app-uid',
+            })]);
+
+            const crudQ = AppService.IMPLEMENTS['crud-q'];
+            const result = await crudQ.delete.call(appService, { uid: 'app-uid-123' });
+
+            expect(mockAppInformationService.delete_app).toHaveBeenCalled();
+            expect(result.success).toBe(true);
+        });
+
+        it('should allow app actor with write permission to delete any entity', async () => {
+            setupContextForWrite(createMockAppUnderUserActor(1, 999));
+            mockDb.read.mockResolvedValue([createMockAppRow({
+                owner_user_id: 1,
+                app_owner_uid: 'different-app-uid',
+            })]);
+            // Grant write permission
+            mockPermissionService.check.mockResolvedValue(true);
+
+            const crudQ = AppService.IMPLEMENTS['crud-q'];
+            const result = await crudQ.delete.call(appService, { uid: 'app-uid-123' });
+
+            expect(mockAppInformationService.delete_app).toHaveBeenCalled();
+            expect(result.success).toBe(true);
+        });
+    });
 });
 
