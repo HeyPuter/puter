@@ -72,7 +72,7 @@ export default class AppService extends BaseService {
                 return this.#select(options);
             },
             async delete ({ uid, id }) {
-                // TODO
+                return await this.#delete({ uid, id });
             },
         },
     };
@@ -492,6 +492,43 @@ export default class AppService extends BaseService {
         const result = await this.db_write.write(stmt, values);
 
         return result.insertId;
+    }
+
+    async #delete ({ uid, id }) {
+        // Only UserActorType and AppUnderUserActorType are allowed to do this
+        const actor = Context.get('actor');
+        if ( ! (actor.type instanceof UserActorType || actor.type instanceof AppUnderUserActorType) ) {
+            throw APIError.create('forbidden');
+        }
+
+        // Read the existing app
+        const old_app = await this.#read({
+            uid,
+            id,
+            backend_only_options: { no_filter_owner: true },
+        });
+        if ( ! old_app ) {
+            throw APIError.create('entity_not_found', null, {
+                identifier: uid || JSON.stringify(id),
+            });
+        }
+
+        // Check owner permission (WriteByOwnerOnlyES behavior)
+        await this.#check_owner_permission(old_app);
+
+        // If actor is AppUnderUserActorType, check app_owner (AppLimitedES behavior)
+        if ( actor.type instanceof AppUnderUserActorType ) {
+            await this.#check_app_owner_permission(old_app, actor);
+        }
+
+        // Call app-information service to perform the deletion (AppES behavior)
+        const svc_appInformation = this.services.get('app-information');
+        await svc_appInformation.delete_app(old_app.uid);
+
+        // Invalidate app cache
+        refresh_apps_cache({ uid: old_app.uid }, null);
+
+        return { success: true, uid: old_app.uid };
     }
 
     async #check_app_owner_permission (old_app, actor) {
