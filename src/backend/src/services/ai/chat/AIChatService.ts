@@ -399,6 +399,18 @@ export class AIChatService extends BaseService {
                     if ( (error as unknown as { type: string }).type === 'invalid_request_error' ) {
                         return true;
                     }
+                    
+                    // openrouter wraps provider errors in this shape
+                    const maybeCode = (error as unknown as { error?: { code?: number } })?.error?.code;
+                    if ( maybeCode && maybeCode >= 400 && maybeCode < 500 ) {
+                        return true;
+                    }
+                    // or if the error itself has a status/code property (common pattern)
+                    const directCode = (error as unknown as { status?: number; code?: number }).status
+                        ?? (error as unknown as { status?: number; code?: number }).code;
+                    if ( directCode && directCode >= 400 && directCode < 500 ) {
+                        return true;
+                    }
                 })();
 
                 if ( isRequestError ) {
