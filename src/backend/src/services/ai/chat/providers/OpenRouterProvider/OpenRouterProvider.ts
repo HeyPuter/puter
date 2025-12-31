@@ -66,7 +66,7 @@ export class OpenRouterProvider implements IChatProvider {
              * AI Chat completion method.
              * See AIChatService for more details.
              */
-    async complete ({ messages, stream, model, tools, max_tokens, temperature }) {
+    async complete ({ messages, stream, model, tools, max_tokens, temperature, openrouter_extras }) {
 
         const modelUsed = (await this.models()).find(m => [m.id, ...(m.aliases || [])].includes(model)) || (await this.models()).find(m => m.id === this.getDefaultModel())!;
 
@@ -95,7 +95,8 @@ export class OpenRouterProvider implements IChatProvider {
                 stream_options: { include_usage: true },
             } : {}),
             usage: { include: true },
-        } as ChatCompletionCreateParams);
+            ...openrouter_extras,
+        } as any); // cast to any because the OpenAI SDK types will scream
 
         return OpenAIUtil.handle_completion_output({
             usage_calculator: ({ usage }) => {
