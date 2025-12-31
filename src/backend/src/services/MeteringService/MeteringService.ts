@@ -14,7 +14,7 @@ import { DynamoKVStore } from '../repositories/DynamoKVStore/DynamoKVStore.js';
 export class MeteringService {
 
     static GLOBAL_SHARD_COUNT = 1000; // number of global usage shards to spread writes across
-    static APP_SHARD_COUNT = 100; // number of app usage shards to spread writes across
+    static APP_SHARD_COUNT = 1000; // number of app usage shards to spread writes across
     #kvStore: DynamoKVStore;
     #superUserService: SUService;
     #alarmService: AlarmService;
@@ -125,13 +125,15 @@ export class MeteringService {
                     console.warn('Failed to increment aux usage data \'actorAppUsageKey\' with error: ', e);
                 });
 
-                const appUsageKey = this.#generateAppUsageKey(appId, currentMonth);
-                this.#kvStore.incr({
-                    key: appUsageKey,
-                    pathAndAmountMap,
-                }).catch((e: Error) => {
-                    console.warn('Failed to increment aux usage data \'appUsageKey\' with error: ', e);
-                });
+                if ( appId !== GLOBAL_APP_KEY ) {
+                    const appUsageKey = this.#generateAppUsageKey(appId, currentMonth);
+                    this.#kvStore.incr({
+                        key: appUsageKey,
+                        pathAndAmountMap,
+                    }).catch((e: Error) => {
+                        console.warn('Failed to increment aux usage data \'appUsageKey\' with error: ', e);
+                    });
+                }
 
                 const actorAppTotalsKey = `${METRICS_PREFIX}:actor:${userId}:apps:${currentMonth}`;
                 this.#kvStore.incr({
