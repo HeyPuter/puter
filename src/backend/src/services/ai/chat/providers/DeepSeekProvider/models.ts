@@ -2,6 +2,7 @@ import { IChatModel } from '../types.js';
 
 export const DEEPSEEK_MODELS: IChatModel[] = [
     {
+        puterId: "deepseek/deepseek-chat",
         id: 'deepseek-chat',
         name: 'DeepSeek Chat',
         aliases: [],
@@ -18,6 +19,7 @@ export const DEEPSEEK_MODELS: IChatModel[] = [
         max_tokens: 8000,
     },
     {
+        puterId: "deepseek/deepseek-reasoner",
         id: 'deepseek-reasoner',
         name: 'DeepSeek Reasoner',
         aliases: [],

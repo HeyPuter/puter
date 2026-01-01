@@ -2,6 +2,7 @@ import { IChatModel } from '../types';
 
 export const MISTRAL_MODELS: IChatModel[] = [
     {
+        puterId: "mistralai/mistral-medium-2508",
         id: 'mistral-medium-2508',
         name: 'mistral-medium-2508',
         aliases: [
@@ -21,6 +22,7 @@ export const MISTRAL_MODELS: IChatModel[] = [
         },
     },
     {
+        puterId: "mistralai/open-mistral-7b",
         id: 'open-mistral-7b',
         name: 'open-mistral-7b',
         aliases: [
@@ -40,6 +42,7 @@ export const MISTRAL_MODELS: IChatModel[] = [
         },
     },
     {
+        puterId: "mistralai/open-mistral-nemo",
         id: 'open-mistral-nemo',
         name: 'open-mistral-nemo',
         aliases: [
@@ -60,6 +63,7 @@ export const MISTRAL_MODELS: IChatModel[] = [
         },
     },
     {
+        puterId: "mistralai/pixtral-large-2411",
         id: 'pixtral-large-2411',
         name: 'pixtral-large-2411',
         aliases: [
@@ -79,6 +83,7 @@ export const MISTRAL_MODELS: IChatModel[] = [
         },
     },
     {
+        puterId: "mistralai/codestral-2508",
         id: 'codestral-2508',
         name: 'codestral-2508',
         aliases: [
@@ -97,6 +102,7 @@ export const MISTRAL_MODELS: IChatModel[] = [
         },
     },
     {
+        puterId: "mistralai/devstral-small-2507",
         id: 'devstral-small-2507',
         name: 'devstral-small-2507',
         aliases: [
@@ -116,6 +122,7 @@ export const MISTRAL_MODELS: IChatModel[] = [
         },
     },
     {
+        puterId: "mistralai/devstral-medium-2507",
         id: 'devstral-medium-2507',
         name: 'devstral-medium-2507',
         aliases: [
@@ -135,6 +142,7 @@ export const MISTRAL_MODELS: IChatModel[] = [
         },
     },
     {
+        puterId: "mistralai/mistral-small-2506",
         id: 'mistral-small-2506',
         name: 'mistral-small-2506',
         aliases: [
@@ -153,6 +161,7 @@ export const MISTRAL_MODELS: IChatModel[] = [
         },
     },
     {
+        puterId: "mistralai/magistral-medium-2509",
         id: 'magistral-medium-2509',
         name: 'magistral-medium-2509',
         aliases: [
@@ -171,6 +180,7 @@ export const MISTRAL_MODELS: IChatModel[] = [
         },
     },
     {
+        puterId: "mistralai/magistral-small-2509",
         id: 'magistral-small-2509',
         name: 'magistral-small-2509',
         aliases: [
@@ -189,6 +199,7 @@ export const MISTRAL_MODELS: IChatModel[] = [
         },
     },
     {
+        puterId: "mistralai/voxtral-mini-2507",
         id: 'voxtral-mini-2507',
         name: 'voxtral-mini-2507',
         aliases: [
@@ -207,6 +218,7 @@ export const MISTRAL_MODELS: IChatModel[] = [
         },
     },
     {
+        puterId: "mistralai/voxtral-small-2507",
         id: 'voxtral-small-2507',
         name: 'voxtral-small-2507',
         aliases: [
@@ -225,6 +237,7 @@ export const MISTRAL_MODELS: IChatModel[] = [
         },
     },
     {
+        puterId: "mistralai/mistral-large-2512",
         id: 'mistral-large-latest',
         name: 'mistral-large-2512',
         aliases: [
@@ -243,6 +256,7 @@ export const MISTRAL_MODELS: IChatModel[] = [
         },
     },
     {
+        puterId: "mistralai/ministral-3b-2512",
         id: 'ministral-3b-2512',
         name: 'ministral-3b-2512',
         aliases: [
@@ -261,6 +275,7 @@ export const MISTRAL_MODELS: IChatModel[] = [
         },
     },
     {
+        puterId: "mistralai/ministral-8b-2512",
         id: 'ministral-8b-2512',
         name: 'ministral-8b-2512',
         aliases: [
@@ -279,6 +294,7 @@ export const MISTRAL_MODELS: IChatModel[] = [
         },
     },
     {
+        puterId: "mistralai/ministral-14b-2512",
         id: 'ministral-14b-2512',
         name: 'ministral-14b-2512',
         aliases: [

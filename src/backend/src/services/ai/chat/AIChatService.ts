@@ -217,6 +217,14 @@ export class AIChatService extends BaseService {
                     this.#modelIdMap[model.id] = [];
                 }
                 this.#modelIdMap[model.id].push({ ...model, provider: providerName });
+                if ( model.puterId ) {
+                    if (model.aliases) {
+                        model.aliases.push(model.puterId);
+                    } else {
+                        model.aliases = [model.puterId]
+                    }
+                    
+                }
                 if ( model.aliases ) {
                     for ( let alias of model.aliases ) {
                         alias = alias.trim().toLowerCase();
@@ -263,7 +271,7 @@ export class AIChatService extends BaseService {
     }
 
     list () {
-        return this.models().map(m => m.id).sort();
+        return this.models().map(m => (m.puterId || m.id)).sort();
     }
 
     async complete (parameters: ICompleteArguments) {

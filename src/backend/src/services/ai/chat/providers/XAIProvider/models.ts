@@ -1,18 +1,21 @@
 import { IChatModel } from '../types.js';
 
 const makeModel = ({
+    puterId,
     id,
     name,
     context,
     input,
     output,
 }: {
+    puterId: string
     id: string;
     name: string;
     context: number;
     input: number;
     output: number;
 }): IChatModel => ({
+    puterId,
     id,
     name,
     context,
@@ -29,6 +32,7 @@ const makeModel = ({
 
 export const XAI_MODELS: IChatModel[] = [
     makeModel({
+        puterId: "x-ai/grok-beta",
         id: 'grok-beta',
         name: 'Grok Beta',
         context: 131072,
@@ -36,6 +40,7 @@ export const XAI_MODELS: IChatModel[] = [
         output: 1500,
     }),
     makeModel({
+        puterId: "x-ai/grok-vision-beta",
         id: 'grok-vision-beta',
         name: 'Grok Vision Beta',
         context: 8192,
@@ -43,6 +48,7 @@ export const XAI_MODELS: IChatModel[] = [
         output: 1500,
     }),
     makeModel({
+        puterId: "x-ai/grok-3",
         id: 'grok-3',
         name: 'Grok 3',
         context: 131072,
@@ -50,6 +56,7 @@ export const XAI_MODELS: IChatModel[] = [
         output: 1500,
     }),
     makeModel({
+        puterId: "x-ai/grok-3-fast",
         id: 'grok-3-fast',
         name: 'Grok 3 Fast',
         context: 131072,
@@ -57,6 +64,7 @@ export const XAI_MODELS: IChatModel[] = [
         output: 2500,
     }),
     makeModel({
+        puterId: "x-ai/grok-3-mini",
         id: 'grok-3-mini',
         name: 'Grok 3 Mini',
         context: 131072,
@@ -64,6 +72,7 @@ export const XAI_MODELS: IChatModel[] = [
         output: 50,
     }),
     makeModel({
+        puterId: "x-ai/grok-3-mini-fast",
         id: 'grok-3-mini-fast',
         name: 'Grok 3 Mini Fast',
         context: 131072,
@@ -71,6 +80,7 @@ export const XAI_MODELS: IChatModel[] = [
         output: 400,
     }),
     makeModel({
+        puterId: "x-ai/grok-2-vision",
         id: 'grok-2-vision',
         name: 'Grok 2 Vision',
         context: 8192,
@@ -78,6 +88,7 @@ export const XAI_MODELS: IChatModel[] = [
         output: 1000,
     }),
     makeModel({
+        puterId: "x-ai/grok-2",
         id: 'grok-2',
         name: 'Grok 2',
         context: 131072,
