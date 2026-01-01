@@ -39,7 +39,8 @@ import { FakeChatProvider } from './providers/FakeChatProvider.js';
 import { GeminiChatProvider } from './providers/GeminiProvider/GeminiChatProvider.js';
 import { GroqAIProvider } from './providers/GroqAiProvider/GroqAIProvider.js';
 import { MistralAIProvider } from './providers/MistralAiProvider/MistralAiProvider.js';
-import { OpenAiChatProvider } from './providers/OpenAiProvider/OpenAiChatProvider.js';
+import { OpenAiChatProvider } from './providers/OpenAiProvider/OpenAiChatCompletionsProvider.js';
+import { OpenAiResponsesChatProvider } from './providers/OpenAiProvider/OpenAiChatResponsesProvider.js';
 import { IChatModel, IChatProvider, ICompleteArguments } from './providers/types.js';
 import { UsageLimitedChatProvider } from './providers/UsageLimitedChatProvider.js';
 import { OllamaChatProvider } from './providers/OllamaProvider.js';
@@ -129,6 +130,7 @@ export class AIChatService extends BaseService {
         const openAiConfig = this.config.providers?.['openai-completion'] || this.global_config?.services?.['openai-completion'] || this.global_config?.openai;
         if ( openAiConfig && (openAiConfig.apiKey || openAiConfig.secret_key) ) {
             this.#providers['openai-completion'] = new OpenAiChatProvider(this.meteringService, openAiConfig);
+            this.#providers['openai-responses'] = new OpenAiResponsesChatProvider(this.meteringService, openAiConfig);
         }
         const geminiConfig = this.config.providers?.['gemini'] || this.global_config?.services?.['gemini'];
         if ( geminiConfig && geminiConfig.apiKey ) {
