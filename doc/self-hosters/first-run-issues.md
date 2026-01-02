@@ -30,6 +30,12 @@ sudo apt install build-essential
 
 ### RHEL-family distros (Fedora, Rocky, etc)
 
+For distros using dnf5 (Fedora 39+):
+```
+sudo dnf group install "Development Tools"
+```
+
+Otherwise:
 ```
 sudo dnf groupinstall "Development Tools"
 ```
