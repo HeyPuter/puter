@@ -16,47 +16,49 @@
  * You should have received a copy of the GNU Affero General Public License
  * along with this program.  If not, see <https://www.gnu.org/licenses/>.
  */
-import { Service } from '../definitions.js';
+import { Service } from "../definitions.js";
 
-import AboutTab from '../UI/Settings/UITabAbout.js';
-import UsageTab from '../UI/Settings/UITabUsage.js';
-import AccountTab from '../UI/Settings/UITabAccount.js';
-import SecurityTab from '../UI/Settings/UITabSecurity.js';
-import PersonalizationTab from '../UI/Settings/UITabPersonalization.js';
-import LanguageTag from '../UI/Settings/UITabLanguage.js';
-import UIElement from '../UI/UIElement.js';
-const TSettingsTab = use('ui.traits.TSettingsTab');
+import AboutTab from "../UI/Settings/UITabAbout.js";
+import UsageTab from "../UI/Settings/UITabUsage.js";
+import AccountTab from "../UI/Settings/UITabAccount.js";
+import SecurityTab from "../UI/Settings/UITabSecurity.js";
+import KeyboardShortcutsTab from "../UI/Settings/UITabKeyboardShortcuts.js";
+import PersonalizationTab from "../UI/Settings/UITabPersonalization.js";
+import LanguageTag from "../UI/Settings/UITabLanguage.js";
+import UIElement from "../UI/UIElement.js";
+const TSettingsTab = use("ui.traits.TSettingsTab");
 
 export class SettingsService extends Service {
-    #tabs = [];
-    async _init () {
-        ;[
-            UsageTab,
-            AccountTab,
-            SecurityTab,
-            PersonalizationTab,
-            LanguageTag,
-            AboutTab,
-        ].forEach(tab => {
-            this.register_tab(tab);
-        });
+  #tabs = [];
+  async _init() {
+    [
+      UsageTab,
+      AccountTab,
+      SecurityTab,
+      PersonalizationTab,
+      LanguageTag,
+      AboutTab,
+      KeyboardShortcutsTab,
+    ].forEach((tab) => {
+      this.register_tab(tab);
+    });
+  }
+  get_tabs() {
+    return this.#tabs;
+  }
+  register_tab(tab) {
+    if (tab instanceof UIElement) {
+      const ui_element = tab;
+      tab = {
+        ...ui_element.as(TSettingsTab).get_metadata(),
+        reinitialize() {
+          ui_element.reinitialize();
+        },
+        get dom() {
+          return ui_element.root;
+        },
+      };
     }
-    get_tabs () {
-        return this.#tabs;
-    }
-    register_tab (tab) {
-        if ( tab instanceof UIElement ) {
-            const ui_element = tab;
-            tab = {
-                ...ui_element.as(TSettingsTab).get_metadata(),
-                reinitialize () {
-                    ui_element.reinitialize();
-                },
-                get dom () {
-                    return ui_element.root;
-                },
-            };
-        }
-        this.#tabs.push(tab);
-    }
+    this.#tabs.push(tab);
+  }
 }
