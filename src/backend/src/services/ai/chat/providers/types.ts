@@ -17,16 +17,20 @@ export interface IChatModel<T extends ModelCost = ModelCost> extends Record<stri
 }
 
 export interface IOpenRouterExtras {
+    // Structured outputs / JSON mode
     response_format?:
         | { type: 'text' }
         | { type: 'json_object' }
         | { type: 'json_schema'; json_schema: { name: string; schema?: object; strict?: boolean } };
 
-    reasoning?: { 
+    // Reasoning / thinking tokens (Anthropic, DeepSeek, etc.)
+    reasoning?: {
         effort?: 'xhigh' | 'high' | 'medium' | 'low' | 'minimal' | 'none';
         summary?: 'auto' | 'concise' | 'detailed';
+        max_tokens?: number;
     };
 
+    // Provider routing
     provider?: {
         order?: string[];
         only?: string[];
@@ -34,12 +38,17 @@ export interface IOpenRouterExtras {
         allow_fallbacks?: boolean;
         require_parameters?: boolean;
         data_collection?: 'allow' | 'deny';
-        zdr?: boolean;
-        // not typing quantizations/sort/max_price because they're deep nested and rarely used
-        [key: string]: unknown;
     };
-    // escape hatch for everything else
-    [key: string]: unknown;
+
+    // Sampler parameters
+    top_p?: number;
+    top_k?: number;
+    min_p?: number;
+    top_a?: number;
+    seed?: number;
+    frequency_penalty?: number;
+    presence_penalty?: number;
+    repetition_penalty?: number;
 }
 
 export type PuterMessage = Message | any; // TODO DS: type this more strictly
