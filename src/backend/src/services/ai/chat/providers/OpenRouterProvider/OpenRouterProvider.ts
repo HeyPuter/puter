@@ -128,7 +128,7 @@ export class OpenRouterProvider implements IChatProvider {
             } : {}),
             usage: { include: true },
             ...extras,
-        } as OpenRouterCreateParams); // cast to any because the OpenAI SDK types will scream
+        } as OpenRouterCreateParams);
 
         return OpenAIUtil.handle_completion_output({
             usage_calculator: ({ usage }) => {
