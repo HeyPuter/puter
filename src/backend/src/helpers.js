@@ -36,7 +36,14 @@ const tmp_provide_services = async ss => {
 };
 
 // TTL for pending get_app queries (request coalescing)
-const PENDING_QUERY_TTL = 2; // seconds
+const PENDING_QUERY_TTL = 3; // seconds
+const QUERY_TIMEOUT = 2000; // max ms to wait for a coalesced query
+
+// Wait for a promise, but give up after timeout
+const withTimeout = (promise, ms) => Promise.race([
+    promise,
+    new Promise((_, reject) => setTimeout(() => reject(new Error('Query timeout')), ms))
+]);
 
 async function is_empty (dir_uuid) {
     /** @type BaseDatabaseAccessService */
@@ -352,11 +359,15 @@ async function get_app (options) {
     const pendingKey = `pending_app:${queryKey}`;
     const pending = kv.get(pendingKey);
     if ( pending ) {
-        // Reuse the existing pending query
-        log.info(`coalescing query for ${queryKey}`);
-        const result = await pending;
-        // shallow clone the result
-        return result ? { ...result } : null;
+        // Wait for existing query, but don't block forever
+        try {
+            log.info(`coalescing query for ${queryKey}`);
+            const result = await withTimeout(pending, QUERY_TIMEOUT);
+            return result ? { ...result } : null;
+        } catch (err) {
+            // Timeout or error - fall through and execute query directly
+            log.warn(`coalesced query failed for ${queryKey}, executing direct query`);
+        }
     }
 
     // Create a new pending query
