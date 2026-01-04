@@ -59,6 +59,20 @@ export const OPEN_AI_MODELS: IChatModel[] = [
         max_tokens: 128000,
     },
     {
+        id: 'gpt-5.1-codex-max',
+        costs_currency: 'usd-cents',
+        input_cost_key: 'prompt_tokens',
+        output_cost_key: 'completion_tokens',
+        costs: {
+            tokens: 1_000_000,
+            prompt_tokens: 125,
+            cached_tokens: 13,
+            completion_tokens: 1000,
+        },
+        max_tokens: 128000,
+        responses_api_only: true,
+    },
+    {
         id: 'gpt-5.1-codex',
         costs_currency: 'usd-cents',
         input_cost_key: 'prompt_tokens',
