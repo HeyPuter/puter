@@ -110,6 +110,7 @@ class WebServerService extends BaseService {
         const services = this.services;
         await services.emit('start.webserver');
         await services.emit('ready.webserver');
+        console.log('in case you care, ready.webserver hooks are done');
     }
 
     /**

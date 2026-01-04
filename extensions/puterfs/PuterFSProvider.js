@@ -345,6 +345,7 @@ export default class PuterFSProvider {
             } : {}),
         };
 
+        console.log('raw fsentry', raw_fsentry);
         const entryOp = await this.fsEntryController.insert(raw_fsentry);
 
         await entryOp.awaitDone();
@@ -667,6 +668,7 @@ export default class PuterFSProvider {
      * @returns {Promise<FSNode>}
      */
     async write_new ({ context, parent, name, file }) {
+        console.log('calling write new');
         const {
             tmp, fsentry_tmp, message, actor: inputActor, app_id,
         } = context.values;
