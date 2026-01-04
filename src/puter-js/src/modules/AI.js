@@ -749,7 +749,7 @@ class AI {
         }
 
         // Additional parameters to pass from userParams to requestParams
-        const PARAMS_TO_PASS = ['tools', 'response', 'reasoning', 'reasoning_effort', 'text', 'verbosity'];
+        const PARAMS_TO_PASS = ['tools', 'response', 'reasoning', 'reasoning_effort', 'text', 'verbosity', 'openrouter_extras'];
         for ( const name of PARAMS_TO_PASS ) {
             if ( userParams[name] ) {
                 requestParams[name] = userParams[name];
