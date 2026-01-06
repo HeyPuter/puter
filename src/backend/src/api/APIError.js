@@ -121,7 +121,13 @@ class APIError {
         },
         'dest_does_not_exist': {
             status: 422,
-            message: 'Destination was not found.',
+            message: ({ what_dest }) => {
+                if ( ! what_dest ) {
+                    return 'Destination was not found.';
+                }
+
+                return `Destination of ${quot(what_dest)} was not found.`;
+            },
         },
         'source_does_not_exist': {
             status: 404,
