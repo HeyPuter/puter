@@ -116,6 +116,11 @@ class PuterSiteMiddleware extends AdvancedBase {
             };
         });
 
+        if ( subdomain === '' || subdomain === 'www' ) {
+            // redirect to information page about static hosting
+            return res.redirect(config.static_hosting_base_domain_redirect);
+        }
+
         const site =
             await get_username_site() ||
             await (async () => {
