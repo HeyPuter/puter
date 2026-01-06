@@ -29,10 +29,16 @@ const { NodeUIDSelector } = require('./filesystem/node/selectors');
 const { object_returned_by_get_app } = require('./annotatedobjects.js');
 const { kv } = require('./util/kvSingleton');
 
-let services = null;
+const identifying_uuid = require('uuid').v4();
+
+// Use global singleton for services to handle ESM/CJS dual-loading in vitest
+const SERVICES_KEY = Symbol.for('puter.helpers.services');
+globalThis[SERVICES_KEY] = globalThis[SERVICES_KEY] ?? { services: null };
+const _servicesHolder = globalThis[SERVICES_KEY];
+
 const tmp_provide_services = async ss => {
-    services = ss;
-    await services.ready;
+    _servicesHolder.services = ss;
+    await _servicesHolder.services.ready;
 };
 
 // TTL for pending get_app queries (request coalescing)
@@ -40,7 +46,7 @@ const PENDING_QUERY_TTL = 10; // seconds
 
 async function is_empty (dir_uuid) {
     /** @type BaseDatabaseAccessService */
-    const db = services.get('database').get(DB_READ, 'filesystem');
+    const db = _servicesHolder.services.get('database').get(DB_READ, 'filesystem');
 
     let rows;
 
@@ -98,7 +104,7 @@ async function is_shared_with_anyone (fsentry_id) {
  * @returns {boolean}
  */
 async function is_temp_users_disabled () {
-    const svc_feature_flag = await services.get('feature-flag');
+    const svc_feature_flag = await _servicesHolder.services.get('feature-flag');
     return await svc_feature_flag.check('temp-users-disabled');
 }
 
@@ -107,7 +113,7 @@ async function is_temp_users_disabled () {
  * @returns {boolean}
  */
 async function is_user_signup_disabled () {
-    const svc_feature_flag = await services.get('feature-flag');
+    const svc_feature_flag = await _servicesHolder.services.get('feature-flag');
     return await svc_feature_flag.check('user-signup-disabled');
 }
 
@@ -187,7 +193,7 @@ function validate_fsentry_name (name) {
  */
 async function id2uuid (id) {
     /** @type BaseDatabaseAccessService */
-    const db = services.get('database').get(DB_READ, 'filesystem');
+    const db = _servicesHolder.services.get('database').get(DB_READ, 'filesystem');
 
     let fsentry = await db.requireRead('SELECT `uuid`, immutable FROM `fsentries` WHERE `id` = ? LIMIT 1', [id]);
 
@@ -209,7 +215,7 @@ async function id2uuid (id) {
  */
 async function df (user_id) {
     /** @type BaseDatabaseAccessService */
-    const db = services.get('database').get(DB_READ, 'filesystem');
+    const db = _servicesHolder.services.get('database').get(DB_READ, 'filesystem');
 
     const fsentry = await db.read('SELECT SUM(size) AS total FROM `fsentries` WHERE `user_id` = ? LIMIT 1', [user_id]);
     if ( !fsentry[0] || !fsentry[0].total )
@@ -232,7 +238,7 @@ async function df (user_id) {
  * @returns {Promise}
  */
 async function get_user (options) {
-    return await services.get('get-user').get_user(options);
+    return await _servicesHolder.services.get('get-user').get_user(options);
 }
 
 /**
@@ -269,9 +275,9 @@ async function refresh_apps_cache (options, override) {
 
 async function refresh_associations_cache () {
     /** @type BaseDatabaseAccessService */
-    const db = services.get('database').get(DB_READ, 'apps');
+    const db = _servicesHolder.services.get('database').get(DB_READ, 'apps');
 
-    const log = services.get('log-service').create('helpers.js');
+    const log = _servicesHolder.services.get('log-service').create('helpers.js');
     log.tick('refresh file associations');
     const associations = await db.read('SELECT * FROM app_filetype_association');
     const lists = {};
@@ -306,11 +312,11 @@ async function get_app (options) {
         kv.set(`apps:id:${app.id}`, app, { EX: 30 });
     };
 
-    const log = services.get('log-service').create('get_app');
+    const log = _servicesHolder.services.get('log-service').create('get_app');
 
     // This condition should be updated if the code below is re-ordered.
     if ( options.follow_old_names && !options.uid && options.name ) {
-        const svc_oldAppName = services.get('old-app-name');
+        const svc_oldAppName = _servicesHolder.services.get('old-app-name');
         const old_name = await svc_oldAppName.check_app_name(options.name);
         if ( old_name ) {
             options.uid = old_name.app_uid;
@@ -367,7 +373,7 @@ async function get_app (options) {
 
     try {
         /** @type BaseDatabaseAccessService */
-        const db = services.get('database').get(DB_READ, 'apps');
+        const db = _servicesHolder.services.get('database').get(DB_READ, 'apps');
 
         if ( options.uid ) {
             app = (await db.read('SELECT * FROM `apps` WHERE `uid` = ? LIMIT 1', [options.uid]))[0];
@@ -403,7 +409,7 @@ async function get_app (options) {
  */
 async function app_exists (options) {
     /** @type BaseDatabaseAccessService */
-    const db = services.get('database').get(DB_READ, 'apps');
+    const db = _servicesHolder.services.get('database').get(DB_READ, 'apps');
 
     let app;
     if ( options.uid )
@@ -430,7 +436,7 @@ async function app_exists (options) {
  */
 async function change_username (user_id, new_username) {
     /** @type BaseDatabaseAccessService */
-    const db = services.get('database').get(DB_WRITE, 'auth');
+    const db = _servicesHolder.services.get('database').get(DB_WRITE, 'auth');
 
     const old_username = (await get_user({ id: user_id })).username;
 
@@ -442,7 +448,7 @@ async function change_username (user_id, new_username) {
     [new_username, `/${ new_username}`, user_id]);
 
     console.log(`User ${old_username} changed username to ${new_username}`);
-    await services.get('filesystem').update_child_paths(`/${old_username}`, `/${new_username}`, user_id);
+    await _servicesHolder.services.get('filesystem').update_child_paths(`/${old_username}`, `/${new_username}`, user_id);
 
     invalidate_cached_user_by_id(user_id);
 }
@@ -456,7 +462,7 @@ async function change_username (user_id, new_username) {
  */
 async function uuid2fsentry (uuid, return_thumbnail) {
     /** @type BaseDatabaseAccessService */
-    const db = services.get('database').get(DB_READ, 'filesystem');
+    const db = _servicesHolder.services.get('database').get(DB_READ, 'filesystem');
 
     // todo optim, check if uuid is not exactly 36 characters long, if not it's invalid
     // and we can avoid one unnecessary DB lookup
@@ -504,7 +510,7 @@ async function uuid2fsentry (uuid, return_thumbnail) {
  */
 async function id2fsentry (id, return_thumbnail) {
     /** @type BaseDatabaseAccessService */
-    const db = services.get('database').get(DB_READ, 'filesystem');
+    const db = _servicesHolder.services.get('database').get(DB_READ, 'filesystem');
 
     // todo optim, check if uuid is not exactly 36 characters long, if not it's invalid
     // and we can avoid one unnecessary DB lookup
@@ -580,7 +586,7 @@ async function convert_path_to_fsentry (path) {
     let result;
 
     /** @type BaseDatabaseAccessService */
-    const db = services.get('database').get(DB_READ, 'filesystem');
+    const db = _servicesHolder.services.get('database').get(DB_READ, 'filesystem');
 
     // Try stored path first
     result = await db.read('SELECT * FROM fsentries WHERE path=? LIMIT 1',
@@ -645,7 +651,7 @@ function byte_format (bytes) {
  * @returns
  */
 async function getDescendantsHelper (path, user, depth, return_thumbnail = false) {
-    const log = services.get('log-service').create('get_descendants');
+    const log = _servicesHolder.services.get('log-service').create('get_descendants');
     log.called();
 
     // decrement depth if it's set
@@ -668,7 +674,7 @@ async function getDescendantsHelper (path, user, depth, return_thumbnail = false
     }
 
     /** @type BaseDatabaseAccessService */
-    const db = services.get('database').get(DB_READ, 'filesystem');
+    const db = _servicesHolder.services.get('database').get(DB_READ, 'filesystem');
 
     // -------------------------------------
     // parent is root ('/')
@@ -823,7 +829,7 @@ async function getDescendantsHelper (path, user, depth, return_thumbnail = false
 };
 
 async function get_descendants (...args) {
-    const tracer = services.get('traceService').tracer;
+    const tracer = _servicesHolder.services.get('traceService').tracer;
     let ret;
     await tracer.startActiveSpan('get_descendants', async span => {
         ret = await getDescendantsHelper(...args);
@@ -855,12 +861,12 @@ async function id2path (entry_uid) {
     }
 
     /** @type BaseDatabaseAccessService */
-    const db = services.get('database').get(DB_READ, 'filesystem');
+    const db = _servicesHolder.services.get('database').get(DB_READ, 'filesystem');
 
-    const traces = services.get('traceService');
-    const log = services.get('log-service').create('helpers.id2path');
+    const traces = _servicesHolder.services.get('traceService');
+    const log = _servicesHolder.services.get('log-service').create('helpers.id2path');
     log.traceOn();
-    const errors = services.get('error-service').create(log);
+    const errors = _servicesHolder.services.get('error-service').create(log);
     log.called();
 
     let result;
@@ -1018,7 +1024,7 @@ async function is_ancestor_of (ancestor_uid, descendant_uid) {
     }
 
     /** @type BaseDatabaseAccessService */
-    const db = services.get('database').get(DB_READ, 'filesystem');
+    const db = _servicesHolder.services.get('database').get(DB_READ, 'filesystem');
 
     // root is an ancestor to all FSEntries
     if ( ancestor_uid === null )
@@ -1111,7 +1117,7 @@ async function gen_public_token (file_uuid, ttl = 24 * 60 * 60) {
     const contentType = mime.contentType(fsentry.name);
 
     /** @type BaseDatabaseAccessService */
-    const db = services.get('database').get(DB_WRITE, 'filesystem');
+    const db = _servicesHolder.services.get('database').get(DB_WRITE, 'filesystem');
 
     // insert into DB
     try {
@@ -1140,8 +1146,8 @@ async function gen_public_token (file_uuid, ttl = 24 * 60 * 60) {
 
 async function deleteUser (user_id) {
     /** @type BaseDatabaseAccessService */
-    const db = services.get('database').get(DB_READ, 'filesystem');
-    const svc_fs = services.get('filesystem');
+    const db = _servicesHolder.services.get('database').get(DB_READ, 'filesystem');
+    const svc_fs = _servicesHolder.services.get('filesystem');
 
     // get a list of up to 5000 files owned by this user
     for ( let offset = 0; true; offset += 5000 ) {
@@ -1243,7 +1249,7 @@ async function jwt_auth (req) {
  */
 async function ancestors (fsentry_id) {
     /** @type BaseDatabaseAccessService */
-    const db = services.get('database').get(DB_READ, 'filesystem');
+    const db = _servicesHolder.services.get('database').get(DB_READ, 'filesystem');
 
     const ancestors = [];
     // first parent
@@ -1278,7 +1284,7 @@ function hyphenize_confirm_code (email_confirm_code) {
 
 async function username_exists (username) {
     /** @type BaseDatabaseAccessService */
-    const db = services.get('database').get(DB_READ, 'filesystem');
+    const db = _servicesHolder.services.get('database').get(DB_READ, 'filesystem');
 
     let rows = await db.read('SELECT EXISTS(SELECT 1 FROM user WHERE username=?) AS username_exists', [username]);
     if ( rows[0].username_exists )
@@ -1289,7 +1295,7 @@ async function username_exists (username) {
 
 async function app_name_exists (name) {
     /** @type BaseDatabaseAccessService */
-    const db = services.get('database').get(DB_READ, 'filesystem');
+    const db = _servicesHolder.services.get('database').get(DB_READ, 'filesystem');
 
     let rows = await db.read('SELECT EXISTS(SELECT 1 FROM apps WHERE apps.name=?) AS app_name_exists', [name]);
     if ( rows[0].app_name_exists )
@@ -1297,7 +1303,7 @@ async function app_name_exists (name) {
         return true;
     }
 
-    const svc_oldAppName = services.get('old-app-name');
+    const svc_oldAppName = _servicesHolder.services.get('old-app-name');
     const name_info = await svc_oldAppName.check_app_name(name);
     if ( name_info ) return true;
 }
@@ -1536,7 +1542,7 @@ async function suggest_app_for_fsentry (fsentry, options) {
 
 async function get_taskbar_items (user, { icon_size, no_icons } = {}) {
     /** @type BaseDatabaseAccessService */
-    const db = services.get('database').get(DB_WRITE, 'filesystem');
+    const db = _servicesHolder.services.get('database').get(DB_WRITE, 'filesystem');
 
     let taskbar_items_from_db = [];
     // If taskbar items don't exist (specifically NULL)
@@ -1601,7 +1607,7 @@ async function get_taskbar_items (user, { icon_size, no_icons } = {}) {
         if ( no_icons ) {
             delete item.icon;
         } else {
-            const svc_appIcon = services.get('app-icon');
+            const svc_appIcon = _servicesHolder.services.get('app-icon');
             const icon_result = await svc_appIcon.get_icon_stream({
                 app_icon: item.icon,
                 app_uid: item.uid,
@@ -1767,4 +1773,5 @@ module.exports = {
     validate_fsentry_name,
     validate_signature_auth,
     tmp_provide_services,
+    identifying_uuid,
 };
