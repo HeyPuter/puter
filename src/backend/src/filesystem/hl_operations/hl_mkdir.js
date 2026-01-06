@@ -480,7 +480,7 @@ class HLMkdir extends HLFilesystemOperation {
             dir.get_selector_of_type(NodePathSelector);
 
         if ( ! maybe_path_selector ) {
-            throw APIError.create('dest_does_not_exist');
+            throw APIError.create('dest_does_not_exist', null, { what_dest: 'path from selector' });
         }
 
         const path = maybe_path_selector.value;
@@ -498,7 +498,12 @@ class HLMkdir extends HLFilesystemOperation {
 
     async _get_existing_top_parent ({ top_parent }) {
         if ( ! await top_parent.exists() ) {
-            throw APIError.create('dest_does_not_exist');
+            throw APIError.create('dest_does_not_exist', null, {
+                // This seems verbose, but is necessary information when creating
+                // shortcuts, otherwise the developer doesn't know if we're talking
+                // about the shortcut's target directory or this parent directory.
+                what_dest: 'parent directory of the new directory being created',
+            });
         }
 
         if ( ! top_parent.entry.is_dir ) {
