@@ -25,7 +25,6 @@ export const TOGETHER_COST_MAP = {
     'together-image:black-forest-labs/FLUX.1-krea-dev': 0.025 * 100_000_000,
     'together-image:black-forest-labs/FLUX.1-pro': 0.05 * 100_000_000,
     'together-image:black-forest-labs/FLUX.1-schnell': 0.0027 * 100_000_000,
-    'together-image:black-forest-labs/FLUX.1-schnell-Free': 0,
     'together-image:black-forest-labs/FLUX.1.1-pro': 0.05 * 100_000_000,
     'together-image:black-forest-labs/FLUX.2-pro': 0.03 * 100_000_000,
     'together-image:black-forest-labs/FLUX.2-flex': 0.03 * 100_000_000,
