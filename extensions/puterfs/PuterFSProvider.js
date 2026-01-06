@@ -164,6 +164,7 @@ export default class PuterFSProvider {
     }
 
     async puter_shortcut ({ parent, name, user, target }) {
+        const user_id = user?.id ?? Context.get('actor')?.type?.user?.id;
         await target.fetchEntry({ thumbnail: true });
 
         const ts = Math.round(Date.now() / 1000);
@@ -182,7 +183,7 @@ export default class PuterFSProvider {
             uuid: uid,
             parent_uid: await parent.get('uid'),
             path: path_.join(await parent.get('path'), name),
-            user_id: user.id,
+            user_id: user_id,
             name,
             created: ts,
             updated: ts,
