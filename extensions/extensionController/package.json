@@ -1,0 +1,23 @@
+{
+  "name": "@puter/extension-controller",
+  "version": "1.0.0",
+  "description": "",
+  "main": "src/index.js",
+  "type": "module",
+  "scripts": {
+    "postinstall": "tsc --noCheck"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC",
+  "devDependencies": {
+    "@types/express": "^4.17.21",
+    "@types/node": "^24.9.1",
+    "ts-node": "^10.9.2",
+    "typescript": "^5.9.3"
+  },
+  "dependencies": {
+    "http-status-codes": "^2.3.0",
+    "stripe": "^19.1.0"
+  }
+}
