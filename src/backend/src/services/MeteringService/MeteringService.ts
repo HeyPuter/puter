@@ -82,7 +82,7 @@ export class MeteringService {
             return this.#superUserService.sudo(async () => {
 
                 const mappedCost = COST_MAPS[usageType as keyof typeof COST_MAPS];
-                const totalCost = (costOverride ?? ((mappedCost || 0) * usageAmount));
+                const totalCost = (((costOverride && costOverride < 0) ? 1 : costOverride) ?? ((mappedCost || 0) * usageAmount));
 
                 if ( totalCost === 0 && mappedCost !== 0 && costOverride !== 0 ) {
                     // could be something is off, there are some models that cost nothing from openrouter, but then our overrides should not be undefined, so will flag
@@ -226,8 +226,9 @@ export class MeteringService {
 
                 // Process each usage and aggregate the pathAndAmountMap
                 for ( const usage of usages ) {
-                    const { usageType, usageAmount: usageAmountRaw, costOverride } = usage;
+                    const { usageType, usageAmount: usageAmountRaw, costOverride: costOverrideRaw } = usage;
                     const usageAmount =  usageAmountRaw < 0 ? 1 : usageAmountRaw;
+                    const costOverride = costOverrideRaw && costOverrideRaw < 0 ? 1 : costOverrideRaw;
 
                     if ( !usageAmount || !usageType ) {
                         continue; // skip invalid entries

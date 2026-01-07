@@ -133,7 +133,10 @@ export class OpenRouterProvider implements IChatProvider {
         }
         const coerced_models: IChatModel[] = [];
         for ( const model of models ) {
-            const microcentCosts = Object.fromEntries(Object.entries(model.pricing).map(([k, v]) => [k, Math.round((v as number) * 1_000_000 * 100)])) ;
+            if ( (model.id as string).includes('openrouter/auto') ) {
+                continue;
+            }
+            const microcentCosts = Object.fromEntries(Object.entries(model.pricing).map(([k, v]) => [k, Math.round((v as number < 0 ? 1 : 0) * 1_000_000 * 100)])) ;
             coerced_models.push({
                 id: `openrouter:${model.id}`,
                 name: `${model.name} (OpenRouter)`,
