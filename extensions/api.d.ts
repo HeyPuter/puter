@@ -102,6 +102,9 @@ interface ServiceNameMap {
 }
 
 export interface ExtensionEventTypeMap {
+    'metering:registerAvailablePolicies': {
+        availablePolicies: unknown[]
+    },
     'create.drivers': {
         createDriver: (interface: string, service: string, executors: any) => any;
     };

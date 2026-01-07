@@ -65,6 +65,7 @@ export class MeteringService {
 
     // TODO DS: track daily and hourly usage as well
     async incrementUsage (actor: Actor, usageType: (keyof typeof COST_MAPS) | (string & {}), usageAmount: number, costOverride?: number) {
+        usageAmount = usageAmount < 0 ? 1 : usageAmount;
         try {
             if ( !usageAmount || !usageType || !actor ) {
                 // silent fail for now;
@@ -225,7 +226,8 @@ export class MeteringService {
 
                 // Process each usage and aggregate the pathAndAmountMap
                 for ( const usage of usages ) {
-                    const { usageType, usageAmount, costOverride } = usage;
+                    const { usageType, usageAmount: usageAmountRaw, costOverride } = usage;
+                    const usageAmount =  usageAmountRaw < 0 ? 1 : usageAmountRaw;
 
                     if ( !usageAmount || !usageType ) {
                         continue; // skip invalid entries
@@ -447,7 +449,7 @@ export class MeteringService {
 
     async hasEnoughCreditsFor (actor: Actor, usageType: keyof typeof COST_MAPS, usageAmount: number) {
         const remainingUsage = await this.getRemainingUsage(actor);
-        const cost = (COST_MAPS[usageType] || 0) * usageAmount;
+        const cost = (COST_MAPS[usageType] || 0) * (usageAmount < 0 ? 1 : usageAmount);
         return remainingUsage >= cost;
     }
 
