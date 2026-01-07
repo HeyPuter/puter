@@ -2044,10 +2044,10 @@ async function UIWindow (options) {
                         }
                     }
 
-                    if ( ! activeZone ) {
-                        hideSnapPlaceholder();
+                        if ( ! activeZone ) {
+                            hideSnapPlaceholder();
+                        }
                     }
-                }
             },
             stop: function () {
                 window.a_window_is_being_dragged = false;
@@ -2781,12 +2781,39 @@ async function UIWindow (options) {
         // Make the sortable operation more responsive
         $sidebar.on('mousedown', '.window-sidebar-item', function (e) {
             if ( ! $(this).hasClass('window-sidebar-title') ) {
-                $(this).addClass('grabbing');
+                const $item = $(this);
+
+                // Clear any existing timeout for this item
+                const existingTimeout = $item.data('grabTimeout');
+                if (existingTimeout) {
+                    clearTimeout(existingTimeout);
+                }
+
+                const grabTimeout = setTimeout(() => {
+                    $item.addClass('grabbing');
+                }, 300);
+                // Store timeout reference on the element
+                $item.data('grabTimeout', grabTimeout);
+
+                $(document).one('mouseup', function () {
+                    const timeout = $item.data('grabTimeout');
+                    if(timeout){
+                        clearTimeout(timeout);
+                        $item.removeData('grabTimeout');
+                    }
+                    $item.removeClass('grabbing');
+                });
             }
         });
 
         $sidebar.on('mouseup mouseleave', '.window-sidebar-item', function () {
-            $(this).removeClass('grabbing');
+            const $item = $(this);
+            const timeout = $item.data('grabTimeout');
+            if (timeout) {
+                clearTimeout(timeout);
+                $item.removeData('grabTimeout');
+            }
+            $item.removeClass('grabbing');
         });
     }
 
