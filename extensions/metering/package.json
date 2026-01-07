@@ -1,5 +1,11 @@
 {
   "name": "@heyputer/extension-metering-service",
   "main": "main.js",
-  "type": "module"
+  "type": "module",
+  "scripts": {
+    "postinstall": "tsc --noCheck"
+  },
+  "devDependencies": {
+    "typescript": "^5.9.3"
+  }
 }
