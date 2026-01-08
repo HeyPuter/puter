@@ -1,4 +1,3 @@
-// METADATA // {"ai-commented":{"service":"claude"}}
 /*
  * Copyright (C) 2024-present Puter Technologies Inc.
  *
@@ -23,7 +22,7 @@
  * Tracks information about cached files for LRU and LFU eviction.
  */
 
-const { EWMA, normalize } = require("../../util/opmath");
+const { EWMA, normalize } = require('../../util/opmath');
 
 /**
 * @class FileTracker
@@ -40,7 +39,7 @@ class FileTracker {
 
     constructor ({ key, size }) {
         this.phase = this.constructor.PHASE_PENDING;
-        
+
         this.avg_access_delta = new EWMA({
             initial: 1000,
             alpha: 0.2,
@@ -52,12 +51,11 @@ class FileTracker {
         this.birth = Date.now();
     }
 
-
     /**
     * Calculates a score for cache eviction prioritization
     * Combines access frequency and recency using weighted formula
     * Higher scores indicate files that should be kept in cache
-    * 
+    *
     * @returns {number} Eviction score - higher values mean higher priority to keep
     */
     get score () {
@@ -68,7 +66,7 @@ class FileTracker {
         const n_access_freq = normalize({
             // "once a second" is a high value
             high_value: 0.001,
-        }, access_freq)
+        }, access_freq);
 
         const recency = Date.now() - this.last_access;
         const n_recency = normalize({
@@ -81,7 +79,6 @@ class FileTracker {
             (weight_LRU * n_recency);
     }
 
-
     /**
     * Gets the age of the file in milliseconds since creation
     * @returns {number} Time in milliseconds since this tracker was created
@@ -89,8 +86,6 @@ class FileTracker {
     get age () {
         return Date.now() - this.birth;
     }
-
-
 
     /**
     * Updates the access count and timestamp for this file
@@ -107,5 +102,5 @@ class FileTracker {
 }
 
 module.exports = {
-    FileTracker
-}
+    FileTracker,
+};

@@ -16,14 +16,14 @@
  * You should have received a copy of the GNU Affero General Public License
  * along with this program.  If not, see <https://www.gnu.org/licenses/>.
  */
-const APIError = require("../../api/APIError");
-const eggspress = require("../../api/eggspress");
-const { LLMkdir } = require("../../filesystem/ll_operations/ll_mkdir");
-const { NodeUIDSelector, NodePathSelector } = require("../../filesystem/node/selectors");
-const { NodeChildSelector } = require("../../filesystem/node/selectors");
-const { get_app } = require("../../helpers");
-const { UserActorType } = require("../../services/auth/Actor");
-const { Context } = require("../../util/context");
+const APIError = require('../../api/APIError');
+const eggspress = require('../../api/eggspress');
+const { LLMkdir } = require('../../filesystem/ll_operations/ll_mkdir');
+const { NodeUIDSelector, NodePathSelector } = require('../../filesystem/node/selectors');
+const { NodeChildSelector } = require('../../filesystem/node/selectors');
+const { get_app } = require('../../helpers');
+const { UserActorType } = require('../../services/auth/Actor');
+const { Context } = require('../../util/context');
 
 module.exports = eggspress('/auth/get-user-app-token', {
     subdomain: 'api',
@@ -65,10 +65,8 @@ module.exports = eggspress('/auth/get-user-app-token', {
     const appdata_dir_sel = actor.type.user.appdata_uuid
         ? new NodeUIDSelector(actor.type.user.appdata_uuid)
         : new NodePathSelector(`/${actor.type.user.username}/AppData`);
-    const appdata_app_dir_node = await svc_fs.node(new NodeChildSelector(
-        appdata_dir_sel,
-        app_uid,
-    ));
+    const appdata_app_dir_node = await svc_fs.node(new NodeChildSelector(appdata_dir_sel,
+                    app_uid));
 
     if ( ! await appdata_app_dir_node.exists() ) {
         const ll_mkdir = new LLMkdir();

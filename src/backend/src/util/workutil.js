@@ -21,11 +21,11 @@ class WorkList {
         this.locked_ = false;
         this.items = [];
     }
-    
+
     list () {
         return [...this.items];
     }
-    
+
     clear_invalid () {
         const new_items = [];
         for ( const item of this.items ) {
@@ -34,16 +34,14 @@ class WorkList {
         }
         this.items = new_items;
     }
-    
+
     push (item) {
         if ( this.locked_ ) {
-            throw new Error(
-                'work items were already locked in; what are you doing?'
-            );
+            throw new Error('work items were already locked in; what are you doing?');
         }
         this.items.push(item);
     }
-    
+
     lockin () {
         this.locked_ = true;
     }

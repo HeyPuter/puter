@@ -62,6 +62,4 @@ extension.
 - `../../config.js`
 - `../../middleware/auth.js`
 - `../../util/strutil.js`
-- `../../fun/dev-console-ui-utils.js`
 - `../../helpers.js`
-- `../../fun/logos.js`

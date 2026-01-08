@@ -1,5 +1,7 @@
 const { kv } = extension.import('data');
 
+const span = extension.span;
+
 /**
  * Here we create an interface called 'hello-world'. This interface
  * specifies that any implementation of 'hello-world' should implement
@@ -65,6 +67,19 @@ extension.on('create.drivers', event => {
 });
 
 extension.on('create.drivers', event => {
+    event.createDriver('hello-world', 'slow-hello', {
+        greet: span('slow-hello:greet', async ({ subject }) => {
+            await new Promise(rslv => setTimeout(rslv, 1000));
+            await span.run(async () => {
+                await new Promise(rslv => setTimeout(rslv, 1000));
+            });
+            await new Promise(rslv => setTimeout(rslv, 1000));
+            return `Hello, ${subject ?? 'World'}!`;
+        }),
+    });
+});
+
+extension.on('create.drivers', event => {
     event.createDriver('hello-world', 'extension-examples', {
         greet ({ subject }) {
             if ( subject === 'fail' ) {
@@ -113,5 +128,6 @@ extension.on('create.drivers', event => {
  */
 extension.on('create.permissions', event => {
     event.grant_to_everyone('service:no-frills:ii:hello-world');
+    event.grant_to_everyone('service:slow-hello:ii:hello-world');
     event.grant_to_everyone('service:extension-examples:ii:hello-world');
 });

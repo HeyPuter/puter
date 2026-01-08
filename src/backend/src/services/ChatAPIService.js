@@ -1,26 +1,25 @@
 /*
  * Copyright (C) 2024-present Puter Technologies Inc.
- * 
+ *
  * This file is part of Puter.
- * 
+ *
  * Puter is free software: you can redistribute it and/or modify
  * it under the terms of the GNU Affero General Public License as published
  * by the Free Software Foundation, either version 3 of the License, or
  * (at your option) any later version.
- * 
+ *
  * This program is distributed in the hope that it will be useful,
  * but WITHOUT ANY WARRANTY; without even the implied warranty of
  * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
  * GNU Affero General Public License for more details.
- * 
+ *
  * You should have received a copy of the GNU Affero General Public License
  * along with this program.  If not, see <https://www.gnu.org/licenses/>.
  */
 
-// METADATA // {"ai-commented":{"service":"claude"}}
-const { Endpoint } = require("../util/expressutil");
-const BaseService = require("./BaseService");
-const APIError = require("../api/APIError");
+const { Endpoint } = require('../util/expressutil');
+const BaseService = require('./BaseService');
+const APIError = require('../api/APIError');
 
 /**
 * @class ChatAPIService
@@ -50,7 +49,7 @@ class ChatAPIService extends BaseService {
         })();
 
         // Register the router with the Express app
-        app.use('/puterai/chat', router);
+        app.use('/puterai', router);
 
         // Install endpoints
         this.install_chat_endpoints_({ router });
@@ -66,7 +65,7 @@ class ChatAPIService extends BaseService {
         const Endpoint = this.require('Endpoint');
         // Endpoint to list available AI chat models
         Endpoint({
-            route: '/models',
+            route: '/chat/models',
             methods: ['GET'],
             handler: async (req, res) => {
                 try {
@@ -75,21 +74,21 @@ class ChatAPIService extends BaseService {
                     const models = await svc_su.sudo(async () => {
                         const svc_aiChat = this.services.get('ai-chat');
                         // Return the simple model list which contains basic model information
-                        return svc_aiChat.simple_model_list;
+                        return svc_aiChat.list();
                     });
 
                     // Return the list of models
                     res.json({ models });
-                } catch (error) {
+                } catch ( error ) {
                     this.log.error('Error fetching models:', error);
                     throw APIError.create('internal_server_error');
                 }
-            }
+            },
         }).attach(router);
 
         // Endpoint to get detailed information about available AI chat models
         Endpoint({
-            route: '/models/details',
+            route: '/chat/models/details',
             methods: ['GET'],
             handler: async (req, res) => {
                 try {
@@ -98,16 +97,58 @@ class ChatAPIService extends BaseService {
                     const models = await svc_su.sudo(async () => {
                         const svc_aiChat = this.services.get('ai-chat');
                         // Return the detailed model list which includes cost and capability information
-                        return svc_aiChat.detail_model_list;
+                        return svc_aiChat.models();
                     });
 
                     // Return the detailed list of models
                     res.json({ models });
-                } catch (error) {
+                } catch ( error ) {
                     this.log.error('Error fetching model details:', error);
                     throw APIError.create('internal_server_error');
                 }
-            }
+            },
+        }).attach(router);
+
+        Endpoint({
+            route: '/image/models',
+            methods: ['GET'],
+            handler: async (req, res) => {
+                try {
+                    // Use SUService to access AIImageGenerationService as system user
+                    const svc_su = this.services.get('su');
+                    const models = await svc_su.sudo(async () => {
+                        const svc_imageGen = this.services.get('ai-image');
+                        // Return the simple model list which contains basic model information
+                        return svc_imageGen.list();
+                    });
+                    // Return the list of models
+                    res.json({ models });
+                } catch ( error ) {
+                    this.log.error('Error fetching image models:', error);
+                    throw APIError.create('internal_server_error');
+                }
+            },
+        }).attach(router);
+
+        Endpoint({
+            route: '/image/models/details',
+            methods: ['GET'],
+            handler: async (req, res) => {
+                try {
+                    // Use SUService to access AIImageGenerationService as system user
+                    const svc_su = this.services.get('su');
+                    const models = await svc_su.sudo(async () => {
+                        const svc_imageGen = this.services.get('ai-image');
+                        // Return the detailed model list which includes cost and capability information
+                        return svc_imageGen.models();
+                    });
+                    // Return the detailed list of models
+                    res.json({ models });
+                } catch ( error ) {
+                    this.log.error('Error fetching image model details:', error);
+                    throw APIError.create('internal_server_error');
+                }
+            },
         }).attach(router);
     }
 }

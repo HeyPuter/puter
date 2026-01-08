@@ -7,12 +7,12 @@
  * it under the terms of the GNU Affero General Public License as published
  * by the Free Software Foundation, either version 3 of the License, or
  * (at your option) any later version.
- * 
+ *
  * This program is distributed in the hope that it will be useful,
  * but WITHOUT ANY WARRANTY; without even the implied warranty of
  * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
  * GNU Affero General Public License for more details.
- * 
+ *
  * You should have received a copy of the GNU Affero General Public License
  * along with this program.  If not, see <https://www.gnu.org/licenses/>.
  */
@@ -26,13 +26,13 @@
  * @param {Function} options.onColorChange - Callback function called when color changes
  * @returns {Object} Color picker instance with methods to interact with it
  */
-export function UIColorPickerWidget(container, options = {}) {
+export function UIColorPickerWidget (container, options = {}) {
     // Get the DOM element if it's a jQuery object
-    const domElement = container instanceof HTMLElement 
-        ? container 
+    const domElement = container instanceof HTMLElement
+        ? container
         : $(container).get(0);
 
-    if (!domElement) {
+    if ( ! domElement ) {
         throw new Error('Container element is required');
     }
 
@@ -44,7 +44,7 @@ export function UIColorPickerWidget(container, options = {}) {
                 layoutDirection: 'horizontal',
                 width: 265,
                 height: 265,
-            }
+            },
         },
         {
             component: iro.ui.Slider,
@@ -53,24 +53,24 @@ export function UIColorPickerWidget(container, options = {}) {
                 layoutDirection: 'horizontal',
                 height: 265,
                 width: 265,
-            }
+            },
         },
         {
             component: iro.ui.Slider,
             options: {
                 sliderType: 'hue',
-            }
+            },
         },
     ];
 
     // Initialize the color picker
     const colorPicker = new iro.ColorPicker(domElement, {
         layout: options.layout ?? defaultLayout,
-        color: options.default ?? "#f00",
+        color: options.default ?? '#f00',
     });
 
     // Set up color change callback if provided
-    if (options.onColorChange) {
+    if ( options.onColorChange ) {
         colorPicker.on('color:change', (color) => {
             options.onColorChange(color);
         });
@@ -109,22 +109,22 @@ export function UIColorPickerWidget(container, options = {}) {
          * @param {string|Object} color - Color in hex format (e.g., "#f00" or "#ff0000ff") or HSLA object
          */
         setColor: (color) => {
-            if (typeof color === 'string') {
+            if ( typeof color === 'string' ) {
                 // Remove # if present for matching
                 const hexValue = color.startsWith('#') ? color.substring(1) : color;
-                
+
                 // Check if it's a hex8 string (8 hex digits)
-                if (/^[0-9a-fA-F]{8}$/.test(hexValue)) {
+                if ( /^[0-9a-fA-F]{8}$/.test(hexValue) ) {
                     // It's a hex8 string, set both hex and alpha
-                    const hex6 = '#' + hexValue.substring(0, 6); // Get first 6 hex digits
+                    const hex6 = `#${ hexValue.substring(0, 6)}`; // Get first 6 hex digits
                     const alphaHex = hexValue.substring(6, 8); // Get last 2 hex digits (alpha)
                     colorPicker.color.hexString = hex6;
                     colorPicker.color.alpha = parseInt(alphaHex, 16) / 255;
                 } else {
                     // Regular hex string (with or without #)
-                    colorPicker.color.hexString = color.startsWith('#') ? color : '#' + color;
+                    colorPicker.color.hexString = color.startsWith('#') ? color : `#${ color}`;
                 }
-            } else if (typeof color === 'object' && color.h !== undefined) {
+            } else if ( typeof color === 'object' && color.h !== undefined ) {
                 // HSLA object - set properties directly
                 colorPicker.color.hue = color.h;
                 colorPicker.color.saturation = color.s;
@@ -167,7 +167,7 @@ export function UIColorPickerWidget(container, options = {}) {
  * @param {number} a - Alpha (0-1)
  * @returns {string} Color in hex8 format
  */
-export function hslaToHex8(h, s, l, a) {
+export function hslaToHex8 (h, s, l, a) {
     // Convert HSL to RGB
     s /= 100;
     l /= 100;
@@ -176,17 +176,17 @@ export function hslaToHex8(h, s, l, a) {
     const m = l - c / 2;
     let r = 0, g = 0, b = 0;
 
-    if (h >= 0 && h < 60) {
+    if ( h >= 0 && h < 60 ) {
         r = c; g = x; b = 0;
-    } else if (h >= 60 && h < 120) {
+    } else if ( h >= 60 && h < 120 ) {
         r = x; g = c; b = 0;
-    } else if (h >= 120 && h < 180) {
+    } else if ( h >= 120 && h < 180 ) {
         r = 0; g = c; b = x;
-    } else if (h >= 180 && h < 240) {
+    } else if ( h >= 180 && h < 240 ) {
         r = 0; g = x; b = c;
-    } else if (h >= 240 && h < 300) {
+    } else if ( h >= 240 && h < 300 ) {
         r = x; g = 0; b = c;
-    } else if (h >= 300 && h < 360) {
+    } else if ( h >= 300 && h < 360 ) {
         r = c; g = 0; b = x;
     }
 
@@ -197,7 +197,7 @@ export function hslaToHex8(h, s, l, a) {
 
     return `#${[r, g, b, alpha].map(x => {
         const hex = x.toString(16);
-        return hex.length === 1 ? '0' + hex : hex;
+        return hex.length === 1 ? `0${ hex}` : hex;
     }).join('')}`;
 }
 
@@ -206,10 +206,10 @@ export function hslaToHex8(h, s, l, a) {
  * @param {string} hex8 - Color in hex8 format (e.g., "#ff0000ff")
  * @returns {Object} Object with h, s, l, a properties
  */
-export function hex8ToHSLA(hex8) {
+export function hex8ToHSLA (hex8) {
     // Remove # if present
     hex8 = hex8.replace('#', '');
-    
+
     // Parse hex values
     const r = parseInt(hex8.substring(0, 2), 16) / 255;
     const g = parseInt(hex8.substring(2, 4), 16) / 255;
@@ -221,16 +221,16 @@ export function hex8ToHSLA(hex8) {
     const min = Math.min(r, g, b);
     let h, s, l = (max + min) / 2;
 
-    if (max === min) {
+    if ( max === min ) {
         h = s = 0; // achromatic
     } else {
         const d = max - min;
         s = l > 0.5 ? d / (2 - max - min) : d / (max + min);
-        
-        switch (max) {
-            case r: h = ((g - b) / d + (g < b ? 6 : 0)) / 6; break;
-            case g: h = ((b - r) / d + 2) / 6; break;
-            case b: h = ((r - g) / d + 4) / 6; break;
+
+        switch ( max ) {
+        case r: h = ((g - b) / d + (g < b ? 6 : 0)) / 6; break;
+        case g: h = ((b - r) / d + 2) / 6; break;
+        case b: h = ((r - g) / d + 4) / 6; break;
         }
     }
 
@@ -241,4 +241,3 @@ export function hex8ToHSLA(hex8) {
         a: a,
     };
 }
-

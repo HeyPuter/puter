@@ -45,11 +45,11 @@ const Placeholder = def(() => {
         replaceWith: (el) => {
             const place = document.getElementById(id);
             place.replaceWith(el);
-        }
+        },
     };
 }, 'util.Placeholder');
 
-const anti_collision = `a4d2cb6b85a1`; // Arbitrary random string
+const anti_collision = 'a4d2cb6b85a1'; // Arbitrary random string
 Placeholder.next_id_ = 0;
 Placeholder.get_next_id_ = () => `${anti_collision}_${Placeholder.next_id_++}`;
 

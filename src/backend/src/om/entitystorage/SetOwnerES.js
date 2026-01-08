@@ -16,11 +16,10 @@
  * You should have received a copy of the GNU Affero General Public License
  * along with this program.  If not, see <https://www.gnu.org/licenses/>.
  */
-const { get_user } = require("../../helpers");
-const { AppUnderUserActorType, UserActorType } = require("../../services/auth/Actor");
-const { Context } = require("../../util/context");
-const { nou } = require("../../util/langutil");
-const { BaseES } = require("./BaseES");
+const { get_user } = require('../../helpers');
+const { AppUnderUserActorType, UserActorType } = require('../../services/auth/Actor');
+const { Context } = require('../../util/context');
+const { BaseES } = require('./BaseES');
 
 class SetOwnerES extends BaseES {
     static METHODS = {
@@ -65,10 +64,10 @@ class SetOwnerES extends BaseES {
         },
         async _sanitize_owner (entity) {
             let owner = await entity.get('owner');
-            if ( nou(owner) ) return null;
+            if ( ! owner ) return null;
             owner = get_user({ id: owner });
             await entity.set('owner', owner);
-        }
+        },
     };
 }
 

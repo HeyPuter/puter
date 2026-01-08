@@ -16,11 +16,11 @@
  * You should have received a copy of the GNU Affero General Public License
  * along with this program.  If not, see <https://www.gnu.org/licenses/>.
  */
-const { AdvancedBase } = require("@heyputer/putility");
-const config = require("../../config");
+const { AdvancedBase } = require('@heyputer/putility');
+const config = require('../../config');
 
 class SelfHostedModule extends AdvancedBase {
-    async install(context) {
+    async install (context) {
         const services = context.get('services');
 
         const { SelfhostedService } = require('./SelfhostedService');
@@ -29,20 +29,11 @@ class SelfHostedModule extends AdvancedBase {
         const DefaultUserService = require('./DefaultUserService');
         services.registerService('__default-user', DefaultUserService);
 
-        const ComplainAboutVersionsService = require('./ComplainAboutVersionsService');
-        services.registerService('complain-about-versions', ComplainAboutVersionsService);
-
         const DevWatcherService = require('./DevWatcherService');
         const path_ = require('path');
 
-        const DevCreditService = require("./DevCreditService");
+        const DevCreditService = require('./DevCreditService');
         services.registerService('dev-credit', DevCreditService);
-
-        const { DBKVServiceWrapper } = require("../../services/repositories/DBKVStore/index.mjs");
-        services.registerService('puter-kvstore', DBKVServiceWrapper);
-
-        // const MinLogService = require('./MinLogService');
-        // services.registerService('min-log', MinLogService);
 
         // TODO: sucks
         const RELATIVE_PATH = '../../../../../';
@@ -52,20 +43,6 @@ class SelfHostedModule extends AdvancedBase {
             services.registerService('__dev-watcher', DevWatcherService, {
                 root: path_.resolve(__dirname, RELATIVE_PATH),
                 webpack: [
-                    {
-                        name: 'phoenix',
-                        directory: 'src/phoenix',
-                        env: {
-                            PUTER_JS_URL: ({ global_config: config }) => config?.origin ? config.origin + '/puter.js/v2' : '',
-                        },
-                    },
-                    {
-                        name: 'terminal',
-                        directory: 'src/terminal',
-                        env: {
-                            PUTER_JS_URL: ({ global_config: config }) => config?.origin ? config.origin + '/puter.js/v2' : '',
-                        },
-                    },
                     {
                         name: 'puter.js',
                         directory: 'src/puter-js',
@@ -82,30 +59,18 @@ class SelfHostedModule extends AdvancedBase {
                         name: 'gui',
                         directory: 'src/gui',
                     },
-                    {
-                        name: 'emulator',
-                        directory: 'src/emulator',
-                    },
                 ],
                 commands: [
                 ],
             });
         }
 
-        const { ServeStaticFilesService } = require("./ServeStaticFilesService");
+        const { ServeStaticFilesService } = require('./ServeStaticFilesService');
         services.registerService('__serve-puterjs', ServeStaticFilesService, {
             directories: [
                 {
                     prefix: '/sdk',
                     path: path_.resolve(__dirname, RELATIVE_PATH, 'src/puter-js/dist'),
-                },
-                {
-                    prefix: '/builtin/terminal',
-                    path: path_.resolve(__dirname, RELATIVE_PATH, 'src/terminal/dist'),
-                },
-                {
-                    prefix: '/builtin/phoenix',
-                    path: path_.resolve(__dirname, RELATIVE_PATH, 'src/phoenix/dist'),
                 },
                 {
                     prefix: '/builtin/git',
@@ -118,14 +83,6 @@ class SelfHostedModule extends AdvancedBase {
                 {
                     prefix: '/builtin/dev-center',
                     path: path_.resolve(__dirname, RELATIVE_PATH, 'src/dev-center'),
-                },
-                {
-                    prefix: '/builtin/emulator/image',
-                    path: path_.resolve(__dirname, RELATIVE_PATH, 'src/emulator/image'),
-                },
-                {
-                    prefix: '/builtin/emulator',
-                    path: path_.resolve(__dirname, RELATIVE_PATH, 'src/emulator/dist'),
                 },
                 {
                     prefix: '/vendor/v86/bios',

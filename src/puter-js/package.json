@@ -1,14 +1,16 @@
 {
     "name": "@heyputer/puter.js",
-    "version": "2.1.2",
+    "version": "2.2.0",
     "description": "Puter.js - A JavaScript library for interacting with Puter services.",
+    "homepage": "https://developer.puter.com",
     "main": "src/index.js",
-    "types": "index.d.ts",
-    "typings": "index.d.ts",
+    "types": "./index.d.ts",
+    "typings": "./index.d.ts",
     "type": "module",
     "files": [
         "dist/puter.cjs",
         "src/",
+        "types/",
         "index.d.ts"
     ],
     "publishConfig": {
@@ -16,7 +18,8 @@
     },
     "repository": {
         "type": "git",
-        "url": "git+https://github.com/HeyPuter/puter.git"
+        "url": "git+https://github.com/HeyPuter/puter.git",
+        "directory": "src/puter-js"
     },
     "keywords": [
         "puter",
@@ -39,7 +42,6 @@
         "webpack-cli": "^5.1.4"
     },
     "dependencies": {
-        "@heyputer/kv.js": "^0.2.1",
-        "@heyputer/putility": "^1.1.1"
+        "@heyputer/kv.js": "^0.2.1"
     }
 }

@@ -29,7 +29,7 @@ export default {
         return {
             IfStatement (ifNode) {
                 const testRaw = ifNode.test;
-                if ( !testRaw ) return;
+                if ( ! testRaw ) return;
 
                 const test = unwrapParens(testRaw);
                 if ( !test || test.type !== 'UnaryExpression' || test.operator !== '!' ) {

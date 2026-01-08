@@ -1,7 +1,3 @@
-### `ai.prompt.check-usage`
-
-This event is emitted for ai prompt check usage operations.
-
 #### Property `completionId`
 
 completionId

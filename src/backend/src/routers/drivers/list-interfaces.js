@@ -16,9 +16,9 @@
  * You should have received a copy of the GNU Affero General Public License
  * along with this program.  If not, see <https://www.gnu.org/licenses/>.
  */
-const eggspress = require("../../api/eggspress");
-const { Interface } = require("../../services/drivers/meta/Construct");
-const { Context } = require("../../util/context");
+const eggspress = require('../../api/eggspress');
+const { Interface } = require('../../services/drivers/meta/Construct');
+const { Context } = require('../../util/context');
 
 module.exports = eggspress('/drivers/list-interfaces', {
     subdomain: 'api',
@@ -33,11 +33,9 @@ module.exports = eggspress('/drivers/list-interfaces', {
     const interfaces = {};
     for ( const interface_name in interfaces_raw ) {
         if ( interfaces_raw[interface_name].no_sdk ) continue;
-        interfaces[interface_name] = (new Interface(
-            interfaces_raw[interface_name],
-            { name: interface_name }
-        )).serialize();
+        interfaces[interface_name] = (new Interface(interfaces_raw[interface_name],
+                        { name: interface_name })).serialize();
     }
 
     res.json(interfaces);
-})
+});

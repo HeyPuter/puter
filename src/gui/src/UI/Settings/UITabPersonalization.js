@@ -53,24 +53,24 @@ export default {
     init: ($el_window) => {
         $el_window.find('.change-ui-colors').on('click', function (e) {
             UIWindowThemeDialog({
-                window_options:{
+                window_options: {
                     parent_uuid: $el_window.attr('data-element_uuid'),
                     disable_parent_window: true,
                     parent_center: true,
-                }
+                },
             });
         });
         $el_window.find('.change-background').on('click', function (e) {
             UIWindowDesktopBGSettings({
-                window_options:{
+                window_options: {
                     parent_uuid: $el_window.attr('data-element_uuid'),
                     disable_parent_window: true,
                     parent_center: true,
-                }
+                },
             });
         });
 
-        $el_window.on('change', 'select.change-clock-visible', function(e){
+        $el_window.on('change', 'select.change-clock-visible', function (e) {
             window.change_clock_visible(this.value);
         });
 

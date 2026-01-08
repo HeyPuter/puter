@@ -16,14 +16,14 @@
  * You should have received a copy of the GNU Affero General Public License
  * along with this program.  If not, see <https://www.gnu.org/licenses/>.
  */
-const { LLFilesystemOperation } = require("./definitions");
-const APIError = require("../../api/APIError");
+const { LLFilesystemOperation } = require('./definitions');
+const APIError = require('../../api/APIError');
 
 /**
  * The "overwrite" write operation.
- * 
+ *
  * This operation is used to write a file to an existing path.
- * 
+ *
  * @extends LLFilesystemOperation
  */
 class LLOWrite extends LLFilesystemOperation {
@@ -59,9 +59,9 @@ class LLOWrite extends LLFilesystemOperation {
 
 /**
  * The "non-overwrite" write operation.
- * 
+ *
  * This operation is used to write a file to a non-existent path.
- * 
+ *
  * @extends LLFilesystemOperation
  */
 class LLCWrite extends LLFilesystemOperation {
@@ -69,7 +69,7 @@ class LLCWrite extends LLFilesystemOperation {
         _path: require('path'),
         uuidv4: require('uuid').v4,
         config: require('../../config.js'),
-    }
+    };
 
     /**
      * Executes the create operation by writing a new file to the parent directory.
@@ -80,12 +80,12 @@ class LLCWrite extends LLFilesystemOperation {
         const parent = this.values.parent;
 
         // Embed fields into this.context
-        this.context.set('immutable', this.values.immutable);
-        this.context.set('tmp', this.values.tmp);
-        this.context.set('fsentry_tmp', this.values.fsentry_tmp);
-        this.context.set('message', this.values.message);
-        this.context.set('actor', this.values.actor);
-        this.context.set('app_id', this.values.app_id);
+        this.context.set('immutable', this.context.get('immutable') ?? this.values.immutable);
+        this.context.set('tmp', this.context.get('tmp') ?? this.values.tmp);
+        this.context.set('fsentry_tmp', this.context.get('fsentry_tmp') ?? this.values.fsentry_tmp);
+        this.context.set('message', this.context.get('message') ?? this.values.message);
+        this.context.set('actor', this.context.get('actor') ?? this.values.actor);
+        this.context.set('app_id', this.context.get('app_id') ?? this.values.app_id);
 
         if ( ! await parent.exists() ) {
             throw APIError.create('subject_does_not_exist');

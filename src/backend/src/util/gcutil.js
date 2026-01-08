@@ -19,7 +19,8 @@
 /**
  * gc_friendly_rslv is based on a hunch about how the garbage collector works.
  */
-const NOOP = () => {};
+const NOOP = () => {
+};
 const gc_friendly_rslv = (rslv) => {
     return (value) => {
         rslv(value);

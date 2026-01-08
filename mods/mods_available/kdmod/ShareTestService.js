@@ -41,7 +41,7 @@ class ShareTestService extends use.Service {
         uuidv4: require('uuid').v4,
     };
 
-    async _init() {
+    async _init () {
         const svc_commands = this.services.get('commands');
         this._register_commands(svc_commands);
 
@@ -51,7 +51,7 @@ class ShareTestService extends use.Service {
         this.db = svc_db.get(svc_db.DB_WRITE, 'share-test');
     }
 
-    _register_commands(commands) {
+    _register_commands (commands) {
         commands.registerCommands('share-test', [
             {
                 id: 'start',
@@ -74,7 +74,7 @@ class ShareTestService extends use.Service {
         ]);
     }
 
-    async runit() {
+    async runit () {
         await this.teardown_();
         await this.setup_();
 
@@ -94,13 +94,13 @@ class ShareTestService extends use.Service {
         return results;
     }
 
-    async setup_() {
+    async setup_ () {
         await this.create_test_user_('testuser_eric');
         await this.create_test_user_('testuser_stan');
         await this.create_test_user_('testuser_kyle');
         await this.create_test_user_('testuser_kenny');
     }
-    async run_scenario_(scenario) {
+    async run_scenario_ (scenario) {
         let error;
         // Run sequence
         for ( const step of scenario.sequence ) {
@@ -119,14 +119,14 @@ class ShareTestService extends use.Service {
         }
         return error;
     }
-    async teardown_() {
+    async teardown_ () {
         await this.delete_test_user_('testuser_eric');
         await this.delete_test_user_('testuser_stan');
         await this.delete_test_user_('testuser_kyle');
         await this.delete_test_user_('testuser_kenny');
     }
 
-    async create_test_user_(username) {
+    async create_test_user_ (username) {
         await this.db.write(`
                 INSERT INTO user (uuid, username, email, free_storage, password)
                 VALUES (?, ?, ?, ?, ?)
@@ -145,14 +145,14 @@ class ShareTestService extends use.Service {
         return user;
     }
 
-    async delete_test_user_(username) {
+    async delete_test_user_ (username) {
         const user = await get_user({ username });
         if ( ! user ) return;
         await deleteUser(user.id);
     }
 
     // API for scenarios
-    async ['__scenario:create-example-file'](
+    async ['__scenario:create-example-file'] (
         { actor, user },
         { name, contents },
     ) {
@@ -178,7 +178,7 @@ class ShareTestService extends use.Service {
             file,
         });
     }
-    async ['__scenario:assert-no-access'](
+    async ['__scenario:assert-no-access'] (
         { actor, user },
         { path },
     ) {
@@ -190,21 +190,21 @@ class ShareTestService extends use.Service {
                 fsNode: node,
                 actor,
             });
-        } catch(e) {
+        } catch (e) {
             expected_e = e;
         }
         if ( ! expected_e ) {
             return { message: 'expected error, got none' };
         }
     }
-    async ['__scenario:grant'](
+    async ['__scenario:grant'] (
         { actor, user },
         { to, permission },
     ) {
         const svc_permission = this.services.get('permission');
         await svc_permission.grant_user_user_permission(actor, to, permission, {}, {});
     }
-    async ['__scenario:assert-access'](
+    async ['__scenario:assert-access'] (
         { actor, user },
         { path, level },
     ) {

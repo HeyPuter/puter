@@ -16,15 +16,15 @@
  * You should have received a copy of the GNU Affero General Public License
  * along with this program.  If not, see <https://www.gnu.org/licenses/>.
  */
-const { AdvancedBase } = require("@heyputer/putility");
-const { WeakConstructorFeature } = require("../traits/WeakConstructorFeature");
-const { Eq, And } = require("./query/query");
-const { Entity } = require("./entitystorage/Entity");
+const { AdvancedBase } = require('@heyputer/putility');
+const { WeakConstructorFeature } = require('../traits/WeakConstructorFeature');
+const { Eq, And } = require('./query/query');
+const { Entity } = require('./entitystorage/Entity');
 
 class IdentifierUtil extends AdvancedBase {
     static FEATURES = [
         new WeakConstructorFeature(),
-    ]
+    ];
 
     async detect_identifier (object, allow_mutation = false) {
         const redundant_identifiers = this.om.redundant_identifiers ?? [];
@@ -34,7 +34,7 @@ class IdentifierUtil extends AdvancedBase {
             key_set = Array.isArray(key_set) ? key_set : [key_set];
             key_set.sort();
 
-            for ( let i=0 ; i < key_set.length ; i++ ) {
+            for ( let i = 0 ; i < key_set.length ; i++ ) {
                 const key = key_set[i];
                 const has_key = object instanceof Entity ?
                     await object.has(key) : object[key] !== undefined;
@@ -71,5 +71,5 @@ class IdentifierUtil extends AdvancedBase {
 }
 
 module.exports = {
-    IdentifierUtil
+    IdentifierUtil,
 };

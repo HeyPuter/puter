@@ -1,0 +1,12 @@
+{
+  "name": "@heyputer/app-telemetry",
+  "main": "app-user-count.js",
+  "type": "module",
+  "scripts": {
+    "postinstall": "tsc --noCheck",
+    "test": "echo \"Error: no test specified\" && exit 1"
+  },
+  "devDependencies": {
+    "typescript": "^5.9.3"
+  }
+}

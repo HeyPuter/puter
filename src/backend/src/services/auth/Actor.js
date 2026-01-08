@@ -1,4 +1,3 @@
-// METADATA // {"ai-commented":{"service":"openai-completion","model":"gpt-4o"}}
 /*
  * Copyright (C) 2024-present Puter Technologies Inc.
  *
@@ -17,17 +16,66 @@
  * You should have received a copy of the GNU Affero General Public License
  * along with this program.  If not, see <https://www.gnu.org/licenses/>.
  */
-const { AdvancedBase } = require('../../../../putility');
-const { Context } = require('../../util/context');
-const { get_user, get_app } = require('../../helpers');
-const config = require('../../config');
-
+import { AdvancedBase } from '../../../../putility/index.js';
+import { Context } from '../../util/context.js';
+import { get_user, get_app } from '../../helpers.js';
+import * as config from '../../config.js';
+import { v5 as uuidv5 } from 'uuid';
+import crypto from 'crypto';
 // TODO: add these to configuration; production deployments should change these!
 
 const PRIVATE_UID_NAMESPACE = config.private_uid_namespace
-    ?? require('crypto').randomUUID();
+    ?? crypto.randomUUID();
 const PRIVATE_UID_SECRET = config.private_uid_secret
-    ?? require('crypto').randomBytes(24).toString('hex');
+    ?? crypto.randomBytes(24).toString('hex');
+
+/**
+ * Base class for all actor types in the system.
+ * Provides common initialization functionality for actor type instances.
+ */
+export class ActorType {
+    /**
+     * Initializes the ActorType with the provided properties.
+     *
+     * @param {Object} o - Object containing properties to assign to this instance.
+     */
+    constructor (o) {
+        for ( const k in o ) {
+            this[k] = o[k];
+        }
+    }
+}
+
+/**
+ * Class representing the system actor type within the actor framework.
+ * This type serves as a specific implementation of an actor that
+ * represents a system-level entity and provides methods for UID retrieval
+ * and related type management.
+ */
+export class SystemActorType extends ActorType {
+    /**
+     * Gets the unique identifier for the system actor.
+     *
+     * @returns {string} Always returns 'system'.
+     */
+    get uid () {
+        return 'system';
+    }
+
+    /**
+     * Gets a related actor type for the system actor.
+     *
+     * @param {Function} type_class - The ActorType class to get a related type for.
+     * @returns {SystemActorType} Returns this instance if type_class is SystemActorType.
+     * @throws {Error} If the requested type_class is not supported.
+     */
+    get_related_type (type_class) {
+        if ( type_class === SystemActorType ) {
+            return this;
+        }
+        throw new Error(`cannot get ${type_class.name} from ${this.constructor.name}`);
+    }
+}
 
 /**
  * Represents an Actor in the system, extending functionality from AdvancedBase.
@@ -35,14 +83,9 @@ const PRIVATE_UID_SECRET = config.private_uid_secret
  * creating new actors, generating unique identifiers, and handling related types
  * that represent different roles within the context of the application.
  */
-class Actor extends AdvancedBase {
+export class Actor extends AdvancedBase {
     /** @type {ActorType} */
     type;
-
-    static MODULES = {
-        uuidv5: require('uuid').v5,
-        crypto: require('crypto'),
-    };
 
     static system_actor_ = null;
 
@@ -54,7 +97,7 @@ class Actor extends AdvancedBase {
      *
      * @returns {Actor} The system actor instance.
      */
-    static get_system_actor() {
+    static get_system_actor () {
         if ( ! this.system_actor_ ) {
             this.system_actor_ = new Actor({
                 type: new SystemActorType(),
@@ -73,7 +116,7 @@ class Actor extends AdvancedBase {
      * @param {string} [params.app_uid] - UID of the app to resolve.
      * @returns {Promise<Actor>} A new Actor instance.
      */
-    static async create(type, params) {
+    static async create (type, params) {
         params = { ...params };
         if ( params.user_uid ) {
             params.user = await get_user({ uuid: params.user_uid });
@@ -93,7 +136,7 @@ class Actor extends AdvancedBase {
      * @param {Object} o - The object containing actor parameters.
      * @param {...any} a - Additional arguments passed to the parent class constructor.
      */
-    constructor(o, ...a) {
+    constructor (o, ...a) {
         super(o, ...a);
         for ( const k in o ) {
             this[k] = o[k];
@@ -105,7 +148,7 @@ class Actor extends AdvancedBase {
      *
      * @returns {string} The actor's UID from its type.
      */
-    get uid() {
+    get uid () {
         return this.type.uid;
     }
 
@@ -114,7 +157,7 @@ class Actor extends AdvancedBase {
      *
      * @returns {Object} Object containing UID and optionally username for logging.
      */
-    toLogFields() {
+    toLogFields () {
         return {
             uid: this.type.uid,
             ...(this.type.user ? {
@@ -131,10 +174,10 @@ class Actor extends AdvancedBase {
      *
      * @returns {string} The derived UUID corresponding to the actor's UID.
      */
-    get private_uid() {
+    get private_uid () {
         // Pass the UUID through SHA-2 first because UUIDv5
         // is not cryptographically secure (it uses SHA-1)
-        const hmac = this.modules.crypto.createHmac('sha256', PRIVATE_UID_SECRET)
+        const hmac = crypto.createHmac('sha256', PRIVATE_UID_SECRET)
             .update(this.uid)
             .digest('hex');
 
@@ -142,7 +185,7 @@ class Actor extends AdvancedBase {
         // Note: this effectively does an additional SHA-1 hash,
         // but this is done only to format the result as a UUID
         // and not for cryptographic purposes
-        let str = this.modules.uuidv5(hmac, PRIVATE_UID_NAMESPACE);
+        let str = uuidv5(hmac, PRIVATE_UID_NAMESPACE);
 
         // Uppercase UUID to avoid inference of what uuid library is being used
         str = (`${str}`).toUpperCase();
@@ -154,7 +197,7 @@ class Actor extends AdvancedBase {
      *
      * @returns {Actor} A new Actor instance that is a copy of the current one.
      */
-    clone() {
+    clone () {
         return new Actor({
             type: this.type,
         });
@@ -166,58 +209,10 @@ class Actor extends AdvancedBase {
      * @param {Function} type_class - The ActorType class to create a related actor for.
      * @returns {Actor} A new Actor instance with the related type.
      */
-    get_related_actor(type_class) {
+    get_related_actor (type_class) {
         const actor = this.clone();
         actor.type = this.type.get_related_type(type_class);
         return actor;
-    }
-}
-
-/**
- * Base class for all actor types in the system.
- * Provides common initialization functionality for actor type instances.
- */
-class ActorType {
-    /**
-     * Initializes the ActorType with the provided properties.
-     *
-     * @param {Object} o - Object containing properties to assign to this instance.
-     */
-    constructor(o) {
-        for ( const k in o ) {
-            this[k] = o[k];
-        }
-    }
-}
-
-/**
- * Class representing the system actor type within the actor framework.
- * This type serves as a specific implementation of an actor that
- * represents a system-level entity and provides methods for UID retrieval
- * and related type management.
- */
-class SystemActorType extends ActorType {
-    /**
-     * Gets the unique identifier for the system actor.
-     *
-     * @returns {string} Always returns 'system'.
-     */
-    get uid() {
-        return 'system';
-    }
-
-    /**
-     * Gets a related actor type for the system actor.
-     *
-     * @param {Function} type_class - The ActorType class to get a related type for.
-     * @returns {SystemActorType} Returns this instance if type_class is SystemActorType.
-     * @throws {Error} If the requested type_class is not supported.
-     */
-    get_related_type(type_class) {
-        if ( type_class === SystemActorType ) {
-            return this;
-        }
-        throw new Error(`cannot get ${type_class.name} from ${this.constructor.name}`);
     }
 }
 
@@ -226,13 +221,13 @@ class SystemActorType extends ActorType {
  * specific to user actors. This class extends the base functionality to uniquely identify
  * user actors and define how they relate to other types of actors within the system.
  */
-class UserActorType extends ActorType {
+export class UserActorType extends ActorType {
     /**
      * Gets the unique identifier for the user actor.
      *
      * @returns {string} The UID in format 'user:{uuid}'.
      */
-    get uid() {
+    get uid () {
         return `user:${this.user.uuid}`;
     }
 
@@ -243,7 +238,7 @@ class UserActorType extends ActorType {
      * @returns {UserActorType} Returns this instance if type_class is UserActorType.
      * @throws {Error} If the requested type_class is not supported.
      */
-    get_related_type(type_class) {
+    get_related_type (type_class) {
         if ( type_class === UserActorType ) {
             return this;
         }
@@ -257,13 +252,13 @@ class UserActorType extends ActorType {
  * retrieving related actor types. It extends the base actor type functionality
  * to cater to user-specific needs.
  */
-class AppUnderUserActorType extends ActorType {
+export class AppUnderUserActorType extends ActorType {
     /**
      * Gets the unique identifier for the app-under-user actor.
      *
      * @returns {string} The UID in format 'app-under-user:{user_uuid}:{app_uid}'.
      */
-    get uid() {
+    get uid () {
         return `app-under-user:${this.user.uuid}:${this.app.uid}`;
     }
 
@@ -274,7 +269,7 @@ class AppUnderUserActorType extends ActorType {
      * @returns {UserActorType|AppUnderUserActorType} The related actor type instance.
      * @throws {Error} If the requested type_class is not supported.
      */
-    get_related_type(type_class) {
+    get_related_type (type_class) {
         if ( type_class === UserActorType ) {
             return new UserActorType({ user: this.user });
         }
@@ -290,7 +285,7 @@ class AppUnderUserActorType extends ActorType {
  * An AccessTokenActorType associates an authorizer and an authorized actor
  * with a string token, facilitating permission checks and identity management.
  */
-class AccessTokenActorType extends ActorType {
+export class AccessTokenActorType extends ActorType {
     // authorizer: an Actor who authorized the token
     // authorized: an Actor who is authorized by the token
     // token: a string
@@ -302,7 +297,7 @@ class AccessTokenActorType extends ActorType {
      *
      * @returns {string} The generated UID for the access token.
      */
-    get uid() {
+    get uid () {
         return `access-token:${this.authorizer.uid
         }:${this.authorized?.uid ?? '<none>'
         }:${this.token}`;
@@ -314,7 +309,7 @@ class AccessTokenActorType extends ActorType {
      *
      * @throws {Error} Always throws an error indicating this operation is not supported.
      */
-    get_related_actor() {
+    get_related_actor () {
         // This would be dangerous because of ambiguity
         // between authorizer and authorized
         throw new Error(`cannot call get_related_actor on ${this.constructor.name}`);
@@ -326,7 +321,7 @@ class AccessTokenActorType extends ActorType {
  * This class is used to manage details related to the site and implement functionalities
  * pertinent to site-level operations and interactions in the actor framework.
  */
-class SiteActorType {
+export class SiteActorType {
     /**
      * Constructor for the SiteActorType class.
      * Initializes a new instance of SiteActorType with the provided properties.
@@ -334,7 +329,7 @@ class SiteActorType {
      * @param {Object} o - The properties to initialize the SiteActorType with.
      * @param {...*} a - Additional arguments.
      */
-    constructor(o, ...a) {
+    constructor (o, ..._a) {
         for ( const k in o ) {
             this[k] = o[k];
         }
@@ -345,7 +340,7 @@ class SiteActorType {
      *
      * @returns {string} The UID in format 'site:{site_name}'.
      */
-    get uid() {
+    get uid () {
         return `site:${this.site.name}`;
     }
 }
@@ -358,7 +353,7 @@ class SiteActorType {
  * @param {Actor|Object} [actor] - The actor to adapt, or undefined to use context.
  * @returns {Actor} A properly formatted Actor instance.
  */
-Actor.adapt = function(actor) {
+Actor.adapt = function (actor) {
     actor = actor || Context.get('actor');
 
     if ( actor?.username ) {
@@ -376,13 +371,4 @@ Actor.adapt = function(actor) {
     }
 
     return actor;
-};
-
-module.exports = {
-    Actor,
-    SystemActorType,
-    UserActorType,
-    AppUnderUserActorType,
-    AccessTokenActorType,
-    SiteActorType,
 };

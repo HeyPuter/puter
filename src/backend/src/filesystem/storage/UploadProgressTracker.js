@@ -67,8 +67,8 @@ class UploadProgressTracker {
                 if ( idx !== -1 ) {
                     listeners.splice(idx, 1);
                 }
-            }
-        }
+            },
+        };
 
         return det;
     }

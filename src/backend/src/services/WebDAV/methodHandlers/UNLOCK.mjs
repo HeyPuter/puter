@@ -8,7 +8,7 @@ export const UNLOCK = async ( req, res, filePath, fileNode ) => {
         const servicesForLocks = [req.services.get('su'), req.services.get('puter-kvstore').as('puter-kvstore')];
         const exists = await fileNode?.exists();
         // Check if the resource exists
-        if ( !exists ) {
+        if ( ! exists ) {
             res.status(204).end();
             return;
         }
@@ -17,7 +17,7 @@ export const UNLOCK = async ( req, res, filePath, fileNode ) => {
         const lockTokenHeader = req.headers['lock-token'];
         const { headerLockToken } = extractHeaderToken(lockTokenHeader);
 
-        if ( !headerLockToken ) {
+        if ( ! headerLockToken ) {
             res.status(400).end( 'Bad Request: Lock-Token header required');
             return;
         }
@@ -32,7 +32,7 @@ export const UNLOCK = async ( req, res, filePath, fileNode ) => {
         } else {
             return res.status(409).end(); // 409 Conflict - no lock present
         }
-    } catch( error ) {
+    } catch ( error ) {
         console.error('UNLOCK error:', error);
         res.status(500).end( 'Internal Server Error');
     }

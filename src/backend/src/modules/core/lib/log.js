@@ -1,4 +1,3 @@
-// METADATA // {"def":"core.util.logutil","ai-commented":{"service":"openai-completion","model":"gpt-4o"}}
 /*
  * Copyright (C) 2024-present Puter Technologies Inc.
  *
@@ -17,15 +16,36 @@
  * You should have received a copy of the GNU Affero General Public License
  * along with this program.  If not, see <https://www.gnu.org/licenses/>.
  */
-const { display_time, module_epoch } = require('@heyputer/putility/src/libs/time.js');
 const config = require('../../../config.js');
+
+const module_epoch = Date.now();
+const module_epoch_d = new Date();
+const display_time = (now) => {
+    const pad2 = n => String(n).padStart(2, '0');
+
+    const yyyy = now.getFullYear();
+    const mm   = pad2(now.getMonth() + 1);
+    const dd   = pad2(now.getDate());
+    const HH   = pad2(now.getHours());
+    const MM   = pad2(now.getMinutes());
+    const SS   = pad2(now.getSeconds());
+    const time = `${HH}:${MM}:${SS}`;
+
+    const needYear  = yyyy !== module_epoch_d.getFullYear();
+    const needMonth = needYear || (now.getMonth() !== module_epoch_d.getMonth());
+    const needDay   = needMonth || (now.getDate() !== module_epoch_d.getDate());
+
+    if ( needYear ) return `${yyyy}-${mm}-${dd} ${time}`;
+    if ( needMonth ) return `${mm}-${dd} ${time}`;
+    if ( needDay ) return `${dd} ${time}`;
+    return time;
+};
 
 // Example:
 // log("booting");            // → "14:07:12 booting"
 // (next day) log("tick");    // → "16 00:00:01 tick"
 // (next month) log("tick");  // → "11-01 00:00:01 tick"
 // (next year) log("tick");   // → "2026-01-01 00:00:01 tick"
-
 
 /**
 * Stringifies a log entry into a formatted string for console output.
@@ -48,7 +68,7 @@ const stringify_log_entry = ({ prefix, log_lvl, crumbs, message, fields, objects
         lines.push(m);
         m = '';
     };
-    
+
     m = '';
 
     if ( ! config.show_relative_time ) {
@@ -57,7 +77,7 @@ const stringify_log_entry = ({ prefix, log_lvl, crumbs, message, fields, objects
 
     m += prefix ? `${prefix} ` : '';
     let levelLabelShown = false;
-    if ( log_lvl.label !== 'INFO' || ! config.log_hide_info_label ) {
+    if ( log_lvl.label !== 'INFO' || !config.log_hide_info_label ) {
         levelLabelShown = true;
         m += `\x1B[${log_lvl.esc}m[${log_lvl.label}\x1B[0m`;
     } else {
@@ -98,7 +118,7 @@ const stringify_log_entry = ({ prefix, log_lvl, crumbs, message, fields, objects
         let v; try {
             v = colorize(JSON.stringify(fields[k]));
         } catch (e) {
-            v = '' + fields[k];
+            v = `${ fields[k]}`;
         }
         m += ` \x1B[1m${k}:\x1B[0m ${v}`;
         lf();

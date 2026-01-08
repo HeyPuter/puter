@@ -1,4 +1,4 @@
-import { toMicroCents } from '../utils';
+import { toMicroCents } from '../utils.js';
 
 export const REGISTERED_USER_FREE = {
     id: 'user_free',

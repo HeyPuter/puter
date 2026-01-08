@@ -35,7 +35,7 @@ export const MKCOL = async ( req, res, filePath, fileNode, headerLockToken ) => 
             return;
         }
 
-        if ( !hasDestinationWriteAccess ){
+        if ( ! hasDestinationWriteAccess ) {
             // DAV lock in place blocking write to this file
             res.status(423).end( 'Locked: No write access to destination');
             return;
@@ -46,14 +46,14 @@ export const MKCOL = async ( req, res, filePath, fileNode, headerLockToken ) => 
         const parentNode = await svc_fs.node(new NodePathSelector(parentPath));
         const parentExists = await parentNode.exists();
 
-        if ( !parentExists ) {
+        if ( ! parentExists ) {
             res.status(409).end( 'Conflict');
             return;
         }
 
         // Verify parent is a directory
         const parentStat = await fsOperations.stat(parentNode);
-        if ( !parentStat.is_dir ) {
+        if ( ! parentStat.is_dir ) {
             res.status(409).end( 'Conflict');
             return;
         }
@@ -72,7 +72,7 @@ export const MKCOL = async ( req, res, filePath, fileNode, headerLockToken ) => 
         });
 
         res.status(201).end(); // 201 Created
-    } catch( error ) {
+    } catch ( error ) {
     // Handle specific error types
         if ( error.code === 'item_with_same_name_exists' ) {
             res.status(405).end( 'Method Not Allowed');

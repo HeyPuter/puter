@@ -1,6 +1,6 @@
-import * as utils from '../lib/utils.js'
+import * as utils from '../lib/utils.js';
 
-class OS{
+class OS {
     /**
      * Creates a new instance with the given authentication token, API origin, and app ID,
      *
@@ -9,10 +9,11 @@ class OS{
      * @param {string} APIOrigin - Origin of the API server. Used to build the API endpoint URLs.
      * @param {string} appID - ID of the app to use.
      */
-    constructor (context) {
-        this.authToken = context.authToken;
-        this.APIOrigin = context.APIOrigin;
-        this.appID = context.appID;
+    constructor (puter) {
+        this.puter = puter;
+        this.authToken = puter.authToken;
+        this.APIOrigin = puter.APIOrigin;
+        this.appID = puter.appID;
     }
 
     /**
@@ -28,7 +29,7 @@ class OS{
 
     /**
      * Sets the API origin.
-     * 
+     *
      * @param {string} APIOrigin - The new API origin.
      * @memberof [Apps]
      * @returns {void}
@@ -37,11 +38,11 @@ class OS{
         this.APIOrigin = APIOrigin;
     }
 
-    user = function(...args){
+    user = function (...args) {
         let options;
 
         // If first argument is an object, it's the options
-        if (typeof args[0] === 'object' && args[0] !== null) {
+        if ( typeof args[0] === 'object' && args[0] !== null ) {
             options = args[0];
         } else {
             // Otherwise, we assume separate arguments are provided
@@ -52,25 +53,25 @@ class OS{
         }
 
         let query = '';
-        if(options?.query){
-            query = '?' + new URLSearchParams(options.query).toString();
+        if ( options?.query ) {
+            query = `?${ new URLSearchParams(options.query).toString()}`;
         }
 
         return new Promise((resolve, reject) => {
-            const xhr = utils.initXhr('/whoami' + query, this.APIOrigin, this.authToken, 'get');
+            const xhr = utils.initXhr(`/whoami${ query}`, this.APIOrigin, this.authToken, 'get');
 
             // set up event handlers for load and error events
             utils.setupXhrEventHandlers(xhr, options.success, options.error, resolve, reject);
 
             xhr.send();
-        })
-    }
+        });
+    };
 
-    version = function(...args){
+    version = function (...args) {
         let options;
 
         // If first argument is an object, it's the options
-        if (typeof args[0] === 'object' && args[0] !== null) {
+        if ( typeof args[0] === 'object' && args[0] !== null ) {
             options = args[0];
         } else {
             // Otherwise, we assume separate arguments are provided
@@ -88,8 +89,8 @@ class OS{
             utils.setupXhrEventHandlers(xhr, options.success, options.error, resolve, reject);
 
             xhr.send();
-        })
-    }
+        });
+    };
 }
 
-export default OS
+export default OS;

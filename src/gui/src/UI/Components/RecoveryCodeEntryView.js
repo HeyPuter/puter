@@ -17,7 +17,6 @@
  * along with this program.  If not, see <https://www.gnu.org/licenses/>.
  */
 
-
 const Component = use('util.Component');
 
 export default def(class RecoveryCodeEntryView extends Component {
@@ -26,7 +25,7 @@ export default def(class RecoveryCodeEntryView extends Component {
         value: {},
         length: { value: 8 },
         error: {},
-    }
+    };
 
     static CSS = /*css*/`
         fieldset {

@@ -18,7 +18,7 @@
  */
 module.exports = {
     sql: {
-        table_name: 'access_token_permissions'
+        table_name: 'access_token_permissions',
     },
     primary_identifier: 'token',
 };

@@ -1,7 +1,16 @@
-import putility from '@heyputer/putility';
 import EventListener from '../lib/EventListener.js';
 import FSItem from './FSItem.js';
 import PuterDialog from './PuterDialog.js';
+
+const createDeferred = () => {
+    let resolve;
+    let reject;
+    const promise = new Promise((res, rej) => {
+        resolve = res;
+        reject = rej;
+    });
+    return { promise, resolve, reject };
+};
 
 const FILE_SAVE_CANCELLED = Symbol('FILE_SAVE_CANCELLED');
 const FILE_OPEN_CANCELLED = Symbol('FILE_OPEN_CANCELLED');
@@ -22,10 +31,12 @@ class AppConnection extends EventListener {
     // (Closing and close events will still function.)
     #usesSDK;
 
-    static from(values, context) {
-        const connection = new AppConnection(context, {
+    static from (values, puter, { messageTarget, appInstanceID }) {
+        const connection = new AppConnection(puter, {
             target: values.appInstanceID,
             usesSDK: values.usesSDK,
+            messageTarget,
+            appInstanceID,
         });
 
         // When a connection is established the app is able to
@@ -35,23 +46,23 @@ class AppConnection extends EventListener {
         return connection;
     }
 
-    constructor(context, { target, usesSDK }) {
+    constructor (puter, { target, usesSDK, messageTarget, appInstanceID }) {
         super([
             'message', // The target sent us something with postMessage()
-            'close',   // The target app was closed
+            'close', // The target app was closed
         ]);
-        this.messageTarget = context.messageTarget;
-        this.appInstanceID = context.appInstanceID;
+        this.messageTarget = messageTarget;
+        this.appInstanceID = appInstanceID;
         this.targetAppInstanceID = target;
         this.#isOpen = true;
         this.#usesSDK = usesSDK;
 
-        this.log = context.puter.logger.fields({
+        this.log = puter.logger.fields({
             category: 'ipc',
         });
         this.log.fields({
-            cons_source: context.appInstanceID,
-            source: context.puter.appInstanceID,
+            cons_source: appInstanceID,
+            source: puter.appInstanceID,
             target,
         }).info(`AppConnection created to ${target}`, this);
 
@@ -88,18 +99,18 @@ class AppConnection extends EventListener {
     }
 
     // Does the target app use the Puter SDK? If not, certain features will be unavailable.
-    get usesSDK() {
+    get usesSDK () {
         return this.#usesSDK;
     }
 
     // Send a message to the target app. Requires the target to use the Puter SDK.
-    postMessage(message) {
-        if ( !this.#isOpen ) {
+    postMessage (message) {
+        if ( ! this.#isOpen ) {
             console.warn('Trying to post message on a closed AppConnection');
             return;
         }
 
-        if ( !this.#usesSDK ) {
+        if ( ! this.#usesSDK ) {
             console.warn('Trying to post message to a non-SDK app');
             return;
         }
@@ -117,8 +128,8 @@ class AppConnection extends EventListener {
     }
 
     // Attempt to close the target application
-    close() {
-        if ( !this.#isOpen ) {
+    close () {
+        if ( ! this.#isOpen ) {
             console.warn('Trying to close an app on a closed AppConnection');
             return;
         }
@@ -172,7 +183,7 @@ class UI extends EventListener {
     #overlayTimer = null;
 
     // Replaces boilerplate for most methods: posts a message to the GUI with a unique ID, and sets a callback for it.
-    #postMessageWithCallback(name, resolve, args = {}) {
+    #postMessageWithCallback (name, resolve, args = {}) {
         const msg_id = this.#messageID++;
         this.messageTarget?.postMessage({
             msg: name,
@@ -182,10 +193,18 @@ class UI extends EventListener {
             ...args,
         }, '*');
         //register callback
-        this.#callbackFunctions[msg_id] = resolve;
+        this.#callbackFunctions[msg_id] = (...a) => {
+            resolve(...a);
+        };
     }
 
-    #postMessageWithObject(name, value) {
+    #postMessageAsync (name, args = {}) {
+        return new Promise(resolve => {
+            this.#postMessageWithCallback(name, resolve, args);
+        });
+    }
+
+    #postMessageWithObject (name, value) {
         const dehydrator = this.util.rpc.getDehydrator({
             target: this.messageTarget,
         });
@@ -197,7 +216,7 @@ class UI extends EventListener {
         }, '*');
     };
 
-    async #ipc_stub({
+    async #ipc_stub ({
         callback,
         method,
         parameters,
@@ -224,7 +243,7 @@ class UI extends EventListener {
         return ret;
     };
 
-    constructor(context, { appInstanceID, parentInstanceID }) {
+    constructor (puter, { appInstanceID, parentInstanceID }) {
         const eventNames = [
             'localeChanged',
             'themeChanged',
@@ -232,30 +251,26 @@ class UI extends EventListener {
         ];
         super(eventNames);
         this.#eventNames = eventNames;
-        this.context = context;
+        this.puter = puter;
         this.appInstanceID = appInstanceID;
         this.parentInstanceID = parentInstanceID;
-        this.appID = context.appID;
-        this.env = context.env;
-        this.util = context.util;
+        this.appID = puter.appID;
+        this.env = puter.env;
+        this.util = puter.util;
 
-        if ( this.env === 'app' ){
+        if ( this.env === 'app' ) {
             this.messageTarget = window.parent;
         }
-        else if ( this.env === 'gui' ){
+        else if ( this.env === 'gui' ) {
             return;
         }
 
-        // Context to pass to AppConnection instances
-        this.context = this.context.sub({
-            appInstanceID: this.appInstanceID,
-            messageTarget: this.messageTarget,
-        });
-
         if ( this.parentInstanceID ) {
-            this.#parentAppConnection = new AppConnection(this.context, {
+            this.#parentAppConnection = new AppConnection(this.puter, {
                 target: this.parentInstanceID,
                 usesSDK: true,
+                messageTarget: this.messageTarget,
+                appInstanceID: this.appInstanceID,
             });
         }
 
@@ -277,17 +292,17 @@ class UI extends EventListener {
         // Bind the message event listener to the window
         let lastDraggedOverElement = null;
         (globalThis.document) && window.addEventListener('message', async (e) => {
-            if ( !e.data ) return;
+            if ( ! e.data ) return;
             // `error`
-            if ( e.data.error ){
+            if ( e.data.error ) {
                 throw e.data.error;
             }
             // `focus` event
-            else if ( e.data.msg && e.data.msg === 'focus' ){
+            else if ( e.data.msg && e.data.msg === 'focus' ) {
                 window.focus();
             }
             // `click` event
-            else if ( e.data.msg && e.data.msg === 'click' ){
+            else if ( e.data.msg && e.data.msg === 'click' ) {
                 // Get the element that was clicked on and click it
                 const clicked_el = document.elementFromPoint(e.data.x, e.data.y);
                 if ( clicked_el !== null )
@@ -296,12 +311,12 @@ class UI extends EventListener {
                 }
             }
             // `dragover` event based on the `drag` event from the host environment
-            else if ( e.data.msg && e.data.msg === 'drag' ){
+            else if ( e.data.msg && e.data.msg === 'drag' ) {
                 // Get the element being dragged over
                 const draggedOverElement = document.elementFromPoint(e.data.x, e.data.y);
-                if ( draggedOverElement !== lastDraggedOverElement ){
+                if ( draggedOverElement !== lastDraggedOverElement ) {
                     // If the last element exists and is different from the current, dispatch a dragleave on it
-                    if ( lastDraggedOverElement ){
+                    if ( lastDraggedOverElement ) {
                         const dragLeaveEvent = new Event('dragleave', {
                             bubbles: true,
                             cancelable: true,
@@ -311,7 +326,7 @@ class UI extends EventListener {
                         lastDraggedOverElement.dispatchEvent(dragLeaveEvent);
                     }
                     // If the current element exists and is different from the last, dispatch dragenter on it
-                    if ( draggedOverElement ){
+                    if ( draggedOverElement ) {
                         const dragEnterEvent = new Event('dragenter', {
                             bubbles: true,
                             cancelable: true,
@@ -326,8 +341,8 @@ class UI extends EventListener {
                 }
             }
             // `drop` event
-            else if ( e.data.msg && e.data.msg === 'drop' ){
-                if ( lastDraggedOverElement ){
+            else if ( e.data.msg && e.data.msg === 'drop' ) {
+                if ( lastDraggedOverElement ) {
                     const dropEvent = new CustomEvent('drop', {
                         bubbles: true,
                         cancelable: true,
@@ -344,10 +359,10 @@ class UI extends EventListener {
                 }
             }
             // windowWillClose
-            else if ( e.data.msg === 'windowWillClose' ){
+            else if ( e.data.msg === 'windowWillClose' ) {
                 // If the user has not overridden onWindowClose() then send a message back to the host environment
                 // to let it know that it is ok to close the window.
-                if ( this.#onWindowClose === undefined ){
+                if ( this.#onWindowClose === undefined ) {
                     this.messageTarget?.postMessage({
                         msg: true,
                         appInstanceID: this.appInstanceID,
@@ -367,9 +382,9 @@ class UI extends EventListener {
                 }
             }
             // itemsOpened
-            else if ( e.data.msg === 'itemsOpened' ){
+            else if ( e.data.msg === 'itemsOpened' ) {
                 // If the user has not overridden onItemsOpened() then only send a message back to the host environment
-                if ( this.#onItemsOpened === undefined ){
+                if ( this.#onItemsOpened === undefined ) {
                     this.messageTarget?.postMessage({
                         msg: true,
                         appInstanceID: this.appInstanceID,
@@ -386,7 +401,7 @@ class UI extends EventListener {
                     }, '*');
 
                     let items = [];
-                    if ( e.data.items.length > 0 ){
+                    if ( e.data.items.length > 0 ) {
                         for ( let index = 0; index < e.data.items.length; index++ )
                         {
                             items.push(new FSItem(e.data.items[index]));
@@ -396,41 +411,41 @@ class UI extends EventListener {
                 }
             }
             // getAppDataSucceeded
-            else if ( e.data.msg === 'getAppDataSucceeded' ){
+            else if ( e.data.msg === 'getAppDataSucceeded' ) {
                 let appDataItem = new FSItem(e.data.item);
-                if ( e.data.original_msg_id && this.#callbackFunctions[e.data.original_msg_id] ){
+                if ( e.data.original_msg_id && this.#callbackFunctions[e.data.original_msg_id] ) {
                     this.#callbackFunctions[e.data.original_msg_id](appDataItem);
                 }
             }
             // instancesOpenSucceeded
-            else if ( e.data.msg === 'instancesOpenSucceeded' ){
-                if ( e.data.original_msg_id && this.#callbackFunctions[e.data.original_msg_id] ){
+            else if ( e.data.msg === 'instancesOpenSucceeded' ) {
+                if ( e.data.original_msg_id && this.#callbackFunctions[e.data.original_msg_id] ) {
                     this.#callbackFunctions[e.data.original_msg_id](e.data.instancesOpen);
                 }
             }
             // readAppDataFileSucceeded
-            else if ( e.data.msg === 'readAppDataFileSucceeded' ){
+            else if ( e.data.msg === 'readAppDataFileSucceeded' ) {
                 let appDataItem = new FSItem(e.data.item);
-                if ( e.data.original_msg_id && this.#callbackFunctions[e.data.original_msg_id] ){
+                if ( e.data.original_msg_id && this.#callbackFunctions[e.data.original_msg_id] ) {
                     this.#callbackFunctions[e.data.original_msg_id](appDataItem);
                 }
             }
             // readAppDataFileFailed
-            else if ( e.data.msg === 'readAppDataFileFailed' ){
-                if ( e.data.original_msg_id && this.#callbackFunctions[e.data.original_msg_id] ){
+            else if ( e.data.msg === 'readAppDataFileFailed' ) {
+                if ( e.data.original_msg_id && this.#callbackFunctions[e.data.original_msg_id] ) {
                     this.#callbackFunctions[e.data.original_msg_id](null);
                 }
             }
             // Determine if this is a response to a previous message and if so, is there
             // a callback function for this message? if answer is yes to both then execute the callback
-            else if ( e.data.original_msg_id !== undefined && this.#callbackFunctions[e.data.original_msg_id] ){
-                if ( e.data.msg === 'fileOpenPicked' ){
+            else if ( e.data.original_msg_id !== undefined && this.#callbackFunctions[e.data.original_msg_id] ) {
+                if ( e.data.msg === 'fileOpenPicked' ) {
                     // 1 item returned
-                    if ( e.data.items.length === 1 ){
+                    if ( e.data.items.length === 1 ) {
                         this.#callbackFunctions[e.data.original_msg_id](new FSItem(e.data.items[0]));
                     }
                     // multiple items returned
-                    else if ( e.data.items.length > 1 ){
+                    else if ( e.data.items.length > 1 ) {
                         // multiple items returned
                         let items = [];
                         for ( let index = 0; index < e.data.items.length; index++ )
@@ -440,9 +455,9 @@ class UI extends EventListener {
                         this.#callbackFunctions[e.data.original_msg_id](items);
                     }
                 }
-                else if ( e.data.msg === 'directoryPicked' ){
+                else if ( e.data.msg === 'directoryPicked' ) {
                     // 1 item returned
-                    if ( e.data.items.length === 1 ){
+                    if ( e.data.items.length === 1 ) {
                         this.#callbackFunctions[e.data.original_msg_id](new FSItem({
                             uid: e.data.items[0].uid,
                             name: e.data.items[0].fsentry_name,
@@ -458,7 +473,7 @@ class UI extends EventListener {
                         }));
                     }
                     // multiple items returned
-                    else if ( e.data.items.length > 1 ){
+                    else if ( e.data.items.length > 1 ) {
                         // multiple items returned
                         let items = [];
                         for ( let index = 0; index < e.data.items.length; index++ )
@@ -468,35 +483,35 @@ class UI extends EventListener {
                         this.#callbackFunctions[e.data.original_msg_id](items);
                     }
                 }
-                else if ( e.data.msg === 'colorPicked' ){
+                else if ( e.data.msg === 'colorPicked' ) {
                     // execute callback
                     this.#callbackFunctions[e.data.original_msg_id](e.data.color);
                 }
-                else if ( e.data.msg === 'fontPicked' ){
+                else if ( e.data.msg === 'fontPicked' ) {
                     // execute callback
                     this.#callbackFunctions[e.data.original_msg_id](e.data.font);
                 }
-                else if ( e.data.msg === 'alertResponded' ){
+                else if ( e.data.msg === 'alertResponded' ) {
                     // execute callback
                     this.#callbackFunctions[e.data.original_msg_id](e.data.response);
                 }
-                else if ( e.data.msg === 'promptResponded' ){
+                else if ( e.data.msg === 'promptResponded' ) {
                     // execute callback
                     this.#callbackFunctions[e.data.original_msg_id](e.data.response);
                 }
-                else if ( e.data.msg === 'languageReceived' ){
+                else if ( e.data.msg === 'languageReceived' ) {
                     // execute callback
                     this.#callbackFunctions[e.data.original_msg_id](e.data.language);
                 }
-                else if ( e.data.msg === 'fileSaved' ){
+                else if ( e.data.msg === 'fileSaved' ) {
                     // execute callback
                     this.#callbackFunctions[e.data.original_msg_id](new FSItem(e.data.saved_file));
                 }
-                else if ( e.data.msg === 'fileSaveCancelled' ){
+                else if ( e.data.msg === 'fileSaveCancelled' ) {
                     // execute callback
                     this.#callbackFunctions[e.data.original_msg_id](FILE_SAVE_CANCELLED);
                 }
-                else if ( e.data.msg === 'fileOpenCancelled' ){
+                else if ( e.data.msg === 'fileOpenCancelled' ) {
                     // execute callback
                     this.#callbackFunctions[e.data.original_msg_id](FILE_OPEN_CANCELLED);
                 }
@@ -509,7 +524,7 @@ class UI extends EventListener {
                 delete this.#callbackFunctions[e.data.original_msg_id];
             }
             // Item Watch response
-            else if ( e.data.msg === 'itemChanged' && e.data.data && e.data.data.uid ){
+            else if ( e.data.msg === 'itemChanged' && e.data.data && e.data.data.uid ) {
                 //excute callback
                 if ( this.itemWatchCallbackFunctions[e.data.data.uid] && typeof this.itemWatchCallbackFunctions[e.data.data.uid] === 'function' )
                 {
@@ -519,7 +534,7 @@ class UI extends EventListener {
             // Broadcasts
             else if ( e.data.msg === 'broadcast' ) {
                 const { name, data } = e.data;
-                if ( !this.#eventNames.includes(name) ) {
+                if ( ! this.#eventNames.includes(name) ) {
                     return;
                 }
                 this.emit(name, data);
@@ -527,7 +542,10 @@ class UI extends EventListener {
             }
             else if ( e.data.msg === 'connection' ) {
                 e.data.usesSDK = true; // we can safely assume this
-                const conn = AppConnection.from(e.data, this.context);
+                const conn = AppConnection.from(e.data, this.puter, {
+                    messageTarget: this.messageTarget,
+                    appInstanceID: this.appInstanceID,
+                });
                 const accept = value => {
                     this.messageTarget?.postMessage({
                         $: 'connection-resp',
@@ -585,11 +603,11 @@ class UI extends EventListener {
         });
     }
 
-    onWindowClose(callback) {
+    onWindowClose (callback) {
         this.#onWindowClose = callback;
     };
 
-    onItemsOpened(callback) {
+    onItemsOpened (callback) {
         // DEPRECATED - this is also called when items are dropped on the app, which in new versions should be handled
         // with the 'drop' event.
         // Check if a file was opened with this app, i.e. check URL parameters of window/iframe
@@ -597,9 +615,9 @@ class UI extends EventListener {
         // before we can call it. This is why we need to check the URL parameters here.
         // This should also be done only the very first time the callback is set (hence the if(!this.#onItemsOpened) check) since
         // the URL parameters will be checked every time the callback is set which can cause problems if the callback is set multiple times.
-        if ( !this.#onItemsOpened ){
+        if ( ! this.#onItemsOpened ) {
             let URLParams = new URLSearchParams(globalThis.location.search);
-            if ( URLParams.has('puter.item.name') && URLParams.has('puter.item.uid') && URLParams.has('puter.item.read_url') ){
+            if ( URLParams.has('puter.item.name') && URLParams.has('puter.item.uid') && URLParams.has('puter.item.read_url') ) {
                 let fpath = URLParams.get('puter.item.path');
 
                 if ( !fpath.startsWith('~/') && !fpath.startsWith('/') )
@@ -627,22 +645,22 @@ class UI extends EventListener {
 
     // Check if the app was launched with items
     // This is useful for apps that are launched with items (e.g. when a file is opened with the app)
-    wasLaunchedWithItems() {
+    wasLaunchedWithItems () {
         const URLParams = new URLSearchParams(globalThis.location.search);
         return URLParams.has('puter.item.name') &&
             URLParams.has('puter.item.uid') &&
             URLParams.has('puter.item.read_url');
     };
 
-    onLaunchedWithItems(callback) {
+    onLaunchedWithItems (callback) {
         // Check if a file was opened with this app, i.e. check URL parameters of window/iframe
         // Even though the file has been opened when the app is launched, we need to wait for the onLaunchedWithItems callback to be set
         // before we can call it. This is why we need to check the URL parameters here.
         // This should also be done only the very first time the callback is set (hence the if(!this.#onLaunchedWithItems) check) since
         // the URL parameters will be checked every time the callback is set which can cause problems if the callback is set multiple times.
-        if ( !this.#onLaunchedWithItems ){
+        if ( ! this.#onLaunchedWithItems ) {
             let URLParams = new URLSearchParams(globalThis.location.search);
-            if ( URLParams.has('puter.item.name') && URLParams.has('puter.item.uid') && URLParams.has('puter.item.read_url') ){
+            if ( URLParams.has('puter.item.name') && URLParams.has('puter.item.uid') && URLParams.has('puter.item.read_url') ) {
                 let fpath = URLParams.get('puter.item.path');
 
                 if ( !fpath.startsWith('~/') && !fpath.startsWith('/') )
@@ -668,49 +686,49 @@ class UI extends EventListener {
         this.#onLaunchedWithItems = callback;
     };
 
-    requestEmailConfirmation() {
+    requestEmailConfirmation () {
         return new Promise((resolve, reject) => {
-            this.#postMessageWithCallback('requestEmailConfirmation', resolve, {  });
+            this.#postMessageWithCallback('requestEmailConfirmation', resolve, { });
         });
     };
 
-    alert(message, buttons, options, callback) {
+    alert (message, buttons, options, callback) {
         return new Promise((resolve) => {
             this.#postMessageWithCallback('ALERT', resolve, { message, buttons, options });
         });
     };
 
-    openDevPaymentsAccount() {
+    openDevPaymentsAccount () {
         return new Promise((resolve) => {
-            this.#postMessageWithCallback('openDevPaymentsAccount', resolve, {  });
+            this.#postMessageWithCallback('openDevPaymentsAccount', resolve, { });
         });
     }
 
-    instancesOpen(callback) {
+    instancesOpen (callback) {
         return new Promise((resolve) => {
-            this.#postMessageWithCallback('getInstancesOpen', resolve, {  });
+            this.#postMessageWithCallback('getInstancesOpen', resolve, { });
         });
     };
 
-    socialShare(url, message, options, callback) {
+    socialShare (url, message, options, callback) {
         return new Promise((resolve) => {
             this.#postMessageWithCallback('socialShare', resolve, { url, message, options });
         });
     };
 
-    prompt(message, placeholder, options, callback) {
+    prompt (message, placeholder, options, callback) {
         return new Promise((resolve) => {
             this.#postMessageWithCallback('PROMPT', resolve, { message, placeholder, options });
         });
     };
 
-    showDirectoryPicker(options, callback){
+    showDirectoryPicker (options, callback) {
         return new Promise((resolve, reject) => {
-            if ( !globalThis.open ) {
+            if ( ! globalThis.open ) {
                 return reject('This API is not compatible in Web Workers.');
             }
             const msg_id = this.#messageID++;
-            if ( this.env === 'app' ){
+            if ( this.env === 'app' ) {
                 this.messageTarget?.postMessage({
                     msg: 'showDirectoryPicker',
                     appInstanceID: this.appInstanceID,
@@ -734,15 +752,15 @@ class UI extends EventListener {
         });
     };
 
-    showOpenFilePicker(options, callback){
-        const undefinedOnCancel = new putility.libs.promise.TeePromise();
+    showOpenFilePicker (options, callback) {
+        const undefinedOnCancel = createDeferred();
         const resolveOnlyPromise = new Promise((resolve, reject) => {
-            if ( !globalThis.open ) {
+            if ( ! globalThis.open ) {
                 return reject('This API is not compatible in Web Workers.');
             }
             const msg_id = this.#messageID++;
 
-            if ( this.env === 'app' ){
+            if ( this.env === 'app' ) {
                 this.messageTarget?.postMessage({
                     msg: 'showOpenFilePicker',
                     appInstanceID: this.appInstanceID,
@@ -771,42 +789,42 @@ class UI extends EventListener {
                 resolve(maybe_result);
             };
         });
-        resolveOnlyPromise.undefinedOnCancel = undefinedOnCancel;
+        resolveOnlyPromise.undefinedOnCancel = undefinedOnCancel.promise;
         return resolveOnlyPromise;
     };
 
-    showFontPicker(options){
+    showFontPicker (options) {
         return new Promise((resolve) => {
             this.#postMessageWithCallback('showFontPicker', resolve, { options: options ?? {} });
         });
     };
 
-    showColorPicker(options){
+    showColorPicker (options) {
         return new Promise((resolve) => {
             this.#postMessageWithCallback('showColorPicker', resolve, { options: options ?? {} });
         });
     };
 
-    requestUpgrade() {
+    requestUpgrade () {
         return new Promise((resolve) => {
-            this.#postMessageWithCallback('requestUpgrade', resolve, {  });
+            this.#postMessageWithCallback('requestUpgrade', resolve, { });
         });
     };
 
-    showSaveFilePicker(content, suggestedName, type){
-        const undefinedOnCancel = new putility.libs.promise.TeePromise();
+    showSaveFilePicker (content, suggestedName, type) {
+        const undefinedOnCancel = createDeferred();
         const resolveOnlyPromise = new Promise((resolve, reject) => {
-            if ( !globalThis.open ) {
+            if ( ! globalThis.open ) {
                 return reject('This API is not compatible in Web Workers.');
             }
             const msg_id = this.#messageID++;
-            if ( ! type && Object.prototype.toString.call(content) === '[object URL]' ) {
+            if ( !type && Object.prototype.toString.call(content) === '[object URL]' ) {
                 type = 'url';
             }
             const url = type === 'url' ? content.toString() : undefined;
             const source_path = ['move', 'copy'].includes(type) ? content : undefined;
 
-            if ( this.env === 'app' ){
+            if ( this.env === 'app' ) {
                 this.messageTarget?.postMessage({
                     msg: 'showSaveFilePicker',
                     appInstanceID: this.appInstanceID,
@@ -820,7 +838,7 @@ class UI extends EventListener {
                 }, '*');
             } else {
                 window.addEventListener('message', async (e) => {
-                    if ( e.data?.msg === 'sendMeFileData' ){
+                    if ( e.data?.msg === 'sendMeFileData' ) {
                         // Send the blob URL to the host environment
                         e.source.postMessage({
                             msg: 'showSaveFilePickerPopup',
@@ -862,16 +880,16 @@ class UI extends EventListener {
             };
         });
 
-        resolveOnlyPromise.undefinedOnCancel = undefinedOnCancel;
+        resolveOnlyPromise.undefinedOnCancel = undefinedOnCancel.promise;
 
         return resolveOnlyPromise;
     };
 
-    setWindowTitle(title, window_id, callback) {
-        if ( typeof window_id === 'function' ){
+    setWindowTitle (title, window_id, callback) {
+        if ( typeof window_id === 'function' ) {
             callback = window_id;
             window_id = undefined;
-        } else if ( typeof window_id === 'object' && window_id !== null ){
+        } else if ( typeof window_id === 'object' && window_id !== null ) {
             window_id = window_id.id;
         }
 
@@ -880,11 +898,11 @@ class UI extends EventListener {
         });
     };
 
-    setWindowWidth(width, window_id, callback) {
-        if ( typeof window_id === 'function' ){
+    setWindowWidth (width, window_id, callback) {
+        if ( typeof window_id === 'function' ) {
             callback = window_id;
             window_id = undefined;
-        } else if ( typeof window_id === 'object' && window_id !== null ){
+        } else if ( typeof window_id === 'object' && window_id !== null ) {
             window_id = window_id.id;
         }
 
@@ -893,11 +911,11 @@ class UI extends EventListener {
         });
     };
 
-    setWindowHeight(height, window_id, callback) {
-        if ( typeof window_id === 'function' ){
+    setWindowHeight (height, window_id, callback) {
+        if ( typeof window_id === 'function' ) {
             callback = window_id;
             window_id = undefined;
-        } else if ( typeof window_id === 'object' && window_id !== null ){
+        } else if ( typeof window_id === 'object' && window_id !== null ) {
             window_id = window_id.id;
         }
 
@@ -906,11 +924,11 @@ class UI extends EventListener {
         });
     };
 
-    setWindowSize(width, height, window_id, callback) {
-        if ( typeof window_id === 'function' ){
+    setWindowSize (width, height, window_id, callback) {
+        if ( typeof window_id === 'function' ) {
             callback = window_id;
             window_id = undefined;
-        } else if ( typeof window_id === 'object' && window_id !== null ){
+        } else if ( typeof window_id === 'object' && window_id !== null ) {
             window_id = window_id.id;
         }
 
@@ -919,11 +937,11 @@ class UI extends EventListener {
         });
     };
 
-    setWindowPosition(x, y, window_id, callback) {
-        if ( typeof window_id === 'function' ){
+    setWindowPosition (x, y, window_id, callback) {
+        if ( typeof window_id === 'function' ) {
             callback = window_id;
             window_id = undefined;
-        } else if ( typeof window_id === 'object' && window_id !== null ){
+        } else if ( typeof window_id === 'object' && window_id !== null ) {
             window_id = window_id.id;
         }
 
@@ -932,11 +950,11 @@ class UI extends EventListener {
         });
     };
 
-    setWindowY(y, window_id, callback) {
-        if ( typeof window_id === 'function' ){
+    setWindowY (y, window_id, callback) {
+        if ( typeof window_id === 'function' ) {
             callback = window_id;
             window_id = undefined;
-        } else if ( typeof window_id === 'object' && window_id !== null ){
+        } else if ( typeof window_id === 'object' && window_id !== null ) {
             window_id = window_id.id;
         }
 
@@ -945,11 +963,11 @@ class UI extends EventListener {
         });
     };
 
-    setWindowX(x, window_id, callback) {
-        if ( typeof window_id === 'function' ){
+    setWindowX (x, window_id, callback) {
+        if ( typeof window_id === 'function' ) {
             callback = window_id;
             window_id = undefined;
-        } else if ( typeof window_id === 'object' && window_id !== null ){
+        } else if ( typeof window_id === 'object' && window_id !== null ) {
             window_id = window_id.id;
         }
 
@@ -958,56 +976,53 @@ class UI extends EventListener {
         });
     };
 
-    showWindow() {
+    showWindow () {
         this.#postMessageWithObject('showWindow');
     };
 
-    hideWindow() {
+    hideWindow () {
         this.#postMessageWithObject('hideWindow');
     };
 
-    toggleWindow() {
+    toggleWindow () {
         this.#postMessageWithObject('toggleWindow');
     };
 
-    setMenubar(spec) {
+    setMenubar (spec) {
         this.#postMessageWithObject('setMenubar', spec);
     };
 
-    requestPermission(options) {
-        return new Promise((resolve) => {
-            if ( this.env === 'app' ) {
-                return new Promise((resolve) => {
-                    this.#postMessageWithCallback('requestPermission', resolve, { options });
-                });
-            } else {
-                // TODO: Implement for web
-                resolve(false);
-            }
-        });
+    async requestPermission (options) {
+        if ( this.env === 'app' ) {
+            const result = await this.#postMessageAsync('requestPermission', { options });
+            return result.granted;
+        } else {
+            // TODO: Implement for web
+            return false;
+        }
     };
 
-    disableMenuItem(item_id) {
+    disableMenuItem (item_id) {
         this.#postMessageWithObject('disableMenuItem', { id: item_id });
     };
 
-    enableMenuItem(item_id) {
+    enableMenuItem (item_id) {
         this.#postMessageWithObject('enableMenuItem', { id: item_id });
     };
 
-    setMenuItemIcon(item_id, icon) {
+    setMenuItemIcon (item_id, icon) {
         this.#postMessageWithObject('setMenuItemIcon', { id: item_id, icon: icon });
     };
 
-    setMenuItemIconActive(item_id, icon) {
+    setMenuItemIconActive (item_id, icon) {
         this.#postMessageWithObject('setMenuItemIconActive', { id: item_id, icon: icon });
     };
 
-    setMenuItemChecked(item_id, checked) {
+    setMenuItemChecked (item_id, checked) {
         this.#postMessageWithObject('setMenuItemChecked', { id: item_id, checked: checked });
     };
 
-    contextMenu(spec) {
+    contextMenu (spec) {
         this.#postMessageWithObject('contextMenu', spec);
     };
 
@@ -1027,7 +1042,7 @@ class UI extends EventListener {
      * const items = event.dataTransfer.items;
      * const entries = await getEntriesFromDataTransferItems(items, { raw: false });
      */
-    getEntriesFromDataTransferItems = async function(dataTransferItems, options = { raw: false }) {
+    getEntriesFromDataTransferItems = async function (dataTransferItems, options = { raw: false }) {
         const checkErr = (err) => {
             if ( this.getEntriesFromDataTransferItems.didShowInfo ) return;
             if ( err.name !== 'EncodingError' ) return;
@@ -1041,7 +1056,7 @@ class UI extends EventListener {
         const readFile = (entry, path = '') => {
             return new Promise((resolve, reject) => {
                 entry.file(file => {
-                    if ( !options.raw ) file.filepath = path + file.name; // save full path
+                    if ( ! options.raw ) file.filepath = path + file.name; // save full path
                     resolve(file);
                 }, (err) => {
                     checkErr(err);
@@ -1111,13 +1126,13 @@ class UI extends EventListener {
         return files;
     };
 
-    authenticateWithPuter() {
-        if ( this.env !== 'web' ){
+    authenticateWithPuter () {
+        if ( this.env !== 'web' ) {
             return;
         }
 
         // if authToken is already present, resolve immediately
-        if ( this.authToken ){
+        if ( this.authToken ) {
             return new Promise((resolve) => {
                 resolve();
             });
@@ -1135,7 +1150,7 @@ class UI extends EventListener {
         puter.puterAuthState.authGranted = null;
 
         return new Promise((resolve, reject) => {
-            if ( !puter.authToken ) {
+            if ( ! puter.authToken ) {
                 const puterDialog = new PuterDialog(resolve, reject);
                 document.body.appendChild(puterDialog);
                 puterDialog.open();
@@ -1154,7 +1169,7 @@ class UI extends EventListener {
      * @param {*} callback - in case you don't want to use `await` or `.then()`
      * @returns
      */
-    launchApp = async function launchApp(nameOrOptions, args, callback) {
+    launchApp = async function launchApp (nameOrOptions, args, callback) {
         let pseudonym = undefined;
         let file_paths = undefined;
         let items = undefined;
@@ -1198,10 +1213,13 @@ class UI extends EventListener {
             },
         });
 
-        return AppConnection.from(app_info, this.context);
+        return AppConnection.from(app_info, this.puter, {
+            messageTarget: this.messageTarget,
+            appInstanceID: this.appInstanceID,
+        });
     };
 
-    connectToInstance = async function connectToInstance(app_name) {
+    connectToInstance = async function connectToInstance (app_name) {
         const app_info = await this.#ipc_stub({
             method: 'connectToInstance',
             parameters: {
@@ -1209,14 +1227,17 @@ class UI extends EventListener {
             },
         });
 
-        return AppConnection.from(app_info, this.context);
+        return AppConnection.from(app_info, this.puter, {
+            messageTarget: this.messageTarget,
+            appInstanceID: this.appInstanceID,
+        });
     };
 
-    parentApp() {
+    parentApp () {
         return this.#parentAppConnection;
     }
 
-    createWindow(options, callback) {
+    createWindow (options, callback) {
         return new Promise((resolve) => {
             this.#postMessageWithCallback('createWindow', (res) => {
                 resolve(res.window);
@@ -1225,9 +1246,9 @@ class UI extends EventListener {
     };
 
     // Menubar
-    menubar(){
+    menubar () {
         // Remove previous style tag
-        document.querySelectorAll('style.puter-stylesheet').forEach(function(el) {
+        document.querySelectorAll('style.puter-stylesheet').forEach(function (el) {
             el.remove();
         });
 
@@ -1363,15 +1384,15 @@ class UI extends EventListener {
         let head = document.head || document.getElementsByTagName('head')[0];
         head.appendChild(style);
 
-        document.addEventListener('click', function(e){
+        document.addEventListener('click', function (e) {
             // Don't hide if clicking on disabled item
             if ( e.target.classList.contains('dropdown-item-disabled') )
             {
                 return false;
             }
             // Hide open menus
-            if ( !(e.target).classList.contains('menubar-item') ){
-                document.querySelectorAll('.menubar-item.menubar-item-open').forEach(function(el) {
+            if ( ! (e.target).classList.contains('menubar-item') ) {
+                document.querySelectorAll('.menubar-item.menubar-item-open').forEach(function (el) {
                     el.classList.remove('menubar-item-open');
                 });
 
@@ -1380,19 +1401,19 @@ class UI extends EventListener {
         });
 
         // When focus is gone from this window, hide open menus
-        window.addEventListener('blur', function(e){
-            document.querySelectorAll('.dropdown').forEach(function(el) {
+        window.addEventListener('blur', function (e) {
+            document.querySelectorAll('.dropdown').forEach(function (el) {
                 el.style.display = 'none';
             });
             document.querySelectorAll('.menubar-item.menubar-item-open').forEach(el => el.classList.remove('menubar-item-open'));
         });
 
         // Returns the siblings of the element
-        const siblings = function(e) {
+        const siblings = function (e) {
             const siblings = [];
 
             // if no parent, return empty list
-            if ( !e.parentNode ) {
+            if ( ! e.parentNode ) {
                 return siblings;
             }
 
@@ -1410,14 +1431,14 @@ class UI extends EventListener {
         };
 
         // Open dropdown
-        document.querySelectorAll('.menubar-item').forEach(el => el.addEventListener('mousedown', function(e){
+        document.querySelectorAll('.menubar-item').forEach(el => el.addEventListener('mousedown', function (e) {
             // Hide all other menus
-            document.querySelectorAll('.dropdown').forEach(function(el) {
+            document.querySelectorAll('.dropdown').forEach(function (el) {
                 el.style.display = 'none';
             });
 
             // Remove open class from all menus, except this menu that was just clicked
-            document.querySelectorAll('.menubar-item.menubar-item-open').forEach(function(el) {
+            document.querySelectorAll('.menubar-item.menubar-item-open').forEach(function (el) {
                 if ( el != e.target )
                 {
                     el.classList.remove('menubar-item-open');
@@ -1425,18 +1446,18 @@ class UI extends EventListener {
             });
 
             // If menu is already open, close it
-            if ( this.classList.contains('menubar-item-open') ){
-                document.querySelectorAll('.menubar-item.menubar-item-open').forEach(function(el) {
+            if ( this.classList.contains('menubar-item-open') ) {
+                document.querySelectorAll('.menubar-item.menubar-item-open').forEach(function (el) {
                     el.classList.remove('menubar-item-open');
                 });
             }
 
             // If menu is not open, open it
-            else if ( !e.target.classList.contains('dropdown-item') ){
+            else if ( ! e.target.classList.contains('dropdown-item') ) {
                 this.classList.add('menubar-item-open');
 
                 // show all sibling
-                siblings(this).forEach(function(el) {
+                siblings(this).forEach(function (el) {
                     el.style.display = 'block';
                 });
             }
@@ -1444,15 +1465,15 @@ class UI extends EventListener {
         }));
 
         // If a menu is open, and you hover over another menu, open that menu
-        document.querySelectorAll('.--puter-menubar .menubar-item').forEach(el => el.addEventListener('mouseover', function(e){
+        document.querySelectorAll('.--puter-menubar .menubar-item').forEach(el => el.addEventListener('mouseover', function (e) {
             const open_menus = document.querySelectorAll('.menubar-item.menubar-item-open');
-            if ( open_menus.length > 0 && open_menus[0] !== e.target ){
+            if ( open_menus.length > 0 && open_menus[0] !== e.target ) {
                 e.target.dispatchEvent(new Event('mousedown'));
             }
         }));
     };
 
-    on(eventName, callback) {
+    on (eventName, callback) {
         super.on(eventName, callback);
         // If we already received a broadcast for this event, run the callback immediately
         if ( this.#eventNames.includes(eventName) && this.#lastBroadcastValue.has(eventName) ) {
@@ -1463,11 +1484,11 @@ class UI extends EventListener {
     #showTime = null;
     #hideTimeout = null;
 
-    showSpinner(html) {
+    showSpinner (html) {
         if ( this.#overlayActive ) return;
 
         // Create and add stylesheet for spinner if it doesn't exist
-        if ( !document.getElementById('puter-spinner-styles') ) {
+        if ( ! document.getElementById('puter-spinner-styles') ) {
             const styleSheet = document.createElement('style');
             styleSheet.id = 'puter-spinner-styles';
             styleSheet.textContent = `
@@ -1548,8 +1569,8 @@ class UI extends EventListener {
         }, 1000);
     }
 
-    hideSpinner() {
-        if ( !this.#overlayActive ) return;
+    hideSpinner () {
+        if ( ! this.#overlayActive ) return;
 
         if ( this.#overlayTimer ) {
             clearTimeout(this.#overlayTimer);
@@ -1575,7 +1596,7 @@ class UI extends EventListener {
     }
 
     // Add private method to handle spinner removal
-    #removeSpinner() {
+    #removeSpinner () {
         const overlay = document.querySelector('.puter-loading-overlay');
         if ( overlay ) {
             overlay.parentNode?.removeChild(overlay);
@@ -1586,7 +1607,7 @@ class UI extends EventListener {
         this.#hideTimeout = null;
     }
 
-    isWorkingActive() {
+    isWorkingActive () {
         return this.#overlayActive;
     }
 
@@ -1599,9 +1620,9 @@ class UI extends EventListener {
      * const currentLang = await puter.ui.getLanguage();
      * console.log(`Current language: ${currentLang}`); // e.g., "Current language: fr"
      */
-    getLanguage() {
+    getLanguage () {
         // resolve with the current language code if in GUI environment
-        if ( this.env === 'gui' ){
+        if ( this.env === 'gui' ) {
             // resolve with the current language code
             return new Promise((resolve) => {
                 resolve(window.locale);

@@ -16,7 +16,7 @@
  * You should have received a copy of the GNU Affero General Public License
  * along with this program.  If not, see <https://www.gnu.org/licenses/>.
  */
-const eggspress = require("../../api/eggspress");
+const eggspress = require('../../api/eggspress');
 
 const init_client_js = code => {
     return `
@@ -24,7 +24,7 @@ const init_client_js = code => {
             (${code})();
         });
     `;
-}
+};
 
 const script = async function script () {
     const call = async ({
@@ -94,7 +94,7 @@ const script = async function script () {
 
 /**
  * POST /drivers/xd
- * 
+ *
  * This endpoint services the document which receives
  * cross-document messages from the SDK and forwards
  * them to the Puter Driver API.
@@ -117,4 +117,3 @@ module.exports = eggspress('/drivers/xd', {
         </html>
     `);
 });
-

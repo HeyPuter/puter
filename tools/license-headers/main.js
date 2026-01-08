@@ -1,4 +1,3 @@
-// METADATA // {"ai-commented":{"service":"claude"}}
 /*
  * Copyright (C) 2024-present Puter Technologies Inc.
  * 
@@ -186,7 +185,7 @@ const license_check_test = async ({ options }) => {
     }, path_.join(__dirname, '../..'));
     for await ( const value of walk_iterator ) {
         if ( value.is_dir ) continue;
-        if ( value.name !== 'dev-console-ui-utils.js' ) continue;
+        if ( options?.filename && value.name !== options.filename ) continue;
         console.log(value.path);
         const source = fs.readFileSync(value.path, 'utf-8');
         const diff_info = await license_checker.compare({

@@ -16,7 +16,7 @@
  * You should have received a copy of the GNU Affero General Public License
  * along with this program.  If not, see <https://www.gnu.org/licenses/>.
  */
-const { Context } = require("../util/context");
+const { Context } = require('../util/context');
 
 class ContextAwareFeature {
     install_in_instance (instance) {

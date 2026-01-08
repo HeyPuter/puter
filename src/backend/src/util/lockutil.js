@@ -31,7 +31,8 @@ class RWLock {
         this.readers_ = 0;
         this.writer_ = false;
 
-        this.on_empty_ = () => {};
+        this.on_empty_ = () => {
+        };
 
         this.mode = this.constructor.TYPE_READ;
     }
@@ -41,7 +42,7 @@ class RWLock {
         return undefined;
     }
     push_ (item) {
-        if ( this.readers_ === 0 && ! this.writer_ ) {
+        if ( this.readers_ === 0 && !this.writer_ ) {
             this.mode = item.type;
         }
         this.queue.push(item);
@@ -49,7 +50,7 @@ class RWLock {
     }
     check_queue_ () {
         if ( this.queue.length === 0 ) {
-            if ( this.readers_ === 0 && ! this.writer_ ) {
+            if ( this.readers_ === 0 && !this.writer_ ) {
                 this.on_empty_();
             }
             return;
@@ -57,7 +58,7 @@ class RWLock {
 
         const peek = () => this.queue[0];
 
-        if ( this.readers_ === 0 && ! this.writer_ ) {
+        if ( this.readers_ === 0 && !this.writer_ ) {
             this.mode = peek().type;
         }
 
@@ -92,7 +93,7 @@ class RWLock {
         const handle = {
             unlock: () => {
                 p_unlock.resolve();
-            }
+            },
         };
 
         this.push_({
@@ -111,7 +112,7 @@ class RWLock {
         const handle = {
             unlock: () => {
                 p_unlock.resolve();
-            }
+            },
         };
 
         this.push_({

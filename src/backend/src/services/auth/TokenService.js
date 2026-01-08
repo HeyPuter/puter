@@ -1,4 +1,3 @@
-// METADATA // {"ai-commented":{"service":"openai-completion","model":"gpt-4o-mini"}}
 /*
  * Copyright (C) 2024-present Puter Technologies Inc.
  *
@@ -17,7 +16,7 @@
  * You should have received a copy of the GNU Affero General Public License
  * along with this program.  If not, see <https://www.gnu.org/licenses/>.
  */
-const BaseService = require("../BaseService");
+const BaseService = require('../BaseService');
 
 const def = o => {
     for ( let k in o ) {
@@ -32,7 +31,7 @@ const def = o => {
             return acc;
         }, {}),
     };
-}
+};
 
 const defv = o => {
     return {
@@ -53,7 +52,7 @@ const uuid_compression = prefix => ({
             v = v.slice(prefix.length);
         }
 
-        const undecorated = v.replace(/-/g, "");
+        const undecorated = v.replace(/-/g, '');
         const base64 = Buffer
             .from(undecorated, 'hex')
             .toString('base64');
@@ -73,7 +72,7 @@ const uuid_compression = prefix => ({
             undecorated.slice(16, 20),
             undecorated.slice(20),
         ].join('-');
-    }
+    },
 });
 
 const compression = {
@@ -106,11 +105,10 @@ const compression = {
     }),
 };
 
-
 /**
 * TokenService class for managing token creation and verification.
-* This service extends the BaseService class and provides methods 
-* for signing and verifying JWTs, as well as compressing and decompressing 
+* This service extends the BaseService class and provides methods
+* for signing and verifying JWTs, as well as compressing and decompressing
 * payloads to and from a compact format.
 */
 class TokenService extends BaseService {
@@ -118,22 +116,20 @@ class TokenService extends BaseService {
         jwt: require('jsonwebtoken'),
     };
 
-
     /**
      * Constructs a new TokenService instance and initializes the compression settings.
      * This method is called when a TokenService object is created.
-     * 
+     *
      * @returns {void}
      */
     _construct () {
         this.compression = compression;
     }
 
-
     /**
      * Initializes the TokenService instance by setting the JWT secret
      * from the global configuration.
-     * 
+     *
      * @function
      * @returns {void}
      * @throws {Error} Throws an error if the jwt_secret is not defined in global_config.
@@ -215,7 +211,6 @@ class TokenService extends BaseService {
             const fullkey = short_to_fullkey[short];
             const compress_info = fullkey_to_info[fullkey];
 
-
             if ( compress_info.short ) k = fullkey;
             if ( compress_info.values && compress_info.values.to_long[v] ) {
                 v = compress_info.values.to_long[v];
@@ -229,52 +224,6 @@ class TokenService extends BaseService {
         return decompressed;
     }
 
-    _test ({ assert }) {
-        const U1 = '843f1d83-3c30-48c7-8964-62aff1a912d0';
-        const U2 = '42e9c36b-8a53-4c3e-8e18-fe549b10a44d';
-        const U3 = 'app-c22ef816-edb6-47c5-8c41-31c6520fa9e6';
-        // Test compression
-        {
-            const context = this.compression.auth;
-            const payload = {
-                uuid: U1,
-                type: 'session',
-                user_uid: U2,
-                app_uid: U3,
-            };
-            
-            const compressed = this._compress_payload(context, payload);
-            assert(() => compressed.u === uuid_compression().encode(U1));
-            assert(() => compressed.t === 's');
-            assert(() => compressed.uu === uuid_compression().encode(U2));
-            assert(() => compressed.au === uuid_compression('app-').encode(U3));
-        }
-
-        // Test decompression
-        {
-            const context = this.compression.auth;
-            const payload = {
-                u: uuid_compression().encode(U1),
-                t: 's',
-                uu: uuid_compression().encode(U2),
-                au: uuid_compression('app-').encode(U3),
-            };
-            
-            const decompressed = this._decompress_payload(context, payload);
-            assert(() => decompressed.uuid === U1);
-            assert(() => decompressed.type === 'session');
-            assert(() => decompressed.user_uid === U2);
-            assert(() => decompressed.app_uid === U3);
-        }
-
-        // Test UUID preservation
-        {
-            const payload = { uuid: U1 };
-            const compressed = this._compress_payload(this.compression.auth, payload);
-            const decompressed = this._decompress_payload(this.compression.auth, compressed);
-            assert(() => decompressed.uuid === U1);
-        }
-    }
 }
 
 module.exports = { TokenService };

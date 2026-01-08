@@ -51,7 +51,7 @@ module.exports = {
                         subdomain: value,
                     });
                 }
-            }
+            },
         },
         domain: {
             type: 'string',
@@ -63,8 +63,10 @@ module.exports = {
 
             // TODO: can this 'adapt' be data instead?
             async adapt (value) {
-                if (value !== null)
+                if ( value !== null )
+                {
                     return value.toLowerCase();
+                }
                 return null;
             },
         },
@@ -73,7 +75,7 @@ module.exports = {
             fs_permission: 'read',
             sql: {
                 column_name: 'root_dir_id',
-            }
+            },
         },
         associated_app: {
             type: 'reference',
@@ -82,7 +84,7 @@ module.exports = {
             sql: {
                 use_id: true,
                 column_name: 'associated_app_id',
-            }
+            },
         },
         created_at: {
             type: 'datetime',
@@ -112,6 +114,5 @@ module.exports = {
         protected: {
             type: 'flag',
         },
-    }
+    },
 };
-

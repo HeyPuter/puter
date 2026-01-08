@@ -17,7 +17,6 @@
  * along with this program.  If not, see <https://www.gnu.org/licenses/>.
  */
 
-
 const Component = use('util.Component');
 
 export default def(class PasswordEntry extends Component {
@@ -29,7 +28,7 @@ export default def(class PasswordEntry extends Component {
         error: {},
         on_submit: {},
         show_password: {},
-    }
+    };
 
     static CSS = /*css*/`
         fieldset {
@@ -105,8 +104,8 @@ export default def(class PasswordEntry extends Component {
                     <img
                         id="toggle-show-password"
                         src="${this.get('show_password')
-                            ? window.icons["eye-closed.svg"]
-                            : window.icons["eye-open.svg"]}"
+                            ? window.icons['eye-closed.svg']
+                            : window.icons['eye-open.svg']}"
                         width="20"
                         height="20">
                 </div>
@@ -144,13 +143,13 @@ export default def(class PasswordEntry extends Component {
                 }
             });
         }
-        
-        $(this.dom_).find("#toggle-show-password").on("click", () => {
+
+        $(this.dom_).find('#toggle-show-password').on('click', () => {
             this.set('show_password', !this.get('show_password'));
             const show_password = this.get('show_password');
             // hide/show password and update icon
-            $(this.dom_).find("input").attr("type", show_password ? "text" : "password");
-            $(this.dom_).find("#toggle-show-password").attr("src", show_password ? window.icons["eye-closed.svg"] : window.icons["eye-open.svg"])
+            $(this.dom_).find('input').attr('type', show_password ? 'text' : 'password');
+            $(this.dom_).find('#toggle-show-password').attr('src', show_password ? window.icons['eye-closed.svg'] : window.icons['eye-open.svg']);
         });
     }
 });

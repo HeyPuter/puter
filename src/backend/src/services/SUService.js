@@ -17,12 +17,10 @@
  * along with this program.  If not, see <https://www.gnu.org/licenses/>.
  */
 
-// METADATA // {"ai-commented":{"service":"openai-completion","model":"gpt-4o-mini"}}
-const { get_user } = require('../helpers');
-const { Context } = require('../util/context');
-const { TeePromise } = require('@heyputer/putility').libs.promise;
-const { Actor, UserActorType } = require('./auth/Actor');
-const BaseService = require('./BaseService');
+import { TeePromise } from '@heyputer/putility/src/libs/promise.js';
+import { Context } from '../util/context.js';
+import { Actor, UserActorType } from './auth/Actor.js';
+import BaseService from './BaseService.js';
 
 /**
 * "SUS"-Service (Super-User Service)
@@ -34,13 +32,13 @@ const BaseService = require('./BaseService');
 * instances, providing methods to retrieve the system actor
 * and perform actions with elevated privileges.
 */
-class SUService extends BaseService {
+export class SUService extends BaseService {
     /**
     * Initializes the SUService instance, creating promises for system user
     * and system actor. This method does not take any parameters and does
     * not return a value.
     */
-    _construct() {
+    _construct () {
         this.sys_user_ = new TeePromise();
         this.sys_actor_ = new TeePromise();
     }
@@ -55,8 +53,8 @@ class SUService extends BaseService {
      * @returns {Promise<void>} A promise that resolves when both the
      *                          system user and actor have been set.
      */
-    async ['__on_boot.consolidation']() {
-        const sys_user = await get_user({ username: 'system' });
+    async ['__on_boot.consolidation'] () {
+        const sys_user = await this.services.get('get-user').get_user({ username: 'system' });
         this.sys_user_.resolve(sys_user);
         const sys_actor = new Actor({
             type: new UserActorType({
@@ -74,7 +72,7 @@ class SUService extends BaseService {
      *
      * @returns {Promise<TeePromise>} A promise that resolves to the system actor.
      */
-    async get_system_actor() {
+    async get_system_actor () {
         return this.sys_actor_;
     }
 
@@ -100,7 +98,7 @@ class SUService extends BaseService {
     * @param {(() => Promise<T>)} [callback] - The callback function to execute as the specified actor.
     * @returns {Promise<T>} A promise that resolves to the result of the callback function executed as the specified actor.
     */
-    async sudo(actor, callback) {
+    async sudo (actor, callback) {
         if ( ! callback ) {
             callback = actor;
             actor = await this.sys_actor_;
@@ -112,7 +110,3 @@ class SUService extends BaseService {
         }).arun(callback);
     }
 }
-
-module.exports = {
-    SUService,
-};

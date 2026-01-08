@@ -16,7 +16,7 @@
  * You should have received a copy of the GNU Affero General Public License
  * along with this program.  If not, see <https://www.gnu.org/licenses/>.
  */
-"use strict"
+'use strict';
 const express = require('express');
 const router = express.Router();
 const auth = require('../middleware/auth.js');
@@ -26,27 +26,31 @@ const { DB_WRITE } = require('../services/database/consts.js');
 // -----------------------------------------------------------------------//
 // POST /delete-site
 // -----------------------------------------------------------------------//
-router.post('/delete-site', auth, express.json(), async (req, res, next)=>{
+router.post('/delete-site', auth, express.json(), async (req, res, next) => {
     // check subdomain
-    if(require('../helpers').subdomain(req) !== 'api')
+    if ( require('../helpers').subdomain(req) !== 'api' )
+    {
         next();
+    }
 
     // check if user is verified
-    if((config.strict_email_verification_required || req.user.requires_email_confirmation) && !req.user.email_confirmed)
-        return res.status(400).send({code: 'account_is_not_verified', message: 'Account is not verified'});
+    if ( (config.strict_email_verification_required || req.user.requires_email_confirmation) && !req.user.email_confirmed )
+    {
+        return res.status(400).send({ code: 'account_is_not_verified', message: 'Account is not verified' });
+    }
 
     // validation
-    if(req.body.site_uuid === undefined)
-        return res.status(400).send('site_uuid is required')
+    if ( req.body.site_uuid === undefined )
+    {
+        return res.status(400).send('site_uuid is required');
+    }
 
     // modules
     const db = req.services.get('database').get(DB_WRITE, 'subdomains:legacy');
 
-    await db.write(
-        `DELETE FROM subdomains WHERE user_id = ? AND uuid = ?`,
-        [req.user.id, req.body.site_uuid]
-    );
+    await db.write('DELETE FROM subdomains WHERE user_id = ? AND uuid = ?',
+                    [req.user.id, req.body.site_uuid]);
     res.send({});
-})
+});
 
-module.exports = router
+module.exports = router;

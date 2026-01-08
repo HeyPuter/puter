@@ -16,10 +16,11 @@
  * You should have received a copy of the GNU Affero General Public License
  * along with this program.  If not, see <https://www.gnu.org/licenses/>.
  */
-const APIError = require("../../api/APIError");
-const eggspress = require("../../api/eggspress");
-const { UserActorType } = require("../../services/auth/Actor");
-const { Context } = require("../../util/context");
+const APIError = require('../../api/APIError');
+const eggspress = require('../../api/eggspress');
+const { UserActorType } = require('../../services/auth/Actor');
+const { Context } = require('../../util/context');
+const { validate_fields } = require('../../util/validutil');
 
 module.exports = eggspress('/auth/grant-user-user', {
     subdomain: 'api',
@@ -35,20 +36,14 @@ module.exports = eggspress('/auth/grant-user-user', {
         throw APIError.create('forbidden');
     }
 
-    if ( ! req.body.target_username ) {
-        throw APIError.create('field_missing', null, { key: 'target_username' });
-    }
+    validate_fields({
+        target_username: { type: 'string', optional: false },
+        permission: { type: 'string', optional: false },
+        extra: { type: 'object', optional: true },
+        meta: { type: 'object', optional: true },
+    }, req.body);
 
-    if ( ! req.body.permission ) {
-        throw APIError.create('field_missing', null, {
-            key: 'permission'
-        });
-    }
-
-    await svc_permission.grant_user_user_permission(
-        actor, req.body.target_username, req.body.permission,
-        req.body.extra || {}, req.body.meta || {}
-    );
+    await svc_permission.grant_user_user_permission(actor, req.body.target_username, req.body.permission, req.body.extra || {}, req.body.meta || {});
 
     res.json({});
 });

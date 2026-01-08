@@ -1,4 +1,3 @@
-// METADATA // {"ai-commented":{"service":"xai"}}
 /*
  * Copyright (C) 2024-present Puter Technologies Inc.
  *
@@ -32,7 +31,6 @@ class DriverError {
         this.message = source?.message || message;
     }
 
-
     /**
     * Serializes the DriverError instance into a standardized object format.
     * @returns {Object} An object with keys '$' for type identification and 'message' for error details.
@@ -47,5 +45,5 @@ class DriverError {
 }
 
 module.exports = {
-    DriverError
+    DriverError,
 };

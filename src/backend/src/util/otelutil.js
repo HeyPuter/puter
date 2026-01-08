@@ -42,7 +42,7 @@ promises.push(tracer.startActiveSpan(`job:${job.id}`, (span) => {
 }));
 */
 
-const spanify = (label, fn) => async (...args) => {
+const spanify = (label, fn, tracer) => async (...args) => {
     const context = Context.get();
     if ( ! context ) {
         // We don't use the proper logger here because we would normally
@@ -50,7 +50,7 @@ const spanify = (label, fn) => async (...args) => {
         console.error('spanify failed', new Error('missing context'));
     }
 
-    const tracer = context.get('services').get('traceService').tracer;
+    tracer = tracer ?? context.get('services').get('traceService').tracer;
     let result;
     await tracer.startActiveSpan(label, async span => {
         result = await fn(...args);
@@ -72,9 +72,9 @@ const abtest = async (label, impls) => {
     const impl_keys = Object.keys(impls);
     const impl_i = Math.floor(Math.random() * impl_keys.length);
     const impl_name = impl_keys[impl_i];
-    const impl = impls[impl_name]
+    const impl = impls[impl_name];
 
-    await tracer.startActiveSpan(label + ':' + impl_name, async span => {
+    await tracer.startActiveSpan(`${label }:${ impl_name}`, async span => {
         span.setAttribute('abtest.impl', impl_name);
         result = await impl();
         span.end();
@@ -93,7 +93,7 @@ class ParallelTasks {
     }
 
     add (name, fn, flags) {
-        if ( this.ongoing_ >= this.max && ! flags?.force ) {
+        if ( this.ongoing_ >= this.max && !flags?.force ) {
             const p = new TeePromise();
             this.promises.push(p);
             this.queue_.push([name, fn, p]);
@@ -112,13 +112,13 @@ class ParallelTasks {
                 this.ongoing_--;
                 this.check_queue_();
                 return res;
-            } catch (error) {
+            } catch ( error ) {
                 span.setStatus({ code: SpanStatusCode.ERROR, message: error.message });
                 throw error;
             } finally {
                 span.end();
             }
-        })
+        });
     }
 
     check_queue_ () {

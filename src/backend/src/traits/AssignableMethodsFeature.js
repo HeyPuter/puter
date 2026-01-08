@@ -27,5 +27,5 @@ class AssignableMethodsFeature {
 }
 
 module.exports = {
-    AssignableMethodsFeature
+    AssignableMethodsFeature,
 };

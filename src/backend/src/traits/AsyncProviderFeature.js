@@ -116,5 +116,5 @@ class AsyncProviderFeature {
 }
 
 module.exports = {
-    AsyncProviderFeature
+    AsyncProviderFeature,
 };

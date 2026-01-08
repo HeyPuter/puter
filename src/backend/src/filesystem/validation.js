@@ -24,7 +24,7 @@ This module contains functions that validate filesystem operations.
 
 /* eslint-disable no-control-regex */
 
-const config = require("../config");
+const config = require('../config');
 
 const path_excludes = () => /[\x00-\x1F]/g;
 const node_excludes = () => /[/\x00-\x1F]/g;
@@ -38,8 +38,8 @@ const safety_excludes = [
     /[\u2066-\u2069]/, // RTL and LTR isolate
     /[\u2028-\u2029]/, // line and paragraph separator
     /[\uFF01-\uFF5E]/, // fullwidth ASCII
-    /[\u2060]/,        // word joiner
-    /[\uFEFF]/,        // zero width no-break space
+    /[\u2060]/, // word joiner
+    /[\uFEFF]/, // zero width no-break space
     /[\uFFFE-\uFFFF]/, // non-characters
 ];
 
@@ -56,7 +56,7 @@ const is_valid_node_name = function is_valid_node_name (name) {
     if ( name_without_dots.length < 1 ) return false;
 
     return true;
-}
+};
 
 const is_valid_path = function is_valid_path (path, {
     no_relative_components,
@@ -69,8 +69,10 @@ const is_valid_path = function is_valid_path (path, {
         if ( exclude.test(path) ) return false;
     }
 
-    if ( ! allow_path_fragment ) if ( path[0] !== '/' && path[0] !== '.' ) {
-        return false;
+    if ( ! allow_path_fragment ) {
+        if ( path[0] !== '/' && path[0] !== '.' ) {
+            return false;
+        }
     }
 
     if ( no_relative_components ) {
@@ -83,7 +85,7 @@ const is_valid_path = function is_valid_path (path, {
     }
 
     return true;
-}
+};
 
 module.exports = {
     is_valid_node_name,

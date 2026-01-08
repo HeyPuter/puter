@@ -1,15 +1,16 @@
 class FetchDriverCallBackend {
-    constructor ({ context }) {
-        this.context = context;
+    constructor ({ getAPIOrigin, getAuthToken }) {
+        this.getAPIOrigin = getAPIOrigin;
+        this.getAuthToken = getAuthToken;
         this.response_handlers = this.constructor.response_handlers;
     }
-    
+
     static response_handlers = {
         'application/x-ndjson': async resp => {
             const Stream = async function* Stream (readableStream) {
                 const reader = readableStream.getReader();
                 let value, done;
-                while ( ! done ) {
+                while ( !done ) {
                     ({ value, done } = await reader.read());
                     if ( done ) break;
                     const parts = (new TextDecoder().decode(value).split('\n'));
@@ -18,8 +19,8 @@ class FetchDriverCallBackend {
                         yield JSON.parse(part);
                     }
                 }
-            }
-            
+            };
+
             return Stream(resp.body);
         },
         'application/json': async resp => {
@@ -28,11 +29,11 @@ class FetchDriverCallBackend {
         'application/octet-stream': async resp => {
             return await resp.blob();
         },
-    }
-    
+    };
+
     async call ({ driver, method_name, parameters }) {
         try {
-            const resp = await fetch(`${this.context.APIOrigin}/drivers/call`, {
+            const resp = await fetch(`${this.getAPIOrigin()}/drivers/call`, {
                 headers: {
                     'Content-Type': 'text/plain;actually=json',
                 },
@@ -44,10 +45,10 @@ class FetchDriverCallBackend {
                         : {}),
                     method: method_name,
                     args: parameters,
-                    auth_token: this.context.authToken
+                    auth_token: this.getAuthToken(),
                 }),
             });
-            
+
             const content_type = resp.headers.get('content-type')
                 .split(';')[0].trim(); // TODO: parser for Content-Type
             const handler = this.response_handlers[content_type];
@@ -56,44 +57,44 @@ class FetchDriverCallBackend {
                 console.error(msg);
                 console.error('creating blob so dev tools shows response...');
                 await resp.blob();
-                
+
                 // Log the error
-                if (globalThis.puter?.apiCallLogger?.isEnabled()) {
+                if ( globalThis.puter?.apiCallLogger?.isEnabled() ) {
                     globalThis.puter.apiCallLogger.logRequest({
                         service: 'drivers',
                         operation: `${driver.iface_name}::${method_name}`,
                         params: { interface: driver.iface_name, driver: driver.service_name || driver.iface_name, method: method_name, args: parameters },
-                        error: { message: msg }
+                        error: { message: msg },
                     });
                 }
-                
+
                 throw new Error(msg);
             }
-            
+
             const result = await handler(resp);
-            
+
             // Log the successful response
-            if (globalThis.puter?.apiCallLogger?.isEnabled()) {
+            if ( globalThis.puter?.apiCallLogger?.isEnabled() ) {
                 globalThis.puter.apiCallLogger.logRequest({
                     service: 'drivers',
                     operation: `${driver.iface_name}::${method_name}`,
                     params: { interface: driver.iface_name, driver: driver.service_name || driver.iface_name, method: method_name, args: parameters },
-                    result: result
+                    result: result,
                 });
             }
-            
+
             return result;
-        } catch (error) {
+        } catch ( error ) {
             // Log unexpected errors
-            if (globalThis.puter?.apiCallLogger?.isEnabled()) {
+            if ( globalThis.puter?.apiCallLogger?.isEnabled() ) {
                 globalThis.puter.apiCallLogger.logRequest({
                     service: 'drivers',
                     operation: `${driver.iface_name}::${method_name}`,
                     params: { interface: driver.iface_name, driver: driver.service_name || driver.iface_name, method: method_name, args: parameters },
                     error: {
                         message: error.message || error.toString(),
-                        stack: error.stack
-                    }
+                        stack: error.stack,
+                    },
                 });
             }
             throw error;
@@ -131,24 +132,17 @@ class Drivers {
      * @param {string} APIOrigin - Origin of the API server. Used to build the API endpoint URLs.
      * @param {string} appID - ID of the app to use.
      */
-    constructor (context) {
-        this.authToken = context.authToken;
-        this.APIOrigin = context.APIOrigin;
-        this.appID = context.appID;
-        
+    constructor (puter) {
+        this.puter = puter;
+        this.authToken = puter.authToken;
+        this.APIOrigin = puter.APIOrigin;
+        this.appID = puter.appID;
+
         // Driver-specific
         this.drivers_ = {};
 
-        // TODO: replace with `context` from constructor and test site login
-        this.context = {};
-        Object.defineProperty(this.context, 'authToken', {
-            get: () => this.authToken,
-        });
-        Object.defineProperty(this.context, 'APIOrigin', {
-            get: () => this.APIOrigin,
-        });
     }
-    
+
     _init ({ puter }) {
         puter.call = this.call.bind(this);
     }
@@ -166,7 +160,7 @@ class Drivers {
 
     /**
      * Sets the API origin.
-     * 
+     *
      * @param {string} APIOrigin - The new API origin.
      * @memberof [AI]
      * @returns {void}
@@ -174,46 +168,46 @@ class Drivers {
     setAPIOrigin (APIOrigin) {
         this.APIOrigin = APIOrigin;
     }
-    
+
     async list () {
         try {
             const resp = await fetch(`${this.APIOrigin}/lsmod`, {
                 headers: {
-                    Authorization: 'Bearer ' + this.authToken,
+                    Authorization: `Bearer ${ this.authToken}`,
                 },
-                method: 'POST'
+                method: 'POST',
             });
-            
+
             const list = await resp.json();
-            
+
             // Log the response
-            if (globalThis.puter?.apiCallLogger?.isEnabled()) {
+            if ( globalThis.puter?.apiCallLogger?.isEnabled() ) {
                 globalThis.puter.apiCallLogger.logRequest({
                     service: 'drivers',
                     operation: 'list',
                     params: {},
-                    result: list.interfaces
+                    result: list.interfaces,
                 });
             }
-            
+
             return list.interfaces;
-        } catch (error) {
+        } catch ( error ) {
             // Log the error
-            if (globalThis.puter?.apiCallLogger?.isEnabled()) {
+            if ( globalThis.puter?.apiCallLogger?.isEnabled() ) {
                 globalThis.puter.apiCallLogger.logRequest({
                     service: 'drivers',
                     operation: 'list',
                     params: {},
                     error: {
                         message: error.message || error.toString(),
-                        stack: error.stack
-                    }
+                        stack: error.stack,
+                    },
                 });
             }
             throw error;
         }
     }
-    
+
     async get (iface_name, service_name) {
         if ( ! service_name ) service_name = iface_name;
         const key = `${iface_name}:${service_name}`;
@@ -226,17 +220,18 @@ class Drivers {
 
         return this.drivers_[key] = new Driver ({
             call_backend: new FetchDriverCallBackend({
-                context: this.context,
+                getAPIOrigin: () => this.APIOrigin,
+                getAuthToken: () => this.authToken,
             }),
             // iface: interfaces[iface_name],
             iface_name,
             service_name,
         });
     }
-    
+
     async call (...a) {
         let iface_name, service_name, method_name, parameters;
-        
+
         // Services with the same name as an interface they implement
         // are considered the default implementation for that interface.
         //
@@ -254,7 +249,7 @@ class Drivers {
         // the interface might not specify the structure of the response
         // because it is only intended for that specific integration
         // (and that integration alone is responsible for avoiding regressions)
-        
+
         // interface name, service name, method name, parameters
         if ( a.length === 4 ) {
             ([iface_name, service_name, method_name, parameters] = a);
@@ -272,7 +267,7 @@ class Drivers {
         const driver = await this.get(iface_name, service_name);
         return await driver.call(method_name, parameters);
     }
-    
+
 }
 
 export default Drivers;

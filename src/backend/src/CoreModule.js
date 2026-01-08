@@ -1,4 +1,3 @@
-// METADATA // {"ai-commented":{"service":"claude"}}
 /*
  * Copyright (C) 2024-present Puter Technologies Inc.
  *
@@ -18,7 +17,6 @@
  * along with this program.  If not, see <https://www.gnu.org/licenses/>.
  */
 const { AdvancedBase } = require('@heyputer/putility');
-const Library = require('./definitions/Library');
 const { NotificationES } = require('./om/entitystorage/NotificationES');
 const { ProtectedAppES } = require('./om/entitystorage/ProtectedAppES');
 const { Context } = require('./util/context');
@@ -29,45 +27,8 @@ const { TYPE_DIRECTORY, TYPE_FILE } = require('./filesystem/FSNodeContext.js');
 const { TDetachable } = require('@heyputer/putility/src/traits/traits.js');
 const { MultiDetachable } = require('@heyputer/putility/src/libs/listener.js');
 const { OperationFrame } = require('./services/OperationTraceService');
-
-/**
- * Core module for the Puter platform that includes essential services including
- * authentication, filesystems, rate limiting, permissions, and various API endpoints.
- *
- * This is a monolithic module. Incrementally, services should be migrated to
- * Core2Module and other modules instead. Core2Module has a smaller scope, and each
- * new module will be a cohesive concern. Once CoreModule is empty, it will be removed
- * and Core2Module will take on its name.
- */
-class CoreModule extends AdvancedBase {
-    dirname () {
-        return __dirname;
-    }
-    async install (context) {
-        const services = context.get('services');
-        const app = context.get('app');
-        const useapi = context.get('useapi');
-        const modapi = context.get('modapi');
-        await install({ context, services, app, useapi, modapi });
-    }
-
-    /**
-    * Installs legacy services that don't extend BaseService and require special handling.
-    * These services were created before the BaseService class existed and don't listen
-    * to the init event. They need to be installed after the init event is dispatched
-    * due to initialization order dependencies.
-    *
-    * @param {Object} context - The context object containing service references
-    * @param {Object} context.services - Service registry for registering legacy services
-    * @returns {Promise<void>} Resolves when legacy services are installed
-    */
-    async install_legacy (context) {
-        const services = context.get('services');
-        await install_legacy({ services });
-    }
-}
-
-module.exports = CoreModule;
+const opentelemetry = require('@opentelemetry/api');
+const query = require('./om/query/query');
 
 /**
  * @footgun - real install method is defined above
@@ -80,7 +41,6 @@ const install = async ({ context, services, app, useapi, modapi }) => {
     useapi.withuse(() => {
         def('Service', require('./services/BaseService'));
         def('Module', AdvancedBase);
-        def('Library', Library);
 
         def('core.util.helpers', require('./helpers'));
         def('core.util.permission', require('./services/auth/permissionUtils.mjs').PermissionUtil);
@@ -113,32 +73,41 @@ const install = async ({ context, services, app, useapi, modapi }) => {
         def('core.fs.selectors', require('./filesystem/node/selectors'));
         def('core.util.stream', require('./util/streamutil'));
         def('web', require('./util/expressutil'));
-        def('core.validation', require('@heyputer/backend-core-0').validation);
+        def('core.validation', require('./validation'));
 
         def('core.database', require('./services/database/consts.js'));
 
-        // Extension compatibility
-        const runtimeModule = new RuntimeModule({ name: 'core' });
-        context.get('runtime-modules').register(runtimeModule);
-        runtimeModule.exports = useapi.use('core');
-    });
+        // Add otelutil functions to `core.`
+        def('core.spanify', require('./util/otelutil').spanify);
+        def('core.abtest', require('./util/otelutil').abtest);
 
-    useapi.withuse(() => {
-        const ArrayUtil = require('./libraries/ArrayUtil');
-        services.registerService('util-array', ArrayUtil);
+        // Extension module: 'core'
+        {
+            const runtimeModule = new RuntimeModule({ name: 'core' });
+            context.get('runtime-modules').register(runtimeModule);
+            runtimeModule.exports = useapi.use('core');
+        }
+        {
+            const runtimeModule = new RuntimeModule({ name: 'query' });
+            context.get('runtime-modules').register(runtimeModule);
+            runtimeModule.exports = query;
+        }
 
-        const LibTypeTagged = require('./libraries/LibTypeTagged');
-        services.registerService('lib-type-tagged', LibTypeTagged);
+        // Extension module: 'tel'
+        {
+            const runtimeModule = new RuntimeModule({ name: 'tel' });
+            runtimeModule.exports = {
+                trace: opentelemetry.trace,
+            };
+            context.get('runtime-modules').register(runtimeModule);
+        }
     });
 
     modapi.libdir('core.util', './util');
 
     // === SERVICES ===
 
-    // /!\ IMPORTANT /!\
-    // For new services, put the import immediately above the
-    // call to services.registerService. We'll clean this up
-    // in a future PR.
+    // TODO: move these to top level imports or await imports and esm this file
 
     const { CommandService } = require('./services/CommandService');
     const { HTTPThumbnailService } = require('./services/thumbnails/HTTPThumbnailService');
@@ -146,7 +115,6 @@ const install = async ({ context, services, app, useapi, modapi }) => {
     const { NAPIThumbnailService } = require('./services/thumbnails/NAPIThumbnailService');
     const { RateLimitService } = require('./services/sla/RateLimitService');
     const { AuthService } = require('./services/auth/AuthService');
-    const { PreAuthService } = require('./services/auth/PreAuthService');
     const { SLAService } = require('./services/sla/SLAService');
     const { PermissionService } = require('./services/auth/PermissionService');
     const { ACLService } = require('./services/auth/ACLService');
@@ -184,6 +152,9 @@ const install = async ({ context, services, app, useapi, modapi }) => {
     // side-effects from the events of other services.
 
     // === Services which extend BaseService ===
+    const { DDBClientWrapper } = require('./services/repositories/DDBClientWrapper');
+    services.registerService('dynamo', DDBClientWrapper);
+
     services.registerService('system-validation', SystemValidationService);
     services.registerService('commands', CommandService);
     services.registerService('__api-filesystem', FilesystemAPIService);
@@ -198,6 +169,7 @@ const install = async ({ context, services, app, useapi, modapi }) => {
             SQLES, { table: 'app', debug: true },
             AppES,
             AppLimitedES, {
+                permission_prefix: 'apps-of-user',
                 // When apps query es:apps, they're allowed to see apps which
                 // are approved for listing and they're allowed to see their
                 // own entry.
@@ -242,7 +214,7 @@ const install = async ({ context, services, app, useapi, modapi }) => {
         upstream: ESBuilder.create([
             SQLES, { table: 'subdomains', debug: true },
             SubdomainES,
-            AppLimitedES,
+            AppLimitedES, { permission_prefix: 'subdomains-of-user' },
             WriteByOwnerOnlyES,
             ValidationES,
             SetOwnerES,
@@ -283,18 +255,6 @@ const install = async ({ context, services, app, useapi, modapi }) => {
     });
     services.registerService('__refresh-assocs', RefreshAssociationsService);
     services.registerService('__prod-debugging', MakeProdDebuggingLessAwfulService);
-    if ( config.env == 'dev' && !config.no_devsocket ) {
-        const { DevSocketService } = require('./services/DevSocketService.js');
-        services.registerService('dev-socket', DevSocketService);
-    }
-    if ( (config.env == 'dev' && !config.no_devconsole && process.env.DEVCONSOLE) || config.devconsole ) {
-        const { DevConsoleService } = require('./services/DevConsoleService');
-        services.registerService('dev-console', DevConsoleService);
-    } else {
-        const { NullDevConsoleService } = require('./services/NullDevConsoleService');
-        services.registerService('dev-console', NullDevConsoleService);
-    }
-
     const { EventService } = require('./services/EventService');
     services.registerService('event', EventService);
 
@@ -336,9 +296,6 @@ const install = async ({ context, services, app, useapi, modapi }) => {
 
     const { DetailProviderService } = require('./services/DetailProviderService');
     services.registerService('whoami', DetailProviderService);
-
-    const { DevTODService } = require('./services/DevTODService');
-    services.registerService('__dev-tod', DevTODService);
 
     const { DriverService } = require('./services/drivers/DriverService');
     services.registerService('driver', DriverService);
@@ -388,9 +345,6 @@ const install = async ({ context, services, app, useapi, modapi }) => {
     const { DriverUsagePolicyService } = require('./services/drivers/DriverUsagePolicyService');
     services.registerService('driver-usage-policy', DriverUsagePolicyService);
 
-    const { CommentService } = require('./services/CommentService');
-    services.registerService('comment', CommentService);
-
     const { ReferralCodeService } = require('./services/ReferralCodeService');
     services.registerService('referral-code', ReferralCodeService);
 
@@ -406,9 +360,6 @@ const install = async ({ context, services, app, useapi, modapi }) => {
     const { SNSService } = require('./services/SNSService');
     services.registerService('sns', SNSService);
 
-    const { PerformanceMonitor } = require('./monitor/PerformanceMonitor');
-    services.registerService('performance-monitor', PerformanceMonitor);
-
     const { WispService } = require('./services/WispService');
     services.registerService('wisp', WispService);
     // const { AWSSecretsPopulator } = require('./services/AWSSecretsPopulator.js');
@@ -419,9 +370,6 @@ const install = async ({ context, services, app, useapi, modapi }) => {
     const { RequestMeasureService } = require('./services/RequestMeasureService');
     services.registerService('request-measure', RequestMeasureService);
 
-    const { ThreadService } = require('./services/ThreadService');
-    services.registerService('thread', ThreadService);
-
     const { ChatAPIService } = require('./services/ChatAPIService');
     services.registerService('__chat-api', ChatAPIService);
 
@@ -430,6 +378,9 @@ const install = async ({ context, services, app, useapi, modapi }) => {
 
     const { MeteringServiceWrapper } = require('./services/MeteringService/MeteringServiceWrapper.mjs');
     services.registerService('meteringService', MeteringServiceWrapper);
+
+    const { DynamoKVStoreWrapper } = require('./services/repositories/DynamoKVStore/DynamoKVStoreWrapper');
+    services.registerService('puter-kvstore', DynamoKVStoreWrapper);
 
     const { PermissionShortcutService } = require('./services/auth/PermissionShortcutService');
     services.registerService('permission-shortcut', PermissionShortcutService);
@@ -450,3 +401,42 @@ const install_legacy = async ({ services }) => {
     services.registerService('engineering-portal', EngPortalService);
 
 };
+
+/**
+ * Core module for the Puter platform that includes essential services including
+ * authentication, filesystems, rate limiting, permissions, and various API endpoints.
+ *
+ * This is a monolithic module. Incrementally, services should be migrated to
+ * Core2Module and other modules instead. Core2Module has a smaller scope, and each
+ * new module will be a cohesive concern. Once CoreModule is empty, it will be removed
+ * and Core2Module will take on its name.
+ */
+class CoreModule extends AdvancedBase {
+    dirname () {
+        return __dirname;
+    }
+    async install (context) {
+        const services = context.get('services');
+        const app = context.get('app');
+        const useapi = context.get('useapi');
+        const modapi = context.get('modapi');
+        await install({ context, services, app, useapi, modapi });
+    }
+
+    /**
+    * Installs legacy services that don't extend BaseService and require special handling.
+    * These services were created before the BaseService class existed and don't listen
+    * to the init event. They need to be installed after the init event is dispatched
+    * due to initialization order dependencies.
+    *
+    * @param {Object} context - The context object containing service references
+    * @param {Object} context.services - Service registry for registering legacy services
+    * @returns {Promise<void>} Resolves when legacy services are installed
+    */
+    async install_legacy (context) {
+        const services = context.get('services');
+        await install_legacy({ services });
+    }
+}
+
+module.exports = CoreModule;

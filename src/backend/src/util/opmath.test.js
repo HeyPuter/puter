@@ -7,7 +7,7 @@ describe('opmath', () => {
             let now_value = 0;
             const now = () => now_value;
             const window = new TimeWindow({ window_duration: 1000, now });
-            
+
             window.add(1);
             window.add(2);
             window.add(3);
@@ -35,6 +35,6 @@ describe('opmath', () => {
             now_value = 2200;
 
             expect(window.get()).toEqual([]);
-        })
-    })
+        });
+    });
 });

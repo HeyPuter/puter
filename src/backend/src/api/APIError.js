@@ -26,7 +26,7 @@ const { quot } = require('@heyputer/putility').libs.string;
  * @property {string} message the error message
  * @property {object} source the source of the error
  */
-module.exports = class APIError {
+class APIError {
     static codes = {
         // General
         'unknown_error': {
@@ -121,7 +121,13 @@ module.exports = class APIError {
         },
         'dest_does_not_exist': {
             status: 422,
-            message: 'Destination was not found.',
+            message: ({ what_dest }) => {
+                if ( ! what_dest ) {
+                    return 'Destination was not found.';
+                }
+
+                return `Destination of ${quot(what_dest)} was not found.`;
+            },
         },
         'source_does_not_exist': {
             status: 404,
@@ -163,6 +169,10 @@ module.exports = class APIError {
             status: 400,
             message: ({ key }) => `Field ${quot(key)} is required.`,
         },
+        'fields_missing': {
+            status: 400,
+            message: ({ keys }) => `The following fields are required but missing: ${keys.map(quot).join(', ')}.`,
+        },
         'xor_field_missing': {
             status: 400,
             message: ({ names }) => {
@@ -191,6 +201,16 @@ module.exports = class APIError {
                 return `Field ${quot(key)} is invalid.${
                     expected ? ` Expected ${expected}.` : ''
                 }${got ? ` Got ${got}.` : ''}`;
+            },
+        },
+        'fields_invalid': {
+            status: 400,
+            message: ({ errors }) => {
+                let s = 'The following validation errors occurred: ';
+                s += errors.map(error => `Field ${quot(error.key)} is invalid.${
+                    error.expected ? ` Expected ${error.expected}.` : ''
+                }${error.got ? ` Got ${error.got}.` : ''}`).join(', ');
+                return s;
             },
         },
         'field_immutable': {
@@ -286,7 +306,16 @@ module.exports = class APIError {
         'unresolved_relative_path': {
             status: 400,
             message: ({ path }) => `Unresolved relative path: ${quot(path)}. ` +
-                    "You may need to specify a full path starting with '/'.",
+                "You may need to specify a full path starting with '/'.",
+        },
+        'missing_filesystem_capability': {
+            status: 422,
+            message: ({ action, subjectName, providerName, capability }) => {
+                return `Cannot perform action ${quot(action)} on ` +
+                    `${quot(subjectName)} because it is inside a filesystem ` +
+                    `of type ${providerName}, which does not implement the ` +
+                    `required capability called ${quot(capability)}.`;
+            },
         },
 
         // Open
@@ -313,6 +342,10 @@ module.exports = class APIError {
         'subdomain_reserved': {
             status: 400,
             message: ({ subdomain }) => `Subdomain ${quot(subdomain)} is not available.`,
+        },
+        'subdomain_not_owned': {
+            status: 403,
+            message: ({ subdomain }) => `You must own the ${quot(subdomain)} subdomain on Puter to use it for this app.`,
         },
 
         // Users
@@ -514,11 +547,11 @@ module.exports = class APIError {
             status: 400,
             message: ({ engine, valid_engines }) => `Invalid engine: ${quot(engine)}. Valid engines are: ${valid_engines.map(quot).join(', ')}.`,
         },
-        
+
         // Abuse prevention
         'moderation_failed': {
             status: 422,
-            message: `Content moderation failed`,
+            message: 'Content moderation failed',
         },
     };
 
@@ -533,14 +566,14 @@ module.exports = class APIError {
      *
      * @static
      * @param {number|string} status
-     * @param {object} source
+     * @param {Error | null} source
      * @param {string|Error|object} fields one of the following:
      * - a string to use as the error message
      * - an Error object to use as the source of the error
      * - an object with a message property to use as the error message
      * @returns
      */
-    static create(status, source, fields = {}) {
+    static create (status, source = {}, fields = {}) {
         // Just the error code
         if ( typeof status === 'string' ) {
             const code = this.codes[status];
@@ -578,12 +611,12 @@ module.exports = class APIError {
         console.error('Invalid APIError source:', source);
         return new APIError(500, 'Internal Server Error', null, {});
     }
-    static adapt(err) {
+    static adapt (err) {
         if ( err instanceof APIError ) return err;
 
         return APIError.create('internal_error');
     }
-    constructor(status, message, source, fields = {}) {
+    constructor (status, message, source, fields = {}) {
         this.codes = this.constructor.codes;
         this.status = status;
         this._message = message;
@@ -595,7 +628,7 @@ module.exports = class APIError {
             this._message = this.codes[message].message;
         }
     }
-    write(res) {
+    write (res) {
         const message = typeof this.message === 'function'
             ? this.message(this.fields)
             : this.message;
@@ -604,7 +637,7 @@ module.exports = class APIError {
             ...this.fields,
         });
     }
-    serialize() {
+    serialize () {
         return {
             ...this.fields,
             $: 'heyputer:api/APIError',
@@ -613,11 +646,11 @@ module.exports = class APIError {
         };
     }
 
-    querystringize(extra) {
+    querystringize (extra) {
         return new URLSearchParams(this.querystringize_(extra));
     }
 
-    querystringize_(extra) {
+    querystringize_ (extra) {
         const fields = {};
         for ( const k in this.fields ) {
             fields[`field_${k}`] = this.fields[k];
@@ -631,14 +664,17 @@ module.exports = class APIError {
         };
     }
 
-    get message() {
+    get message () {
         const message = typeof this._message === 'function'
             ? this._message(this.fields)
             : this._message;
         return message;
     }
 
-    toString() {
+    toString () {
         return `APIError(${this.status}, ${this.message})`;
     }
 };
+
+module.exports = APIError;
+module.exports.APIError = APIError;

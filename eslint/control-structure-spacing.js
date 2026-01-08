@@ -15,10 +15,10 @@ export default {
         },
     },
 
-    create(context) {
+    create (context) {
         const sourceCode = context.getSourceCode();
 
-        function checkControlStructureSpacing(node) {
+        function checkControlStructureSpacing (node) {
             // For control structures, we need to find the parentheses around the condition/test
             let conditionNode;
 
@@ -33,7 +33,7 @@ export default {
                 conditionNode = node.param;
             }
 
-            if ( !conditionNode ) return;
+            if ( ! conditionNode ) return;
 
             // Find the opening paren - it should be right before the condition starts
             const openParen = sourceCode.getTokenBefore(conditionNode, token => token.value === '(');
@@ -62,7 +62,7 @@ export default {
                     node,
                     loc: openParen.loc,
                     messageId: 'missingSpaceAfterOpen',
-                    fix(fixer) {
+                    fix (fixer) {
                         return fixer.insertTextAfter(openParen, ' ');
                     },
                 });
@@ -73,25 +73,25 @@ export default {
                     node,
                     loc: closeParen.loc,
                     messageId: 'missingSpaceBeforeClose',
-                    fix(fixer) {
+                    fix (fixer) {
                         return fixer.insertTextBefore(closeParen, ' ');
                     },
                 });
             }
         }
 
-        function checkForLoopSpacing(node) {
+        function checkForLoopSpacing (node) {
             // For loops are special - we need to find the opening paren after the 'for' keyword
             // and the closing paren before the body
             const forKeyword = sourceCode.getFirstToken(node);
             if ( !forKeyword || forKeyword.value !== 'for' ) return;
 
             const openParen = sourceCode.getTokenAfter(forKeyword, token => token.value === '(');
-            if ( !openParen ) return;
+            if ( ! openParen ) return;
 
             // The closing paren should be right before the body
             const closeParen = sourceCode.getTokenBefore(node.body, token => token.value === ')');
-            if ( !closeParen ) return;
+            if ( ! closeParen ) return;
 
             const afterOpen = sourceCode.getTokenAfter(openParen);
             const beforeClose = sourceCode.getTokenBefore(closeParen);
@@ -101,7 +101,7 @@ export default {
                     node,
                     loc: openParen.loc,
                     messageId: 'missingSpaceAfterOpen',
-                    fix(fixer) {
+                    fix (fixer) {
                         return fixer.insertTextAfter(openParen, ' ');
                     },
                 });
@@ -112,14 +112,14 @@ export default {
                     node,
                     loc: closeParen.loc,
                     messageId: 'missingSpaceBeforeClose',
-                    fix(fixer) {
+                    fix (fixer) {
                         return fixer.insertTextBefore(closeParen, ' ');
                     },
                 });
             }
         }
 
-        function checkFunctionCallSpacing(node) {
+        function checkFunctionCallSpacing (node) {
             // Find the opening parenthesis for this function call
             const openParen = sourceCode.getFirstToken(node, token => token.value === '(');
             const closeParen = sourceCode.getLastToken(node, token => token.value === ')');
@@ -137,7 +137,7 @@ export default {
                         node,
                         loc: openParen.loc,
                         messageId: 'unexpectedSpaceAfterOpen',
-                        fix(fixer) {
+                        fix (fixer) {
                             return fixer.removeRange([openParen.range[1], afterOpen.range[0]]);
                         },
                     });
@@ -151,7 +151,7 @@ export default {
                         node,
                         loc: closeParen.loc,
                         messageId: 'unexpectedSpaceBeforeClose',
-                        fix(fixer) {
+                        fix (fixer) {
                             return fixer.removeRange([beforeClose.range[1], closeParen.range[0]]);
                         },
                     });
@@ -161,40 +161,40 @@ export default {
 
         return {
             // Control structures that should have spacing
-            IfStatement(node) {
+            IfStatement (node) {
                 checkControlStructureSpacing(node);
             },
-            WhileStatement(node) {
+            WhileStatement (node) {
                 checkControlStructureSpacing(node);
             },
-            DoWhileStatement(node) {
+            DoWhileStatement (node) {
                 checkControlStructureSpacing(node);
             },
-            SwitchStatement(node) {
+            SwitchStatement (node) {
                 checkControlStructureSpacing(node);
             },
-            CatchClause(node) {
+            CatchClause (node) {
                 if ( node.param ) {
                     checkControlStructureSpacing(node);
                 }
             },
 
             // For loops need special handling
-            ForStatement(node) {
+            ForStatement (node) {
                 checkForLoopSpacing(node);
             },
-            ForInStatement(node) {
+            ForInStatement (node) {
                 checkForLoopSpacing(node);
             },
-            ForOfStatement(node) {
+            ForOfStatement (node) {
                 checkForLoopSpacing(node);
             },
 
             // Function calls that should NOT have spacing
-            CallExpression(node) {
+            CallExpression (node) {
                 checkFunctionCallSpacing(node);
             },
-            NewExpression(node) {
+            NewExpression (node) {
                 if ( node.arguments.length > 0 || sourceCode.getLastToken(node).value === ')' ) {
                     checkFunctionCallSpacing(node);
                 }

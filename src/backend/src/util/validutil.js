@@ -1,3 +1,5 @@
+const APIError = require("../api/APIError");
+
 /*
  * Copyright (C) 2024-present Puter Technologies Inc.
  *
@@ -17,7 +19,7 @@
  * along with this program.  If not, see <https://www.gnu.org/licenses/>.
  */
 const valid_file_size = v => {
-    v =  Number(v);
+    v = Number(v);
     if ( ! Number.isInteger(v) ) {
         return { ok: false, v };
     }
@@ -27,6 +29,34 @@ const valid_file_size = v => {
     return { ok: true, v };
 };
 
+const validate_fields = (fields, values) => {
+    // First, check for missing fields (undefined)
+    const missing_fields = Object.keys(fields).filter(field => ! fields[field].optional && values[field] === undefined);
+    if ( missing_fields.length > 0 ) {
+        throw APIError.create('fields_missing', null, { keys: missing_fields });
+    }
+
+    // Next, check for invalid fields (based on )
+    const invalid_fields = Object.entries(fields).filter(([field, field_def]) => {
+        if ( field_def.type === 'string' ) {
+            return typeof values[field] !== 'string';
+        }
+        if ( field_def.type === 'number' ) {
+            return typeof values[field] !== 'number';
+        }
+    });
+    if ( invalid_fields.length > 0 ) {
+        throw APIError.create('fields_invalid', null, {
+            errors: invalid_fields.map(([field, field_def]) => ({
+                key: field,
+                expected: field_def.type,
+                got: typeof values[field],
+            })),
+        });
+    }
+}
+
 module.exports = {
     valid_file_size,
+    validate_fields,
 };

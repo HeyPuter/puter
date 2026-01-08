@@ -1,23 +1,23 @@
 {
+    "extends": "./tsconfig.base.json",
     "compilerOptions": {
-        "target": "ES2024",
-        "module": "node16",
-        "moduleResolution": "node16",
-        "rootDir": ".",
-        "strict": true,
-        "esModuleInterop": true,
-        "forceConsistentCasingInFileNames": true,
-        "skipLibCheck": true,
-        "sourceMap": true,
+        "allowJs": true,
+        "checkJs": false,
+        "noEmit": true
     },
+    "include": ["./src/backend"],
     "exclude": [
         "**/*.test.ts",
+        "**/*.test.mts",
+        "**/vitest.config.ts",
+        "**/vitest.config.mts",
         "**/*.spec.ts",
-        "**/test/**",
+        "**/*.spec.mts",
         "**/tests/**",
         "node_modules",
         "dist",
         "volatile",
-        "extensions"
+        "extensions",
+        "src/backend/src/services/worker/template/puter-portable.js"
     ]
 }

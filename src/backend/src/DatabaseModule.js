@@ -16,7 +16,7 @@
  * You should have received a copy of the GNU Affero General Public License
  * along with this program.  If not, see <https://www.gnu.org/licenses/>.
  */
-const { AdvancedBase } = require("@heyputer/putility");
+const { AdvancedBase } = require('@heyputer/putility');
 
 class DatabaseModule extends AdvancedBase {
     async install (context) {
@@ -28,8 +28,8 @@ class DatabaseModule extends AdvancedBase {
             strategy_key: 'engine',
             strategies: {
                 sqlite: [SqliteDatabaseAccessService],
-            }
-        })
+            },
+        });
     }
 }
 

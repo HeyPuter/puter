@@ -16,7 +16,7 @@
  * You should have received a copy of the GNU Affero General Public License
  * along with this program.  If not, see <https://www.gnu.org/licenses/>.
  */
-import { InitProcess, Service } from "../definitions.js";
+import { InitProcess, Service } from '../definitions.js';
 
 // The NULL UUID is also the UUID for the init process.
 const NULL_UUID = '00000000-0000-0000-0000-000000000000';
@@ -68,7 +68,7 @@ export class ProcessService extends Service {
 
     select_by_name (name) {
         // TODO: figure out why 'this.processes' doesn't work here
-        const processes = Array.from(this.processes_map.values())
+        const processes = Array.from(this.processes_map.values());
 
         const list = [];
         for ( const process of processes ) {

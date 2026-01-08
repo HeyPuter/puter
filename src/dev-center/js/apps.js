@@ -25,9 +25,15 @@ const APP_CATEGORIES = [
     { id: 'lifestyle', label: 'Lifestyle' },
 ];
 
-async function init_apps() {
-    setTimeout(async function() {
-        puter.ui.onLaunchedWithItems(async function(items) {
+const PREVIEW_DEVICES = [
+    { id: 'desktop', label: 'Desktop' },
+    { id: 'tablet', label: 'Tablet' },
+    { id: 'mobile', label: 'Mobile' },
+];
+
+async function init_apps () {
+    setTimeout(async function () {
+        puter.ui.onLaunchedWithItems(async function (items) {
             source_path = items[0].path;
             // if source_path is provided, this means that the user is creating a new app/updating an existing app
             // by deploying an existing Puter folder. So we create the app and deploy it.
@@ -41,7 +47,7 @@ async function init_apps() {
 
         // Get dev profile. This is only for puter.com for now as we don't have dev profiles in self-hosted Puter
         if ( domain === 'puter.com' ) {
-            puter.apps.getDeveloperProfile(async function(dev_profile) {
+            puter.apps.getDeveloperProfile(async function (dev_profile) {
                 window.developer = dev_profile;
                 if ( dev_profile.approved_for_incentive_program && !dev_profile.joined_incentive_program ) {
                     $('#join-incentive-program').show();
@@ -108,7 +114,7 @@ window.refresh_app_list = (show_loading = false) => {
         puter.ui.showSpinner();
     }
     // get apps
-    setTimeout(function() {
+    setTimeout(function () {
         // uncheck the select all checkbox
         $('.select-all-apps').prop('checked', false);
 
@@ -136,7 +142,7 @@ window.refresh_app_list = (show_loading = false) => {
     }, show_loading ? 1000 : 0);
 };
 
-$(document).on('click', '.create-an-app-btn', async function(e) {
+$(document).on('click', '.create-an-app-btn', async function (e) {
     let title = await puter.ui.prompt('Please enter a title for your app:', 'My Awesome App');
 
     if ( title.length > 60 ) {
@@ -153,12 +159,12 @@ $(document).on('click', '.create-an-app-btn', async function(e) {
     }
 });
 
-if ( !(await puter.auth.getUser()).hasDevAccountAccess ) $('.setup-account-btn').hide();
+if ( ! (await puter.auth.getUser()).hasDevAccountAccess ) $('.setup-account-btn').hide();
 $('.setup-account-btn').on('click', async () => {
     await puter.ui.openDevPaymentsAccount();
 });
 
-async function create_app(title, source_path = null, items = null) {
+async function create_app (title, source_path = null, items = null) {
     // name
     let name = slugify(title, {
         lower: true,
@@ -270,20 +276,20 @@ async function create_app(title, source_path = null, items = null) {
         });
 }
 
-$(document).on('click', '.deploy-btn', function(e) {
+$(document).on('click', '.deploy-btn', function (e) {
     deploy(currently_editing_app, dropped_items);
 });
 
-$(document).on('click', '.edit-app, .go-to-edit-app', function(e) {
+$(document).on('click', '.edit-app, .go-to-edit-app', function (e) {
     const cur_app_name = $(this).attr('data-app-name');
     edit_app_section(cur_app_name);
 });
 
-$(document).on('click', '.delete-app', async function(e) {
+$(document).on('click', '.delete-app', async function (e) {
 });
 
 // generate app link
-function applink(app) {
+function applink (app) {
     return `${protocol}://${domain}${port ? `:${port}` : ''}/app/${app.name}`;
 }
 
@@ -310,7 +316,7 @@ function applink(app) {
  * $('#edit-app').html(appEditHTML);
  */
 
-function generate_edit_app_section(app) {
+function generate_edit_app_section (app) {
     if ( app.result )
     {
         app = app.result;
@@ -381,6 +387,7 @@ function generate_edit_app_section(app) {
                 <span id="edit-app-icon-delete" style="${app.icon ? 'display:block;' : ''}">Remove icon</span>
 
                 ${generateSocialImageSection(app)}
+                ${generatePreviewImagesSection()}
                 <label for="edit-app-description">Description</label>
                 <textarea id="edit-app-description">${html_encode(app.description)}</textarea>
                 
@@ -494,7 +501,7 @@ function generate_edit_app_section(app) {
 }
 
 /* This function keeps track of the original values of the app before it is edited*/
-function trackOriginalValues() {
+function trackOriginalValues () {
     originalValues = {
         title: $('#edit-app-title').val(),
         name: $('#edit-app-name').val(),
@@ -504,6 +511,7 @@ function trackOriginalValues() {
         fileAssociations: $('#edit-app-filetype-associations').val(),
         category: $('#edit-app-category').val(),
         socialImage: $('#edit-app-social-image').attr('data-base64'),
+        previewImages: getPreviewImagesState(),
         windowSettings: {
             width: $('#edit-app-window-width').val(),
             height: $('#edit-app-window-height').val(),
@@ -523,7 +531,7 @@ function trackOriginalValues() {
 }
 
 /* This function compares for all fields and checks if anything has changed from before editting*/
-function hasChanges() {
+function hasChanges () {
     // is icon changed
     if ( $('#edit-app-icon').attr('data-base64') !== originalValues.icon ) {
         return true;
@@ -531,6 +539,10 @@ function hasChanges() {
 
     // if social image is changed
     if ( $('#edit-app-social-image').attr('data-base64') !== originalValues.socialImage ) {
+        return true;
+    }
+
+    if ( serializePreviewState(getPreviewImagesState()) !== serializePreviewState(originalValues.previewImages) ) {
         return true;
     }
 
@@ -559,7 +571,7 @@ function hasChanges() {
 }
 
 /* This function enables or disables the save button if there are any changes made */
-function toggleSaveButton() {
+function toggleSaveButton () {
     if ( hasChanges() ) {
         $('.edit-app-save-btn').prop('disabled', false);
     } else {
@@ -568,7 +580,7 @@ function toggleSaveButton() {
 }
 
 /* This function enables or disables the reset button if there are any changes made */
-function toggleResetButton() {
+function toggleResetButton () {
     if ( hasChanges() ) {
         $('.edit-app-reset-btn').prop('disabled', false);
     } else {
@@ -584,7 +596,7 @@ window.reset_drop_area = () => {
 };
 
 /* This function revers the changes made back to the original values of the edit form */
-function resetToOriginalValues() {
+function resetToOriginalValues () {
     $('#edit-app-title').val(originalValues.title);
     $('#edit-app-name').val(originalValues.name);
     $('#edit-app-index-url').val(originalValues.indexURL);
@@ -624,9 +636,11 @@ function resetToOriginalValues() {
         $('#edit-app-social-image').removeAttr('data-url');
         $('#edit-app-social-image').removeAttr('data-base64');
     }
+
+    applyPreviewImages(originalValues.previewImages);
 }
 
-async function edit_app_section(cur_app_name, tab = 'deploy') {
+async function edit_app_section (cur_app_name, tab = 'deploy') {
     puter.ui.showSpinner();
 
     $('section:not(.sidebar)').hide();
@@ -639,9 +653,10 @@ async function edit_app_section(cur_app_name, tab = 'deploy') {
 
     // generate edit app section
     $('#edit-app').html(generate_edit_app_section(cur_app));
-    trackOriginalValues();  // Track initial field values
-    toggleSaveButton();  // Ensure Save button is initially disabled
-    toggleResetButton();  // Ensure Reset button is initially disabled
+    applyPreviewImages(cur_app.metadata?.preview_images);
+    trackOriginalValues(); // Track initial field values
+    toggleSaveButton(); // Ensure Save button is initially disabled
+    toggleResetButton(); // Ensure Reset button is initially disabled
     $('#edit-app').show();
 
     // analytics
@@ -659,7 +674,7 @@ async function edit_app_section(cur_app_name, tab = 'deploy') {
     const filetype_association_input = document.querySelector('textarea[id=edit-app-filetype-associations]');
     let tagify = new Tagify(filetype_association_input, {
         pattern: /\.(?:[a-z0-9]+)|(?:[a-z]+\/(?:[a-z0-9.-]+|\*))/,
-        delimiters: ',',  // Use comma as delimiter
+        delimiters: ',', // Use comma as delimiter
         duplicates: false, // Prevent duplicate tags
         enforceWhitelist: false,
         dropdown: {
@@ -720,16 +735,16 @@ async function edit_app_section(cur_app_name, tab = 'deploy') {
     let drop_area_content = drop_area_placeholder;
 
     $('.drop-area').dragster({
-        enter: function(dragsterEvent, event) {
+        enter: function (dragsterEvent, event) {
             drop_area_content = $('.drop-area').html();
             $('.drop-area').addClass('drop-area-hover');
             $('.drop-area').html(drop_area_placeholder);
         },
-        leave: function(dragsterEvent, event) {
+        leave: function (dragsterEvent, event) {
             $('.drop-area').html(drop_area_content);
             $('.drop-area').removeClass('drop-area-hover');
         },
-        drop: async function(dragsterEvent, event) {
+        drop: async function (dragsterEvent, event) {
             const e = event.originalEvent;
             e.stopPropagation();
             e.preventDefault();
@@ -883,7 +898,7 @@ async function edit_app_section(cur_app_name, tab = 'deploy') {
             dropped_items = setRootDirTree(tree, dropped_items);
 
             // alert if no index.html in root
-            if ( !hasRootIndexHtml(tree) ) {
+            if ( ! hasRootIndexHtml(tree) ) {
                 puter.ui.alert(index_missing_error, [
                     {
                         label: 'Ok',
@@ -943,12 +958,12 @@ async function edit_app_section(cur_app_name, tab = 'deploy') {
     // Custom function to handle bulk pasting of file extensions
     if ( tagify ) {
         // Create a completely separate paste handler
-        const handleBulkPaste = function(e) {
+        const handleBulkPaste = function (e) {
             const clipboardData = e.clipboardData || window.clipboardData;
-            if ( !clipboardData ) return;
+            if ( ! clipboardData ) return;
 
             const pastedText = clipboardData.getData('text');
-            if ( !pastedText ) return;
+            if ( ! pastedText ) return;
 
             // Check if the pasted text contains delimiters
             if ( /[,;\t\s]/.test(pastedText) ) {
@@ -1000,7 +1015,7 @@ async function edit_app_section(cur_app_name, tab = 'deploy') {
         }
 
         // Add a comma key handler to support adding tags with comma
-        tagify.DOM.input.addEventListener('keydown', function(e) {
+        tagify.DOM.input.addEventListener('keydown', function (e) {
             if ( e.key === ',' && tagify.DOM.input.textContent.trim() ) {
                 e.preventDefault();
 
@@ -1013,7 +1028,7 @@ async function edit_app_section(cur_app_name, tab = 'deploy') {
                     // Check for duplicates
                     const existingValues = tagify.value.map(tag => tag.value);
 
-                    if ( !existingValues.includes(text) ) {
+                    if ( ! existingValues.includes(text) ) {
                         tagify.addTags([text]);
 
                         // Update UI
@@ -1031,7 +1046,7 @@ async function edit_app_section(cur_app_name, tab = 'deploy') {
     }
 }
 
-$(document).on('click', '.edit-app-save-btn', async function(e) {
+$(document).on('click', '.edit-app-save-btn', async function (e) {
     const title = $('#edit-app-title').val();
     const name = $('#edit-app-name').val();
     const index_url = $('#edit-app-index-url').val();
@@ -1070,11 +1085,11 @@ $(document).on('click', '.edit-app-save-btn', async function(e) {
     {
         error = '<strong>Index URL</strong> is required.';
     }
-    else if ( !name.match(/^[a-zA-Z0-9-_-]+$/) )
+    else if ( ! name.match(/^[a-zA-Z0-9-_-]+$/) )
     {
         error = '<strong>Name</strong> can only contain letters, numbers, dash (-) and underscore (_).';
     }
-    else if ( !is_valid_url(index_url) )
+    else if ( ! is_valid_url(index_url) )
     {
         error = '<strong>Index URL</strong> must be a valid url.';
     }
@@ -1183,6 +1198,9 @@ $(document).on('click', '.edit-app-save-btn', async function(e) {
         socialImageUrl = $('#edit-app-social-image').attr('data-url');
     }
 
+    const previewImagesState = getPreviewImagesState();
+    const previewImages = await handlePreviewImagesUpload(name, previewImagesState);
+
     puter.apps.update(currently_editing_app.name, {
         title: title,
         name: name,
@@ -1207,13 +1225,17 @@ $(document).on('click', '.edit-app-save-btn', async function(e) {
             hide_titlebar: $('#edit-app-hide-titlebar').is(':checked'),
             locked: $('#edit-app-locked').is(':checked') ?? false,
             set_title_to_opened_file: $('#edit-app-set-title-to-file').is(':checked'),
+            preview_images: previewImages,
         },
         filetypeAssociations: filetype_associations,
     }).then(async (app) => {
         currently_editing_app = app;
-        trackOriginalValues();  // Update original values after save
-        toggleSaveButton();  //Disable Save Button after succesful save
-        toggleResetButton();  //DIsable Reset Button after succesful save
+        currently_editing_app.metadata = currently_editing_app.metadata || {};
+        currently_editing_app.metadata.preview_images = previewImages;
+        applyPreviewImages(previewImages);
+        trackOriginalValues(); // Update original values after save
+        toggleSaveButton(); //Disable Save Button after succesful save
+        toggleResetButton(); //DIsable Reset Button after succesful save
         $('#edit-app-error').hide();
         $('#edit-app-success').show();
         document.body.scrollTop = document.documentElement.scrollTop = 0;
@@ -1247,21 +1269,21 @@ $(document).on('input change', '#edit-app input, #edit-app textarea, #edit-app s
     toggleResetButton();
 });
 
-$(document).on('click', '.edit-app-reset-btn', function() {
+$(document).on('click', '.edit-app-reset-btn', function () {
     resetToOriginalValues();
-    toggleSaveButton();   // Disable Save button since values are reverted to original
-    toggleResetButton();  //Disable Reset button since values are reverted to original
+    toggleSaveButton(); // Disable Save button since values are reverted to original
+    toggleResetButton(); //Disable Reset button since values are reverted to original
 });
 
-$(document).on('click', '.open-app-btn', async function(e) {
+$(document).on('click', '.open-app-btn', async function (e) {
     puter.ui.launchApp($(this).attr('data-app-name'));
 });
 
-$(document).on('click', '.edit-app-open-app-btn', async function(e) {
+$(document).on('click', '.edit-app-open-app-btn', async function (e) {
     puter.ui.launchApp($(this).attr('data-app-name'));
 });
 
-$(document).on('click', '.delete-app-settings', async function(e) {
+$(document).on('click', '.delete-app-settings', async function (e) {
     let app_uid = $(this).attr('data-app-uid');
     let app_name = $(this).attr('data-app-name');
     let app_title = $(this).attr('data-app-title');
@@ -1328,18 +1350,18 @@ $(document).on('click', '.delete-app-settings', async function(e) {
     }
 });
 
-$(document).on('click', '.edit-app', async function(e) {
+$(document).on('click', '.edit-app', async function (e) {
     $('#edit-app-uid').val($(this).attr('data-app-uid'));
 });
 
-$(document).on('click', '.back-to-main-btn', function(e) {
+$(document).on('click', '.back-to-main-btn', function (e) {
     $('section:not(.sidebar)').hide();
     $('.tab-btn').removeClass('active');
     $('.tab-btn[data-tab="apps"]').addClass('active');
 
     // get apps
     puter.ui.showSpinner();
-    setTimeout(function() {
+    setTimeout(function () {
         puter.apps.list({ icon_size: 64 }).then((apps_res) => {
             // uncheck the select all checkbox
             $('.select-all-apps').prop('checked', false);
@@ -1366,16 +1388,16 @@ $(document).on('click', '.back-to-main-btn', function(e) {
     }, 1000);
 });
 
-function count_apps() {
+function count_apps () {
     let count = 0;
-    $('.app-card').each(function() {
+    $('.app-card').each(function () {
         count++;
     });
     $('.app-count').html(count ? count : '');
     return count;
 }
 
-$(document).on('click', '#edit-app-icon-delete', async function(e) {
+$(document).on('click', '#edit-app-icon-delete', async function (e) {
     $('#edit-app-icon').css('background-image', '');
     $('#edit-app-icon').removeAttr('data-url');
     $('#edit-app-icon').removeAttr('data-base64');
@@ -1385,7 +1407,7 @@ $(document).on('click', '#edit-app-icon-delete', async function(e) {
     toggleResetButton();
 });
 
-$(document).on('click', '#edit-app-icon', async function(e) {
+$(document).on('click', '#edit-app-icon', async function (e) {
     const res2 = await puter.ui.showOpenFilePicker({
         accept: 'image/*',
     });
@@ -1395,7 +1417,7 @@ $(document).on('click', '#edit-app-icon', async function(e) {
     const reader = new FileReader();
     reader.readAsDataURL(icon);
 
-    reader.onloadend = function() {
+    reader.onloadend = function () {
         let image = reader.result;
         // Get file extension
         let fileExtension = res2.name.split('.').pop();
@@ -1439,7 +1461,7 @@ $(document).on('click', '#edit-app-icon', async function(e) {
  * const appCardHTML = generate_app_card(myAppObject);
  * $('#app-list-table > tbody').append(appCardHTML);
  */
-function generate_app_card(app) {
+function generate_app_card (app) {
     let h = '';
     h += `<tr class="app-card" data-uid="${html_encode(app.uid)}" data-title="${html_encode(app.title)}" data-name="${html_encode(app.name)}" style="height: 86px;">`;
     // check box
@@ -1550,7 +1572,7 @@ function generate_app_card(app) {
     return h;
 }
 
-$('th.sort').on('click', function(e) {
+$('th.sort').on('click', function (e) {
     // determine what column to sort by
     const sortByColumn = $(this).attr('data-column');
 
@@ -1579,7 +1601,7 @@ $('th.sort').on('click', function(e) {
     sort_apps();
 });
 
-function sort_apps() {
+function sort_apps () {
     let sorted_apps;
 
     // sort
@@ -1634,7 +1656,7 @@ function sort_apps() {
  * @param {Array|string} items - Items to check (can be path string or array of items)
  * @returns {Promise<boolean>} - True if .git directory is found
  */
-async function hasGitDirectory(items) {
+async function hasGitDirectory (items) {
     // Case 1: Single Puter path
     if ( typeof items === 'string' && (items.startsWith('/') || items.startsWith('~')) ) {
         const stat = await puter.fs.stat(items);
@@ -1668,7 +1690,7 @@ async function hasGitDirectory(items) {
  * Shows a warning dialog about .git directory deployment
  * @returns {Promise<boolean>} - True if the user wants to proceed with deployment
  */
-async function showGitWarningDialog() {
+async function showGitWarningDialog () {
     try {
         // Check if the user has chosen to skip the warning
         const skipWarning = await puter.kv.get('skip-git-warning');
@@ -1733,12 +1755,12 @@ async function showGitWarningDialog() {
     });
 }
 
-window.deploy = async function(app, items) {
+window.deploy = async function (app, items) {
     // Check for .git directory before proceeding
     try {
         if ( await hasGitDirectory(items) ) {
             const shouldProceed = await showGitWarningDialog();
-            if ( !shouldProceed ) {
+            if ( ! shouldProceed ) {
                 reset_drop_area();
                 return;
             }
@@ -1874,7 +1896,7 @@ window.deploy = async function(app, items) {
     // --------------------------------------------------------------------
     else if ( Array.isArray(items) && items[0].uid ) {
         // If there's no index.html in the root, return
-        if ( !hasRootIndexHtml )
+        if ( ! hasRootIndexHtml )
         {
             return;
         }
@@ -1928,7 +1950,7 @@ window.deploy = async function(app, items) {
                             overwrite: false,
                             parsedDataTransferItems: true,
                             createMissingAncestors: true,
-                            progress: function(operation_id, op_progress) {
+                            progress: function (operation_id, op_progress) {
                                 $('.deploy-percent').text(`(${op_progress}%)`);
                             },
                         }).then(async (uploaded) => {
@@ -1962,15 +1984,15 @@ window.deploy = async function(app, items) {
     }
 };
 
-function generateDirTree(paths) {
+function generateDirTree (paths) {
     const root = {};
 
     for ( let path of paths ) {
         let parts = path.split('/');
         let currentNode = root;
         for ( let part of parts ) {
-            if ( !part ) continue; // skip empty parts, especially leading one
-            if ( !currentNode[part] ) {
+            if ( ! part ) continue; // skip empty parts, especially leading one
+            if ( ! currentNode[part] ) {
                 currentNode[part] = {};
             }
             currentNode = currentNode[part];
@@ -1980,7 +2002,7 @@ function generateDirTree(paths) {
     return root;
 }
 
-function setRootDirTree(tree, items) {
+function setRootDirTree (tree, items) {
     // Get all keys (directories and files) in the root
     const rootKeys = Object.keys(tree);
 
@@ -2009,7 +2031,7 @@ function setRootDirTree(tree, items) {
     }
 }
 
-function hasRootIndexHtml(tree) {
+function hasRootIndexHtml (tree) {
     // Check if index.html exists in the root
     if ( tree['index.html'] ) {
         return true;
@@ -2026,11 +2048,11 @@ function hasRootIndexHtml(tree) {
     return false;
 }
 
-$(document).on('click', '.open-app', function(e) {
+$(document).on('click', '.open-app', function (e) {
     puter.ui.launchApp($(this).attr('data-app-name'));
 });
 
-$(document).on('click', '.insta-deploy-to-new-app', async function(e) {
+$(document).on('click', '.insta-deploy-to-new-app', async function (e) {
     $('.insta-deploy-modal').get(0).close();
     let title = await puter.ui.prompt('Please enter a title for your app:', 'My Awesome App');
 
@@ -2060,7 +2082,7 @@ $(document).on('click', '.insta-deploy-to-new-app', async function(e) {
 
 });
 
-$(document).on('click', '.insta-deploy-to-existing-app', function(e) {
+$(document).on('click', '.insta-deploy-to-existing-app', function (e) {
     $('.insta-deploy-modal').get(0).close();
     $('.insta-deploy-existing-app-select').get(0).showModal();
     $('.insta-deploy-existing-app-list').html(`<div style="margin: 100px auto 10px auto; width: 40px; height:40px;">${loading_spinner}</div>`);
@@ -2095,7 +2117,7 @@ $(document).on('click', '.insta-deploy-to-existing-app', function(e) {
     // todo reset .insta-deploy-existing-app-list on close
 });
 
-$(document).on('click', '.insta-deploy-app-selector', function(e) {
+$(document).on('click', '.insta-deploy-app-selector', function (e) {
     $('.insta-deploy-app-selector').removeClass('active');
     $(this).addClass('active');
 
@@ -2103,7 +2125,7 @@ $(document).on('click', '.insta-deploy-app-selector', function(e) {
     $('.insta-deploy-existing-app-deploy-btn').removeClass('disabled');
 });
 
-$(document).on('click', '.insta-deploy-existing-app-deploy-btn', function(e) {
+$(document).on('click', '.insta-deploy-existing-app-deploy-btn', function (e) {
     $('.insta-deploy-existing-app-deploy-btn').addClass('disabled');
     $('.insta-deploy-existing-app-select')?.get(0)?.close();
 
@@ -2123,10 +2145,10 @@ $(document).on('click', '.insta-deploy-existing-app-deploy-btn', function(e) {
     $('.insta-deploy-existing-app-list').html('');
 });
 
-$(document).on('click', '.insta-deploy-cancel', function(e) {
+$(document).on('click', '.insta-deploy-cancel', function (e) {
     $(this).closest('dialog')?.get(0)?.close();
 });
-$(document).on('click', '.insta-deploy-existing-app-back', function(e) {
+$(document).on('click', '.insta-deploy-existing-app-back', function (e) {
     $('.insta-deploy-existing-app-select')?.get(0)?.close();
     $('.insta-deploy-modal')?.get(0)?.showModal();
     // disable deploy button
@@ -2135,11 +2157,11 @@ $(document).on('click', '.insta-deploy-existing-app-back', function(e) {
     // todo disable the 'an existing app' option if there are no existing apps
 });
 
-$('.insta-deploy-existing-app-select').on('close', function(e) {
+$('.insta-deploy-existing-app-select').on('close', function (e) {
     $('.insta-deploy-existing-app-list').html('');
 });
 
-$('.refresh-app-list').on('click', function(e) {
+$('.refresh-app-list').on('click', function (e) {
     puter.ui.showSpinner();
 
     puter.apps.list({ icon_size: 64 }).then((resp) => {
@@ -2174,18 +2196,18 @@ $('.refresh-app-list').on('click', function(e) {
     });
 });
 
-$(document).on('click', '.search-apps', function(e) {
+$(document).on('click', '.search-apps', function (e) {
     e.stopPropagation();
     e.preventDefault();
     // don't let click bubble up to window
     e.stopImmediatePropagation();
 });
 
-$(document).on('input change keyup keypress keydown paste cut', '.search-apps', function(e) {
+$(document).on('input change keyup keypress keydown paste cut', '.search-apps', function (e) {
     search_apps();
 });
 
-window.search_apps = function() {
+window.search_apps = function () {
     // search apps for query
     search_query = $('.search-apps').val().toLowerCase();
     if ( search_query === '' ) {
@@ -2217,7 +2239,7 @@ window.search_apps = function() {
     }
 };
 
-$(document).on('click', '.search-clear-apps', function(e) {
+$(document).on('click', '.search-clear-apps', function (e) {
     $('.search-apps').val('');
     $('.search-apps').trigger('change');
     $('.search-apps').focus();
@@ -2226,7 +2248,7 @@ $(document).on('click', '.search-clear-apps', function(e) {
     $('.search-apps').removeClass('has-value');
 });
 
-$(document).on('click', '.app-checkbox', function(e) {
+$(document).on('click', '.app-checkbox', function (e) {
     // was shift key pressed?
     if ( e.originalEvent && e.originalEvent.shiftKey ) {
         // select all checkboxes in range
@@ -2287,8 +2309,8 @@ $(document).on('click', '.app-checkbox', function(e) {
     window.last_clicked_app_checkbox_index = $('.app-checkbox').index(this);
 });
 
-function remove_app_card(app_uid, callback = null) {
-    $(`.app-card[data-uid="${app_uid}"]`).fadeOut(200, function() {
+function remove_app_card (app_uid, callback = null) {
+    $(`.app-card[data-uid="${app_uid}"]`).fadeOut(200, function () {
         $(this).remove();
         if ( $('.app-card').length === 0 ) {
             $('section:not(.sidebar)').hide();
@@ -2316,7 +2338,7 @@ function remove_app_card(app_uid, callback = null) {
     });
 }
 
-$(document).on('click', '.delete-apps-btn', async function(e) {
+$(document).on('click', '.delete-apps-btn', async function (e) {
     // show confirmation alert
     let resp = await puter.ui.alert('Are you sure you want to delete the selected apps?', [
         {
@@ -2426,7 +2448,7 @@ $(document).on('click', '.delete-apps-btn', async function(e) {
     }
 });
 
-$(document).on('change', '.select-all-apps', function(e) {
+$(document).on('change', '.select-all-apps', function (e) {
     if ( $(this).is(':checked') ) {
         $('.app-checkbox').prop('checked', true);
         $('.app-card').addClass('active');
@@ -2439,7 +2461,7 @@ $(document).on('change', '.select-all-apps', function(e) {
 });
 
 // if edit-app-maximize-on-start is checked, disable window size and position fields
-$(document).on('change', '#edit-app-maximize-on-start', function(e) {
+$(document).on('change', '#edit-app-maximize-on-start', function (e) {
     if ( $(this).is(':checked') ) {
         $('#edit-app-window-width, #edit-app-window-height').prop('disabled', true);
         $('#edit-app-window-top, #edit-app-window-left').prop('disabled', true);
@@ -2449,7 +2471,7 @@ $(document).on('change', '#edit-app-maximize-on-start', function(e) {
     }
 });
 
-$(document).on('change', '#edit-app-background', function(e) {
+$(document).on('change', '#edit-app-background', function (e) {
     if ( $('#edit-app-background').is(':checked') ) {
         disable_window_settings();
     } else {
@@ -2457,7 +2479,7 @@ $(document).on('change', '#edit-app-background', function(e) {
     }
 });
 
-function disable_window_settings() {
+function disable_window_settings () {
     $('#edit-app-maximize-on-start').prop('disabled', true);
     $('#edit-app-fullpage-on-landing').prop('disabled', true);
     $('#edit-app-window-width, #edit-app-window-height').prop('disabled', true);
@@ -2466,7 +2488,7 @@ function disable_window_settings() {
     $('#edit-app-hide-titlebar').prop('disabled', true);
 }
 
-function enable_window_settings() {
+function enable_window_settings () {
     $('#edit-app-maximize-on-start').prop('disabled', false);
     $('#edit-app-fullpage-on-landing').prop('disabled', false);
     $('#edit-app-window-width, #edit-app-window-height').prop('disabled', false);
@@ -2475,7 +2497,7 @@ function enable_window_settings() {
     $('#edit-app-hide-titlebar').prop('disabled', false);
 }
 
-$(document).on('click', '.reset-deploy', function(e) {
+$(document).on('click', '.reset-deploy', function (e) {
     reset_drop_area();
 });
 
@@ -2483,14 +2505,21 @@ window.initializeAssetsDirectory = async () => {
     try {
         // Check if assets_url exists
         const existingURL = await puter.kv.get('assets_url');
-        if ( !existingURL ) {
+        if ( ! existingURL ) {
             // Create assets directory
-            const assetsDir = await puter.fs.mkdir(`/${auth_username}/AppData/${dev_center_uid}/assets`,
-                            { overwrite: false });
+            const assetsPath = `/${auth_username}/AppData/${dev_center_uid}/assets`;
+            try {
+                await puter.fs.mkdir(assetsPath,
+                                { overwrite: false, recursive: true, rename: false });
+            } catch ( err ) {
+                if ( err.code !== 'item_with_same_name_exists' ) {
+                    throw err;
+                }
+            }
 
             // Publish the directory
             const hostname = `assets-${Math.random().toString(36).substring(2)}`;
-            const route = await puter.hosting.create(hostname, assetsDir.path);
+            const route = await puter.hosting.create(hostname, assetsPath);
 
             // Store the URL
             await puter.kv.set('assets_url', `https://${hostname}.puter.site`);
@@ -2499,6 +2528,17 @@ window.initializeAssetsDirectory = async () => {
         console.error('Error initializing assets directory:', err);
     }
 };
+
+async function ensureAssetsURL () {
+    let assets_url = await puter.kv.get('assets_url');
+    if ( ! assets_url ) {
+        await initializeAssetsDirectory();
+        assets_url = await puter.kv.get('assets_url');
+    }
+
+    if ( ! assets_url ) throw new Error('Assets URL not found');
+    return assets_url;
+}
 
 window.generateSocialImageSection = (app) => {
     return `
@@ -2511,7 +2551,25 @@ window.generateSocialImageSection = (app) => {
     `;
 };
 
-$(document).on('click', '#edit-app-social-image', async function(e) {
+window.generatePreviewImagesSection = () => {
+    return `
+        <h3 style="font-size: 23px; border-bottom: 1px solid #EEE; margin-top: 40px;">Preview Images</h3>
+        <p class="preview-images-help">Upload up to 10 images for each device type to showcase your app listing.</p>
+        <div class="preview-images-container">
+            ${PREVIEW_DEVICES.map((device) => `
+                <div class="preview-device" data-device="${html_encode(device.id)}">
+                    <div class="preview-device-header">
+                        <div class="preview-device-title">${html_encode(device.label)} <span class="preview-count" data-device="${html_encode(device.id)}">0/10</span></div>
+                        <button type="button" class="button button-small add-preview-image" data-device="${html_encode(device.id)}">Add images</button>
+                    </div>
+                    <div class="preview-grid" data-device="${html_encode(device.id)}"></div>
+                </div>
+            `).join('')}
+        </div>
+    `;
+};
+
+$(document).on('click', '#edit-app-social-image', async function (e) {
     const res = await puter.ui.showOpenFilePicker({
         accept: 'image/*',
     });
@@ -2521,7 +2579,7 @@ $(document).on('click', '#edit-app-social-image', async function(e) {
     const reader = new FileReader();
     reader.readAsDataURL(socialImage);
 
-    reader.onloadend = function() {
+    reader.onloadend = function () {
         let image = reader.result;
         // Get file extension
         let fileExtension = res.name.split('.').pop();
@@ -2539,19 +2597,169 @@ $(document).on('click', '#edit-app-social-image', async function(e) {
     };
 });
 
-$(document).on('click', '#edit-app-social-image-delete', async function(e) {
+$(document).on('click', '#edit-app-social-image-delete', async function (e) {
     $('#edit-app-social-image').css('background-image', '');
     $('#edit-app-social-image').removeAttr('data-url');
     $('#edit-app-social-image').removeAttr('data-base64');
     $('#edit-app-social-image-delete').hide();
 });
 
+function getDefaultPreviewImagesState () {
+    return {
+        desktop: [],
+        tablet: [],
+        mobile: [],
+    };
+}
+
+function createPreviewThumbElement (item) {
+    const previewItem = item || {};
+    const $thumb = $('<div class="preview-thumb"></div>');
+    const background = previewItem.base64 || previewItem.url;
+
+    if ( previewItem.url ) {
+        $thumb.attr('data-url', previewItem.url);
+    }
+
+    if ( previewItem.base64 ) {
+        $thumb.attr('data-base64', previewItem.base64);
+    }
+
+    if ( background ) {
+        $thumb.css('background-image', `url(${background})`);
+    }
+
+    $thumb.append('<span class="remove-preview-image" title="Remove">&times;</span>');
+    return $thumb;
+}
+
+function applyPreviewImages (previewImages) {
+    const state = previewImages ?? getDefaultPreviewImagesState();
+
+    PREVIEW_DEVICES.forEach((device) => {
+        const grid = $(`.preview-grid[data-device="${device.id}"]`);
+        grid.empty();
+
+        const images = Array.isArray(state?.[device.id]) ? state[device.id].slice(0, 10) : [];
+        images.forEach((image) => {
+            const imageObj = typeof image === 'string' ? { url: image } : image;
+            const thumb = createPreviewThumbElement(imageObj);
+            grid.append(thumb);
+        });
+    });
+
+    updatePreviewCounts();
+}
+
+function updatePreviewCounts () {
+    PREVIEW_DEVICES.forEach((device) => {
+        const count = $(`.preview-grid[data-device="${device.id}"] .preview-thumb`).length;
+        $(`.preview-count[data-device="${device.id}"]`).text(`${count}/10`);
+    });
+}
+
+function getPreviewImagesState () {
+    const state = getDefaultPreviewImagesState();
+
+    PREVIEW_DEVICES.forEach((device) => {
+        state[device.id] = [];
+        $(`.preview-grid[data-device="${device.id}"] .preview-thumb`).each(function () {
+            state[device.id].push({
+                url: $(this).attr('data-url') ?? null,
+                base64: $(this).attr('data-base64') ?? null,
+            });
+        });
+    });
+
+    return state;
+}
+
+function serializePreviewState (state) {
+    const normalized = {};
+
+    PREVIEW_DEVICES.forEach((device) => {
+        normalized[device.id] = (state?.[device.id] ?? []).map((item) => {
+            if ( item?.base64 ) {
+                return { base64: item.base64 };
+            }
+
+            return { url: item?.url ?? null };
+        });
+    });
+
+    return JSON.stringify(normalized);
+}
+
+async function readImageFileAsDataURL (file) {
+    const blob = await puter.fs.read(file.path);
+
+    return await new Promise((resolve) => {
+        const reader = new FileReader();
+        reader.onloadend = function () {
+            let image = reader.result;
+            const fileExtension = file.name.split('.').pop();
+            const mimeType = getMimeType(fileExtension);
+            image = image.replace('data:application/octet-stream;base64', `data:${mimeType};base64`);
+            resolve(image);
+        };
+        reader.readAsDataURL(blob);
+    });
+}
+
+$(document).on('click', '.add-preview-image', async function () {
+    const device = $(this).attr('data-device');
+    const grid = $(`.preview-grid[data-device="${device}"]`);
+
+    if ( grid.length === 0 ) return;
+
+    const currentCount = grid.find('.preview-thumb').length;
+    if ( currentCount >= 10 ) {
+        puter.ui.alert('You can add up to 10 images for this device.');
+        return;
+    }
+
+    let selected;
+    try {
+        selected = await puter.ui.showOpenFilePicker({
+            accept: 'image/*',
+            multiple: true,
+        });
+    } catch ( err ) {
+        return;
+    }
+
+    const selections = Array.isArray(selected) ? selected : (selected ? [selected] : []);
+    const available = 10 - currentCount;
+    const filesToUse = selections.slice(0, available);
+
+    for ( const file of filesToUse ) {
+        const imageData = await readImageFileAsDataURL(file);
+        const thumb = createPreviewThumbElement({ base64: imageData });
+        grid.append(thumb);
+    }
+
+    if ( selections.length > filesToUse.length ) {
+        puter.ui.alert('You can add up to 10 images for this device.');
+    }
+
+    updatePreviewCounts();
+    toggleSaveButton();
+    toggleResetButton();
+});
+
+$(document).on('click', '.remove-preview-image', function (e) {
+    e.stopPropagation();
+    $(this).closest('.preview-thumb').remove();
+    updatePreviewCounts();
+    toggleSaveButton();
+    toggleResetButton();
+});
+
 window.handleSocialImageUpload = async (app_name, socialImageData) => {
-    if ( !socialImageData ) return null;
+    if ( ! socialImageData ) return null;
 
     try {
-        const assets_url = await puter.kv.get('assets_url');
-        if ( !assets_url ) throw new Error('Assets URL not found');
+        const assets_url = await ensureAssetsURL();
 
         // Convert base64 to blob
         const base64Response = await fetch(socialImageData);
@@ -2572,7 +2780,43 @@ window.handleSocialImageUpload = async (app_name, socialImageData) => {
     }
 };
 
-$(document).on('click', '.copy-app-uid', function(e) {
+window.handlePreviewImagesUpload = async (app_name, previewImagesState) => {
+    const state = previewImagesState ?? getDefaultPreviewImagesState();
+    const hasImages = PREVIEW_DEVICES.some((device) => (state[device.id] ?? []).length > 0);
+
+    if ( ! hasImages ) {
+        return getDefaultPreviewImagesState();
+    }
+
+    const assets_url = await ensureAssetsURL();
+
+    const assetsDir = `/${auth_username}/AppData/${dev_center_uid}/assets/previews/${app_name}`;
+    await puter.fs.mkdir(assetsDir, { overwrite: true, recursive: true, rename: false });
+
+    const result = getDefaultPreviewImagesState();
+
+    for ( const device of PREVIEW_DEVICES ) {
+        const images = (state[device.id] ?? []).slice(0, 10);
+        for ( let i = 0; i < images.length; i++ ) {
+            const image = images[i];
+            if ( image.base64 ) {
+                const base64Response = await fetch(image.base64);
+                const blob = await base64Response.blob();
+                const filename = `${app_name}-${device.id}-${i + 1}.png`;
+                await puter.fs.upload(new File([blob], filename, { type: 'image/png' }),
+                                assetsDir,
+                                { overwrite: true });
+                result[device.id].push(`${assets_url}/previews/${app_name}/${filename}`);
+            } else if ( image.url ) {
+                result[device.id].push(image.url);
+            }
+        }
+    }
+
+    return result;
+};
+
+$(document).on('click', '.copy-app-uid', function (e) {
     const appUID = $('#edit-app-uid').val();
     navigator.clipboard.writeText(appUID);
     // change to 'copied'
@@ -2582,12 +2826,12 @@ $(document).on('click', '.copy-app-uid', function(e) {
     }, 2000);
 });
 
-$(document).on('change', '#analytics-period', async function(e) {
+$(document).on('change', '#analytics-period', async function (e) {
     let period = $(this).val();
     render_analytics(period);
 });
 
-async function render_analytics(period) {
+async function render_analytics (period) {
     puter.ui.showSpinner();
 
     // set a sensible stats_grouping based on the selected period
@@ -2691,8 +2935,8 @@ async function render_analytics(period) {
                         text: 'Count',
                     },
                     ticks: {
-                        precision: 0,  // Show whole numbers only
-                        stepSize: 1,    // Increment by 1
+                        precision: 0, // Show whole numbers only
+                        stepSize: 1, // Increment by 1
                     },
                 },
             },
@@ -2702,11 +2946,11 @@ async function render_analytics(period) {
     puter.ui.hideSpinner();
 }
 
-$(document).on('click', '.stats-cell', function(e) {
+$(document).on('click', '.stats-cell', function (e) {
     edit_app_section($(this).attr('data-app-name'), 'analytics');
 });
 
-function app_context_menu(app_name, app_title, app_uid) {
+function app_context_menu (app_name, app_title, app_uid) {
     puter.ui.contextMenu({
         items: [
             {
@@ -2760,7 +3004,7 @@ function app_context_menu(app_name, app_title, app_uid) {
     });
 
 }
-$(document).on('click', '.options-icon-app', function(e) {
+$(document).on('click', '.options-icon-app', function (e) {
     let app_name = $(this).attr('data-app-name');
     let app_title = $(this).attr('data-app-title');
     let app_uid = $(this).attr('data-app-uid');
@@ -2771,7 +3015,7 @@ $(document).on('click', '.options-icon-app', function(e) {
     app_context_menu(app_name, app_title, app_uid);
 });
 
-async function attempt_delete_app(app_name, app_title, app_uid) {
+async function attempt_delete_app (app_name, app_title, app_uid) {
     // get app
     const app_data = await puter.apps.get(app_name, { icon_size: 16 });
 

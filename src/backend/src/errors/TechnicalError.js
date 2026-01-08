@@ -37,7 +37,7 @@ class TechnicalError extends Error {
 
 const ERR_HINT_NOSTACK = e => {
     e.toString = () => e.message;
-}
+};
 
 module.exports = {
     TechnicalError,

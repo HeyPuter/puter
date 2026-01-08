@@ -64,6 +64,7 @@ something like the following (updated 2025-02-26):
             "engine": "sqlite",
             "path": "puter-database.sqlite"
         },
+        "dynamo" :{"path":"./puter-ddb"},
         "thumbnails": {
             "engine": "http"
         },

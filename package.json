@@ -12,10 +12,14 @@
   },
   "devDependencies": {
     "@eslint/js": "^9.35.0",
+    "@playwright/test": "^1.56.1",
     "@stylistic/eslint-plugin": "^5.3.1",
+    "@types/mime-types": "^3.0.1",
     "@types/uuid": "^10.0.0",
     "@typescript-eslint/eslint-plugin": "^8.46.1",
     "@typescript-eslint/parser": "^8.46.1",
+    "@vitest/coverage-v8": "^4.0.14",
+    "@vitest/ui": "^4.0.14",
     "chalk": "^4.1.0",
     "clean-css": "^5.3.2",
     "dotenv": "^16.4.5",
@@ -33,21 +37,24 @@
     "typescript": "^5.4.5",
     "uglify-js": "^3.17.4",
     "vite-plugin-static-copy": "^3.1.3",
-    "vitest": "^3.2.4",
+    "vitest": "^4.0.14",
     "webpack": "^5.88.2",
-    "webpack-cli": "^5.1.1"
+    "webpack-cli": "^5.1.1",
+    "yaml": "^2.8.1"
   },
   "scripts": {
-    "test": "npx mocha src/phoenix/test && npx vitest run src/backend && node src/backend/tools/test",
+    "test": "npx vitest run --config=src/backend/vitest.config.ts && node src/backend/tools/test.mjs",
     "test:puterjs-api": "vitest run tests/puterJsApiTests",
+    "test:backend": "npm run build:ts; vitest run --config=src/backend/vitest.config.ts",
+    "test:backend-coverage": "npm run build:ts; vitest run --config=src/backend/vitest.config.ts",
     "start=gui": "nodemon --exec \"node dev-server.js\" ",
     "start": "node ./tools/run-selfhosted.js",
     "prestart": "npm run build:ts",
     "dev": "npm run build:ts && DEVCONSOLE=1 node ./tools/run-selfhosted.js",
-    "build": "npm run build:ts; cd src/gui; node ./build.js",
+    "build": "npx eslint --quiet -c eslint/mandatory.eslint.config.js src/backend/src extensions && npm run build:ts && cd src/gui && node ./build.js",
     "check-translations": "node tools/check-translations.js",
     "prepare": "husky",
-    "build:ts": "tsc",
+    "build:ts": "tsc -p tsconfig.build.json",
     "gen": "./scripts/gen.sh"
   },
   "workspaces": [
@@ -64,13 +71,16 @@
   },
   "dependencies": {
     "@anthropic-ai/sdk": "^0.68.0",
+    "@aws-sdk/client-dynamodb": "^3.490.0",
     "@aws-sdk/client-secrets-manager": "^3.879.0",
     "@aws-sdk/client-sns": "^3.907.0",
+    "@aws-sdk/lib-dynamodb": "^3.490.0",
     "@google/genai": "^1.19.0",
     "@heyputer/putility": "^1.0.2",
     "@paralleldrive/cuid2": "^2.2.2",
     "@stylistic/eslint-plugin-js": "^4.4.1",
     "dedent": "^1.5.3",
+    "dynalite": "^4.0.0",
     "express-xml-bodyparser": "^0.4.1",
     "ioredis": "^5.6.0",
     "javascript-time-ago": "^2.5.11",
@@ -87,6 +97,6 @@
     "sharp-ico": "^0.1.5"
   },
   "engines": {
-    "node": ">=20.19.5"
+    "node": ">=24.0.0"
   }
 }

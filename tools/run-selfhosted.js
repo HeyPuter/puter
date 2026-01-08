@@ -59,7 +59,7 @@ const surrounding_box = (col, lines) => {
     const lowest_allowed = Math.max(...ver_info.map(r => r.under));
 
     // ACTUAL VERSION CHECK
-    const [major, minor] = process.versions.node.split('.').map(Number);
+    const [major, _minor] = process.versions.node.split('.').map(Number);
     if ( major < lowest_allowed ) {
         const lines = [];
         lines.push(`Please use a version of Node.js ${lowest_allowed} or newer.`);
@@ -80,7 +80,7 @@ const surrounding_box = (col, lines) => {
 if ( ! import.meta.filename ) {
     Object.defineProperty(import.meta, 'filename', {
         get: () => import.meta.url.slice('file://'.length),
-    })
+    });
 }
 
 const main = async () => {
@@ -99,10 +99,11 @@ const main = async () => {
         DevelopmentModule,
         DNSModule,
         PerfMonModule,
+        DataAccessModule,
     } = (await import('@heyputer/backend')).default;
 
     const k = new Kernel({
-        entry_path: import.meta.filename
+        entry_path: import.meta.filename,
     });
     for ( const mod of EssentialModules ) {
         k.add_module(new mod());
@@ -117,46 +118,45 @@ const main = async () => {
     k.add_module(new PuterAIModule());
     k.add_module(new InternetModule());
     k.add_module(new DNSModule());
-    if ( process.env.PERFMON ) {
-        k.add_module(new PerfMonModule());
-    }
+    k.add_module(new PerfMonModule());
     if ( process.env.UNSAFE_PUTER_DEV ) {
         k.add_module(new DevelopmentModule());
     }
+    k.add_module(new DataAccessModule());
     k.boot();
 };
 
 const early_init_errors = [
     {
-        text: `Cannot find package '@heyputer/backend'`,
+        text: 'Cannot find package \'@heyputer/backend\'',
         notes: [
-            'this usually happens if you forget `npm install`'
+            'this usually happens if you forget `npm install`',
         ],
         suggestions: [
-            'try running `npm install`'
+            'try running `npm install`',
         ],
         technical_notes: [
-            '@heyputer/backend is in an npm workspace'
-        ]
+            '@heyputer/backend is in an npm workspace',
+        ],
     },
     {
-        text: `Cannot find package`,
+        text: 'Cannot find package',
         notes: [
-            'this usually happens if you forget `npm install`'
+            'this usually happens if you forget `npm install`',
         ],
         suggestions: [
-            'try running `npm install`'
+            'try running `npm install`',
         ],
     },
     {
         text: 'Cannot write to path',
         notes: [
-            'this usually happens when /var/puter isn\'t chown\'d to the right UID'
+            'this usually happens when /var/puter isn\'t chown\'d to the right UID',
         ],
         suggestions: [
-            'check issue #645 on our github'
-        ]
-    }
+            'check issue #645 on our github',
+        ],
+    },
 ];
 
 // null coalescing operator
@@ -167,13 +167,13 @@ const nco = (...args) => {
         }
     }
     return undefined;
-}
+};
 
 const _print_error_help = (error_help) => {
     const lines = [];
     lines.push(nco(error_help.title, error_help.text));
     for ( const note of (nco(error_help.notes, [])) ) {
-        lines.push(`📝 ${note}`)
+        lines.push(`📝 ${note}`);
     }
     if ( error_help.suggestions ) {
         lines.push('Suggestions:');
@@ -189,14 +189,13 @@ const _print_error_help = (error_help) => {
     }
     surrounding_box('31;1', lines);
     console.error(lines.join('\n'));
-}
+};
 
 (async () => {
     try {
         await main();
     } catch (e) {
         for ( const error_help of early_init_errors ) {
-            const message = e && e.message;
             if ( e.message && e.message.includes(error_help.text) ) {
                 _print_error_help(error_help);
                 break;

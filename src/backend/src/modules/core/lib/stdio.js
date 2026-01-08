@@ -1,4 +1,3 @@
-// METADATA // {"ai-commented":{"service":"claude"}}
 /*
  * Copyright (C) 2024-present Puter Technologies Inc.
  *
@@ -41,30 +40,28 @@ const split_lines = (str) => {
     const lines = [];
     let line = '';
     let line_length = 0;
-    for (const c of str) {
+    for ( const c of str ) {
         line += c;
-        if (c === '\n') {
+        if ( c === '\n' ) {
             lines.push(line);
             line = '';
             line_length = 0;
         } else {
             line_length++;
-            if (line_length >= process.stdout.columns) {
+            if ( line_length >= process.stdout.columns ) {
                 lines.push(line);
                 line = '';
                 line_length = 0;
             }
         }
     }
-    if (line.length) {
+    if ( line.length ) {
         lines.push(line);
     }
     return lines;
 };
 
-
 module.exports = {
     visible_length,
     split_lines,
 };
-

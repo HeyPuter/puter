@@ -1,4 +1,3 @@
-// METADATA // {"ai-commented":{"service":"mistral","model":"mistral-large-latest"}}
 /*
  * Copyright (C) 2024-present Puter Technologies Inc.
  *
@@ -17,9 +16,9 @@
  * You should have received a copy of the GNU Affero General Public License
  * along with this program.  If not, see <https://www.gnu.org/licenses/>.
  */
-const BaseService = require("./BaseService");
-const { MemoryFSProvider } = require("../modules/puterfs/customfs/MemoryFSProvider");
-const { Readable } = require("stream");
+const BaseService = require('./BaseService');
+const { MemoryFSProvider } = require('../modules/puterfs/customfs/MemoryFSProvider');
+const { Readable } = require('stream');
 
 class MemoryStorageService extends BaseService {
     async _init () {

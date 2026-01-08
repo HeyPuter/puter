@@ -2,7 +2,7 @@
  * Copyright (C) 2024-present Puter Technologies Inc.
  */
 
-const { TTopics } = require("../traits/traits");
+const { TTopics } = require('../traits/traits');
 
 module.exports = {
     install_in_instance: (instance, { parameters }) => {
@@ -23,10 +23,9 @@ module.exports = {
                 const service_instance = service_entry.instance;
 
                 service_instance.as(TTopics).sub(
-                    spec.event,
-                    spec.do.bind(instance),
-                );
+                                spec.event,
+                                spec.do.bind(instance));
             });
         }
-    }
+    },
 };

@@ -16,7 +16,7 @@
  * You should have received a copy of the GNU Affero General Public License
  * along with this program.  If not, see <https://www.gnu.org/licenses/>.
  */
-const { LLFilesystemOperation } = require("./definitions");
+const { LLFilesystemOperation } = require('./definitions');
 
 class LLRmNode extends LLFilesystemOperation {
     async _run () {
@@ -24,7 +24,7 @@ class LLRmNode extends LLFilesystemOperation {
 
         const { context } = this;
 
-        const svc_event = context.get('services').get("event");
+        const svc_event = context.get('services').get('event');
 
         // Access Control
         {

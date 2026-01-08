@@ -27,7 +27,7 @@ const { is_temp_users_disabled: lazy_temp_users,
     is_user_signup_disabled: lazy_user_signup } = require('../helpers');
 const { requireCaptcha } = require('../modules/captcha/middleware/captcha-middleware');
 
-async function generate_random_username() {
+async function generate_random_username () {
     let username;
     do {
         username = generate_identifier();
@@ -101,7 +101,7 @@ module.exports = eggspress(['/signup'], {
         });
 
         const result = await response.json();
-        if ( !result.success )
+        if ( ! result.success )
         {
             return res.status(400).send('captcha verification failed');
         }
@@ -170,14 +170,14 @@ module.exports = eggspress(['/signup'], {
 
     // Create temp user data
     req.body.username = req.body.username ?? await generate_random_username();
-    req.body.email = req.body.email ?? req.body.username + '@gmail.com';
+    req.body.email = req.body.email ?? `${req.body.username }@gmail.com`;
     req.body.password = req.body.password ?? 'sadasdfasdfsadfsa';
 
     // send_confirmation_code
     req.body.send_confirmation_code = req.body.send_confirmation_code ?? true;
 
     // username is required
-    if ( !req.body.username )
+    if ( ! req.body.username )
     {
         return res.status(400).send('Username is required');
     }
@@ -187,7 +187,7 @@ module.exports = eggspress(['/signup'], {
         return res.status(400).send('username must be a string.');
     }
     // check if username is valid
-    else if ( !req.body.username.match(config.username_regex) )
+    else if ( ! req.body.username.match(config.username_regex) )
     {
         return res.status(400).send('Username can only contain letters, numbers and underscore (_).');
     }
@@ -233,7 +233,7 @@ module.exports = eggspress(['/signup'], {
     const svc_cleanEmail = req.services.get('clean-email');
     const clean_email = svc_cleanEmail.clean(req.body.email);
 
-    if ( !req.body.is_temp && ! await svc_cleanEmail.validate(clean_email) ) {
+    if ( !req.body.is_temp && !await svc_cleanEmail.validate(clean_email) ) {
         return res.status(400).send('This email does not seem to be valid.');
     }
 
@@ -265,7 +265,7 @@ module.exports = eggspress(['/signup'], {
     let email_confirmation_required = 1;
     if ( pseudo_user && uuid_user && pseudo_user.id === uuid_user.id )
     {
-        email_confirmation_required =  0;
+        email_confirmation_required = 0;
     }
 
     // -----------------------------------
@@ -319,7 +319,7 @@ module.exports = eggspress(['/signup'], {
             // referrer
             req.body.referrer ?? null,
             // email_confirm_code
-            '' + email_confirm_code,
+            `${ email_confirm_code}`,
             // email_confirm_token
             email_confirm_token,
             // free_storage
@@ -368,7 +368,7 @@ module.exports = eggspress(['/signup'], {
             // uuid
             user_uuid,
             // email_confirm_code
-            '' + email_confirm_code,
+            `${ email_confirm_code}`,
             // email_confirm_token
             email_confirm_token,
             // email_confirmed
@@ -446,7 +446,7 @@ module.exports = eggspress(['/signup'], {
     });
 
     // add to mailchimp
-    if ( !req.body.is_temp ) {
+    if ( ! req.body.is_temp ) {
         const svc_event = Context.get('services').get('event');
         svc_event.emit('user.save_account', { user });
     }

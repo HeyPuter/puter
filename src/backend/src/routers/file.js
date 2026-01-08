@@ -38,14 +38,14 @@ router.get('/file', async (req, res, next) => {
     const db = req.services.get('database').get(DB_WRITE, 'filesystem');
 
     // check subdomain
-    if ( subdomain(req) !== 'api' ){
+    if ( subdomain(req) !== 'api' ) {
         next();
     }
 
     // validate URL signature
     try {
         validate_signature_auth(get_url_from_req(req), 'read');
-    } catch (e){
+    } catch (e) {
         console.log(e);
         return res.status(403).send(e);
     }
@@ -54,14 +54,14 @@ router.get('/file', async (req, res, next) => {
     try {
         validate_signature_auth(get_url_from_req(req), 'write');
         can_write = true;
-    } catch ( _e ){
+    } catch ( _e ) {
         // slent fail
     }
 
     // modules
     const uid = req.query.uid;
     let download = req.query.download ?? false;
-    if ( download === 'true' || download === '1' || download === true ){
+    if ( download === 'true' || download === '1' || download === true ) {
         download = true;
     }
 
@@ -69,7 +69,7 @@ router.get('/file', async (req, res, next) => {
     const fsentry = await db.read('SELECT * FROM fsentries WHERE uuid = ? LIMIT 1', [uid]);
 
     // FSEntry not found
-    if ( !fsentry[0] )
+    if ( ! fsentry[0] )
     {
         return res.status(400).send({ message: 'No entry found with this uid' });
     }
@@ -84,14 +84,14 @@ router.get('/file', async (req, res, next) => {
     // ---------------------------------------------------------------//
     // FSEntry is dir
     // ---------------------------------------------------------------//
-    if ( fsentry[0].is_dir ){
+    if ( fsentry[0].is_dir ) {
         // convert to path
         const dirpath = await id2path(fsentry[0].id);
         // get all children of this dir
         const children = await get_descendants(dirpath, await get_user({ id: fsentry[0].user_id }), 1);
         const signed_children = [];
-        if ( children.length > 0 ){
-            for ( const child of children ){
+        if ( children.length > 0 ) {
+            for ( const child of children ) {
                 // sign file
                 const signed_child = await sign_file(child,
                                 can_write ? 'write' : 'read');
@@ -103,7 +103,7 @@ router.get('/file', async (req, res, next) => {
     }
 
     // force download?
-    if ( download ){
+    if ( download ) {
         res.attachment(fsentry[0].name);
     }
 
@@ -128,9 +128,9 @@ router.get('/file', async (req, res, next) => {
     //--------------------------------------------------
     // No range
     //--------------------------------------------------
-    if ( !range ){
+    if ( ! range ) {
         // set content-type, if available
-        if ( contentType !== null ){
+        if ( contentType !== null ) {
             res.setHeader('Content-Type', contentType);
         }
 
@@ -151,7 +151,7 @@ router.get('/file', async (req, res, next) => {
             });
 
             return stream.pipe(res);
-        } catch (e){
+        } catch (e) {
             errors.report('read from storage', {
                 source: e,
                 trace: true,
@@ -178,7 +178,7 @@ router.get('/file', async (req, res, next) => {
         start = parseInt(partialstart, 10);
         end = partialend ? parseInt(partialend, 10) : total - 1;
 
-        if ( user_agent && user_agent.toLowerCase().includes('safari') && !user_agent.includes('Chrome') ){
+        if ( user_agent && user_agent.toLowerCase().includes('safari') && !user_agent.includes('Chrome') ) {
             // Safari
             is_safari = true;
             chunkSize = (end - start) + 1;
@@ -195,7 +195,7 @@ router.get('/file', async (req, res, next) => {
         };
 
         // Set Content-Type, if available
-        if ( contentType ){
+        if ( contentType ) {
             headers['Content-Type'] = contentType;
         }
 
@@ -222,7 +222,7 @@ router.get('/file', async (req, res, next) => {
             //     bucket_region: fsentry[0].bucket_region,
             // });
             return stream.pipe(res);
-        } catch (e){
+        } catch (e) {
             errors.report('read from storage', {
                 source: e,
                 trace: true,

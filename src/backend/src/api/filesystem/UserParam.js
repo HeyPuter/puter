@@ -20,4 +20,4 @@ module.exports = class UserParam {
     consolidate ({ req }) {
         return req.user;
     }
-}
+};

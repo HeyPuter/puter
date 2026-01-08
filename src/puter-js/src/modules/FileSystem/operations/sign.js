@@ -12,7 +12,7 @@ import * as utils from '../../../lib/utils.js';
  * @throws {Error} If the AJAX request fails.
  * @async
  */
-const sign = function(...args){
+const sign = function (...args) {
     let options;
 
     // Otherwise, we assume separate arguments are provided
@@ -25,79 +25,82 @@ const sign = function(...args){
     };
 
     return new Promise(async (resolve, reject) => {
-        // If auth token is not provided and we are in the web environment, 
+        // If auth token is not provided and we are in the web environment,
         // try to authenticate with Puter
-        if(!puter.authToken && puter.env === 'web'){
-            try{
+        if ( !puter.authToken && puter.env === 'web' ) {
+            try {
                 await puter.ui.authenticateWithPuter();
-            }catch(e){
+            } catch (e) {
                 // if authentication fails, throw an error
                 reject('Authentication failed.');
             }
         }
 
-
         let items = options.items;
 
         // if only a single item is passed, convert it to array
         // so that the code below can work with arrays
-        if(!Array.isArray(items)){
-            items = [items]
+        if ( ! Array.isArray(items) ) {
+            items = [items];
         }
 
         // create xhr object
         const xhr = utils.initXhr('/sign', this.APIOrigin, this.authToken);
 
         // response
-        xhr.addEventListener('load', async function(e){
+        xhr.addEventListener('load', async function (e) {
             const resp = await utils.parseResponse(this);
             // error
-            if(this.status !== 200){
+            if ( this.status !== 200 ) {
                 // if error callback is provided, call it
-                if(options.error && typeof options.error === 'function')
-                    options.error(resp)
+                if ( options.error && typeof options.error === 'function' )
+                {
+                    options.error(resp);
+                }
                 // reject promise
-                return reject(resp)
+                return reject(resp);
             }
             // success
-            else{
+            else {
                 let res = resp;
                 let result;
                 let token = res.token;
                 // if only a single item was passed, return a single object
-                if(items.length == 1){
-                    result = {...(res.signatures[0])};
+                if ( items.length == 1 ) {
+                    result = { ...(res.signatures[0]) };
                 }
                 // if multiple items were passed, return an array of objects
-                else{
-                    let obj=[];
-                    for(let i=0; i<res.signatures.length; i++){
-                        obj.push({...res.signatures[i]});
+                else {
+                    let obj = [];
+                    for ( let i = 0; i < res.signatures.length; i++ ) {
+                        obj.push({ ...res.signatures[i] });
                     }
                     result = obj;
                 }
 
                 // if success callback is provided, call it
-                if(options.success && typeof options.success === 'function')
-                    options.success({token: token, items: result});
+                if ( options.success && typeof options.success === 'function' )
+                {
+                    options.success({ token: token, items: result });
+                }
                 // resolve with success
-                return resolve({token: token, items: result});
+                return resolve({ token: token, items: result });
             }
         });
 
-        xhr.upload.addEventListener('progress', function(e){
-        })
+        xhr.upload.addEventListener('progress', function (e) {
+        });
 
         // error
-        xhr.addEventListener('error', function(e){
+        xhr.addEventListener('error', function (e) {
             return utils.handle_error(options.error, reject, this);
-        })
+        });
 
         xhr.send(JSON.stringify({
             app_uid: options.app_uid,
-            items: items
+            items: items,
         }));
-    })
-}
+    });
+};
 
 export default sign;

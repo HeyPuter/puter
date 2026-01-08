@@ -12,12 +12,12 @@ export const DELETE = async ( req, res, filePath, fileNode, headerLockToken ) =>
         const hasDestinationWriteAccess = await hasWritePermissionInDAV(...servicesForLocks, filePath, headerLockToken);
         const exists = await fileNode?.exists();
         // Check if the resource exists
-        if ( !exists ) {
+        if ( ! exists ) {
             res.status(404).end('Not Found');
             return;
         }
 
-        if ( !hasDestinationWriteAccess ){
+        if ( ! hasDestinationWriteAccess ) {
             // DAV lock in place blocking write to this file
             res.status(423).end('Locked: No write access to destination');
             return;
@@ -27,7 +27,7 @@ export const DELETE = async ( req, res, filePath, fileNode, headerLockToken ) =>
 
         // Return success response
         res.status(204).end(); // 204 No Content for successful deletion
-    } catch( error ) {
+    } catch ( error ) {
     // Handle specific error types
         if ( error.code === 'permission_denied' ) {
             res.status(403).end( 'Forbidden');

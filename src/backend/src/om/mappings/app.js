@@ -16,7 +16,7 @@
  * You should have received a copy of the GNU Affero General Public License
  * along with this program.  If not, see <https://www.gnu.org/licenses/>.
  */
-const config = require("../../config");
+const config = require('../../config');
 
 module.exports = {
     sql: {
@@ -58,7 +58,7 @@ module.exports = {
         subdomain: {
             type: 'string',
             transient: true,
-            factory: () => 'app-' + require('uuid').v4(),
+            factory: () => `app-${ require('uuid').v4()}`,
             sql: { ignore: true },
         },
         index_url: {
@@ -68,8 +68,8 @@ module.exports = {
             imply: {
                 given: ['subdomain', 'source_directory'],
                 make: async ({ subdomain }) => {
-                    return config.protocol + '://' + subdomain + '.puter.site';
-                }
+                    return `${config.protocol }://${ subdomain }.puter.site`;
+                },
             },
         },
         source_directory: {
@@ -82,22 +82,23 @@ module.exports = {
             aliases: ['timestamp'],
             sql: {
                 column_name: 'timestamp',
-            }
+            },
         },
 
         filetype_associations: {
-            type: 'array', of: 'string',
-            sql: { ignore: true }
+            type: 'array',
+            of: 'string',
+            sql: { ignore: true },
         },
 
         // DOMAIN :: CALCULATED
         stats: {
             type: 'json',
-            sql: { ignore: true }
+            sql: { ignore: true },
         },
         created_from_origin: {
             type: 'string',
-            sql: { ignore: true }
+            sql: { ignore: true },
         },
 
         // ACCESS
@@ -109,7 +110,7 @@ module.exports = {
             sql: {
                 use_id: true,
                 column_name: 'owner_user_id',
-            }
+            },
         },
         app_owner: {
             type: 'reference',
@@ -144,5 +145,5 @@ module.exports = {
             type: 'flag',
             read_only: true,
         },
-    }
-}
+    },
+};

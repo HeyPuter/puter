@@ -1,4 +1,3 @@
-// METADATA // {"ai-commented":{"service":"openai-completion","model":"gpt-4o-mini"}}
 /*
  * Copyright (C) 2024-present Puter Technologies Inc.
  *
@@ -26,10 +25,8 @@ const config = require('../../config.js');
 var http = require('http');
 const auth = require('../../middleware/auth.js');
 const measure = require('../../middleware/measure.js');
-const { surrounding_box, es_import_promise } = require('../../fun/dev-console-ui-utils.js');
 
 const relative_require = require;
-const strutil = require('@heyputer/putility').libs.string;
 
 /**
 * This class, WebServerService, is responsible for starting and managing the Puter web server.
@@ -53,7 +50,7 @@ class WebServerService extends BaseService {
 
     allowedRoutesWithUndefinedOrigins = [];
 
-    allow_undefined_origin(route) {
+    allow_undefined_origin (route) {
         this.allowedRoutesWithUndefinedOrigins.push(route);
     }
 
@@ -65,7 +62,7 @@ class WebServerService extends BaseService {
     * @private
     */
     // comment above line 44 in WebServerService.js
-    async ['__on_boot.consolidation']() {
+    async ['__on_boot.consolidation'] () {
         const app = this.app;
         const services = this.services;
         await services.emit('install.middlewares.early', { app });
@@ -85,7 +82,7 @@ class WebServerService extends BaseService {
         this.log.debug('web server setup done');
     }
 
-    install_post_middlewares_({ app }) {
+    install_post_middlewares_ ({ app }) {
         app.use(async (req, res, next) => {
             const svc_event = this.services.get('event');
 
@@ -93,7 +90,7 @@ class WebServerService extends BaseService {
                 req,
                 res,
                 end_: false,
-                end() {
+                end () {
                     this.end_ = true;
                 },
             };
@@ -109,11 +106,11 @@ class WebServerService extends BaseService {
     *
     * @returns {Promise<void>} A promise that resolves once the server is started.
     */
-    async ['__on_boot.activation']() {
+    async ['__on_boot.activation'] () {
         const services = this.services;
         await services.emit('start.webserver');
         await services.emit('ready.webserver');
-        this.log.info('in case you care, ready.webserver hooks are done');
+        console.log('in case you care, ready.webserver hooks are done');
     }
 
     /**
@@ -124,9 +121,7 @@ class WebServerService extends BaseService {
     *
     * @return {Promise} A promise that resolves when the server is up and running.
     */
-    async ['__on_start.webserver']() {
-        await es_import_promise;
-
+    async ['__on_start.webserver'] () {
         // error handling middleware goes last, as per the
         // expressjs documentation:
         // https://expressjs.com/en/guide/error-handling.html
@@ -155,7 +150,7 @@ class WebServerService extends BaseService {
         for ( let i = 0 ; i < ports_to_try.length ; i++ ) {
             const port = ports_to_try[i];
             const is_last_port = i === ports_to_try.length - 1;
-            if ( auto_port ) this.log.debug('trying port: ' + port);
+            if ( auto_port ) this.log.debug(`trying port: ${ port}`);
             try {
                 server = http.createServer(this.app).listen(port);
                 server.timeout = 1000 * 60 * 60 * 2; // 2 hours
@@ -163,8 +158,8 @@ class WebServerService extends BaseService {
                 await new Promise((rslv, rjct) => {
                     server.on('error', e => {
                         if ( e.code === 'EADDRINUSE' ) {
-                            if ( ! is_last_port && e.code === 'EADDRINUSE' ) {
-                                this.log.info('port in use: ' + port);
+                            if ( !is_last_port && e.code === 'EADDRINUSE' ) {
+                                this.log.info(`port in use: ${ port}`);
                                 should_continue = true;
                             }
                             rslv();
@@ -187,8 +182,8 @@ class WebServerService extends BaseService {
                 });
                 if ( should_continue ) continue;
             } catch (e) {
-                if ( ! is_last_port && e.code === 'EADDRINUSE' ) {
-                    this.log.info('port in use:' + port);
+                if ( !is_last_port && e.code === 'EADDRINUSE' ) {
+                    this.log.info(`port in use:${ port}`);
                     continue;
                 }
                 throw e;
@@ -202,7 +197,7 @@ class WebServerService extends BaseService {
 
         // Open the browser to the URL of Puter
         // (if we are in development mode only)
-        if ( config.env === 'dev' && ! config.no_browser_launch ) {
+        if ( config.env === 'dev' && !config.no_browser_launch ) {
             try {
                 const openModule = await import('open');
                 openModule.default(url);
@@ -211,35 +206,16 @@ class WebServerService extends BaseService {
             }
         }
 
-        if ( ! config.disable_fun ) this.print_puter_logo_();
-
-        const link = `\x1B[34;1m${strutil.osclink(url)}\x1B[0m`;
+        const link = `\x1B[34;1m${url}\x1B[0m`;
         const lines = [
             `Puter is now live at: ${link}`,
         ];
-        this.startup_widget = () => {
+        const realConsole = globalThis.original_console_object ?? console;
+        lines.forEach(line => realConsole.log(line));
 
-            const lengths = [
-                ('Puter is now live at: ').length + url.length,
-                lines[1].length,
-            ];
-            surrounding_box('34;1', lines, lengths);
-            return lines;
-        };
-        if ( this.config.old_widget_behavior ) {
-            const svc_devConsole = this.services.get('dev-console', { optional: true });
-            if ( svc_devConsole ) svc_devConsole.add_widget(this.startup_widget);
-        } else {
-            const svc_devConsole = this.services.get('dev-console', { optional: true });
-            if ( svc_devConsole ) {
-                svc_devConsole.notice({
-                    colors: { bg: '38;2;0;0;0;48;2;0;202;252;1', bginv: '38;2;0;202;252' },
-                    style: 'stars',
-                    title: 'Puter is live!',
-                    lines,
-                });
-            }
-        }
+        realConsole.log('\n************************************************************');
+        realConsole.log(`* Puter is now live at: ${url}`);
+        realConsole.log('************************************************************');
 
         server.timeout = 1000 * 60 * 60 * 2; // 2 hours
         server.requestTimeout = 1000 * 60 * 60 * 2; // 2 hours
@@ -271,7 +247,7 @@ class WebServerService extends BaseService {
                     // }, 1000);
                     next();
                 } catch (e) {
-                    console.log('socket auth err', e);
+                    console.warn('socket auth err', e);
                 }
             }
         });
@@ -310,7 +286,7 @@ class WebServerService extends BaseService {
     * @param {object} services - An object containing all services available to the web server.
     * @returns {Promise<void>} A promise that resolves when the web server is fully started.
     */
-    get_server() {
+    get_server () {
         return this.server_;
     }
 
@@ -319,12 +295,11 @@ class WebServerService extends BaseService {
     *
     * @param {Object} services - An object containing all services.
     */
-    async _init() {
+    async _init () {
         const app = express();
         this.app = app;
 
         app.set('services', this.services);
-        this._register_commands(this.services.get('commands'));
 
         this.middlewares = { auth };
 
@@ -375,12 +350,12 @@ class WebServerService extends BaseService {
                     // remove `puter.auth.*` query params
                     const safe_url = (u => {
                         // We need to prepend an arbitrary domain to the URL
-                        const url = new URL('https://example.com' + u);
+                        const url = new URL(`https://example.com${ u}`);
                         const search = url.searchParams;
                         for ( const key of search.keys() ) {
                             if ( key.startsWith('puter.auth.') ) search.delete(key);
                         }
-                        return url.pathname + '?' + search.toString();
+                        return `${url.pathname }?${ search.toString()}`;
                     })(fields.url);
                     fields.url = safe_url;
                     // re-write message
@@ -447,7 +422,7 @@ class WebServerService extends BaseService {
             });
         })();
 
-        app.use(async function(req, res, next) {
+        app.use(async function (req, res, next) {
             // Express does not document that this can be undefined.
             // The browser likely doesn't follow the HTTP/1.1 spec
             // (bot client?) and express is handling this badly by
@@ -467,7 +442,7 @@ class WebServerService extends BaseService {
             const allowedDomains = [
                 config.domain.toLowerCase(),
                 config.static_hosting_domain.toLowerCase(),
-                'at.' + config.static_hosting_domain.toLowerCase(),
+                `at.${ config.static_hosting_domain.toLowerCase()}`,
             ];
 
             if ( config.allow_nipio_domains ) {
@@ -477,7 +452,7 @@ class WebServerService extends BaseService {
             // Retrieve the Host header and ensure it's in a valid format
             const hostHeader = req.headers.host;
 
-            if ( ! config.allow_no_host_header && ! hostHeader ) {
+            if ( !config.allow_no_host_header && !hostHeader ) {
                 return res.status(400).send('Missing Host header.');
             }
 
@@ -490,7 +465,7 @@ class WebServerService extends BaseService {
             const hostName = hostHeader.split(':')[0].trim().toLowerCase();
 
             // Check if the hostname matches any of the allowed domains or is a subdomain of an allowed domain
-            if ( allowedDomains.some(allowedDomain => hostName === allowedDomain || hostName.endsWith('.' + allowedDomain)) ) {
+            if ( allowedDomains.some(allowedDomain => hostName === allowedDomain || hostName.endsWith(`.${ allowedDomain}`)) ) {
                 next(); // Proceed if the host is valid
             } else {
                 if ( ! config.custom_domains_enabled ) {
@@ -585,7 +560,7 @@ class WebServerService extends BaseService {
         app.disable('x-powered-by');
 
         // remove object and array query parameters
-        app.use(function(req, res, next) {
+        app.use(function (req, res, next) {
             for ( let k in req.query ) {
                 if ( req.query[k] === undefined || req.query[k] === null ) {
                     continue;
@@ -600,30 +575,30 @@ class WebServerService extends BaseService {
         });
 
         const uaParser = require('ua-parser-js');
-        app.use(function(req, res, next) {
+        app.use(function (req, res, next) {
             const ua_header = req.headers['user-agent'];
             const ua = uaParser(ua_header);
             req.ua = ua;
             next();
         });
 
-        app.use(function(req, res, next) {
+        app.use(function (req, res, next) {
             req.co_isolation_enabled =
                 ['Chrome', 'Edge'].includes(req.ua.browser.name)
                 && (Number(req.ua.browser.major) >= 110);
             next();
         });
 
-        app.use(function(req, res, next) {
+        app.use(function (req, res, next) {
             const origin = req.headers.origin;
 
             const is_site =
                 req.hostname.endsWith(config.static_hosting_domain) ||
                 req.hostname === 'docs.puter.com'
                 ;
-            const is_popup = !! req.query.embedded_in_popup;
-            const is_parent_co = !! req.query.cross_origin_isolated;
-            const is_app = !! req.query['puter.app_instance_id'];
+            const is_popup = !!req.query.embedded_in_popup;
+            const is_parent_co = !!req.query.cross_origin_isolated;
+            const is_app = !!req.query['puter.app_instance_id'];
 
             const co_isolation_okay =
                 (!is_popup || is_parent_co) &&
@@ -677,60 +652,6 @@ class WebServerService extends BaseService {
 
             next();
         });
-    }
-
-    _register_commands(commands) {
-        commands.registerCommands('web', [
-            {
-                id: 'dismiss',
-                description: 'Dismiss the startup message',
-                handler: async (_, log) => {
-                    if ( ! this.startup_widget ) return;
-                    const svc_devConsole = this.services.get('dev-console', { optional: true });
-                    if ( svc_devConsole ) svc_devConsole.remove_widget(this.startup_widget);
-                    const lines = this.startup_widget();
-                    for ( const line of lines ) log.log(line);
-                    this.startup_widget = null;
-                },
-            },
-        ]);
-    }
-
-    /**
-    * Prints the Puter logo seen in the console after the server is started.
-    *
-    * Depending on the size of the terminal, a different version of the
-    * logo is displayed. The logo is displayed in blue text.
-    *
-    * @returns {void}
-    * @private
-    */
-    // comment above line 497
-    print_puter_logo_() {
-        const realConsole = globalThis.original_console_object;
-        if ( this.global_config.env !== 'dev' ) return;
-        const logos = require('../../fun/logos.js');
-        let last_logo = undefined;
-        for ( const logo of logos ) {
-            if ( logo.sz <= (process.stdout.columns ?? 0) ) {
-                last_logo = logo;
-            } else break;
-        }
-        if ( last_logo ) {
-            const lines = last_logo.txt.split('\n');
-            const width = process.stdout.columns;
-            const pad = (width - last_logo.sz) / 2;
-            const pad_left = Math.floor(pad);
-            const pad_right = Math.ceil(pad);
-            for ( let i = 0 ; i < lines.length ; i++ ) {
-                lines[i] = ' '.repeat(pad_left) + lines[i] + ' '.repeat(pad_right);
-            }
-            const txt = lines.join('\n');
-            realConsole.log('\n\x1B[34;1m' + txt + '\x1B[0m\n');
-        }
-        if ( config.os.archbtw ) {
-            realConsole.log('\x1B[34;1mPuter is running on Arch btw\x1B[0m');
-        }
     }
 }
 

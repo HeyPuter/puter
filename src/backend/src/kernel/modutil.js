@@ -1,10 +1,10 @@
 const fs = require('fs').promises;
 const path = require('path');
 
-async function prependToJSFiles(directory, snippet) {
+async function prependToJSFiles (directory, snippet) {
     const jsExtensions = new Set(['.js', '.cjs', '.mjs', '.ts']);
 
-    async function processDirectory(dir) {
+    async function processDirectory (dir) {
         try {
             const entries = await fs.readdir(dir, { withFileTypes: true });
             const promises = [];
@@ -14,7 +14,7 @@ async function prependToJSFiles(directory, snippet) {
 
                 if ( entry.isDirectory() ) {
                     // Skip common directories that shouldn't be modified
-                    if ( !shouldSkipDirectory(entry.name) ) {
+                    if ( ! shouldSkipDirectory(entry.name) ) {
                         promises.push(processDirectory(fullPath));
                     }
                 } else if ( entry.isFile() && jsExtensions.has(path.extname(entry.name)) ) {
@@ -30,7 +30,7 @@ async function prependToJSFiles(directory, snippet) {
         }
     }
 
-    function shouldSkipDirectory(dirName) {
+    function shouldSkipDirectory (dirName) {
         const skipDirs = new Set([
             'node_modules',
             'gui',
@@ -40,7 +40,7 @@ async function prependToJSFiles(directory, snippet) {
         return false;
     }
 
-    async function prependToFile(filePath, snippet) {
+    async function prependToFile (filePath, snippet) {
         try {
             const content = await fs.readFile(filePath, 'utf8');
             if ( content.startsWith('//!no-prepend') ) return;

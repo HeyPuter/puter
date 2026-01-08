@@ -8,8 +8,8 @@ export default [
         `,
         example_values: [
             'example.com',
-            'subdomain.example.com'
-        ]
+            'subdomain.example.com',
+        ],
     },
     {
         key: 'protocol',
@@ -18,8 +18,8 @@ export default [
         `,
         example_values: [
             'http',
-            'https'
-        ]
+            'https',
+        ],
     },
     {
         key: 'static_hosting_domain',
@@ -30,7 +30,7 @@ export default [
             you could set this to something like
             \`site.192.168.555.12.nip.io\`, replacing
             \`192.168.555.12\` with a valid IP address belonging to the server.
-        `
+        `,
     },
     {
         key: 'allow_all_host_values',
@@ -44,7 +44,7 @@ export default [
         description: `
             If true, Puter will allow requests with host headers that end in nip.io.
             This is useful for development, LAN, and VPN configurations.
-        `
+        `,
     },
     {
         key: 'http_port',
@@ -57,21 +57,21 @@ export default [
         description: `
             If true, any /username/Public directory will be available to all
             users, including anonymous users.
-        `
+        `,
     },
     {
         key: 'disable_temp_users',
         description: `
             If true, new users will see the login/signup page instead of being
             automatically logged in as a temporary user.
-        `
+        `,
     },
     {
         key: 'disable_user_signup',
         description: `
             If true, the signup page will be disabled and the backend will not
             accept new user registrations.
-        `
+        `,
     },
     {
         key: 'disable_fallback_mechanisms',
@@ -79,6 +79,6 @@ export default [
             A general setting to prevent any fallback behavior that might
             "hide" errors. It is recommended to set this to true when
             debugging, testing, or developing new features.
-        `
-    }
-]
+        `,
+    },
+];

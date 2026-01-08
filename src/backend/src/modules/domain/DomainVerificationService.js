@@ -1,5 +1,5 @@
-const { get_user } = require("../../helpers");
-const BaseService = require("../../services/BaseService");
+const { get_user } = require('../../helpers');
+const BaseService = require('../../services/BaseService');
 
 class DomainVerificationService extends BaseService {
     _init () {
@@ -7,7 +7,7 @@ class DomainVerificationService extends BaseService {
     }
     async get_controlling_user ({ domain }) {
         const svc_event = this.services.get('event');
-        
+
         // 1 :: Allow event listeners to verify domains
         const event = {
             domain,
@@ -17,7 +17,7 @@ class DomainVerificationService extends BaseService {
         if ( event.user ) {
             return event.user;
         }
-        
+
         // 2 :: If there is no controlling user, 'admin' is the
         //      controlling user.
         return await get_user({ username: 'admin' });
@@ -32,8 +32,8 @@ class DomainVerificationService extends BaseService {
                 handler: async (args, log) => {
                     const res = await this.get_controlling_user({ domain: args[0] });
                     log.log(res);
-                }
-            }
+                },
+            },
         ]);
     }
 }

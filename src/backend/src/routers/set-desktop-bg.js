@@ -16,7 +16,7 @@
  * You should have received a copy of the GNU Affero General Public License
  * along with this program.  If not, see <https://www.gnu.org/licenses/>.
  */
-"use strict"
+'use strict';
 const express = require('express');
 const config = require('../config.js');
 const { invalidate_cached_user } = require('../helpers');
@@ -27,31 +27,33 @@ const { DB_WRITE } = require('../services/database/consts.js');
 // -----------------------------------------------------------------------//
 // POST /set-desktop-bg
 // -----------------------------------------------------------------------//
-router.post('/set-desktop-bg', auth, express.json(), async (req, res, next)=>{
+router.post('/set-desktop-bg', auth, express.json(), async (req, res, next) => {
     // check subdomain
-    if(require('../helpers').subdomain(req) !== 'api')
+    if ( require('../helpers').subdomain(req) !== 'api' )
+    {
         next();
+    }
 
     // check if user is verified
-    if((config.strict_email_verification_required || req.user.requires_email_confirmation) && !req.user.email_confirmed)
-        return res.status(400).send({code: 'account_is_not_verified', message: 'Account is not verified'});
+    if ( (config.strict_email_verification_required || req.user.requires_email_confirmation) && !req.user.email_confirmed )
+    {
+        return res.status(400).send({ code: 'account_is_not_verified', message: 'Account is not verified' });
+    }
 
     // modules
     const db = req.services.get('database').get(DB_WRITE, 'ui');
 
     // insert into DB
-    await db.write(
-        `UPDATE user SET desktop_bg_url = ?, desktop_bg_color = ?, desktop_bg_fit = ? WHERE user.id = ?`,
-        [
-            req.body.url ?? null,
-            req.body.color ?? null,
-            req.body.fit ?? null,
-            req.user.id,
-        ]
-    )
+    await db.write('UPDATE user SET desktop_bg_url = ?, desktop_bg_color = ?, desktop_bg_fit = ? WHERE user.id = ?',
+                    [
+                        req.body.url ?? null,
+                        req.body.color ?? null,
+                        req.body.fit ?? null,
+                        req.user.id,
+                    ]);
     invalidate_cached_user(req.user);
 
     // send results to client
     return res.send({});
-})
-module.exports = router
+});
+module.exports = router;

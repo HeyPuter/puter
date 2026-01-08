@@ -30,25 +30,20 @@ def get_admin_password() -> str:
     """
     Get the admin password from the backend server, throw an error if not found.
     """
-    LOG_PATH = "/tmp/backend.log"
-    backend_process = cxc_toolkit.exec.run_background("npm start", log_path=LOG_PATH)
-
-    # NB: run_command + kill_on_output may wait indefinitely, use run_background + hard limit instead
-    time.sleep(10)
-
-    backend_process.terminate()
-
-    # read the log file
-    with open(LOG_PATH, "r") as f:
-        lines = f.readlines()
-    for line in lines:
-        if "password for admin" in line:
-            print(f"found password line: ---{line}---")
-            admin_password = line.split("password for admin is:")[1].strip()
-            print(f"Extracted admin password: {admin_password}")
-            return admin_password
-
-    raise RuntimeError(f"no admin password found, check {LOG_PATH} for details")
+    for attempt in range(300):  # wait up to 60 seconds (1 minute)
+        time.sleep(1)
+        
+        # read the log file
+        with open("/tmp/backend.log", "r") as f:
+            lines = f.readlines()
+        for line in lines:
+            if "password for admin" in line:
+                print(f"found password line: ---{line}---")
+                admin_password = line.split("password for admin is:")[1].strip()
+                print(f"Extracted admin password: {admin_password}")
+                return admin_password
+    
+    raise RuntimeError(f"no admin password found after 300 seconds")
 
 
 def get_token(admin_password: str) -> str:

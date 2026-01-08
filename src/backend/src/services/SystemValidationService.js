@@ -1,4 +1,3 @@
-// METADATA // {"ai-commented":{"service":"mistral","model":"mistral-large-latest"}}
 /*
  * Copyright (C) 2024-present Puter Technologies Inc.
  *
@@ -17,8 +16,7 @@
  * You should have received a copy of the GNU Affero General Public License
  * along with this program.  If not, see <https://www.gnu.org/licenses/>.
  */
-const BaseService = require("./BaseService");
-
+const BaseService = require('./BaseService');
 
 /**
 * SystemValidationService class.
@@ -47,11 +45,9 @@ class SystemValidationService extends BaseService {
         // The system is in an invalid state. The server will do whatever it
         // can to get our attention, and then it will shut down.
         if ( ! this.errors ) {
-            console.error(
-                'SystemValidationService is trying to mark the system as invalid, but the error service is not available.',
-                message,
-                source,
-            );
+            console.error('SystemValidationService is trying to mark the system as invalid, but the error service is not available.',
+                            message,
+                            source);
 
             // We can't do anything else. The server will crash.
             throw new Error('SystemValidationService is trying to mark the system as invalid, but the error service is not available.');
@@ -66,20 +62,10 @@ class SystemValidationService extends BaseService {
 
         // If we're in dev mode...
         if ( this.global_config.env === 'dev' ) {
-            // Display a permanent message in the console
-            const svc_devConsole = this.services.get('dev-console');
-            svc_devConsole.turn_on_the_warning_lights();
-            /**
-            * Turns on the warning lights in the developer console and adds a widget indicating that the system is in an invalid state.
-            * This is used in development mode to provide a visual indicator of the invalid state without shutting down the server.
-            *
-            * @returns {void}
-            */
-            svc_devConsole.add_widget(() => {
-                return `\x1B[33;1m *** SYSTEM IS IN AN INVALID STATE *** \x1B[0m`;
-            });
-
-            // Don't shut down
+            const realConsole = globalThis.original_console_object ?? console;
+            realConsole.error('\n*** SYSTEM IS IN AN INVALID STATE ***');
+            realConsole.error(message);
+            realConsole.error('Resolve the error above to clear this state.\n');
             return;
         }
 
@@ -87,7 +73,7 @@ class SystemValidationService extends BaseService {
         for ( let i = 0; i < 5; i++ ) {
             // After 5 minutes, raise another alarm
             await new Promise(rslv => setTimeout(rslv, 60 * 5000));
-            this.errors.report(`INVALID SYSTEM STATE (Reminder ${i+1})`, {
+            this.errors.report(`INVALID SYSTEM STATE (Reminder ${i + 1})`, {
                 source,
                 message,
                 trace: true,

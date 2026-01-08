@@ -20,22 +20,22 @@
  * Polyfill written by Chat GPT that increases the highest suppored
  * radix on Number.prototype.toString from 36 to 62.
  */
-(function() {
+(function () {
     const originalToString = Number.prototype.toString;
 
-    const characters = "0123456789abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ";
+    const characters = '0123456789abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ';
     const base = characters.length; // 62
 
-    Number.prototype.toString = function(radix) {
+    Number.prototype.toString = function (radix) {
         // Use the original toString for bases 36 or lower
-        if (!radix || radix <= 36) {
+        if ( !radix || radix <= 36 ) {
             return originalToString.call(this, radix);
         }
 
         // Custom implementation for base 62
         let value = this;
         let result = '';
-        while (value > 0) {
+        while ( value > 0 ) {
             result = characters[value % base] + result;
             value = Math.floor(value / base);
         }

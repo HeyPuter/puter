@@ -1,11 +1,20 @@
 {
     "extends": "../tsconfig.json",
+    "noEmit": true,
     "compilerOptions": {
-        "rootDir": ".."
+        "noEmit": true,
+        "target": "es6",
+        "module": "esnext",
+        "lib": ["ESNext"],
+        "moduleResolution": "bundler",
+        "outDir": "build",
+        "esModuleInterop": true,
+        "types": ["vitest/globals"]
     },
     "include": [
-        "**/*.ts",
-        "**/*.tsx"
+        "../**/*.test.mts",
+        "../**/*.test.ts",
+        "./puterJsApiTests/testUtil.ts"
     ],
     "exclude": [
         "node_modules"

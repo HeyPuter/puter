@@ -1,18 +1,18 @@
 /*
  * Copyright (C) 2024-present Puter Technologies Inc.
- * 
+ *
  * This file is part of Puter.
- * 
+ *
  * Puter is free software: you can redistribute it and/or modify
  * it under the terms of the GNU Affero General Public License as published
  * by the Free Software Foundation, either version 3 of the License, or
  * (at your option) any later version.
- * 
+ *
  * This program is distributed in the hope that it will be useful,
  * but WITHOUT ANY WARRANTY; without even the implied warranty of
  * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
  * GNU Affero General Public License for more details.
- * 
+ *
  * You should have received a copy of the GNU Affero General Public License
  * along with this program.  If not, see <https://www.gnu.org/licenses/>.
  */
@@ -24,16 +24,16 @@ lib.buf2hex = (buffer) => { // buffer is an ArrayBuffer
     return [...new Uint8Array(buffer)]
         .map(x => x.toString(16).padStart(2, '0'))
         .join('');
-}
+};
 
 // Tiny inline little-endian integer library
-lib.get_int = (n_bytes, array8, signed=false) => {
+lib.get_int = (n_bytes, array8, signed = false) => {
     return (v => signed ? v : v >>> 0)(
-        array8.slice(0,n_bytes).reduce((v,e,i)=>v|=e<<8*i,0));
-}
+                    array8.slice(0, n_bytes).reduce((v, e, i) => v |= e << 8 * i, 0));
+};
 lib.to_int = (n_bytes, num) => {
-    return (new Uint8Array()).map((_,i)=>(num>>8*i)&0xFF);
-}
+    return (new Uint8Array()).map((_, i) => (num >> 8 * i) & 0xFF);
+};
 
 class ATStream {
     constructor ({ delegate, acc, transform, observe }) {
@@ -44,7 +44,9 @@ class ATStream {
         this.state = {};
         this.carry = [];
     }
-    [Symbol.asyncIterator]() { return this; }
+    [Symbol.asyncIterator] () {
+        return this;
+    }
     async next_value_ () {
         if ( this.carry.length > 0 ) {
             return {
@@ -58,7 +60,7 @@ class ATStream {
         return value;
     }
     async next_ () {
-        for (;;) {
+        for ( ;; ) {
             const ret = await this.next_value_();
             if ( ret.done ) return ret;
             const v = await this.acc({
@@ -67,14 +69,13 @@ class ATStream {
                 carry: v => this.carry.push(v),
             });
             if ( this.carry.length > 0 && v === undefined ) {
-                throw new Error(`no value, but carry value exists`);
+                throw new Error('no value, but carry value exists');
             }
             if ( v === undefined ) continue;
             // We have a value, clear the state!
             this.state = {};
             if ( this.transform ) {
-                const new_value = await this.transform(
-                    { value: ret.value });
+                const new_value = await this.transform({ value: ret.value });
                 return { ...ret, value: new_value };
             }
             return { ...ret, value: v };
@@ -95,10 +96,11 @@ class ATStream {
 const NewCallbackByteStream = () => {
     let listener;
     let queue = [];
-    const NOOP = () => {};
+    const NOOP = () => {
+    };
     let signal = NOOP;
     (async () => {
-        for (;;) {
+        for ( ;; ) {
             const v = await new Promise((rslv, rjct) => {
                 listener = rslv;
             });
@@ -107,7 +109,7 @@ const NewCallbackByteStream = () => {
         }
     })();
     const stream = {
-        [Symbol.asyncIterator](){
+        [Symbol.asyncIterator] () {
             return this;
         },
         async next () {
@@ -123,13 +125,13 @@ const NewCallbackByteStream = () => {
             signal = NOOP;
             const v = queue.shift();
             return { value: v, done: false };
-        }
+        },
     };
     stream.listener = data => {
         listener(data);
     };
     return stream;
-}
+};
 
 const NewVirtioFrameStream = byteStream => {
     return new ATStream({
@@ -150,39 +152,38 @@ const NewVirtioFrameStream = byteStream => {
                 const size = lib.get_int(4, value);
                 // 512MiB limit in case of attempted abuse or a bug
                 // (assuming this won't happen under normal conditions)
-                if ( size > 512*(1024**2) ) {
+                if ( size > 512 * (1024 ** 2) ) {
                     throw new Error(`Way too much data! (${size} bytes)`);
                 }
                 value = value.slice(4);
                 this.state.buffer = new Uint8Array(size);
                 this.state.index = 0;
             }
-                
+
             const needed = this.state.buffer.length - this.state.index;
             if ( value.length > needed ) {
                 const remaining = value.slice(needed);
                 console.log('we got more bytes than we needed',
-                    needed,
-                    remaining,
-                    value.length,
-                    this.state.buffer.length,
-                    this.state.index,
-                );
+                                needed,
+                                remaining,
+                                value.length,
+                                this.state.buffer.length,
+                                this.state.index);
                 carry(remaining);
             }
-            
+
             const amount = Math.min(value.length, needed);
             const added = value.slice(0, amount);
             this.state.buffer.set(added, this.state.index);
             this.state.index += amount;
-            
+
             if ( this.state.index > this.state.buffer.length ) {
                 throw new Error('WUT');
             }
             if ( this.state.index == this.state.buffer.length ) {
                 return this.state.buffer;
             }
-        }
+        },
     });
 };
 
@@ -197,22 +198,22 @@ const wisp_types = [
             return {
                 buffer_size: lib.get_int(4, payload),
             };
-        }
+        },
     },
     {
         id: 5,
         label: 'INFO',
         describe: ({ payload }) => {
-            return `v${payload[0]}.${payload[1]} ` +
-                lib.buf2hex(payload.slice(2));
+            return `v${payload[0]}.${payload[1]} ${
+                lib.buf2hex(payload.slice(2))}`;
         },
         getAttributes ({ payload }) {
             return {
                 version_major: payload[0],
                 version_minor: payload[1],
                 extensions: payload.slice(2),
-            }
-        }
+            };
+        },
     },
 ];
 
@@ -252,16 +253,16 @@ class WispPacket {
         return arry;
     }
     describe () {
-        return this.type.label + '(' +
-            (this.type.describe?.({
+        return `${this.type.label }(${
+            this.type.describe?.({
                 payload: this.data_.slice(5),
-            }) ?? '?') + ')';
+            }) ?? '?' })`;
     }
     log () {
         const arrow =
             this.direction === this.constructor.SEND ? '->' :
-            this.direction === this.constructor.RECV ? '<-' :
-            '<>' ;
+                this.direction === this.constructor.RECV ? '<-' :
+                    '<>' ;
         console.groupCollapsed(`WISP ${arrow} ${this.describe()}`);
         const attrs = this.attributes;
         for ( const k in attrs ) {
@@ -275,12 +276,12 @@ class WispPacket {
             direction:
                 this.direction === this.constructor.SEND ?
                     this.constructor.RECV :
-                this.direction === this.constructor.RECV ?
-                    this.constructor.SEND :
-                undefined,
+                    this.direction === this.constructor.RECV ?
+                        this.constructor.SEND :
+                        undefined,
             extra: {
                 reflectedFrom: this,
-            }
+            },
         });
         return reflected;
     }
@@ -301,9 +302,9 @@ const NewWispPacketStream = frameStream => {
         },
         observe ({ value }) {
             value.log();
-        }
+        },
     });
-}
+};
 
 class WispClient {
     constructor ({

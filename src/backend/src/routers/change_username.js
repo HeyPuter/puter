@@ -16,7 +16,7 @@
  * You should have received a copy of the GNU Affero General Public License
  * along with this program.  If not, see <https://www.gnu.org/licenses/>.
  */
-"use strict"
+'use strict';
 const config = require('../config');
 const eggspress = require('../api/eggspress.js');
 const { Context } = require('../util/context.js');
@@ -31,7 +31,7 @@ module.exports = eggspress('/change_username', {
     allowedMethods: ['POST'],
 }, async (req, res, next) => {
 
-    const {username_exists, change_username} = require('../helpers');
+    const { username_exists, change_username } = require('../helpers');
 
     const actor = Context.get('actor');
 
@@ -41,18 +41,28 @@ module.exports = eggspress('/change_username', {
     }
 
     // validation
-    if(!req.body.new_username)
+    if ( ! req.body.new_username )
+    {
         throw APIError.create('field_missing', null, { key: 'new_username' });
+    }
     // new_username must be a string
-    else if(typeof req.body.new_username !== 'string')
+    else if ( typeof req.body.new_username !== 'string' )
+    {
         throw APIError.create('field_invalid', null, { key: 'new_username', expected: 'a string' });
-    else if(!req.body.new_username.match(config.username_regex))
+    }
+    else if ( ! req.body.new_username.match(config.username_regex) )
+    {
         throw APIError.create('field_invalid', null, { key: 'new_username', expected: 'letters, numbers, underscore (_)' });
-    else if(req.body.new_username.length > config.username_max_length)
+    }
+    else if ( req.body.new_username.length > config.username_max_length )
+    {
         throw APIError.create('field_too_long', null, { key: 'new_username', max_length: config.username_max_length });
+    }
     // duplicate username check
-    if(await username_exists(req.body.new_username))
+    if ( await username_exists(req.body.new_username) )
+    {
         throw APIError.create('username_already_in_use', null, { username: req.body.new_username });
+    }
 
     const svc_edgeRateLimit = req.services.get('edge-rate-limit');
     if ( ! svc_edgeRateLimit.check('change-email-start') ) {
@@ -62,33 +72,29 @@ module.exports = eggspress('/change_username', {
     const db = Context.get('services').get('database').get(DB_WRITE, 'auth');
 
     // Has the user already changed their username twice this month?
-    const rows = await db.read(
-        'SELECT COUNT(*) AS `count` FROM `user_update_audit` ' +
-        'WHERE `user_id`=? AND `reason`=? AND ' +
-        db.case({
-            mysql: '`created_at` > DATE_SUB(NOW(), INTERVAL 1 MONTH)',
-            sqlite: "`created_at` > datetime('now', '-1 month')",
-        }),
-        [ req.user.id, 'change_username' ]
-    );
+    const rows = await db.read('SELECT COUNT(*) AS `count` FROM `user_update_audit` ' +
+        `WHERE \`user_id\`=? AND \`reason\`=? AND ${
+            db.case({
+                mysql: '`created_at` > DATE_SUB(NOW(), INTERVAL 1 MONTH)',
+                sqlite: "`created_at` > datetime('now', '-1 month')",
+            })}`,
+    [ req.user.id, 'change_username' ]);
 
     if ( rows[0].count >= 2 ) {
         throw APIError.create('too_many_username_changes');
     }
 
     // Update username change audit table
-    await db.write(
-        'INSERT INTO `user_update_audit` ' +
+    await db.write('INSERT INTO `user_update_audit` ' +
         '(`user_id`, `user_id_keep`, `old_username`, `new_username`, `reason`) ' +
         'VALUES (?, ?, ?, ?, ?)',
-        [
-            req.user.id, req.user.id,
-            req.user.username, req.body.new_username,
-            'change_username'
-        ]
-    );
+    [
+        req.user.id, req.user.id,
+        req.user.username, req.body.new_username,
+        'change_username',
+    ]);
 
-    await change_username(req.user.id, req.body.new_username)
+    await change_username(req.user.id, req.body.new_username);
 
     res.json({});
 });

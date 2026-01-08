@@ -1,4 +1,3 @@
-// METADATA // {"ai-commented":{"service":"xai"}}
 /*
  * Copyright (C) 2024-present Puter Technologies Inc.
  *
@@ -29,7 +28,7 @@ const Statement = function Statement ({ statement, values }) {
     return {
         statement, values,
     };
-}
+};
 
 module.exports = {
     Statement,

@@ -1,4 +1,3 @@
-// METADATA // {"ai-commented":{"service":"mistral","model":"mistral-large-latest"}}
 /*
  * Copyright (C) 2024-present Puter Technologies Inc.
  *
@@ -21,7 +20,6 @@ const Jimp = require('jimp');
 const BaseService = require('../BaseService');
 const { stream_to_buffer } = require('../../util/streamutil');
 
-
 /**
 * @class PureJSThumbnailService
 * @extends BaseService
@@ -40,12 +38,12 @@ class PureJSThumbnailService extends BaseService {
 
     static LIMIT = 400 * 1024 * 1024;
     static SUPPORTED_MIMETYPES = [
-        "image/jpeg",
-        "image/png",
-        "image/bmp",
-        "image/tiff",
-        "image/gif"
-    ]
+        'image/jpeg',
+        'image/png',
+        'image/bmp',
+        'image/tiff',
+        'image/gif',
+    ];
 
     static MODULES = {
         jimp: require('jimp'),
@@ -57,7 +55,6 @@ class PureJSThumbnailService extends BaseService {
     is_supported_size (size) {
         return size <= this.constructor.LIMIT;
     }
-
 
     /**
     * Generates a thumbnail for the provided file.

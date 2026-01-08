@@ -1,9 +1,5 @@
 export default [
     {
-        id: 'ai.prompt.check-usage',
-        description: `
-            This event is emitted for ai prompt check usage operations.
-        `,
         properties: {
             completionId: {
                 type: 'any',

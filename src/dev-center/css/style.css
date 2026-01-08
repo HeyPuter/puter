@@ -1274,6 +1274,81 @@ dialog{
     margin-top: 5px;
 }
 
+.preview-images-help {
+    color: #666;
+    font-size: 13px;
+    margin-top: 5px;
+    margin-bottom: 10px;
+}
+
+.preview-images-container {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(260px, 1fr));
+    gap: 15px;
+    margin-top: 10px;
+}
+
+.preview-device {
+    border: 1px solid #e5e5e5;
+    border-radius: 6px;
+    padding: 12px;
+    background: #fafafa;
+}
+
+.preview-device-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    margin-bottom: 10px;
+}
+
+.preview-device-title {
+    font-weight: 600;
+    color: #333;
+}
+
+.preview-count {
+    font-weight: 400;
+    color: #666;
+    margin-left: 6px;
+    font-size: 13px;
+}
+
+.preview-grid {
+    display: flex;
+    gap: 10px;
+    flex-wrap: wrap;
+    min-height: 90px;
+}
+
+.preview-thumb {
+    width: 120px;
+    height: 90px;
+    border-radius: 5px;
+    background-size: cover;
+    background-position: center;
+    background-repeat: no-repeat;
+    position: relative;
+    border: 1px solid #ddd;
+    overflow: hidden;
+}
+
+.remove-preview-image {
+    position: absolute;
+    top: 4px;
+    right: 6px;
+    background: rgba(0, 0, 0, 0.6);
+    color: #fff;
+    border-radius: 50%;
+    width: 18px;
+    height: 18px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    cursor: pointer;
+    font-size: 12px;
+}
+
 .app-categories {
     margin-top: 4px;
     display: flex;

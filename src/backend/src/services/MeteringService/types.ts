@@ -1,6 +1,6 @@
 import type { AlarmService } from '../../modules/core/AlarmService';
 import type { EventService } from '../EventService';
-import type { DBKVStore } from '../repositories/DBKVStore/DBKVStore';
+import { DynamoKVStore } from '../repositories/DynamoKVStore/DynamoKVStore';
 import type { SUService } from '../SUService';
 
 export interface UsageAddons {
@@ -20,14 +20,14 @@ export interface UsageRecord {
     units: number
 }
 
-export type UsageByType = { [k:string]: number | UsageRecord } & { total: number };
+export type UsageByType = { total: number } & Partial<Record<Exclude<string, 'total'>, UsageRecord>>;
 
 export interface AppTotals {
     total: number,
     count: number
 }
 export interface MeteringServiceDeps {
-    kvStore: DBKVStore,
+    kvStore: DynamoKVStore,
     superUserService: SUService,
     alarmService: AlarmService
     eventService: EventService

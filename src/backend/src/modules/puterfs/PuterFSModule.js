@@ -24,6 +24,7 @@ const selectors = require('../../filesystem/node/selectors');
 const { RuntimeModule } = require('../../extension/RuntimeModule');
 const { MODE_READ, MODE_WRITE } = require('../../services/fs/FSLockService');
 const { UploadProgressTracker } = require('../../filesystem/storage/UploadProgressTracker');
+const { PuterPath } = require('../../filesystem/lib/PuterPath');
 
 class PuterFSModule extends AdvancedBase {
     async install (context) {
@@ -38,6 +39,7 @@ class PuterFSModule extends AdvancedBase {
                 capabilities,
                 selectors,
                 FSNodeContext,
+                PuterPath,
                 lock: {
                     MODE_READ,
                     MODE_WRITE,
@@ -55,20 +57,11 @@ class PuterFSModule extends AdvancedBase {
         const { ResourceService } = require('./ResourceService');
         services.registerService('resourceService', ResourceService);
 
-        const { DatabaseFSEntryService } = require('./DatabaseFSEntryService');
-        services.registerService('fsEntryService', DatabaseFSEntryService);
-
         const { SizeService } = require('./SizeService');
         services.registerService('sizeService', SizeService);
 
         const { MountpointService } = require('./MountpointService');
         services.registerService('mountpoint', MountpointService);
-
-        // const { PuterFSService } = require('./PuterFSService');
-        // services.registerService('puterfs', PuterFSService);
-
-        const DatabaseFSEntryFetcher = require('./DatabaseFSEntryFetcher');
-        services.registerService('fsEntryFetcher', DatabaseFSEntryFetcher);
 
         const { MemoryFSService } = require('./customfs/MemoryFSService');
         services.registerService('memoryfs', MemoryFSService);

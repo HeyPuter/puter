@@ -51,7 +51,7 @@ const simple_retry = async function simple_retry (func, max_tries, interval) {
     return [last_error, false];
 };
 
-const poll = async function poll({ poll_fn, schedule_fn }) {
+const poll = async function poll ({ poll_fn, schedule_fn }) {
     let delay;
 
     while ( true ) {
@@ -62,7 +62,7 @@ const poll = async function poll({ poll_fn, schedule_fn }) {
         delay = schedule_fn(delay);
         await new Promise((resolve) => setTimeout(resolve, delay));
     }
-}
+};
 
 module.exports = {
     simple_retry,

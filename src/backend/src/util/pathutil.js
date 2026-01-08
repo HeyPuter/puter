@@ -16,7 +16,7 @@
  * You should have received a copy of the GNU Affero General Public License
  * along with this program.  If not, see <https://www.gnu.org/licenses/>.
  */
-const { AdvancedBase } = require("../../../putility");
+const { AdvancedBase } = require('../../../putility');
 
 /**
  * PathBuilder implements the builder pattern for building paths.
@@ -26,9 +26,9 @@ const { AdvancedBase } = require("../../../putility");
 class PathBuilder extends AdvancedBase {
     static MODULES = {
         path: require('path'),
-    }
+    };
 
-    constructor(parameters = {}) {
+    constructor (parameters = {}) {
         super();
         if ( parameters.puterfs ) {
             this.modules.path =
@@ -53,17 +53,17 @@ class PathBuilder extends AdvancedBase {
         const node_path = require('path');
         fragment = node_path.resolve(fragment);
         if ( process.platform === 'win32' && !parameters.puterfs ) {
-            fragment = '/' + fragment.slice('c:\\'.length); // >:-(
+            fragment = `/${ fragment.slice('c:\\'.length)}`; // >:-(
         }
         let result = p.add(fragment).build();
         if ( puterfs && process.platform === 'win32' &&
             result.startsWith('\\')
         ) {
-            result = '/' + result.slice(1);
+            result = `/${ result.slice(1)}`;
         }
         return result;
     }
-    
+
     add (fragment, options) {
         const require = this.require;
         const node_path = require('path');

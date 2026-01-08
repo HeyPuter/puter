@@ -3,7 +3,7 @@ import * as utils from '../../lib/utils.js';
 import path from '../../lib/path.js';
 
 // Constants
-// 
+//
 // The last valid time of the local cache.
 const LAST_VALID_TS = 'last_valid_ts';
 
@@ -20,15 +20,11 @@ import stat from './operations/stat.js';
 import symlink from './operations/symlink.js';
 import upload from './operations/upload.js';
 import write from './operations/write.js';
-// Why is this called deleteFSEntry instead of just delete? because delete is
-// a reserved keyword in javascript
-import { AdvancedBase } from '../../../../putility/index.js';
 import FSItem from '../FSItem.js';
 import deleteFSEntry from './operations/deleteFSEntry.js';
 import getReadURL from './operations/getReadUrl.js';
 
-
-export class PuterJSFileSystemModule extends AdvancedBase {
+export class PuterJSFileSystemModule {
 
     space = space;
     mkdir = mkdir;
@@ -49,17 +45,6 @@ export class PuterJSFileSystemModule extends AdvancedBase {
 
     FSItem = FSItem;
 
-    static NARI_METHODS = {
-        // stat: {
-        //     positional: ['path'],
-        //     firstarg_options: true,
-        //     async fn (parameters) {
-        //         const svc_fs = await this.context.services.aget('filesystem');
-        //         return svc_fs.filesystem.stat(parameters);
-        //     }
-        // },
-    };
-
     /**
      * Creates a new instance with the given authentication token, API origin, and app ID,
      * and connects to the socket.
@@ -69,12 +54,11 @@ export class PuterJSFileSystemModule extends AdvancedBase {
      * @param {string} APIOrigin - Origin of the API server. Used to build the API endpoint URLs.
      * @param {string} appID - ID of the app to use.
      */
-    constructor(context) {
-        super();
-        this.authToken = context.authToken;
-        this.APIOrigin = context.APIOrigin;
-        this.appID = context.appID;
-        this.context = context;
+    constructor (puter) {
+        this.puter = puter;
+        this.authToken = puter.authToken;
+        this.APIOrigin = puter.APIOrigin;
+        this.appID = puter.appID;
         this.cacheUpdateTimer = null;
         // Connect socket.
         this.initializeSocket();
@@ -99,7 +83,7 @@ export class PuterJSFileSystemModule extends AdvancedBase {
      * @memberof FileSystem
      * @returns {void}
      */
-    initializeSocket() {
+    initializeSocket () {
         if ( this.socket ) {
             this.socket.disconnect();
         }
@@ -108,13 +92,13 @@ export class PuterJSFileSystemModule extends AdvancedBase {
             auth: {
                 auth_token: this.authToken,
             },
-            autoUnref: this.context.env === 'nodejs',
+            autoUnref: this.puter.env === 'nodejs',
         });
 
         this.bindSocketEvents();
     }
 
-    bindSocketEvents() {
+    bindSocketEvents () {
         // this.socket.on('cache.updated', (msg) => {
         //     // check original_client_socket_id and if it matches this.socket.id, don't post update
         //     if (msg.original_client_socket_id !== this.socket.id) {
@@ -135,11 +119,11 @@ export class PuterJSFileSystemModule extends AdvancedBase {
 
         this.socket.on('item.added', (item) => {
             // remove readdir cache for parent
-            puter._cache.del('readdir:' + path.dirname(item.path));
-            console.log('deleted cache for readdir:' + path.dirname(item.path));
+            puter._cache.del(`readdir:${ path.dirname(item.path)}`);
+            console.log(`deleted cache for readdir:${ path.dirname(item.path)}`);
             // remove item cache for parent directory
-            puter._cache.del('item:' + path.dirname(item.path));
-            console.log('deleted cache for item:' + path.dirname(item.path));
+            puter._cache.del(`item:${ path.dirname(item.path)}`);
+            console.log(`deleted cache for item:${ path.dirname(item.path)}`);
         });
 
         this.socket.on('item.updated', (item) => {
@@ -209,11 +193,11 @@ export class PuterJSFileSystemModule extends AdvancedBase {
      * @memberof [FileSystem]
      * @returns {void}
      */
-    setAuthToken(authToken) {
+    setAuthToken (authToken) {
         this.authToken = authToken;
 
         // Check cache timestamp and purge if needed (only in GUI environment)
-        if (this.context.env === 'gui') {
+        if ( this.puter.env === 'gui' ) {
             this.checkCacheAndPurge();
             // Start background task to update LAST_VALID_TS every 1 second
             this.startCacheUpdateTimer();
@@ -230,7 +214,7 @@ export class PuterJSFileSystemModule extends AdvancedBase {
      * @memberof [Apps]
      * @returns {void}
      */
-    setAPIOrigin(APIOrigin) {
+    setAPIOrigin (APIOrigin) {
         this.APIOrigin = APIOrigin;
         // reset socket
         this.initializeSocket();
@@ -242,7 +226,7 @@ export class PuterJSFileSystemModule extends AdvancedBase {
      * @memberof PuterJSFileSystemModule
      * @returns {void}
      */
-    invalidateCache() {
+    invalidateCache () {
         // Action: Update last valid time
         // Set to 0, which means the cache is not up to date.
         localStorage.setItem(LAST_VALID_TS, '0');
@@ -255,10 +239,10 @@ export class PuterJSFileSystemModule extends AdvancedBase {
      * @memberof PuterJSFileSystemModule
      * @returns {Promise<number>} The timestamp from the server
      */
-    async getCacheTimestamp() {
+    async getCacheTimestamp () {
         return new Promise((resolve, reject) => {
             const xhr = utils.initXhr('/cache/last-change-timestamp', this.APIOrigin, this.authToken, 'get', 'application/json');
-            
+
             // set up event handlers for load and error events
             utils.setupXhrEventHandlers(xhr, undefined, undefined, async (result) => {
                 try {
@@ -280,18 +264,18 @@ export class PuterJSFileSystemModule extends AdvancedBase {
      * @memberof PuterJSFileSystemModule
      * @returns {void}
      */
-    async checkCacheAndPurge() {
+    async checkCacheAndPurge () {
         try {
             const serverTimestamp = await this.getCacheTimestamp();
             const localValidTs = parseInt(localStorage.getItem(LAST_VALID_TS)) || 0;
-            
-            if (serverTimestamp - localValidTs > 2000) {
+
+            if ( serverTimestamp - localValidTs > 2000 ) {
                 console.log('Cache is not up to date, purging cache');
                 // Server has newer data, purge local cache
                 puter._cache.flushall();
                 localStorage.setItem(LAST_VALID_TS, '0');
             }
-        } catch (error) {
+        } catch ( error ) {
             // If we can't get the server timestamp, silently fail
             // This ensures the socket initialization doesn't break
             console.error('Error checking cache timestamp:', error);
@@ -305,8 +289,8 @@ export class PuterJSFileSystemModule extends AdvancedBase {
      * @memberof PuterJSFileSystemModule
      * @returns {void}
      */
-    startCacheUpdateTimer() {
-        if (this.context.env !== 'gui') {
+    startCacheUpdateTimer () {
+        if ( this.puter.env !== 'gui' ) {
             return;
         }
 
@@ -325,8 +309,8 @@ export class PuterJSFileSystemModule extends AdvancedBase {
      * @memberof PuterJSFileSystemModule
      * @returns {void}
      */
-    stopCacheUpdateTimer() {
-        if (this.cacheUpdateTimer) {
+    stopCacheUpdateTimer () {
+        if ( this.cacheUpdateTimer ) {
             clearInterval(this.cacheUpdateTimer);
             this.cacheUpdateTimer = null;
         }

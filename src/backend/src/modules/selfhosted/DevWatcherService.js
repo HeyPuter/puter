@@ -16,8 +16,8 @@
  * You should have received a copy of the GNU Affero General Public License
  * along with this program.  If not, see <https://www.gnu.org/licenses/>.
  */
-const { webpack, web } = require("webpack");
-const BaseService = require("../../services/BaseService");
+const { webpack, web } = require('webpack');
+const BaseService = require('../../services/BaseService');
 
 const path_ = require('node:path');
 const fs = require('node:fs');
@@ -31,7 +31,7 @@ class ProxyLogger {
         stream.on('data', (chunk) => {
             buffer += chunk.toString();
             let lineEndIndex = buffer.indexOf('\n');
-            while (lineEndIndex !== -1) {
+            while ( lineEndIndex !== -1 ) {
                 const line = buffer.substring(0, lineEndIndex);
                 this.log(line);
                 buffer = buffer.substring(lineEndIndex + 1);
@@ -40,7 +40,7 @@ class ProxyLogger {
         });
 
         stream.on('end', () => {
-            if (buffer.length) {
+            if ( buffer.length ) {
                 this.log(buffer);
             }
         });
@@ -60,7 +60,7 @@ class DevWatcherService extends BaseService {
     async _init (args) {
         this.args = args;
     }
-    
+
     // Oh geez we need to wait for the web server to initialize
     // so that `config.origin` has the actual port in it if the
     // port is set to `auto` - you have no idea how confusing
@@ -71,12 +71,11 @@ class DevWatcherService extends BaseService {
 
         let { root, commands, webpack } = this.args;
         if ( ! webpack ) webpack = [];
-        
+
         let promises = [];
         for ( const entry of commands ) {
             const { directory } = entry;
-            const fullpath = this.modules.path.join(
-                root, directory);
+            const fullpath = this.modules.path.join(root, directory);
             // promises.push(this.start_({ ...entry, fullpath }));
             promises.push(svc_process.start({ ...entry, fullpath }));
         }
@@ -118,7 +117,7 @@ class DevWatcherService extends BaseService {
             const packageJSONObject = JSON.parse(fs.readFileSync(packageJSONPath));
             moduleType = packageJSONObject?.type ?? 'module';
         }
-        
+
         return {
             configjsPath,
             moduleType,
@@ -140,7 +139,7 @@ class DevWatcherService extends BaseService {
             configIsFor: 'webpack', // for error message
             possibleConfigNames,
         });
-        
+
         let oldEnv;
 
         if ( entry.env ) {
@@ -153,7 +152,7 @@ class DevWatcherService extends BaseService {
             } catch (e) {
                 // Config service not available yet, will use null
             }
-            
+
             for ( const k in entry.env ) {
                 const envValue = entry.env[k];
                 // If it's a function, call it with the config, otherwise use the value directly
@@ -169,8 +168,8 @@ class DevWatcherService extends BaseService {
                         // If config is not available yet, don't set the env var
                         // This allows the webpack config to use its fallback values from config files
                         // Only log if it's not a null/undefined access error (which is expected)
-                        if ( !e.message.includes('Cannot read properties of null') && 
-                             !e.message.includes('Cannot read properties of undefined') ) {
+                        if ( !e.message.includes('Cannot read properties of null') &&
+                            !e.message.includes('Cannot read properties of undefined') ) {
                             this.log.warn(`Could not evaluate env function for ${k}: ${e.message}`);
                         }
                     }
@@ -183,22 +182,22 @@ class DevWatcherService extends BaseService {
         let webpackConfig = moduleType === 'module'
             ? (await import(webpackConfigPath)).default
             : require(webpackConfigPath);
-        
+
         // The webpack config can sometimes be a function
         if ( typeof webpackConfig === 'function' ) {
             webpackConfig = await webpackConfig();
         }
 
         if ( oldEnv ) process.env = oldEnv;
-        
+
         webpackConfig.context = webpackConfig.context
             ? path_.resolve(path_.join(this.args.root, entry.directory), webpackConfig.context)
             : path_.join(this.args.root, entry.directory);
-            
+
         if ( entry.onConfig ) entry.onConfig(webpackConfig);
 
         const webpacker = webpack(webpackConfig);
-        
+
         let errorAfterLastEnd = false;
         let firstEvent = true;
         webpacker.watch({}, (err, stats) => {
@@ -207,7 +206,7 @@ class DevWatcherService extends BaseService {
                 firstEvent = false;
                 hideSuccess = true;
             }
-            if (err || stats.hasErrors()) {
+            if ( err || stats.hasErrors() ) {
                 // Extract error information without serializing the entire stats object
                 const errorInfo = {
                     err: err ? err.message : null,

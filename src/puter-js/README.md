@@ -59,7 +59,7 @@ const puter = require('@heyputer/puter.js');
 require('@heyputer/puter.js'); // puter will be available globally
 ```
 
-### Node.js (with Auth Token)
+#### Node.js (with Auth Token)
 
 ```js
 const {init} = require("@heyputer/puter.js/src/init.cjs"); // NODE JS ONLY
@@ -85,6 +85,15 @@ puter.ai.chat('What color was Napoleon\'s white horse?').then(response => {
   puter.print(response);
 });
 ```
+
+<br>
+
+## Starter Templates
+
+You can also use one of the following templates:
+
+- Client-side projects: [Angular](https://github.com/HeyPuter/angular), [React](https://github.com/HeyPuter/react), [Next.js](https://github.com/HeyPuter/next.js), [Vue.js](https://github.com/HeyPuter/vue.js), [Vanilla.js](https://github.com/HeyPuter/vanilla.js)
+- Node.js + Express: [Node.js + Express template](https://github.com/HeyPuter/node.js-express.js)
 
 <br>
 

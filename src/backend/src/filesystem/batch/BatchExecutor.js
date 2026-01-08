@@ -31,7 +31,7 @@ class BatchExecutor extends AdvancedBase {
     constructor (x, { actor, log, errors }) {
         super();
         this.x = x;
-        this.actor = actor
+        this.actor = actor;
         this.pathResolver = new PathResolver({ actor });
         this.expectations = x.get('services').get('expectations');
         this.log = log;
@@ -46,7 +46,7 @@ class BatchExecutor extends AdvancedBase {
         this.concurrent_ops = 0;
         this.max_concurrent_ops = 20;
         this.ops_promise = null;
-        
+
         this.log_batchCommands = (config.logging ?? []).includes('batch-commands');
     }
 
@@ -63,10 +63,6 @@ class BatchExecutor extends AdvancedBase {
         }
 
         this.concurrent_ops++;
-        if ( config.env == 'dev' ) {
-            const wid = this.x.get('dev_batch-widget');
-            wid.ops++;
-        }
 
         const { expectations } = this;
         const command_cls = commands[op.op];
@@ -78,7 +74,7 @@ class BatchExecutor extends AdvancedBase {
         const workUnit = WorkUnit.create();
         expectations.expect_eventually({
             workUnit,
-            checkpoint: 'operation responded'
+            checkpoint: 'operation responded',
         });
 
         // TEMP: event service will handle this
@@ -87,7 +83,7 @@ class BatchExecutor extends AdvancedBase {
 
         // run the operation
         let p = this.x.arun(async () => {
-            const x= Context.get();
+            const x = Context.get();
             if ( ! x ) throw new Error('no context');
 
             try {
@@ -97,12 +93,12 @@ class BatchExecutor extends AdvancedBase {
                     });
                 }
 
-                if ( file ) workUnit.checkpoint(
-                    'about to run << ' +
-                    (file.originalname ?? file.name) +
-                    ' >> ' +
-                    JSON.stringify(op)
-                );
+                if ( file ) {
+                    workUnit.checkpoint(`about to run << ${
+                        file.originalname ?? file.name
+                    } >> ${
+                        JSON.stringify(op)}`);
+                }
                 const command_ins = await command_cls.run({
                     getFile: () => file,
                     pathResolver: this.pathResolver,
@@ -153,10 +149,6 @@ class BatchExecutor extends AdvancedBase {
                 const serialized_error = e.serialize();
                 return serialized_error;
             } finally {
-                if ( config.env == 'dev' ) {
-                    const wid = x.get('dev_batch-widget');
-                    wid.ops--;
-                }
                 this.concurrent_ops--;
                 if ( this.ops_promise && this.concurrent_ops < this.max_concurrent_ops ) {
                     this.ops_promise.resolve();

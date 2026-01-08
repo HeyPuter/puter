@@ -1,4 +1,3 @@
-// METADATA // {"ai-commented":{"service":"openai-completion","model":"gpt-4o-mini"}}
 /*
  * Copyright (C) 2024-present Puter Technologies Inc.
  *
@@ -17,17 +16,16 @@
  * You should have received a copy of the GNU Affero General Public License
  * along with this program.  If not, see <https://www.gnu.org/licenses/>.
  */
-const { AdvancedBase } = require("@heyputer/putility");
-
+const { AdvancedBase } = require('@heyputer/putility');
 
 /**
 * Class ServicePatch
-* 
-* This class extends the AdvancedBase class and provides functionality 
-* to apply patches to service methods dynamically. The patching mechanism 
-* ensures that the methods defined in the PATCH_METHODS static object 
-* are replaced with their respective patch implementations while maintaining 
-* a reference to the original service methods for potential fallback or 
+*
+* This class extends the AdvancedBase class and provides functionality
+* to apply patches to service methods dynamically. The patching mechanism
+* ensures that the methods defined in the PATCH_METHODS static object
+* are replaced with their respective patch implementations while maintaining
+* a reference to the original service methods for potential fallback or
 * additional processing.
 */
 class ServicePatch extends AdvancedBase {
@@ -37,7 +35,7 @@ class ServicePatch extends AdvancedBase {
             if ( typeof patch_methods[k] !== 'function' ) {
                 throw new Error(`Patch method ${k} to ${original_service.service_name} ` +
                     `from ${this.constructor.name} ` +
-                    `is not a function.`)
+                    'is not a function.');
             }
 
             const patch_method = patch_methods[k];
@@ -49,7 +47,7 @@ class ServicePatch extends AdvancedBase {
 
             original_service[k] = (...a) => {
                 return patch_method.call(this, patch_arguments, ...a);
-            }
+            };
         }
     }
 }

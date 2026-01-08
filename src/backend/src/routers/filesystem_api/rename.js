@@ -16,7 +16,7 @@
  * You should have received a copy of the GNU Affero General Public License
  * along with this program.  If not, see <https://www.gnu.org/licenses/>.
  */
-"use strict"
+'use strict';
 const eggspress = require('../../api/eggspress.js');
 const APIError = require('../../api/APIError.js');
 const { Context } = require('../../util/context.js');
@@ -38,12 +38,12 @@ module.exports = eggspress('/rename', {
         subject: new FSNodeParam('path'),
     },
 }, async (req, res, next) => {
-    if(!req.body.new_name) {
+    if ( ! req.body.new_name ) {
         throw APIError.create('field_missing', null, {
             key: 'new_name',
         });
     }
-    if (typeof req.body.new_name !== 'string') {
+    if ( typeof req.body.new_name !== 'string' ) {
         throw APIError.create('field_invalid', null, {
             key: 'new_name',
             expected: 'string',
@@ -54,17 +54,17 @@ module.exports = eggspress('/rename', {
     // modules
     const db = req.services.get('database').get(DB_WRITE, 'filesystem');
     const mime = require('mime-types');
-    const {get_app, validate_fsentry_name, id2path} = require('../../helpers.js');
+    const { get_app, validate_fsentry_name, id2path } = require('../../helpers.js');
     const _path = require('path');
 
     // new_name validation
-    try{
-        validate_fsentry_name(req.body.new_name)
-    }catch(e){
+    try {
+        validate_fsentry_name(req.body.new_name);
+    } catch (e) {
         return res.status(400).send({
-            error:{
-                message: e.message
-            }
+            error: {
+                message: e.message,
+            },
         });
     }
 
@@ -88,43 +88,41 @@ module.exports = eggspress('/rename', {
     let fsentry = subject.entry;
 
     // immutable
-    if(fsentry.immutable){
+    if ( fsentry.immutable ) {
         return res.status(400).send({
-            error:{
-                message: 'Immutable: cannot rename.'
-            }
-        })
+            error: {
+                message: 'Immutable: cannot rename.',
+            },
+        });
     }
 
     let res1;
 
     // parent is root
-    if(fsentry.parent_uid === null){
-        try{
-            res1 = await db.read(
-                `SELECT uuid FROM fsentries WHERE parent_uid IS NULL AND name = ? AND id != ? LIMIT 1`,
-                [
-                    //name
-                    req.body.new_name,
-                    await subject.get('mysql-id'),
-                ]);
-        }catch(e){
-            console.log(e)
+    if ( fsentry.parent_uid === null ) {
+        try {
+            res1 = await db.read('SELECT uuid FROM fsentries WHERE parent_uid IS NULL AND name = ? AND id != ? LIMIT 1',
+                            [
+                                //name
+                                req.body.new_name,
+                                await subject.get('mysql-id'),
+                            ]);
+        } catch (e) {
+            console.log(e);
         }
     }
     // parent is regular dir
-    else{
-        res1 = await db.read(
-            `SELECT uuid FROM fsentries WHERE parent_uid = ? AND name = ? AND id != ? LIMIT 1`,
-            [
-                //parent_uid
-                fsentry.parent_uid,
-                //name
-                req.body.new_name,
-                await subject.get('mysql-id'),
-            ]);
+    else {
+        res1 = await db.read('SELECT uuid FROM fsentries WHERE parent_uid = ? AND name = ? AND id != ? LIMIT 1',
+                        [
+                            //parent_uid
+                            fsentry.parent_uid,
+                            //name
+                            req.body.new_name,
+                            await subject.get('mysql-id'),
+                        ]);
     }
-    if(res1[0]){
+    if ( res1[0] ) {
         throw APIError.create('item_with_same_name_exists', null, {
             entry_name: req.body.new_name,
         });
@@ -134,18 +132,16 @@ module.exports = eggspress('/rename', {
     const new_path = _path.join(_path.dirname(old_path), req.body.new_name);
 
     // update `name`
-    await db.write(
-        `UPDATE fsentries SET name = ?, path = ? WHERE id = ?`,
-        [req.body.new_name, new_path, await subject.get('mysql-id')]
-    )
+    await db.write('UPDATE fsentries SET name = ?, path = ? WHERE id = ?',
+                    [req.body.new_name, new_path, await subject.get('mysql-id')]);
 
     const filesystem = req.services.get('filesystem');
     await filesystem.update_child_paths(old_path, new_path, req.user.id);
 
     // associated_app
     let associated_app;
-    if(fsentry.associated_app_id){
-        const app = await get_app({id: fsentry.associated_app_id})
+    if ( fsentry.associated_app_id ) {
+        const app = await get_app({ id: fsentry.associated_app_id });
         // remove some privileged information
         delete app.id;
         delete app.approved_for_listing;
@@ -154,12 +150,12 @@ module.exports = eggspress('/rename', {
         delete app.owner_user_id;
         // add to array
         associated_app = app;
-    }else{
+    } else {
         associated_app = {};
     }
 
     // send the fsentry of the new object created
-    const contentType = mime.contentType(req.body.new_name)
+    const contentType = mime.contentType(req.body.new_name);
     const return_obj = {
         uid: req.body.uid,
         name: req.body.new_name,
@@ -174,21 +170,23 @@ module.exports = eggspress('/rename', {
     // send realtime success msg to client
     const svc_socketio = req.services.get('socketio');
     svc_socketio.send({ room: req.user.id }, 'item.renamed', return_obj);
-    
-    (async () => { try {
-        const svc_event = req.services.get('event');
-        await svc_event.emit('fs.rename', {
-            uid: fsentry.uuid,
-            new_name: req.body.new_name,
-        })
-    } catch (e) {
-        const log = req.services.get('log-service').create('rename-endpoint');
-        const errors = req.services.get('error-service').create(log);
-        errors.report('emit.rename', {
-            alarm: true,
-            source: e,
-        });
-    }})();
+
+    (async () => {
+        try {
+            const svc_event = req.services.get('event');
+            await svc_event.emit('fs.rename', {
+                uid: fsentry.uuid,
+                new_name: req.body.new_name,
+            });
+        } catch (e) {
+            const log = req.services.get('log-service').create('rename-endpoint');
+            const errors = req.services.get('error-service').create(log);
+            errors.report('emit.rename', {
+                alarm: true,
+                source: e,
+            });
+        }
+    })();
 
     return res.send(return_obj);
 });

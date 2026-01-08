@@ -16,8 +16,8 @@
  * You should have received a copy of the GNU Affero General Public License
  * along with this program.  If not, see <https://www.gnu.org/licenses/>.
  */
-import UIAlert from "./UIAlert.js";
-import UIWindow from "./UIWindow.js";
+import UIAlert from './UIAlert.js';
+import UIWindow from './UIWindow.js';
 
 const UIWindowManageSessions = async function UIWindowManageSessions (options) {
     options = options ?? {};
@@ -87,44 +87,43 @@ const UIWindowManageSessions = async function UIWindowManageSessions (options) {
         el_btn_revoke.textContent = i18n('ui_revoke');
         el_btn_revoke.classList.add('button', 'button-danger');
         el_btn_revoke.addEventListener('click', async () => {
-            try{
-            const alert_resp = await UIAlert({
-                message: i18n('confirm_session_revoke'),
-                buttons:[
-                    {
-                        label: i18n('yes'),
-                        value: 'yes',
-                        type: 'primary',
+            try {
+                const alert_resp = await UIAlert({
+                    message: i18n('confirm_session_revoke'),
+                    buttons: [
+                        {
+                            label: i18n('yes'),
+                            value: 'yes',
+                            type: 'primary',
+                        },
+                        {
+                            label: i18n('cancel'),
+                        },
+                    ],
+                });
+
+                if ( alert_resp !== 'yes' ) {
+                    return;
+                }
+
+                const anti_csrf = await services.get('anti-csrf').token();
+
+                const resp = await fetch(`${window.api_origin}/auth/revoke-session`, {
+                    method: 'POST',
+                    headers: {
+                        Authorization: `Bearer ${puter.authToken}`,
+                        'Content-Type': 'application/json',
                     },
-                    {
-                        label: i18n('cancel')
-                    },
-                ]
-            });
-
-            if ( alert_resp !== 'yes' ) {
-                return;
-            }
-            
-
-            const anti_csrf = await services.get('anti-csrf').token();
-
-            const resp = await fetch(`${window.api_origin}/auth/revoke-session`, {
-                method: 'POST',
-                headers: {
-                    Authorization: `Bearer ${puter.authToken}`,
-                    'Content-Type': 'application/json',
-                },
-                body: JSON.stringify({
-                    uuid: session.uuid,
-                    anti_csrf,
-                }),
-            });
-            if ( resp.ok ) {
-                el.remove();
-                return;
-            }
-            UIAlert({ message: await resp.text() }).appendTo(w_body);
+                    body: JSON.stringify({
+                        uuid: session.uuid,
+                        anti_csrf,
+                    }),
+                });
+                if ( resp.ok ) {
+                    el.remove();
+                    return;
+                }
+                UIAlert({ message: await resp.text() }).appendTo(w_body);
             } catch ( e ) {
                 UIAlert({ message: e.toString() }).appendTo(w_body);
             }
@@ -136,7 +135,7 @@ const UIWindowManageSessions = async function UIWindowManageSessions (options) {
             appendTo (parent) {
                 parent.appendChild(el);
                 return this;
-            }
+            },
         };
     };
 
@@ -151,7 +150,7 @@ const UIWindowManageSessions = async function UIWindowManageSessions (options) {
         const sessions = await resp.json();
 
         for ( const el of w_body.querySelectorAll('.session-widget') ) {
-            if ( !sessions.find(s => s.uuid === el.dataset.uuid) ) {
+            if ( ! sessions.find(s => s.uuid === el.dataset.uuid) ) {
                 el.remove();
             }
         }
@@ -172,7 +171,7 @@ const UIWindowManageSessions = async function UIWindowManageSessions (options) {
     const interval = setInterval(reload_sessions, 8000);
     w.on_close = () => {
         clearInterval(interval);
-    }
+    };
 };
 
 export default UIWindowManageSessions;

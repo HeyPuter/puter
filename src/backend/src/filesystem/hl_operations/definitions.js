@@ -18,8 +18,9 @@
  */
 const { BaseOperation } = require('../../services/OperationTraceService');
 
-class HLFilesystemOperation extends BaseOperation {}
+class HLFilesystemOperation extends BaseOperation {
+}
 
 module.exports = {
-    HLFilesystemOperation
+    HLFilesystemOperation,
 };

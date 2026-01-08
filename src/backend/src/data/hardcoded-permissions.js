@@ -1,18 +1,18 @@
 /*
  * Copyright (C) 2024-present Puter Technologies Inc.
- * 
+ *
  * This file is part of Puter.
- * 
+ *
  * Puter is free software: you can redistribute it and/or modify
  * it under the terms of the GNU Affero General Public License as published
  * by the Free Software Foundation, either version 3 of the License, or
  * (at your option) any later version.
- * 
+ *
  * This program is distributed in the hope that it will be useful,
  * but WITHOUT ANY WARRANTY; without even the implied warranty of
  * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
  * GNU Affero General Public License for more details.
- * 
+ *
  * You should have received a copy of the GNU Affero General Public License
  * along with this program.  If not, see <https://www.gnu.org/licenses/>.
  */
@@ -25,6 +25,7 @@ const default_implicit_user_app_permissions = {
     'driver:puter-image-generation': {},
     'driver:puter-video-generation': {},
     'driver:puter-tts': {},
+    'driver:puter-speech2speech': {},
     'driver:puter-speech2txt': {},
     'driver:puter-apps': {},
     'driver:puter-subdomains': {},
@@ -40,7 +41,6 @@ const implicit_user_app_permissions = [
             'app-0bef044f-918f-4cbf-a0c0-b4a17ee81085', // about
             'app-838dfbc4-bf8b-48c2-b47b-c4adc77fab58', // editor
             'app-58282b08-990a-4906-95f7-fa37ff92452b', // draw
-            'app-3fea7529-266e-47d9-8776-31649cd06557', // terminal
             'app-5584fbf7-ed69-41fc-99cd-85da21b1ef51', // camera
             'app-7bdca1a4-6373-4c98-ad97-03ff2d608ca1', // recorder
             'app-240a43f4-43b1-49bc-b9fc-c8ae719dab77', // dev-center
@@ -61,6 +61,7 @@ const implicit_user_app_permissions = [
             'driver:puter-chat-completion:complete': {},
             'driver:puter-image-generation:generate': {},
             'driver:puter-video-generation:generate': {},
+            'driver:puter-speech2speech:convert': {},
             'driver:puter-speech2txt:transcribe': {},
             'driver:puter-speech2txt:translate': {},
             'driver:puter-analytics:create_trace': {},
@@ -92,7 +93,7 @@ const policy_perm = selector => ({
         $: 'json-address',
         path: '/admin/.policy/drivers.json',
         selector,
-    }
+    },
 });
 
 const hardcoded_user_group_permissions = {
@@ -111,6 +112,7 @@ const hardcoded_user_group_permissions = {
             'service:puter-notifications:ii:crud-q': policy_perm('temp.es'),
             'service:puter-apps:ii:crud-q': policy_perm('temp.es'),
             'service:puter-subdomains:ii:crud-q': policy_perm('temp.es'),
+            'service:apps:ii:crud-q': policy_perm('temp.es'),
             'service:es\\Cnotification:ii:crud-q': policy_perm('user.es'),
             'service:es\\Capp:ii:crud-q': policy_perm('user.es'),
             'service:es\\Csubdomain:ii:crud-q': policy_perm('user.es'),
@@ -122,6 +124,7 @@ const hardcoded_user_group_permissions = {
             'service:es\\Cnotification:ii:crud-q': policy_perm('user.es'),
             'service:es\\Capp:ii:crud-q': policy_perm('user.es'),
             'service:es\\Csubdomain:ii:crud-q': policy_perm('user.es'),
+            'service:apps:ii:crud-q': policy_perm('user.es'),
         },
     },
 };

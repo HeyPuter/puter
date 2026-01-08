@@ -21,12 +21,12 @@ const origin_from_url = url => {
         const parsedUrl = new URL(url);
         // Origin is protocol + hostname + port
         return `${parsedUrl.protocol}//${parsedUrl.hostname}${parsedUrl.port ? `:${parsedUrl.port}` : ''}`;
-    } catch (error) {
+    } catch ( error ) {
         console.error('Invalid URL:', error.message);
         return null;
     }
 };
 
 module.exports = {
-    origin_from_url
+    origin_from_url,
 };

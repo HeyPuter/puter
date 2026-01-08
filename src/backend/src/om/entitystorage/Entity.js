@@ -16,13 +16,13 @@
  * You should have received a copy of the GNU Affero General Public License
  * along with this program.  If not, see <https://www.gnu.org/licenses/>.
  */
-const { AdvancedBase } = require("@heyputer/putility");
-const { WeakConstructorFeature } = require("../../traits/WeakConstructorFeature");
+const { AdvancedBase } = require('@heyputer/putility');
+const { WeakConstructorFeature } = require('../../traits/WeakConstructorFeature');
 
 class Entity extends AdvancedBase {
     static FEATURES = [
         new WeakConstructorFeature(),
-    ]
+    ];
 
     constructor (args) {
         super(args);
@@ -105,7 +105,7 @@ class Entity extends AdvancedBase {
         }
 
         // If value is not set but we have an implicator, use it.
-        if ( ! is_set && prop.descriptor.imply ) {
+        if ( !is_set && prop.descriptor.imply ) {
             const { given, make } = prop.descriptor.imply;
             let imply_available = true;
             for ( const g of given ) {
@@ -117,7 +117,7 @@ class Entity extends AdvancedBase {
             if ( imply_available ) {
                 value = await make(this.values_);
                 value = await prop.adapt(value);
-                is_set =  await prop.is_set(value);
+                is_set = await prop.is_set(value);
             }
             if ( is_set ) this.values_[key] = value;
         }

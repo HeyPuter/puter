@@ -1,4 +1,3 @@
-// METADATA // {"ai-commented":{"service":"mistral","model":"mistral-large-latest"}}
 /*
  * Copyright (C) 2024-present Puter Technologies Inc.
  *
@@ -35,7 +34,7 @@ const BaseService = require('../../services/BaseService');
 */
 class ExpectationService extends BaseService {
     static USE = {
-        expect: 'core.expect'
+        expect: 'core.expect',
     };
 
     /**
@@ -62,14 +61,14 @@ class ExpectationService extends BaseService {
                 handler: async (args, log) => {
                     this.purgeExpectations_();
                     if ( this.expectations_.length < 1 ) {
-                        log.log(`there are none`);
+                        log.log('there are none');
                         return;
                     }
                     for ( const expectation of this.expectations_ ) {
                         expectation.report(log);
                     }
-                }
-            }
+                },
+            },
         ]);
     }
 
@@ -91,13 +90,12 @@ class ExpectationService extends BaseService {
         *
         * @returns {void}
         */
-        
+
         // The comment should be placed above the method at line 68
         setInterval(() => {
             this.purgeExpectations_();
         }, 1000);
     }
-
 
     /**
     * Purges expectations that have been met.
@@ -121,7 +119,7 @@ class ExpectationService extends BaseService {
 
     /**
      * Registers an expectation to be tracked by the service.
-     * 
+     *
      * @param {Object} workUnit - The work unit to track
      * @param {string} checkpoint - The checkpoint to expect
      * @returns {void}
@@ -131,8 +129,6 @@ class ExpectationService extends BaseService {
     }
 }
 
-
-
 module.exports = {
-    ExpectationService
+    ExpectationService,
 };

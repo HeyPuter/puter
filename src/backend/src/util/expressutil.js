@@ -18,9 +18,9 @@
  */
 const eggspress = require('../api/eggspress');
 
-const Endpoint = function Endpoint(spec, handler) {
+const Endpoint = function Endpoint (spec, handler) {
     return {
-        attach(route) {
+        attach (route) {
             const eggspress_options = {
                 allowedMethods: spec.methods ?? ['GET'],
                 ...(spec.subdomain ? { subdomain: spec.subdomain } : {}),
@@ -34,7 +34,7 @@ const Endpoint = function Endpoint(spec, handler) {
                             handler ?? spec.handler);
             route.use(eggspress_router);
         },
-        but(newSpec) {
+        but (newSpec) {
             // TODO: add merge with '$' behaviors (like config has)
             return Endpoint({
                 ...spec,

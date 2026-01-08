@@ -18,7 +18,7 @@
  */
 module.exports = {
     sql: {
-        table_name: 'notification'
+        table_name: 'notification',
     },
     primary_identifier: 'uid',
     properties: {
@@ -33,7 +33,7 @@ module.exports = {
             sql: {
                 use_id: true,
                 column_name: 'user_id',
-            }
-        }
-    }
+            },
+        },
+    },
 };

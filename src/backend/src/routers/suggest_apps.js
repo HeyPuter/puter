@@ -16,7 +16,7 @@
  * You should have received a copy of the GNU Affero General Public License
  * along with this program.  If not, see <https://www.gnu.org/licenses/>.
  */
-"use strict"
+'use strict';
 const express = require('express');
 const router = new express.Router();
 const auth = require('../middleware/auth.js');
@@ -24,41 +24,51 @@ const config = require('../config');
 const { Context } = require('../util/context.js');
 const { NodeInternalIDSelector } = require('../filesystem/node/selectors.js');
 
-// -----------------------------------------------------------------------// 
+// -----------------------------------------------------------------------//
 // POST /suggest_apps
 // -----------------------------------------------------------------------//
-router.post('/suggest_apps', auth, express.json(), async (req, res, next)=>{
+router.post('/suggest_apps', auth, express.json(), async (req, res, next) => {
     // check subdomain
-    if(require('../helpers').subdomain(req) !== 'api')
+    if ( require('../helpers').subdomain(req) !== 'api' )
+    {
         next();
+    }
 
     // check if user is verified
-    if((config.strict_email_verification_required || req.user.requires_email_confirmation) && !req.user.email_confirmed)
-        return res.status(400).send({code: 'account_is_not_verified', message: 'Account is not verified'});
+    if ( (config.strict_email_verification_required || req.user.requires_email_confirmation) && !req.user.email_confirmed )
+    {
+        return res.status(400).send({ code: 'account_is_not_verified', message: 'Account is not verified' });
+    }
 
     // validation
-    if(req.body.uid === undefined && req.body.path === undefined)
-        return res.status(400).send({message: '`uid` or `path` required'})
+    if ( req.body.uid === undefined && req.body.path === undefined )
+    {
+        return res.status(400).send({ message: '`uid` or `path` required' });
+    }
 
     // modules
-    const {convert_path_to_fsentry, uuid2fsentry, suggest_app_for_fsentry}  = require('../helpers')
+    const { convert_path_to_fsentry, uuid2fsentry, suggest_app_for_fsentry }  = require('../helpers');
     let fsentry;
 
     // by uid
-    if(req.body.uid)
+    if ( req.body.uid )
+    {
         fsentry = await uuid2fsentry(req.body.uid);
-    // by path
-    else{
-        fsentry = await convert_path_to_fsentry(req.body.path);
-        if(fsentry === false)
-            return res.status(400).send('Path not found.');
     }
-    
+    // by path
+    else {
+        fsentry = await convert_path_to_fsentry(req.body.path);
+        if ( fsentry === false )
+        {
+            return res.status(400).send('Path not found.');
+        }
+    }
+
     const services = Context.get('services');
-    const fs = services.get('filesystem')
+    const fs = services.get('filesystem');
     const node = await fs.node(new NodeInternalIDSelector('mysql', fsentry.id, {
-        source: 'suggest_apps'
-    }))
+        source: 'suggest_apps',
+    }));
 
     // check permission
     const actor = req.actor ?? Context.get('actor');
@@ -71,14 +81,14 @@ router.post('/suggest_apps', auth, express.json(), async (req, res, next)=>{
             .write(res);
         return;
     }
-    
+
     // get suggestions
-    try{
+    try {
         return res.send(await suggest_app_for_fsentry(fsentry));
     }
-    catch(e){
-        return res.status(400).send(e)
+    catch (e) {
+        return res.status(400).send(e);
     }
-})
+});
 
-module.exports = router
+module.exports = router;

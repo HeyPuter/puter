@@ -16,67 +16,68 @@
  * You should have received a copy of the GNU Affero General Public License
  * along with this program.  If not, see <https://www.gnu.org/licenses/>.
  */
-const opentelemetry = require("@opentelemetry/api");
-const { NodeSDK } = require('@opentelemetry/sdk-node');
-const { getNodeAutoInstrumentations } = require('@opentelemetry/auto-instrumentations-node');
-const { PeriodicExportingMetricReader, ConsoleMetricExporter } = require('@opentelemetry/sdk-metrics');
+import { SpanStatusCode, trace } from '@opentelemetry/api';
+import { getNodeAutoInstrumentations } from '@opentelemetry/auto-instrumentations-node';
+import { OTLPMetricExporter } from '@opentelemetry/exporter-metrics-otlp-grpc';
+import { OTLPTraceExporter } from '@opentelemetry/exporter-trace-otlp-grpc';
+import { Resource } from '@opentelemetry/resources';
+import { ConsoleMetricExporter, PeriodicExportingMetricReader } from '@opentelemetry/sdk-metrics';
+import { NodeSDK } from '@opentelemetry/sdk-node';
+import { ConsoleSpanExporter } from '@opentelemetry/sdk-trace-base';
+import { SemanticResourceAttributes } from '@opentelemetry/semantic-conventions';
+import config from '../../config.js';
+import BaseService from '../../services/BaseService.js';
 
-const { Resource } = require("@opentelemetry/resources");
-const { SemanticResourceAttributes } = require("@opentelemetry/semantic-conventions");
-const { NodeTracerProvider } = require("@opentelemetry/sdk-trace-node");
-const { ConsoleSpanExporter, BatchSpanProcessor } = require("@opentelemetry/sdk-trace-base");
-const config = require('../../config');
-const { OTLPTraceExporter } = require('@opentelemetry/exporter-trace-otlp-grpc');
-
-const BaseService = require('../../services/BaseService');
-
-class TelemetryService extends BaseService {
+export class TelemetryService extends BaseService {
+    /** @type {import('@opentelemetry/api').Tracer} */
+    #tracer = null;
     _construct () {
+
+        const traceExporter = this.#getConfiguredExporter();
+        const metricExporter = this.#getMetricExporter();
+
+        if ( !traceExporter && !metricExporter ) {
+            console.log('TelemetryService not configured, skipping initialization.');
+            return;
+        }
+
         const resource = Resource.default().merge(
-            new Resource({
-                [SemanticResourceAttributes.SERVICE_NAME]: "puter-backend",
-                [SemanticResourceAttributes.SERVICE_VERSION]: "0.1.0"
-            }),
-        );
-
-        const provider = new NodeTracerProvider({ resource })
-        const exporter = this.getConfiguredExporter_();
-        this.exporter = exporter;
-
-        const processor = new BatchSpanProcessor(exporter);
-        provider.addSpanProcessor(processor);
-
-        provider.register();
+                        new Resource({
+                            [SemanticResourceAttributes.SERVICE_NAME]: 'puter-backend',
+                            [SemanticResourceAttributes.SERVICE_VERSION]: '0.1.0',
+                        }));
 
         const sdk = new NodeSDK({
-            traceExporter: new ConsoleSpanExporter(),
+            resource,
+            traceExporter: traceExporter,
             metricReader: new PeriodicExportingMetricReader({
-                exporter: new ConsoleMetricExporter()
+                exporter: metricExporter,
             }),
-            instrumentations: [getNodeAutoInstrumentations()]
+            instrumentations: [getNodeAutoInstrumentations()],
         });
 
         this.sdk = sdk;
 
         this.sdk.start();
 
-        this.tracer_ = opentelemetry.trace.getTracer(
-            'puter-tracer'
-        );
+        this.#tracer = trace.getTracer('puter-tracer');
+
     }
-    
+
     _init () {
+        if ( ! this.#tracer ) {
+            return;
+        }
         const svc_context = this.services.get('context');
         svc_context.register_context_hook('pre_arun', ({ hints, trace_name, callback, replace_callback }) => {
             if ( ! trace_name ) return;
             if ( ! hints.trace ) return;
-            console.log('APPLYING TRACE NAME', trace_name);
             replace_callback(async () => {
-                return await this.tracer_.startActiveSpan(trace_name, async span => {
+                return await this.#tracer.startActiveSpan(trace_name, async span => {
                     try {
                         return await callback();
-                    } catch (error) {
-                        span.setStatus({ code: opentelemetry.SpanStatusCode.ERROR, message: error.message });
+                    } catch ( error ) {
+                        span.setStatus({ code: SpanStatusCode.ERROR, message: error.message });
                         throw error;
                     } finally {
                         span.end();
@@ -86,12 +87,21 @@ class TelemetryService extends BaseService {
         });
     }
 
-    getConfiguredExporter_() {
+    #getConfiguredExporter () {
         if ( config.jaeger ?? this.config.jaeger ) {
             return new OTLPTraceExporter(config.jaeger ?? this.config.jaeger);
         }
-        const exporter = new ConsoleSpanExporter();
+        if ( this.config.console ) {
+            return new ConsoleSpanExporter();
+        }
+    }
+
+    #getMetricExporter () {
+        if ( config.jaeger ?? this.config.jaeger ) {
+            return new OTLPMetricExporter(config.jaeger ?? this.config.jaeger);
+        }
+        if ( this.config.console ) {
+            return new ConsoleMetricExporter();
+        }
     }
 }
-
-module.exports = TelemetryService;

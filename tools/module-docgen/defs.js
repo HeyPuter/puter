@@ -17,7 +17,6 @@
  * along with this program.  If not, see <https://www.gnu.org/licenses/>.
  */
 
-// METADATA // {"ai-commented":{"service":"claude"}}
 const dedent = require('dedent');
 const doctrine = require('doctrine');
 

@@ -21,10 +21,10 @@ import { UserActorType } from '../../services/auth/Actor.js';
 import { PERMISSION_SCANNERS } from '../../unstructured/permission-scanners.js';
 
 const permissionSequence =  new Sequence([
-    async function grant_if_system(a) {
+    async function grant_if_system (a) {
         const reading = a.get('reading');
         const { actor, permission_options } = a.values();
-        if ( !(actor.type instanceof UserActorType)  ) {
+        if ( ! (actor.type instanceof UserActorType) ) {
             return;
         }
         if ( actor.type.user.username === 'system' ) {
@@ -39,7 +39,7 @@ const permissionSequence =  new Sequence([
             return a.stop({});
         }
     },
-    async function rewrite_permission(a) {
+    async function rewrite_permission (a) {
         let { reading, permission_options } = a.values();
         for ( let i = 0 ; i < permission_options.length ; i++ ) {
             const old_perm = permission_options[i];
@@ -53,7 +53,7 @@ const permissionSequence =  new Sequence([
             });
         }
     },
-    async function explode_permission(a) {
+    async function explode_permission (a) {
         let { reading, permission_options } = a.values();
 
         // VERY nasty bugs can happen if this array is not cloned!
@@ -74,7 +74,7 @@ const permissionSequence =  new Sequence([
         }
         a.set('permission_options', permission_options.flat());
     },
-    async function handle_shortcuts(a) {
+    async function handle_shortcuts (a) {
         const reading = a.get('reading');
         const { actor, permission_options } = a.values();
 
@@ -112,7 +112,7 @@ const permissionSequence =  new Sequence([
             }
         }
     },
-    async function run_scanners(a) {
+    async function run_scanners (a) {
         const scanners = PERMISSION_SCANNERS;
         const ps = [];
         for ( const scanner of scanners ) {

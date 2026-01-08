@@ -12,6 +12,12 @@ echo -e "\x1B[36;1m<<< Adding Targets >>>\x1B[0m"
 rustup target add wasm32-unknown-unknown
 rustup target add i686-unknown-linux-gnu
 
+# Emulator assets were removed from this fork; exit early to avoid failing.
+if [ ! -d "src/emulator" ]; then
+    echo -e "\x1B[33;1mEmulator directory missing; skipping v86 image build.\x1B[0m"
+    exit 0
+fi
+
 echo -e "\x1B[36;1m<<< Building v86 >>>\x1B[0m"
 
 cd submodules/v86

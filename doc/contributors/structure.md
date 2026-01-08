@@ -35,8 +35,6 @@ Some of these modules are core pieces of Puter:
 Some of these modules are apps:
 - **Puter's Terminal**: [`/src/terminal`](/src/terminal)
 - **Puter's Shell**: [`/src/phoenix`](/src/phoenix)
-- **Experimental v86 Integration**: [`/src/emulator`](/src/emulator)
-  - **Note:** development is focused on Puter PDE files instead (docs pending)
 
 Some of these modules are libraries:
 - **common javascript**: [`/src/putility`](/src/putility)

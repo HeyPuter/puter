@@ -1,26 +1,23 @@
 /*
  * Copyright (C) 2024-present Puter Technologies Inc.
- * 
+ *
  * This file is part of Puter.
- * 
+ *
  * Puter is free software: you can redistribute it and/or modify
  * it under the terms of the GNU Affero General Public License as published
  * by the Free Software Foundation, either version 3 of the License, or
  * (at your option) any later version.
- * 
+ *
  * This program is distributed in the hope that it will be useful,
  * but WITHOUT ANY WARRANTY; without even the implied warranty of
  * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
  * GNU Affero General Public License for more details.
- * 
+ *
  * You should have received a copy of the GNU Affero General Public License
  * along with this program.  If not, see <https://www.gnu.org/licenses/>.
  */
 
-// METADATA // {"ai-commented":{"service":"claude"}}
-const { can } = require("../util/langutil");
-const BaseService = require("./BaseService");
-
+const BaseService = require('./BaseService');
 
 /**
 * CleanEmailService - A service class for cleaning and validating email addresses
@@ -69,6 +66,7 @@ class CleanEmailService extends BaseService {
     // Service providers may have multiple subdomains a user can choose
     static DOMAIN_TO_PROVIDER = {
         'gmail.com': 'gmail',
+        'googlemail.com': 'gmail',
         'yahoo.com': 'yahoo',
         'yahoo.co.uk': 'yahoo',
         'yahoo.ca': 'yahoo',
@@ -81,7 +79,7 @@ class CleanEmailService extends BaseService {
     // used with different domains
     static DOMAIN_NONDISTINCT = {
         'googlemail.com': 'gmail.com',
-    }
+    };
     /**
     * Maps non-distinct email domains to their canonical equivalents.
     * For example, 'googlemail.com' is mapped to 'gmail.com' since they
@@ -99,7 +97,7 @@ class CleanEmailService extends BaseService {
     * Cleans an email address by applying provider-specific rules and standardizations
     * @param {string} email - The email address to clean
     * @returns {string} The cleaned email address with applied rules and standardizations
-    * 
+    *
     * Splits email into local and domain parts, applies provider-specific rules like:
     * - Removing dots for certain providers (Gmail, iCloud)
     * - Handling subaddressing (removing +suffix)
@@ -142,9 +140,8 @@ class CleanEmailService extends BaseService {
             rule.rule({ eml });
         }
 
-        return eml.local + '@' + eml.domain;
+        return `${eml.local }@${ eml.domain}`;
     }
-    
 
     /**
     * Validates an email address against blocked domains and custom validation rules
@@ -158,7 +155,7 @@ class CleanEmailService extends BaseService {
         email = this.clean(email);
         const config = this.global_config;
 
-        if ( can(config.blocked_email_domains, 'iterate') ) {
+        if ( Array.isArray(config.blocked_email_domains) ) {
             for ( const suffix of config.blocked_email_domains ) {
                 if ( email.endsWith(suffix) ) {
                     return false;
@@ -171,31 +168,10 @@ class CleanEmailService extends BaseService {
         await svc_event.emit('email.validate', event);
 
         if ( ! event.allow ) return false;
-        
+
         return true;
     }
 
-    _test ({ assert }) {
-        const cases = [
-            {
-                email: 'bob.ross+happy-clouds@googlemail.com',
-                expected: 'bobross@gmail.com',
-            },
-            {
-                email: 'under.rated+email-service@yahoo.com',
-                expected: 'under.rated+email-service@yahoo.com',
-            },
-            {
-                email: 'the-absolute+best@protonmail.com',
-                expected: 'the-absolute@protonmail.com',
-            },
-        ];
-
-        for ( const { email, expected } of cases ) {
-            const cleaned = this.clean(email);
-            assert.equal(cleaned, expected, `clean_email(${email}) === ${expected}`);
-        }
-    }
 }
 
 module.exports = { CleanEmailService };

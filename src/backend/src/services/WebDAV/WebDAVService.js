@@ -81,11 +81,11 @@ const ROOT_WEB_DAV_RESPONSE_XML = `<?xml version="1.0" encoding="utf-8"?>
 </D:multistatus>`;
 
 class WebDAVService extends BaseService {
-    async _construct(){
+    async _construct () {
         davMethodMap = (await import ( './methodHandlers/methodMap.mjs')).davMethodMap;
         unsupportedMethodHandler = (await import('./methodHandlers/method.mjs')).unsupportedMethodHandler;
     }
-    async _init() {
+    async _init () {
         const svc_web = this.services.get('web-server');
         svc_web.allow_undefined_origin(/^\/dav(\/.*)?$/);
     }
@@ -103,7 +103,7 @@ class WebDAVService extends BaseService {
         }
         return { headerLockToken, prefix };
     };
-    async authenticateWebDavUser( username, password, _req, res ) {
+    async authenticateWebDavUser ( username, password, _req, res ) {
         // Default implementation - you should override this method
         // Return null to reject authentication
         const svc_auth = this.services.get('auth');
@@ -130,7 +130,7 @@ class WebDAVService extends BaseService {
                 const ok = svc_otp.verify(user.username,
                                 user.otp_secret,
                                 otpToken);
-                if ( !ok ) {
+                if ( ! ok ) {
                     return null;
                 }
             }
@@ -145,7 +145,7 @@ class WebDAVService extends BaseService {
         }
         return null;
     }
-    async handleHttpBasicAuth( actor, req, res ) {
+    async handleHttpBasicAuth ( actor, req, res ) {
         if ( actor ) {
             return actor;
         }
@@ -165,7 +165,7 @@ class WebDAVService extends BaseService {
                                 password,
                                 req,
                                 res);
-                if ( !actor ) {
+                if ( ! actor ) {
                     // Authentication failed
                     res.set({
                         'WWW-Authenticate': 'Basic realm="WebDAV"',
@@ -177,7 +177,7 @@ class WebDAVService extends BaseService {
                 } else {
                     return actor;
                 }
-            } catch( _e )   {
+            } catch ( _e ) {
                 res.set({
                     'WWW-Authenticate': 'Basic realm="WebDAV"',
                     DAV: '1, 2',
@@ -197,7 +197,7 @@ class WebDAVService extends BaseService {
             return;
         }
     }
-    async handleWebDavServer( filePath, req, res ) {
+    async handleWebDavServer ( filePath, req, res ) {
         const svc_fs = this.services.get('filesystem');
         const fileNode = await svc_fs.node(new NodePathSelector(filePath));
         // Extract the UUID from the If header (e.g., If: (<urn:uuid:...>))
@@ -209,7 +209,7 @@ class WebDAVService extends BaseService {
 
         methodHandler(req, res, filePath, fileNode, headerLockToken);
     }
-    ['__on_install.routes']( _, { app } ) {
+    ['__on_install.routes'] ( _, { app } ) {
         COOKIE_NAME = this.global_config.cookie_name;
 
         const r_webdav = (() => {
@@ -246,7 +246,7 @@ class WebDAVService extends BaseService {
             handler: async ( req, res ) => {
                 const svc_su = this.services.get('su');
                 let actor = await this.handleHttpBasicAuth(req.actor, req, res);
-                if ( !actor ) {
+                if ( ! actor ) {
                     return;
                 }
                 let filePath = decodeURIComponent(req.path);
@@ -280,7 +280,7 @@ class WebDAVService extends BaseService {
                 const svc_su = this.services.get('su');
 
                 let actor = await this.handleHttpBasicAuth(req.actor, req, res);
-                if ( !actor ) {
+                if ( ! actor ) {
                     return;
                 }
 

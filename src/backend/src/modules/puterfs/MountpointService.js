@@ -1,4 +1,3 @@
-// METADATA // {"ai-commented":{"service":"claude"}}
 /*
  * Copyright (C) 2024-present Puter Technologies Inc.
  *
@@ -17,8 +16,8 @@
  * You should have received a copy of the GNU Affero General Public License
  * along with this program.  If not, see <https://www.gnu.org/licenses/>.
  */
-const { RootNodeSelector, NodeUIDSelector, NodeChildSelector, NodePathSelector, try_infer_attributes } = require("../../filesystem/node/selectors");
-const BaseService = require("../../services/BaseService");
+const { RootNodeSelector, NodeUIDSelector, NodeChildSelector, NodePathSelector, try_infer_attributes } = require('../../filesystem/node/selectors');
+const BaseService = require('../../services/BaseService');
 
 /**
  * This will eventually be a service which manages the storage
@@ -43,11 +42,11 @@ class MountpointService extends BaseService {
     #mounters = {};
     #mountpoints = {};
 
-    register_mounter(name, mounter) {
+    register_mounter (name, mounter) {
         this.#mounters[name] = mounter;
     }
 
-    async ['__on_boot.consolidation']() {
+    async ['__on_boot.consolidation'] () {
         // Emit event for registering filesystem types
         const svc_event = this.services.get('event');
         const event = {};
@@ -55,7 +54,7 @@ class MountpointService extends BaseService {
             this.#mounters[name] = filesystemType;
         };
         await svc_event.emit('create.filesystem-types', event);
-        
+
         // Determine mountpoints configuration
         const mountpoints = this.config.mountpoints ?? {
             '/': {
@@ -85,7 +84,7 @@ class MountpointService extends BaseService {
         });
     }
 
-    async get_provider(selector) {
+    async get_provider (selector) {
         // If there is only one provider, we don't need to do any of this,
         // and that's a big deal because the current implementation requires
         // fetching a filesystem entry before we even have operation-level
@@ -145,7 +144,7 @@ class MountpointService extends BaseService {
     }
 
     // Temporary solution - we'll develop this incrementally
-    set_storage(provider, storage) {
+    set_storage (provider, storage) {
         this.#storage[provider] = storage;
     }
 
@@ -153,7 +152,7 @@ class MountpointService extends BaseService {
     * Gets the current storage backend instance
     * @returns {Object} The storage backend instance
     */
-    get_storage(provider) {
+    get_storage (provider) {
         const storage = this.#storage[provider];
         if ( ! storage ) {
             throw new Error(`MountpointService.get_storage: storage for provider "${provider}" not found`);

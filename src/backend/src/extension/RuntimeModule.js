@@ -1,4 +1,4 @@
-const { AdvancedBase } = require("@heyputer/putility");
+const { AdvancedBase } = require('@heyputer/putility');
 
 class RuntimeModule extends AdvancedBase {
     constructor (options = {}) {
@@ -6,7 +6,7 @@ class RuntimeModule extends AdvancedBase {
         this.exports_ = undefined;
         this.exports_is_set_ = false;
         this.remappings = options.remappings ?? {};
-        
+
         this.name = options.name ?? undefined;
     }
     set exports (value) {

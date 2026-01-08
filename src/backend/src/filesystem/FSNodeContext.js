@@ -16,19 +16,19 @@
  * You should have received a copy of the GNU Affero General Public License
  * along with this program.  If not, see <https://www.gnu.org/licenses/>.
  */
-const { get_user, id2path, id2uuid, is_empty, suggest_app_for_fsentry, get_app } = require("../helpers");
+const { get_user, id2path, id2uuid, is_empty, suggest_app_for_fsentry, get_app } = require('../helpers');
 
 const putility = require('@heyputer/putility');
-const config = require("../config");
+const config = require('../config');
 const _path = require('path');
-const { NodeInternalIDSelector, NodeChildSelector, NodeUIDSelector, RootNodeSelector, NodePathSelector } = require("./node/selectors");
-const { Context } = require("../util/context");
-const { NodeRawEntrySelector } = require("./node/selectors");
-const { DB_READ } = require("../services/database/consts");
-const { UserActorType, AppUnderUserActorType, Actor } = require("../services/auth/Actor");
-const { PermissionUtil } = require("../services/auth/permissionUtils.mjs");
-const { ECMAP } = require("./ECMAP");
-const { MANAGE_PERM_PREFIX } = require("../services/auth/permissionConts.mjs");
+const { NodeInternalIDSelector, NodeChildSelector, NodeUIDSelector, RootNodeSelector, NodePathSelector } = require('./node/selectors');
+const { Context } = require('../util/context');
+const { NodeRawEntrySelector } = require('./node/selectors');
+const { DB_READ } = require('../services/database/consts');
+const { UserActorType, AppUnderUserActorType, Actor } = require('../services/auth/Actor');
+const { PermissionUtil } = require('../services/auth/permissionUtils.mjs');
+const { ECMAP } = require('./ECMAP');
+const { MANAGE_PERM_PREFIX } = require('../services/auth/permissionConts.mjs');
 
 /**
  * Container for information collected about a node
@@ -47,11 +47,14 @@ const { MANAGE_PERM_PREFIX } = require("../services/auth/permissionConts.mjs");
  * @property {string} path the path to the filesystem entry
  * @property {string} uid the UUID of the filesystem entry
  */
+
+const TYPE_FILE = { label: 'File' };
+const TYPE_DIRECTORY = { label: 'Directory' };
 module.exports = class FSNodeContext {
     static CONCERN = 'filesystem';
 
-    static TYPE_FILE = { label: 'File' };
-    static TYPE_DIRECTORY = { label: 'Directory' };
+    static TYPE_FILE = TYPE_FILE;
+    static TYPE_DIRECTORY = TYPE_DIRECTORY;
     static TYPE_SYMLINK = {};
     static TYPE_SHORTCUT = {};
     static TYPE_UNDETERMINED = {};
@@ -73,7 +76,7 @@ module.exports = class FSNodeContext {
      * @param {*} opt_identifier.id please pass mysql_id instead
      * @param {*} opt_identifier.mysql_id a MySQL ID of the filesystem entry
      */
-    constructor({
+    constructor ({
         services,
         selector,
         provider,
@@ -81,7 +84,7 @@ module.exports = class FSNodeContext {
     }) {
         const ecmap = Context.get(ECMAP.SYMBOL);
 
-        if ( ecmap ) {
+        if ( ecmap && !(selector instanceof NodeRawEntrySelector) ) {
             // We might return an existing FSNodeContext
             const maybe_node = ecmap
                 ?.get_fsNodeContext_from_selector?.(selector);
@@ -147,7 +150,7 @@ module.exports = class FSNodeContext {
         }
     }
 
-    set selector(new_selector) {
+    set selector (new_selector) {
         // Only add the selector if we don't already have it
         for ( const selector of this.selectors_ ) {
             if ( selector instanceof new_selector.constructor ) return;
@@ -162,11 +165,11 @@ module.exports = class FSNodeContext {
         this.selector_ = new_selector;
     }
 
-    get selector() {
+    get selector () {
         return this.get_optimal_selector();
     }
 
-    get_selector_of_type(cls) {
+    get_selector_of_type (cls) {
         // Reverse iterate over selectors
         for ( let i = this.selectors_.length - 1; i >= 0; i-- ) {
             const selector = this.selectors_[i];
@@ -182,7 +185,7 @@ module.exports = class FSNodeContext {
         return null;
     }
 
-    get_optimal_selector() {
+    get_optimal_selector () {
         for ( const cls of FSNodeContext.SELECTOR_PRIORITY_ORDER ) {
             const selector = this.get_selector_of_type(cls);
             if ( selector ) return selector;
@@ -191,21 +194,21 @@ module.exports = class FSNodeContext {
         return this.selector_;
     }
 
-    get isRoot() {
+    get isRoot () {
         return this.path === '/';
     }
 
-    async isUserDirectory() {
+    async isUserDirectory () {
         if ( this.isRoot ) return false;
         if ( this.found === undefined ) {
             await this.fetchEntry();
         }
         if ( this.isRoot ) return false;
         if ( this.found === false ) return undefined;
-        return ! this.entry.parent_uid;
+        return !this.entry.parent_uid;
     }
 
-    async isAppDataDirectory() {
+    async isAppDataDirectory () {
         if ( this.isRoot ) return false;
         if ( this.found === undefined ) {
             await this.fetchEntry();
@@ -217,7 +220,7 @@ module.exports = class FSNodeContext {
         return components[1] === 'AppData';
     }
 
-    async isPublic() {
+    async isPublic () {
         if ( this.isRoot ) return false;
         const components = await this.getPathComponents();
         if ( await this.isUserDirectory() ) return false;
@@ -225,7 +228,7 @@ module.exports = class FSNodeContext {
         return false;
     }
 
-    async getPathComponents() {
+    async getPathComponents () {
         if ( this.isRoot ) return [];
 
         // We can get path components for non-existing nodes if they
@@ -245,30 +248,33 @@ module.exports = class FSNodeContext {
         return path.split('/');
     }
 
-    async getUserPart() {
+    async getUserPart () {
         if ( this.isRoot ) return;
         const components = await this.getPathComponents();
         return components[0];
     }
 
-    async getPathSize() {
+    async getPathSize () {
         if ( this.isRoot ) return;
         const components = await this.getPathComponents();
         return components.length;
     }
 
-    async exists({ fetch_options } = {}) {
+    async exists ({ fetch_options } = {}) {
+        if ( this.found !== undefined ) {
+            return this.found;
+        }
         await this.fetchEntry(fetch_options);
         if ( ! this.found ) {
-            this.log.debug('here\'s why it doesn\'t exist: ' +
-                this.selector.describe() + ' -> ' +
-                this.uid + ' ' +
-                JSON.stringify(this.entry, null, '  '));
+            this.log.debug(`here's why it doesn't exist: ${
+                this.selector.describe() } -> ${
+                this.uid } ${
+                JSON.stringify(this.entry, null, '  ')}`);
         }
         return this.found;
     }
 
-    async fetchPath() {
+    async fetchPath () {
         if ( this.path ) return;
 
         this.path = await this.services.get('information')
@@ -288,7 +294,6 @@ module.exports = class FSNodeContext {
      * @void
      */
     async fetchEntry (fetch_entry_options = {}) {
-        const svc_event = this.services.get('event');
         if ( this.fetching !== null ) {
             await Context.get('services').get('traceService').spanify('fetching', async () => {
                 // ???: does this need to be double-checked? I'm not actually sure...
@@ -300,18 +305,15 @@ module.exports = class FSNodeContext {
 
         if (
             this.found === true &&
-            ! fetch_entry_options.force &&
+            !fetch_entry_options.force &&
             (
                 // thumbnail already fetched, or not asked for
-                ! fetch_entry_options.thumbnail || this.entry?.thumbnail ||
+                !fetch_entry_options.thumbnail || this.entry?.thumbnail ||
                 this.found_thumbnail !== undefined
             )
         ) {
             const promise = this.fetching;
             this.fetching = null;
-            if (this.entry.thumbnail) {
-                await svc_event.emit("thumbnail.read", this.entry);
-            }
             promise.resolve();
             return;
         }
@@ -323,7 +325,7 @@ module.exports = class FSNodeContext {
             },
         };
 
-        this.log.debug('fetching entry: ' + this.selector.describe());
+        this.log.debug(`fetching entry: ${ this.selector.describe()}`);
 
         const entry = await this.provider.stat({
             selector: this.selector,
@@ -338,19 +340,19 @@ module.exports = class FSNodeContext {
         } else {
             this.found = true;
 
-            if ( ! this.uid && entry.uuid ) {
+            if ( !this.uid && entry.uuid ) {
                 this.uid = entry.uuid;
             }
 
-            if ( ! this.mysql_id && entry.id ) {
+            if ( !this.mysql_id && entry.id ) {
                 this.mysql_id = entry.id;
             }
 
-            if ( ! this.path && entry.path ) {
+            if ( !this.path && entry.path ) {
                 this.path = entry.path;
             }
 
-            if ( ! this.name && entry.name ) {
+            if ( !this.name && entry.name ) {
                 this.name = entry.name;
             }
 
@@ -360,7 +362,6 @@ module.exports = class FSNodeContext {
         const promise = this.fetching;
         this.fetching = null;
 
-        await svc_event.emit("thumbnail.read", this.entry);
         promise.resolve();
     }
 
@@ -370,7 +371,7 @@ module.exports = class FSNodeContext {
      *
      * This just calls ResourceService under the hood.
      */
-    async awaitStableEntry() {
+    async awaitStableEntry () {
         const resourceService = Context.get('services').get('resourceService');
         await resourceService.waitForResource(this.selector);
     }
@@ -383,19 +384,19 @@ module.exports = class FSNodeContext {
      *
      * @param fs:decouple-subdomains
      */
-    async fetchSubdomains(user, _force) {
+    async fetchSubdomains (user, _force) {
         if ( ! this.entry.is_dir ) return;
 
         const db = this.services.get('database').get(DB_READ, 'filesystem');
 
         this.entry.subdomains = [];
-        let subdomains = await db.read(`SELECT * FROM subdomains WHERE root_dir_id = ? AND user_id = ?`,
+        let subdomains = await db.read('SELECT * FROM subdomains WHERE root_dir_id = ? AND user_id = ?',
                         [this.entry.id, user.id]);
-        if ( subdomains.length > 0 ){
+        if ( subdomains.length > 0 ) {
             subdomains.forEach((sd) => {
                 this.entry.subdomains.push({
                     subdomain: sd.subdomain,
-                    address: config.protocol + '://' + sd.subdomain + "." + 'puter.site',
+                    address: `${config.protocol }://${ sd.subdomain }.` + 'puter.site',
                     uuid: sd.uuid,
                 });
             });
@@ -408,7 +409,7 @@ module.exports = class FSNodeContext {
      * `owner` property of the fsentry.
      * @param {bool} force fetch owner if it was already fetched
      */
-    async fetchOwner(_force) {
+    async fetchOwner (_force) {
         if ( this.isRoot ) return;
         const owner = await get_user({ id: this.entry.user_id });
         this.entry.owner = {
@@ -423,8 +424,8 @@ module.exports = class FSNodeContext {
      * of the fsentry.
      * @param {bool} force fetch shares if they were already fetched
      */
-    async fetchShares(force) {
-        if ( this.entry.shares && ! force ) return;
+    async fetchShares (force) {
+        if ( this.entry.shares && !force ) return;
 
         const actor = Context.get('actor');
         if ( ! actor ) {
@@ -508,12 +509,12 @@ module.exports = class FSNodeContext {
      *
      * @todo fs:decouple-versions
      */
-    async fetchVersions(force) {
-        if ( this.entry.versions && ! force ) return;
+    async fetchVersions (force) {
+        if ( this.entry.versions && !force ) return;
 
         const db = this.services.get('database').get(DB_READ, 'filesystem');
 
-        let versions = await db.read(`SELECT * FROM fsentry_versions WHERE fsentry_id = ?`,
+        let versions = await db.read('SELECT * FROM fsentry_versions WHERE fsentry_id = ?',
                         [this.entry.id]);
         const versions_tidy = [];
         for ( const version of versions ) {
@@ -535,22 +536,20 @@ module.exports = class FSNodeContext {
      * Fetches the size of a file or directory if it was not
      * already fetched.
      */
-    async fetchSize() {
-        const { fsEntryService } = Context.get('services').values;
-
+    async fetchSize () {
         // we already have the size for files
         if ( ! this.entry.is_dir ) {
             await this.fetchEntry();
             return this.entry.size;
         }
 
-        this.entry.size = await fsEntryService.get_recursive_size(this.entry.uuid);
+        this.entry.size = await this.provider.get_recursive_size({ node: this });
 
         return this.entry.size;
     }
 
-    async fetchSuggestedApps(user, force) {
-        if ( this.entry.suggested_apps && ! force ) return;
+    async fetchSuggestedApps (user, force) {
+        if ( this.entry.suggested_apps && !force ) return;
 
         await this.fetchEntry();
         if ( ! this.entry ) return;
@@ -559,15 +558,15 @@ module.exports = class FSNodeContext {
             await suggest_app_for_fsentry(this.entry, { user });
     }
 
-    async fetchIsEmpty() {
-        if ( ! this.uid && ! this.path ) return;
+    async fetchIsEmpty () {
+        if ( !this.uid && !this.path ) return;
         this.entry.is_empty = await is_empty({
             uid: this.uid,
             path: this.path,
         });
     }
 
-    async fetchAll(_fsEntryFetcher, user, _force) {
+    async fetchAll (_fsEntryFetcher, user, _force) {
         await this.fetchEntry({ thumbnail: true });
         await this.fetchSubdomains(user);
         await this.fetchOwner();
@@ -578,7 +577,7 @@ module.exports = class FSNodeContext {
         await this.fetchIsEmpty();
     }
 
-    async get(key) {
+    async get (key) {
         /*
             This isn't supposed to stay like this!
 
@@ -592,15 +591,15 @@ module.exports = class FSNodeContext {
         */
 
         if ( this.found === false ) {
-            throw new Error(`Tried to get ${key} of non-existent fsentry: ` +
-                this.selector.describe(true));
+            throw new Error(`Tried to get ${key} of non-existent fsentry: ${
+                this.selector.describe(true)}`);
         }
 
         if ( key === 'entry' ) {
             await this.fetchEntry();
             if ( this.found === false ) {
-                throw new Error(`Tried to get entry of non-existent fsentry: ` +
-                    this.selector.describe(true));
+                throw new Error(`Tried to get entry of non-existent fsentry: ${
+                    this.selector.describe(true)}`);
             }
             return this.entry;
         }
@@ -608,19 +607,23 @@ module.exports = class FSNodeContext {
         if ( key === 'path' ) {
             if ( ! this.path ) await this.fetchEntry();
             if ( this.found === false ) {
-                throw new Error(`Tried to get path of non-existent fsentry: ` +
-                    this.selector.describe(true));
+                throw new Error(`Tried to get path of non-existent fsentry: ${
+                    this.selector.describe(true)}`);
             }
             if ( ! this.path ) {
                 await this.fetchPath();
             }
             if ( ! this.path ) {
-                throw new Error(`failed to get path`);
+                throw new Error('failed to get path');
             }
             return this.path;
         }
 
         if ( key === 'uid' ) {
+            const uidSelector = this.get_selector_of_type(NodeUIDSelector);
+            if ( uidSelector ) {
+                return uidSelector.value;
+            }
             await this.fetchEntry();
             return this.uid;
         }
@@ -645,8 +648,8 @@ module.exports = class FSNodeContext {
             if ( key === k ) {
                 await this.fetchEntry();
                 if ( this.found === false ) {
-                    throw new Error(`Tried to get ${key} of non-existent fsentry: ` +
-                        this.selector.describe(true));
+                    throw new Error(`Tried to get ${key} of non-existent fsentry: ${
+                        this.selector.describe(true)}`);
                 }
                 return this.entry[k];
             }
@@ -703,7 +706,7 @@ module.exports = class FSNodeContext {
         throw new Error(`unrecognize key for FSNodeContext.get: ${key}`);
     }
 
-    async getParent() {
+    async getParent () {
         if ( this.isRoot ) {
             throw new Error('tried to get parent of root');
         }
@@ -732,7 +735,7 @@ module.exports = class FSNodeContext {
         return this.fs.node(new NodeUIDSelector(parent_uid));
     }
 
-    async getChild(name) {
+    async getChild (name) {
         // If we have a path, we can get an FSNodeContext for the child
         // without fetching anything.
         if ( this.path ) {
@@ -745,7 +748,11 @@ module.exports = class FSNodeContext {
         return await this.fs.node(new NodeChildSelector(this.selector, name));
     }
 
-    async getTarget() {
+    async hasChild (name) {
+        return await this.provider.directory_has_name({ parent: this, name });
+    }
+
+    async getTarget () {
         await this.fetchEntry();
         const type = await this.get('type');
 
@@ -762,16 +769,16 @@ module.exports = class FSNodeContext {
         return this;
     }
 
-    async is_above(child_fsNode) {
+    async is_above (child_fsNode) {
         if ( this.isRoot ) return true;
 
         const path_this = await this.get('path');
         const path_child = await child_fsNode.get('path');
 
-        return path_child.startsWith(path_this + '/');
+        return path_child.startsWith(`${path_this }/`);
     }
 
-    async is(fsNode) {
+    async is (fsNode) {
         if ( this.mysql_id && fsNode.mysql_id ) {
             return this.mysql_id === fsNode.mysql_id;
         }
@@ -780,20 +787,29 @@ module.exports = class FSNodeContext {
             return this.uid === fsNode.uid;
         }
 
+        if ( this.path && fsNode.path ) {
+            return await this.get('path') === await fsNode.get('path');
+        }
+
         await this.fetchEntry();
         await fsNode.fetchEntry();
         return this.uid === fsNode.uid;
     }
 
-    async getSafeEntry(fetch_options = {}) {
+    async getSafeEntry (fetch_options = {}) {
+        const svc_event = this.services.get('event');
+
         if ( this.found === false ) {
-            throw new Error(`Tried to get entry of non-existent fsentry: ` +
-                this.selector.describe(true));
+            throw new Error(`Tried to get entry of non-existent fsentry: ${
+                this.selector.describe(true)}`);
         }
         await this.fetchEntry(fetch_options);
 
         const res = this.entry;
         const fsentry = {};
+        if ( res.thumbnail ) {
+            await svc_event.emit('thumbnail.read', this.entry);
+        }
 
         // This property will not be serialized, but it can be checked
         // by other code to verify that API calls do not send
@@ -812,7 +828,7 @@ module.exports = class FSNodeContext {
         } catch ( _e ) {
             // fail silently
         }
-        if ( ! actor?.type?.user || actor.type.user.id !== res.user_id ) {
+        if ( !actor?.type?.user || actor.type.user.id !== res.user_id ) {
             if ( ! fsentry.owner ) await this.fetchOwner();
             fsentry.owner = {
                 username: res.owner?.username,
@@ -824,10 +840,10 @@ module.exports = class FSNodeContext {
 
         const info = this.services.get('information');
 
-        if ( ! this.uid && ! this.entry.uuid ) {
-            this.log.noticeme('whats even happening!?!? ' +
-                this.selector.describe() + ' ' +
-                JSON.stringify(this.entry, null, '  '));
+        if ( !this.uid && !this.entry.uuid ) {
+            console.warn(`Potential Error in getSafeEntry with no uid or entry.uuid ${
+                this.selector.describe() } ${
+                JSON.stringify(this.entry, null, '  ')}`);
         }
 
         // If fsentry was found by a path but the entry doesn't
@@ -878,9 +894,9 @@ module.exports = class FSNodeContext {
         }
 
         // Add file_request_url
-        if ( res.file_request_token && res.file_request_token !== '' ){
-            fsentry.file_request_url  = config.origin +
-                '/upload?token=' + res.file_request_token;
+        if ( res.file_request_token && res.file_request_token !== '' ) {
+            fsentry.file_request_url = `${config.origin
+            }/upload?token=${ res.file_request_token}`;
         }
 
         if ( fsentry.associated_app_id ) {
@@ -894,7 +910,7 @@ module.exports = class FSNodeContext {
             fsentry.appdata_app = components[2];
         }
 
-        fsentry.is_dir = !! fsentry.is_dir;
+        fsentry.is_dir = !!fsentry.is_dir;
 
         // Ensure `size` is numeric
         if ( fsentry.size ) {
@@ -904,7 +920,7 @@ module.exports = class FSNodeContext {
         return fsentry;
     }
 
-    static sanitize_pending_entry_info(res) {
+    static sanitize_pending_entry_info (res) {
         const fsentry = {};
 
         // This property will not be serialized, but it can be checked
@@ -940,3 +956,6 @@ module.exports = class FSNodeContext {
         return fsentry;
     }
 };
+
+module.exports.TYPE_FILE = TYPE_FILE;
+module.exports.TYPE_DIRECTORY = TYPE_DIRECTORY;

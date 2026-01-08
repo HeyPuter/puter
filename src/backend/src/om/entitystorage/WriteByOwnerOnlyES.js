@@ -16,9 +16,9 @@
  * You should have received a copy of the GNU Affero General Public License
  * along with this program.  If not, see <https://www.gnu.org/licenses/>.
  */
-const APIError = require("../../api/APIError");
-const { Context } = require("../../util/context");
-const { BaseES } = require("./BaseES");
+const APIError = require('../../api/APIError');
+const { Context } = require('../../util/context');
+const { BaseES } = require('./BaseES');
 
 const WRITE_ALL_OWNER_ES = 'system:es:write-all-owners';
 
@@ -70,11 +70,11 @@ class WriteByOwnerOnlyES extends BaseES {
          */
         async _check_allowed ({ old_entity }) {
             const svc_permission = this.context.get('services').get('permission');
-            const has_permission_to_write_all = await svc_permission.check(Context.get("actor"), WRITE_ALL_OWNER_ES);
-            if (has_permission_to_write_all) {
+            const has_permission_to_write_all = await svc_permission.check(Context.get('actor'), WRITE_ALL_OWNER_ES);
+            if ( has_permission_to_write_all ) {
                 return;
             }
-            
+
             const owner = await old_entity.get('owner');
             if ( ! owner ) {
                 throw APIError.create('forbidden');
@@ -84,9 +84,9 @@ class WriteByOwnerOnlyES extends BaseES {
             if ( user.id !== owner.id ) {
                 throw APIError.create('forbidden');
             }
-        }
+        },
 
-    }
+    };
 }
 
 module.exports = WriteByOwnerOnlyES;

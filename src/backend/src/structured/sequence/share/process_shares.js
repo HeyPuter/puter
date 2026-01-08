@@ -17,14 +17,14 @@
  * along with this program.  If not, see <https://www.gnu.org/licenses/>.
  */
 
-const APIError = require("../../../api/APIError");
-const { Sequence } = require("../../../codex/Sequence");
-const config = require("../../../config");
-const { get_user, get_app } = require("../../../helpers");
-const { PermissionUtil } = require("../../../services/auth/permissionUtils.mjs");
-const FSNodeParam = require("../../../api/filesystem/FSNodeParam");
-const { TYPE_DIRECTORY } = require("../../../filesystem/FSNodeContext");
-const { MANAGE_PERM_PREFIX } = require("../../../services/auth/permissionConts.mjs");
+import APIError from '../../../api/APIError.js';
+import { Sequence } from '../../../codex/Sequence.js';
+import config from '../../../config.js';
+import { get_user, get_app } from '../../../helpers.js';
+import { PermissionUtil } from '../../../services/auth/permissionUtils.mjs';
+import FSNodeParam from '../../../api/filesystem/FSNodeParam.js';
+import { TYPE_DIRECTORY } from '../../../filesystem/FSNodeContext.js';
+import { MANAGE_PERM_PREFIX } from '../../../services/auth/permissionConts.mjs';
 
 /*
     This code is optimized for editors supporting folding.
@@ -38,23 +38,98 @@ const { MANAGE_PERM_PREFIX } = require("../../../services/auth/permissionConts.m
     }
 */
 
-module.exports = new Sequence({
+// TODO DS: simplify these into the method
+const is_plain_object = (value) =>
+    value !== null && typeof value === 'object' && !Array.isArray(value);
+
+const error = (code, message) => ({ $: 'error', code, message });
+
+const normalize_body = (body) => {
+    if ( body === undefined ) return {};
+    if ( is_plain_object(body) ) return body;
+    return { value: body };
+};
+
+const normalize_meta = (meta) => is_plain_object(meta) ? meta : {};
+
+const to_standard = (type, body = {}, meta = {}) => {
+    if ( ! type ) {
+        return error('missing-type-param', 'type parameter is missing');
+    }
+
+    const prefixed_meta = Object.fromEntries(Object.entries(meta).map(([k, v]) => [`$${k}`, v]));
+
+    return { $: type, ...prefixed_meta, ...body };
+};
+
+const process_array = (value) => {
+    if ( value.length <= 1 || value.length > 3 ) {
+        return error('invalid-array-length',
+                        'tag-typed arrays should have 1-3 elements');
+    }
+
+    const [type, raw_body, raw_meta] = value;
+    return to_standard(type, normalize_body(raw_body), normalize_meta(raw_meta));
+};
+
+const process_structured = (value) => {
+    if ( ! Object.prototype.hasOwnProperty.call(value, 'type') ) {
+        return error('missing-type-property', 'missing "type" property');
+    }
+
+    return to_standard(value.type,
+                    normalize_body(value.body),
+                    normalize_meta(value.meta));
+};
+
+const process_standard = (value) => {
+    const meta = {};
+    const body = {};
+
+    for ( const [key, val] of Object.entries(value) ) {
+        if ( key === '$' ) continue;
+        if ( key.startsWith('$') ) {
+            meta[key.slice(1)] = val;
+        } else {
+            body[key] = val;
+        }
+    }
+
+    return to_standard(value.$, body, meta);
+};
+
+const parseTypeTagged = (value) => {
+    const is_object_like = value !== null && typeof value === 'object';
+    if ( !is_object_like && !Array.isArray(value) ) {
+        return error('invalid-type', 'should be object or array');
+    }
+
+    if ( Array.isArray(value) ) {
+        return process_array(value);
+    }
+
+    if ( value.$ === '$meta-body' ) {
+        return process_structured(value);
+    }
+
+    return process_standard(value);
+};
+
+export const processSharesSequence = new Sequence({
     name: 'process shares',
-    beforeEach(a) {
+    beforeEach (a) {
         const { shares_work } = a.values();
         shares_work.clear_invalid();
     },
 }, [
-    function validate_share_types(a) {
+    function validate_share_types (a) {
         const { result, shares_work } = a.values();
-
-        const lib_typeTagged = a.iget('services').get('lib-type-tagged');
 
         for ( const item of shares_work.list() ) {
             const { i } = item;
             let { value } = item;
 
-            const thing = lib_typeTagged.process(value);
+            const thing = parseTypeTagged(value);
             if ( thing.$ === 'error' ) {
                 item.invalid = true;
                 result.shares[i] =
@@ -78,7 +153,7 @@ module.exports = new Sequence({
             item.thing = thing;
         }
     },
-    function create_file_share_intents(a) {
+    function create_file_share_intents (a) {
         const { result, shares_work } = a.values();
         for ( const item of shares_work.list() ) {
             const { thing } = item;
@@ -113,7 +188,7 @@ module.exports = new Sequence({
             };
         }
     },
-    function create_app_share_intents(a) {
+    function create_app_share_intents (a) {
         const { result, shares_work } = a.values();
         for ( const item of shares_work.list() ) {
             const { thing } = item;
@@ -121,7 +196,7 @@ module.exports = new Sequence({
 
             item.type = 'app';
             const errors = [];
-            if ( ! thing.uid && ! thing.name ) {
+            if ( !thing.uid && !thing.name ) {
                 errors.push('`uid` or `name` is required');
             }
 
@@ -147,7 +222,7 @@ module.exports = new Sequence({
             continue;
         }
     },
-    async function fetch_nodes_for_file_shares(a) {
+    async function fetch_nodes_for_file_shares (a) {
         const { req, result, shares_work } = a.values();
         for ( const item of shares_work.list() ) {
             if ( item.type !== 'fs' ) continue;
@@ -178,7 +253,7 @@ module.exports = new Sequence({
             item.email_link = email_link;
         }
     },
-    async function fetch_apps_for_app_shares(a) {
+    async function fetch_apps_for_app_shares (a) {
         const { result, shares_work } = a.values();
         const db = a.iget('db');
 
@@ -209,15 +284,15 @@ module.exports = new Sequence({
             item.app = app;
         }
     },
-    async function add_subdomain_permissions(a) {
+    async function add_subdomain_permissions (a) {
         const { shares_work } = a.values();
         const actor = a.get('actor');
         const db = a.iget('db');
 
         for ( const item of shares_work.list() ) {
             if ( item.type !== 'app' ) continue;
-            const [subdomain] = await db.read(`SELECT * FROM subdomains WHERE associated_app_id = ? ` +
-                `AND user_id = ? LIMIT 1`,
+            const [subdomain] = await db.read('SELECT * FROM subdomains WHERE associated_app_id = ? ' +
+                'AND user_id = ? LIMIT 1',
             [item.app.id, actor.type.user.id]);
             if ( ! subdomain ) continue;
 
@@ -228,7 +303,7 @@ module.exports = new Sequence({
             item.share_intent.permissions.push(PermissionUtil.join('site', site_selector, 'access'));
         }
     },
-    async function add_appdata_permissions(a) {
+    async function add_appdata_permissions (a) {
         const { shares_work } = a.values();
         for ( const item of shares_work.list() ) {
             if ( item.type !== 'app' ) continue;
@@ -244,7 +319,7 @@ module.exports = new Sequence({
             item.share_intent.permissions.push(appdatadir_perm);
         }
     },
-    function apply_success_status_to_shares(a) {
+    function apply_success_status_to_shares (a) {
         const { result, shares_work } = a.values();
         for ( const item of shares_work.list() ) {
             result.shares[item.i] =
@@ -257,7 +332,7 @@ module.exports = new Sequence({
                 };
         }
     },
-    function return_state(a) {
+    function return_state (a) {
         return a;
     },
 ]);

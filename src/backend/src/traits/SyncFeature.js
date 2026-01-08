@@ -31,7 +31,7 @@ class SyncFeature {
                 return await lock.acquire(async () => {
                     return await original_method.call(instance, ...args);
                 });
-            }
+            };
         }
     }
 }

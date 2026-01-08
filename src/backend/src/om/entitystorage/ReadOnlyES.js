@@ -16,8 +16,8 @@
  * You should have received a copy of the GNU Affero General Public License
  * along with this program.  If not, see <https://www.gnu.org/licenses/>.
  */
-const APIError = require("../../api/APIError");
-const { BaseES } = require("./BaseES");
+const APIError = require('../../api/APIError');
+const { BaseES } = require('./BaseES');
 
 class ReadOnlyES extends BaseES {
     async upsert () {

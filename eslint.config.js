@@ -8,17 +8,17 @@ import bangSpaceIf from './eslint/bang-space-if.js';
 import controlStructureSpacing from './eslint/control-structure-spacing.js';
 import spaceUnaryOpsWithException from './eslint/space-unary-ops-with-exception.js';
 
-const rules = {
+export const rules = {
+    'no-invalid-this': 'error',
     'no-unused-vars': ['error', {
-        'vars': 'all',
-        'args': 'after-used',
-        'caughtErrors': 'all',
-        'ignoreRestSiblings': false,
-        'ignoreUsingDeclarations': false,
-        'reportUsedIgnorePattern': false,
-        'argsIgnorePattern': '^_',
-        'caughtErrorsIgnorePattern': '^_',
-        'destructuredArrayIgnorePattern': '^_',
+        vars: 'all',
+        args: 'after-used',
+        caughtErrors: 'none',
+        ignoreRestSiblings: false,
+        ignoreUsingDeclarations: false,
+        reportUsedIgnorePattern: false,
+        argsIgnorePattern: '^_',
+        destructuredArrayIgnorePattern: '^_',
 
     }],
     curly: ['error', 'multi-line'],
@@ -54,145 +54,141 @@ const rules = {
     'custom/space-unary-ops-with-exception': ['error', { words: true, nonwords: false }],
     '@stylistic/no-multi-spaces': ['error', { exceptions: { 'VariableDeclarator': true } }],
     '@stylistic/type-annotation-spacing': 'error',
+    '@stylistic/type-generic-spacing': 'error',
+    '@stylistic/type-named-tuple-spacing': ['error'],
+    'no-use-before-define': ['error', {
+        'functions': false,
+    }],
+};
+
+const tsRules = {
+    '@typescript-eslint/no-explicit-any': 'warn',
+    '@typescript-eslint/no-unused-vars': ['error', { argsIgnorePattern: '^_', caughtErrors: 'none' }],
+    '@typescript-eslint/ban-ts-comment': 'warn',
+    '@typescript-eslint/consistent-type-definitions': ['error', 'interface'],
+};
+
+const sharedPlugins = {
+    js,
+    '@stylistic': stylistic,
+    custom: {
+        rules: {
+            'control-structure-spacing': controlStructureSpacing,
+            'bang-space-if': bangSpaceIf,
+            'space-unary-ops-with-exception': spaceUnaryOpsWithException,
+        },
+    },
+};
+
+const sharedJsConfig = {
+    rules,
+    plugins: sharedPlugins,
+};
+
+const recommendedJsConfig = {
+    ...sharedJsConfig,
+    extends: ['js/recommended'],
+};
+
+const createTsConfig = ({ files, project, ignores = [], globals: tsGlobals }) => ({
+    files,
+    ignores,
+    languageOptions: {
+        parser: tseslintParser,
+        ...(tsGlobals ? { globals: tsGlobals } : {}),
+        parserOptions: {
+            ecmaVersion: 'latest',
+            sourceType: 'module',
+            project,
+        },
+    },
+    plugins: {
+        '@typescript-eslint': tseslintPlugin,
+    },
+    rules: tsRules,
+});
+
+const backendConfig = {
+    ...recommendedJsConfig,
+    files: [
+        'src/backend/**/*.{js,mjs,cjs,ts}',
+        'src/putility/**/*.{js,mjs,cjs,ts}',
+    ],
+    ignores: [
+        '**/*.test.js',
+        '**/*.test.ts',
+        '**/*.test.mts',
+    ],
+    languageOptions: { globals: globals.node },
+};
+
+const testConfig = {
+    ...sharedJsConfig,
+    files: [
+        '**/*.test.js',
+        '**/*.test.ts',
+        '**/*.test.mts',
+    ],
+    languageOptions: { globals: { ...globals.node, ...globals.vitest } },
+};
+
+const extensionConfig = {
+    ...recommendedJsConfig,
+    files: ['extensions/**/*.{js,mjs,cjs,ts}'],
+    languageOptions: {
+        globals: {
+            extension: 'readonly',
+            config: 'readonly',
+            global_config: 'readonly',
+            ...globals.node,
+        },
+    },
+};
+
+const frontendConfig = {
+    ...recommendedJsConfig,
+    files: ['**/*.{js,mjs,cjs,ts}', 'src/gui/src/**/*.js'],
+    ignores: [
+        'src/backend/**/*.{js,mjs,cjs,ts}',
+        'extensions/**/*.{js,mjs,cjs,ts}',
+        'submodules/**',
+        '**/*.test.{js,ts,mts,mjs}',
+        '**/*.min.js',
+        '**/*.min.cjs',
+        '**/*.min.mjs',
+        '**/socket.io.js',
+        '**/dist/*.js',
+        'src/gui/src/lib/**',
+        'src/gui/dist/**',
+    ],
+    languageOptions: {
+        globals: {
+            ...globals.browser,
+            ...globals.jquery,
+            i18n: 'readonly',
+            puter: 'readonly',
+        },
+    },
 };
 
 export default defineConfig([
-    // TypeScript support block
-    {
+    createTsConfig({
+        files: ['**/*.test.ts', '**/*.test.mts', '**/*.test.setup.ts'],
+        ignores: ['tests/playwright/tests/**/*.ts'],
+        project: './tests/tsconfig.json',
+        globals: { ...globals.node, ...globals.vitest },
+    }),
+    createTsConfig({
         files: ['**/*.ts'],
-        ignores: ['tests/**/*.ts', 'extensions'],
-        languageOptions: {
-            parser: tseslintParser,
-            parserOptions: {
-                ecmaVersion: 'latest',
-                sourceType: 'module',
-                project: './tsconfig.json',
-            },
-        },
-        plugins: {
-            '@typescript-eslint': tseslintPlugin,
-        },
-        rules: {
-            // Recommended rules for TypeScript
-            '@typescript-eslint/no-explicit-any': 'warn',
-            '@typescript-eslint/no-unused-vars': ['error', { argsIgnorePattern: '^_' }],
-            '@typescript-eslint/ban-ts-comment': 'warn',
-            '@typescript-eslint/consistent-type-definitions': ['error', 'interface'],
-        },
-    },
-    // TypeScript support for extensions
-    {
+        ignores: ['**/*.test.ts', '**/*.test.mts', 'extensions/**/*.ts'],
+        project: './tsconfig.json',
+    }),
+    createTsConfig({
         files: ['extensions/**/*.ts'],
-        languageOptions: {
-            parser: tseslintParser,
-            parserOptions: {
-                ecmaVersion: 'latest',
-                sourceType: 'module',
-                project: 'extensions/tsconfig.json',
-            },
-        },
-        plugins: {
-            '@typescript-eslint': tseslintPlugin,
-        },
-        rules: {
-            // Recommended rules for TypeScript
-            '@typescript-eslint/no-explicit-any': 'warn',
-            '@typescript-eslint/no-unused-vars': ['error', { argsIgnorePattern: '^_' }],
-            '@typescript-eslint/ban-ts-comment': 'warn',
-            '@typescript-eslint/consistent-type-definitions': ['error', 'interface'],
-        },
-    },
-    // TypeScript support for tests
-    {
-        files: ['tests/**/*.ts'],
-        languageOptions: {
-            parser: tseslintParser,
-            parserOptions: {
-                ecmaVersion: 'latest',
-                sourceType: 'module',
-                project: './tests/tsconfig.json',
-            },
-        },
-        plugins: {
-            '@typescript-eslint': tseslintPlugin,
-        },
-        rules: {
-            // Recommended rules for TypeScript
-            '@typescript-eslint/no-explicit-any': 'warn',
-            '@typescript-eslint/no-unused-vars': ['error', { argsIgnorePattern: '^_' }],
-            '@typescript-eslint/ban-ts-comment': 'warn',
-            '@typescript-eslint/consistent-type-definitions': ['error', 'interface'],
-        },
-    },
-    {
-        plugins: {
-            js,
-            '@stylistic': stylistic,
-            custom: { rules: {
-                'control-structure-spacing': controlStructureSpacing,
-                'bang-space-if': bangSpaceIf,
-                'space-unary-ops-with-exception': spaceUnaryOpsWithException,
-            } },
-        },
-    },
-    {
-        files: ['src/backend/**/*.{js,mjs,cjs,ts}'],
-        languageOptions: { globals: globals.node },
-        rules,
-        extends: ['js/recommended'],
-        plugins: {
-            js,
-            '@stylistic': stylistic,
-        },
-    },
-    {
-        files: ['extensions/**/*.{js,mjs,cjs,ts}'],
-        languageOptions: {
-            globals: {
-                extension: 'readonly',
-                config: 'readonly',
-                global_config: 'readonly',
-                ...globals.node,
-            },
-        },
-        rules,
-        extends: ['js/recommended'],
-        plugins: {
-            js,
-            '@stylistic': stylistic,
-        },
-    },
-    {
-        files: ['**/*.{js,mjs,cjs,ts}'],
-        ignores: [
-            'src/backend/**/*.{js,mjs,cjs,ts}',
-            'extensions/**/*.{js,mjs,cjs,ts}',
-        ],
-        languageOptions: {
-            globals: {
-                ...globals.browser,
-                ...globals.jquery,
-                i18n: 'readonly',
-            },
-        },
-        rules,
-    },
-    {
-        files: ['**/*.{js,mjs,cjs,ts}'],
-        ignores: ['src/backend/**/*.{js,mjs,cjs,ts}'],
-        languageOptions: {
-            globals: {
-                ...globals.browser,
-                ...globals.jquery,
-                i18n: 'readonly',
-            },
-        },
-        rules,
-        extends: ['js/recommended'],
-        plugins: {
-            js,
-            '@stylistic': stylistic,
-
-        },
-    },
+        project: './extensions/tsconfig.json',
+    }),
+    backendConfig,
+    testConfig,
+    extensionConfig,
+    frontendConfig,
 ]);

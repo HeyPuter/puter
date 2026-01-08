@@ -16,8 +16,8 @@
  * You should have received a copy of the GNU Affero General Public License
  * along with this program.  If not, see <https://www.gnu.org/licenses/>.
  */
-const APIError = require("../../api/APIError");
-const eggspress = require("../../api/eggspress");
+const APIError = require('../../api/APIError');
+const eggspress = require('../../api/eggspress');
 
 module.exports = eggspress('/clearItems', {
     subdomain: 'api',
@@ -39,13 +39,11 @@ module.exports = eggspress('/clearItems', {
     // TODO: Check if used anywhere, maybe remove
     // eslint-disable-next-line no-undef
     const dbrw = svc_mysql.get(DB_MODE_WRITE, 'kvstore-clearItems');
-    await dbrw.execute(
-        `DELETE FROM kv WHERE user_id=? AND app=?`,
-        [
-            req.user.id,
-            app,
-        ]
-    );
+    await dbrw.execute('DELETE FROM kv WHERE user_id=? AND app=?',
+                    [
+                        req.user.id,
+                        app,
+                    ]);
 
     return res.send({});
 });

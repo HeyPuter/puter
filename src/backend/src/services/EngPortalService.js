@@ -1,4 +1,3 @@
-// METADATA // {"ai-commented":{"service":"mistral","model":"mistral-large-latest"}}
 /*
  * Copyright (C) 2024-present Puter Technologies Inc.
  *
@@ -17,8 +16,7 @@
  * You should have received a copy of the GNU Affero General Public License
  * along with this program.  If not, see <https://www.gnu.org/licenses/>.
  */
-const { AdvancedBase } = require("@heyputer/putility");
-
+const { AdvancedBase } = require('@heyputer/putility');
 
 /**
 * @class EngPortalService
@@ -41,7 +39,6 @@ class EngPortalService extends AdvancedBase {
         this.commands = services.get('commands');
         this._registerCommands(this.commands);
     }
-
 
     /**
     * Lists all ongoing operations.
@@ -88,7 +85,6 @@ class EngPortalService extends AdvancedBase {
         return out;
     }
 
-
     /**
     * Retrieves a list of alarms.
     *
@@ -106,7 +102,6 @@ class EngPortalService extends AdvancedBase {
 
         return ls;
     }
-
 
     /**
     * Gets the system statistics.
@@ -131,7 +126,7 @@ class EngPortalService extends AdvancedBase {
                 error: {
                     message: alarm.error.message,
                     stack: alarm.error.stack,
-                }
+                },
             } : {}),
         };
 

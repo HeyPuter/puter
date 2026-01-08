@@ -18,12 +18,12 @@
  */
 const { chkperm } = require('../../helpers');
 
-const { RootNodeSelector, NodeChildSelector, NodePathSelector } = require("../node/selectors");
+const { RootNodeSelector, NodeChildSelector, NodePathSelector } = require('../node/selectors');
 const APIError = require('../../api/APIError');
 
 const FSNodeParam = require('../../api/filesystem/FSNodeParam');
 const StringParam = require('../../api/filesystem/StringParam');
-const FlagParam = require("../../api/filesystem/FlagParam");
+const FlagParam = require('../../api/filesystem/FlagParam');
 const UserParam = require('../../api/filesystem/UserParam');
 const FSNodeContext = require('../FSNodeContext');
 const { OtelFeature } = require('../../traits/OtelFeature');
@@ -50,16 +50,16 @@ class MkTree extends HLFilesystemOperation {
                     ├── q
                     └── r
                         └── s
-    `
+    `;
 
     static PARAMETERS = {
         parent: new FSNodeParam('parent', { optional: true }),
-    }
+    };
 
     static PROPERTIES = {
         leaves: () => [],
         directories_created: () => [],
-    }
+    };
 
     async _run () {
         const { values, context } = this;
@@ -94,31 +94,33 @@ class MkTree extends HLFilesystemOperation {
         // This is just a loop that goes through each part of the path
         // until it finds the first directory that doesn't exist yet.
         let i = 0;
-        if ( parent_exists ) for ( ; i < dirs.length ; i++ ) {
-            const dir = dirs[i];
-            const currentParent = current;
-            current = new NodeChildSelector(current, dir);
+        if ( parent_exists ) {
+            for ( ; i < dirs.length ; i++ ) {
+                const dir = dirs[i];
+                const currentParent = current;
+                current = new NodeChildSelector(current, dir);
 
-            const maybe_dir = await fs.node(current);
+                const maybe_dir = await fs.node(current);
 
-            if ( maybe_dir.isRoot ) continue;
-            if ( await maybe_dir.isUserDirectory() ) continue;
+                if ( maybe_dir.isRoot ) continue;
+                if ( await maybe_dir.isUserDirectory() ) continue;
 
-            if ( await maybe_dir.exists() ) {
+                if ( await maybe_dir.exists() ) {
 
-                if ( await maybe_dir.get('type') !== FSNodeContext.TYPE_DIRECTORY ) {
-                    throw APIError.create('dest_is_not_a_directory');
+                    if ( await maybe_dir.get('type') !== FSNodeContext.TYPE_DIRECTORY ) {
+                        throw APIError.create('dest_is_not_a_directory');
+                    }
+
+                    continue;
                 }
 
-                continue;
+                current = currentParent;
+                parent_exists = false;
+                break;
             }
-
-            current = currentParent;
-            parent_exists = false;
-            break;
         }
 
-        if ( parent_did_exist && ! parent_exists ) {
+        if ( parent_did_exist && !parent_exists ) {
             const node = await fs.node(current);
             const has_perm = await chkperm(await node.get('entry'), actor.type.user.id, 'write');
             if ( ! has_perm ) throw APIError.create('permission_denied');
@@ -145,7 +147,7 @@ class MkTree extends HLFilesystemOperation {
                 parent: await fs.node(currentParent),
                 name: current.name,
                 actor,
-            })
+            });
 
             current = node.selector;
 
@@ -191,9 +193,7 @@ class QuickMkdir extends HLFilesystemOperation {
             currentSpan.setAttribute('parent', parent.selector.describe());
         }
 
-
-
-        for ( let i=0 ; i < dirs.length ; i++ ) {
+        for ( let i = 0 ; i < dirs.length ; i++ ) {
             const dir = dirs[i];
             const currentParent = current;
             current = new NodeChildSelector(current, dir);
@@ -203,7 +203,7 @@ class QuickMkdir extends HLFilesystemOperation {
                 parent: await fs.node(currentParent),
                 name: current.name,
                 actor,
-            })
+            });
 
             current = node.selector;
 
@@ -224,7 +224,7 @@ class HLMkdir extends HLFilesystemOperation {
         - overwrite existing files
         - dedupe names
         - create shortcuts
-    `
+    `;
 
     static PARAMETERS = {
         parent: new FSNodeParam('parent', { optional: true }),
@@ -238,18 +238,18 @@ class HLMkdir extends HLFilesystemOperation {
 
     static MODULES = {
         _path: require('path'),
-    }
+    };
 
     static PROPERTIES = {
         parent_directories_created: () => [],
-    }
+    };
 
     static FEATURES = [
         new OtelFeature([
             '_get_existing_parent',
             '_create_parents',
         ]),
-    ]
+    ];
 
     async _run () {
         const { context, values } = this;
@@ -290,7 +290,7 @@ class HLMkdir extends HLFilesystemOperation {
         if ( top_parent.isRoot ) {
             // root directory is read-only
             throw APIError.create('forbidden', null, {
-                message: 'Cannot create directories in the root directory.'
+                message: 'Cannot create directories in the root directory.',
             });
         }
 
@@ -306,9 +306,7 @@ class HLMkdir extends HLFilesystemOperation {
         const has_perm = await chkperm(await parent_node.get('entry'), user_id, 'write');
         if ( ! has_perm ) throw APIError.create('permission_denied');
 
-        const existing = await fs.node(
-            new NodeChildSelector(parent_node.selector, target_basename)
-        );
+        const existing = await fs.node(new NodeChildSelector(parent_node.selector, target_basename));
 
         await existing.fetchEntry();
 
@@ -328,7 +326,7 @@ class HLMkdir extends HLFilesystemOperation {
             else if ( dedupe_name ) {
                 const fs = context.get('services').get('filesystem');
                 const parent_selector = parent_node.selector;
-                for ( let i=1 ;; i++ ) {
+                for ( let i = 1 ;; i++ ) {
                     let try_new_name = `${target_basename} (${i})`;
                     const selector = new NodeChildSelector(parent_selector, try_new_name);
                     const exists = await parent_node.provider.quick_check({
@@ -411,7 +409,7 @@ class HLMkdir extends HLFilesystemOperation {
         let remaining_path  = _path.dirname(values.path).split('/').filter(Boolean);
         {
             const parts = remaining_path.slice();
-            for (;;) {
+            for ( ;; ) {
                 if ( remaining_path.length === 0 ) {
                     return deepest_existing;
                 }
@@ -437,34 +435,6 @@ class HLMkdir extends HLFilesystemOperation {
         return tree_op.leaves[0];
     }
 
-    async _get_existing_parent ({ parent_node }) {
-        const { context, values } = this;
-        const { _path } = this.modules;
-        const fs = context.get('services').get('filesystem');
-
-        const target_dirname = _path.dirname(values.path);
-        const dirs = target_dirname === '.' ? []
-            : target_dirname.split('/').filter(Boolean);
-
-        let current = parent_node.selector;
-        for ( let i=0 ; i < dirs.length ; i++ ) {
-            current = new NodeChildSelector(current, dirs[i]);
-        }
-
-        const node = await fs.node(current);
-
-        if ( ! await node.exists() ) {
-            // console.log('HERE FROM', node.selector.describe(), parent_node.selector.describe());
-            throw APIError.create('dest_does_not_exist');
-        }
-
-        if ( ! node.entry.is_dir ) {
-            throw APIError.create('dest_is_not_a_directory');
-        }
-
-        return node;
-    }
-
     /**
      * Creates a directory and all its ancestors.
      *
@@ -483,7 +453,7 @@ class HLMkdir extends HLFilesystemOperation {
             dir.get_selector_of_type(NodePathSelector);
 
         if ( ! maybe_path_selector ) {
-            throw APIError.create('dest_does_not_exist');
+            throw APIError.create('dest_does_not_exist', null, { what_dest: 'path from selector' });
         }
 
         const path = maybe_path_selector.value;
@@ -501,7 +471,12 @@ class HLMkdir extends HLFilesystemOperation {
 
     async _get_existing_top_parent ({ top_parent }) {
         if ( ! await top_parent.exists() ) {
-            throw APIError.create('dest_does_not_exist');
+            throw APIError.create('dest_does_not_exist', null, {
+                // This seems verbose, but is necessary information when creating
+                // shortcuts, otherwise the developer doesn't know if we're talking
+                // about the shortcut's target directory or this parent directory.
+                what_dest: 'parent directory of the new directory being created',
+            });
         }
 
         if ( ! top_parent.entry.is_dir ) {
