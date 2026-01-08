@@ -18,7 +18,7 @@
  */
 // TODO: database access can be a service
 const { RESOURCE_STATUS_PENDING_CREATE } = require('../modules/puterfs/ResourceService.js');
-const { NodePathSelector, NodeUIDSelector, NodeInternalIDSelector, NodeSelector, NodeChildSelector } = require('./node/selectors.js');
+const { NodePathSelector, NodeUIDSelector, NodeInternalIDSelector, NodeSelector } = require('./node/selectors.js');
 const FSNodeContext = require('./FSNodeContext.js');
 const { Context } = require('../util/context.js');
 const APIError = require('../api/APIError.js');
@@ -30,6 +30,7 @@ const BaseService = require('../services/BaseService');
 const { MANAGE_PERM_PREFIX } = require('../services/auth/permissionConts.mjs');
 const { quot } = require('@heyputer/putility/src/libs/string.js');
 const fsCapabilities = require('./definitions/capabilities.js');
+const { LLRead } = require('./ll_operations/ll_read.js');
 
 class FilesystemService extends BaseService {
     static MODULES = {
@@ -374,7 +375,7 @@ class FilesystemService extends BaseService {
         // UUID followed by path component
         if ( string.includes('/') ) {
             const uuidPart = string.slice(0, string.indexOf('/'));
-            if ( ! is_valid_uuidv4(uuidPart) ) {
+            if ( ! is_valid_uuid4(uuidPart) ) {
                 throw new Error('expected file/directory identifier to begin with UUID or /');
             }
 
