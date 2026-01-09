@@ -44,7 +44,7 @@ module.exports = eggspress(['/up', '/write'], {
     //     fsNode: new FSNodeParam('path'),
     //     target: new FSNodeParam('shortcut_to', { optional: true }),
     // }
-}, async (req, res, next) => {
+}, async (req, res, _next) => {
     // Note: parameters moved here because the parameter
     // middleware won't work while using busboy
     const parameters = {
@@ -63,7 +63,7 @@ module.exports = eggspress(['/up', '/write'], {
 
     const x = Context.get();
     let frame;
-    const frame_meta_ready = async () => {
+    async () => {
         const operationTraceSvc = x.get('services').get('operationTrace');
         frame = (await operationTraceSvc.add_frame('api:/write'))
             .attr('gui_metadata', {
@@ -183,6 +183,8 @@ module.exports = eggspress(['/up', '/write'], {
         file: uploaded_file,
 
         app_id: app ? app.id : null,
+
+        thumbnail: req.body.thumbnail,
     });
 
     if ( frame ) frame.done();

@@ -26,6 +26,7 @@ const { OperationFrame } = require('../../services/OperationTraceService');
 const { HLMkShortcut } = require('../hl_operations/hl_mkshortcut');
 const { HLMkLink } = require('../hl_operations/hl_mklink');
 const { HLRemove } = require('../hl_operations/hl_remove');
+const { safeHasOwnProperty } = require('../../util/safety');
 
 class BatchCommand extends AdvancedBase {
     static FEATURES = [
@@ -36,7 +37,7 @@ class BatchCommand extends AdvancedBase {
         let x = Context.get();
         const operationTraceSvc = x.get('services').get('operationTrace');
         const frame = await operationTraceSvc.add_frame(`batch:${ this.name}`);
-        if ( parameters.hasOwnProperty('item_upload_id') ) {
+        if ( safeHasOwnProperty(parameters, 'item_upload_id') ) {
             frame.attr('gui_metadata', {
                 ...(frame.get_attr('gui_metadata') || {}),
                 item_upload_id: parameters.item_upload_id,
@@ -149,6 +150,8 @@ class WriteCommand extends BatchCommand {
             operation_id: parameters.operation_id,
             item_upload_id: parameters.item_upload_id,
             app_id: app ? app.id : null,
+
+            thumbnail: parameters.thumbnail,
         });
 
         this.provideValue('result', response);
