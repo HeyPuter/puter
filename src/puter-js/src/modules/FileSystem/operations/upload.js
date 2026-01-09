@@ -2,6 +2,7 @@ import path from '../../../lib/path.js';
 import * as utils from '../../../lib/utils.js';
 import getAbsolutePathForApp from '../utils/getAbsolutePathForApp.js';
 
+/* eslint-disable */
 const upload = async function (items, dirPath, options = {}) {
     return new Promise(async (resolve, reject) => {
         const DataTransferItem = globalThis.DataTransfer || (class DataTransferItem {
@@ -299,6 +300,7 @@ const upload = async function (items, dirPath, options = {}) {
                 op: options.shortcutTo ? 'shortcut' : 'write',
                 dedupe_name: options.dedupeName ?? true,
                 overwrite: options.overwrite ?? false,
+                thumbnail: options.thumbnail ?? undefined,
                 create_missing_ancestors: (options.createMissingAncestors || options.createMissingParents),
                 operation_id: operation_id,
                 path: (
