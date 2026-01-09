@@ -4,9 +4,9 @@ import { IChatModel } from '../types';
 
 export const OPEN_AI_MODELS: IChatModel[] = [
     {
-        puterId: "openai/gpt-5.2-chat",
+        puterId: "openai:openai/gpt-5.2-chat",
         id: 'gpt-5.2-chat-latest',
-        aliases: ['gpt-5.2-chat', ],
+        aliases: ['gpt-5.2-chat', 'openai/gpt-5.2-chat'],
         costs_currency: 'usd-cents',
         input_cost_key: 'prompt_tokens',
         output_cost_key: 'completion_tokens',
@@ -19,9 +19,9 @@ export const OPEN_AI_MODELS: IChatModel[] = [
         max_tokens: 16384,
     },
     {
-        puterId: "openai/gpt-5.2-pro",
+        puterId: "openai:openai/gpt-5.2-pro",
         id: 'gpt-5.2-pro-2025-12-11',
-        aliases: ['gpt-5.2-pro'],
+        aliases: ['gpt-5.2-pro', 'openai/gpt-5.2-pro'],
         costs_currency: 'usd-cents',
         input_cost_key: 'prompt_tokens',
         output_cost_key: 'completion_tokens',
@@ -34,9 +34,9 @@ export const OPEN_AI_MODELS: IChatModel[] = [
         responses_api_only: true
     },
     {
-        puterId: "openai/gpt-5.2",
+        puterId: "openai:openai/gpt-5.2",
         id: 'gpt-5.2-2025-12-11',
-        aliases: ['gpt-5.2'],
+        aliases: ['gpt-5.2', 'openai/gpt-5.2'],
         costs_currency: 'usd-cents',
         input_cost_key: 'prompt_tokens',
         output_cost_key: 'completion_tokens',
@@ -49,8 +49,9 @@ export const OPEN_AI_MODELS: IChatModel[] = [
         max_tokens: 128000,
     },
     {
-        puterId: "openai/gpt-5.1",
+        puterId: "openai:openai/gpt-5.1",
         id: 'gpt-5.1',
+        aliases: ['openai/gpt-5.1'],
         costs_currency: 'usd-cents',
         input_cost_key: 'prompt_tokens',
         output_cost_key: 'completion_tokens',
@@ -63,8 +64,9 @@ export const OPEN_AI_MODELS: IChatModel[] = [
         max_tokens: 128000,
     },
     {
-        puterId: "openai/gpt-5.1-codex",
+        puterId: "openai:openai/gpt-5.1-codex",
         id: 'gpt-5.1-codex',
+        aliases: ['openai/gpt-5.1-codex'],
         costs_currency: 'usd-cents',
         input_cost_key: 'prompt_tokens',
         output_cost_key: 'completion_tokens',
@@ -78,8 +80,9 @@ export const OPEN_AI_MODELS: IChatModel[] = [
         responses_api_only: true
     },
     {
-        puterId: "openai/gpt-5.1-codex-mini",
+        puterId: "openai:openai/gpt-5.1-codex-mini",
         id: 'gpt-5.1-codex-mini',
+        aliases: ['openai/gpt-5.1-codex-mini'],
         costs_currency: 'usd-cents',
         input_cost_key: 'prompt_tokens',
         output_cost_key: 'completion_tokens',
@@ -93,8 +96,9 @@ export const OPEN_AI_MODELS: IChatModel[] = [
         responses_api_only: true
     },
     {
-        puterId: "openai/gpt-5.1-chat",
+        puterId: "openai:openai/gpt-5.1-chat",
         id: 'gpt-5.1-chat-latest',
+        aliases: ['openai/gpt-5.1-chat'],
         costs_currency: 'usd-cents',
         input_cost_key: 'prompt_tokens',
         output_cost_key: 'completion_tokens',
@@ -107,9 +111,9 @@ export const OPEN_AI_MODELS: IChatModel[] = [
         max_tokens: 16384,
     },
     {
-        puterId: "openai/gpt-5",
+        puterId: "openai:openai/gpt-5",
         id: 'gpt-5-2025-08-07',
-        aliases: ['gpt-5'],
+        aliases: ['gpt-5', 'openai/gpt-5'],
         costs_currency: 'usd-cents',
         input_cost_key: 'prompt_tokens',
         output_cost_key: 'completion_tokens',
@@ -122,9 +126,9 @@ export const OPEN_AI_MODELS: IChatModel[] = [
         max_tokens: 128000,
     },
     {
-        puterId: "openai/gpt-5-mini",
+        puterId: "openai:openai/gpt-5-mini",
         id: 'gpt-5-mini-2025-08-07',
-        aliases: ['gpt-5-mini'],
+        aliases: ['gpt-5-mini', 'openai/gpt-5-mini'],
         costs_currency: 'usd-cents',
         input_cost_key: 'prompt_tokens',
         output_cost_key: 'completion_tokens',
@@ -137,9 +141,9 @@ export const OPEN_AI_MODELS: IChatModel[] = [
         max_tokens: 128000,
     },
     {
-        puterId: "openai/gpt-5-nano",
+        puterId: "openai:openai/gpt-5-nano",
         id: 'gpt-5-nano-2025-08-07',
-        aliases: ['gpt-5-nano'],
+        aliases: ['gpt-5-nano', 'openai/gpt-5-nano'],
         costs_currency: 'usd-cents',
         input_cost_key: 'prompt_tokens',
         output_cost_key: 'completion_tokens',
@@ -152,8 +156,9 @@ export const OPEN_AI_MODELS: IChatModel[] = [
         max_tokens: 128000,
     },
     {
-        puterId: "openai/gpt-5-chat",
+        puterId: "openai:openai/gpt-5-chat",
         id: 'gpt-5-chat-latest',
+        aliases: ['openai/gpt-5-chat'],
         costs_currency: 'usd-cents',
         input_cost_key: 'prompt_tokens',
         output_cost_key: 'completion_tokens',
@@ -166,8 +171,9 @@ export const OPEN_AI_MODELS: IChatModel[] = [
         max_tokens: 16384,
     },
     {
-        puterId: "openai/gpt-4o",
+        puterId: "openai:openai/gpt-4o",
         id: 'gpt-4o',
+        aliases: ['openai/gpt-4o'],
         costs_currency: 'usd-cents',
         input_cost_key: 'prompt_tokens',
         output_cost_key: 'completion_tokens',
@@ -180,8 +186,9 @@ export const OPEN_AI_MODELS: IChatModel[] = [
         max_tokens: 16384,
     },
     {
-        puterId: "openai/gpt-4o-mini",
+        puterId: "openai:openai/gpt-4o-mini",
         id: 'gpt-4o-mini',
+        aliases: ['openai/gpt-4o-mini'],
         max_tokens: 16384,
         costs_currency: 'usd-cents',
         input_cost_key: 'prompt_tokens',
@@ -194,8 +201,9 @@ export const OPEN_AI_MODELS: IChatModel[] = [
         },
     },
     {
-        puterId: "openai/o1",
+        puterId: "openai:openai/o1",
         id: 'o1',
+        aliases: ['openai/o1'],
         costs_currency: 'usd-cents',
         input_cost_key: 'prompt_tokens',
         output_cost_key: 'completion_tokens',
@@ -208,8 +216,9 @@ export const OPEN_AI_MODELS: IChatModel[] = [
         max_tokens: 100000,
     },
     {
-        puterId: "openai/o1-mini",
+        puterId: "openai:openai/o1-mini",
         id: 'o1-mini',
+        aliases: ['openai/o1-mini'],
         costs_currency: 'usd-cents',
         input_cost_key: 'prompt_tokens',
         output_cost_key: 'completion_tokens',
@@ -221,8 +230,9 @@ export const OPEN_AI_MODELS: IChatModel[] = [
         max_tokens: 65536,
     },
     {
-        puterId: "openai/o1-pro",
+        puterId: "openai:openai/o1-pro",
         id: 'o1-pro',
+        aliases: ['openai/o1-pro'],
         costs_currency: 'usd-cents',
         input_cost_key: 'prompt_tokens',
         output_cost_key: 'completion_tokens',
@@ -234,8 +244,9 @@ export const OPEN_AI_MODELS: IChatModel[] = [
         max_tokens: 100000,
     },
     {
-        puterId: "openai/o3",
+        puterId: "openai:openai/o3",
         id: 'o3',
+        aliases: ['openai/o3'],
         costs_currency: 'usd-cents',
         input_cost_key: 'prompt_tokens',
         output_cost_key: 'completion_tokens',
@@ -248,8 +259,9 @@ export const OPEN_AI_MODELS: IChatModel[] = [
         max_tokens: 100000,
     },
     {
-        puterId: "openai/o3-pro",
+        puterId: "openai:openai/o3-pro",
         id: 'o3-pro',
+        aliases: ['openai/o3-pro'],
         costs_currency: 'usd-cents',
         input_cost_key: 'prompt_tokens',
         output_cost_key: 'completion_tokens',
@@ -263,8 +275,9 @@ export const OPEN_AI_MODELS: IChatModel[] = [
         responses_api_only: true
     },
     {
-        puterId: "openai/o3-mini",
+        puterId: "openai:openai/o3-mini",
         id: 'o3-mini',
+        aliases: ['openai/o3-mini'],
         costs_currency: 'usd-cents',
         input_cost_key: 'prompt_tokens',
         output_cost_key: 'completion_tokens',
@@ -277,8 +290,9 @@ export const OPEN_AI_MODELS: IChatModel[] = [
         max_tokens: 100000,
     },
     {
-        puterId: "openai/o4-mini",
+        puterId: "openai:openai/o4-mini",
         id: 'o4-mini',
+        aliases: ['openai/o4-mini'],
         costs_currency: 'usd-cents',
         input_cost_key: 'prompt_tokens',
         output_cost_key: 'completion_tokens',
@@ -290,8 +304,9 @@ export const OPEN_AI_MODELS: IChatModel[] = [
         max_tokens: 100000,
     },
     {
-        puterId: "openai/gpt-4.1",
+        puterId: "openai:openai/gpt-4.1",
         id: 'gpt-4.1',
+        aliases: ['openai/gpt-4.1'],
         costs_currency: 'usd-cents',
         input_cost_key: 'prompt_tokens',
         output_cost_key: 'completion_tokens',
@@ -304,8 +319,9 @@ export const OPEN_AI_MODELS: IChatModel[] = [
         max_tokens: 32768,
     },
     {
-        puterId: "openai/gpt-4.1-mini",
+        puterId: "openai:openai/gpt-4.1-mini",
         id: 'gpt-4.1-mini',
+        aliases: ['openai/gpt-4.1-mini'],
         costs_currency: 'usd-cents',
         input_cost_key: 'prompt_tokens',
         output_cost_key: 'completion_tokens',
@@ -318,8 +334,9 @@ export const OPEN_AI_MODELS: IChatModel[] = [
         max_tokens: 32768,
     },
     {
-        puterId: "openai/gpt-4.1-nano",
+        puterId: "openai:openai/gpt-4.1-nano",
         id: 'gpt-4.1-nano',
+        aliases: ['openai/gpt-4.1-nano'],
         costs_currency: 'usd-cents',
         input_cost_key: 'prompt_tokens',
         output_cost_key: 'completion_tokens',
@@ -332,8 +349,9 @@ export const OPEN_AI_MODELS: IChatModel[] = [
         max_tokens: 32768,
     },
     {
-        puterId: "openai/gpt-4.5-preview",
+        puterId: "openai:openai/gpt-4.5-preview",
         id: 'gpt-4.5-preview',
+        aliases: ['openai/gpt-4.5-preview'],
         costs_currency: 'usd-cents',
         input_cost_key: 'prompt_tokens',
         output_cost_key: 'completion_tokens',
