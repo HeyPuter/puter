@@ -1,3 +1,4 @@
+/* eslint-disable no-unused-vars */
 export type KVValue = string | number | boolean | object | unknown;
 export type KVScalar = KVValue | KVValue[];
 
@@ -28,6 +29,7 @@ export class KV {
     incr (key: string, amount?: number | KVIncrementPath): Promise<number>;
     decr (key: string, amount?: number | KVIncrementPath): Promise<number>;
     add (key: string, value?: KVValue | KVAddPath): Promise<KVValue>;
+    remove (key: string, ...paths: string[]): Promise<KVValue>;
     update (key: string, pathAndValueMap: KVUpdatePath, ttlSeconds?: number): Promise<KVValue>;
     expire (key: string, ttlSeconds: number): Promise<boolean>;
     expireAt (key: string, timestampSeconds: number): Promise<boolean>;

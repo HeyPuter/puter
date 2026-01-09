@@ -527,6 +527,67 @@ export class DynamoKVStore {
         return res.Attributes?.value;
     }
 
+    async remove ({ key, paths }: { key: string; paths: string[]; }): Promise<unknown> {
+        if ( !paths || paths.length === 0 ) {
+            throw new Error('invalid use of #remove: no paths');
+        }
+        if ( key === '' ) {
+            throw APIError.create('field_empty', null, {
+                key: 'key',
+            });
+        }
+
+        const actor = Context.get('actor');
+
+        const user = actor.type?.user ?? undefined;
+        if ( ! user ) throw new Error('User not found');
+
+        const namespace = this.#getNameSpace(actor);
+
+        if ( this.#enableMigrationFromSQL ) {
+            // trigger get to move element if exists
+            await this.get({ key });
+        }
+
+        const cleanerRegex = /[:\-+/*]/g;
+
+        const removeStatements = paths.map((valPath) => {
+            const path = ['value', ...valPath.split('.')].filter(Boolean).join('.');
+            return path.split('.').map((chunk) => {
+                const cleanedChunk = chunk.split(/\[\d*\]/g)[0];
+                const indexSuffix = chunk.slice(cleanedChunk.length);
+                return `${`#${cleanedChunk}`.replaceAll(cleanerRegex, '')}${indexSuffix}`;
+            }).join('.');
+        });
+
+        const valueAttributeNames = paths.reduce((acc, valPath) => {
+            const path = ['value', ...valPath.split('.')].filter(Boolean).join('.');
+            path.split('.').forEach((chunk) => {
+                const cleanedChunk = chunk.split(/\[\d*\]/g)[0];
+                acc[`#${cleanedChunk}`.replaceAll(cleanerRegex, '')] = cleanedChunk;
+            });
+            return acc;
+        }, {} as Record<string, string>);
+
+        try {
+            const res = await this.#ddbClient.update(this.#tableName,
+                            { key, namespace },
+                            `REMOVE ${removeStatements.join(', ')}`,
+                            undefined,
+                            { ...valueAttributeNames, '#value': 'value' });
+
+            this.#meteringService.incrementUsage(actor, 'kv:write', res?.ConsumedCapacity?.CapacityUnits ?? 1);
+            return res.Attributes?.value;
+        } catch ( e ) {
+            const message = (e as Error)?.message ?? '';
+            if ( (e as Error)?.name === 'ValidationException' && /document path|invalid updateexpression/i.test(message) ) {
+                this.#meteringService.incrementUsage(actor, 'kv:write', 1);
+                return await this.get({ key });
+            }
+            throw e;
+        }
+    }
+
     async update ({ key, pathAndValueMap, ttl }: { key: string; pathAndValueMap: Record<string, unknown>; ttl?: number; }): Promise<unknown> {
         if ( !pathAndValueMap || Object.keys(pathAndValueMap).length === 0 ) {
             throw new Error('invalid use of #update: no pathAndValueMap');
