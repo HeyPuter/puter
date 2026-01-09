@@ -298,6 +298,94 @@ describe('DynamoKVStore', async () => {
         expect((stored as { a?: { b?: number[][] } }).a?.b).toEqual([[1], [2, 3]]);
     });
 
+    it('supports nested list indexing for add, update, remove, and incr', async () => {
+        const actor = makeActor(21);
+        const key = 'nested-list-index';
+
+        await su.sudo(actor, () => kvStore.set({
+            key,
+            value: { a: [1, { b: { c: [1] } }, 2] },
+        }));
+
+        const added = await su.sudo(actor, () => kvStore.add({
+            key,
+            pathAndValueMap: { 'a[1].b.c': 2 },
+        }));
+        expect((added as { a?: Array<unknown> }).a).toEqual([1, { b: { c: [1, 2] } }, 2]);
+
+        const updated = await su.sudo(actor, () => kvStore.update({
+            key,
+            pathAndValueMap: { 'a[1].b.c': [9] },
+        }));
+        expect((updated as { a?: Array<unknown> }).a).toEqual([1, { b: { c: [9] } }, 2]);
+
+        const removed = await su.sudo(actor, () => kvStore.remove({
+            key,
+            paths: ['a[1].b.c'],
+        }));
+        expect((removed as { a?: Array<unknown> }).a).toEqual([1, { b: {} }, 2]);
+
+        await su.sudo(actor, () => kvStore.set({
+            key,
+            value: { a: [1, { b: { c: 1 } }, 2] },
+        }));
+        const incrRes = await su.sudo(actor, () => kvStore.incr({
+            key,
+            pathAndAmountMap: { 'a[1].b.c': 3 },
+        }));
+        expect((incrRes as { a?: Array<unknown> }).a).toEqual([1, { b: { c: 4 } }, 2]);
+    });
+
+    it('removes nested values including indexed list paths', async () => {
+        const actor = makeActor(19);
+        const key = 'remove-list-index';
+
+        await su.sudo(actor, () => kvStore.set({
+            key,
+            value: { a: { b: [1, 2, 3], c: { d: 4 }, e: 'keep' } },
+        }));
+
+        const updated = await su.sudo(actor, () => kvStore.remove({
+            key,
+            paths: ['a.b[1]', 'a.c'],
+        }));
+
+        expect((updated as { a?: { b?: number[]; e?: string } }).a).toEqual({ b: [1, 3], e: 'keep' });
+
+        const stored = await su.sudo(actor, () => kvStore.get({ key }));
+        expect((stored as { a?: { b?: number[]; e?: string } }).a).toEqual({ b: [1, 3], e: 'keep' });
+    });
+
+    it('rejects overlapping parent/child paths in a single request', async () => {
+        const actor = makeActor(20);
+        const key = 'overlap-paths';
+
+        await su.sudo(actor, () => kvStore.set({
+            key,
+            value: { a: { b: { c: 1 } } },
+        }));
+
+        await expect(su.sudo(actor, () => kvStore.incr({
+            key,
+            pathAndAmountMap: { 'a.b': 1, 'a.b.c': 1 },
+        }))).rejects.toThrow(/paths overlap/i);
+
+        await expect(su.sudo(actor, () => kvStore.add({
+            key,
+            pathAndValueMap: { 'a.b': 1, 'a.b.c': 2 },
+        }))).rejects.toThrow(/paths overlap/i);
+
+        await expect(su.sudo(actor, () => kvStore.update({
+            key,
+            pathAndValueMap: { 'a.b': 1, 'a.b.c': 2 },
+        }))).rejects.toThrow(/paths overlap/i);
+
+        await expect(su.sudo(actor, () => kvStore.remove({
+            key,
+            paths: ['a.b', 'a.b.c'],
+        }))).resolves.not.toThrow();
+    });
+
     it('incr initializes nested maps for missing keys', async () => {
         const actor = makeActor(14);
         const key = 'incr-missing';

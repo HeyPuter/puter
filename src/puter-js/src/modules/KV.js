@@ -233,6 +233,38 @@ class KV {
         return utils.make_driver_method(['key'], 'puter-kvstore', undefined, 'add').call(this, options);
     };
 
+    remove = async (...args) => {
+        if ( !args || args.length < 2 ) {
+            throw ({ message: 'At least one path is required', code: 'arguments_required' });
+        }
+
+        const key = args[0];
+        const paths = args.slice(1);
+
+        if ( Array.isArray(paths[0]) && paths.length === 1 ) {
+            throw ({ message: 'Paths must be provided as separate arguments', code: 'paths_invalid' });
+        }
+
+        if ( key === undefined || key === null ) {
+            throw ({ message: 'Key cannot be undefined', code: 'key_undefined' });
+        }
+
+        if ( key.length > this.MAX_KEY_SIZE ) {
+            throw ({ message: `Key size cannot be larger than ${this.MAX_KEY_SIZE}`, code: 'key_too_large' });
+        }
+
+        if ( paths.length === 0 ) {
+            throw ({ message: 'At least one path is required', code: 'arguments_required' });
+        }
+
+        if ( paths.some((path) => typeof path !== 'string') ) {
+            throw ({ message: 'All paths must be strings', code: 'paths_invalid' });
+        }
+
+        return utils.make_driver_method(['key', 'paths'], 'puter-kvstore', undefined, 'remove')
+            .call(this, { key, paths });
+    };
+
     update = utils.make_driver_method(['key', 'pathAndValueMap', 'ttl'], 'puter-kvstore', undefined, 'update', {
         preprocess: (args) => {
             if ( args.key === undefined || args.key === null ) {

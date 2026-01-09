@@ -132,6 +132,15 @@ describe('Puter KV Module', () => {
         expect(finalGet).toEqual({ a: { b: [[1], [2, 3]] } });
     });
 
+    it('should remove nested values including indexed list paths', async () => {
+        const removeKey = `${TEST_KEY}-remove`;
+        await puter.kv.set(removeKey, { a: { b: [1, 2, 3], c: { d: 4 }, e: 'keep' } });
+        const removeRes = await puter.kv.remove(removeKey, 'a.b[1]', 'a.c');
+        expect(removeRes).toEqual({ a: { b: [1, 3], e: 'keep' } });
+        const finalGet = await puter.kv.get(removeKey);
+        expect(finalGet).toEqual({ a: { b: [1, 3], e: 'keep' } });
+    });
+
     it('should list keys', async () => {
         const listRes = await puter.kv.list();
         expect(Array.isArray(listRes)).toBe(true);

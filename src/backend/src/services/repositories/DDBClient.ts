@@ -161,13 +161,21 @@ export class DDBClient {
         return await this.#documentClient.send(command);
     }
 
-    async update<T extends Record<string, unknown>> (table: string, key: T, expression: string, expressionValues: Record<string, unknown>, expressionNames: Record<string, string>) {
+    async update<T extends Record<string, unknown>> (
+        table: string,
+        key: T,
+        expression: string,
+        expressionValues?: Record<string, unknown>,
+        expressionNames?: Record<string, string>,
+    ) {
+        const hasValues = !!expressionValues && Object.keys(expressionValues).length > 0;
+        const hasNames = !!expressionNames && Object.keys(expressionNames).length > 0;
         const command = new UpdateCommand({
             TableName: table,
             Key: key,
             UpdateExpression: expression,
-            ExpressionAttributeValues: expressionValues,
-            ExpressionAttributeNames: expressionNames,
+            ...(hasValues ? { ExpressionAttributeValues: expressionValues } : {}),
+            ...(hasNames ? { ExpressionAttributeNames: expressionNames } : {}),
             ReturnValues: 'ALL_NEW',
             ReturnConsumedCapacity: 'TOTAL',
         });
