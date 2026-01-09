@@ -65,6 +65,7 @@ export class MeteringService {
 
     // TODO DS: track daily and hourly usage as well
     async incrementUsage (actor: Actor, usageType: (keyof typeof COST_MAPS) | (string & {}), usageAmount: number, costOverride?: number) {
+        usageAmount = usageAmount < 0 ? 1 : usageAmount;
         try {
             if ( !usageAmount || !usageType || !actor ) {
                 // silent fail for now;
@@ -81,7 +82,7 @@ export class MeteringService {
             return this.#superUserService.sudo(async () => {
 
                 const mappedCost = COST_MAPS[usageType as keyof typeof COST_MAPS];
-                const totalCost = (costOverride ?? ((mappedCost || 0) * usageAmount));
+                const totalCost = (((costOverride && costOverride < 0) ? 1 : costOverride) ?? ((mappedCost || 0) * usageAmount));
 
                 if ( totalCost === 0 && mappedCost !== 0 && costOverride !== 0 ) {
                     // could be something is off, there are some models that cost nothing from openrouter, but then our overrides should not be undefined, so will flag
@@ -225,7 +226,9 @@ export class MeteringService {
 
                 // Process each usage and aggregate the pathAndAmountMap
                 for ( const usage of usages ) {
-                    const { usageType, usageAmount, costOverride } = usage;
+                    const { usageType, usageAmount: usageAmountRaw, costOverride: costOverrideRaw } = usage;
+                    const usageAmount =  usageAmountRaw < 0 ? 1 : usageAmountRaw;
+                    const costOverride = costOverrideRaw && costOverrideRaw < 0 ? 1 : costOverrideRaw;
 
                     if ( !usageAmount || !usageType ) {
                         continue; // skip invalid entries
@@ -402,6 +405,80 @@ export class MeteringService {
         });
     }
 
+    async setActorCurrentMonthUsageTotal (actor: Actor, totalCost: number) {
+        if ( ! actor.type?.user?.uuid ) {
+            throw new Error('Actor must be a user to set usage details');
+        }
+        if ( !Number.isFinite(totalCost) || totalCost < 0 ) {
+            throw new Error('Total cost must be a non-negative number');
+        }
+
+        const normalizedTotal = Math.round(totalCost);
+        const currentMonth = this.#getMonthYearString();
+        const userId = actor.type.user.uuid;
+        const appId = actor.type?.app?.uid || GLOBAL_APP_KEY;
+
+        return await this.#superUserService.sudo(async () => {
+            const actorUsageKey = `${METRICS_PREFIX}:actor:${userId}:${currentMonth}`;
+            const currentUsage = await this.#kvStore.get({ key: actorUsageKey }) as UsageByType | null;
+            const currentTotal = currentUsage?.total ?? 0;
+            const delta = normalizedTotal - currentTotal;
+
+            if ( delta === 0 ) {
+                return currentUsage || { total: 0 } as UsageByType;
+            }
+
+            const pathAndAmountMap = {
+                total: delta,
+                'manual_adjustment.cost': delta,
+                'manual_adjustment.units': delta,
+                'manual_adjustment.count': 1,
+            };
+
+            const updatedUsage = await this.#kvStore.incr({
+                key: actorUsageKey,
+                pathAndAmountMap,
+            }) as unknown as UsageByType;
+
+            const puterConsumptionKey = this.#generateGloabalUsageKey(userId, appId, currentMonth);
+            this.#kvStore.incr({
+                key: puterConsumptionKey,
+                pathAndAmountMap,
+            }).catch((e: Error) => {
+                console.warn('Failed to increment aux usage data \'puterConsumptionKey\' with error: ', e);
+            });
+
+            const actorAppUsageKey = `${METRICS_PREFIX}:actor:${userId}:app:${appId}:${currentMonth}`;
+            this.#kvStore.incr({
+                key: actorAppUsageKey,
+                pathAndAmountMap,
+            }).catch((e: Error) => {
+                console.warn('Failed to increment aux usage data \'actorAppUsageKey\' with error: ', e);
+            });
+
+            const actorAppTotalsKey = `${METRICS_PREFIX}:actor:${userId}:apps:${currentMonth}`;
+            this.#kvStore.incr({
+                key: actorAppTotalsKey,
+                pathAndAmountMap: {
+                    [`${appId}.total`]: delta,
+                    [`${appId}.count`]: 1,
+                },
+            }).catch((e: Error) => {
+                console.warn('Failed to increment aux usage data \'actorAppTotalsKey\' with error: ', e);
+            });
+
+            const lastUpdatedKey = `${METRICS_PREFIX}:actor:${userId}:lastUpdated`;
+            this.#kvStore.set({
+                key: lastUpdatedKey,
+                value: Date.now(),
+            }).catch((e: Error) => {
+                console.warn('Failed to set lastUpdatedKey with error: ', e);
+            });
+
+            return updatedUsage;
+        });
+    }
+
     async getActorCurrentMonthAppUsageDetails (actor: Actor, appId?: string) {
         if ( ! actor.type?.user?.uuid ) {
             throw new Error('Actor must be a user to get usage details');
@@ -447,7 +524,7 @@ export class MeteringService {
 
     async hasEnoughCreditsFor (actor: Actor, usageType: keyof typeof COST_MAPS, usageAmount: number) {
         const remainingUsage = await this.getRemainingUsage(actor);
-        const cost = (COST_MAPS[usageType] || 0) * usageAmount;
+        const cost = (COST_MAPS[usageType] || 0) * (usageAmount < 0 ? 1 : usageAmount);
         return remainingUsage >= cost;
     }
 

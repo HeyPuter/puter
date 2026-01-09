@@ -308,15 +308,6 @@ export const TOGETHER_IMAGE_GENERATION_MODELS: IImageModel[] = [
         costs: { '1MP': 0.19 },
     },
     {
-        id: 'togetherai:black-forest-labs/FLUX.1-schnell-Free',
-        aliases: ['black-forest-labs/FLUX.1-schnell-Free', 'FLUX.1-schnell-Free'],
-        costs_currency: 'usd-cents',
-        index_cost_key: '1MP',
-        name: 'black-forest-labs/FLUX.1-schnell-Free',
-        allowedQualityLevels: [''],
-        costs: { '1MP': 0 },
-    },
-    {
         id: 'togetherai:black-forest-labs/FLUX.2-max',
         aliases: ['black-forest-labs/FLUX.2-max', 'FLUX.2-max'],
         costs_currency: 'usd-cents',

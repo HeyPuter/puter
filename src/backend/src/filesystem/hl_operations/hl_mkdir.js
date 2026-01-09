@@ -435,33 +435,6 @@ class HLMkdir extends HLFilesystemOperation {
         return tree_op.leaves[0];
     }
 
-    async _get_existing_parent ({ parent_node }) {
-        const { context, values } = this;
-        const { _path } = this.modules;
-        const fs = context.get('services').get('filesystem');
-
-        const target_dirname = _path.dirname(values.path);
-        const dirs = target_dirname === '.' ? []
-            : target_dirname.split('/').filter(Boolean);
-
-        let current = parent_node.selector;
-        for ( let i = 0 ; i < dirs.length ; i++ ) {
-            current = new NodeChildSelector(current, dirs[i]);
-        }
-
-        const node = await fs.node(current);
-
-        if ( ! await node.exists() ) {
-            throw APIError.create('dest_does_not_exist');
-        }
-
-        if ( ! node.entry.is_dir ) {
-            throw APIError.create('dest_is_not_a_directory');
-        }
-
-        return node;
-    }
-
     /**
      * Creates a directory and all its ancestors.
      *
@@ -480,7 +453,7 @@ class HLMkdir extends HLFilesystemOperation {
             dir.get_selector_of_type(NodePathSelector);
 
         if ( ! maybe_path_selector ) {
-            throw APIError.create('dest_does_not_exist');
+            throw APIError.create('dest_does_not_exist', null, { what_dest: 'path from selector' });
         }
 
         const path = maybe_path_selector.value;
@@ -498,7 +471,12 @@ class HLMkdir extends HLFilesystemOperation {
 
     async _get_existing_top_parent ({ top_parent }) {
         if ( ! await top_parent.exists() ) {
-            throw APIError.create('dest_does_not_exist');
+            throw APIError.create('dest_does_not_exist', null, {
+                // This seems verbose, but is necessary information when creating
+                // shortcuts, otherwise the developer doesn't know if we're talking
+                // about the shortcut's target directory or this parent directory.
+                what_dest: 'parent directory of the new directory being created',
+            });
         }
 
         if ( ! top_parent.entry.is_dir ) {

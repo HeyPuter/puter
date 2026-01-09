@@ -25,6 +25,12 @@ const APP_CATEGORIES = [
     { id: 'lifestyle', label: 'Lifestyle' },
 ];
 
+const PREVIEW_DEVICES = [
+    { id: 'desktop', label: 'Desktop' },
+    { id: 'tablet', label: 'Tablet' },
+    { id: 'mobile', label: 'Mobile' },
+];
+
 async function init_apps () {
     setTimeout(async function () {
         puter.ui.onLaunchedWithItems(async function (items) {
@@ -381,6 +387,7 @@ function generate_edit_app_section (app) {
                 <span id="edit-app-icon-delete" style="${app.icon ? 'display:block;' : ''}">Remove icon</span>
 
                 ${generateSocialImageSection(app)}
+                ${generatePreviewImagesSection()}
                 <label for="edit-app-description">Description</label>
                 <textarea id="edit-app-description">${html_encode(app.description)}</textarea>
                 
@@ -504,6 +511,7 @@ function trackOriginalValues () {
         fileAssociations: $('#edit-app-filetype-associations').val(),
         category: $('#edit-app-category').val(),
         socialImage: $('#edit-app-social-image').attr('data-base64'),
+        previewImages: getPreviewImagesState(),
         windowSettings: {
             width: $('#edit-app-window-width').val(),
             height: $('#edit-app-window-height').val(),
@@ -531,6 +539,10 @@ function hasChanges () {
 
     // if social image is changed
     if ( $('#edit-app-social-image').attr('data-base64') !== originalValues.socialImage ) {
+        return true;
+    }
+
+    if ( serializePreviewState(getPreviewImagesState()) !== serializePreviewState(originalValues.previewImages) ) {
         return true;
     }
 
@@ -624,6 +636,8 @@ function resetToOriginalValues () {
         $('#edit-app-social-image').removeAttr('data-url');
         $('#edit-app-social-image').removeAttr('data-base64');
     }
+
+    applyPreviewImages(originalValues.previewImages);
 }
 
 async function edit_app_section (cur_app_name, tab = 'deploy') {
@@ -639,6 +653,7 @@ async function edit_app_section (cur_app_name, tab = 'deploy') {
 
     // generate edit app section
     $('#edit-app').html(generate_edit_app_section(cur_app));
+    applyPreviewImages(cur_app.metadata?.preview_images);
     trackOriginalValues(); // Track initial field values
     toggleSaveButton(); // Ensure Save button is initially disabled
     toggleResetButton(); // Ensure Reset button is initially disabled
@@ -1183,6 +1198,9 @@ $(document).on('click', '.edit-app-save-btn', async function (e) {
         socialImageUrl = $('#edit-app-social-image').attr('data-url');
     }
 
+    const previewImagesState = getPreviewImagesState();
+    const previewImages = await handlePreviewImagesUpload(name, previewImagesState);
+
     puter.apps.update(currently_editing_app.name, {
         title: title,
         name: name,
@@ -1207,10 +1225,14 @@ $(document).on('click', '.edit-app-save-btn', async function (e) {
             hide_titlebar: $('#edit-app-hide-titlebar').is(':checked'),
             locked: $('#edit-app-locked').is(':checked') ?? false,
             set_title_to_opened_file: $('#edit-app-set-title-to-file').is(':checked'),
+            preview_images: previewImages,
         },
         filetypeAssociations: filetype_associations,
     }).then(async (app) => {
         currently_editing_app = app;
+        currently_editing_app.metadata = currently_editing_app.metadata || {};
+        currently_editing_app.metadata.preview_images = previewImages;
+        applyPreviewImages(previewImages);
         trackOriginalValues(); // Update original values after save
         toggleSaveButton(); //Disable Save Button after succesful save
         toggleResetButton(); //DIsable Reset Button after succesful save
@@ -2485,12 +2507,19 @@ window.initializeAssetsDirectory = async () => {
         const existingURL = await puter.kv.get('assets_url');
         if ( ! existingURL ) {
             // Create assets directory
-            const assetsDir = await puter.fs.mkdir(`/${auth_username}/AppData/${dev_center_uid}/assets`,
-                            { overwrite: false });
+            const assetsPath = `/${auth_username}/AppData/${dev_center_uid}/assets`;
+            try {
+                await puter.fs.mkdir(assetsPath,
+                                { overwrite: false, recursive: true, rename: false });
+            } catch ( err ) {
+                if ( err.code !== 'item_with_same_name_exists' ) {
+                    throw err;
+                }
+            }
 
             // Publish the directory
             const hostname = `assets-${Math.random().toString(36).substring(2)}`;
-            const route = await puter.hosting.create(hostname, assetsDir.path);
+            const route = await puter.hosting.create(hostname, assetsPath);
 
             // Store the URL
             await puter.kv.set('assets_url', `https://${hostname}.puter.site`);
@@ -2500,6 +2529,17 @@ window.initializeAssetsDirectory = async () => {
     }
 };
 
+async function ensureAssetsURL () {
+    let assets_url = await puter.kv.get('assets_url');
+    if ( ! assets_url ) {
+        await initializeAssetsDirectory();
+        assets_url = await puter.kv.get('assets_url');
+    }
+
+    if ( ! assets_url ) throw new Error('Assets URL not found');
+    return assets_url;
+}
+
 window.generateSocialImageSection = (app) => {
     return `
         <label for="edit-app-social-image">Social Graph Image (1200×630 strongly recommended)</label>
@@ -2508,6 +2548,24 @@ window.generateSocialImageSection = (app) => {
         </div>
         <span id="edit-app-social-image-delete" style="${app.metadata?.social_image ? 'display:block;' : ''}">Remove social image</span>
         <p class="social-image-help">This image will be displayed when your app is shared on social media.</p>
+    `;
+};
+
+window.generatePreviewImagesSection = () => {
+    return `
+        <h3 style="font-size: 23px; border-bottom: 1px solid #EEE; margin-top: 40px;">Preview Images</h3>
+        <p class="preview-images-help">Upload up to 10 images for each device type to showcase your app listing.</p>
+        <div class="preview-images-container">
+            ${PREVIEW_DEVICES.map((device) => `
+                <div class="preview-device" data-device="${html_encode(device.id)}">
+                    <div class="preview-device-header">
+                        <div class="preview-device-title">${html_encode(device.label)} <span class="preview-count" data-device="${html_encode(device.id)}">0/10</span></div>
+                        <button type="button" class="button button-small add-preview-image" data-device="${html_encode(device.id)}">Add images</button>
+                    </div>
+                    <div class="preview-grid" data-device="${html_encode(device.id)}"></div>
+                </div>
+            `).join('')}
+        </div>
     `;
 };
 
@@ -2546,12 +2604,162 @@ $(document).on('click', '#edit-app-social-image-delete', async function (e) {
     $('#edit-app-social-image-delete').hide();
 });
 
+function getDefaultPreviewImagesState () {
+    return {
+        desktop: [],
+        tablet: [],
+        mobile: [],
+    };
+}
+
+function createPreviewThumbElement (item) {
+    const previewItem = item || {};
+    const $thumb = $('<div class="preview-thumb"></div>');
+    const background = previewItem.base64 || previewItem.url;
+
+    if ( previewItem.url ) {
+        $thumb.attr('data-url', previewItem.url);
+    }
+
+    if ( previewItem.base64 ) {
+        $thumb.attr('data-base64', previewItem.base64);
+    }
+
+    if ( background ) {
+        $thumb.css('background-image', `url(${background})`);
+    }
+
+    $thumb.append('<span class="remove-preview-image" title="Remove">&times;</span>');
+    return $thumb;
+}
+
+function applyPreviewImages (previewImages) {
+    const state = previewImages ?? getDefaultPreviewImagesState();
+
+    PREVIEW_DEVICES.forEach((device) => {
+        const grid = $(`.preview-grid[data-device="${device.id}"]`);
+        grid.empty();
+
+        const images = Array.isArray(state?.[device.id]) ? state[device.id].slice(0, 10) : [];
+        images.forEach((image) => {
+            const imageObj = typeof image === 'string' ? { url: image } : image;
+            const thumb = createPreviewThumbElement(imageObj);
+            grid.append(thumb);
+        });
+    });
+
+    updatePreviewCounts();
+}
+
+function updatePreviewCounts () {
+    PREVIEW_DEVICES.forEach((device) => {
+        const count = $(`.preview-grid[data-device="${device.id}"] .preview-thumb`).length;
+        $(`.preview-count[data-device="${device.id}"]`).text(`${count}/10`);
+    });
+}
+
+function getPreviewImagesState () {
+    const state = getDefaultPreviewImagesState();
+
+    PREVIEW_DEVICES.forEach((device) => {
+        state[device.id] = [];
+        $(`.preview-grid[data-device="${device.id}"] .preview-thumb`).each(function () {
+            state[device.id].push({
+                url: $(this).attr('data-url') ?? null,
+                base64: $(this).attr('data-base64') ?? null,
+            });
+        });
+    });
+
+    return state;
+}
+
+function serializePreviewState (state) {
+    const normalized = {};
+
+    PREVIEW_DEVICES.forEach((device) => {
+        normalized[device.id] = (state?.[device.id] ?? []).map((item) => {
+            if ( item?.base64 ) {
+                return { base64: item.base64 };
+            }
+
+            return { url: item?.url ?? null };
+        });
+    });
+
+    return JSON.stringify(normalized);
+}
+
+async function readImageFileAsDataURL (file) {
+    const blob = await puter.fs.read(file.path);
+
+    return await new Promise((resolve) => {
+        const reader = new FileReader();
+        reader.onloadend = function () {
+            let image = reader.result;
+            const fileExtension = file.name.split('.').pop();
+            const mimeType = getMimeType(fileExtension);
+            image = image.replace('data:application/octet-stream;base64', `data:${mimeType};base64`);
+            resolve(image);
+        };
+        reader.readAsDataURL(blob);
+    });
+}
+
+$(document).on('click', '.add-preview-image', async function () {
+    const device = $(this).attr('data-device');
+    const grid = $(`.preview-grid[data-device="${device}"]`);
+
+    if ( grid.length === 0 ) return;
+
+    const currentCount = grid.find('.preview-thumb').length;
+    if ( currentCount >= 10 ) {
+        puter.ui.alert('You can add up to 10 images for this device.');
+        return;
+    }
+
+    let selected;
+    try {
+        selected = await puter.ui.showOpenFilePicker({
+            accept: 'image/*',
+            multiple: true,
+        });
+    } catch ( err ) {
+        return;
+    }
+
+    const selections = Array.isArray(selected) ? selected : (selected ? [selected] : []);
+    const available = 10 - currentCount;
+    const filesToUse = selections.slice(0, available);
+
+    for ( const file of filesToUse ) {
+        const imageData = await readImageFileAsDataURL(file);
+        const thumb = createPreviewThumbElement({ base64: imageData });
+        grid.append(thumb);
+    }
+
+    if ( selections.length > filesToUse.length ) {
+        puter.ui.alert('You can add up to 10 images for this device.');
+    }
+
+    updatePreviewCounts();
+    toggleSaveButton();
+    toggleResetButton();
+});
+
+$(document).on('click', '.remove-preview-image', function (e) {
+    e.stopPropagation();
+    $(this).closest('.preview-thumb').remove();
+    updatePreviewCounts();
+    toggleSaveButton();
+    toggleResetButton();
+});
+
 window.handleSocialImageUpload = async (app_name, socialImageData) => {
     if ( ! socialImageData ) return null;
 
     try {
-        const assets_url = await puter.kv.get('assets_url');
-        if ( ! assets_url ) throw new Error('Assets URL not found');
+        const assets_url = await ensureAssetsURL();
 
         // Convert base64 to blob
         const base64Response = await fetch(socialImageData);
@@ -2570,6 +2778,42 @@ window.handleSocialImageUpload = async (app_name, socialImageData) => {
         console.error('Error uploading social image:', err);
         throw err;
     }
+};
+
+window.handlePreviewImagesUpload = async (app_name, previewImagesState) => {
+    const state = previewImagesState ?? getDefaultPreviewImagesState();
+    const hasImages = PREVIEW_DEVICES.some((device) => (state[device.id] ?? []).length > 0);
+
+    if ( ! hasImages ) {
+        return getDefaultPreviewImagesState();
+    }
+
+    const assets_url = await ensureAssetsURL();
+
+    const assetsDir = `/${auth_username}/AppData/${dev_center_uid}/assets/previews/${app_name}`;
+    await puter.fs.mkdir(assetsDir, { overwrite: true, recursive: true, rename: false });
+
+    const result = getDefaultPreviewImagesState();
+
+    for ( const device of PREVIEW_DEVICES ) {
+        const images = (state[device.id] ?? []).slice(0, 10);
+        for ( let i = 0; i < images.length; i++ ) {
+            const image = images[i];
+            if ( image.base64 ) {
+                const base64Response = await fetch(image.base64);
+                const blob = await base64Response.blob();
+                const filename = `${app_name}-${device.id}-${i + 1}.png`;
+                await puter.fs.upload(new File([blob], filename, { type: 'image/png' }),
+                                assetsDir,
+                                { overwrite: true });
+                result[device.id].push(`${assets_url}/previews/${app_name}/${filename}`);
+            } else if ( image.url ) {
+                result[device.id].push(image.url);
+            }
+        }
+    }
+
+    return result;
 };
 
 $(document).on('click', '.copy-app-uid', function (e) {

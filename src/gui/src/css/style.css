@@ -1345,7 +1345,7 @@ span.header-sort-icon img {
 .window-sidebar-item-dragging {
     background-color: #f5f5f5 !important;
     opacity: 0.8;
-    cursor: grabbing;
+    cursor: grabbing !important;
 }
 
 .ui-sortable-helper {

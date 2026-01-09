@@ -15,6 +15,7 @@ import type { RequestHandler } from 'express';
 import type FSNodeContext from '../src/backend/src/filesystem/FSNodeContext.js';
 import type helpers from '../src/backend/src/helpers.js';
 import type * as ExtensionControllerExports from './ExtensionController/src/ExtensionController.ts';
+import { type EmailService } from '@heyputer/backend/src/services/EmailService.js';
 declare global {
     namespace Express {
         interface Request {
@@ -97,9 +98,13 @@ interface ServiceNameMap {
     database: BaseDatabaseAccessService;
     user: UserService;
     'web-server': WebServerService;
+    'email': EmailService
 }
 
 export interface ExtensionEventTypeMap {
+    'metering:registerAvailablePolicies': {
+        availablePolicies: unknown[]
+    },
     'create.drivers': {
         createDriver: (interface: string, service: string, executors: any) => any;
     };
