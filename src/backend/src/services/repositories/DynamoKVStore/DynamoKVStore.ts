@@ -326,6 +326,47 @@ export class DynamoKVStore {
 
     async #createPaths ( namespace: string, key: string, pathList: string[]) {
 
+        const nestedMapValue = (() => {
+            const valueRoot: Record<string, unknown> = {};
+            let hasPaths = false;
+            pathList.forEach((valPath) => {
+                if ( ! valPath ) return;
+                hasPaths = true;
+                const chunks = valPath.split('.').filter(Boolean);
+                let cursor: Record<string, unknown> = valueRoot;
+                for ( let i = 0; i < chunks.length - 1; i++ ) {
+                    const chunk = chunks[i];
+                    const existing = cursor[chunk];
+                    if ( !existing || typeof existing !== 'object' || Array.isArray(existing) ) {
+                        cursor[chunk] = {};
+                    }
+                    cursor = cursor[chunk] as Record<string, unknown>;
+                }
+            });
+            return hasPaths ? valueRoot : null;
+        })();
+
+        if ( ! nestedMapValue ) {
+            return 0;
+        }
+
+        const isPlainObject = (value: unknown): value is Record<string, unknown> => {
+            return !!value && typeof value === 'object' && !Array.isArray(value);
+        };
+
+        const objectsEqual = (left: unknown, right: unknown): boolean => {
+            if ( left === right ) return true;
+            if ( !isPlainObject(left) || !isPlainObject(right) ) return false;
+            const leftKeys = Object.keys(left);
+            const rightKeys = Object.keys(right);
+            if ( leftKeys.length !== rightKeys.length ) return false;
+            for ( const key of leftKeys ) {
+                if ( ! rightKeys.includes(key) ) return false;
+                if ( ! objectsEqual(left[key], right[key]) ) return false;
+            }
+            return true;
+        };
+
         // Collect all intermediate map paths for all entries
         const allIntermediatePaths = new Set<string>();
         pathList.forEach((valPath) => {
@@ -337,11 +378,11 @@ export class DynamoKVStore {
             }
         });
 
-        // TODO DS: make it so that the top layers are checked first to avoid creating each layer multiple times
-
         let writeUnits = 0;
         // Ensure each intermediate map layer exists by issuing a separate DynamoDB update for each
-        for ( const layerPath of allIntermediatePaths ) {
+        const orderedPaths = [...allIntermediatePaths]
+            .sort((left, right) => left.split('.').length - right.split('.').length);
+        for ( const layerPath of orderedPaths ) {
             // Build attribute names for the layer
             const chunks = layerPath.split('.');
             const attrName = chunks.map((chunk) => `#${chunk}`.replaceAll(this.#pathCleanerRegex, '')).join('.');
@@ -350,13 +391,21 @@ export class DynamoKVStore {
                 const cleanedChunk = chunk.split(/\[\d*\]/g)[0];
                 expressionNames[`#${cleanedChunk}`.replaceAll(this.#pathCleanerRegex, '')] = cleanedChunk;
             });
+            const isRootLayer = layerPath === 'value';
+            const expressionValues = isRootLayer
+                ? { ':nestedMap': nestedMapValue }
+                : { ':emptyMap': {} };
+            const valueToken = isRootLayer ? ':nestedMap' : ':emptyMap';
             // Issue update to set layer to {} if not exists
             const layerUpsertRes = await this.#ddbClient.update(this.#tableName,
                             { key, namespace },
-                            `SET ${attrName} = if_not_exists(${attrName}, :emptyMap)`,
-                            { ':emptyMap': {} },
+                            `SET ${attrName} = if_not_exists(${attrName}, ${valueToken})`,
+                            expressionValues,
                             expressionNames);
             writeUnits += layerUpsertRes.ConsumedCapacity?.CapacityUnits ?? 0;
+            if ( isRootLayer && objectsEqual(layerUpsertRes.Attributes?.value, nestedMapValue) ) {
+                return writeUnits;
+            }
         }
         return writeUnits;
     }
@@ -410,6 +459,128 @@ export class DynamoKVStore {
             });
             return acc;
         }, {} as Record<string, string>);
+
+        const res = await this.#ddbClient.update(this.#tableName,
+                        { key, namespace },
+                        `SET ${[...setStatements].join(', ')}`,
+                        valueAttributeValues,
+                        { ...valueAttributeNames, '#value': 'value' });
+
+        writeUnits += res.ConsumedCapacity?.CapacityUnits ?? 0;
+        this.#meteringService.incrementUsage(actor, 'kv:write', writeUnits);
+        return res.Attributes?.value;
+    }
+
+    async add ({ key, pathAndValueMap }: { key: string; pathAndValueMap: Record<string, unknown>; }): Promise<unknown> {
+        if ( !pathAndValueMap || Object.keys(pathAndValueMap).length === 0 ) {
+            throw new Error('invalid use of #add: no pathAndValueMap');
+        }
+        if ( key === '' ) {
+            throw APIError.create('field_empty', null, {
+                key: 'key',
+            });
+        }
+
+        const actor = Context.get('actor');
+
+        const user = actor.type?.user ?? undefined;
+        if ( ! user ) throw new Error('User not found');
+
+        const namespace = this.#getNameSpace(actor);
+
+        if ( this.#enableMigrationFromSQL ) {
+            // trigger get to move element if exists
+            await this.get({ key });
+        }
+
+        const cleanerRegex = /[:\-+/*]/g;
+
+        let writeUnits = await this.#createPaths(namespace, key, Object.keys(pathAndValueMap));
+
+        const setStatements = Object.entries(pathAndValueMap).map(([valPath, _val], idx) => {
+            const path = ['value', ...valPath.split('.')].filter(Boolean).join('.');
+            const attrName = path.split('.').map((chunk) => `#${chunk}`.replaceAll(cleanerRegex, '')).join('.');
+            return `${attrName} = list_append(if_not_exists(${attrName}, :emptyList${idx}), :append${idx})`;
+        });
+        const valueAttributeValues = Object.entries(pathAndValueMap).reduce((acc, [_path, val], idx) => {
+            acc[`:append${idx}`] = Array.isArray(val) ? val : [val];
+            acc[`:emptyList${idx}`] = [];
+            return acc;
+        }, {} as Record<string, unknown>);
+        const valueAttributeNames = Object.entries(pathAndValueMap).reduce((acc, [valPath, _val]) => {
+            const path = ['value', ...valPath.split('.')].filter(Boolean).join('.');
+            path.split('.').forEach((chunk) => {
+                const cleanedChunk = chunk.split(/\[\d*\]/g)[0];
+                acc[`#${cleanedChunk}`.replaceAll(cleanerRegex, '')] = cleanedChunk;
+            });
+            return acc;
+        }, {} as Record<string, string>);
+
+        const res = await this.#ddbClient.update(this.#tableName,
+                        { key, namespace },
+                        `SET ${[...setStatements].join(', ')}`,
+                        valueAttributeValues,
+                        { ...valueAttributeNames, '#value': 'value' });
+
+        writeUnits += res.ConsumedCapacity?.CapacityUnits ?? 0;
+        this.#meteringService.incrementUsage(actor, 'kv:write', writeUnits);
+        return res.Attributes?.value;
+    }
+
+    async update ({ key, pathAndValueMap, ttl }: { key: string; pathAndValueMap: Record<string, unknown>; ttl?: number; }): Promise<unknown> {
+        if ( !pathAndValueMap || Object.keys(pathAndValueMap).length === 0 ) {
+            throw new Error('invalid use of #update: no pathAndValueMap');
+        }
+        if ( key === '' ) {
+            throw APIError.create('field_empty', null, {
+                key: 'key',
+            });
+        }
+
+        const actor = Context.get('actor');
+
+        const user = actor.type?.user ?? undefined;
+        if ( ! user ) throw new Error('User not found');
+
+        const namespace = this.#getNameSpace(actor);
+
+        if ( this.#enableMigrationFromSQL ) {
+            // trigger get to move element if exists
+            await this.get({ key });
+        }
+
+        const cleanerRegex = /[:\-+/*]/g;
+
+        let writeUnits = await this.#createPaths(namespace, key, Object.keys(pathAndValueMap));
+
+        const setStatements = Object.entries(pathAndValueMap).map(([valPath, _val], idx) => {
+            const path = ['value', ...valPath.split('.')].filter(Boolean).join('.');
+            const attrName = path.split('.').map((chunk) => `#${chunk}`.replaceAll(cleanerRegex, '')).join('.');
+            return `${attrName} = :value${idx}`;
+        });
+        const valueAttributeValues = Object.entries(pathAndValueMap).reduce((acc, [_path, val], idx) => {
+            acc[`:value${idx}`] = val;
+            return acc;
+        }, {} as Record<string, unknown>);
+        const valueAttributeNames = Object.entries(pathAndValueMap).reduce((acc, [valPath, _val]) => {
+            const path = ['value', ...valPath.split('.')].filter(Boolean).join('.');
+            path.split('.').forEach((chunk) => {
+                const cleanedChunk = chunk.split(/\[\d*\]/g)[0];
+                acc[`#${cleanedChunk}`.replaceAll(cleanerRegex, '')] = cleanedChunk;
+            });
+            return acc;
+        }, {} as Record<string, string>);
+
+        if ( ttl !== undefined ) {
+            const ttlSeconds = Number(ttl);
+            if ( Number.isNaN(ttlSeconds) ) {
+                throw new Error('ttl must be a number');
+            }
+            const timestamp = Math.floor(Date.now() / 1000) + ttlSeconds;
+            setStatements.push('#ttl = :ttl');
+            valueAttributeValues[':ttl'] = timestamp;
+            valueAttributeNames['#ttl'] = 'ttl';
+        }
 
         const res = await this.#ddbClient.update(this.#tableName,
                         { key, namespace },

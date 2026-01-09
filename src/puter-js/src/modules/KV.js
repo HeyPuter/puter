@@ -212,6 +212,52 @@ class KV {
         return utils.make_driver_method(['key'], 'puter-kvstore', undefined, 'decr').call(this, options);
     };
 
+    add = async (...args) => {
+        let options = {};
+
+        // arguments are required
+        if ( !args || args.length === 0 ) {
+            throw ({ message: 'Arguments are required', code: 'arguments_required' });
+        }
+
+        options.key = args[0];
+        const provided = args[1];
+        const isPathMap = provided && typeof provided === 'object' && !Array.isArray(provided);
+        options.pathAndValueMap = provided === undefined ? { '': 1 } : isPathMap ? provided : { '': provided };
+
+        // key size cannot be larger than MAX_KEY_SIZE
+        if ( options.key.length > this.MAX_KEY_SIZE ) {
+            throw ({ message: `Key size cannot be larger than ${this.MAX_KEY_SIZE}`, code: 'key_too_large' });
+        }
+
+        return utils.make_driver_method(['key'], 'puter-kvstore', undefined, 'add').call(this, options);
+    };
+
+    update = utils.make_driver_method(['key', 'pathAndValueMap', 'ttl'], 'puter-kvstore', undefined, 'update', {
+        preprocess: (args) => {
+            if ( args.key === undefined || args.key === null ) {
+                throw { message: 'Key cannot be undefined', code: 'key_undefined' };
+            }
+            if ( args.key.length > this.MAX_KEY_SIZE ) {
+                throw { message: `Key size cannot be larger than ${this.MAX_KEY_SIZE}`, code: 'key_too_large' };
+            }
+            if ( args.pathAndValueMap === undefined || args.pathAndValueMap === null || Array.isArray(args.pathAndValueMap) || typeof args.pathAndValueMap !== 'object' ) {
+                throw { message: 'pathAndValueMap must be an object', code: 'path_map_invalid' };
+            }
+            if ( Object.keys(args.pathAndValueMap).length === 0 ) {
+                throw { message: 'pathAndValueMap cannot be empty', code: 'path_map_invalid' };
+            }
+            if ( args.ttl !== undefined && args.ttl !== null ) {
+                const ttl = Number(args.ttl);
+                if ( Number.isNaN(ttl) ) {
+                    throw { message: 'ttl must be a number', code: 'ttl_invalid' };
+                }
+                args.ttl = ttl;
+            }
+            return args;
+        },
+    });
+
     /**
      * Set a time to live (in seconds) on a key. After the time to live has expired, the key will be deleted.
      * Prefer this over expireAt if you want timestamp to be set by the server, to avoid issues with clock drift.

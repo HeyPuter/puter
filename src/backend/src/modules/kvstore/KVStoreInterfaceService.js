@@ -26,6 +26,8 @@ const BaseService = require('../../services/BaseService');
  * @property {function(KVStoreDelParams): Promise<void>} del - Delete a value by key.
  * @property {function(KVStoreListParams): Promise<string[]>} list - List all key-value pairs, optionally as a specific type.
  * @property {function(): Promise<void>} flush - Delete all key-value pairs in the store.
+ * @property {(params: KVStoreUpdateParams) => Promise<unknown>} update - Update nested values by key.
+ * @property {(params: KVStoreAddParams) => Promise<unknown>} add - Append values into list paths by key.
  * @property {(params: {key:string, pathAndAmountMap: Record<string, number>}) => Promise<unknown>} incr - Increment a numeric value by key.
  * @property {(params: {key:string, pathAndAmountMap: Record<string, number>}) => Promise<unknown>} decr - Decrement a numeric value by key.
  * @property {function(KVStoreExpireAtParams): Promise<number>} expireAt - Set a key to expire at a specific UNIX timestamp (seconds).
@@ -44,6 +46,15 @@ const BaseService = require('../../services/BaseService');
  *
  * @typedef {Object} KVStoreListParams
  * @property {string} [as] - Optional type to list as (e.g., 'array', 'object').
+ *
+ * @typedef {Object} KVStoreUpdateParams
+ * @property {string} key - The key to update.
+ * @property {Object.<string, *>} pathAndValueMap - Map of period-joined paths to values.
+ * @property {number} [ttl] - Optional TTL in seconds for the whole object.
+ *
+ * @typedef {Object} KVStoreAddParams
+ * @property {string} key - The key to update.
+ * @property {Object.<string, *>} pathAndValueMap - Map of period-joined paths to values to append.
  *
  * @typedef {Object} KVStoreExpireAtParams
  * @property {string} key - The key to set expiration for.
@@ -108,6 +119,23 @@ class KVStoreInterfaceService extends BaseService {
                     description: 'Delete all key-value pairs.',
                     parameters: {},
                     result: { type: 'void' },
+                },
+                update: {
+                    description: 'Update nested values by key.',
+                    parameters: {
+                        key: { type: 'string', required: true },
+                        pathAndValueMap: { type: 'json', required: true, description: 'map of period-joined path to value' },
+                        ttl: { type: 'number', description: 'optional TTL in seconds for the whole object' },
+                    },
+                    result: { type: 'json', description: 'The updated value' },
+                },
+                add: {
+                    description: 'Append values into list paths by key.',
+                    parameters: {
+                        key: { type: 'string', required: true },
+                        pathAndValueMap: { type: 'json', required: true, description: 'map of period-joined path to value to append' },
+                    },
+                    result: { type: 'json', description: 'The updated value' },
                 },
                 incr: {
                     description: 'Increment a value by key.',
