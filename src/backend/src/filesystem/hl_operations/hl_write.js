@@ -111,6 +111,9 @@ class HLWrite extends HLFilesystemOperation {
         create_missing_parents: new FlagParam('create_missing_parents', { optional: true }),
         user: new UserParam(),
 
+        // client-provided thumbnail as a base64 string
+        thumbnail: new StringParam('thumbnail', { optional: true }),
+
         // file: multer.File
     };
 
@@ -300,12 +303,14 @@ class HLWrite extends HLFilesystemOperation {
         let thumbnail_promise = new TeePromise();
         if ( await parent.isAppDataDirectory() || values.no_thumbnail ) {
             thumbnail_promise.resolve(undefined);
+        } else if ( values.thumbnail ) {
+            // Use the thumbnail provided by the client (base64 string)
+            thumbnail_promise.resolve(values.thumbnail);
         } else {
             (async () => {
                 const reason = await (async () => {
                     const { mime } = this.modules;
                     const thumbnails = context.get('services').get('thumbnails');
-                    if ( values.thumbnail ) return 'already thumbnail';
 
                     const content_type = mime.contentType(target_name);
                     this.log.debug('CONTENT TYPE', content_type);

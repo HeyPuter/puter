@@ -18,7 +18,6 @@
  */
 const APIError = require('../../../api/APIError');
 const eggspress = require('../../../api/eggspress');
-const config = require('../../../config');
 const { Context } = require('../../../util/context');
 const Busboy = require('busboy');
 const { BatchExecutor } = require('../../../filesystem/batch/BatchExecutor');
@@ -226,6 +225,11 @@ module.exports = eggspress('/batch', {
         }
 
         const op_spec = pending_operations.shift();
+
+        // Copy thumbnail from fileinfo to the file object if provided
+        if ( file.thumbnail ) {
+            op_spec.thumbnail = file.thumbnail;
+        }
 
         // index in response_promises is first null value
         const index = response_promises.findIndex(p => p === null);
