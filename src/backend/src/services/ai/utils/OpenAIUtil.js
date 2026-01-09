@@ -58,31 +58,31 @@ export const process_input_messages = async (messages) => {
 };
 
 export const process_input_messages_responses_api = async (messages) => {
-    for (const msg of messages) {
-        if (!msg.content) continue;
-        if (typeof msg.content !== 'object') continue;
+    for ( const msg of messages ) {
+        if ( ! msg.content ) continue;
+        if ( typeof msg.content !== 'object' ) continue;
 
         const content = msg.content;
 
-        for (const o of content) {
-            if (!o['image_url']) continue;
-            if (o.type) continue;
+        for ( const o of content ) {
+            if ( ! o['image_url'] ) continue;
+            if ( o.type ) continue;
             o.type = 'image_url';
         }
 
         // coerce tool calls
         let is_tool_call = false;
-        for (let i = content.length - 1; i >= 0; i--) {
+        for ( let i = content.length - 1; i >= 0; i-- ) {
             const content_block = content[i];
-            if (content_block.type === "text" && (msg.role === "user" || msg.role === "system")) {
-                content_block.type = "input_text"
+            if ( content_block.type === 'text' && (msg.role === 'user' || msg.role === 'system') ) {
+                content_block.type = 'input_text';
             }
-            if (content_block.type === "text" && (msg.role === "assistant")) {
-                content_block.type = "output_text"
+            if ( content_block.type === 'text' && (msg.role === 'assistant') ) {
+                content_block.type = 'output_text';
             }
 
-            if (content_block.type === 'tool_use') {
-                if (!msg.tool_calls) {
+            if ( content_block.type === 'tool_use' ) {
+                if ( ! msg.tool_calls ) {
                     msg.tool_calls = [];
                     is_tool_call = true;
                 }
@@ -96,21 +96,21 @@ export const process_input_messages_responses_api = async (messages) => {
                     },
                     ...(content_block.extra_content ? { extra_content: content_block.extra_content } : {}),
                 });
-                
+
                 content.splice(i, 1);
             }
         }
 
-        // Right now this does NOT support parallel tool calls! 
+        // Right now this does NOT support parallel tool calls!
         // We only allow sequential toolcalling right now so this shouldn't be an issue right now
         // but this probably needs to be changed in the future to split "one completions message"
         // into multiple responses inputs.
-        if (is_tool_call) {
+        if ( is_tool_call ) {
             msg.call_id = msg.tool_calls[0].id;
             msg.id = msg.tool_calls[0].canonical_id;
             msg.name = msg.tool_calls[0].function.name;
             msg.arguments = msg.tool_calls[0].function.arguments;
-            msg.type = "function_call";
+            msg.type = 'function_call';
 
             delete msg.role;
             delete msg.content;
@@ -118,9 +118,9 @@ export const process_input_messages_responses_api = async (messages) => {
         }
 
         // coerce tool results
-        for (let i = content.length - 1; i >= 0; i--) {
+        for ( let i = content.length - 1; i >= 0; i-- ) {
             const content_block = content[i];
-            if (content_block.type !== 'tool_result') continue;
+            if ( content_block.type !== 'tool_result' ) continue;
             msg.type = 'function_call_output';
             msg.call_id = content_block.tool_use_id;
             msg.output = content_block.content;
@@ -129,7 +129,7 @@ export const process_input_messages_responses_api = async (messages) => {
             delete msg.content;
         }
     }
-    console.log("coreced ", messages)
+    console.log('coreced ', messages);
 
     return messages;
 };
@@ -267,23 +267,21 @@ export const create_chat_stream_handler_responses_api = ({
     let textblock = message.contentBlock({ type: 'text' });
     let toolblock = null;
     let mode = 'text';
-    const tool_call_blocks = [];
 
     let last_usage = null;
-    for await (let chunk of completion) {
-        console.log("Chunk from API: ", chunk)
-    
-        if (chunk.type === "response.output_text.delta") {
+    for await ( let chunk of completion ) {
+        console.log('Chunk from API: ', chunk);
+
+        if ( chunk.type === 'response.output_text.delta' ) {
             textblock.addText(chunk.delta);
             continue;
         }
 
-        
-        if (chunk.type === "response.completed") {
+        if ( chunk.type === 'response.completed' ) {
             last_usage = chunk.response.usage;
         }
-        
-        if (chunk.type === "response.output_item.done" && chunk.item?.type === "function_call") {
+
+        if ( chunk.type === 'response.output_item.done' && chunk.item?.type === 'function_call' ) {
             const tool_call = chunk.item;
             toolblock = message.contentBlock({
                 type: 'tool_use',
@@ -300,8 +298,8 @@ export const create_chat_stream_handler_responses_api = ({
     // TODO DS: this is a bit too abstracted... this is basically just doing the metering now
     const usage = usage_calculator({ usage: last_usage });
 
-    if (mode === 'text') textblock.end();
-    if (mode === 'tool') toolblock.end();
+    if ( mode === 'text' ) textblock.end();
+    if ( mode === 'tool' ) toolblock.end();
 
     message.end();
     chatStream.end(usage);
@@ -343,13 +341,6 @@ export const handle_completion_output = async ({
 
     if ( finally_fn ) await finally_fn();
 
-    const is_empty = completion.choices?.[0]?.message?.content?.trim() === '';
-    if ( is_empty && !completion.choices?.[0]?.message?.tool_calls ) {
-        // GPT refuses to generate an empty response if you ask it to,
-        // so this will probably only happen on an error condition.
-        throw new Error('an empty response was generated');
-    }
-
     // We need to moderate the completion too
     const mod_text = completion.choices[0].message.content;
     if ( moderate && mod_text !== null ) {
@@ -390,7 +381,7 @@ export const handle_completion_output_responses_api = async ({
         coerce_completion_usage: completion => completion.usage,
     }, deviations);
 
-    if (stream) {
+    if ( stream ) {
         const init_chat_stream =
             create_chat_stream_handler_responses_api({
                 deviations,
@@ -405,10 +396,10 @@ export const handle_completion_output_responses_api = async ({
         };
     }
 
-    if (finally_fn) await finally_fn();
+    if ( finally_fn ) await finally_fn();
 
     const is_empty = completion.output_text.trim() === '';
-    if (is_empty && !completion.choices?.[0]?.message?.tool_calls) {
+    if ( is_empty && !completion.choices?.[0]?.message?.tool_calls ) {
         // GPT refuses to generate an empty response if you ask it to,
         // so this will probably only happen on an error condition.
         throw new Error('an empty response was generated');
@@ -416,32 +407,30 @@ export const handle_completion_output_responses_api = async ({
 
     // We need to moderate the completion too
     const mod_text = completion.output_text;
-    if (moderate && mod_text !== null) {
+    if ( moderate && mod_text !== null ) {
         const moderation_result = await moderate(mod_text);
-        if (moderation_result.flagged) {
+        if ( moderation_result.flagged ) {
             throw new Error('message is not allowed');
         }
     }
 
-
-    console.log("Completion: ", completion);
-    console.log("output: ", completion.output[0]);
+    console.log('Completion: ', completion);
+    console.log('output: ', completion.output[0]);
 
     const ret = {
-        finish_reason: "stop",
+        finish_reason: 'stop',
         index: 0,
         message: {
             content: completion.output_text,
             reasoning: null, // Fix later to add proper reasoning
             refusal: null,
-            role: "assistant"
-        }
-    }
+            role: 'assistant',
+        },
+    };
     ret.role = completion.output[0].role;
 
     delete ret.type;
 
-    
     ret.usage = usage_calculator ? usage_calculator({
         ...completion,
         usage: completion.usage,
