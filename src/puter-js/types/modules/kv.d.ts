@@ -10,6 +10,14 @@ export interface KVIncrementPath {
     [path: string]: number;
 }
 
+export interface KVUpdatePath {
+    [path: string]: KVValue;
+}
+
+export interface KVAddPath {
+    [path: string]: KVValue | KVValue[];
+}
+
 export class KV {
     readonly MAX_KEY_SIZE: number;
     readonly MAX_VALUE_SIZE: number;
@@ -19,6 +27,8 @@ export class KV {
     del (key: string): Promise<boolean>;
     incr (key: string, amount?: number | KVIncrementPath): Promise<number>;
     decr (key: string, amount?: number | KVIncrementPath): Promise<number>;
+    add (key: string, value?: KVValue | KVAddPath): Promise<KVValue>;
+    update (key: string, pathAndValueMap: KVUpdatePath, ttlSeconds?: number): Promise<KVValue>;
     expire (key: string, ttlSeconds: number): Promise<boolean>;
     expireAt (key: string, timestampSeconds: number): Promise<boolean>;
     list (pattern?: string, returnValues?: false): Promise<string[]>;

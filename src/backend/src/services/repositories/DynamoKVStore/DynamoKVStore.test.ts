@@ -192,6 +192,151 @@ describe('DynamoKVStore', async () => {
         expect(valTtl).toBeNull();
     });
 
+    it('updates nested paths and creates missing maps', async () => {
+        const actor = makeActor(12);
+        const key = 'update-key';
+
+        const updated = await su.sudo(actor, () => kvStore.update({
+            key,
+            pathAndValueMap: {
+                'profile.name': 'Ada',
+                'profile.stats.score': 7,
+                'active': true,
+            },
+        }));
+
+        expect(updated).toMatchObject({
+            profile: { name: 'Ada', stats: { score: 7 } },
+            active: true,
+        });
+
+        const stored = await su.sudo(actor, () => kvStore.get({ key }));
+        expect(stored).toMatchObject({
+            profile: { name: 'Ada', stats: { score: 7 } },
+            active: true,
+        });
+    });
+
+    it('update can set ttl for the whole object', async () => {
+        const actor = makeActor(13);
+        const key = 'update-ttl';
+
+        await su.sudo(actor, () => kvStore.update({
+            key,
+            pathAndValueMap: { 'count': 1 },
+            ttl: -1,
+        }));
+
+        const stored = await su.sudo(actor, () => kvStore.get({ key }));
+        expect(stored).toBeNull();
+    });
+
+    it('supports list index paths when updating', async () => {
+        const actor = makeActor(17);
+        const key = 'update-list-index';
+
+        await su.sudo(actor, () => kvStore.set({
+            key,
+            value: { a: { b: [1, 2] } },
+        }));
+
+        const updated = await su.sudo(actor, () => kvStore.update({
+            key,
+            pathAndValueMap: { 'a.b[1]': 5 },
+        }));
+
+        expect((updated as { a?: { b?: number[] } }).a?.b).toEqual([1, 5]);
+
+        const stored = await su.sudo(actor, () => kvStore.get({ key }));
+        expect((stored as { a?: { b?: number[] } }).a?.b).toEqual([1, 5]);
+    });
+
+    it('adds values to nested lists and creates missing maps', async () => {
+        const actor = makeActor(15);
+        const key = 'add-key';
+
+        const first = await su.sudo(actor, () => kvStore.add({
+            key,
+            pathAndValueMap: {
+                'a.b': 1,
+            },
+        }));
+
+        expect(first).toMatchObject({ a: { b: [1] } });
+
+        const second = await su.sudo(actor, () => kvStore.add({
+            key,
+            pathAndValueMap: {
+                'a.b': 2,
+                'a.c': ['x', 'y'],
+            },
+        }));
+
+        expect(second).toMatchObject({ a: { b: [1, 2], c: ['x', 'y'] } });
+
+        const stored = await su.sudo(actor, () => kvStore.get({ key }));
+        expect(stored).toMatchObject({ a: { b: [1, 2], c: ['x', 'y'] } });
+    });
+
+    it('supports list index paths when appending', async () => {
+        const actor = makeActor(18);
+        const key = 'add-list-index';
+
+        await su.sudo(actor, () => kvStore.set({
+            key,
+            value: { a: { b: [[1], [2]] } },
+        }));
+
+        const updated = await su.sudo(actor, () => kvStore.add({
+            key,
+            pathAndValueMap: { 'a.b[1]': 3 },
+        }));
+
+        expect((updated as { a?: { b?: number[][] } }).a?.b).toEqual([[1], [2, 3]]);
+
+        const stored = await su.sudo(actor, () => kvStore.get({ key }));
+        expect((stored as { a?: { b?: number[][] } }).a?.b).toEqual([[1], [2, 3]]);
+    });
+
+    it('incr initializes nested maps for missing keys', async () => {
+        const actor = makeActor(14);
+        const key = 'incr-missing';
+
+        const first = await su.sudo(actor, () => kvStore.incr({
+            key,
+            pathAndAmountMap: { 'a.b.c': 2, 'x': 1 },
+        }));
+
+        expect(first).toMatchObject({ a: { b: { c: 2 } }, x: 1 });
+
+        const second = await su.sudo(actor, () => kvStore.incr({
+            key,
+            pathAndAmountMap: { 'a.b.c': 3 },
+        }));
+
+        expect(second).toMatchObject({ a: { b: { c: 5 } }, x: 1 });
+    });
+
+    it('supports list index paths when incrementing', async () => {
+        const actor = makeActor(16);
+        const key = 'incr-list-index';
+
+        await su.sudo(actor, () => kvStore.set({
+            key,
+            value: { a: { b: [1, 2] } },
+        }));
+
+        const updated = await su.sudo(actor, () => kvStore.incr({
+            key,
+            pathAndAmountMap: { 'a.b[1]': 3 },
+        }));
+
+        expect((updated as { a?: { b?: number[] } }).a?.b).toEqual([1, 5]);
+
+        const stored = await su.sudo(actor, () => kvStore.get({ key }));
+        expect((stored as { a?: { b?: number[] } }).a?.b).toEqual([1, 5]);
+    });
+
     it('enforces key and value size limits', async () => {
         const actor = makeActor(11);
         const oversizedKey = 'a'.repeat((config.kv_max_key_size as number) + 1);

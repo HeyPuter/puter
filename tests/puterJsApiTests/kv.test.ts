@@ -95,6 +95,43 @@ describe('Puter KV Module', () => {
         expect(finalGet).toEqual({ a: { b: -1 } });
     });
 
+    it('should update a key with nested path', async () => {
+        const updateKey = `${TEST_KEY}-update`;
+        await puter.kv.set(updateKey, { profile: { name: 'old' } });
+        const updateRes = await puter.kv.update(updateKey, { 'profile.name': 'new' });
+        expect(updateRes).toEqual({ profile: { name: 'new' } });
+        const finalGet = await puter.kv.get(updateKey);
+        expect(finalGet).toEqual({ profile: { name: 'new' } });
+    });
+
+    it('should update a key with indexed path', async () => {
+        const updateKey = `${TEST_KEY}-update-index`;
+        await puter.kv.set(updateKey, { a: { b: [1, 2] } });
+        const updateRes = await puter.kv.update(updateKey, { 'a.b[1]': 5 });
+        expect(updateRes).toEqual({ a: { b: [1, 5] } });
+        const finalGet = await puter.kv.get(updateKey);
+        expect(finalGet).toEqual({ a: { b: [1, 5] } });
+    });
+
+    it('should add values into list paths', async () => {
+        const addKey = `${TEST_KEY}-add`;
+        const addRes = await puter.kv.add(addKey, { 'a.b': 1 });
+        expect(addRes).toEqual({ a: { b: [1] } });
+        const secondAdd = await puter.kv.add(addKey, { 'a.b': 2, 'a.c': ['x'] });
+        expect(secondAdd).toEqual({ a: { b: [1, 2], c: ['x'] } });
+        const finalGet = await puter.kv.get(addKey);
+        expect(finalGet).toEqual({ a: { b: [1, 2], c: ['x'] } });
+    });
+
+    it('should add values into indexed list paths', async () => {
+        const addKey = `${TEST_KEY}-add-index`;
+        await puter.kv.set(addKey, { a: { b: [[1], [2]] } });
+        const addRes = await puter.kv.add(addKey, { 'a.b[1]': 3 });
+        expect(addRes).toEqual({ a: { b: [[1], [2, 3]] } });
+        const finalGet = await puter.kv.get(addKey);
+        expect(finalGet).toEqual({ a: { b: [[1], [2, 3]] } });
+    });
+
     it('should list keys', async () => {
         const listRes = await puter.kv.list();
         expect(Array.isArray(listRes)).toBe(true);
