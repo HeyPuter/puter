@@ -34,6 +34,9 @@ const { MkTree } = require('./hl_mkdir');
 const { Actor } = require('../../services/auth/Actor');
 const { LLCWrite, LLOWrite } = require('../ll_operations/ll_write');
 
+// 2 MiB limit for client-provided thumbnails
+const MAX_THUMBNAIL_SIZE = 2 * 1024 * 1024;
+
 class WriteCommonFeature {
     install_in_instance (instance) {
         instance._verify_size = async function () {
@@ -46,6 +49,20 @@ class WriteCommonFeature {
                 });
             }
 
+            if (
+                this.values.thumbnail &&
+                typeof this.values.thumbnail === 'string'
+            ) {
+                const RATIO = 4 / 3; // 4 bytes per 3 base64 characters
+                const decoded_size = Math.ceil(this.values.thumbnail.length * RATIO);
+                if ( decoded_size > MAX_THUMBNAIL_SIZE ) {
+                    throw APIError.create('thumbnail_too_large', null, {
+                        max_size: MAX_THUMBNAIL_SIZE,
+                    });
+                }
+            }
+
+            // configured thumbnail size limit (can be lower than MAX_THUMBNAIL_SIZE)
             if (
                 this.values.thumbnail &&
                 this.values.thumbnail.size > config.max_thumbnail_size
