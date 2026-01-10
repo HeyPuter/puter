@@ -2,11 +2,13 @@ import { IChatModel } from '../types';
 
 export const MISTRAL_MODELS: IChatModel[] = [
     {
+        puterId: "mistralai:mistralai/mistral-medium-2508",
         id: 'mistral-medium-2508',
         name: 'mistral-medium-2508',
         aliases: [
             'mistral-medium-latest',
             'mistral-medium',
+            'mistralai/mistral-medium-2508',
         ],
         max_tokens: 131072,
         description: 'Update on Mistral Medium 3 with improved capabilities.',
@@ -21,11 +23,13 @@ export const MISTRAL_MODELS: IChatModel[] = [
         },
     },
     {
+        puterId: "mistralai:mistralai/open-mistral-7b",
         id: 'open-mistral-7b',
         name: 'open-mistral-7b',
         aliases: [
             'mistral-tiny',
             'mistral-tiny-2312',
+            'mistralai/open-mistral-7b',
         ],
         max_tokens: 32768,
         description: 'Our first dense model released September 2023.',
@@ -40,12 +44,14 @@ export const MISTRAL_MODELS: IChatModel[] = [
         },
     },
     {
+        puterId: "mistralai:mistralai/open-mistral-nemo",
         id: 'open-mistral-nemo',
         name: 'open-mistral-nemo',
         aliases: [
             'open-mistral-nemo-2407',
             'mistral-tiny-2407',
             'mistral-tiny-latest',
+            'mistralai/open-mistral-nemo',
         ],
         max_tokens: 131072,
         description: 'Our best multilingual open source model released July 2024.',
@@ -60,11 +66,13 @@ export const MISTRAL_MODELS: IChatModel[] = [
         },
     },
     {
+        puterId: "mistralai:mistralai/pixtral-large-2411",
         id: 'pixtral-large-2411',
         name: 'pixtral-large-2411',
         aliases: [
             'pixtral-large-latest',
             'mistral-large-pixtral-2411',
+            'mistralai/pixtral-large-2411',
         ],
         max_tokens: 131072,
         description: 'Official pixtral-large-2411 Mistral AI model',
@@ -79,10 +87,12 @@ export const MISTRAL_MODELS: IChatModel[] = [
         },
     },
     {
+        puterId: "mistralai:mistralai/codestral-2508",
         id: 'codestral-2508',
         name: 'codestral-2508',
         aliases: [
             'codestral-latest',
+            'mistralai/codestral-2508',
         ],
         max_tokens: 256000,
         description: 'Our cutting-edge language model for coding released August 2025.',
@@ -97,10 +107,12 @@ export const MISTRAL_MODELS: IChatModel[] = [
         },
     },
     {
+        puterId: "mistralai:mistralai/devstral-small-2507",
         id: 'devstral-small-2507',
         name: 'devstral-small-2507',
         aliases: [
             'devstral-small-latest',
+            'mistralai/devstral-small-2507',
         ],
         max_tokens: 131072,
         description: 'Our small open-source code-agentic model.',
@@ -116,10 +128,12 @@ export const MISTRAL_MODELS: IChatModel[] = [
         },
     },
     {
+        puterId: "mistralai:mistralai/devstral-medium-2507",
         id: 'devstral-medium-2507',
         name: 'devstral-medium-2507',
         aliases: [
             'devstral-medium-latest',
+            'mistralai/devstral-medium-2507',
         ],
         max_tokens: 131072,
         description: 'Our medium code-agentic model.',
@@ -135,10 +149,12 @@ export const MISTRAL_MODELS: IChatModel[] = [
         },
     },
     {
+        puterId: "mistralai:mistralai/mistral-small-2506",
         id: 'mistral-small-2506',
         name: 'mistral-small-2506',
         aliases: [
             'mistral-small-latest',
+            'mistralai/mistral-small-2506',
         ],
         max_tokens: 131072,
         description: 'Our latest enterprise-grade small model with the latest version released June 2025.',
@@ -153,10 +169,12 @@ export const MISTRAL_MODELS: IChatModel[] = [
         },
     },
     {
+        puterId: "mistralai:mistralai/magistral-medium-2509",
         id: 'magistral-medium-2509',
         name: 'magistral-medium-2509',
         aliases: [
             'magistral-medium-latest',
+            'mistralai/magistral-medium-2509',
         ],
         max_tokens: 131072,
         description: 'Our frontier-class reasoning model release candidate September 2025.',
@@ -171,10 +189,12 @@ export const MISTRAL_MODELS: IChatModel[] = [
         },
     },
     {
+        puterId: "mistralai:mistralai/magistral-small-2509",
         id: 'magistral-small-2509',
         name: 'magistral-small-2509',
         aliases: [
             'magistral-small-latest',
+            'mistralai/magistral-small-2509',
         ],
         max_tokens: 131072,
         description: 'Our efficient reasoning model released September 2025.',
@@ -189,10 +209,12 @@ export const MISTRAL_MODELS: IChatModel[] = [
         },
     },
     {
+        puterId: "mistralai:mistralai/voxtral-mini-2507",
         id: 'voxtral-mini-2507',
         name: 'voxtral-mini-2507',
         aliases: [
             'voxtral-mini-latest',
+            'mistralai/voxtral-mini-2507',
         ],
         max_tokens: 32768,
         description: 'A mini audio understanding model released in July 2025',
@@ -207,10 +229,12 @@ export const MISTRAL_MODELS: IChatModel[] = [
         },
     },
     {
+        puterId: "mistralai:mistralai/voxtral-small-2507",
         id: 'voxtral-small-2507',
         name: 'voxtral-small-2507',
         aliases: [
             'voxtral-small-latest',
+            'mistralai/voxtral-small-2507',
         ],
         max_tokens: 32768,
         description: 'A small audio understanding model released in July 2025',
@@ -225,10 +249,12 @@ export const MISTRAL_MODELS: IChatModel[] = [
         },
     },
     {
+        puterId: "mistralai:mistralai/mistral-large-2512",
         id: 'mistral-large-latest',
         name: 'mistral-large-2512',
         aliases: [
             'mistral-large-2512',
+            'mistralai/mistral-large-2512',
         ],
         max_tokens: 262144,
         description: 'Official mistral-large-2512 Mistral AI model',
@@ -243,10 +269,12 @@ export const MISTRAL_MODELS: IChatModel[] = [
         },
     },
     {
+        puterId: "mistralai:mistralai/ministral-3b-2512",
         id: 'ministral-3b-2512',
         name: 'ministral-3b-2512',
         aliases: [
             'ministral-3b-latest',
+            'mistralai/ministral-3b-2512',
         ],
         max_tokens: 131072,
         description: 'Ministral 3 (a.k.a. Tinystral) 3B Instruct.',
@@ -261,10 +289,12 @@ export const MISTRAL_MODELS: IChatModel[] = [
         },
     },
     {
+        puterId: "mistralai:mistralai/ministral-8b-2512",
         id: 'ministral-8b-2512',
         name: 'ministral-8b-2512',
         aliases: [
             'ministral-8b-latest',
+            'mistralai/ministral-8b-2512',
         ],
         max_tokens: 262144,
         description: 'Ministral 3 (a.k.a. Tinystral) 8B Instruct.',
@@ -279,10 +309,12 @@ export const MISTRAL_MODELS: IChatModel[] = [
         },
     },
     {
+        puterId: "mistralai:mistralai/ministral-14b-2512",
         id: 'ministral-14b-2512',
         name: 'ministral-14b-2512',
         aliases: [
             'ministral-14b-latest',
+            'mistralai/ministral-14b-2512',
         ],
         max_tokens: 262144,
         description: 'Ministral 3 (a.k.a. Tinystral) 14B Instruct.',

@@ -36,7 +36,6 @@ export class GeminiChatProvider implements IChatProvider {
     }
 
     async complete ({ messages, stream, model, tools, max_tokens, temperature }: ICompleteArguments): ReturnType<IChatProvider['complete']> {
-
         const actor = Context.get('actor');
         messages = await process_input_messages(messages);
 

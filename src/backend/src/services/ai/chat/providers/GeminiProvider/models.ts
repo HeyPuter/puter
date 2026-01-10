@@ -2,8 +2,10 @@ import { IChatModel } from '../types';
 
 export const GEMINI_MODELS: IChatModel[] = [
     {
+        puterId: "google:google/gemini-2.0-flash",
         id: 'gemini-2.0-flash',
         name: 'Gemini 2.0 Flash',
+        aliases: ['google/gemini-2.0-flash'],
         context: 131072,
         costs_currency: 'usd-cents',
         input_cost_key: 'prompt_tokens',
@@ -18,8 +20,10 @@ export const GEMINI_MODELS: IChatModel[] = [
         max_tokens: 8192,
     },
     {
+        puterId: "google:google/gemini-2.0-flash-lite",
         id: 'gemini-2.0-flash-lite',
         name: 'Gemini 2.0 Flash-Lite',
+        aliases: ['google/gemini-2.0-flash-lite'],
         context: 1_048_576,
         costs_currency: 'usd-cents',
         input_cost_key: 'prompt_tokens',
@@ -32,8 +36,10 @@ export const GEMINI_MODELS: IChatModel[] = [
         max_tokens: 8192,
     },
     {
+        puterId: "google:google/gemini-2.5-flash",
         id: 'gemini-2.5-flash',
         name: 'Gemini 2.5 Flash',
+        aliases: ['google/gemini-2.5-flash'],
         context: 1_048_576,
         costs_currency: 'usd-cents',
         input_cost_key: 'prompt_tokens',
@@ -47,8 +53,10 @@ export const GEMINI_MODELS: IChatModel[] = [
         max_tokens: 65536,
     },
     {
+        puterId: "google:google/gemini-2.5-flash-lite",
         id: 'gemini-2.5-flash-lite',
         name: 'Gemini 2.5 Flash-Lite',
+        aliases: ['google/gemini-2.5-flash-lite'],
         context: 1_048_576,
         costs_currency: 'usd-cents',
         input_cost_key: 'prompt_tokens',
@@ -62,8 +70,10 @@ export const GEMINI_MODELS: IChatModel[] = [
         max_tokens: 65536,
     },
     {
+        puterId: "google:google/gemini-2.5-pro",
         id: 'gemini-2.5-pro',
         name: 'Gemini 2.5 Pro',
+        aliases: ['google/gemini-2.5-pro'],
         context: 1_048_576,
         costs_currency: 'usd-cents',
         input_cost_key: 'prompt_tokens',
@@ -77,8 +87,10 @@ export const GEMINI_MODELS: IChatModel[] = [
         max_tokens: 200_000,
     },
     {
+        puterId: "google:google/gemini-3-pro-preview",
         id: 'gemini-3-pro-preview',
         name: 'Gemini 3 Pro',
+        aliases: ['google/gemini-3-pro-preview'],
         context: 1_048_576,
         costs_currency: 'usd-cents',
         input_cost_key: 'prompt_tokens',
@@ -92,8 +104,10 @@ export const GEMINI_MODELS: IChatModel[] = [
         max_tokens: 200_000,
     },
     {
+        puterId: "google:google/gemini-3-flash-preview",
         id: 'gemini-3-flash-preview',
         name: 'Gemini 3 Flash',
+        aliases: ['google/gemini-3-flash-preview'],
         context: 1_048_576,
         costs_currency: 'usd-cents',
         input_cost_key: 'prompt_tokens',

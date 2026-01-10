@@ -7,6 +7,7 @@ type ModelCost = Record<string, number>;
 export interface IChatModel<T extends ModelCost = ModelCost> extends Record<string, unknown> {
     id: string,
     provider?: string,
+    puterId?: string
     aliases?: string[]
     costs_currency: string,
     input_cost_key?: keyof T,

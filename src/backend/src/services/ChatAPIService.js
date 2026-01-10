@@ -78,7 +78,7 @@ class ChatAPIService extends BaseService {
                     });
 
                     // Return the list of models
-                    res.json({ models });
+                    res.json({ models: models.filter(e => !["costly", "fake", "abuse", "usage-limited", "model-fallback-test-1"].includes(e)) });
                 } catch ( error ) {
                     this.log.error('Error fetching models:', error);
                     throw APIError.create('internal_server_error');
@@ -101,7 +101,7 @@ class ChatAPIService extends BaseService {
                     });
 
                     // Return the detailed list of models
-                    res.json({ models });
+                    res.json({ models: models.filter((e) => !["costly", "fake", "abuse", "usage-limited", "model-fallback-test-1"].includes(e.id)) });
                 } catch ( error ) {
                     this.log.error('Error fetching model details:', error);
                     throw APIError.create('internal_server_error');

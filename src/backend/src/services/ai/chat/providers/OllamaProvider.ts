@@ -81,7 +81,7 @@ export class OllamaChatProvider implements IChatProvider {
             // Ollama API returns models with 'name' property, not 'model'
             const modelName = model.name || model.model || 'unknown';
             coerced_models.push({
-                id: `ollama:${ modelName}`,
+                id: `ollama:ollama/${modelName}`,
                 name: `${modelName} (Ollama)`,
                 max_tokens: model.size || model.max_context || 8192,
                 costs_currency: 'usd-cents',
