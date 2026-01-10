@@ -109,6 +109,7 @@ class AIInterfaceService extends BaseService {
                         model: { type: 'string' },
                         temperature: { type: 'number' },
                         max_tokens: { type: 'number' },
+                        openrouter_extras: { type: 'json' },
                     },
                     result: { type: 'json' },
                 },

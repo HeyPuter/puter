@@ -17,6 +17,41 @@ export interface IChatModel<T extends ModelCost = ModelCost> extends Record<stri
     max_tokens: number,
 }
 
+export interface IOpenRouterExtras {
+    // Structured outputs / JSON mode
+    response_format?:
+        | { type: 'text' }
+        | { type: 'json_object' }
+        | { type: 'json_schema'; json_schema: { name: string; schema?: object; strict?: boolean } };
+
+    // Reasoning / thinking tokens (Anthropic, DeepSeek, etc.)
+    reasoning?: {
+        effort?: 'xhigh' | 'high' | 'medium' | 'low' | 'minimal' | 'none';
+        summary?: 'auto' | 'concise' | 'detailed';
+        max_tokens?: number;
+    };
+
+    // Provider routing
+    provider?: {
+        order?: string[];
+        only?: string[];
+        ignore?: string[];
+        allow_fallbacks?: boolean;
+        require_parameters?: boolean;
+        data_collection?: 'allow' | 'deny';
+    };
+
+    // Sampler parameters
+    top_p?: number;
+    top_k?: number;
+    min_p?: number;
+    top_a?: number;
+    seed?: number;
+    frequency_penalty?: number;
+    presence_penalty?: number;
+    repetition_penalty?: number;
+}
+
 export type PuterMessage = Message | any; // TODO DS: type this more strictly
 export interface ICompleteArguments {
     messages: PuterMessage[];
@@ -36,6 +71,9 @@ export interface ICompleteArguments {
         normalize?: boolean;
     };
     customLimitMessage?: string;
+
+    // laziest way to do it without causing trouble for existing usage
+    openrouter_extras?: IOpenRouterExtras 
 }
 
 export interface IChatProvider {

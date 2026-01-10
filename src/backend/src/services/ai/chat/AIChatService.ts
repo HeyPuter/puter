@@ -409,13 +409,36 @@ export class AIChatService extends BaseService {
                     if ( (error as unknown as { type: string }).type === 'invalid_request_error' ) {
                         return true;
                     }
+                    
+                    // openrouter wraps provider errors in this shape
+                    const maybeCode = (error as unknown as { error?: { code?: number } })?.error?.code;
+                    if ( maybeCode && maybeCode >= 400 && maybeCode < 500 ) {
+                        return true;
+                    }
+                    // or if the error itself has a status/code property (common pattern)
+                    const directCode = (error as unknown as { status?: number; code?: number }).status
+                        ?? (error as unknown as { status?: number; code?: number }).code;
+                    if ( directCode && directCode >= 400 && directCode < 500 ) {
+                        return true;
+                    }
                 })();
 
                 if ( isRequestError ) {
                     console.error((error as Error));
+                    
+                    // try to extract the actual provider error message due to the way OpenRouter formats its errors
+                    const rawMeta = (error as any)?.error?.metadata?.raw;
+                    let detailedMessage = (error as Error).message;
+                    if ( rawMeta ) {
+                        try {
+                            const parsed = JSON.parse(rawMeta);
+                            detailedMessage = parsed?.error?.message ?? detailedMessage;
+                        } catch { /* ignore parse failures */ }
+                    }
+
                     throw APIError.create('error_400_from_delegate', error as Error, {
                         delegate: model.provider,
-                        message: (error as Error).message,
+                        message: detailedMessage,
                     });
                 }
 
