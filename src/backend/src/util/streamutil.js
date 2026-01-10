@@ -516,21 +516,33 @@ const buffer_to_stream = (buffer) => {
 
 const hashing_stream = (source) => {
     const hash = crypto.createHash('sha256');
+    const hashPromise = new TeePromise();
+
     const stream = new Transform({
         transform (chunk, encoding, callback) {
             hash.update(chunk);
             this.push(chunk);
             callback();
         },
+        // This behaviour used to be on `source.on('end', ...)`; it is assumed
+        // that the 'end' event caused a race condition where `hash.update` was
+        // called after `hash.digest` when the server was under sufficient load.
+        // Using the `flush` callback on Transform should avoid this issue.
+        flush (callback) {
+            hashPromise.resolve(hash.digest('hex'));
+            callback();
+        },
     });
 
     source.pipe(stream);
 
-    const hashPromise = new Promise((resolve, reject) => {
-        source.on('end', () => {
-            resolve(hash.digest('hex'));
-        });
-        source.on('error', reject);
+    source.on('error', (err) => {
+        stream.destroy(err);
+        hashPromise.reject(err);
+    });
+
+    stream.on('error', (err) => {
+        hashPromise.reject(err);
     });
 
     return {
