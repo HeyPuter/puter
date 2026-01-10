@@ -133,6 +133,8 @@ class ReferralCodeService extends BaseService {
 
         // TODO: rename 'sizeService' to 'storage-capacity'
         const svc_size = Context.get('services').get('sizeService');
+        /** @type {import('./MeteringService/MeteringService').MeteringService} */
+        const meteringService = this.services.get('meteringService');
         await svc_size.add_storage(user,
                         this.REFERRAL_INCREASE_RIGHT,
                         `user ${user.id} used referral code of user ${referred_by.id}`,
@@ -140,6 +142,7 @@ class ReferralCodeService extends BaseService {
                             field_a: referred_by.referral_code,
                             field_b: 'REFER_R',
                         });
+        await meteringService.updateAddonCredit(user.uuid, 25 * 1_000_000); // give them 25 cents
         await svc_size.add_storage(referred_by,
                         this.REFERRAL_INCREASE_LEFT,
                         `user ${referred_by.id} referred user ${user.id}`,
@@ -147,6 +150,7 @@ class ReferralCodeService extends BaseService {
                             field_a: referred_by.referral_code,
                             field_b: 'REFER_L',
                         });
+        await meteringService.updateAddonCredit(referred_by.uuid, 25 * 1_000_000); // give them 25 cents
 
         const svc_email = Context.get('services').get('email');
         await svc_email.send_email (referred_by, 'new-referral', {
