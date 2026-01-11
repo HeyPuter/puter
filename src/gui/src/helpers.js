@@ -877,6 +877,7 @@ window.create_file = async (options) => {
     // create file
     try {
         puter.fs.upload(new File(content, filename), dirname, {
+            generateThumbnails: true,
             success: async function (data) {
                 const created_file = $(appendto_element).find(`.item[data-path="${html_encode(dirname)}/${html_encode(data.name)}"]`);
                 if ( created_file.length > 0 ) {
@@ -1834,6 +1835,7 @@ window.upload_items = async function (items, dest_path) {
                     dest_path,
                     // options
                     {
+                        generateThumbnails: true,
                         // init
                         init: async (operation_id, xhr) => {
                             opid = operation_id;
@@ -2353,6 +2355,7 @@ window.unzipItem = async function (itemPath) {
                             // options
                             {
                                 createFileParent: true,
+                                generateThumbnails: true,
                                 progress: async function (operation_id, op_progress) {
                                     progwin.set_progress(op_progress);
                                     // update title if window is not visible
@@ -2600,6 +2603,7 @@ window.untarItem = async function (itemPath) {
                         `${rootdir.path }/`,
                         {
                             createFileParent: true,
+                            generateThumbnails: true,
                             progress: async function (operation_id, op_progress) {
                                 progwin.set_progress(op_progress);
                                 if ( document.visibilityState !== 'visible' ) {

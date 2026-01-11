@@ -2,6 +2,97 @@ import path from '../../../lib/path.js';
 import * as utils from '../../../lib/utils.js';
 import getAbsolutePathForApp from '../utils/getAbsolutePathForApp.js';
 
+const MAX_THUMBNAIL_BYTES = 2 * 1024 * 1024;
+const DEFAULT_THUMBNAIL_DIMENSION = 128;
+const MIN_THUMBNAIL_DIMENSION = 32;
+
+const isLikelyImageFile = (file) => {
+    if ( ! file ) return false;
+    if ( file.type && file.type.startsWith('image/') ) return true;
+    const name = (file.name || '').toLowerCase();
+    return ['.png', '.jpg', '.jpeg', '.gif', '.bmp', '.webp', '.tiff', '.avif', '.jfif'].some(ext => name.endsWith(ext));
+};
+
+const estimateDataUrlSize = (dataUrl) => {
+    if ( ! dataUrl ) return 0;
+    const commaIndex = dataUrl.indexOf(',');
+    const base64 = commaIndex === -1 ? dataUrl : dataUrl.slice(commaIndex + 1);
+    return Math.ceil(base64.length * 3 / 4);
+};
+
+const scaleDimensions = (width, height, maxDim) => {
+    const base = Math.max(width, height) || 1;
+    const scale = Math.min(1, maxDim / base);
+    const w = Math.max(1, Math.round(width * scale));
+    const h = Math.max(1, Math.round(height * scale));
+    return { width: w, height: h };
+};
+
+const loadImageFromFile = (file) => new Promise((resolve, reject) => {
+    if ( typeof document === 'undefined' || typeof URL === 'undefined' || typeof Image === 'undefined' ) return resolve(null);
+    const url = URL.createObjectURL(file);
+    const img = new Image();
+    img.onload = () => {
+        URL.revokeObjectURL(url);
+        resolve(img);
+    };
+    img.onerror = (e) => {
+        URL.revokeObjectURL(url);
+        reject(e);
+    };
+    img.src = url;
+});
+
+const renderThumbnail = (img, maxDim, type, quality) => {
+    if ( !img || typeof document === 'undefined' ) return null;
+    const { width, height } = scaleDimensions(img.naturalWidth || img.width, img.naturalHeight || img.height, maxDim);
+    const canvas = document.createElement('canvas');
+    canvas.width = width;
+    canvas.height = height;
+    const ctx = canvas.getContext('2d');
+    if ( ! ctx ) return null;
+    ctx.drawImage(img, 0, 0, width, height);
+    try {
+        return canvas.toDataURL(type, quality);
+    } catch (e) {
+        return null;
+    }
+};
+
+const defaultThumbnailGenerator = async (file) => {
+    try {
+        if ( typeof document === 'undefined' ) return undefined;
+        if ( typeof File === 'undefined' || !(file instanceof File) ) return undefined;
+        if ( ! isLikelyImageFile(file) ) return undefined;
+
+        const img = await loadImageFromFile(file);
+        if ( ! img ) return undefined;
+
+        let dimension = DEFAULT_THUMBNAIL_DIMENSION;
+        const formats = [
+            { type: 'image/webp', quality: 0.85 },
+            { type: 'image/jpeg', quality: 0.8 },
+            { type: 'image/png' },
+        ];
+
+        while ( dimension >= MIN_THUMBNAIL_DIMENSION ) {
+            for ( const { type, quality } of formats ) {
+                const dataUrl = renderThumbnail(img, dimension, type, quality);
+                if ( ! dataUrl ) continue;
+                if ( estimateDataUrlSize(dataUrl) <= MAX_THUMBNAIL_BYTES ) {
+                    return dataUrl;
+                }
+            }
+            dimension = Math.floor(dimension / 2);
+        }
+    } catch (e) {
+        // Ignore thumbnail errors; upload should proceed without them.
+        return undefined;
+    }
+
+    return undefined;
+};
+
 /* eslint-disable */
 const upload = async function (items, dirPath, options = {}) {
     return new Promise(async (resolve, reject) => {
@@ -200,6 +291,19 @@ const upload = async function (items, dirPath, options = {}) {
             return error({ code: 'EMPTY_UPLOAD', message: 'No files or directories to upload.' });
         }
 
+        let thumbnails = [];
+        const shouldGenerateThumbnails = options.generateThumbnails || options.thumbnailGenerator;
+        if ( files.length && shouldGenerateThumbnails ) {
+            const generator = options.thumbnailGenerator || defaultThumbnailGenerator;
+            thumbnails = await Promise.all(files.map(async (file) => {
+                try {
+                    return await generator(file);
+                } catch (e) {
+                    return undefined;
+                }
+            }));
+        }
+
         // Check storage capacity.
         // We need to check the storage capacity before the upload starts because
         // we want to avoid uploading files in case there is not enough storage space.
@@ -287,20 +391,28 @@ const upload = async function (items, dirPath, options = {}) {
         // Append file metadata to upload request
         if ( ! options.shortcutTo ) {
             for ( let i = 0; i < files.length; i++ ) {
-                fd.append('fileinfo', JSON.stringify({
+                const thumbnail = thumbnails[i] ?? options.thumbnail ?? undefined;
+                const fileinfo_payload = {
                     name: files[i].name,
                     type: files[i].type,
                     size: files[i].size,
+                };
+                if ( thumbnail ) {
+                    fileinfo_payload.thumbnail = thumbnail;
+                }
+                fd.append('fileinfo', JSON.stringify({
+                    ...fileinfo_payload,
                 }));
             }
         }
         // Append write operations for each file
         for ( let i = 0; i < files.length; i++ ) {
-            fd.append('operation', JSON.stringify({
+            const thumbnail = thumbnails[i] ?? options.thumbnail ?? undefined;
+            const operation = {
                 op: options.shortcutTo ? 'shortcut' : 'write',
                 dedupe_name: options.dedupeName ?? true,
                 overwrite: options.overwrite ?? false,
-                thumbnail: options.thumbnail ?? undefined,
+                thumbnail,
                 create_missing_ancestors: (options.createMissingAncestors || options.createMissingParents),
                 operation_id: operation_id,
                 path: (
@@ -315,7 +427,13 @@ const upload = async function (items, dirPath, options = {}) {
                 shortcut_to: options.shortcutTo,
                 shortcut_to_uid: options.shortcutTo,
                 app_uid: options.appUID,
-            }));
+            };
+
+            if ( thumbnail === undefined ) {
+                delete operation.thumbnail;
+            }
+
+            fd.append('operation', JSON.stringify(operation));
         }
 
         // Append files to upload
