@@ -65,61 +65,106 @@ const fixContextInitialization = async (callback) => {
 const testWithEachService = async (fnToRunOnBoth, {
     fnToRunOnTheOther,
 } = {}) => {
-    const esAppTestKernel = await createTestKernel({
-        testCore: true,
-        initLevelString: 'init',
-        serviceMap: {
-            'app-information': AppInformationService,
-            'app-icon': AppIconService,
-            'old-app-name': OldAppNameService,
-            'es:app': EntityStoreService,
-        },
-        serviceMapArgs: {
-            'es:app': ES_APP_ARGS,
-        },
-    });
-    await helpers.tmp_provide_services(esAppTestKernel.services);
+    return await fixContextInitialization(async () => {
+        const setupUserAndRunWithContext = async (params, fn) => {
+            const { kernel, key } = params;
+            const db = kernel.services.get('database').get('write', 'test');
+            const userId = 1;
+            const username = 'testuser';
+            const uuid = `user-uuid-${userId}`;
 
-    const appTestKernel = await createTestKernel({
-        testCore: true,
-        initLevelString: 'init',
-        serviceMap: {
-            'app-information': AppInformationService,
-            'app-icon': AppIconService,
-            'old-app-name': OldAppNameService,
-            'app': AppService,
-        },
-    });
-    await helpers.tmp_provide_services(appTestKernel.services);
+            // Insert the user into the database if not exists
+            const existingUser = await kernel.services.get('database')
+                .get('read', 'test')
+                .read('SELECT * FROM user WHERE uuid = ?', [uuid]);
 
-    helpers.tmp_provide_services(appTestKernel.services);
-    await fnToRunOnBoth({ kernel: appTestKernel, key: 'app' });
-    helpers.tmp_provide_services(esAppTestKernel.services);
-    if ( fnToRunOnTheOther ) {
-        await fnToRunOnTheOther({ kernel: esAppTestKernel, key: 'es:app' });
-    } else {
-        await fnToRunOnBoth({ kernel: esAppTestKernel, key: 'es:app' });
-    }
+            if ( existingUser.length === 0 ) {
+                await db.write('INSERT INTO user (uuid, username, free_storage) VALUES (?, ?, ?)',
+                                [uuid, username, 1024 * 1024 * 1024]);
+            }
 
-    // Expect these tables to have the same values:
-    const relevant_tables = ['apps', 'app_filetype_association'];
-    // Fields that are expected to differ (auto-generated UUIDs, timestamps)
-    const volatile_fields = ['uid', 'uuid', 'timestamp'];
-    const stripVolatile = (rows) => rows.map(row => {
-        const copy = { ...row };
-        for ( const field of volatile_fields ) {
-            delete copy[field];
+            // Read the user back to get the actual id
+            const users = await kernel.services.get('database')
+                .get('read', 'test')
+                .read('SELECT * FROM user WHERE uuid = ?', [uuid]);
+
+            const user = users[0];
+            if ( ! user ) {
+                throw new Error('Failed to create or retrieve test user');
+            }
+
+            const actor = await Actor.create(UserActorType, { user });
+            if ( !actor || !actor.type ) {
+                throw new Error('Failed to create actor');
+            }
+
+            const userContext = kernel.root_context.sub({
+                user,
+                actor,
+            });
+
+            await userContext.arun(async () => {
+                Context.set('actor', actor);
+                await fn({ ...params, user, actor });
+            });
+        };
+
+        const esAppTestKernel = await createTestKernel({
+            testCore: true,
+            initLevelString: 'init',
+            serviceMap: {
+                'app-information': AppInformationService,
+                'app-icon': AppIconService,
+                'old-app-name': OldAppNameService,
+                'es:app': EntityStoreService,
+            },
+            serviceMapArgs: {
+                'es:app': ES_APP_ARGS,
+            },
+        });
+        await helpers.tmp_provide_services(esAppTestKernel.services);
+
+        const appTestKernel = await createTestKernel({
+            testCore: true,
+            initLevelString: 'init',
+            serviceMap: {
+                'app-information': AppInformationService,
+                'app-icon': AppIconService,
+                'old-app-name': OldAppNameService,
+                'app': AppService,
+            },
+        });
+        await helpers.tmp_provide_services(appTestKernel.services);
+
+        helpers.tmp_provide_services(appTestKernel.services);
+        await setupUserAndRunWithContext({ kernel: appTestKernel, key: 'app' }, fnToRunOnBoth);
+        helpers.tmp_provide_services(esAppTestKernel.services);
+        if ( fnToRunOnTheOther ) {
+            await setupUserAndRunWithContext({ kernel: esAppTestKernel, key: 'es:app' }, fnToRunOnTheOther);
+        } else {
+            await setupUserAndRunWithContext({ kernel: esAppTestKernel, key: 'es:app' }, fnToRunOnBoth);
         }
-        return copy;
-    });
 
-    const db_esApp = esAppTestKernel.services.get('database').get('write', 'test');
-    const db_app = appTestKernel.services.get('database').get('write', 'test');
-    for ( const table_name of relevant_tables ) {
-        const rows_esApp = await db_esApp.read(`SELECT * FROM ${table_name}`);
-        const rows_app = await db_app.read(`SELECT * FROM ${table_name}`);
-        expect(stripVolatile(rows_app)).toEqual(stripVolatile(rows_esApp));
-    }
+        // Expect these tables to have the same values:
+        const relevant_tables = ['apps', 'app_filetype_association'];
+        // Fields that are expected to differ (auto-generated UUIDs, timestamps)
+        const volatile_fields = ['uid', 'uuid', 'timestamp'];
+        const stripVolatile = (rows) => rows.map(row => {
+            const copy = { ...row };
+            for ( const field of volatile_fields ) {
+                delete copy[field];
+            }
+            return copy;
+        });
+
+        const db_esApp = esAppTestKernel.services.get('database').get('write', 'test');
+        const db_app = appTestKernel.services.get('database').get('write', 'test');
+        for ( const table_name of relevant_tables ) {
+            const rows_esApp = await db_esApp.read(`SELECT * FROM ${table_name}`);
+            const rows_app = await db_app.read(`SELECT * FROM ${table_name}`);
+            expect(stripVolatile(rows_app)).toEqual(stripVolatile(rows_esApp));
+        }
+    });
 };
 
 describe('AppService Regression Prevention Tests', () => {
@@ -128,180 +173,59 @@ describe('AppService Regression Prevention Tests', () => {
         });
     });
     it('test utility detects database deviations as expected', async () => {
-        await fixContextInitialization(async () => {
-            // This should fail because we create apps with different names
-            let assertionErrorThrown = false;
-            try {
-                await testWithEachService(async ({ kernel, key }) => {
-                    // Create a test user and context
-                    const db = kernel.services.get('database').get('write', 'test');
-                    const userId = 2;
-                    const username = 'testuser2';
-                    const uuid = `user-uuid-${userId}`;
-
-                    // Insert the user into the database if not exists
-                    const existingUser = await kernel.services.get('database')
-                        .get('read', 'test')
-                        .read('SELECT * FROM user WHERE uuid = ?', [uuid]);
-
-                    if ( existingUser.length === 0 ) {
-                        await db.write('INSERT INTO user (uuid, username, free_storage) VALUES (?, ?, ?)',
-                                        [uuid, username, 1024 * 1024 * 1024]);
-                    }
-
-                    // Read the user back to get the actual id
-                    const users = await kernel.services.get('database')
-                        .get('read', 'test')
-                        .read('SELECT * FROM user WHERE uuid = ?', [uuid]);
-
-                    const user = users[0];
-                    if ( ! user ) {
-                        throw new Error('Failed to create or retrieve test user');
-                    }
-
-                    const actor = await Actor.create(UserActorType, { user });
-                    if ( !actor || !actor.type ) {
-                        throw new Error('Failed to create actor');
-                    }
-
-                    const userContext = kernel.root_context.sub({
-                        user,
-                        actor,
-                    });
-
-                    await userContext.arun(async () => {
-                        Context.set('actor', actor);
-                        const service = kernel.services.get(key);
-                        const crudQ = service.constructor.IMPLEMENTS['crud-q'];
-                        await crudQ.create.call(service, {
-                            object: {
-                                name: 'test-app',
-                                title: 'Test App',
-                                index_url: 'https://example.com',
-                            },
-                        });
-                    });
-                },
-                {
-                    fnToRunOnTheOther: async ({ kernel, key }) => {
-                        // Create a test user and context (same user)
-                        const db = kernel.services.get('database').get('write', 'test');
-                        const userId = 2;
-                        const username = 'testuser2';
-                        const uuid = `user-uuid-${userId}`;
-
-                        // Insert the user into the database if not exists
-                        const existingUser = await kernel.services.get('database')
-                            .get('read', 'test')
-                            .read('SELECT * FROM user WHERE uuid = ?', [uuid]);
-
-                        if ( existingUser.length === 0 ) {
-                            await db.write('INSERT INTO user (uuid, username, free_storage) VALUES (?, ?, ?)',
-                                            [uuid, username, 1024 * 1024 * 1024]);
-                        }
-
-                        // Read the user back to get the actual id
-                        const users = await kernel.services.get('database')
-                            .get('read', 'test')
-                            .read('SELECT * FROM user WHERE uuid = ?', [uuid]);
-
-                        const user = users[0];
-                        if ( ! user ) {
-                            throw new Error('Failed to create or retrieve test user');
-                        }
-
-                        const actor = await Actor.create(UserActorType, { user });
-                        if ( !actor || !actor.type ) {
-                            throw new Error('Failed to create actor');
-                        }
-
-                        const userContext = kernel.root_context.sub({
-                            user,
-                            actor,
-                        });
-
-                        await userContext.arun(async () => {
-                            Context.set('actor', actor);
-                            const service = kernel.services.get(key);
-                            const crudQ = service.constructor.IMPLEMENTS['crud-q'];
-                            // Create app with DIFFERENT name to cause deviation
-                            await crudQ.create.call(service, {
-                                object: {
-                                    name: 'different-app', // Different name!
-                                    title: 'Different Test App',
-                                    index_url: 'https://example.com',
-                                },
-                            });
-                        });
+        // This should fail because we create apps with different names
+        let assertionErrorThrown = false;
+        try {
+            await testWithEachService(async ({ kernel, key }) => {
+                const service = kernel.services.get(key);
+                const crudQ = service.constructor.IMPLEMENTS['crud-q'];
+                await crudQ.create.call(service, {
+                    object: {
+                        name: 'test-app',
+                        title: 'Test App',
+                        index_url: 'https://example.com',
                     },
                 });
-            } catch ( error ) {
-                // Vitest assertion errors are thrown when expect() fails
-                // Check if it's an AssertionError or has assertion-related properties
-                if ( error.name === 'AssertionError' ||
-                    error.constructor.name === 'AssertionError' ||
-                    (error.message && error.message.includes('toEqual')) ) {
-                    assertionErrorThrown = true;
-                } else {
-                    // Re-throw if it's not an assertion error
-                    throw error;
-                }
-            }
-            // Verify that the assertion error was thrown (meaning deviation was detected)
-            expect(assertionErrorThrown).toBe(true);
-        });
-    });
-    it('should create the app', async () => {
-        await fixContextInitialization(async () => {
-            await testWithEachService(async ({ kernel, key }) => {
-                // Create a test user and context
-                const db = kernel.services.get('database').get('write', 'test');
-                const userId = 1;
-                const username = 'testuser';
-                const uuid = `user-uuid-${userId}`;
-
-                // Insert the user into the database if not exists
-                const existingUser = await kernel.services.get('database')
-                    .get('read', 'test')
-                    .read('SELECT * FROM user WHERE uuid = ?', [uuid]);
-
-                if ( existingUser.length === 0 ) {
-                    await db.write('INSERT INTO user (uuid, username, free_storage) VALUES (?, ?, ?)',
-                                    [uuid, username, 1024 * 1024 * 1024]);
-                }
-
-                // Read the user back to get the actual id
-                const users = await kernel.services.get('database')
-                    .get('read', 'test')
-                    .read('SELECT * FROM user WHERE uuid = ?', [uuid]);
-
-                const user = users[0];
-                if ( ! user ) {
-                    throw new Error('Failed to create or retrieve test user');
-                }
-
-                const actor = await Actor.create(UserActorType, { user });
-                if ( !actor || !actor.type ) {
-                    throw new Error('Failed to create actor');
-                }
-
-                const userContext = kernel.root_context.sub({
-                    user,
-                    actor,
-                });
-
-                await userContext.arun(async () => {
-                    Context.set('actor', actor);
+            },
+            {
+                fnToRunOnTheOther: async ({ kernel, key }) => {
                     const service = kernel.services.get(key);
                     const crudQ = service.constructor.IMPLEMENTS['crud-q'];
+                    // Create app with DIFFERENT name to cause deviation
                     await crudQ.create.call(service, {
                         object: {
-                            name: 'test-app',
-                            title: 'Test App',
+                            name: 'different-app', // Different name!
+                            title: 'Different Test App',
                             index_url: 'https://example.com',
                         },
                     });
-                });
+                },
+            });
+        } catch ( error ) {
+            // Vitest assertion errors are thrown when expect() fails
+            // Check if it's an AssertionError or has assertion-related properties
+            if ( error.name === 'AssertionError' ||
+                error.constructor.name === 'AssertionError' ||
+                (error.message && error.message.includes('toEqual')) ) {
+                assertionErrorThrown = true;
+            } else {
+                // Re-throw if it's not an assertion error
+                throw error;
+            }
+        }
+        // Verify that the assertion error was thrown (meaning deviation was detected)
+        expect(assertionErrorThrown).toBe(true);
+    });
+    it('should create the app', async () => {
+        await testWithEachService(async ({ kernel, key }) => {
+            const service = kernel.services.get(key);
+            const crudQ = service.constructor.IMPLEMENTS['crud-q'];
+            await crudQ.create.call(service, {
+                object: {
+                    name: 'test-app',
+                    title: 'Test App',
+                    index_url: 'https://example.com',
+                },
             });
         });
     });
