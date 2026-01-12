@@ -31,7 +31,6 @@ import { OPEN_AI_MODELS } from './models.js';
 
 ;
 
-
 // We're capping at 5MB, which sucks, but Chat Completions doesn't suuport
 // file inputs.
 const MAX_FILE_SIZE = 5 * 1_000_000;
@@ -81,7 +80,7 @@ export class OpenAiChatProvider implements IChatProvider {
     * Each model object includes an ID and cost details (currency, tokens, input/output rates).
     */
     models () {
-        return OPEN_AI_MODELS.filter(e=>!e.responses_api_only);
+        return OPEN_AI_MODELS.filter(e => !e.responses_api_only);
     }
 
     list () {
@@ -195,6 +194,7 @@ export class OpenAiChatProvider implements IChatProvider {
 
         const completionParams: ChatCompletionCreateParams = {
             user: user_private_uid,
+            safety_identifier: user_private_uid,
             messages: messages,
             model: modelUsed.id,
             ...(tools ? { tools } : {}),

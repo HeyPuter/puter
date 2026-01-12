@@ -19,7 +19,6 @@
 
 import mime from 'mime-types';
 import { OpenAI } from 'openai';
-import { ChatCompletionCreateParams } from 'openai/resources/index.js';
 import { FSNodeParam } from '../../../../../api/filesystem/FSNodeParam.js';
 import { LLRead } from '../../../../../filesystem/ll_operations/ll_read.js';
 import { Context } from '../../../../../util/context.js';
@@ -28,11 +27,9 @@ import { MeteringService } from '../../../../MeteringService/MeteringService.js'
 import * as OpenAiUtil from '../../../utils/OpenAIUtil.js';
 import { IChatProvider, ICompleteArguments } from '../types.js';
 import { OPEN_AI_MODELS } from './models.js';
-import { ResponseCreateParamsNonStreaming } from 'openai/resources/responses/responses.js';
 import { ResponseCreateParams } from 'openai/resources/responses/responses.mjs';
 
 ;
-
 
 // We're capping at 5MB, which sucks, but Chat Completions doesn't suuport
 // file inputs.
@@ -83,7 +80,7 @@ export class OpenAiResponsesChatProvider implements IChatProvider {
     * Each model object includes an ID and cost details (currency, tokens, input/output rates).
     */
     models () {
-        return OPEN_AI_MODELS.filter(e=>e.responses_api_only === true);
+        return OPEN_AI_MODELS.filter(e => e.responses_api_only === true);
     }
 
     list () {
@@ -186,11 +183,11 @@ export class OpenAiResponsesChatProvider implements IChatProvider {
         }
         await Promise.all(promises);
 
-        if (tools) {
+        if ( tools ) {
             // Unravel tools to OpenAI Responses API format
-            tools = (tools as any).map((e)=> {
+            tools = (tools as any).map((e) => {
                 const tool = e.function;
-                tool.type = "function";
+                tool.type = 'function';
                 return tool;
             });
         }
@@ -206,6 +203,7 @@ export class OpenAiResponsesChatProvider implements IChatProvider {
 
         const completionParams: ResponseCreateParams = {
             user: user_private_uid,
+            safety_identifier: user_private_uid,
             input: messages,
             model: modelUsed.id,
             ...(tools ? { tools } : {}),
