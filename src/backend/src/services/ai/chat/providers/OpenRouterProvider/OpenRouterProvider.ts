@@ -25,7 +25,7 @@ import { Context } from '../../../../../util/context.js';
 import { kv } from '../../../../../util/kvSingleton.js';
 import { MeteringService } from '../../../../MeteringService/MeteringService.js';
 import * as OpenAIUtil from '../../../utils/OpenAIUtil.js';
-import { IChatModel, IChatProvider } from '../types.js';
+import { IChatModel, IChatProvider, IOpenRouterExtras } from '../types.js';
 
 export class OpenRouterProvider implements IChatProvider {
 
@@ -66,7 +66,7 @@ export class OpenRouterProvider implements IChatProvider {
              * AI Chat completion method.
              * See AIChatService for more details.
              */
-    async complete ({ messages, stream, model, tools, max_tokens, temperature }) {
+    async complete ({ messages, stream, model, tools, max_tokens, temperature, openrouter_extras }) {
 
         const modelUsed = (await this.models()).find(m => [m.id, ...(m.aliases || [])].includes(model)) || (await this.models()).find(m => m.id === this.getDefaultModel())!;
 
@@ -84,6 +84,38 @@ export class OpenRouterProvider implements IChatProvider {
 
         messages = await OpenAIUtil.process_input_messages(messages);
 
+        const {
+            response_format,
+            reasoning,
+            provider,
+            top_p,
+            top_k,
+            min_p,
+            top_a,
+            seed,
+            frequency_penalty,
+            presence_penalty,
+            repetition_penalty,
+        } = openrouter_extras ?? {};
+        
+        const extras = Object.fromEntries(
+            Object.entries({
+                response_format,
+                reasoning,
+                provider,
+                top_p,
+                top_k,
+                min_p,
+                top_a,
+                seed,
+                frequency_penalty,
+                presence_penalty,
+                repetition_penalty,
+            }).filter(([_, v]) => v !== undefined)
+        );
+        
+        type OpenRouterCreateParams = ChatCompletionCreateParams & Partial<IOpenRouterExtras>;
+        
         const completion = await this.#openai.chat.completions.create({
             messages,
             model: modelIdForParams,
@@ -95,7 +127,8 @@ export class OpenRouterProvider implements IChatProvider {
                 stream_options: { include_usage: true },
             } : {}),
             usage: { include: true },
-        } as ChatCompletionCreateParams);
+            ...extras,
+        } as OpenRouterCreateParams);
 
         return OpenAIUtil.handle_completion_output({
             usage_calculator: ({ usage }) => {
