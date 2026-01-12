@@ -11,6 +11,7 @@ import ValidationES from '../../om/entitystorage/ValidationES';
 import WriteByOwnerOnlyES from '../../om/entitystorage/WriteByOwnerOnlyES';
 import { Eq, Or } from '../../om/query/query';
 import { Actor, UserActorType } from '../../services/auth/Actor';
+import { VirtualGroupService } from '../../services/auth/VirtualGroupService';
 import { EntityStoreService } from '../../services/EntityStoreService';
 import { Context } from '../../util/esmcontext.js';
 import { AppIconService } from '../apps/AppIconService';
@@ -116,6 +117,7 @@ const testWithEachService = async (fnToRunOnBoth, {
                 'app-information': AppInformationService,
                 'app-icon': AppIconService,
                 'old-app-name': OldAppNameService,
+                'virtual-group': VirtualGroupService,
                 'es:app': EntityStoreService,
             },
             serviceMapArgs: {
@@ -131,6 +133,7 @@ const testWithEachService = async (fnToRunOnBoth, {
                 'app-information': AppInformationService,
                 'app-icon': AppIconService,
                 'old-app-name': OldAppNameService,
+                'virtual-group': VirtualGroupService,
                 'app': AppService,
             },
         });
@@ -216,16 +219,511 @@ describe('AppService Regression Prevention Tests', () => {
         // Verify that the assertion error was thrown (meaning deviation was detected)
         expect(assertionErrorThrown).toBe(true);
     });
-    it('should create the app', async () => {
-        await testWithEachService(async ({ kernel, key }) => {
-            const service = kernel.services.get(key);
-            const crudQ = service.constructor.IMPLEMENTS['crud-q'];
-            await crudQ.create.call(service, {
-                object: {
-                    name: 'test-app',
-                    title: 'Test App',
-                    index_url: 'https://example.com',
-                },
+
+    describe('create', () => {
+        it('should create the app', async () => {
+            await testWithEachService(async ({ kernel, key }) => {
+                const service = kernel.services.get(key);
+                const crudQ = service.constructor.IMPLEMENTS['crud-q'];
+                await crudQ.create.call(service, {
+                    object: {
+                        name: 'test-app',
+                        title: 'Test App',
+                        index_url: 'https://example.com',
+                    },
+                });
+            });
+        });
+    });
+
+    describe('read', () => {
+        it('should read app by uid', async () => {
+            await testWithEachService(async ({ kernel, key }) => {
+                const service = kernel.services.get(key);
+                const crudQ = service.constructor.IMPLEMENTS['crud-q'];
+
+                // Create an app
+                const created = await crudQ.create.call(service, {
+                    object: {
+                        name: 'read-test-app',
+                        title: 'Read Test App',
+                        index_url: 'https://example.com',
+                    },
+                });
+
+                // Read it back by uid
+                const read = await crudQ.read.call(service, { uid: created.uid });
+                expect(read).toBeDefined();
+                expect(read.name).toBe('read-test-app');
+                expect(read.title).toBe('Read Test App');
+            });
+        });
+
+        it('should read app by name', async () => {
+            await testWithEachService(async ({ kernel, key }) => {
+                const service = kernel.services.get(key);
+                const crudQ = service.constructor.IMPLEMENTS['crud-q'];
+
+                // Create an app
+                await crudQ.create.call(service, {
+                    object: {
+                        name: 'named-app',
+                        title: 'Named App',
+                        index_url: 'https://example.com',
+                    },
+                });
+
+                // Read it back by name
+                const read = await crudQ.read.call(service, { id: { name: 'named-app' } });
+                expect(read).toBeDefined();
+                expect(read.name).toBe('named-app');
+                expect(read.title).toBe('Named App');
+            });
+        });
+
+        it('should return undefined for non-existent app', async () => {
+            await testWithEachService(async ({ kernel, key }) => {
+                const service = kernel.services.get(key);
+                const crudQ = service.constructor.IMPLEMENTS['crud-q'];
+
+                // Try to read a non-existent app
+                const read = await crudQ.read.call(service, { uid: 'app-nonexistent-uid' });
+                expect(read).toBeUndefined();
+            });
+        });
+    });
+
+    describe('update', () => {
+        it('should update title and description', async () => {
+            await testWithEachService(async ({ kernel, key }) => {
+                const service = kernel.services.get(key);
+                const crudQ = service.constructor.IMPLEMENTS['crud-q'];
+
+                // Create an app
+                const created = await crudQ.create.call(service, {
+                    object: {
+                        name: 'update-test-app',
+                        title: 'Original Title',
+                        description: 'Original description',
+                        index_url: 'https://example.com',
+                    },
+                });
+
+                // Update it
+                const updated = await crudQ.update.call(service, {
+                    object: { uid: created.uid },
+                    id: { name: 'update-test-app' },
+                    options: {},
+                });
+
+                // Verify update worked - the object fields should be merged
+                await crudQ.update.call(service, {
+                    object: {
+                        uid: created.uid,
+                        title: 'Updated Title',
+                        description: 'Updated description',
+                    },
+                    id: { name: 'update-test-app' },
+                });
+
+                const read = await crudQ.read.call(service, { uid: created.uid });
+                expect(read.title).toBe('Updated Title');
+                expect(read.description).toBe('Updated description');
+            });
+        });
+
+        it('should update index_url', async () => {
+            await testWithEachService(async ({ kernel, key }) => {
+                const service = kernel.services.get(key);
+                const crudQ = service.constructor.IMPLEMENTS['crud-q'];
+
+                // Create an app
+                const created = await crudQ.create.call(service, {
+                    object: {
+                        name: 'url-update-app',
+                        title: 'URL Update App',
+                        index_url: 'https://old-url.com',
+                    },
+                });
+
+                // Update index_url
+                await crudQ.update.call(service, {
+                    object: {
+                        uid: created.uid,
+                        index_url: 'https://new-url.com',
+                    },
+                    id: { name: 'url-update-app' },
+                });
+
+                const read = await crudQ.read.call(service, { uid: created.uid });
+                expect(read.index_url).toBe('https://new-url.com');
+            });
+        });
+
+        it('should update with filetype_associations', async () => {
+            await testWithEachService(async ({ kernel, key }) => {
+                const service = kernel.services.get(key);
+                const crudQ = service.constructor.IMPLEMENTS['crud-q'];
+
+                // Create an app
+                const created = await crudQ.create.call(service, {
+                    object: {
+                        name: 'filetype-app',
+                        title: 'Filetype App',
+                        index_url: 'https://example.com',
+                    },
+                });
+
+                // Update with filetype associations
+                await crudQ.update.call(service, {
+                    object: {
+                        uid: created.uid,
+                        filetype_associations: ['txt', 'md', 'json'],
+                    },
+                    id: { name: 'filetype-app' },
+                });
+
+                const read = await crudQ.read.call(service, { uid: created.uid });
+                expect(read.filetype_associations).toEqual(
+                                expect.arrayContaining(['txt', 'md', 'json']));
+            });
+        });
+
+        it('should update name with dedupe_name option', async () => {
+            await testWithEachService(async ({ kernel, key }) => {
+                const service = kernel.services.get(key);
+                const crudQ = service.constructor.IMPLEMENTS['crud-q'];
+
+                // Create two apps
+                await crudQ.create.call(service, {
+                    object: {
+                        name: 'taken-name',
+                        title: 'First App',
+                        index_url: 'https://example.com',
+                    },
+                });
+
+                const second = await crudQ.create.call(service, {
+                    object: {
+                        name: 'second-app',
+                        title: 'Second App',
+                        index_url: 'https://example.com',
+                    },
+                });
+
+                // Try to update second app to use first app's name with dedupe
+                await crudQ.update.call(service, {
+                    object: {
+                        uid: second.uid,
+                        name: 'taken-name',
+                    },
+                    id: { name: 'second-app' },
+                    options: { dedupe_name: true },
+                });
+
+                const read = await crudQ.read.call(service, { uid: second.uid });
+                // Should have been deduped to taken-name-1
+                expect(read.name).toBe('taken-name-1');
+            });
+        });
+
+        it('should throw error when updating non-existent app', async () => {
+            await testWithEachService(async ({ kernel, key }) => {
+                const service = kernel.services.get(key);
+                const crudQ = service.constructor.IMPLEMENTS['crud-q'];
+
+                let errorThrown = false;
+                try {
+                    await crudQ.update.call(service, {
+                        object: {
+                            uid: 'app-nonexistent',
+                            title: 'New Title',
+                        },
+                        id: { name: 'nonexistent-app' },
+                    });
+                } catch ( error ) {
+                    errorThrown = true;
+                    // Error code is in fields.code for APIError
+                    const code = error.fields?.code || error.code;
+                    expect(code).toBe('entity_not_found');
+                }
+                expect(errorThrown).toBe(true);
+            });
+        });
+    });
+
+    describe('upsert', () => {
+        it('should create when app does not exist', async () => {
+            await testWithEachService(async ({ kernel, key }) => {
+                const service = kernel.services.get(key);
+                const crudQ = service.constructor.IMPLEMENTS['crud-q'];
+
+                // Upsert a new app (should create)
+                const result = await crudQ.upsert.call(service, {
+                    object: {
+                        name: 'upsert-new-app',
+                        title: 'Upsert New App',
+                        index_url: 'https://example.com',
+                    },
+                });
+
+                expect(result).toBeDefined();
+                expect(result.name).toBe('upsert-new-app');
+
+                // Verify it was created
+                const read = await crudQ.read.call(service, { id: { name: 'upsert-new-app' } });
+                expect(read).toBeDefined();
+                expect(read.title).toBe('Upsert New App');
+            });
+        });
+
+        it('should update when app exists', async () => {
+            await testWithEachService(async ({ kernel, key }) => {
+                const service = kernel.services.get(key);
+                const crudQ = service.constructor.IMPLEMENTS['crud-q'];
+
+                // Create an app first
+                const created = await crudQ.create.call(service, {
+                    object: {
+                        name: 'upsert-existing-app',
+                        title: 'Original Title',
+                        index_url: 'https://example.com',
+                    },
+                });
+
+                // Upsert with same uid (should update)
+                await crudQ.upsert.call(service, {
+                    object: {
+                        uid: created.uid,
+                        title: 'Updated via Upsert',
+                    },
+                    id: { name: 'upsert-existing-app' },
+                });
+
+                // Verify it was updated
+                const read = await crudQ.read.call(service, { uid: created.uid });
+                expect(read.title).toBe('Updated via Upsert');
+            });
+        });
+    });
+
+    describe('select', () => {
+        it('should select all apps', async () => {
+            await testWithEachService(async ({ kernel, key }) => {
+                const service = kernel.services.get(key);
+                const crudQ = service.constructor.IMPLEMENTS['crud-q'];
+
+                // Create multiple apps
+                await crudQ.create.call(service, {
+                    object: {
+                        name: 'select-app-1',
+                        title: 'Select App 1',
+                        index_url: 'https://example.com',
+                    },
+                });
+                await crudQ.create.call(service, {
+                    object: {
+                        name: 'select-app-2',
+                        title: 'Select App 2',
+                        index_url: 'https://example.com',
+                    },
+                });
+                await crudQ.create.call(service, {
+                    object: {
+                        name: 'select-app-3',
+                        title: 'Select App 3',
+                        index_url: 'https://example.com',
+                    },
+                });
+
+                // Select all
+                const apps = await crudQ.select.call(service, {});
+                expect(apps.length).toBeGreaterThanOrEqual(3);
+
+                const names = apps.map(app => app.name);
+                expect(names).toContain('select-app-1');
+                expect(names).toContain('select-app-2');
+                expect(names).toContain('select-app-3');
+            });
+        });
+
+        it('should select with user-can-edit predicate', async () => {
+            await testWithEachService(async ({ kernel, key }) => {
+                const service = kernel.services.get(key);
+                const crudQ = service.constructor.IMPLEMENTS['crud-q'];
+
+                // Create an app
+                await crudQ.create.call(service, {
+                    object: {
+                        name: 'editable-app',
+                        title: 'Editable App',
+                        index_url: 'https://example.com',
+                    },
+                });
+
+                // Select with user-can-edit predicate
+                const apps = await crudQ.select.call(service, {
+                    predicate: ['user-can-edit'],
+                });
+
+                // Should return the app since it's owned by the current user
+                const names = apps.map(app => app.name);
+                expect(names).toContain('editable-app');
+            });
+        });
+    });
+
+    describe('delete', () => {
+        it('should delete app by uid', async () => {
+            await testWithEachService(async ({ kernel, key }) => {
+                const service = kernel.services.get(key);
+                const crudQ = service.constructor.IMPLEMENTS['crud-q'];
+
+                // Create an app
+                const created = await crudQ.create.call(service, {
+                    object: {
+                        name: 'delete-test-app',
+                        title: 'Delete Test App',
+                        index_url: 'https://example.com',
+                    },
+                });
+
+                // Delete it
+                const result = await crudQ.delete.call(service, { uid: created.uid });
+                expect(result.success).toBe(true);
+
+                // Verify it's gone
+                const read = await crudQ.read.call(service, { uid: created.uid });
+                expect(read).toBeUndefined();
+            });
+        });
+
+        it('should throw error when deleting non-existent app', async () => {
+            await testWithEachService(async ({ kernel, key }) => {
+                const service = kernel.services.get(key);
+                const crudQ = service.constructor.IMPLEMENTS['crud-q'];
+
+                let errorThrown = false;
+                try {
+                    await crudQ.delete.call(service, { uid: 'app-nonexistent' });
+                } catch ( error ) {
+                    errorThrown = true;
+                    // Error code is in fields.code for APIError
+                    const code = error.fields?.code || error.code;
+                    expect(code).toBe('entity_not_found');
+                }
+                expect(errorThrown).toBe(true);
+            });
+        });
+    });
+
+    describe('edge cases', () => {
+        it('should throw validation error for invalid app name', async () => {
+            await testWithEachService(async ({ kernel, key }) => {
+                const service = kernel.services.get(key);
+                const crudQ = service.constructor.IMPLEMENTS['crud-q'];
+
+                let errorThrown = false;
+                try {
+                    await crudQ.create.call(service, {
+                        object: {
+                            name: 'invalid name with spaces!',
+                            title: 'Invalid App',
+                            index_url: 'https://example.com',
+                        },
+                    });
+                } catch ( error ) {
+                    errorThrown = true;
+                    // Validation errors have specific codes in fields.code
+                    const code = error.fields?.code || error.code;
+                    expect(code).toBeDefined();
+                }
+                expect(errorThrown).toBe(true);
+            });
+        });
+
+        it('should throw error for missing required field', async () => {
+            await testWithEachService(async ({ kernel, key }) => {
+                const service = kernel.services.get(key);
+                const crudQ = service.constructor.IMPLEMENTS['crud-q'];
+
+                let errorThrown = false;
+                try {
+                    await crudQ.create.call(service, {
+                        object: {
+                            name: 'missing-title-app',
+                            // Missing title!
+                            index_url: 'https://example.com',
+                        },
+                    });
+                } catch ( error ) {
+                    errorThrown = true;
+                    const code = error.fields?.code || error.code;
+                    expect(code).toBe('field_missing');
+                }
+                expect(errorThrown).toBe(true);
+            });
+        });
+
+        it('should throw error for name conflict without dedupe', async () => {
+            await testWithEachService(async ({ kernel, key }) => {
+                const service = kernel.services.get(key);
+                const crudQ = service.constructor.IMPLEMENTS['crud-q'];
+
+                // Create first app
+                await crudQ.create.call(service, {
+                    object: {
+                        name: 'conflict-name',
+                        title: 'First App',
+                        index_url: 'https://example.com',
+                    },
+                });
+
+                // Try to create second app with same name
+                let errorThrown = false;
+                try {
+                    await crudQ.create.call(service, {
+                        object: {
+                            name: 'conflict-name',
+                            title: 'Second App',
+                            index_url: 'https://example.com',
+                        },
+                    });
+                } catch ( error ) {
+                    errorThrown = true;
+                    const code = error.fields?.code || error.code;
+                    expect(code).toBe('app_name_already_in_use');
+                }
+                expect(errorThrown).toBe(true);
+            });
+        });
+
+        it('should dedupe name with dedupe_name option', async () => {
+            await testWithEachService(async ({ kernel, key }) => {
+                const service = kernel.services.get(key);
+                const crudQ = service.constructor.IMPLEMENTS['crud-q'];
+
+                // Create first app
+                await crudQ.create.call(service, {
+                    object: {
+                        name: 'dedupe-name',
+                        title: 'First App',
+                        index_url: 'https://example.com',
+                    },
+                });
+
+                // Create second app with same name but dedupe option
+                const second = await crudQ.create.call(service, {
+                    object: {
+                        name: 'dedupe-name',
+                        title: 'Second App',
+                        index_url: 'https://example.com',
+                    },
+                    options: { dedupe_name: true },
+                });
+
+                // Should be deduped to dedupe-name-1
+                expect(second.name).toBe('dedupe-name-1');
             });
         });
     });
