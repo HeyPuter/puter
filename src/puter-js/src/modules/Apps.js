@@ -217,7 +217,7 @@ class Apps {
             };
         }
 
-        return new Promise((resolve, reject) => {
+        return new Promise((resUpper, rejUpper) => {
             let options;
 
             // If first argument is an object, it's the options
@@ -235,7 +235,7 @@ class Apps {
                 const xhr = utils.initXhr('/get-dev-profile', puter.APIOrigin, puter.authToken, 'get');
 
                 // set up event handlers for load and error events
-                utils.setupXhrEventHandlers(xhr, options.success, options.error, resolve, reject);
+                utils.setupXhrEventHandlers(xhr, options.success ?? resUpper, options.error ?? rejUpper, resolve, reject);
 
                 xhr.send();
             });
