@@ -277,7 +277,12 @@ async function create_app (title, source_path = null, items = null) {
 }
 
 $(document).on('click', '.deploy-btn', function (e) {
-    deploy(currently_editing_app, dropped_items);
+    const $activeCard = $('.deploy-app-card.deploy-app-active');
+    if ( $activeCard.hasClass('deploy-app-card-files') ) {
+        deploy(currently_editing_app, dropped_items);
+    } else if ( $activeCard.hasClass('deploy-app-card-link') ) {
+        saveEditedApp('deploy-app-index-url');
+    }
 });
 
 $(document).on('click', '.edit-app, .go-to-edit-app', function (e) {
@@ -286,6 +291,29 @@ $(document).on('click', '.edit-app, .go-to-edit-app', function (e) {
 });
 
 $(document).on('click', '.delete-app', async function (e) {
+});
+
+$(document).on('click', '.deploy-app-card', function () {
+    if ( $(this).hasClass('deploy-app-active') ) {
+        return;
+    }
+    if ( $(this).hasClass('deploy-app-card-files') ) {
+        $('#deploy-app-index-url').val('');
+    }
+    if ( $(this).hasClass('deploy-app-card-link') ) {
+        reset_drop_area();
+    }
+    $('.deploy-btn').addClass('disabled');
+    $('.deploy-app-card').removeClass('deploy-app-active');
+    $(this)
+        .addClass('deploy-app-active')
+        .find('input[type="radio"]')
+        .prop('checked', true);
+
+});
+
+$(document).on('input change', '#deploy-app-index-url', () => {
+    $('.deploy-btn').removeClass('disabled');
 });
 
 // generate app link
@@ -349,12 +377,40 @@ function generate_edit_app_section (app) {
         </ul>
 
         <div class="section-tab active" data-tab="deploy">
+            <div class="error" id="deploy-app-error" style="margin-bottom: 25px;"></div>
             <div class="success deploy-success-msg">
                 New version deployed successfully 🎉<span class="close-success-msg">&times;</span>
                 <p style="margin-bottom:0;"><span class="open-app button button-action" data-uid="${html_encode(app.uid)}" data-app-name="${html_encode(app.name)}">Give it a try!</span></p>
             </div>
-            <div class="drop-area disable-user-select">${drop_area_placeholder}</div>
-            <button class="deploy-btn disable-user-select button button-primary disabled">Deploy Now</button>
+           <div class="deploy-app-card-container">
+
+               <!-- FILE MODE -->
+               <div class="deploy-app-card deploy-app-card-files deploy-app-active" >
+                 <div class="deploy-app-card-header">
+                   <div>
+                     <h3>Use files</h3>
+                     <p>Some description about the mode</p>
+                   </div>
+                   <input type="radio" name="deploy-app-card-mode" checked />
+                 </div>
+                 <div class="drop-area disable-user-select">${drop_area_placeholder}</div>
+               </div>
+
+               <div class="deploy-app-card-or">OR</div>
+
+               <!-- LINK MODE -->
+               <div class="deploy-app-card deploy-app-card-link" >
+                 <div class="deploy-app-card-header">
+                   <div>
+                     <h3>Use link</h3>
+                     <p>Some description about the mode</p>
+                   </div>
+                   <input type="radio" name="deploy-app-card-mode" />
+                 </div>
+                 <input type="text" id="deploy-app-index-url" placeholder="Add your link" value="${html_encode(app.index_url)}" />
+               </div>
+                 <button class="deploy-btn disable-user-select button button-primary disabled">Deploy Now</button>
+             </div>
         </div>
 
         <div class="section-tab" data-tab="info">
@@ -1047,9 +1103,18 @@ async function edit_app_section (cur_app_name, tab = 'deploy') {
 }
 
 $(document).on('click', '.edit-app-save-btn', async function (e) {
+    e.preventDefault();
+    saveEditedApp('edit-app-index-url');
+});
+
+async function saveEditedApp (mode) {
     const title = $('#edit-app-title').val();
     const name = $('#edit-app-name').val();
-    const index_url = $('#edit-app-index-url').val();
+    if ( mode == 'edit-app-index-url' ) {
+        index_url = $('#edit-app-index-url').val();
+    } else {
+        index_url = $('#deploy-app-index-url').val();
+    }
     const description = $('#edit-app-description').val();
     const uid = $('#edit-app-uid').val();
     const height = $('#edit-app-window-height').val();
@@ -1179,8 +1244,13 @@ $(document).on('click', '.edit-app-save-btn', async function (e) {
 
     // error?
     if ( error ) {
-        $('#edit-app-error').show();
-        $('#edit-app-error').html(error);
+        if ( mode == 'edit-app-index-url' ) {
+            $('#edit-app-error').show();
+            $('#edit-app-error').html(error);
+        } else {
+            $('#deploy-app-error').show();
+            $('#deploy-app-error').html(error);
+        }
         document.body.scrollTop = document.documentElement.scrollTop = 0;
         return;
     }
@@ -1236,8 +1306,13 @@ $(document).on('click', '.edit-app-save-btn', async function (e) {
         trackOriginalValues(); // Update original values after save
         toggleSaveButton(); //Disable Save Button after succesful save
         toggleResetButton(); //DIsable Reset Button after succesful save
-        $('#edit-app-error').hide();
-        $('#edit-app-success').show();
+        if ( mode == 'edit-app-index-url' ) {
+            $('#edit-app-error').hide();
+            $('#edit-app-success').show();
+        } else {
+            $('#deploy-app-error').hide();
+            $('.deploy-success-msg').show();
+        }
         document.body.scrollTop = document.documentElement.scrollTop = 0;
         // Update open-app-btn
         $(`.open-app-btn[data-app-uid="${uid}"]`).attr('data-app-name', app.name);
@@ -1252,9 +1327,15 @@ $(document).on('click', '.edit-app-save-btn', async function (e) {
         $(`[data-app-uid="${uid}"]`).attr('data-app-title', html_encode(app.title));
         $(`[data-app-name="${uid}"]`).attr('data-app-name', html_encode(app.name));
     }).catch((err) => {
-        $('#edit-app-success').hide();
-        $('#edit-app-error').show();
-        $('#edit-app-error').html(err.error?.message);
+        if ( mode == 'edit-app-index-url' ) {
+            $('#edit-app-success').hide();
+            $('#edit-app-error').show();
+            $('#edit-app-error').html(err.error?.message);
+        } else {
+            $('.deploy-success-msg').hide();
+            $('#deploy-app-error').show();
+            $('#deploy-app-error').html(err.error?.message);
+        }
         // scroll to top so that user sees error message
         document.body.scrollTop = document.documentElement.scrollTop = 0;
         // re-enable submit button
@@ -1262,7 +1343,7 @@ $(document).on('click', '.edit-app-save-btn', async function (e) {
     }).finally(() => {
         puter.ui.hideSpinner();
     });
-});
+};
 
 $(document).on('input change', '#edit-app input, #edit-app textarea, #edit-app select', () => {
     toggleSaveButton();
