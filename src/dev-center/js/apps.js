@@ -389,7 +389,7 @@ function generate_edit_app_section (app) {
                  <div class="deploy-app-card-header">
                    <div>
                      <h3>Use files</h3>
-                     <p>Some description about the mode</p>
+                     <p>Upload and deploy static assets like HTML, CSS, and JavaScript directly to host your app.</p>
                    </div>
                    <input type="radio" name="deploy-app-card-mode" checked />
                  </div>
@@ -403,7 +403,7 @@ function generate_edit_app_section (app) {
                  <div class="deploy-app-card-header">
                    <div>
                      <h3>Use link</h3>
-                     <p>Some description about the mode</p>
+                     <p>Set the app’s index to any publicly accessible URL where your app is already deployed.</p>
                    </div>
                    <input type="radio" name="deploy-app-card-mode" />
                  </div>
@@ -1110,6 +1110,7 @@ $(document).on('click', '.edit-app-save-btn', async function (e) {
 async function saveEditedApp (mode) {
     const title = $('#edit-app-title').val();
     const name = $('#edit-app-name').val();
+    var index_url;
     if ( mode == 'edit-app-index-url' ) {
         index_url = $('#edit-app-index-url').val();
     } else {
