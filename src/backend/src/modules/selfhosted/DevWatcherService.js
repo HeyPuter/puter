@@ -21,6 +21,7 @@ const BaseService = require('../../services/BaseService');
 
 const path_ = require('node:path');
 const fs = require('node:fs');
+const url = require('node:url');
 
 class ProxyLogger {
     constructor (log) {
@@ -131,7 +132,7 @@ class DevWatcherService extends BaseService {
             ['webpack.config.mjs', 'module'],
         ];
 
-        const {
+        let {
             configjsPath: webpackConfigPath,
             moduleType,
         } = await this.get_configjs({
@@ -179,6 +180,11 @@ class DevWatcherService extends BaseService {
             }
             process.env = newEnv; // Yep, it totally lets us do this
         }
+
+        if ( moduleType === 'module' && process.platform === 'win32' ) {
+            webpackConfigPath = url.pathToFileURL(webpackConfigPath).href;
+        }
+
         let webpackConfig = moduleType === 'module'
             ? (await import(webpackConfigPath)).default
             : require(webpackConfigPath);

@@ -36,7 +36,7 @@ const { RuntimeModuleRegistry } = require('./extension/RuntimeModuleRegistry');
 const { RuntimeModule } = require('./extension/RuntimeModule');
 const deep_proto_merge = require('./config/deep_proto_merge');
 const { kv } = require('./util/kvSingleton');
-
+const url = require('url');
 const { quot } = libs.string;
 
 class Kernel extends AdvancedBase {
@@ -452,7 +452,7 @@ class Kernel extends AdvancedBase {
     async _run_extern_mod (mod_entry) {
         let exportObject = null;
 
-        const {
+        let {
             module: mod,
             require_dir,
             context,
@@ -470,8 +470,14 @@ class Kernel extends AdvancedBase {
 
         mod.extension.name = packageJSON.name;
 
+        // Platform normalization for if import is used in the place of require();
+        let importPath = path_.join(require_dir, packageJSON.main ?? 'index.js');
+        if ( process.platform === 'win32' ) {
+            importPath = (url.pathToFileURL(importPath)).href;
+        }
+
         const maybe_promise = (typ => typ.trim().toLowerCase())(packageJSON.type ?? '') === 'module'
-            ? await import(path_.join(require_dir, packageJSON.main ?? 'index.js'))
+            ? await import(importPath)
             : require(require_dir);
 
         if ( maybe_promise && maybe_promise instanceof Promise ) {
@@ -582,8 +588,11 @@ class Kernel extends AdvancedBase {
     }
 
     async run_npm_install (path) {
-        const npmCmd = process.platform === 'win32' ? 'npm.cmd' : 'npm';
-        const proc = spawn(npmCmd, ['install'], { cwd: path, stdio: 'pipe' });
+        const npmOptions = process.platform === 'win32'
+            ? ['npm.cmd', ['install'], { shell: true, cwd: path, stdio: 'pipe' }]
+            : ['npm', ['install'], { cwd: path, stdio: 'pipe' }];
+
+        const proc = spawn(...npmOptions);
 
         let buffer = '';
 
