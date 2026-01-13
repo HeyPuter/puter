@@ -217,13 +217,14 @@ describe('AppService', () => {
             expect(result.name).toBe('test-app');
         });
 
-        it('should return undefined when no app is found', async () => {
+        it('should throw entity_not_found when no app is found', async () => {
             mockDb.read.mockResolvedValue([]);
 
             const crudQ = AppService.IMPLEMENTS['crud-q'];
-            const result = await crudQ.read.call(appService, { uid: 'nonexistent-uid' });
 
-            expect(result).toBeUndefined();
+            await expect(crudQ.read.call(appService, { uid: 'nonexistent-uid' })).rejects.toMatchObject({
+                fields: { code: 'entity_not_found' },
+            });
         });
 
         it('should throw an error when neither uid nor id is provided', async () => {
@@ -1257,10 +1258,7 @@ describe('AppService', () => {
         it('should call create when entity does not exist', async () => {
             setupContextForWrite(createMockUserActor(1));
 
-            // First read returns empty (entity doesn't exist)
-            mockDb.read
-                .mockResolvedValueOnce([])  // lookup
-                .mockResolvedValue([createMockAppRow()]); // read after create
+            mockDb.read.mockResolvedValue([createMockAppRow()]);
 
             const crudQ = AppService.IMPLEMENTS['crud-q'];
             await crudQ.upsert.call(appService, {
