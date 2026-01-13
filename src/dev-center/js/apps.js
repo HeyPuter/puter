@@ -297,13 +297,16 @@ $(document).on('click', '.deploy-app-card', function () {
     if ( $(this).hasClass('deploy-app-active') ) {
         return;
     }
+    $('.deploy-btn').addClass('disabled');
     if ( $(this).hasClass('deploy-app-card-files') ) {
         $('#deploy-app-index-url').val('');
     }
     if ( $(this).hasClass('deploy-app-card-link') ) {
         reset_drop_area();
+        if ( $('#deploy-app-index-url').val() != '' ) {
+            $('.deploy-btn').removeClass('disabled');
+        }
     }
-    $('.deploy-btn').addClass('disabled');
     $('.deploy-app-card').removeClass('deploy-app-active');
     $(this)
         .addClass('deploy-app-active')
