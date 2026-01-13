@@ -24,7 +24,7 @@ declare global {
                     string: T,
                 ) => T extends keyof ServiceNameMap ? ServiceNameMap[T] : unknown;
             };
-            actor: Actor;
+            actor?: Actor;
             rawBody: Buffer;
             /** @deprecated use actor instead */
             user: IUser;

@@ -13,9 +13,11 @@ import type {
 export const Controller = (
     prefix: string,
     adminUsernames?: string[],
+    allowedAppIds?: string[],
 ): ClassDecorator => {
     return (target: Function) => {
         target.prototype.__controllerPrefix = prefix;
+        target.prototype.__allowedAppIds = allowedAppIds;
         target.prototype.__adminUsernames = adminUsernames
             ? [...adminUsernames, 'admin', 'system']
             : undefined;
@@ -31,14 +33,16 @@ interface RouteMeta {
     options?: EndpointOptions | undefined;
     handler: RequestHandler;
     adminUsernames?: string[];
+    allowedAppIds?: string[];
 }
 
 const createMethodDecorator = (method: HttpMethod) => {
     return <This>(
         path: string,
-        options?: EndpointOptions,
+        routeOptions?: EndpointOptions & { allowedAppIds?: string[] },
         adminUsernames?: string[],
     ) => {
+        const { allowedAppIds, ...options } = routeOptions ?? {};
         return <
             P extends Record<string, string | undefined> = Record<
                 string,
@@ -67,6 +71,7 @@ const createMethodDecorator = (method: HttpMethod) => {
                     adminUsernames: adminUsernames
                         ? [...adminUsernames, 'admin', 'system']
                         : undefined,
+                    allowedAppIds,
                     handler: target,
                 });
             });
@@ -97,6 +102,9 @@ export class ExtensionController {
         const adminsForController = Object.getPrototypeOf(this).__adminUsernames as
             | string[]
             | undefined;
+        const allowedAppIdsForController = Object.getPrototypeOf(this).__allowedAppIds as
+            | string[]
+            | undefined;
         const routes: RouteMeta[] = Object.getPrototypeOf(this).__routes || [];
         for ( const route of routes ) {
             const fullPath = `${prefix}/${route.path}`.replace(/\/+/g, '/');
@@ -107,6 +115,14 @@ export class ExtensionController {
                 : adminsForController
                     ? adminsForController
                     : undefined;
+            const allowedAppIds = route.allowedAppIds
+                ? allowedAppIdsForController
+                    ? allowedAppIdsForController.concat(route.allowedAppIds)
+                    : route.allowedAppIds
+                : allowedAppIdsForController
+                    ? allowedAppIdsForController
+                    : undefined;
+
             if ( ! extension[route.method] ) {
                 throw new Error(`Unsupported HTTP method: ${route.method}`);
             } else {
@@ -117,10 +133,21 @@ export class ExtensionController {
                                 route.options || {},
                                 async (req, res, next) => {
                                     try {
+                                        if ( adminsForRoute || allowedAppIds ) {
+                                            if ( ! req.actor ) {
+                                                throw new HttpError(StatusCodes.UNAUTHORIZED, 'Unauthenticated');
+                                            }
+                                        }
                                         if ( adminsForRoute ) {
-                                            if ( ! adminsForRoute.includes(req.actor.type.user.username) ) {
-                                                throw new HttpError(StatusCodes.UNAUTHORIZED,
+                                            if ( ! adminsForRoute.includes(req.actor!.type.user.username) ) {
+                                                throw new HttpError(StatusCodes.FORBIDDEN,
                                                                 'Only admins may request this resource.');
+                                            }
+                                        }
+                                        if ( allowedAppIds ) {
+                                            if ( ( req.actor!.type?.app?.uid && !allowedAppIds.includes(req.actor!.type.app.uid) ) ) {
+                                                throw new HttpError(StatusCodes.FORBIDDEN,
+                                                                'This app may not request this resource.');
                                             }
                                         }
                                         await route.handler.bind(this)(req, res, next);
