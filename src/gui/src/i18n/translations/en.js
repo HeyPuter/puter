@@ -36,6 +36,7 @@ const en = {
         auto_arrange: 'Auto Arrange',
         background: 'Background',
         browse: 'Browse',
+        captcha_required: 'Please complete the CAPTCHA verification',
         cancel: 'Cancel',
         center: 'Center',
         change: 'Change',
