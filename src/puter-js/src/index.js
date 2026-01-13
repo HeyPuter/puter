@@ -54,7 +54,7 @@ class SimpleLogger {
 
     _prefix () {
         const entries = Object.entries(this.fieldsObj);
-        if ( !entries.length ) return [];
+        if ( ! entries.length ) return [];
         return [`[${ entries.map(([k, v]) => `${k}=${v}`).join(' ')}]`];
     }
 }
@@ -66,7 +66,7 @@ class Lock {
     }
 
     async acquire () {
-        if ( !this.locked ) {
+        if ( ! this.locked ) {
             this.locked = true;
             return;
         }
@@ -374,7 +374,7 @@ const puterInit = (function () {
                     }]`;
                     logger = logger.fields({ prefix });
                     this.logger = logger;
-                } catch (error) {
+                } catch ( error ) {
                     if ( this.debugMode ) {
                         console.error('Failed to initialize prefix logger', error);
                     }
@@ -536,6 +536,9 @@ const puterInit = (function () {
         };
 
         resetAuthToken = function () {
+            if ( this.env === 'worker' || this.env === 'service-worker' ) {
+                throw new Error('Sign out is not permitted from WebWorkers or ServiceWorkers');
+            }
             this.authToken = null;
             // If the SDK is running on a 3rd-party site or an app, then save the authToken in localStorage
             if ( this.env === 'web' || this.env === 'app' ) {
