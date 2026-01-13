@@ -51,10 +51,17 @@ export default class AppService extends BaseService {
                 let existing = null;
 
                 if ( object.uid !== undefined || id !== undefined ) {
-                    existing = await this.#read({
-                        uid: object.uid,
-                        id,
-                    });
+                    try {
+                        existing = await this.#read({
+                            uid: object.uid,
+                            id,
+                        });
+                    } catch ( error ) {
+                        // If entity not found, we'll create it
+                        if ( error.fields?.code !== 'entity_not_found' ) {
+                            throw error;
+                        }
+                    }
                 }
 
                 if ( existing ) {
@@ -234,7 +241,9 @@ export default class AppService extends BaseService {
         const rows = await db.read(stmt, whereValues);
 
         if ( rows.length === 0 ) {
-            return undefined;
+            throw APIError.create('entity_not_found', null, {
+                identifier: uid || JSON.stringify(id),
+            });
         }
 
         const row = rows[0];
