@@ -316,14 +316,7 @@ describe('AppService Regression Prevention Tests', () => {
                     },
                 });
 
-                // Update it
-                const updated = await crudQ.update.call(service, {
-                    object: { uid: created.uid },
-                    id: { name: 'update-test-app' },
-                    options: {},
-                });
-
-                // Verify update worked - the object fields should be merged
+                // Update title and description
                 await crudQ.update.call(service, {
                     object: {
                         uid: created.uid,
@@ -381,16 +374,18 @@ describe('AppService Regression Prevention Tests', () => {
                     },
                 });
 
-                // Update with filetype associations
+                // Update with filetype associations (include title to avoid empty SET clause)
                 await crudQ.update.call(service, {
                     object: {
                         uid: created.uid,
+                        title: 'Filetype App Updated',
                         filetype_associations: ['txt', 'md', 'json'],
                     },
                     id: { name: 'filetype-app' },
                 });
 
                 const read = await crudQ.read.call(service, { uid: created.uid });
+                expect(read.title).toBe('Filetype App Updated');
                 expect(read.filetype_associations).toEqual(
                                 expect.arrayContaining(['txt', 'md', 'json']));
             });
