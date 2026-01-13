@@ -191,6 +191,7 @@ class AIInterfaceService extends BaseService {
                         frame_images: { type: 'json', optional: true },
                         metadata: { type: 'json', optional: true },
                         input_reference: { type: 'file', optional: true },
+                        no_extra_params: { type: 'flag', optional: true },
                     },
                     result_choices: [
                         {

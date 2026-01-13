@@ -69,6 +69,7 @@ class TogetherVideoGenerationService extends BaseService {
             prompt,
             model: requestedModel,
             seconds,
+            no_extra_params,
             duration,
             width,
             height,
@@ -102,7 +103,12 @@ class TogetherVideoGenerationService extends BaseService {
             }, DEFAULT_TEST_VIDEO_URL);
         }
 
-        const normalizedSeconds = this.#coercePositiveInteger(seconds ?? duration) ?? DEFAULT_DURATION_SECONDS;
+        let normalizedSeconds = this.#coercePositiveInteger(seconds ?? duration);
+
+        if ( ! no_extra_params )
+        {
+            normalizedSeconds ??= DEFAULT_DURATION_SECONDS;
+        }
 
         const actor = Context.get('actor');
         if ( ! actor ) {
