@@ -363,7 +363,7 @@ label {
 #edit-app{
     display: none;
 }
-#create-app-error, #edit-app-error, #jip-error {
+#create-app-error,#deploy-app-error, #edit-app-error, #jip-error {
     display: none;
 }
 
@@ -1468,3 +1468,36 @@ dialog{
 .tab-btn-separator{
     display: none;
 }
+
+
+.deploy-app-card-container {
+  max-width: 100%;
+  margin: auto;
+}
+
+.deploy-app-card {
+  background: #fff;
+  border: 1.5px solid #dbe3f0;
+  border-radius: 14px;
+  padding: 20px;
+  margin-bottom: 24px;
+  transition: border-color 0.2s ease;
+}
+
+.deploy-app-card.deploy-app-active {
+  border-color: #3a85ff;
+}
+
+.deploy-app-card-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+}
+
+.deploy-app-card-or {
+  text-align: center;
+  margin: 10px 0 20px;
+  color: #9ca3af;
+  font-weight: 500;
+}
+
