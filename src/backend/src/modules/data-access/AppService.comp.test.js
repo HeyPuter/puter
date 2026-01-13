@@ -281,14 +281,21 @@ describe('AppService Regression Prevention Tests', () => {
             });
         });
 
-        it('should return undefined for non-existent app', async () => {
+        it('should throw error for non-existent app', async () => {
             await testWithEachService(async ({ kernel, key }) => {
                 const service = kernel.services.get(key);
                 const crudQ = service.constructor.IMPLEMENTS['crud-q'];
 
-                // Try to read a non-existent app
-                const read = await crudQ.read.call(service, { uid: 'app-nonexistent-uid' });
-                expect(read).toBeUndefined();
+                // Try to read a non-existent app - should throw entity_not_found
+                let errorThrown = false;
+                try {
+                    await crudQ.read.call(service, { uid: 'app-nonexistent-uid' });
+                } catch ( error ) {
+                    errorThrown = true;
+                    const code = error.fields?.code || error.code;
+                    expect(code).toBe('entity_not_found');
+                }
+                expect(errorThrown).toBe(true);
             });
         });
     });
@@ -589,12 +596,18 @@ describe('AppService Regression Prevention Tests', () => {
                 });
 
                 // Delete it
-                const result = await crudQ.delete.call(service, { uid: created.uid });
-                expect(result.success).toBe(true);
+                await crudQ.delete.call(service, { uid: created.uid });
 
-                // Verify it's gone
-                const read = await crudQ.read.call(service, { uid: created.uid });
-                expect(read).toBeUndefined();
+                // Verify it's gone - should throw entity_not_found
+                let errorThrown = false;
+                try {
+                    await crudQ.read.call(service, { uid: created.uid });
+                } catch ( error ) {
+                    errorThrown = true;
+                    const code = error.fields?.code || error.code;
+                    expect(code).toBe('entity_not_found');
+                }
+                expect(errorThrown).toBe(true);
             });
         });
 
