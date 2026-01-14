@@ -51,14 +51,8 @@ export class MeteringService {
         return key;
     }
 
-    /**
-     * adds some randomized number from 0-99 to the usage key to help spread writes
-     * @param appId
-     * @param currentMonth
-     * @returns
-     */
-    #generateAppUsageKey (appId: string, currentMonth: string) {
-        const hashOfApp = murmurhash.v3(`${appId}`) % MeteringService.APP_SHARD_COUNT;
+    #generateAppUsageKey (appId: string, userId: string, currentMonth: string) {
+        const hashOfApp = murmurhash.v3(`${appId}${userId}`) % MeteringService.APP_SHARD_COUNT;
         const key = `${METRICS_PREFIX}:app:${appId}:${hashOfApp}:${currentMonth}`;
         return key;
     }
@@ -127,7 +121,7 @@ export class MeteringService {
                 });
 
                 if ( appId !== GLOBAL_APP_KEY ) {
-                    const appUsageKey = this.#generateAppUsageKey(appId, currentMonth);
+                    const appUsageKey = this.#generateAppUsageKey(appId, userId, currentMonth);
                     this.#kvStore.incr({
                         key: appUsageKey,
                         pathAndAmountMap,
@@ -283,7 +277,7 @@ export class MeteringService {
                     console.warn('Failed to increment aux usage data \'actorAppUsageKey\' with error: ', e);
                 });
 
-                const appUsageKey = this.#generateAppUsageKey(appId, currentMonth);
+                const appUsageKey = this.#generateAppUsageKey(appId, userId, currentMonth);
                 this.#kvStore.incr({
                     key: appUsageKey,
                     pathAndAmountMap: aggregatedPathAndAmountMap,
