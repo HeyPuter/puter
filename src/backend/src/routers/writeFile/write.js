@@ -51,17 +51,27 @@ module.exports = async function writeFile_handle_write ({
     const returns = [];
     for ( const uploaded_file of req.files ) {
         try {
+            const normalized_file = { ...uploaded_file };
+
+            if ( normalized_file.mimetype && !normalized_file.type ) {
+                normalized_file.type = normalized_file.mimetype;
+            }
+
+            if ( normalized_file.buffer ) {
+                normalized_file.size = normalized_file.buffer.length;
+            }
+
             const hl_write = new HLWrite();
             const ret_obj = await hl_write.run({
                 destination_or_parent: dirNode,
                 specified_name: await node.get('type') === TYPE_DIRECTORY
                     ? req.body.name : await node.get('name'),
-                fallback_name: uploaded_file.originalname,
+                fallback_name: normalized_file.originalname,
                 overwrite: true,
                 user: actor.type.user,
                 actor,
 
-                file: uploaded_file,
+                file: normalized_file,
             });
 
             // add signature to object
