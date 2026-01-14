@@ -1765,7 +1765,15 @@ const ipc_listener = async (event, handled) => {
         // File
         // -------------------------------------
         else {
-            let file_to_upload = new File([event.data.content], path.basename(target_path));
+            let content = event.data.content;
+            let file_to_upload;
+
+            if ( typeof content === 'string' ) {
+                const blob = new Blob([content], { type: 'text/plain' });
+                file_to_upload = new File([blob], path.basename(target_path), { type: 'text/plain' });
+            } else {
+                file_to_upload = new File([content], path.basename(target_path));
+            }
 
             while ( item_with_same_name_already_exists ) {
                 if ( overwrite )
