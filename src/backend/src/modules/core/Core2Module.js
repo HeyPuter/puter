@@ -72,6 +72,9 @@ class Core2Module extends AdvancedBase {
 
         const { ContextService } = require('./ContextService.js');
         services.registerService('context', ContextService);
+
+        const { SystemInfoService } = require('../../services/SystemInfoService.js');
+        services.registerService('system-info', SystemInfoService);
     }
 }
 
