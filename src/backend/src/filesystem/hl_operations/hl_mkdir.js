@@ -32,6 +32,44 @@ const { is_valid_path } = require('../validation');
 const { HLRemove } = require('./hl_remove');
 const { LLMkdir } = require('../ll_operations/ll_mkdir');
 
+/**
+ * Creates a directory, handling race conditions where another parallel request
+ * may have already created the same directory.
+ *
+ * @param {Object} params
+ * @param {FSNodeContext} params.parent - parent directory
+ * @param {NodeChildSelector} params.selector - selector for directory (contains name)
+ * @param {Actor} params.actor - actor to perform the operation on behalf of
+ * @param {Object} params.fs - filesystem service
+ * @returns {Promise<FSNodeContext>} created or existing directory node
+ */
+async function createDirOrUseExisting ({ parent, selector, actor, fs }) {
+    try {
+        const ll_mkdir = new LLMkdir();
+        return await ll_mkdir.run({
+            parent,
+            name: selector.name,
+            actor,
+        });
+    } catch ( error ) {
+        // This "error" can occur when multiple `hl_mkdir` operations are being
+        // run at the same time with the `createMissingParents` option enabled.
+        if ( error.code === 'item_with_same_name_exists' ) {
+            const existing_node = await fs.node(selector);
+            await existing_node.fetchEntry();
+
+            // If this is a file we need to re-throw the error
+            if ( await existing_node.get('type') !== FSNodeContext.TYPE_DIRECTORY ) {
+                throw error;
+            }
+
+            return existing_node;
+        }
+
+        throw error;
+    }
+}
+
 class MkTree extends HLFilesystemOperation {
     static DESCRIPTION = `
         High-level operation for making directory trees
@@ -142,33 +180,12 @@ class MkTree extends HLFilesystemOperation {
             const currentParent = current;
             current = new NodeChildSelector(current, dir);
 
-            let node;
-            try {
-                const ll_mkdir = new LLMkdir();
-                node = await ll_mkdir.run({
-                    parent: await fs.node(currentParent),
-                    name: current.name,
-                    actor,
-                });
-            } catch ( error ) {
-                // Handle race condition: if another parallel request already created
-                // this directory, catch the error and use the existing directory
-                if ( error.code === 'item_with_same_name_exists' ) {
-                    const existing_node = await fs.node(current);
-                    await existing_node.fetchEntry();
-
-                    // Verify it's actually a directory (not a file)
-                    if ( await existing_node.get('type') === FSNodeContext.TYPE_DIRECTORY ) {
-                        node = existing_node;
-                    } else {
-                        // If it's not a directory, re-throw the error
-                        throw error;
-                    }
-                } else {
-                    // Re-throw any other error
-                    throw error;
-                }
-            }
+            const node = await createDirOrUseExisting({
+                parent: await fs.node(currentParent),
+                selector: current,
+                actor,
+                fs,
+            });
 
             current = node.selector;
 
@@ -219,33 +236,12 @@ class QuickMkdir extends HLFilesystemOperation {
             const currentParent = current;
             current = new NodeChildSelector(current, dir);
 
-            let node;
-            try {
-                const ll_mkdir = new LLMkdir();
-                node = await ll_mkdir.run({
-                    parent: await fs.node(currentParent),
-                    name: current.name,
-                    actor,
-                });
-            } catch ( error ) {
-                // Handle race condition: if another parallel request already created
-                // this directory, catch the error and use the existing directory
-                if ( error.code === 'item_with_same_name_exists' ) {
-                    const existing_node = await fs.node(current);
-                    await existing_node.fetchEntry();
-
-                    // Verify it's actually a directory (not a file)
-                    if ( await existing_node.get('type') === FSNodeContext.TYPE_DIRECTORY ) {
-                        node = existing_node;
-                    } else {
-                        // If it's not a directory, re-throw the error
-                        throw error;
-                    }
-                } else {
-                    // Re-throw any other error
-                    throw error;
-                }
-            }
+            const node = await createDirOrUseExisting({
+                parent: await fs.node(currentParent),
+                selector: current,
+                actor,
+                fs,
+            });
 
             current = node.selector;
 
