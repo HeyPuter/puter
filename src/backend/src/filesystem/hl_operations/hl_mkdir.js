@@ -142,12 +142,33 @@ class MkTree extends HLFilesystemOperation {
             const currentParent = current;
             current = new NodeChildSelector(current, dir);
 
-            const ll_mkdir = new LLMkdir();
-            const node = await ll_mkdir.run({
-                parent: await fs.node(currentParent),
-                name: current.name,
-                actor,
-            });
+            let node;
+            try {
+                const ll_mkdir = new LLMkdir();
+                node = await ll_mkdir.run({
+                    parent: await fs.node(currentParent),
+                    name: current.name,
+                    actor,
+                });
+            } catch ( error ) {
+                // Handle race condition: if another parallel request already created
+                // this directory, catch the error and use the existing directory
+                if ( error.code === 'item_with_same_name_exists' ) {
+                    const existing_node = await fs.node(current);
+                    await existing_node.fetchEntry();
+
+                    // Verify it's actually a directory (not a file)
+                    if ( await existing_node.get('type') === FSNodeContext.TYPE_DIRECTORY ) {
+                        node = existing_node;
+                    } else {
+                        // If it's not a directory, re-throw the error
+                        throw error;
+                    }
+                } else {
+                    // Re-throw any other error
+                    throw error;
+                }
+            }
 
             current = node.selector;
 
@@ -198,12 +219,33 @@ class QuickMkdir extends HLFilesystemOperation {
             const currentParent = current;
             current = new NodeChildSelector(current, dir);
 
-            const ll_mkdir = new LLMkdir();
-            const node = await ll_mkdir.run({
-                parent: await fs.node(currentParent),
-                name: current.name,
-                actor,
-            });
+            let node;
+            try {
+                const ll_mkdir = new LLMkdir();
+                node = await ll_mkdir.run({
+                    parent: await fs.node(currentParent),
+                    name: current.name,
+                    actor,
+                });
+            } catch ( error ) {
+                // Handle race condition: if another parallel request already created
+                // this directory, catch the error and use the existing directory
+                if ( error.code === 'item_with_same_name_exists' ) {
+                    const existing_node = await fs.node(current);
+                    await existing_node.fetchEntry();
+
+                    // Verify it's actually a directory (not a file)
+                    if ( await existing_node.get('type') === FSNodeContext.TYPE_DIRECTORY ) {
+                        node = existing_node;
+                    } else {
+                        // If it's not a directory, re-throw the error
+                        throw error;
+                    }
+                } else {
+                    // Re-throw any other error
+                    throw error;
+                }
+            }
 
             current = node.selector;
 
