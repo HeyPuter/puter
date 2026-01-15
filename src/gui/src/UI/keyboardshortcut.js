@@ -1,4 +1,6 @@
-export function KeyboardShortcuts () {
+import UIWindow from './UIWindow.js';
+
+export async function openKeyboardShortcuts () {
     const shortcuts = [
         { key: 'Ctrl + ,', action: 'Open Settings' },
         { key: 'Ctrl + K', action: 'Open Search' },
@@ -21,5 +23,11 @@ export function KeyboardShortcuts () {
     container.appendChild(title);
     container.appendChild(list);
 
-    return container;
+    await UIWindow({
+        title: 'Keyboard Shortcuts',
+        body_content: container,
+        width: 500,
+        height: 400,
+        init_center: true,
+    });
 }
