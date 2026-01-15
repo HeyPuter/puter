@@ -54,8 +54,13 @@ async function createDirOrUseExisting ({ parent, selector, actor, fs }) {
     } catch ( error ) {
         // This "error" can occur when multiple `hl_mkdir` operations are being
         // run at the same time with the `createMissingParents` option enabled.
-        if ( error.code === 'item_with_same_name_exists' ) {
+        const errorCode = error.code || error.fields?.code;
+        if ( errorCode === 'item_with_same_name_exists' ) {
             const existing_node = await fs.node(selector);
+
+            // Wait for the entry to be stable (it might still be in the process
+            // of being created by another parallel request)
+            await existing_node.awaitStableEntry();
             await existing_node.fetchEntry();
 
             // If this is a file we need to re-throw the error
@@ -412,12 +417,38 @@ class HLMkdir extends HLFilesystemOperation {
             return await this.created.getSafeEntry();
         }
 
-        const ll_mkdir = new LLMkdir();
-        this.created = await ll_mkdir.run({
-            parent: parent_node,
-            name: target_basename,
-            actor: values.actor,
-        });
+        let created_node;
+        try {
+            const ll_mkdir = new LLMkdir();
+            created_node = await ll_mkdir.run({
+                parent: parent_node,
+                name: target_basename,
+                actor: values.actor,
+            });
+        } catch ( error ) {
+            // This "error" can occur when multiple `hl_mkdir` operations are being
+            // run at the same time with the `createMissingParents` option enabled.
+            const errorCode = error.code || error.fields?.code;
+            if ( errorCode === 'item_with_same_name_exists' ) {
+                const existing_node = await fs.node(new NodeChildSelector(parent_node.selector, target_basename));
+
+                // Wait for the entry to be stable (it might still be in the process
+                // of being created by another parallel request)
+                await existing_node.awaitStableEntry();
+                await existing_node.fetchEntry();
+
+                // If this is a file we need to re-throw the error
+                if ( await existing_node.get('type') !== FSNodeContext.TYPE_DIRECTORY ) {
+                    throw error;
+                }
+
+                created_node = existing_node;
+            } else {
+                throw error;
+            }
+        }
+
+        this.created = created_node;
 
         const all_nodes = [
             ...this.parent_directories_created,
