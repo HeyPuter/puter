@@ -175,6 +175,30 @@ async function UIDesktop (options) {
         }
     });
 
+    window.socket.on("trash.auto_delete", async ({ uuid, path }) => {
+        console.log("[UI] Auto-delete request:", uuid, path);
+    
+        // Try to find the UI element
+        const el = $(`.item[data-path="${html_encode(path)}" i]`);
+    
+        if (el.length > 0) {
+            console.log("[UI] Found element in DOM. Using window.delete_item…");
+            await window.delete_item(el[0]);
+        } else {
+            console.log("[UI] Element not visible. Calling puter.fs.delete directly…");
+    
+            try {
+                await puter.fs.delete({
+                    paths: [path],
+                    recursive: true,
+                    descendantsOnly: false
+                });
+            } catch (err) {
+                console.error("[UI] puter.fs.delete failed:", err);
+            }
+        }
+    });
+
     window.socket.on('trash.is_empty', async (msg) => {
         $(`.item[data-path="${html_encode(window.trash_path)}" i]`).find('.item-icon > img').attr('src', msg.is_empty ? window.icons['trash.svg'] : window.icons['trash-full.svg']);
         $(`.window[data-path="${html_encode(window.trash_path)}" i]`).find('.window-head-icon').attr('src', msg.is_empty ? window.icons['trash.svg'] : window.icons['trash-full.svg']);
