@@ -149,6 +149,36 @@ describe('DynamoKVStore', async () => {
             .rejects;
     });
 
+    it('supports paginated list results with cursors', async () => {
+        const actor = makeActor(71);
+        await su.sudo(actor, () => kvStore.set({ key: 'a', value: 1 }));
+        await su.sudo(actor, () => kvStore.set({ key: 'b', value: 2 }));
+        await su.sudo(actor, () => kvStore.set({ key: 'c', value: 3 }));
+
+        const firstPage = await su.sudo(actor, () => kvStore.list({ as: 'keys', limit: 2 })) as { items: string[]; cursor?: string };
+        expect(firstPage.items).toHaveLength(2);
+        expect(firstPage.cursor).toBeTypeOf('string');
+
+        const secondPage = await su.sudo(actor, () => kvStore.list({ as: 'keys', limit: 2, cursor: firstPage.cursor })) as { items: string[]; cursor?: string };
+        expect(secondPage.items).toHaveLength(1);
+        expect(secondPage.cursor).toBeUndefined();
+
+        const allKeys = [...firstPage.items, ...secondPage.items].sort();
+        expect(allKeys).toEqual(['a', 'b', 'c']);
+    });
+
+    it('filters list results by key prefix', async () => {
+        const actor = makeActor(72);
+        await su.sudo(actor, () => kvStore.set({ key: 'prefix-1', value: 1 }));
+        await su.sudo(actor, () => kvStore.set({ key: 'prefix-2', value: 2 }));
+        await su.sudo(actor, () => kvStore.set({ key: 'other', value: 3 }));
+
+        const keys = await su.sudo(actor, () => kvStore.list({ as: 'keys', pattern: 'prefix-' })) as string[];
+
+        expect(keys).toEqual(expect.arrayContaining(['prefix-1', 'prefix-2']));
+        expect(keys.every((key) => key.startsWith('prefix-'))).toBe(true);
+    });
+
     it('returns ordered values for arrays and null for expired keys', async () => {
         const actor = makeActor(8);
         const now = Math.floor(Date.now() / 1000);

@@ -196,7 +196,95 @@ export class DynamoKVStore {
         return true;
     }
 
-    async list ({ as }: { as?: 'keys' | 'values' | 'entries'; }): Promise<string[] | unknown[] | { key: string; value: unknown; }[]> {
+    #encodeCursor (pageKey?: Record<string, unknown>) {
+        if ( !pageKey || Object.keys(pageKey).length === 0 ) {
+            return undefined;
+        }
+        return Buffer.from(JSON.stringify(pageKey)).toString('base64');
+    }
+
+    #decodeCursor (cursor?: string | Record<string, unknown>) {
+        if ( ! cursor ) {
+            return undefined;
+        }
+        if ( typeof cursor === 'object' ) {
+            return cursor;
+        }
+        if ( typeof cursor !== 'string' ) {
+            throw APIError.create('field_invalid', undefined, {
+                key: 'cursor',
+            });
+        }
+        const trimmed = cursor.trim();
+        if ( trimmed === '' ) {
+            return undefined;
+        }
+        try {
+            const decoded = Buffer.from(trimmed, 'base64').toString('utf8');
+            return JSON.parse(decoded);
+        } catch ( e ) {
+            try {
+                return JSON.parse(trimmed);
+            } catch ( err ) {
+                throw APIError.create('field_invalid', undefined, {
+                    key: 'cursor',
+                });
+            }
+        }
+    }
+
+    #normalizeLimit (limit?: number) {
+        if ( limit === undefined || limit === null ) {
+            return undefined;
+        }
+        const parsed = Number(limit);
+        if ( !Number.isFinite(parsed) || parsed <= 0 ) {
+            throw APIError.create('field_invalid', undefined, {
+                key: 'limit',
+                expected: 'positive number',
+            });
+        }
+        return Math.floor(parsed);
+    }
+
+    #normalizePattern (pattern?: string) {
+        if ( pattern === undefined || pattern === null ) {
+            return undefined;
+        }
+        if ( typeof pattern !== 'string' ) {
+            throw APIError.create('field_invalid', undefined, {
+                key: 'pattern',
+            });
+        }
+        const trimmed = pattern.trim();
+        if ( trimmed === '' ) {
+            return undefined;
+        }
+        const lastWildcard = trimmed.lastIndexOf('*');
+        if ( lastWildcard === trimmed.length - 1 && trimmed.indexOf('*') === lastWildcard ) {
+            return trimmed.slice(0, -1);
+        }
+        return trimmed;
+    }
+
+    async list ({
+        as,
+        limit,
+        cursor,
+        pattern,
+    }: {
+        as?: 'keys' | 'values' | 'entries';
+        limit?: number;
+        cursor?: string | Record<string, unknown>;
+        pattern?: string;
+    }): Promise<
+        | string[]
+        | unknown[]
+        | { key: string; value: unknown; }[]
+        | { items: string[]; cursor?: string; }
+        | { items: unknown[]; cursor?: string; }
+        | { items: { key: string; value: unknown; }[]; cursor?: string; }
+    > {
         const actor = Context.get('actor');
 
         const app = actor.type?.app ?? undefined;
@@ -205,8 +293,18 @@ export class DynamoKVStore {
 
         const namespace = this.#getNameSpace(actor);
 
+        const normalizedLimit = this.#normalizeLimit(limit);
+        const pageKey = this.#decodeCursor(cursor);
+        const normalizedPattern = this.#normalizePattern(pattern);
+        const paginated = normalizedLimit !== undefined || pageKey !== undefined;
+
         const entriesRes = await this.#ddbClient.query(this.#tableName,
-                        { namespace });
+                        { namespace },
+                        normalizedLimit ?? 0,
+                        pageKey,
+                        '',
+                        false,
+                        normalizedPattern ? { beginsWith: { key: 'key', value: normalizedPattern } } : undefined);
 
         this.#meteringService.incrementUsage(actor, 'kv:read', entriesRes.ConsumedCapacity?.CapacityUnits ?? 1);
 
@@ -222,10 +320,13 @@ export class DynamoKVStore {
             return true;
         });
 
-        if ( this.#enableMigrationFromSQL ) {
+        if ( this.#enableMigrationFromSQL && !paginated ) {
             const oldEntries =  await this.#sqlClient.read('SELECT * FROM kv WHERE user_id=? AND app=?',
                             [user.id, app?.uid ?? DynamoKVStore.LEGACY_GLOBAL_APP_KEY]);
             oldEntries.forEach(oldEntry => {
+                if ( normalizedPattern && !oldEntry.kkey?.startsWith(normalizedPattern) ) {
+                    return;
+                }
                 if ( ! entries.find(e => e.key === oldEntry.kkey) ) {
                     if ( oldEntry.ttl && oldEntry.ttl <= (Date.now() / 1000) ) {
                         entries.push({ key: oldEntry.kkey, value: oldEntry.value });
@@ -248,10 +349,19 @@ export class DynamoKVStore {
             });
         }
 
-        if ( as === 'keys' ) entries = entries.map(entry => entry.key);
-        else if ( as === 'values' ) entries = entries.map(entry => entry.value);
+        let items: string[] | unknown[] | { key: string; value: unknown; }[] = entries;
+        if ( as === 'keys' ) items = entries.map(entry => entry.key);
+        else if ( as === 'values' ) items = entries.map(entry => entry.value);
 
-        return entries;
+        if ( paginated ) {
+            const nextCursor = this.#encodeCursor(entriesRes.LastEvaluatedKey as Record<string, unknown> | undefined);
+            if ( nextCursor ) {
+                return { items, cursor: nextCursor };
+            }
+            return { items };
+        }
+
+        return items;
     }
 
     async flush () {

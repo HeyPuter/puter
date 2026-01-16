@@ -147,6 +147,43 @@ describe('Puter KV Module', () => {
         expect(listRes.length).toBeGreaterThan(0);
         expect((listRes as string[]).includes(TEST_KEY)).toBe(true);
     });
+    it('should list keys by prefix', async () => {
+        const prefix = `${TEST_KEY}-pattern-`;
+        const firstKey = `${prefix}one`;
+        const secondKey = `${prefix}two`;
+        await puter.kv.set(firstKey, 'one');
+        await puter.kv.set(secondKey, 'two');
+        await puter.kv.set(`${TEST_KEY}-other`, 'other');
+
+        const listRes = await puter.kv.list(`${prefix}*`);
+
+        expect(Array.isArray(listRes)).toBe(true);
+        expect(listRes).toEqual(expect.arrayContaining([firstKey, secondKey]));
+        expect((listRes as string[]).every((key) => key.startsWith(prefix))).toBe(true);
+    });
+    it('should list keys with pagination', async () => {
+        const pageKeys = [
+            `${TEST_KEY}-page-1`,
+            `${TEST_KEY}-page-2`,
+            `${TEST_KEY}-page-3`,
+        ];
+        await puter.kv.set(pageKeys[0], 'one');
+        await puter.kv.set(pageKeys[1], 'two');
+        await puter.kv.set(pageKeys[2], 'three');
+
+        const firstPage = await puter.kv.list({ limit: 1 });
+        expect(Array.isArray(firstPage)).toBe(false);
+
+        const firstPageObj = firstPage as { items: string[]; cursor?: string };
+        expect(Array.isArray(firstPageObj.items)).toBe(true);
+        expect(firstPageObj.items.length).toBeLessThanOrEqual(1);
+        expect(firstPageObj.cursor).toBeTypeOf('string');
+
+        const secondPage = await puter.kv.list({ limit: 1, cursor: firstPageObj.cursor });
+        const secondPageObj = secondPage as { items: string[]; cursor?: string };
+        expect(Array.isArray(secondPageObj.items)).toBe(true);
+        expect(secondPageObj.items.length).toBeLessThanOrEqual(1);
+    });
     // delete ops should go last
     it('should flush all keys', async () => {
         const flushRes = await puter.kv.flush();
