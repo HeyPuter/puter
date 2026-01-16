@@ -89,6 +89,7 @@
     "parse-domain": "^8.2.2",
     "simple-git": "^3.25.0",
     "string-template": "^1.0.0",
+    "tiktoken": "^1.0.22",
     "uuid": "^9.0.1"
   },
   "optionalDependencies": {
