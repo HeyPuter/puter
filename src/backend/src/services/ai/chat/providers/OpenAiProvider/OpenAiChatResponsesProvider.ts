@@ -29,8 +29,6 @@ import { IChatProvider, ICompleteArguments } from '../types.js';
 import { OPEN_AI_MODELS } from './models.js';
 import { ResponseCreateParams } from 'openai/resources/responses/responses.mjs';
 
-;
-
 // We're capping at 5MB, which sucks, but Chat Completions doesn't suuport
 // file inputs.
 const MAX_FILE_SIZE = 5 * 1_000_000;
@@ -240,6 +238,13 @@ export class OpenAiResponsesChatProvider implements IChatProvider {
             completion,
             moderate: moderation ? this.checkModeration.bind(this) : undefined,
         });
+    }
+
+    async tokenize (arg) {
+        // Pass through to tokenizer in OpenAI Completions service
+        const aiChat = Context.get('services').get('ai-chat');
+        const openAICompletions = aiChat.getProvider('openai-completion')!;
+        return await openAICompletions.tokenize!(arg);
     }
 
     async checkModeration (text: string) {

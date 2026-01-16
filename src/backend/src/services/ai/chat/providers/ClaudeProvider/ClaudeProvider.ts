@@ -300,6 +300,145 @@ export class ClaudeProvider implements IChatProvider {
         };
     }
 
+    async tokenize ({ messages, stream, model, tools, max_tokens, temperature }) {
+        tools = make_claude_tools(tools);
+
+        let system_prompts: string | any[];
+        // unsure why system_prompts is an array but it always seems to only have exactly one element,
+        // and the real array of system_prompts seems to be the [0].content -- NS
+        [system_prompts, messages] = extract_and_remove_system_messages(messages);
+
+        // Apply the cache control tag to all content blocks
+        if (
+            system_prompts.length > 0 &&
+            system_prompts[0].cache_control &&
+            system_prompts[0]?.content
+        ) {
+            system_prompts[0].content = system_prompts[0].content.map((prompt: { cache_control: unknown }) => {
+                prompt.cache_control = system_prompts[0].cache_control;
+                return prompt;
+            });
+        }
+
+        messages = messages.map(message => {
+            if ( message.cache_control ) {
+                message.content[0].cache_control = message.cache_control;
+            }
+            delete message.cache_control;
+            return message;
+        });
+
+        const modelUsed = this.models().find(m => [m.id, ...(m.aliases || [])].includes(model)) || this.models().find(m => m.id === this.getDefaultModel())!;
+        const sdkParams = {
+            model: modelUsed.id,
+            ...((system_prompts && system_prompts[0]?.content) ? {
+                system: system_prompts[0]?.content,
+            } : {}),
+            messages,
+            ...(tools ? { tools } : {}),
+        } as MessageCreateParams;
+
+        let beta_mode = false;
+
+        // Perform file uploads
+        const file_delete_tasks: { file_id: string }[] = [];
+        const actor = Context.get('actor');
+        const { user } = actor.type;
+
+        const file_input_tasks: any[] = [];
+        for ( const message of messages ) {
+            // We can assume `message.content` is not undefined because
+            // Messages.normalize_single_message ensures this.
+            for ( const contentPart of message.content ) {
+                if ( ! contentPart.puter_path ) continue;
+                file_input_tasks.push({
+                    node: await (new FSNodeParam(contentPart.puter_path)).consolidate({
+                        req: { user },
+                        getParam: () => contentPart.puter_path,
+                    }),
+                    contentPart,
+                });
+            }
+        }
+
+        const promises: Promise<unknown>[] = [];
+        for ( const task of file_input_tasks ) {
+            promises.push((async () => {
+                const ll_read = new LLRead();
+                const stream = await ll_read.run({
+                    actor: Context.get('actor'),
+                    fsNode: task.node,
+                });
+
+                const mimeType = mime.contentType(await task.node.get('name'));
+
+                beta_mode = true;
+                const fileUpload = await this.anthropic.beta.files.upload({
+                    file: await toFile(stream, undefined, { type: mimeType as string }),
+                }, {
+                    betas: ['files-api-2025-04-14'],
+                } as Parameters<typeof this.anthropic.beta.files.upload>[1]);
+
+                file_delete_tasks.push({ file_id: fileUpload.id });
+                // We have to copy a table from the documentation here:
+                // https://docs.anthropic.com/en/docs/build-with-claude/files
+                const contentBlockTypeForFileBasedOnMime = (() => {
+                    if ( mimeType && mimeType.startsWith('image/') ) {
+                        return 'image';
+                    }
+                    if ( mimeType && mimeType.startsWith('text/') ) {
+                        return 'document';
+                    }
+                    if ( mimeType && mimeType === 'application/pdf' || mimeType === 'application/x-pdf' ) {
+                        return 'document';
+                    }
+                    return 'container_upload';
+                })();
+
+                delete task.contentPart.puter_path,
+                task.contentPart.type = contentBlockTypeForFileBasedOnMime;
+                task.contentPart.source = {
+                    type: 'file',
+                    file_id: fileUpload.id,
+                };
+            })());
+        }
+        await Promise.all(promises);
+
+        const cleanup_files = async () => {
+            const promises: Promise<unknown>[] = [];
+            for ( const task of file_delete_tasks ) {
+                promises.push((async () => {
+                    try {
+                        await this.anthropic.beta.files.delete(task.file_id,
+                                        { betas: ['files-api-2025-04-14'] });
+                    } catch (e) {
+                        this.errorService.report('claude:file-delete-task', {
+                            source: e,
+                            trace: true,
+                            alarm: true,
+                            extra: { file_id: task.file_id },
+                        });
+                    }
+                })());
+            }
+            await Promise.all(promises);
+        };
+
+        if ( beta_mode ) {
+            (sdkParams as BetaMessageCreateParams).betas = ['files-api-2025-04-14'];
+        }
+        const anthropic = (beta_mode ? this.anthropic.beta : this.anthropic) as Anthropic;
+
+        const tokens = await anthropic.messages.countTokens(sdkParams);
+        await cleanup_files();
+
+        return {
+            input_tokens: tokens.input_tokens,
+        };
+
+    }
+
     #usageFormatterUtil (usage: Usage | BetaUsage) {
         return {
             input_tokens: usage?.input_tokens || 0,

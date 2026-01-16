@@ -147,6 +147,11 @@ export class OllamaChatProvider implements IChatProvider {
         throw new Error('Method not implemented.');
     }
 
+    async tokenize () {
+        // These models aren't billed, as such tokens are not significant here;
+        return { input_tokens: 0 };
+    }
+
     /**
     * Returns the default model identifier for the Ollama service
     * @returns {string} The default model ID 'gpt-oss:20b'

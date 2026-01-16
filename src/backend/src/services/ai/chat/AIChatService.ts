@@ -218,12 +218,12 @@ export class AIChatService extends BaseService {
                 }
                 this.#modelIdMap[model.id].push({ ...model, provider: providerName });
                 if ( model.puterId ) {
-                    if (model.aliases) {
+                    if ( model.aliases ) {
                         model.aliases.push(model.puterId);
                     } else {
-                        model.aliases = [model.puterId]
+                        model.aliases = [model.puterId];
                     }
-                    
+
                 }
                 if ( model.aliases ) {
                     for ( let alias of model.aliases ) {
@@ -344,12 +344,26 @@ export class AIChatService extends BaseService {
                 got: model,
             });
         }
+        const provider = this.#providers[model.provider!];
+        if ( ! provider ) {
+            throw new Error(`no provider found for model ${model.id}`);
+        }
 
         const inputTokenCost = model.costs[model.input_cost_key || 'input_tokens'] as number;
         const outputTokenCost =  model.costs[model.output_cost_key || 'output_tokens'] as number;
         const maxTokens = model.max_tokens;
         const text = extract_text(parameters.messages);
-        const approximateTokenCount = Math.floor(((text.length / 4) + (text.split(/\s+/).length * (4 / 3))) / 2); // see https://help.openai.com/en/articles/4936856-what-are-tokens-and-how-to-count-them
+        let approximateTokenCount;
+        if ( provider.tokenize ) {
+            approximateTokenCount = (await provider.tokenize({
+                ...parameters,
+                model: model.id,
+                provider: model.provider,
+            })).input_tokens;
+        } else {
+            approximateTokenCount = Math.floor(((text.length / 4) + (text.split(/\s+/).length * (4 / 3))) / 2);
+        }
+
         const approximateInputCost = approximateTokenCount * inputTokenCost;
         const usageAllowed = await this.meteringService.hasEnoughCredits(actor, approximateInputCost);
 
@@ -376,10 +390,6 @@ export class AIChatService extends BaseService {
 
         // call model provider;
         let res: Awaited<ReturnType<IChatProvider['complete']>>;
-        const provider = this.#providers[model.provider!];
-        if ( ! provider ) {
-            throw new Error(`no provider found for model ${model.id}`);
-        }
         try {
             res = await provider.complete({
                 ...parameters,

@@ -25,7 +25,7 @@ import { Context } from '../../../../../util/context.js';
 import { kv } from '../../../../../util/kvSingleton.js';
 import { MeteringService } from '../../../../MeteringService/MeteringService.js';
 import * as OpenAIUtil from '../../../utils/OpenAIUtil.js';
-import { IChatModel, IChatProvider } from '../types.js';
+import { IChatModel, IChatProvider, ICompleteArguments } from '../types.js';
 
 export class OpenRouterProvider implements IChatProvider {
 
@@ -84,7 +84,7 @@ export class OpenRouterProvider implements IChatProvider {
 
         messages = await OpenAIUtil.process_input_messages(messages);
 
-        const completion = await this.#openai.chat.completions.create({
+        const completionParams = {
             messages,
             model: modelIdForParams,
             ...(tools ? { tools } : {}),
@@ -95,7 +95,23 @@ export class OpenRouterProvider implements IChatProvider {
                 stream_options: { include_usage: true },
             } : {}),
             usage: { include: true },
-        } as ChatCompletionCreateParams);
+        } as ChatCompletionCreateParams;
+
+        let completion;
+        try {
+            completion = await this.#openai.chat.completions.create(completionParams);
+        } catch ( e: any ) {
+            // If you overestimate allowed max_tokens on openrouter then it will throw an error.
+            // Since we know the user has enough for the query anyways, we should reexecute the
+            // request without max_tokens.
+            if ( e && e.error && e.error.message && e.error.message.startsWith("This endpoint's maximum context length is ") ) {
+                delete completionParams.max_tokens;
+                completion = await this.#openai.chat.completions.create(completionParams);
+            } else {
+                console.log('Openarouter error: ', e.error.message);
+                throw e;
+            }
+        }
 
         return OpenAIUtil.handle_completion_output({
             usage_calculator: ({ usage }) => {
@@ -152,6 +168,20 @@ export class OpenRouterProvider implements IChatProvider {
             });
         }
         return coerced_models;
+    }
+    async tokenize ({ model, messages }) {
+        const modelUsed = (await this.models()).find(m => [m.id, ...(m.aliases || [])].includes(model)) || (await this.models()).find(m => m.id === this.getDefaultModel())!;
+        const modelIdForParams = modelUsed.id.startsWith('openrouter:') ? modelUsed.id.slice('openrouter:'.length) : modelUsed.id;
+        const [provider, modelName] = modelIdForParams.split('/');
+        if ( provider.toLowerCase() === 'openai' ) {
+            // Forward to openai tokenizer
+        }
+        if ( provider.toLowerCase() === 'anthropic' ) {
+            // Forward to anthropic tokenizer
+        }
+        // Fall through case: Use OpenAI tokenizer with 1.2x penalty
+
+        return { input_tokens: 0 };
     }
     checkModeration (_text: string): ReturnType<IChatProvider['checkModeration']> {
         throw new Error('Method not implemented.');

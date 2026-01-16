@@ -68,4 +68,5 @@ export interface IChatProvider {
         normalized?: boolean;
         via_ai_chat_service?: true, // legacy field always true now
     }>
+    tokenize?(arg: ICompleteArguments): Promise<{ input_tokens: number }>;
 }
