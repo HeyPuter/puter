@@ -260,9 +260,9 @@ export class DynamoKVStore {
         if ( trimmed === '' ) {
             return undefined;
         }
-        const lastWildcard = trimmed.lastIndexOf('*');
-        if ( lastWildcard === trimmed.length - 1 && trimmed.indexOf('*') === lastWildcard ) {
-            return trimmed.slice(0, -1);
+        if ( trimmed.endsWith('*') ) {
+            const prefix = trimmed.slice(0, -1);
+            return prefix === '' ? undefined : prefix;
         }
         return trimmed;
     }

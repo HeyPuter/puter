@@ -405,8 +405,9 @@ function normalizeListPattern (pattern) {
     if ( trimmed === '' ) {
         return undefined;
     }
-    if ( trimmed.endsWith('*') && trimmed.indexOf('*') === trimmed.length - 1 ) {
-        return trimmed.slice(0, -1);
+    if ( trimmed.endsWith('*') ) {
+        const prefix = trimmed.slice(0, -1);
+        return prefix === '' ? undefined : prefix;
     }
     return trimmed;
 }

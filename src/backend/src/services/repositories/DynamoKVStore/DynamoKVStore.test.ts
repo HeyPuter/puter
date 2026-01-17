@@ -167,16 +167,40 @@ describe('DynamoKVStore', async () => {
         expect(allKeys).toEqual(['a', 'b', 'c']);
     });
 
-    it('filters list results by key prefix', async () => {
+    it('supports prefix pattern semantics', async () => {
         const actor = makeActor(72);
-        await su.sudo(actor, () => kvStore.set({ key: 'prefix-1', value: 1 }));
-        await su.sudo(actor, () => kvStore.set({ key: 'prefix-2', value: 2 }));
-        await su.sudo(actor, () => kvStore.set({ key: 'other', value: 3 }));
+        const allKeys = [
+            'abc',
+            'abc123',
+            'abc123xyz',
+            'ab',
+            'key*literal',
+            'key*literal-2',
+            'k*y',
+            'k*y-extra',
+            'other',
+        ];
 
-        const keys = await su.sudo(actor, () => kvStore.list({ as: 'keys', pattern: 'prefix-' })) as string[];
+        await Promise.all(allKeys.map((key, idx) => su.sudo(actor, () => kvStore.set({ key, value: idx }))));
 
-        expect(keys).toEqual(expect.arrayContaining(['prefix-1', 'prefix-2']));
-        expect(keys.every((key) => key.startsWith('prefix-'))).toBe(true);
+        const expectedAbc = ['abc', 'abc123', 'abc123xyz'];
+        const expectedKeyStar = ['key*literal', 'key*literal-2'];
+        const expectedMiddleStar = ['k*y', 'k*y-extra'];
+
+        const abcKeys = await su.sudo(actor, () => kvStore.list({ as: 'keys', pattern: 'abc' })) as string[];
+        expect([...abcKeys].sort()).toEqual([...expectedAbc].sort());
+
+        const abcWildcardKeys = await su.sudo(actor, () => kvStore.list({ as: 'keys', pattern: 'abc*' })) as string[];
+        expect([...abcWildcardKeys].sort()).toEqual([...expectedAbc].sort());
+
+        const keyStarKeys = await su.sudo(actor, () => kvStore.list({ as: 'keys', pattern: 'key**' })) as string[];
+        expect([...keyStarKeys].sort()).toEqual([...expectedKeyStar].sort());
+
+        const middleStarKeys = await su.sudo(actor, () => kvStore.list({ as: 'keys', pattern: 'k*y*' })) as string[];
+        expect([...middleStarKeys].sort()).toEqual([...expectedMiddleStar].sort());
+
+        const allList = await su.sudo(actor, () => kvStore.list({ as: 'keys', pattern: '*' })) as string[];
+        expect([...allList].sort()).toEqual([...allKeys].sort());
     });
 
     it('returns ordered values for arrays and null for expired keys', async () => {
