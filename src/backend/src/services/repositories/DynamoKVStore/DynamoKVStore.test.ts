@@ -149,6 +149,60 @@ describe('DynamoKVStore', async () => {
             .rejects;
     });
 
+    it('supports paginated list results with cursors', async () => {
+        const actor = makeActor(71);
+        await su.sudo(actor, () => kvStore.set({ key: 'a', value: 1 }));
+        await su.sudo(actor, () => kvStore.set({ key: 'b', value: 2 }));
+        await su.sudo(actor, () => kvStore.set({ key: 'c', value: 3 }));
+
+        const firstPage = await su.sudo(actor, () => kvStore.list({ as: 'keys', limit: 2 })) as { items: string[]; cursor?: string };
+        expect(firstPage.items).toHaveLength(2);
+        expect(firstPage.cursor).toBeTypeOf('string');
+
+        const secondPage = await su.sudo(actor, () => kvStore.list({ as: 'keys', limit: 2, cursor: firstPage.cursor })) as { items: string[]; cursor?: string };
+        expect(secondPage.items).toHaveLength(1);
+        expect(secondPage.cursor).toBeUndefined();
+
+        const allKeys = [...firstPage.items, ...secondPage.items].sort();
+        expect(allKeys).toEqual(['a', 'b', 'c']);
+    });
+
+    it('supports prefix pattern semantics', async () => {
+        const actor = makeActor(72);
+        const allKeys = [
+            'abc',
+            'abc123',
+            'abc123xyz',
+            'ab',
+            'key*literal',
+            'key*literal-2',
+            'k*y',
+            'k*y-extra',
+            'other',
+        ];
+
+        await Promise.all(allKeys.map((key, idx) => su.sudo(actor, () => kvStore.set({ key, value: idx }))));
+
+        const expectedAbc = ['abc', 'abc123', 'abc123xyz'];
+        const expectedKeyStar = ['key*literal', 'key*literal-2'];
+        const expectedMiddleStar = ['k*y', 'k*y-extra'];
+
+        const abcKeys = await su.sudo(actor, () => kvStore.list({ as: 'keys', pattern: 'abc' })) as string[];
+        expect([...abcKeys].sort()).toEqual([...expectedAbc].sort());
+
+        const abcWildcardKeys = await su.sudo(actor, () => kvStore.list({ as: 'keys', pattern: 'abc*' })) as string[];
+        expect([...abcWildcardKeys].sort()).toEqual([...expectedAbc].sort());
+
+        const keyStarKeys = await su.sudo(actor, () => kvStore.list({ as: 'keys', pattern: 'key**' })) as string[];
+        expect([...keyStarKeys].sort()).toEqual([...expectedKeyStar].sort());
+
+        const middleStarKeys = await su.sudo(actor, () => kvStore.list({ as: 'keys', pattern: 'k*y*' })) as string[];
+        expect([...middleStarKeys].sort()).toEqual([...expectedMiddleStar].sort());
+
+        const allList = await su.sudo(actor, () => kvStore.list({ as: 'keys', pattern: '*' })) as string[];
+        expect([...allList].sort()).toEqual([...allKeys].sort());
+    });
+
     it('returns ordered values for arrays and null for expired keys', async () => {
         const actor = makeActor(8);
         const now = Math.floor(Date.now() / 1000);

@@ -24,7 +24,7 @@ const BaseService = require('../../services/BaseService');
  * @property {function(KVStoreGetParams): Promise<unknown>} get - Retrieve the value(s) for the given key(s).
  * @property {function(KVStoreSetParams): Promise<void>} set - Set a value for a key, with optional expiration.
  * @property {function(KVStoreDelParams): Promise<void>} del - Delete a value by key.
- * @property {function(KVStoreListParams): Promise<string[]>} list - List all key-value pairs, optionally as a specific type.
+ * @property {function(KVStoreListParams): Promise<KVStoreListResult|Array>} list - List key-value pairs, optionally with pagination.
  * @property {function(): Promise<void>} flush - Delete all key-value pairs in the store.
  * @property {(params: KVStoreUpdateParams) => Promise<unknown>} update - Update nested values by key.
  * @property {(params: KVStoreAddParams) => Promise<unknown>} add - Append values into list paths by key.
@@ -46,7 +46,14 @@ const BaseService = require('../../services/BaseService');
  * @property {string} key - The key to delete.
  *
  * @typedef {Object} KVStoreListParams
- * @property {string} [as] - Optional type to list as (e.g., 'array', 'object').
+ * @property {string} [as] - Optional type to list as ("keys", "values", or "entries").
+ * @property {string} [pattern] - Optional key prefix to match.
+ * @property {number} [limit] - Optional max number of items to return.
+ * @property {string} [cursor] - Optional cursor to continue listing from.
+ *
+ * @typedef {Object} KVStoreListResult
+ * @property {Array} items - Items in the current page.
+ * @property {string} [cursor] - Cursor for the next page, if available.
  *
  * @typedef {Object} KVStoreUpdateParams
  * @property {string} key - The key to update.
@@ -112,13 +119,22 @@ class KVStoreInterfaceService extends BaseService {
                     result: { type: 'void' },
                 },
                 list: {
-                    description: 'List all key-value pairs.',
+                    description: 'List key-value pairs with optional pagination.',
                     parameters: {
                         as: {
                             type: 'string',
                         },
+                        pattern: {
+                            type: 'string',
+                        },
+                        limit: {
+                            type: 'number',
+                        },
+                        cursor: {
+                            type: 'string',
+                        },
                     },
-                    result: { type: 'array' },
+                    result: { type: 'json' },
                 },
                 flush: {
                     description: 'Delete all key-value pairs.',

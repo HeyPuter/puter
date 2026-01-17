@@ -134,9 +134,17 @@ export class DDBClient {
         return this.#documentClient.send(command);
     }
 
-    async query<T extends Record<string, unknown>> (table: string, keys: T, limit = 0, pageKey?: Record<string, unknown>, index = '', consistentRead = false) {
+    async query<T extends Record<string, unknown>> (
+        table: string,
+        keys: T,
+        limit = 0,
+        pageKey?: Record<string, unknown>,
+        index = '',
+        consistentRead = false,
+        options?: { beginsWith?: { key: string; value: string } },
+    ) {
 
-        const keyExpression = Object.keys(keys).map(key => `#${key} = :${key}`).join(' AND ');
+        const keyExpressionParts = Object.keys(keys).map(key => `#${key} = :${key}`);
         const expressionAttributeValues = Object.entries(keys).reduce((acc, [key, value]) => {
             acc[`:${key}`] = value;
             return acc;
@@ -145,6 +153,16 @@ export class DDBClient {
             acc[`#${key}`] = key;
             return acc;
         }, {});
+
+        if ( options?.beginsWith?.key && typeof options.beginsWith.value === 'string' && options.beginsWith.value !== '' ) {
+            const beginsKey = options.beginsWith.key;
+            const beginsValueToken = `:${beginsKey}_begins_with`;
+            keyExpressionParts.push(`begins_with(#${beginsKey}, ${beginsValueToken})`);
+            expressionAttributeValues[beginsValueToken] = options.beginsWith.value;
+            expressionAttributeNames[`#${beginsKey}`] = beginsKey;
+        }
+
+        const keyExpression = keyExpressionParts.join(' AND ');
 
         const command = new QueryCommand({
             TableName: table,

@@ -350,43 +350,43 @@ class KV {
         let pattern;
         let returnValues = false;
 
-        // list(true) or list(pattern, true) will return the key-value pairs
-        if ( (args && args.length === 1 && args[0] === true) || (args && args.length === 2 && args[1] === true) ) {
-            options = {};
-            returnValues = true;
-        }
-        // return only the keys, default behavior
-        else {
-            options = { as: 'keys' };
+        const isOptionsObject = args.length === 1 && args[0] && typeof args[0] === 'object' && !Array.isArray(args[0]);
+
+        if ( isOptionsObject ) {
+            const input = args[0];
+            if ( typeof input.pattern === 'string' ) {
+                pattern = input.pattern;
+            }
+            returnValues = !!input.returnValues;
+            if ( input.limit !== undefined ) {
+                options.limit = input.limit;
+            }
+            if ( input.cursor !== undefined ) {
+                options.cursor = input.cursor;
+            }
+        } else {
+            // list(true) or list(pattern, true) will return the key-value pairs
+            if ( (args && args.length === 1 && args[0] === true) || (args && args.length === 2 && args[1] === true) ) {
+                returnValues = true;
+            }
+
+            // list(pattern)
+            // list(pattern, true)
+            if ( (args && args.length === 1 && typeof args[0] === 'string') || (args && args.length === 2 && typeof args[0] === 'string' && args[1] === true) ) {
+                pattern = args[0];
+            }
         }
 
-        // list(pattern)
-        // list(pattern, true)
-        if ( (args && args.length === 1 && typeof args[0] === 'string') || (args && args.length === 2 && typeof args[0] === 'string' && args[1] === true) ) {
-            pattern = args[0];
+        if ( ! returnValues ) {
+            options.as = 'keys';
         }
 
-        return utils.make_driver_method([], 'puter-kvstore', undefined, 'list', {
-            transform: (res) => {
-                // glob pattern was provided
-                if ( pattern ) {
-                    // consider both the key and the value
-                    if ( ! returnValues ) {
-                        let keys = res.filter((key) => {
-                            return globMatch(pattern, key);
-                        });
-                        return keys;
-                    } else {
-                        let keys = res.filter((key_value_pair) => {
-                            return globMatch(pattern, key_value_pair.key);
-                        });
-                        return keys;
-                    }
-                }
+        const normalizedPattern = normalizeListPattern(pattern);
+        if ( normalizedPattern ) {
+            options.pattern = normalizedPattern;
+        }
 
-                return res;
-            },
-        }).call(this, options);
+        return utils.make_driver_method([], 'puter-kvstore', undefined, 'list').call(this, options);
     };
 
     // resolve to 'true' on success, or rejects with an error on failure
@@ -397,18 +397,19 @@ class KV {
     clear = this.flush;
 }
 
-function globMatch (pattern, str) {
-    const escapeRegExp = (string) => string.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
-
-    let regexPattern = escapeRegExp(pattern)
-        .replace(/\\\*/g, '.*') // Replace * with .*
-        .replace(/\\\?/g, '.') // Replace ? with .
-        .replace(/\\\[/g, '[') // Replace [ with [
-        .replace(/\\\]/g, ']') // Replace ] with ]
-        .replace(/\\\^/g, '^'); // Replace ^ with ^
-
-    let re = new RegExp(`^${regexPattern}$`);
-    return re.test(str);
+function normalizeListPattern (pattern) {
+    if ( typeof pattern !== 'string' ) {
+        return undefined;
+    }
+    const trimmed = pattern.trim();
+    if ( trimmed === '' ) {
+        return undefined;
+    }
+    if ( trimmed.endsWith('*') ) {
+        const prefix = trimmed.slice(0, -1);
+        return prefix === '' ? undefined : prefix;
+    }
+    return trimmed;
 }
 
 export default KV;

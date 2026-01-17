@@ -147,6 +147,77 @@ describe('Puter KV Module', () => {
         expect(listRes.length).toBeGreaterThan(0);
         expect((listRes as string[]).includes(TEST_KEY)).toBe(true);
     });
+    it('should support prefix pattern semantics', async () => {
+        const basePrefix = `${TEST_KEY}-pattern-abc`;
+        const abcKeys = [
+            `${basePrefix}`,
+            `${basePrefix}123`,
+            `${basePrefix}123xyz`,
+        ];
+        await Promise.all(abcKeys.map((key) => puter.kv.set(key, key)));
+        await puter.kv.set(`${TEST_KEY}-pattern-ab`, 'nope');
+
+        const listNoWildcard = await puter.kv.list(basePrefix);
+        const listWildcard = await puter.kv.list(`${basePrefix}*`);
+
+        expect(Array.isArray(listNoWildcard)).toBe(true);
+        expect(Array.isArray(listWildcard)).toBe(true);
+        expect(listNoWildcard).toEqual(expect.arrayContaining(abcKeys));
+        expect(listWildcard).toEqual(expect.arrayContaining(abcKeys));
+        expect((listNoWildcard as string[]).every((key) => key.startsWith(basePrefix))).toBe(true);
+        expect((listWildcard as string[]).every((key) => key.startsWith(basePrefix))).toBe(true);
+
+        const literalStarPrefix = `${TEST_KEY}-pattern-key*`;
+        const literalStarKeys = [
+            `${literalStarPrefix}one`,
+            `${literalStarPrefix}two`,
+        ];
+        await Promise.all(literalStarKeys.map((key) => puter.kv.set(key, key)));
+
+        const literalStarList = await puter.kv.list(`${literalStarPrefix}*`);
+        expect(Array.isArray(literalStarList)).toBe(true);
+        expect(literalStarList).toEqual(expect.arrayContaining(literalStarKeys));
+        expect((literalStarList as string[]).every((key) => key.startsWith(literalStarPrefix))).toBe(true);
+
+        const middleStarPrefix = `${TEST_KEY}-pattern-k*y`;
+        const middleStarKeys = [
+            `${middleStarPrefix}`,
+            `${middleStarPrefix}-more`,
+        ];
+        await Promise.all(middleStarKeys.map((key) => puter.kv.set(key, key)));
+
+        const middleStarList = await puter.kv.list(`${middleStarPrefix}*`);
+        expect(Array.isArray(middleStarList)).toBe(true);
+        expect(middleStarList).toEqual(expect.arrayContaining(middleStarKeys));
+        expect((middleStarList as string[]).every((key) => key.startsWith(middleStarPrefix))).toBe(true);
+
+        const allList = await puter.kv.list('*');
+        expect(Array.isArray(allList)).toBe(true);
+        expect(allList).toEqual(expect.arrayContaining([...abcKeys, ...literalStarKeys, ...middleStarKeys]));
+    });
+    it('should list keys with pagination', async () => {
+        const pageKeys = [
+            `${TEST_KEY}-page-1`,
+            `${TEST_KEY}-page-2`,
+            `${TEST_KEY}-page-3`,
+        ];
+        await puter.kv.set(pageKeys[0], 'one');
+        await puter.kv.set(pageKeys[1], 'two');
+        await puter.kv.set(pageKeys[2], 'three');
+
+        const firstPage = await puter.kv.list({ limit: 1 });
+        expect(Array.isArray(firstPage)).toBe(false);
+
+        const firstPageObj = firstPage as { items: string[]; cursor?: string };
+        expect(Array.isArray(firstPageObj.items)).toBe(true);
+        expect(firstPageObj.items.length).toBeLessThanOrEqual(1);
+        expect(firstPageObj.cursor).toBeTypeOf('string');
+
+        const secondPage = await puter.kv.list({ limit: 1, cursor: firstPageObj.cursor });
+        const secondPageObj = secondPage as { items: string[]; cursor?: string };
+        expect(Array.isArray(secondPageObj.items)).toBe(true);
+        expect(secondPageObj.items.length).toBeLessThanOrEqual(1);
+    });
     // delete ops should go last
     it('should flush all keys', async () => {
         const flushRes = await puter.kv.flush();
