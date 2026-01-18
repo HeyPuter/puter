@@ -41,6 +41,11 @@ export const normalize_json_schema =  (schema) => {
 export const normalize_tools_object =  (tools) => {
     for ( let i = 0 ; i < tools.length ; i++ ) {
         const tool = tools[i];
+
+        if ( tool.type === 'web_search' ) {
+            // OpenAI Responses specific
+            continue;
+        }
         let normalized_tool = {};
 
         const normalize_function = fn => {

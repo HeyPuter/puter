@@ -39,7 +39,7 @@ export interface ICompleteArguments {
 }
 
 export interface IChatProvider {
-    models(): IChatModel[] | Promise<IChatModel[]>
+    models(extra_params?: any): IChatModel[] | Promise<IChatModel[]>
     list(): string[] | Promise<string[]>
     checkModeration (text: string): Promise<{
         flagged: boolean;

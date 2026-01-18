@@ -79,12 +79,16 @@ export class OpenAiResponsesChatProvider implements IChatProvider {
     * Returns an array of available AI models with their pricing information.
     * Each model object includes an ID and cost details (currency, tokens, input/output rates).
     */
-    models () {
+    models (extra_params) {
+        if ( extra_params?.no_restrictions )
+        {
+            return OPEN_AI_MODELS;
+        }
         return OPEN_AI_MODELS.filter(e => e.responses_api_only === true);
     }
 
     list () {
-        const models =  this.models();
+        const models =  this.models({ no_restrictions: false });
         const modelNames: string[] = [];
         for ( const model of models ) {
             modelNames.push(model.id);
@@ -109,7 +113,7 @@ export class OpenAiResponsesChatProvider implements IChatProvider {
 
         model = model ?? this.#defaultModel;
 
-        const modelUsed = (this.models()).find(m => [m.id, ...(m.aliases || [])].includes(model)) || (this.models()).find(m => m.id === this.getDefaultModel())!;
+        const modelUsed = (this.models({ no_restrictions: true })).find(m => [m.id, ...(m.aliases || [])].includes(model)) || (this.models(({ no_restrictions: true })).find(m => m.id === this.getDefaultModel())!);
 
         // messages.unshift({
         //     role: 'system',
@@ -186,9 +190,13 @@ export class OpenAiResponsesChatProvider implements IChatProvider {
         if ( tools ) {
             // Unravel tools to OpenAI Responses API format
             tools = (tools as any).map((e) => {
-                const tool = e.function;
-                tool.type = 'function';
-                return tool;
+                if ( e.type === 'function' ) {
+                    const tool = e.function;
+                    tool.type = 'function';
+                    return tool;
+                } else {
+                    return e;
+                }
             });
         }
 

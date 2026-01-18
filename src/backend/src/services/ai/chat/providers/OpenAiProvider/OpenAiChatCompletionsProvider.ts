@@ -99,8 +99,16 @@ export class OpenAiChatProvider implements IChatProvider {
         return this.#defaultModel;
     }
 
-    async complete ({ messages, model, max_tokens, moderation, tools, verbosity, stream, reasoning, reasoning_effort, temperature, text }: ICompleteArguments): ReturnType<IChatProvider['complete']>
+    async complete (params: ICompleteArguments): ReturnType<IChatProvider['complete']>
     {
+        let { messages, model, max_tokens, moderation, tools, verbosity, stream, reasoning, reasoning_effort, temperature, text } = params;
+        if ( tools?.filter((e: any) => e.type === 'web_search').length ) {
+            // User is trying to use openai-responses only tool web_search.
+            // We should pass it to that service
+            const aiChat = (Context.get('services') as any).get('ai-chat');
+            const openAIresponses = aiChat.getProvider('openai-responses')!;
+            return await openAIresponses.complete!(params);
+        }
         // Validate messages
         if ( ! Array.isArray(messages) ) {
             throw new Error('`messages` must be an array');
