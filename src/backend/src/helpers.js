@@ -383,7 +383,7 @@ async function get_app (options) {
 
         cacheApp(app);
         resolveQuery(app);
-    } catch (err) {
+    } catch ( err ) {
         rejectQuery(err);
         throw err;
     } finally {
@@ -1522,6 +1522,9 @@ async function suggest_app_for_fsentry (fsentry, options) {
 
     // return list
     const suggested_apps = await Promise.all(suggested_apps_promises);
+    if ( suggested_apps.some(app => app && app.name === 'editor') ) {
+        suggested_apps.push(await get_app({ name: 'codeapp' }));
+    }
     return suggested_apps.filter((suggested_app, pos, self) => {
         // Remove any null values caused by calling `get_app()` for apps that don't exist.
         // This happens on self-host because we don't include `code`, among others.
