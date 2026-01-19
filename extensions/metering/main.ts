@@ -1,4 +1,8 @@
+import { UsageController } from './controllers/UsageController.js';
 import './eventListeners/subscriptionEvents.js';
-import { registerUsageController } from './controllers/UsageController.js';
 
-registerUsageController();
+const meteringService = extension.import('service:meteringService');
+const sqlClient = extension.import('service:database');
+
+const controller = new UsageController(meteringService, sqlClient);
+controller.registerRoutes();
