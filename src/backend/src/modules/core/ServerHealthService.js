@@ -17,6 +17,7 @@
  * along with this program.  If not, see <https://www.gnu.org/licenses/>.
  */
 const BaseService = require('../../services/BaseService');
+const { kv } = require('../../util/kvSingleton');
 const { promise } = require('@heyputer/putility').libs;
 const SECOND = 1000;
 
@@ -202,10 +203,10 @@ class ServerHealthService extends BaseService {
     add_check (name, fn) {
         const chainable = {
             on_fail_: [],
-        };
-        chainable.on_fail = (fn) => {
-            chainable.on_fail_.push(fn);
-            return chainable;
+            on_fail: (fn) => {
+                chainable.on_fail_.push(fn);
+                return chainable;
+            },
         };
         this.checks_.push({ name, fn, chainable });
         return chainable;
@@ -221,27 +222,27 @@ class ServerHealthService extends BaseService {
     */
     async get_status () {
         const cache_key = 'server-health:status';
-        
+
         // Check cache first
-        if ( globalThis.kv ) {
-            const cached = globalThis.kv.get(cache_key);
+        if ( kv ) {
+            const cached = kv.get(cache_key);
             if ( cached ) {
                 return cached;
             }
         }
-        
+
         // Compute status
         const failures = this.failures_.map(v => v.name);
         const status = {
             ok: failures.length === 0,
             ...(failures.length ? { failed: failures } : {}),
         };
-        
+
         // Cache with 30 second TTL
-        if ( globalThis.kv ) {
-            globalThis.kv.set(cache_key, status, { EX: 30 });
+        if ( kv ) {
+            kv.set(cache_key, status, { EX: 5 });
         }
-        
+
         return status;
     }
 }

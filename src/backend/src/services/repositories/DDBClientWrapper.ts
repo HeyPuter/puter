@@ -7,7 +7,7 @@ class DDBClientServiceWrapper extends BaseService {
     async _construct () {
         this.ddbClient = new DDBClient(this.config as unknown as ConstructorParameters<typeof DDBClient>[0]);
 
-        await this.ddbClient.ddbClient; // ensure client is ready
+        await this.ddbClient.ddbClientPromise; // ensure client is ready
 
         Object.getOwnPropertyNames(DDBClient.prototype).forEach(fn => {
             if ( fn === 'constructor' ) return;
