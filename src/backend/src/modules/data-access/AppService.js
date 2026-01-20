@@ -4,6 +4,7 @@ import APIError from '../../api/APIError.js';
 import config from '../../config.js';
 import { app_name_exists, refresh_apps_cache } from '../../helpers.js';
 import { AppUnderUserActorType, UserActorType } from '../../services/auth/Actor.js';
+import { PermissionUtil } from '../../services/auth/permissionUtils.mjs';
 import BaseService from '../../services/BaseService.js';
 import { DB_READ, DB_WRITE } from '../../services/database/consts.js';
 import { Context } from '../../util/context.js';
@@ -190,6 +191,12 @@ export default class AppService extends BaseService {
                 }
             }
 
+            // Check protected app access before adding to results
+            if ( await this.#check_protected_app_access(app, row.owner_user_id) ) {
+                // App should be filtered out (not accessible)
+                continue;
+            }
+
             client_safe_apps.push(app);
         }
 
@@ -309,6 +316,14 @@ export default class AppService extends BaseService {
                 const svc_error = this.context.get('services').get('error-service');
                 svc_error.report('AppES:read_transform', { source: e });
             }
+        }
+
+        // Check protected app access
+        if ( await this.#check_protected_app_access(app, row.owner_user_id) ) {
+            // App should not be accessible
+            throw APIError.create('entity_not_found', null, {
+                identifier: uid || JSON.stringify(id),
+            });
         }
 
         return app;
@@ -555,7 +570,7 @@ export default class AppService extends BaseService {
         const app_owner = old_app.app_owner;
         const app_owner_uid = app_owner?.uid;
 
-        if ( ! app_owner_uid || app_owner_uid !== app.uid ) {
+        if ( !app_owner_uid || app_owner_uid !== app.uid ) {
             throw APIError.create('forbidden');
         }
     }
@@ -916,5 +931,56 @@ export default class AppService extends BaseService {
             clause: conditions.join(' AND '),
             values,
         };
+    }
+
+    /**
+     * Checks if a protected app should be filtered out (not accessible to the current actor).
+     * Returns true if the app should be filtered out, false if it's accessible.
+     *
+     * @param {Object} app - The app object with protected, uid, and owner fields
+     * @param {number} owner_user_id - The database ID of the app owner (for accurate comparison)
+     * @returns {Promise<boolean>} true if app should be filtered out, false if accessible
+     */
+    async #check_protected_app_access (app, owner_user_id) {
+        // If it's not a protected app, no worries - allow it
+        if ( ! app.protected ) {
+            return false;
+        }
+
+        const actor = Context.get('actor');
+        const services = this.services;
+
+        // If actor is this app itself, allow it
+        if (
+            actor.type instanceof AppUnderUserActorType &&
+            app.uid === actor.type.app.uid
+        ) {
+            return false;
+        }
+
+        // If actor is owner of this app, allow it
+        // Compare using owner_user_id from database for accuracy
+        if (
+            actor.type instanceof UserActorType &&
+            owner_user_id &&
+            owner_user_id === actor.type.user.id
+        ) {
+            return false;
+        }
+
+        // Now we need to check for permission
+        const app_uid = app.uid;
+        const svc_permission = services.get('permission');
+        const permission_to_check = `app:uid#${app_uid}:access`;
+        const reading = await svc_permission.scan(actor, permission_to_check);
+        const options = PermissionUtil.reading_to_options(reading);
+
+        // If they have permission, allow it
+        if ( options.length > 0 ) {
+            return false;
+        }
+
+        // No access - filter it out
+        return true;
     }
 }
