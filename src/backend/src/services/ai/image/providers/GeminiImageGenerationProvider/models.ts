@@ -23,9 +23,9 @@ export const GEMINI_DEFAULT_RATIO = { w: 1024, h: 1024 };
 
 export const GEMINI_IMAGE_GENERATION_MODELS: IImageModel[] = [
     {
-        id: 'gemini-2.5-flash-image-preview',
-        aliases: ['gemini-2.5-flash-image'],
-        name: 'Gemini 2.5 Flash Image Preview',
+        id: 'gemini-2.5-flash-image',
+        aliases: ['gemini-2.5-flash-image-preview'],
+        name: 'Gemini 2.5 Flash Image',
         version: '1.0',
         costs_currency: 'usd-cents',
         index_cost_key: '1024x1024',
@@ -56,12 +56,12 @@ export const GEMINI_IMAGE_GENERATION_MODELS: IImageModel[] = [
         ],
     },
     {
-        id: 'gemini-3-pro-image-preview',
-        name: 'Gemini 3 Pro Image Preview',
+        id: 'gemini-3-pro-image',
+        name: 'Gemini 3 Pro Image',
         version: '1.0',
         costs_currency: 'usd-cents',
         index_cost_key: '1024x1024',
-        aliases: ['gemini-3-pro-image'],
+        aliases: ['gemini-3-pro-image-preview'],
         allowedQualityLevels: ['1K', '2K', '4K'],
         allowedRatios: [
             { w: 1, h: 1 },
