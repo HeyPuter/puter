@@ -28,13 +28,29 @@ import { MeteringService } from '../../../../MeteringService/MeteringService.js'
 import * as OpenAiUtil from '../../../utils/OpenAIUtil.js';
 import { IChatProvider, ICompleteArguments } from '../types.js';
 import { OPEN_AI_MODELS } from './models.js';
+import { Tiktoken, get_encoding } from 'tiktoken';
+import modelEncodings from 'tiktoken/model_to_encoding.json' with { 'type': 'json' };
+import registry from 'tiktoken/registry.json' with { 'type': 'json' };
+import { load } from 'tiktoken/load';
 
-;
+const special_tokens = {
+    o200k_base: {
+        '<|im_start|>': 200264,
+        '<|im_end|>': 200265,
+        '<|im_sep|>': 200266,
+    },
+    cl100k_base: {
+        '<|im_start|>': 100264,
+        '<|im_end|>': 100265,
+        '<|im_sep|>': 100266,
+    },
+};
 
 // We're capping at 5MB, which sucks, but Chat Completions doesn't suuport
 // file inputs.
 const MAX_FILE_SIZE = 5 * 1_000_000;
 
+let tokenizers = {};
 /**
 * OpenAICompletionService class provides an interface to OpenAI's chat completion API.
 * Extends BaseService to handle chat completions, message moderation, token counting,
@@ -219,9 +235,7 @@ export class OpenAiChatProvider implements IChatProvider {
                 }
             ),
         } as ChatCompletionCreateParams;
-
         const completion = await this.#openAi.chat.completions.create(completionParams);
-
         return OpenAiUtil.handle_completion_output({
             usage_calculator: ({ usage }) => {
                 const trackedUsage = {
@@ -241,6 +255,48 @@ export class OpenAiChatProvider implements IChatProvider {
             completion,
             moderate: moderation ? this.checkModeration.bind(this) : undefined,
         });
+    }
+
+    async tokenize ({ messages, model, tools }) {
+        console.log('tokenizer starting');
+        // Locate and load tokenizer into memory if it isn't already
+        const modelRequested = (this.models()).find(m => [m.id, ...(m.aliases || [])].includes(model)) || (this.models()).find(m => m.id === this.getDefaultModel())!;
+        const modelEncoding = modelEncodings[modelRequested.id];
+        if ( ! tokenizers[modelEncoding] ) {
+            const modelEncoder = get_encoding(modelEncodings[modelRequested.id], special_tokens[modelEncoding]);
+            tokenizers[modelEncoding] = modelEncoder;
+        }
+        const encoder = tokenizers[modelEncoding];
+        console.log('tokenizer loaded');
+
+        // Calculate tokens from tool schema (this is about as close to the calculation I could get, but it still is an overestimate)
+        let toolTokens = 0;
+        if ( tools ) {
+            toolTokens = encoder.encode(JSON.stringify(tools.map(e => e.function))).length;
+        }
+
+        // Calculate tokens from messages
+        messages = await OpenAiUtil.process_input_messages(messages);
+        let fullMessageText = '';
+        for ( const message of messages ) {
+            if ( message.content ) {
+                let messageText = '';
+                message.content.forEach(e => {
+                    if ( e.text )
+                    {
+                        messageText += e.text;
+                    }
+                });
+                fullMessageText += `<|im_start|>${ message.role }<|im_sep|>${ messageText }<|im_end|>`;
+            }
+        }
+        fullMessageText += '<|im_start|>assistant<|im_sep|>';
+        const messageTokens = encoder.encode(fullMessageText, 'all').length;
+
+        const totalTokens = messageTokens + toolTokens;
+        console.log('tokenized: ', fullMessageText);
+        console.log('tokenized: cost: ', totalTokens);
+        return { input_tokens: totalTokens };
     }
 
     async checkModeration (text: string) {

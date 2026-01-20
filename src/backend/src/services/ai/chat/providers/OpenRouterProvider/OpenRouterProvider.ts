@@ -25,7 +25,7 @@ import { Context } from '../../../../../util/context.js';
 import { kv } from '../../../../../util/kvSingleton.js';
 import { MeteringService } from '../../../../MeteringService/MeteringService.js';
 import * as OpenAIUtil from '../../../utils/OpenAIUtil.js';
-import { IChatModel, IChatProvider } from '../types.js';
+import { IChatModel, IChatProvider, ICompleteArguments } from '../types.js';
 
 export class OpenRouterProvider implements IChatProvider {
 
@@ -168,6 +168,20 @@ export class OpenRouterProvider implements IChatProvider {
             });
         }
         return coerced_models;
+    }
+    async tokenize ({ model, messages }) {
+        const modelUsed = (await this.models()).find(m => [m.id, ...(m.aliases || [])].includes(model)) || (await this.models()).find(m => m.id === this.getDefaultModel())!;
+        const modelIdForParams = modelUsed.id.startsWith('openrouter:') ? modelUsed.id.slice('openrouter:'.length) : modelUsed.id;
+        const [provider, modelName] = modelIdForParams.split('/');
+        if ( provider.toLowerCase() === 'openai' ) {
+            // Forward to openai tokenizer
+        }
+        if ( provider.toLowerCase() === 'anthropic' ) {
+            // Forward to anthropic tokenizer
+        }
+        // Fall through case: Use OpenAI tokenizer with 1.2x penalty
+
+        return { input_tokens: 0 };
     }
     checkModeration (_text: string): ReturnType<IChatProvider['checkModeration']> {
         throw new Error('Method not implemented.');
