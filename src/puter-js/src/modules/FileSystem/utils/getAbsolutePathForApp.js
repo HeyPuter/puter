@@ -7,6 +7,12 @@ const getAbsolutePathForApp = (relativePath) => {
         return relativePath;
     }
 
+    const reLooksLikeUUID = /^[0-9a-f]{8}(-[0-9a-f]{4}){3}-[0-9a-f]{12}$/i;
+    const isUUID = reLooksLikeUUID.test(relativePath);
+    if ( isUUID ) {
+        return relativePath;
+    }
+
     // if no relative path is provided, use the current working directory
     if ( ! relativePath )
     {
