@@ -887,9 +887,7 @@ class PermissionService extends BaseService {
 
         // DELETE permission
         await this.services.get('su').sudo(() =>
-            this.kvService.set(PermissionUtil.join(PERM_KEY_PREFIX, user.id, permission), {
-                deleted: true,
-            }));
+            this.kvService.del({ key: PermissionUtil.join(PERM_KEY_PREFIX, user.id, permission) }));
 
     }
     /**
