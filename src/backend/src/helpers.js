@@ -346,14 +346,10 @@ async function get_app (options) {
         return { ...app };
     }
 
-    log.cache(false, cacheKey);
-
     // Check if there's already a pending query for this key (request coalescing)
     const pendingKey = `pending_app:${queryKey}`;
     const pending = kv.get(pendingKey);
     if ( pending ) {
-        // Reuse the existing pending query
-        log.info(`coalescing query for ${queryKey}`);
         const result = await pending;
         // shallow clone the result
         return result ? { ...result } : null;
