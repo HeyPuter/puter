@@ -59,7 +59,7 @@ class ProtectedAppService extends BaseService {
         // Owner of procted app has implicit permission to access it
         svc_permission.register_implicator(PermissionImplicator.create({
             matcher: permission => {
-                return permission.startsWith('app:');
+                return permission.startsWith('app:') || permission.startsWith('manage:app');
             },
             checker: async ({ actor, permission }) => {
                 if ( ! (actor.type instanceof UserActorType) ) {
@@ -67,10 +67,12 @@ class ProtectedAppService extends BaseService {
                 }
 
                 const parts = PermissionUtil.split(permission);
-                if ( parts.length !== 3 ) return undefined;
 
-                const [_, uid_part, lvl] = parts;
-                if ( lvl !== 'access' ) return undefined;
+                if ( parts[0] === 'manage' ) parts.shift();
+
+                if ( parts.length < 2 ) return undefined;
+
+                const [_, uid_part] = parts;
 
                 // track: slice a prefix
                 const uid = uid_part.slice('uid#'.length);
