@@ -67,6 +67,7 @@ export default {
         CaptchaModule,
         EntityStoreModule,
         KVStoreModule,
+        DataAccessModule,
     ],
 
     // Pre-built modules
@@ -85,7 +86,6 @@ export default {
     KVStoreModule,
     DNSModule,
     DomainModule,
-    DataAccessModule,
 
     // Development modules
     DevelopmentModule,
