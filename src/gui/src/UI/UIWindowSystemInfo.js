@@ -33,31 +33,17 @@ async function getClientInfo () {
 
         clientInfo.push ({
             key: 'browser',
-            icon: 'browser.svg',
+            icon: 'system-info-browser.svg',
             i18n_key: 'browser',
             title: i18n('browser'),
-            value: browser,
-        },
-        {
-            key: 'browser_version',
-            icon: 'browser-version.svg',
-            i18n_key: 'browser_version',
-            title: i18n('browser_version'),
-            value: browserVersion,
+            value: `${browser} ${browserVersion}`,
         },
         {
             key: 'os',
-            icon: 'os.svg',
-            i18n_key: 'os',
+            icon: 'system-info-os.svg',
+            i18n_key: 'system-info-os',
             title: i18n('os'),
-            value: os,
-        },
-        {
-            key: 'os_version',
-            icon: 'os-version.svg',
-            i18n_key: 'os_version',
-            title: i18n('os_version'),
-            value: osVersion,
+            value: `${os} ${osVersion}`,
         });
     } else {
         // Fallback for older browsers
@@ -71,7 +57,7 @@ async function getClientInfo () {
 
         clientInfo.push({
             key: 'os',
-            icon: 'os.svg',
+            icon: 'system-info-os.svg',
             i18n_key: 'os',
             title: i18n('os'),
             value: os,
@@ -84,14 +70,14 @@ async function getClientInfo () {
 
     clientInfo.push({
         key: 'cpu_cores',
-        icon: 'cpu.svg',
+        icon: 'system-info-cpu.svg',
         i18n_key: 'cpu_cores',
         title: i18n('cpu_cores'),
-        value: cpuCores,
+        value: `${cpuCores} cores`,
     },
     {
         key: 'ram',
-        icon: 'ram.svg',
+        icon: 'system-info-ram.svg',
         i18n_key: 'ram',
         title: i18n('ram'),
         value: ram,
@@ -104,24 +90,24 @@ async function getClientInfo () {
 
     clientInfo.push({
         key: 'screen_resolution',
-        icon: 'screen.svg',
+        icon: 'system-info-screen.svg',
         i18n_key: 'screen_resolution',
         title: i18n('screen_resolution'),
         value: screenResolution,
     },
     {
         key: 'pixel_ratio',
-        icon: 'pixel.svg',
+        icon: 'system-info-pixel.svg',
         i18n_key: 'pixel_ratio',
         title: i18n('pixel_ratio'),
-        value: pixelRatio,
+        value: `${pixelRatio}x`,
     },
     {
         key: 'color_depth',
-        icon: 'color.svg',
+        icon: 'system-info-color.svg',
         i18n_key: 'color_depth',
         title: i18n('color_depth'),
-        value: colorDepth,
+        value: `${colorDepth} bits`,
     });
 
     return clientInfo;
@@ -132,10 +118,10 @@ function renderSystemInfo ( information ) {
     for ( const info of information ) {
         html += `<div class="systeminfo-item">
                     <h3 class='systeminfo-title'>${info.title}</h3>
-                    <span class='systeminfo-value'>
+                    <div class='systeminfo-value'>
                         <img src='${window.icons[info.icon]}' class="systeminfo-icon" alt='${info.i18n} image'>
                         ${info.value}
-                    </span>
+                    </div>
                 </div>`;
     }
     return html;
@@ -143,9 +129,6 @@ function renderSystemInfo ( information ) {
 
 async function UIWindowSystemInfo (options) {
     return new Promise(async (resolve) => {
-        const clientInfo = await getClientInfo();
-        const clientInfohtml = renderSystemInfo(clientInfo);
-
         // Build client & Server containers & headers
         const h = `<div class="systeminfo-container">
                        <div class="clientinfo-container">
@@ -157,9 +140,7 @@ async function UIWindowSystemInfo (options) {
                                    </svg>
                                </button>
                            </h1>
-                           <div class="clientinfo-content">
-                               ${clientInfohtml}
-                           </div>
+                           <div class="clientinfo-content"></div>
                        </div>
                        <div class="serverinfo-container">
                            <h1>${i18n('server_information')}
@@ -206,19 +187,25 @@ async function UIWindowSystemInfo (options) {
         // Scope jQuery to this window
         const $win = $(el_window);
 
+        // Inject client info on launch
+        const clientInfo = await getClientInfo();
+        const clientInfohtml = renderSystemInfo(clientInfo);
+        $win.find('.clientinfo-content').html(clientInfohtml);
+
         // Spin both reset buttons once on launch
         const $icons = $win.find('.update-usage-details-icon');
         $icons.addClass('spin-once');
-
-        resolve(el_window);
 
         // Refresh button onclick event
         $win.on('click', '.update-usage-details', async function () {
             triggerRefreshBtnAnimation($(this));
             const clientInfo = await getClientInfo();
-            $win.find('.clientinfo-content').html(renderSystemInfo(clientInfo));
+            const clientInfohtml = renderSystemInfo(clientInfo);
+            $win.find('.clientinfo-content').html(clientInfohtml);
             console.log(clientInfo);
         });
+
+        resolve(el_window);
     });
 }
 

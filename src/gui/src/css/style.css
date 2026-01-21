@@ -2995,6 +2995,45 @@ label {
     to { transform: rotate(360deg); }
 }
 
+.clientinfo-content {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 16px;
+}
+
+.systeminfo-item {
+    flex: 1 1 45%; /* Grow, shrink, min width 45% */
+    min-width: 150px; /* Prevents items from getting too small */
+    box-sizing: border-box;
+    display: flex;
+    flex-direction: column;
+    gap: 5px
+}
+
+.systeminfo-value {
+    display: flex;
+    justify-content: flex-start;
+    align-items: center;
+    gap: 10px;
+}
+
+.systeminfo-title {
+    font-weight: 500;
+    font-size: 14px;
+    color: #3C4963;
+    margin: 0;
+}
+
+.systeminfo-value {
+    color: #3C4963;
+    font-size: 13px;
+}
+
+.systeminfo-icon {
+    width: 20px;
+    height: 20px;
+}
+
 /*****************************************************
  * Tooltip
  *****************************************************/
