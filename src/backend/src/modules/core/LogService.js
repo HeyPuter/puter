@@ -255,7 +255,7 @@ class WinstonLogger {
     constructor (winst) {
         this.winst = winst;
     }
-    onLogMessage (log_lvl, crumbs, message, fields, objects) {
+    onLogMessage (log_lvl, crumbs, message, fields) {
         this.winst.log({
             ...fields,
             label: crumbs.join('.'),
@@ -336,7 +336,7 @@ class CustomLogger {
                 args: a,
             });
         } catch (e) {
-            console.error('error?', e);
+            console.error(e);
         }
 
         if ( ret && ret.skip ) return;
@@ -404,7 +404,7 @@ class LogService extends BaseService {
             {
                 id: 'show',
                 description: 'toggle log output',
-                handler: async (args, log) => {
+                handler: async () => {
                     this.devlogger && (this.devlogger.off = !this.devlogger.off);
                 },
             },
@@ -423,7 +423,7 @@ class LogService extends BaseService {
             {
                 id: 'stop',
                 description: 'stop recording to a file via dev logger',
-                handler: async ([name], log) => {
+                handler: async ([_name], log) => {
                     if ( ! this.devlogger ) {
                         log('no dev logger; what are you doing?');
                     }
@@ -433,7 +433,7 @@ class LogService extends BaseService {
             {
                 id: 'indent',
                 description: 'toggle log indentation',
-                handler: async (args, log) => {
+                handler: async () => {
                     globalThis.dev_console_indent_on =
                         !globalThis.dev_console_indent_on;
                 },

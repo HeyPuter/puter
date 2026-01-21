@@ -35,6 +35,10 @@ const query = require('./om/query/query');
  */
 const install = async ({ context, services, app, useapi, modapi }) => {
     const config = require('./config');
+    const { TelemetryService } = require('./modules/perfmon/TelemetryService');
+    if ( ! services.has('telemetry') ) {
+        services.registerService('telemetry', TelemetryService);
+    }
 
     // === LIBRARIES ===
 

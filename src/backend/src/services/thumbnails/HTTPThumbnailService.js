@@ -349,9 +349,6 @@ class HTTPThumbnailService extends BaseService {
 
         const results = resp.data;
 
-        console.debug('response?', { resp });
-        console.debug('data?', { data: resp.data });
-
         if ( results.length !== queue.length ) {
             this.log.error('Thumbnail service returned wrong number of results');
             throw new Error('Thumbnail service returned wrong number of results');
@@ -393,9 +390,7 @@ class HTTPThumbnailService extends BaseService {
         }
 
         const form = new FormData();
-        let expected = 0;
         for ( const job of queue ) {
-            expected++;
 
             /**
             * Prepares and sends a request to the thumbnail service for processing multiple files.

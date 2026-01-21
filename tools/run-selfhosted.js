@@ -98,7 +98,6 @@ const main = async () => {
         InternetModule,
         DevelopmentModule,
         DNSModule,
-        PerfMonModule,
         DataAccessModule,
     } = (await import('@heyputer/backend')).default;
 
@@ -118,7 +117,6 @@ const main = async () => {
     k.add_module(new PuterAIModule());
     k.add_module(new InternetModule());
     k.add_module(new DNSModule());
-    k.add_module(new PerfMonModule());
     if ( process.env.UNSAFE_PUTER_DEV ) {
         k.add_module(new DevelopmentModule());
     }

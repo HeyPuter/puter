@@ -90,7 +90,7 @@ class BroadcastService extends BaseService {
                 }
 
                 if ( key === 'test' ) {
-                    this.log.noticeme(`test message: ${
+                    console.debug(`test message: ${
                         JSON.stringify(data)}`);
                 }
 
@@ -108,7 +108,7 @@ class BroadcastService extends BaseService {
             {
                 id: 'test',
                 description: 'send a test message',
-                handler: async (args, ctx) => {
+                handler: async () => {
                     this.on_event('test', {
                         contents: 'I am a test message',
                     }, {});

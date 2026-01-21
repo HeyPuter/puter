@@ -35,7 +35,6 @@ import { EntityStoreModule } from './src/modules/entitystore/EntityStoreModule.j
 import { HostOSModule } from './src/modules/hostos/HostOSModule.js';
 import { InternetModule } from './src/modules/internet/InternetModule.js';
 import { KVStoreModule } from './src/modules/kvstore/KVStoreModule.js';
-import { PerfMonModule } from './src/modules/perfmon/PerfMonModule.js';
 import { PuterFSModule } from './src/modules/puterfs/PuterFSModule.js';
 import SelfHostedModule from './src/modules/selfhosted/SelfHostedModule.js';
 import { TestConfigModule } from './src/modules/test-config/TestConfigModule.js';
@@ -89,6 +88,5 @@ export default {
     DataAccessModule,
 
     // Development modules
-    PerfMonModule,
     DevelopmentModule,
 };

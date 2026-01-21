@@ -24,51 +24,36 @@ import { Resource } from '@opentelemetry/resources';
 import { ConsoleMetricExporter, PeriodicExportingMetricReader } from '@opentelemetry/sdk-metrics';
 import { NodeSDK } from '@opentelemetry/sdk-node';
 import { ConsoleSpanExporter } from '@opentelemetry/sdk-trace-base';
-import { SemanticResourceAttributes } from '@opentelemetry/semantic-conventions';
+import { SemanticAttributes, SemanticResourceAttributes } from '@opentelemetry/semantic-conventions';
 import config from '../../config.js';
 import BaseService from '../../services/BaseService.js';
 
 export class TelemetryService extends BaseService {
+    static TRACER_NAME = 'puter-tracer';
+    static #sharedSdk = null;
+    static #sharedTracer = null;
+    static #telemetryStarted = false;
+
     /** @type {import('@opentelemetry/api').Tracer} */
     #tracer = null;
-    _construct () {
 
-        const traceExporter = this.#getConfiguredExporter();
-        const metricExporter = this.#getMetricExporter();
-
-        if ( !traceExporter && !metricExporter ) {
-            console.log('TelemetryService not configured, skipping initialization.');
-            return;
-        }
-
-        const resource = Resource.default().merge(
-                        new Resource({
-                            [SemanticResourceAttributes.SERVICE_NAME]: 'puter-backend',
-                            [SemanticResourceAttributes.SERVICE_VERSION]: '0.1.0',
-                        }));
-
-        const sdk = new NodeSDK({
-            resource,
-            traceExporter: traceExporter,
-            metricReader: new PeriodicExportingMetricReader({
-                exporter: metricExporter,
-            }),
-            instrumentations: [getNodeAutoInstrumentations()],
+    constructor (service_resources, ...args) {
+        super(service_resources, ...args);
+        const { sdk, tracer } = TelemetryService.#startTelemetry({
+            serviceConfig: this.config,
         });
-
         this.sdk = sdk;
-
-        this.sdk.start();
-
-        this.#tracer = trace.getTracer('puter-tracer');
-
+        this.#tracer = tracer;
     }
 
     _init () {
         if ( ! this.#tracer ) {
             return;
         }
-        const svc_context = this.services.get('context');
+        const svc_context = this.services.get('context', { optional: true });
+        if ( ! svc_context ) {
+            return;
+        }
         svc_context.register_context_hook('pre_arun', ({ hints, trace_name, callback, replace_callback }) => {
             if ( ! trace_name ) return;
             if ( ! hints.trace ) return;
@@ -87,21 +72,138 @@ export class TelemetryService extends BaseService {
         });
     }
 
-    #getConfiguredExporter () {
-        if ( config.jaeger ?? this.config.jaeger ) {
-            return new OTLPTraceExporter(config.jaeger ?? this.config.jaeger);
+    static #normalizeRoute (route) {
+        if ( Array.isArray(route) ) {
+            for ( const entry of route ) {
+                if ( typeof entry === 'string' ) {
+                    return entry;
+                }
+            }
+            return undefined;
         }
-        if ( this.config.console ) {
+        if ( typeof route === 'string' ) {
+            return route;
+        }
+        if ( route instanceof RegExp ) {
+            return route.toString();
+        }
+    }
+
+    static #buildRoute (req, route) {
+        const normalized = TelemetryService.#normalizeRoute(route);
+        if ( ! normalized ) {
+            return undefined;
+        }
+        const baseUrl = typeof req?.baseUrl === 'string' ? req.baseUrl : '';
+        const combined = `${baseUrl}${normalized}`;
+        return combined || normalized;
+    }
+
+    static #applyRouteToSpan (span, req, route) {
+        if ( ! route ) {
+            return;
+        }
+        span.setAttribute(SemanticAttributes.HTTP_ROUTE, route);
+        if ( typeof span.updateName === 'function' && req?.method ) {
+            span.updateName(`HTTP ${req.method} ${route}`);
+        }
+    }
+
+    static #buildInstrumentationConfig () {
+        return {
+            '@opentelemetry/instrumentation-http': {
+                responseHook: (span, response) => {
+                    const req = response?.req;
+                    const route = TelemetryService.#buildRoute(req, req?.route?.path);
+                    TelemetryService.#applyRouteToSpan(span, req, route);
+                },
+            },
+            '@opentelemetry/instrumentation-express': {
+                spanNameHook: (info, defaultName) => {
+                    if ( info.layerType !== 'request_handler' ) {
+                        return defaultName;
+                    }
+                    const route = TelemetryService.#buildRoute(info.request, info.route);
+                    if ( !route || !info.request?.method ) {
+                        return defaultName;
+                    }
+                    return `HTTP ${info.request.method} ${route}`;
+                },
+                requestHook: (span, info) => {
+                    const route = TelemetryService.#buildRoute(info.request, info.route);
+                    if ( route ) {
+                        span.setAttribute(SemanticAttributes.HTTP_ROUTE, route);
+                    }
+                },
+            },
+        };
+    }
+
+    static #resolveExporterConfig (serviceConfig) {
+        return config.jaeger ?? serviceConfig?.jaeger;
+    }
+
+    static #getConfiguredExporter (serviceConfig) {
+        const exporterConfig = TelemetryService.#resolveExporterConfig(serviceConfig);
+        if ( exporterConfig ) {
+            return new OTLPTraceExporter(exporterConfig);
+        }
+        if ( serviceConfig?.console ) {
             return new ConsoleSpanExporter();
         }
     }
 
-    #getMetricExporter () {
-        if ( config.jaeger ?? this.config.jaeger ) {
-            return new OTLPMetricExporter(config.jaeger ?? this.config.jaeger);
+    static #getMetricExporter (serviceConfig) {
+        const exporterConfig = TelemetryService.#resolveExporterConfig(serviceConfig);
+        if ( exporterConfig ) {
+            return new OTLPMetricExporter(exporterConfig);
         }
-        if ( this.config.console ) {
+        if ( serviceConfig?.console ) {
             return new ConsoleMetricExporter();
         }
+    }
+
+    static #startTelemetry ({ serviceConfig } = {}) {
+        if ( TelemetryService.#telemetryStarted ) {
+            return { sdk: TelemetryService.#sharedSdk, tracer: TelemetryService.#sharedTracer };
+        }
+        TelemetryService.#telemetryStarted = true;
+
+        const effectiveConfig = serviceConfig ?? config.services?.telemetry ?? {};
+        const traceExporter = TelemetryService.#getConfiguredExporter(effectiveConfig);
+        const metricExporter = TelemetryService.#getMetricExporter(effectiveConfig);
+
+        if ( !traceExporter && !metricExporter ) {
+            console.log('TelemetryService not configured, skipping initialization.');
+            return { sdk: null, tracer: null };
+        }
+
+        const resource = Resource.default().merge(
+                        new Resource({
+                            [SemanticResourceAttributes.SERVICE_NAME]: 'puter-backend',
+                            [SemanticResourceAttributes.SERVICE_VERSION]: '0.1.0',
+                        }));
+
+        const sdkConfig = {
+            resource,
+            instrumentations: [
+                getNodeAutoInstrumentations(TelemetryService.#buildInstrumentationConfig()),
+            ],
+        };
+
+        if ( traceExporter ) {
+            sdkConfig.traceExporter = traceExporter;
+        }
+        if ( metricExporter ) {
+            sdkConfig.metricReader = new PeriodicExportingMetricReader({
+                exporter: metricExporter,
+            });
+        }
+
+        TelemetryService.#sharedSdk = new NodeSDK(sdkConfig);
+        TelemetryService.#sharedSdk.start();
+        TelemetryService.#sharedTracer = trace.getTracer(TelemetryService.TRACER_NAME);
+
+        return { sdk: TelemetryService.#sharedSdk, tracer: TelemetryService.#sharedTracer };
     }
 }

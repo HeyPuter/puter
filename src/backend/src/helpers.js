@@ -276,9 +276,7 @@ async function refresh_apps_cache (options, override) {
 async function refresh_associations_cache () {
     /** @type BaseDatabaseAccessService */
     const db = _servicesHolder.services.get('database').get(DB_READ, 'apps');
-
-    const log = _servicesHolder.services.get('log-service').create('helpers.js');
-    log.tick('refresh file associations');
+    console.debug('refresh file associations');
     const associations = await db.read('SELECT * FROM app_filetype_association');
     const lists = {};
     for ( const association of associations ) {
@@ -356,6 +354,7 @@ async function get_app (options) {
     const pendingKey = `pending_app:${queryKey}`;
     const pending = kv.get(pendingKey);
     if ( pending ) {
+        // Reuse the existing pending query
         const result = await pending;
         // shallow clone the result
         return result ? { ...result } : null;
