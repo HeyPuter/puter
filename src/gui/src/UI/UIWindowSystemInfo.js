@@ -18,7 +18,7 @@ const triggerRefreshBtnAnimation = ($btn) => {
 };
 // Leverage User-Agent Client Hints API to request user browser information
 async function getClientInfo () {
-    const clientInfo = {};
+    let clientInfo = [];
 
     // Get browser & OS info
     if ( navigator.userAgentData ) {
@@ -31,7 +31,34 @@ async function getClientInfo () {
         const os = uaData.platform || 'Unknown';
         const osVersion = uaData.platformVersion || 'Unknown';
 
-        clientInfo.browserInfo = { browser, browserVersion, os, osVersion };
+        clientInfo.push ({
+            key: 'browser',
+            icon: 'browser.svg',
+            i18n_key: 'browser',
+            title: i18n('browser'),
+            value: browser,
+        },
+        {
+            key: 'browser_version',
+            icon: 'browser-version.svg',
+            i18n_key: 'browser_version',
+            title: i18n('browser_version'),
+            value: browserVersion,
+        },
+        {
+            key: 'os',
+            icon: 'os.svg',
+            i18n_key: 'os',
+            title: i18n('os'),
+            value: os,
+        },
+        {
+            key: 'os_version',
+            icon: 'os-version.svg',
+            i18n_key: 'os_version',
+            title: i18n('os_version'),
+            value: osVersion,
+        });
     } else {
         // Fallback for older browsers
         const userAgent = navigator.userAgent;
@@ -42,51 +69,109 @@ async function getClientInfo () {
         else if ( /Android/.test(userAgent) ) os = 'Android';
         else if ( /iPhone|iPad|iPod/.test(userAgent) ) os = 'iOS';
 
-        clientInfo.browserInfo = { browser: 'Unknown', browserVersion: 'Unknown', os, osVersion: 'Unknown' };
+        clientInfo.push({
+            key: 'os',
+            icon: 'os.svg',
+            i18n_key: 'os',
+            title: i18n('os'),
+            value: os,
+        });
     }
 
     // Get hardware info
     const cpuCores = navigator.hardwareConcurrency || 'Unknown';
-    const ramGB = navigator.deviceMemory ? `${navigator.deviceMemory} GB (approx)` : 'Unknown';
+    const ram = navigator.deviceMemory ? `${navigator.deviceMemory} GB (approx)` : 'Unknown';
 
-    clientInfo.hardwareInfo = { cpuCores, ramGB };
+    clientInfo.push({
+        key: 'cpu_cores',
+        icon: 'cpu.svg',
+        i18n_key: 'cpu_cores',
+        title: i18n('cpu_cores'),
+        value: cpuCores,
+    },
+    {
+        key: 'ram',
+        icon: 'ram.svg',
+        i18n_key: 'ram',
+        title: i18n('ram'),
+        value: ram,
+    });
 
     // Get screen info
     const screenResolution = `${window.screen.width}x${window.screen.height}`;
     const pixelRatio = window.devicePixelRatio;
     const colorDepth = window.screen.colorDepth;
 
-    clientInfo.screenInfo = { screenResolution, pixelRatio, colorDepth };
+    clientInfo.push({
+        key: 'screen_resolution',
+        icon: 'screen.svg',
+        i18n_key: 'screen_resolution',
+        title: i18n('screen_resolution'),
+        value: screenResolution,
+    },
+    {
+        key: 'pixel_ratio',
+        icon: 'pixel.svg',
+        i18n_key: 'pixel_ratio',
+        title: i18n('pixel_ratio'),
+        value: pixelRatio,
+    },
+    {
+        key: 'color_depth',
+        icon: 'color.svg',
+        i18n_key: 'color_depth',
+        title: i18n('color_depth'),
+        value: colorDepth,
+    });
 
     return clientInfo;
 }
 
+function renderSystemInfo ( information ) {
+    let html = '';
+    for ( const info of information ) {
+        html += `<div class="systeminfo-item">
+                    <h3 class='systeminfo-title'>${info.title}</h3>
+                    <span class='systeminfo-value'>
+                        <img src='${window.icons[info.icon]}' class="systeminfo-icon" alt='${info.i18n} image'>
+                        ${info.value}
+                    </span>
+                </div>`;
+    }
+    return html;
+}
+
 async function UIWindowSystemInfo (options) {
     return new Promise(async (resolve) => {
-        let h = '';
+        const clientInfo = await getClientInfo();
+        const clientInfohtml = renderSystemInfo(clientInfo);
 
-        h = `<div class="systeminfo-container">
-                <div class="clientinfo-container">
-                    <h1>${i18n('client_information')}
-                        <button class="update-usage-details" style="float:right;">
-                            <svg class="update-usage-details-icon" xmlns="http://www.w3.org/2000/svg" width="16" height="16" fill="currentColor" viewBox="0 0 16 16">
-                                <path fill-rule="evenodd" d="M8 3a5 5 0 1 0 4.546 2.914.5.5 0 0 1 .908-.417A6 6 0 1 1 8 2z"/>
-                                <path d="M8 4.466V.534a.25.25 0 0 1 .41-.192l2.36 1.966c.12.1.12.284 0 .384L8.41 4.658A.25.25 0 0 1 8 4.466"/>
-                            </svg>
-                        </button>
-                    </h1>
-                </div>
-                <div class="serverinfo-container">
-                    <h1>${i18n('server_information')}
-                        <button class="update-usage-details" style="float:right;">
-                            <svg class="update-usage-details-icon" xmlns="http://www.w3.org/2000/svg" width="16" height="16" fill="currentColor" viewBox="0 0 16 16">
-                                <path fill-rule="evenodd" d="M8 3a5 5 0 1 0 4.546 2.914.5.5 0 0 1 .908-.417A6 6 0 1 1 8 2z"/>
-                                <path d="M8 4.466V.534a.25.25 0 0 1 .41-.192l2.36 1.966c.12.1.12.284 0 .384L8.41 4.658A.25.25 0 0 1 8 4.466"/>
-                            </svg>
-                        </button>
-                    </h1>
-                </div>
-            </div>`;
+        // Build client & Server containers & headers
+        const h = `<div class="systeminfo-container">
+                       <div class="clientinfo-container">
+                           <h1>${i18n('client_information')}
+                               <button class="update-usage-details" style="float:right;">
+                                   <svg class="update-usage-details-icon" xmlns="http://www.w3.org/2000/svg" width="16" height="16" fill="currentColor" viewBox="0 0 16 16">
+                                       <path fill-rule="evenodd" d="M8 3a5 5 0 1 0 4.546 2.914.5.5 0 0 1 .908-.417A6 6 0 1 1 8 2z"/>
+                                       <path d="M8 4.466V.534a.25.25 0 0 1 .41-.192l2.36 1.966c.12.1.12.284 0 .384L8.41 4.658A.25.25 0 0 1 8 4.466"/>
+                                   </svg>
+                               </button>
+                           </h1>
+                           <div class="clientinfo-content">
+                               ${clientInfohtml}
+                           </div>
+                       </div>
+                       <div class="serverinfo-container">
+                           <h1>${i18n('server_information')}
+                               <button class="update-usage-details" style="float:right;">
+                                   <svg class="update-usage-details-icon" xmlns="http://www.w3.org/2000/svg" width="16" height="16" fill="currentColor" viewBox="0 0 16 16">
+                                       <path fill-rule="evenodd" d="M8 3a5 5 0 1 0 4.546 2.914.5.5 0 0 1 .908-.417A6 6 0 1 1 8 2z"/>
+                                       <path d="M8 4.466V.534a.25.25 0 0 1 .41-.192l2.36 1.966c.12.1.12.284 0 .384L8.41 4.658A.25.25 0 0 1 8 4.466"/>
+                                   </svg>
+                               </button>
+                           </h1>
+                       </div>                    
+                   </div>`;
 
         const el_window = await UIWindow({
             title: 'System Information',
@@ -106,7 +191,7 @@ async function UIWindowSystemInfo (options) {
             allow_user_select: true,
             backdrop: false,
             width: 560,
-            height: 'auto',
+            height: 540,
             dominant: true,
             show_in_taskbar: true,
             draggable_body: false,
@@ -131,7 +216,7 @@ async function UIWindowSystemInfo (options) {
         $win.on('click', '.update-usage-details', async function () {
             triggerRefreshBtnAnimation($(this));
             const clientInfo = await getClientInfo();
-
+            $win.find('.clientinfo-content').html(renderSystemInfo(clientInfo));
             console.log(clientInfo);
         });
     });

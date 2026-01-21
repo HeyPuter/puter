@@ -30,6 +30,7 @@ async function UIWindowSettings (options) {
 
         const tabs = svc_settings.get_tabs();
         const tab_placeholders = [];
+        console.log(tabs);
 
         let h = '';
 
