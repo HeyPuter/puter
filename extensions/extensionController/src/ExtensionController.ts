@@ -96,8 +96,10 @@ export class HttpError extends Error {
 
 // Registers all routes from a decorated controller instance to an Express router
 export class ExtensionController {
+    logger?: Console;
     // TODO DS: make this work with other express-like routers
     registerRoutes () {
+        const logger = this.logger || console;
         const prefix = Object.getPrototypeOf(this).__controllerPrefix || '';
         const adminsForController = Object.getPrototypeOf(this).__adminUsernames as
             | string[]
@@ -126,7 +128,7 @@ export class ExtensionController {
             if ( ! extension[route.method] ) {
                 throw new Error(`Unsupported HTTP method: ${route.method}`);
             } else {
-                console.log(`Registering route: [${route.method.toUpperCase()}] ${fullPath}`);
+                logger.log(`Registering route: [${route.method.toUpperCase()}] ${fullPath}`);
 
                 (extension[route.method] as RouterMethods[HttpMethod])(
                                 fullPath,
@@ -154,20 +156,16 @@ export class ExtensionController {
                                     } catch ( error ) {
                                         if ( error instanceof HttpError ) {
                                             res.status(error.statusCode).send({ error: error.message });
-                                            console.error('httpError:', error);
+                                            logger.warn('httpError:', error);
                                             return;
                                         }
                                         if ( error instanceof Error ) {
-                                            res
-                                                .status(StatusCodes.INTERNAL_SERVER_ERROR)
-                                                .send({ error: error.message });
-                                            console.error('Non-http error:', error);
+                                            res.status(StatusCodes.INTERNAL_SERVER_ERROR).send({ error: error.message });
+                                            logger.error('Non-http error:', error);
                                             return;
                                         }
-                                        res
-                                            .status(StatusCodes.INTERNAL_SERVER_ERROR)
-                                            .send({ error: 'An unknown error occurred' });
-                                        console.error('An unknown error occurred:', error);
+                                        res.status(StatusCodes.INTERNAL_SERVER_ERROR).send({ error: 'An unknown error occurred' });
+                                        logger.error('An unknown error occurred:', error);
                                     }
                                 });
             }

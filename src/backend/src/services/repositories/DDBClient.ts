@@ -16,19 +16,27 @@ interface DBClientConfig {
 }
 
 export class DDBClient {
-    ddbClient: Promise<DynamoDBClient>;
+    ddbClientPromise: Promise<DynamoDBClient>;
     #documentClient!: DynamoDBDocumentClient;
     config?: DBClientConfig;
 
     constructor (config?: DBClientConfig) {
         this.config = config;
-        this.ddbClient = this.#getClient();
-        this.ddbClient.then(client => {
+        this.ddbClientPromise = this.#getClient();
+        this.ddbClientPromise.then(client => {
             this.#documentClient = DynamoDBDocumentClient.from(client, {
                 marshallOptions: {
                     removeUndefinedValues: true,
                 } });
         });
+    }
+
+    async recreateClient () {
+        this.ddbClientPromise = this.#getClient();
+        this.#documentClient = DynamoDBDocumentClient.from(await this.ddbClientPromise, {
+            marshallOptions: {
+                removeUndefinedValues: true,
+            } });
     }
 
     async #getClient () {

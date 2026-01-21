@@ -101,7 +101,7 @@ class LocalTerminalService extends BaseService {
                     const svc_socketio = req.services.get('socketio');
                     proc.stdout.on('data', data => {
                         const base64 = data.toString('base64');
-                        console.log('---------------------- CHUNK?', base64);
+                        console.debug('---------------------- CHUNK?', base64);
                         svc_socketio.send({ room: req.user.id },
                                         'local-terminal.stdout',
                                         {
@@ -111,7 +111,7 @@ class LocalTerminalService extends BaseService {
                     });
                     proc.stderr.on('data', data => {
                         const base64 = data.toString('base64');
-                        console.log('---------------------- CHUNK?', base64);
+                        console.debug('---------------------- CHUNK?', base64);
                         svc_socketio.send({ room: req.user.id },
                                         'local-terminal.stderr',
                                         {

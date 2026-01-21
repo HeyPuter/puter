@@ -404,16 +404,15 @@ class CaptchaService extends BaseService {
      * @returns {boolean} Whether the answer is valid
      */
     verifyCaptcha (token, userAnswer) {
-        console.log('====== CAPTCHA SERVICE VERIFICATION DIAGNOSTIC ======');
-        console.log('TOKENS_TRACKING: verifyCaptcha called. Service ID:', this.serviceId);
-        console.log('TOKENS_TRACKING: Request counter during verification:', this.requestCounter);
-        console.log('TOKENS_TRACKING: Static test token exists:', this.captchaTokens.has('test-static-token'));
-        console.log('TOKENS_TRACKING: Trying to verify token:', token ? `${token.substring(0, 8) }...` : 'undefined');
-
-        console.log('verifyCaptcha called with token:', token ? `${token.substring(0, 8) }...` : 'undefined');
-        console.log('userAnswer:', userAnswer);
-        console.log('Service enabled:', this.enabled);
-        console.log('Number of tokens in captchaTokens:', this.captchaTokens.size);
+        console.debug('====== CAPTCHA SERVICE VERIFICATION DIAGNOSTIC ======');
+        console.debug('TOKENS_TRACKING: verifyCaptcha called. Service ID:', this.serviceId);
+        console.debug('TOKENS_TRACKING: Request counter during verification:', this.requestCounter);
+        console.debug('TOKENS_TRACKING: Static test token exists:', this.captchaTokens.has('test-static-token'));
+        console.debug('TOKENS_TRACKING: Trying to verify token:', token ? `${token.substring(0, 8) }...` : 'undefined');
+        console.debug('verifyCaptcha called with token:', token ? `${token.substring(0, 8) }...` : 'undefined');
+        console.debug('userAnswer:', userAnswer);
+        console.debug('Service enabled:', this.enabled);
+        console.debug('Number of tokens in captchaTokens:', this.captchaTokens.size);
 
         // Service health check
         this._checkServiceHealth();

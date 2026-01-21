@@ -1,14 +1,19 @@
+import type { ServerHealthService } from '../modules/core/ServerHealthService';
 import { SqliteDatabaseAccessService } from './database/SqliteDatabaseAccessService';
-import type { MeteringService } from './MeteringService/MeteringService';
 import { MeteringServiceWrapper } from './MeteringService/MeteringServiceWrapper.mjs';
+import { DDBClient } from './repositories/DDBClient';
 import { DynamoKVStore } from './repositories/DynamoKVStore/DynamoKVStore';
+import type { SUService } from './SUService';
 
 export interface ServiceResources {
     services: {
         get (name: 'meteringService'): MeteringServiceWrapper;
         get (name: 'puter-kvstore'): DynamoKVStore;
-        get (name: 'database'): SqliteDatabaseAccessService
-        get (name: string): any
+        get (name: 'database'): SqliteDatabaseAccessService;
+        get (name: 'server-health'): ServerHealthService;
+        get (name: 'su'): SUService;
+        get (name: 'dynamo'): DDBClient;
+        get (name: string): any;
     };
     config: Record<string, any> & { services?: Record<string, any>; server_id?: string };
     name?: string;
