@@ -20,7 +20,11 @@ const { AdvancedBase } = require('@heyputer/putility');
 const BaseService = require('../BaseService');
 const { Context } = require('../../util/context');
 const config = require('../../config');
-
+const isBot = require('isbot');
+const IGNORED_BOT_UAS = new Set([
+    'Amazon-Route53-Health-Check-Service (ref 7599f3a9-c2af-43ac-a4b6-299da2e3861c; report http://amzn.to/1vsZADi)',
+    'Better Stack Better Uptime Bot Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/130.0.0.0 Safari/537.36',
+]);
 /**
 * @class Requester
 * @classdesc This class represents a requester in the system. It encapsulates
@@ -127,9 +131,6 @@ class Requester {
 * The class uses the 'isbot' module to determine if the requester is a bot.
 */
 class RequesterIdentificationExpressMiddleware extends AdvancedBase {
-    static MODULES = {
-        isbot: require('isbot'),
-    };
     register_initializer (initializer) {
         this.value_initializers_.push(initializer);
     }
@@ -140,14 +141,18 @@ class RequesterIdentificationExpressMiddleware extends AdvancedBase {
         const x = Context.get();
 
         const requester = Requester.from_request(req);
-        const is_bot = this.modules.isbot(requester.ua);
+        const is_bot = isBot(requester.ua);
         requester.is_bot = is_bot;
 
         x.set('requester', requester);
         req.requester = requester;
 
         if ( requester.is_bot ) {
-            this.log.info('bot detected', requester.serialize());
+            if ( IGNORED_BOT_UAS.has(requester.ua) ) {
+                this.log.info('healthcheck bot:', requester.serialize());
+            } else {
+                this.log.info('bot detected', requester.serialize());
+            }
         }
 
         next();
