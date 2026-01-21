@@ -21,7 +21,7 @@ import { get_apps, get_user } from '../../helpers.js';
 import { UserActorType } from '../../services/auth/Actor.js';
 import { DB_READ } from '../../services/database/consts.js';
 import { Context } from '../../util/context.js';
-import { create } from '../../api/APIError.js';
+import { APIError } from '../../api/APIError.js';
 
 export default eggspress('/auth/list-permissions', {
     subdomain: 'api',
@@ -34,7 +34,7 @@ export default eggspress('/auth/list-permissions', {
 
     // Apps cannot (currently) check permissions on behalf of users
     if ( ! ( actor.type instanceof UserActorType ) ) {
-        throw create('forbidden');
+        throw APIError.create('forbidden');
     }
 
     const db = x.get('services').get('database').get(DB_READ, 'permissions');
