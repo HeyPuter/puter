@@ -46,8 +46,8 @@ async function getClientInfo () {
     }
 
     // Get hardware info
-    const cpuCores = navigator.hardwareConcurrency || "Unknown";
-    const ramGB = navigator.deviceMemory ? `${navigator.deviceMemory} GB (approx)` : "Unknown";
+    const cpuCores = navigator.hardwareConcurrency || 'Unknown';
+    const ramGB = navigator.deviceMemory ? `${navigator.deviceMemory} GB (approx)` : 'Unknown';
 
     clientInfo.hardwareInfo = { cpuCores, ramGB };
 
@@ -60,8 +60,6 @@ async function getClientInfo () {
 
     return clientInfo;
 }
-
-const 
 
 async function UIWindowSystemInfo (options) {
     return new Promise(async (resolve) => {
