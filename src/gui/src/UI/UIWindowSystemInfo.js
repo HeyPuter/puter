@@ -202,7 +202,6 @@ async function UIWindowSystemInfo (options) {
             const clientInfo = await getClientInfo();
             const clientInfohtml = renderSystemInfo(clientInfo);
             $win.find('.clientinfo-content').html(clientInfohtml);
-            console.log(clientInfo);
         });
 
         resolve(el_window);
