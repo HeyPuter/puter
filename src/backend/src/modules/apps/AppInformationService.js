@@ -696,6 +696,11 @@ class AppInformationService extends BaseService {
             }
         }
 
+        const svc_event = this.services.get('event');
+        svc_event.emit('app.changed', {
+            app_uid: app.uid,
+            action: 'deleted',
+        });
     }
 
     // Helper function to generate array of all periods between start and end dates

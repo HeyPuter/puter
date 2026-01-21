@@ -138,6 +138,10 @@ export interface ExtensionEventTypeMap {
             [key: string]: unknown;
         };
     };
+    'app.changed': {
+        app_uid: string;
+        action: 'updated' | 'deleted';
+    };
 }
 
 interface Extension extends RouterMethods {

@@ -88,7 +88,7 @@ export default class AppService extends BaseService {
     // value of require('om/mappings/app.js').redundant_identifiers
     static REDUNDANT_IDENTIFIERS = ['name'];
 
-    async #select ({ predicate, params, ...rest }) {
+    async #select ({ predicate, params, ..._rest }) {
         const db = this.db;
 
         if ( predicate === undefined ) predicate = [];
@@ -693,6 +693,12 @@ export default class AppService extends BaseService {
         // Update app cache
         const merged_app = { ...old_app, ...object };
         this.#refresh_cache(merged_app, old_app);
+
+        const svc_event = this.services.get('event');
+        svc_event.emit('app.changed', {
+            app_uid: old_app.uid,
+            action: 'updated',
+        });
 
         // Return the updated app (re-fetch for client-safe output)
         // TODO: optimize this
