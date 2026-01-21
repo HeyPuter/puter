@@ -94,7 +94,7 @@ class PuterAPIService extends BaseService {
             route: '/get-launch-apps',
             methods: ['GET'],
             mw: [configurable_auth()],
-            handler: require('../routers/get-launch-apps'),
+            handler: require('../routers/get-launch-apps').default,
         }).attach(app);
 
     }

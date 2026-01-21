@@ -17,8 +17,9 @@
  * along with this program.  If not, see <https://www.gnu.org/licenses/>.
  */
 'use strict';
-const { get_app } = require('../helpers.js');
-const { DB_READ } = require('../services/database/consts.js');
+import { get_apps } from '../helpers.js';
+import { DB_READ } from '../services/database/consts.js';
+import { kv } from '@heyputer/backend/src/util/kvSingleton.js';
 
 const iconify_apps = async (context, { apps, size }) => {
     return await Promise.all(apps.map(async app => {
@@ -37,7 +38,7 @@ const iconify_apps = async (context, { apps, size }) => {
 // -----------------------------------------------------------------------//
 // GET /get-launch-apps
 // -----------------------------------------------------------------------//
-module.exports = async (req, res) => {
+export default async (req, res) => {
     let result = {};
 
     // Verify query params
@@ -79,12 +80,11 @@ module.exports = async (req, res) => {
 
     // prepare each app for returning to user by only returning the necessary fields
     // and adding them to the retobj array
-    result.recent = [];
-    for ( const { app_uid: uid } of apps ) {
-        const app = await get_app({ uid });
-        if ( ! app ) continue;
+    const recent_apps = await get_apps(apps.map(({ app_uid: uid }) => ({ uid })));
 
-        result.recent.push({
+    result.recent = recent_apps.map((app) => {
+        if ( ! app ) return null;
+        return {
             uuid: app.uid,
             name: app.name,
             title: app.title,
@@ -92,8 +92,8 @@ module.exports = async (req, res) => {
             godmode: app.godmode,
             maximize_on_start: app.maximize_on_start,
             index_url: app.index_url,
-        });
-    }
+        };
+    }).filter(Boolean);
 
     // Iconify apps
     if ( req.query.icon_size ) {
