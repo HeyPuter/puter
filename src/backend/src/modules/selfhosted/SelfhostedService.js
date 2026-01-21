@@ -16,10 +16,8 @@
  * You should have received a copy of the GNU Affero General Public License
  * along with this program.  If not, see <https://www.gnu.org/licenses/>.
  */
-const { Actor } = require('../../services/auth/Actor');
 const BaseService = require('../../services/BaseService');
 const { DB_WRITE } = require('../../services/database/consts');
-const { Context } = require('../../util/context');
 
 class SelfhostedService extends BaseService {
     static description = `
@@ -36,7 +34,7 @@ class SelfhostedService extends BaseService {
             {
                 id: 'godmode-on',
                 description: 'Toggle godmode for an app',
-                handler: async (args, log) => {
+                handler: async (args, _log) => {
                     const svc_su = this.services.get('su');
                     await await svc_su.sudo(async () => {
                         const [app_uid] = args;
@@ -46,6 +44,11 @@ class SelfhostedService extends BaseService {
                             throw new Error(`App ${app_uid} not found`);
                         }
                         await db.write('UPDATE apps SET godmode = 1 WHERE uid = ?', [app_uid]);
+                        const svc_event = this.services.get('event');
+                        svc_event.emit('app.changed', {
+                            app_uid,
+                            action: 'updated',
+                        });
                     });
                 },
             },
@@ -54,7 +57,7 @@ class SelfhostedService extends BaseService {
             {
                 id: 'godmode-off',
                 description: 'Toggle godmode for an app',
-                handler: async (args, log) => {
+                handler: async (args, _log) => {
                     const svc_su = this.services.get('su');
                     await await svc_su.sudo(async () => {
                         const [app_uid] = args;
@@ -64,6 +67,11 @@ class SelfhostedService extends BaseService {
                             throw new Error(`App ${app_uid} not found`);
                         }
                         await db.write('UPDATE apps SET godmode = 0 WHERE uid = ?', [app_uid]);
+                        const svc_event = this.services.get('event');
+                        svc_event.emit('app.changed', {
+                            app_uid,
+                            action: 'updated',
+                        });
                     });
                 },
             },

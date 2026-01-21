@@ -56,7 +56,7 @@ class AppES extends BaseES {
                 });
             }
         },
-        async delete (uid, extra) {
+        async delete (uid, _extra) {
             const svc_appInformation = this.context.get('services').get('app-information');
             await svc_appInformation.delete_app(uid);
         },
@@ -227,6 +227,14 @@ class AppES extends BaseES {
                 refresh_apps_cache({ uid: raw_app.uuid }, raw_app);
             }
 
+            if ( extra.old_entity ) {
+                const svc_event = this.context.get('services').get('event');
+                svc_event.emit('app.changed', {
+                    app_uid: await full_entity.get('uid'),
+                    action: 'updated',
+                });
+            }
+
             return result;
         },
         async retry_predicate_rewrite ({ predicate }) {
@@ -394,7 +402,7 @@ class AppES extends BaseES {
             const svc_puterSite = this.context.get('services').get('puter-site');
             const site = await svc_puterSite.get_subdomain(subdomain, { is_custom_domain: false });
 
-            if ( ! site || site.user_id !== user.id ) {
+            if ( !site || site.user_id !== user.id ) {
                 throw APIError.create('subdomain_not_owned', null, { subdomain });
             }
         },
