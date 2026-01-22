@@ -190,7 +190,7 @@ class Apps {
         if ( typeof args[0] === 'object' && args[0] !== null ) {
             options.params = args[0];
         }
-        return this.#addUserIterationToApp(await utils.make_driver_method(['uid'], 'puter-apps', 'app', 'read').call(this, options));
+        return this.#addUserIterationToApp(await utils.make_driver_method(['uid'], 'puter-apps', 'es:app', 'read').call(this, options));
     };
 
     delete = async (...args) => {
