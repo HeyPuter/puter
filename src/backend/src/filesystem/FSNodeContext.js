@@ -900,8 +900,12 @@ module.exports = class FSNodeContext {
         }
 
         if ( fsentry.associated_app_id ) {
-            const app = await get_app({ id: fsentry.associated_app_id });
-            fsentry.associated_app = app;
+            if ( res.associated_app ) {
+                fsentry.associated_app = res.associated_app;
+            } else {
+                const app = await get_app({ id: fsentry.associated_app_id });
+                fsentry.associated_app = app;
+            }
         }
 
         // If this file is in an appdata directory, add `appdata_app`

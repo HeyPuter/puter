@@ -19,6 +19,7 @@
 const APIError = require('../../api/APIError');
 const { Context } = require('../../util/context');
 const { stream_to_buffer } = require('../../util/streamutil');
+const { get_apps } = require('../../helpers');
 const { ECMAP } = require('../ECMAP');
 const { TYPE_DIRECTORY, TYPE_SYMLINK } = require('../FSNodeContext');
 const { LLListUsers } = require('../ll_operations/ll_listusers');
@@ -83,14 +84,40 @@ class HLReadDir extends HLFilesystemOperation {
             children = await ll_readdir.run(this.values);
         }
 
-        return Promise.all(children.map(async child => {
-            // When thumbnails are requested, fetching before the call to
-            // .getSafeEntry prevents .fetchEntry (possibly called by
-            // .fetchSuggestedApps or .fetchSubdomains)
+        const associated_app_specifiers = [];
+        const children_with_assoc = [];
+        await Promise.all(children.map(async child => {
             if ( ! no_thumbs ) {
                 await child.fetchEntry({ thumbnail: true });
+            } else {
+                await child.fetchEntry();
             }
 
+            const assoc_id = child.entry?.associated_app_id;
+            if ( assoc_id ) {
+                associated_app_specifiers.push({ id: assoc_id });
+                children_with_assoc.push({ child, assoc_id });
+            }
+        }));
+
+        if ( associated_app_specifiers.length ) {
+            const assoc_apps = await get_apps(associated_app_specifiers);
+            const app_by_id = new Map();
+            for ( let i = 0; i < associated_app_specifiers.length; i++ ) {
+                const app = assoc_apps[i];
+                if ( app ) {
+                    app_by_id.set(associated_app_specifiers[i].id, app);
+                }
+            }
+            for ( const { child, assoc_id } of children_with_assoc ) {
+                const app = app_by_id.get(assoc_id);
+                if ( app ) {
+                    child.entry.associated_app = app;
+                }
+            }
+        }
+
+        return Promise.all(children.map(async child => {
             if ( ! no_assocs ) {
                 await Promise.all([
                     child.fetchSuggestedApps(user),

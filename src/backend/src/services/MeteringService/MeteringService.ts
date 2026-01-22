@@ -81,7 +81,9 @@ export class MeteringService {
                 if ( totalCost === 0 && mappedCost !== 0 && costOverride !== 0 ) {
                     // could be something is off, there are some models that cost nothing from openrouter, but then our overrides should not be undefined, so will flag
                     this.#alarmService.create('metering-service-0-cost-warning', 'potential abuse vector', {
-                        actor,
+                        userId: actor.type?.user?.uuid,
+                        username: actor.type?.user?.username,
+                        appId: actor.type?.app?.uid,
                         usageType,
                         usageAmount,
                         costOverride,
@@ -175,7 +177,9 @@ export class MeteringService {
                 const hasNoAddonCredit = (actorAddons.purchasedCredits || 0) <= (actorAddons.consumedPurchaseCredits || 0);
                 if ( isOver2x && isChangeOverPastOverage && hasNoAddonCredit ) {
                     this.#alarmService.create('metering-service-usage-limit-exceeded', `Actor ${userId} has exceeded their usage allowance significantly`, {
-                        actor,
+                        userId: actor.type?.user?.uuid,
+                        username: actor.type?.user?.username,
+                        appId: actor.type?.app?.uid,
                         usageType,
                         usageAmount,
                         costOverride,
@@ -188,8 +192,10 @@ export class MeteringService {
         } catch ( e ) {
             console.error('Metering: Failed to increment usage for actor', actor, 'usageType', usageType, 'usageAmount', usageAmount, e);
             this.#alarmService.create('metering-service-error', (e as Error).message, {
+                userId: actor.type?.user?.uuid,
+                username: actor.type?.user?.username,
+                appId: actor.type?.app?.uid,
                 error: e,
-                actor,
                 usageType,
                 usageAmount,
                 costOverride,
@@ -236,7 +242,9 @@ export class MeteringService {
                     if ( !hasZeroCostWarning && totalCost === 0 && mappedCost !== 0 && costOverride !== 0 ) {
                         hasZeroCostWarning = true;
                         this.#alarmService.create('metering-service-0-cost-warning', 'potential abuse vector', {
-                            actor,
+                            userId: actor.type?.user?.uuid,
+                            username: actor.type?.user?.username,
+                            appId: actor.type?.app?.uid,
                             usageType,
                             usageAmount,
                             costOverride,
@@ -333,7 +341,9 @@ export class MeteringService {
 
                 if ( isOver2x && isChangeOverPastOverage && hasNoAddonCredit ) {
                     this.#alarmService.create('metering-service-usage-limit-exceeded', `Actor ${userId} has exceeded their usage allowance significantly`, {
-                        actor,
+                        userId: actor.type?.user?.uuid,
+                        username: actor.type?.user?.username,
+                        appId: actor.type?.app?.uid,
                         batchUsages: usages,
                         totalBatchCost,
                         totalUsage: actorUsages.total,
@@ -346,6 +356,9 @@ export class MeteringService {
         } catch (e) {
             console.error('Metering: Failed to batch increment usage for actor', actor, 'usages', usages, e);
             this.#alarmService.create('metering-service-error', (e as Error).message, {
+                userId: actor.type?.user?.uuid,
+                username: actor.type?.user?.username,
+                appId: actor.type?.app?.uid,
                 error: e,
                 actor,
                 batchUsages: usages,

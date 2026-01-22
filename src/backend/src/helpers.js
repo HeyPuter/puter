@@ -1406,7 +1406,8 @@ function seconds_to_string (seconds) {
  * @param {*} options
  */
 async function suggest_app_for_fsentry (fsentry, options) {
-    const suggested_apps_promises = [];
+    const suggested_apps = [];
+    const name_specifiers = [];
 
     let content_type = mime.contentType(fsentry.name);
     if ( ! content_type ) content_type = '';
@@ -1491,8 +1492,8 @@ async function suggest_app_for_fsentry (fsentry, options) {
     ];
 
     if ( any_of(exts_code, fsname) || !fsname.includes('.') ) {
-        suggested_apps_promises.push(get_app({ name: 'code' }));
-        suggested_apps_promises.push(get_app({ name: 'editor' }));
+        name_specifiers.push({ name: 'code' });
+        name_specifiers.push({ name: 'editor' });
     }
 
     //---------------------------------------------
@@ -1503,14 +1504,14 @@ async function suggest_app_for_fsentry (fsentry, options) {
         // files with no extension
         !fsname.includes('.')
     ) {
-        suggested_apps_promises.push(get_app({ name: 'editor' }));
-        suggested_apps_promises.push(get_app({ name: 'code' }));
+        name_specifiers.push({ name: 'editor' });
+        name_specifiers.push({ name: 'code' });
     }
     //---------------------------------------------
     // Markus
     //---------------------------------------------
     if ( fsname.endsWith('.md') ) {
-        suggested_apps_promises.push(get_app({ name: 'markus' }));
+        name_specifiers.push({ name: 'markus' });
     }
     //---------------------------------------------
     // Viewer
@@ -1523,7 +1524,7 @@ async function suggest_app_for_fsentry (fsentry, options) {
         fsname.endsWith('.bmp') ||
         fsname.endsWith('.jpeg')
     ) {
-        suggested_apps_promises.push(get_app({ name: 'viewer' }));
+        name_specifiers.push({ name: 'viewer' });
     }
     //---------------------------------------------
     // Draw
@@ -1532,13 +1533,13 @@ async function suggest_app_for_fsentry (fsentry, options) {
         fsname.endsWith('.bmp') ||
         content_type.startsWith('image/')
     ) {
-        suggested_apps_promises.push(get_app({ name: 'draw' }));
+        name_specifiers.push({ name: 'draw' });
     }
     //---------------------------------------------
     // PDF
     //---------------------------------------------
     if ( fsname.endsWith('.pdf') ) {
-        suggested_apps_promises.push(get_app({ name: 'pdf' }));
+        name_specifiers.push({ name: 'pdf' });
     }
     //---------------------------------------------
     // Player
@@ -1552,32 +1553,39 @@ async function suggest_app_for_fsentry (fsentry, options) {
         fsname.endsWith('.m4a') ||
         fsname.endsWith('.ogg')
     ) {
-        suggested_apps_promises.push(get_app({ name: 'player' }));
+        name_specifiers.push({ name: 'player' });
     }
 
     //---------------------------------------------
     // 3rd-party apps
     //---------------------------------------------
     const apps = kv.get(`assocs:${file_extension.slice(1)}:apps`) ?? [];
+    const id_specifiers = apps.map(app_id => ({ id: app_id }));
 
-    for ( const app_id of apps ) {
-        suggested_apps_promises.push((async () => {
-            // retrieve app from DB
-            const third_party_app = await get_app({ id: app_id });
-            if ( ! third_party_app ) return;
-            // only add if the app is approved for opening items or the app is owned by this user
-            if ( third_party_app.approved_for_opening_items ||
-                (options !== undefined && options.user !== undefined && options.user.id === third_party_app.owner_user_id) )
-            {
-                return third_party_app;
-            }
-        })());
+    const specifiers = [...name_specifiers, ...id_specifiers];
+    const resolved = specifiers.length > 0
+        ? await get_apps(specifiers)
+        : [];
+
+    const name_apps = resolved.slice(0, name_specifiers.length);
+    suggested_apps.push(...name_apps);
+
+    const third_party_apps = resolved.slice(name_specifiers.length);
+    for ( const third_party_app of third_party_apps ) {
+        if ( ! third_party_app ) continue;
+        if ( third_party_app.approved_for_opening_items ||
+            (options !== undefined && options.user !== undefined && options.user.id === third_party_app.owner_user_id) )
+        {
+            suggested_apps.push(third_party_app);
+        }
     }
 
     // return list
-    const suggested_apps = await Promise.all(suggested_apps_promises);
     if ( suggested_apps.some(app => app && app.name === 'editor') ) {
-        suggested_apps.push(await get_app({ name: 'codeapp' }));
+        const [codeapp] = await get_apps([{ name: 'codeapp' }]);
+        if ( codeapp ) {
+            suggested_apps.push(codeapp);
+        }
     }
     return suggested_apps.filter((suggested_app, pos, self) => {
         // Remove any null values caused by calling `get_app()` for apps that don't exist.
