@@ -314,6 +314,13 @@ export default class AppService extends BaseService {
             app.stats.grouped_stats = {};
         }
 
+        if ( ! app.stats.grouped_stats.open_count ) {
+            app.stats.grouped_stats.open_count = {};
+        }
+        if ( ! app.stats.grouped_stats.user_count ) {
+            app.stats.grouped_stats.user_count = {};
+        }
+
         if ( params.icon_size ) {
             const icon_size = params.icon_size;
             const svc_appIcon = this.context.get('services').get('app-icon');
