@@ -27,13 +27,9 @@ module.exports = eggspress('/cache/last-change-timestamp', {
     fs: true,
     json: true,
     allowedMethods: ['GET'],
-}, async (req, res, next) => {
-    const svc_driver = Context.get('services').get('driver');
-    const driver_response = await svc_driver.call({
-        iface: 'puter-kvstore',
-        method: 'get',
-        args: { key: `last_change_timestamp:${req.user?.id}` },
-    });
-    const timestamp = driver_response.result;
+}, async (req, res) => {
+    /** @type {import('../../services/repositories/DynamoKVStore/DynamoKVStore.js').DynamoKVStore} */
+    const kvStore = Context.get('services').get('puter-kvstore');
+    const timestamp = await kvStore.get({ key: `last_change_timestamp:${req.user?.id}` });
     res.json({ timestamp });
 });

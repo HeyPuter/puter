@@ -65,9 +65,8 @@ const configurable_auth = options => async (req, res, next) => {
         token = req.header('Authorization');
         token = token.replace('Bearer ', '').trim();
         if ( token === 'undefined' ) {
-            APIError.create('unexpected_undefined', null, {
-                msg: 'The Authorization token cannot be the string "undefined"',
-            });
+            res.status(401).text('Unauthenticated - token format invalid');
+            return;
         }
     }
     // Cookie
@@ -91,10 +90,10 @@ const configurable_auth = options => async (req, res, next) => {
             next();
             return;
         }
-        APIError.create('token_missing').write(res);
+        res.status(401).text('Unauthenticated - Token missing');
         return;
     } else if ( typeof token !== 'string' ) {
-        APIError.create('token_auth_failed').write(res);
+        res.status(401).text('Unauthenticated - token authentication failed');
         return;
     } else {
         token = token.replace('Bearer ', '');
@@ -141,8 +140,7 @@ const configurable_auth = options => async (req, res, next) => {
             next();
             return;
         }
-        const re = APIError.create('token_auth_failed');
-        re.write(res);
+        res.status(401).text('Unauthenticated - token authentication failed');
         return;
     }
 
@@ -150,12 +148,24 @@ const configurable_auth = options => async (req, res, next) => {
     context.set('actor', actor);
     if ( actor.type.user ) {
         if ( actor.type.user?.suspended ) {
-            throw APIError.create('forbidden');
+            console.warn('Suspended user attempted to make request:', { userId: actor.type.user.id, username: actor.type.user.username });
+            res.status(403).text('Forbidden - user suspended');
+            return;
         }
         context.set('user', actor.type.user);
     }
 
     // === Populate Request ===
+    if ( actor ) {
+        console.log(`Authenticated actor ${actor.type?.user?.username} making request:`, {
+            actorId: actor.id,
+            actorType: actor.type.type,
+            userId: actor.type?.user?.id,
+            username: actor.type?.user?.username,
+            requestPath: req.path,
+            ip: req.ip,
+        });
+    }
     req.actor = actor;
     req.user = actor.type.user;
     req.token = token;
