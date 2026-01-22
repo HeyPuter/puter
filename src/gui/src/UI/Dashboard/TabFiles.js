@@ -35,7 +35,6 @@ const TabFiles = {
                     <ul>
                         <li data-folder="Desktop">${folderIcon} <span>Desktop</span></li>
                         <li data-folder="Documents">${folderIcon} <span>Documents</span></li>
-                        <li data-folder="Public">${folderIcon} <span>Public</span></li>
                         <li data-folder="Pictures">${folderIcon} <span>Pictures</span></li>
                         <li data-folder="Videos">${folderIcon} <span>Videos</span></li>
                     </ul>
