@@ -189,7 +189,7 @@ export class AIImageGenerationService extends BaseService {
     }
 
     list () {
-        return Object.keys(this.#modelIdMap).sort();
+        return this.models().map(m => (m.puterId || m.id)).sort();
     }
 
     async generate (parameters: IGenerateParams) {
