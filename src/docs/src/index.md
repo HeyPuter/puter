@@ -47,7 +47,7 @@ Puter.js brings free, serverless, Cloud and AI directly to your frontend JavaScr
                     <div style="width: 50%; float: left; border-right: 1px dotted; height: calc(100% - 30px);"></div>
                     <div></div>
                 </div>
-                <div style="width: 100%; text-align:center; position: absolute; bottom: 0;">Publish Web Pages</div>
+                <div style="width: 100%; text-align:center; position: absolute; bottom: 0;">Hosting API</div>
             </div>
             <div style="width: 100px; height: 130px; position: absolute; left:160px;">
                 <div>
