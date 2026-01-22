@@ -397,9 +397,42 @@ async function get_apps (specifiers, options = {}) {
         appById.set(app.id, app);
     };
 
-    const missingUids = new Set();
-    const missingNames = new Set();
-    const missingIds = new Set();
+    const pendingLookups = new Map();
+    const pendingToResolve = new Map();
+    const queryUids = new Set();
+    const queryNames = new Set();
+    const queryIds = new Set();
+
+    const queueMissing = (type, value) => {
+        const queryKey = `${type}:${value}`;
+        if ( pendingToResolve.has(queryKey) || pendingLookups.has(queryKey) ) {
+            return;
+        }
+
+        const pendingKey = `pending_app:${queryKey}`;
+        const pending = kv.get(pendingKey);
+        if ( pending ) {
+            pendingLookups.set(queryKey, pending);
+            return;
+        }
+
+        let resolveQuery;
+        let rejectQuery;
+        const queryPromise = new Promise((resolve, reject) => {
+            resolveQuery = resolve;
+            rejectQuery = reject;
+        });
+        kv.set(pendingKey, queryPromise, { EX: PENDING_QUERY_TTL });
+        pendingToResolve.set(queryKey, { resolveQuery, rejectQuery, pendingKey });
+
+        if ( type === 'uid' ) {
+            queryUids.add(value);
+        } else if ( type === 'name' ) {
+            queryNames.add(value);
+        } else if ( type === 'id' ) {
+            queryIds.add(value);
+        }
+    };
 
     for ( const spec of normalized ) {
         if ( spec.uid ) {
@@ -407,7 +440,7 @@ async function get_apps (specifiers, options = {}) {
             if ( cached ) {
                 addApp(cached);
             } else {
-                missingUids.add(spec.uid);
+                queueMissing('uid', spec.uid);
             }
             continue;
         }
@@ -416,7 +449,7 @@ async function get_apps (specifiers, options = {}) {
             if ( cached ) {
                 addApp(cached);
             } else {
-                missingNames.add(spec.name);
+                queueMissing('name', spec.name);
             }
             continue;
         }
@@ -425,41 +458,85 @@ async function get_apps (specifiers, options = {}) {
             if ( cached ) {
                 addApp(cached);
             } else {
-                missingIds.add(spec.id);
+                queueMissing('id', spec.id);
             }
         }
     }
 
-    if ( missingUids.size || missingNames.size || missingIds.size ) {
+    const pendingResultsPromise = pendingLookups.size
+        ? Promise.all(Array.from(pendingLookups.values()))
+        : Promise.resolve([]);
+
+    if ( queryUids.size || queryNames.size || queryIds.size ) {
         /** @type BaseDatabaseAccessService */
         const db = _servicesHolder.services.get('database').get(DB_READ, 'apps');
 
         const clauses = [];
         const params = [];
 
-        if ( missingUids.size ) {
-            const uids = Array.from(missingUids);
+        if ( queryUids.size ) {
+            const uids = Array.from(queryUids);
             clauses.push(`uid IN (${uids.map(() => '?').join(', ')})`);
             params.push(...uids);
         }
-        if ( missingNames.size ) {
-            const names = Array.from(missingNames);
+        if ( queryNames.size ) {
+            const names = Array.from(queryNames);
             clauses.push(`name IN (${names.map(() => '?').join(', ')})`);
             params.push(...names);
         }
-        if ( missingIds.size ) {
-            const ids = Array.from(missingIds);
+        if ( queryIds.size ) {
+            const ids = Array.from(queryIds);
             clauses.push(`id IN (${ids.map(() => '?').join(', ')})`);
             params.push(...ids);
         }
 
-        const rows = await db.read(`SELECT * FROM \`apps\` WHERE ${clauses.join(' OR ')}`,
-                        params);
+        let rows = [];
+        const resolvedKeys = new Set();
+        try {
+            rows = await db.read(`SELECT * FROM \`apps\` WHERE ${clauses.join(' OR ')}`,
+                            params);
+            for ( const app of rows ) {
+                cacheApp(app);
+                addApp(app);
 
-        for ( const app of rows ) {
-            cacheApp(app);
-            addApp(app);
+                const uidKey = `uid:${app.uid}`;
+                const nameKey = `name:${app.name}`;
+                const idKey = `id:${app.id}`;
+
+                if ( pendingToResolve.has(uidKey) ) {
+                    pendingToResolve.get(uidKey).resolveQuery(app);
+                    resolvedKeys.add(uidKey);
+                }
+                if ( pendingToResolve.has(nameKey) ) {
+                    pendingToResolve.get(nameKey).resolveQuery(app);
+                    resolvedKeys.add(nameKey);
+                }
+                if ( pendingToResolve.has(idKey) ) {
+                    pendingToResolve.get(idKey).resolveQuery(app);
+                    resolvedKeys.add(idKey);
+                }
+            }
+
+            for ( const [key, { resolveQuery }] of pendingToResolve.entries() ) {
+                if ( ! resolvedKeys.has(key) ) {
+                    resolveQuery(null);
+                }
+            }
+        } catch ( err ) {
+            for ( const { rejectQuery } of pendingToResolve.values() ) {
+                rejectQuery(err);
+            }
+            throw err;
+        } finally {
+            for ( const { pendingKey } of pendingToResolve.values() ) {
+                kv.del(pendingKey);
+            }
         }
+    }
+
+    const pendingResults = await pendingResultsPromise;
+    for ( const app of pendingResults ) {
+        addApp(app);
     }
 
     return normalized.map(spec => {
