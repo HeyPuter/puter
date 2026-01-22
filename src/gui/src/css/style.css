@@ -5788,10 +5788,18 @@ html.dark-mode .usage-table-show-less:hover {
     display: flex;
     justify-content: flex-start;
     align-items: flex-start;
-    /* max-width: unset; */
+    max-width: unset;
     padding: 0;
-    /* margin: 0; */
+    margin: 0;
     height: calc(100vh - 50px);
+}
+
+.dashboard-tab-content.files-tab h2 {
+    margin: 0 0 6px 0;
+    font-size: 26px;
+    font-weight: 700;
+    color: #1e293b;
+    letter-spacing: -0.02em;
 }
 
 .dashboard-section-files .directories {
@@ -5844,11 +5852,15 @@ html.dark-mode .usage-table-show-less:hover {
     display: grid;
     height: 32px;
     padding: 0 10px;
-    grid-template-columns: 24px auto 60px;
+    grid-template-columns: 24px auto 60px 100px;
     align-items: center;
     font-size: 13px;
     color: #444;
     gap: 10px;
+}
+
+.dashboard-section-files .files .row.folder {
+    background: #f0f0f0;
 }
 
 .dashboard-section-files .files .row:nth-child(1) {

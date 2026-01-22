@@ -77,22 +77,21 @@ const TabFiles = {
             <div class="icon"></div>
                 <div class="name">File name</div>
                 <div class="size">Size</div>
-        </div>`);
+                <div class="date">Modified</div>
+            </div>`);
 
         if ( directoryContents.length === 0 ) {
-            $('.files-tab .files').append('<div class="row"><div class="icon"></div><div class="name">No files in this directory.</div><div class="size"></div>');
+            $('.files-tab .files').append(`<div class="row">
+                <div class="icon"></div>
+                <div class="name">No files in this directory.</div>
+                <div class="size"></div>
+                <div class="date">
+            </div>`);
             return;
         }
 
-        directoryContents.forEach(file => {
-            let icon = '';
-            if ( file.is_dir ) {
-                icon = folderIcon;
-            } else if ( file.thumbnail ) {
-                icon = `<img src="${file.thumbnail}" alt="${file.name}" />`;
-            } else {
-                icon = documentIcon;
-            }
+        directoryContents.sort((a, b) => b.is_dir - a.is_dir).forEach(file => {
+            const icon = file.is_dir ? folderIcon : (file.thumbnail ? `<img src="${file.thumbnail}" alt="${file.name}" />` : documentIcon);
 
             const formatFileSize = (bytes) => {
                 if ( bytes === 0 ) return '0 B';
@@ -102,10 +101,11 @@ const TabFiles = {
                 return `${Math.round((bytes / Math.pow(k, i)) * 100) / 100 } ${ sizes[i]}`;
             };
 
-            const row = `<div class="row">
+            const row = `<div class="row ${file.is_dir ? 'folder' : 'file'}">
                 <div class="icon">${icon}</div>
                 <div class="name">${file.name}</div>
-                ${file.is_dir ? '' : `<div class="size">${formatFileSize(file.size)}</div>`}
+                ${file.is_dir ? '<div class="size"></div>' : `<div class="size">${formatFileSize(file.size)}</div>`}
+                <div class="date">${window.timeago.format(file.modified * 1000)}</div>
             </div>`;
             $('.files-tab .files').append(row);
         });
