@@ -2,7 +2,7 @@ import { v4 as uuidv4 } from 'uuid';
 
 import APIError from '../../api/APIError.js';
 import config from '../../config.js';
-import { app_name_exists, refresh_apps_cache } from '../../helpers.js';
+import { app_name_exists } from '../../helpers.js';
 import { AppUnderUserActorType, UserActorType } from '../../services/auth/Actor.js';
 import { PermissionUtil } from '../../services/auth/permissionUtils.mjs';
 import BaseService from '../../services/BaseService.js';
@@ -455,19 +455,6 @@ export default class AppService extends BaseService {
             await svc_event.emit('app.new-icon', event);
         }
 
-        // Update app cache
-        const raw_app = {
-            uuid: uid,
-            owner_user_id: user.id,
-            name: object.name,
-            title: object.title,
-            description: object.description,
-            icon: object.icon,
-            index_url: object.index_url,
-            maximize_on_start: object.maximize_on_start,
-        };
-        refresh_apps_cache({ uid: raw_app.uuid }, raw_app);
-
         // Return the created app
         return await this.#read({ uid });
     }
@@ -548,9 +535,6 @@ export default class AppService extends BaseService {
         // Call app-information service to perform the deletion (AppES behavior)
         const svc_appInformation = this.services.get('app-information');
         await svc_appInformation.delete_app(old_app.uid);
-
-        // Invalidate app cache
-        refresh_apps_cache({ uid: old_app.uid }, null);
 
         return { success: true, uid: old_app.uid };
     }
@@ -689,10 +673,6 @@ export default class AppService extends BaseService {
 
         // Emit events for icon/name changes
         await this.#emit_change_events(object, old_app);
-
-        // Update app cache
-        const merged_app = { ...old_app, ...object };
-        this.#refresh_cache(merged_app, old_app);
 
         const svc_event = this.services.get('event');
         svc_event.emit('app.changed', {
@@ -880,21 +860,6 @@ export default class AppService extends BaseService {
             };
             await svc_event.emit('app.rename', event);
         }
-    }
-
-    #refresh_cache (merged_app, old_app) {
-        const raw_app = {
-            uuid: merged_app.uid,
-            owner_user_id: old_app.owner?.id || old_app.owner,
-            name: merged_app.name,
-            title: merged_app.title,
-            description: merged_app.description,
-            icon: merged_app.icon,
-            index_url: merged_app.index_url,
-            maximize_on_start: merged_app.maximize_on_start,
-        };
-
-        refresh_apps_cache({ uid: raw_app.uuid }, raw_app);
     }
 
     #build_complex_id_where (id) {

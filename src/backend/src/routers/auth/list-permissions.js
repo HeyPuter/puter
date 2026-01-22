@@ -16,14 +16,14 @@
  * You should have received a copy of the GNU Affero General Public License
  * along with this program.  If not, see <https://www.gnu.org/licenses/>.
  */
-const eggspress = require('../../api/eggspress');
-const { get_app, get_user } = require('../../helpers');
-const { UserActorType } = require('../../services/auth/Actor');
-const { DB_READ } = require('../../services/database/consts');
-const { Context } = require('../../util/context');
-const APIError = require('../../api/APIError');
+import eggspress from '../../api/eggspress.js';
+import { get_apps, get_user } from '../../helpers.js';
+import { UserActorType } from '../../services/auth/Actor.js';
+import { DB_READ } from '../../services/database/consts.js';
+import { Context } from '../../util/context.js';
+import { APIError } from '../../api/APIError.js';
 
-module.exports = eggspress('/auth/list-permissions', {
+export default eggspress('/auth/list-permissions', {
     subdomain: 'api',
     auth2: true,
     allowedMethods: ['GET'],
@@ -46,9 +46,12 @@ module.exports = eggspress('/auth/list-permissions', {
 
         const rows = await db.read('SELECT * FROM `user_to_app_permissions` WHERE user_id=?',
                         [ actor.type.user.id ]);
+        const apps = await get_apps(rows.map(row => ({ id: row.app_id })));
 
-        for ( const row of rows ) {
-            const app = await get_app({ id: row.app_id });
+        for ( let i = 0; i < rows.length; i++ ) {
+            const row = rows[i];
+            const app = apps[i];
+            if ( ! app ) continue;
 
             delete app.id;
             delete app.approved_for_listing;

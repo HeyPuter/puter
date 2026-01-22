@@ -17,16 +17,11 @@
  * along with this program.  If not, see <https://www.gnu.org/licenses/>.
  */
 
-const { get_app } = require('../../helpers');
-const BaseService = require('../../services/BaseService');
+import { get_apps } from '../../helpers.js';
+import BaseService from '../../services/BaseService.js';
+import { kv } from '@heyputer/backend/src/util/kvSingleton.js';
 
-const get_apps = async ({ specifiers }) => {
-    return await Promise.all(specifiers.map(async (specifier) => {
-        return await get_app(specifier);
-    }));
-};
-
-class RecommendedAppsService extends BaseService {
+export default class RecommendedAppsService extends BaseService {
     static APP_NAMES = [
         'app-center',
         'dev-center',
@@ -104,9 +99,7 @@ class RecommendedAppsService extends BaseService {
 
         // Prepare each app for returning to user by only returning the necessary fields
         // and adding them to the retobj array
-        recommended = (await get_apps({
-            specifiers: Array.from(this.app_names).map(name => ({ name })),
-        })).filter(app => !!app).map(app => {
+        recommended = (await get_apps(Array.from(this.app_names).map(name => ({ name })))).filter(app => !!app).map(app => {
             return {
                 uuid: app.uid,
                 name: app.name,
@@ -133,5 +126,3 @@ class RecommendedAppsService extends BaseService {
         return recommended;
     }
 }
-
-module.exports = RecommendedAppsService;

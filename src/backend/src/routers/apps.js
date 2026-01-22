@@ -21,7 +21,7 @@ const express = require('express');
 const router = new express.Router();
 const auth = require('../middleware/auth.js');
 const config = require('../config');
-const { get_app } = require('../helpers');
+const { get_apps } = require('../helpers');
 const { DB_READ } = require('../services/database/consts.js');
 const subdomain = require('../middleware/subdomain.js');
 
@@ -32,7 +32,7 @@ router.get('/apps',
                 subdomain('api'),
                 auth,
                 express.json({ limit: '50mb' }),
-                async (req, res, next) => {
+                async (req, res) => {
                     // /!\ open brace on end of previous line
 
                     // check if user is verified
@@ -109,41 +109,21 @@ router.get('/apps/:name',
                     }
 
                     let app_names = req.params.name.split('|');
-                    let retobj = [];
+                    const apps = await get_apps(app_names.map(name => ({ name })));
 
-                    if ( app_names.length > 0 ) {
-                        // prepare each app for returning to user
-                        for ( let index = 0; index < app_names.length; index++ ) {
-                            const app = await get_app({ name: app_names[index] });
-                            let final_obj = {};
-                            if ( app ) {
-                                final_obj = {
-                                    uuid: app.uid,
-                                    name: app.name,
-                                    title: app.title,
-                                    icon: app.icon,
-                                    godmode: app.godmode,
-                                    background: app.background,
-                                    maximize_on_start: app.maximize_on_start,
-                                    index_url: app.index_url,
-                                };
-                            }
-                            // add to object to be returned
-                            retobj.push(final_obj);
-                        }
-                    }
-
-                    // order output based on input!
-                    let final_obj = [];
-                    for ( let index = 0; index < app_names.length; index++ ) {
-                        const app_name = app_names[index];
-                        for ( let index = 0; index < retobj.length; index++ ) {
-                            if ( retobj[index].name === app_name )
-                            {
-                                final_obj.push(retobj[index]);
-                            }
-                        }
-                    }
+                    const final_obj = apps.map((app) => {
+                        if ( ! app ) return null;
+                        return {
+                            uuid: app.uid,
+                            name: app.name,
+                            title: app.title,
+                            icon: app.icon,
+                            godmode: app.godmode,
+                            background: app.background,
+                            maximize_on_start: app.maximize_on_start,
+                            index_url: app.index_url,
+                        };
+                    }).filter(Boolean);
 
                     return res.send(final_obj);
                 });

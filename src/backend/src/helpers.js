@@ -26,7 +26,6 @@ const APIError = require('./api/APIError.js');
 const { DB_READ, DB_WRITE } = require('./services/database/consts.js');
 const { Context } = require('./util/context');
 const { NodeUIDSelector } = require('./filesystem/node/selectors');
-const { object_returned_by_get_app } = require('./annotatedobjects.js');
 const { kv } = require('./util/kvSingleton');
 
 const identifying_uuid = require('uuid').v4();
@@ -69,37 +68,6 @@ async function is_empty (dir_uuid) {
 }
 
 /**
- * @deprecated - sharing will be implemented with user-to-user ACL
- */
-async function has_shared_with (user_id, recipient_user_id) {
-    return false;
-}
-
-/**
- * Checks to see if this file/directory is shared with the user identified by `recipient_user_id`
- *
- * @param {*} fsentry_id
- * @param {*} recipient_user_id
- *
- * @deprecated - sharing will be implemented with user-to-user ACL
- */
-async function is_shared_with (fsentry_id, recipient_user_id) {
-    return false;
-}
-
-/**
- * Checks to see if this file/directory is shared with at least one other user
- *
- * @param {*} fsentry_id
- * @param {*} recipient_user_id
- *
- * @deprecated - sharing will be implemented with user-to-user ACL
- */
-async function is_shared_with_anyone (fsentry_id) {
-    return false;
-}
-
-/**
  * Checks to see if temp_users is disabled and return a boolean
  * @returns {boolean}
  */
@@ -133,12 +101,8 @@ const chkperm = spanify('chkperm', async (target_fsentry, requester_user_id, act
     if ( target_fsentry.user_id === requester_user_id ) {
         return true;
     }
-    // this entry was shared with the requester
-    else if ( await is_shared_with(target_fsentry.id, requester_user_id) ) {
-        return true;
-    }
     // special case: owner of entry has shared at least one entry with requester and requester is asking for the owner's root directory: /[owner_username]
-    else if ( target_fsentry.parent_uid === null && await has_shared_with(target_fsentry.user_id, requester_user_id) && action !== 'write' )
+    else if ( target_fsentry.parent_uid === null && action !== 'write' )
     {
         return true;
     }
@@ -263,16 +227,6 @@ function invalidate_cached_user_by_id (id) {
     invalidate_cached_user(user);
 }
 
-/**
- * Refresh apps cache
- *
- * @param {string} options - `options`
- * @returns {Promise}
- */
-async function refresh_apps_cache (options, override) {
-    return;
-}
-
 async function refresh_associations_cache () {
     /** @type BaseDatabaseAccessService */
     const db = _servicesHolder.services.get('database').get(DB_READ, 'apps');
@@ -309,8 +263,6 @@ async function get_app (options) {
         kv.set(`apps:name:${app.name}`, app, { EX: 30 });
         kv.set(`apps:id:${app.id}`, app, { EX: 30 });
     };
-
-    const log = _servicesHolder.services.get('log-service').create('get_app');
 
     // This condition should be updated if the code below is re-ordered.
     if ( options.follow_old_names && !options.uid && options.name ) {
@@ -398,6 +350,129 @@ async function get_app (options) {
     app = { ...app };
 
     return app;
+}
+
+/**
+ * Get multiple apps by uid/name/id, aligned to the input order.
+ *
+ * @param {Array<{uid?: string, name?: string, id?: string|number}>} specifiers
+ * @param {Object} [options]
+ * @returns {Promise<Array<object|null>>}
+ */
+async function get_apps (specifiers, options = {}) {
+    if ( ! Array.isArray(specifiers) ) {
+        specifiers = [specifiers];
+    }
+
+    const cacheApp = (app) => {
+        if ( ! app ) return;
+        app = { ...app };
+        kv.set(`apps:uid:${app.uid}`, app, { EX: 30 });
+        kv.set(`apps:name:${app.name}`, app, { EX: 30 });
+        kv.set(`apps:id:${app.id}`, app, { EX: 30 });
+    };
+
+    const normalized = specifiers.map(spec => spec ? { ...spec } : {});
+
+    if ( options.follow_old_names ) {
+        const svc_oldAppName = _servicesHolder.services.get('old-app-name');
+        for ( const spec of normalized ) {
+            if ( spec.uid || !spec.name ) continue;
+            const old_name = await svc_oldAppName.check_app_name(spec.name);
+            if ( old_name ) {
+                spec.uid = old_name.app_uid;
+                delete spec.name;
+            }
+        }
+    }
+
+    const appByUid = new Map();
+    const appByName = new Map();
+    const appById = new Map();
+
+    const addApp = (app) => {
+        if ( ! app ) return;
+        appByUid.set(app.uid, app);
+        appByName.set(app.name, app);
+        appById.set(app.id, app);
+    };
+
+    const missingUids = new Set();
+    const missingNames = new Set();
+    const missingIds = new Set();
+
+    for ( const spec of normalized ) {
+        if ( spec.uid ) {
+            const cached = kv.get(`apps:uid:${spec.uid}`);
+            if ( cached ) {
+                addApp(cached);
+            } else {
+                missingUids.add(spec.uid);
+            }
+            continue;
+        }
+        if ( spec.name ) {
+            const cached = kv.get(`apps:name:${spec.name}`);
+            if ( cached ) {
+                addApp(cached);
+            } else {
+                missingNames.add(spec.name);
+            }
+            continue;
+        }
+        if ( spec.id ) {
+            const cached = kv.get(`apps:id:${spec.id}`);
+            if ( cached ) {
+                addApp(cached);
+            } else {
+                missingIds.add(spec.id);
+            }
+        }
+    }
+
+    if ( missingUids.size || missingNames.size || missingIds.size ) {
+        /** @type BaseDatabaseAccessService */
+        const db = _servicesHolder.services.get('database').get(DB_READ, 'apps');
+
+        const clauses = [];
+        const params = [];
+
+        if ( missingUids.size ) {
+            const uids = Array.from(missingUids);
+            clauses.push(`uid IN (${uids.map(() => '?').join(', ')})`);
+            params.push(...uids);
+        }
+        if ( missingNames.size ) {
+            const names = Array.from(missingNames);
+            clauses.push(`name IN (${names.map(() => '?').join(', ')})`);
+            params.push(...names);
+        }
+        if ( missingIds.size ) {
+            const ids = Array.from(missingIds);
+            clauses.push(`id IN (${ids.map(() => '?').join(', ')})`);
+            params.push(...ids);
+        }
+
+        const rows = await db.read(`SELECT * FROM \`apps\` WHERE ${clauses.join(' OR ')}`,
+                        params);
+
+        for ( const app of rows ) {
+            cacheApp(app);
+            addApp(app);
+        }
+    }
+
+    return normalized.map(spec => {
+        let app;
+        if ( spec.uid ) {
+            app = appByUid.get(spec.uid);
+        } else if ( spec.name ) {
+            app = appByName.get(spec.name);
+        } else if ( spec.id ) {
+            app = appById.get(spec.id);
+        }
+        return app ? { ...app } : null;
+    });
 }
 
 /**
@@ -957,31 +1032,8 @@ async function resolve_glob (glob, user) {
     });
 }
 
-/**
- * Copies a FSEntry represented by `source_path` to `dest_path`.
- *
- * @param {string} source_path
- * @param {string} dest_path
- * @param {object} user
- * @returns
- */
-function cp (source_path, dest_path, user, overwrite, change_name, check_perms = true) {
-    throw new Error('legacy copy function called');
-}
-
 function isString (variable) {
     return typeof variable === 'string' || variable instanceof String;
-}
-
-/**
- * Recusrively deletes all files under `path`
- *
- * @param {string} source_path
- * @param {object} user
- * @returns
- */
-function rm (source_path, user, descendants_only = false) {
-    throw new Error('legacy remove function called');
 }
 
 const body_parser_error_handler = (err, req, res, next) => {
@@ -1100,7 +1152,7 @@ async function sign_file (fsentry, action) {
     };
 }
 
-async function gen_public_token (file_uuid, ttl = 24 * 60 * 60) {
+async function gen_public_token (file_uuid) {
     const { v4: uuidv4 } = require('uuid');
 
     // get fsentry
@@ -1149,6 +1201,7 @@ async function deleteUser (user_id) {
     const svc_fs = _servicesHolder.services.get('filesystem');
 
     // get a list of up to 5000 files owned by this user
+    // eslint-disable-next-line no-constant-condition
     for ( let offset = 0; true; offset += 5000 ) {
         let files = await db.read(`SELECT uuid, bucket, bucket_region FROM fsentries WHERE user_id = ? AND is_dir = 0 LIMIT 5000 OFFSET ${ offset}`,
                         [user_id]);
@@ -1571,6 +1624,23 @@ async function get_taskbar_items (user, { icon_size, no_icons } = {}) {
         }
     }
 
+    const app_specifiers = taskbar_items_from_db.map((taskbar_item_from_db) => {
+        if ( taskbar_item_from_db.type !== 'app' ) return {};
+        if ( taskbar_item_from_db.name === 'explorer' ) return {};
+        if ( taskbar_item_from_db.name ) {
+            return { name: taskbar_item_from_db.name };
+        }
+        if ( taskbar_item_from_db.id ) {
+            return { id: taskbar_item_from_db.id };
+        }
+        if ( taskbar_item_from_db.uid ) {
+            return { uid: taskbar_item_from_db.uid };
+        }
+        return {};
+    });
+
+    const taskbar_apps = await get_apps(app_specifiers);
+
     // get apps that these taskbar items represent
     let taskbar_items = [];
     for ( let index = 0; index < taskbar_items_from_db.length; index++ ) {
@@ -1578,19 +1648,7 @@ async function get_taskbar_items (user, { icon_size, no_icons } = {}) {
         if ( taskbar_item_from_db.type !== 'app' ) continue;
         if ( taskbar_item_from_db.name === 'explorer' ) continue;
 
-        let item = {};
-        if ( taskbar_item_from_db.name )
-        {
-            item = await get_app({ name: taskbar_item_from_db.name });
-        }
-        else if ( taskbar_item_from_db.id )
-        {
-            item = await get_app({ id: taskbar_item_from_db.id });
-        }
-        else if ( taskbar_item_from_db.uid )
-        {
-            item = await get_app({ uid: taskbar_item_from_db.uid });
-        }
+        const item = taskbar_apps[index];
 
         // if item not found, skip it
         if ( ! item ) continue;
@@ -1682,10 +1740,6 @@ function get_url_from_req (req) {
     return `${req.protocol }://${ req.get('host') }${req.originalUrl}`;
 }
 
-async function mv (options) {
-    throw new Error('legacy mv function called');
-}
-
 /**
  * Formats a number with grouped thousands.
  *
@@ -1729,7 +1783,6 @@ module.exports = {
     change_username,
     chkperm,
     convert_path_to_fsentry,
-    cp,
     deleteUser,
     get_descendants,
     get_dir_size,
@@ -1738,28 +1791,23 @@ module.exports = {
     get_url_from_req,
     generate_random_str,
     get_app,
+    get_apps,
     get_user,
     invalidate_cached_user,
     invalidate_cached_user_by_id,
-    has_shared_with,
     hyphenize_confirm_code,
     id2fsentry,
     id2path,
     id2uuid,
     is_ancestor_of,
     is_empty,
-    is_shared_with,
-    is_shared_with_anyone,
     ...require('./validation'),
     is_temp_users_disabled,
     is_user_signup_disabled,
     jwt_auth,
-    mv,
     number_format,
-    refresh_apps_cache,
     refresh_associations_cache,
     resolve_glob,
-    rm,
     seconds_to_string,
     send_email_verification_code,
     send_email_verification_token,
