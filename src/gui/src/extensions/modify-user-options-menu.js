@@ -33,7 +33,7 @@ $(window).on('ctxmenu-will-open', (event) => {
                 action: async function () {
                     try {
                         console.debug('[puter] System Information click');
-                        await UIWindowSystemInfo(); // try hide amd replace with div
+                        await UIWindowSystemInfo();
                         console.debug('[puter] System Information opened');
                     } catch (e) {
                         console.error('[puter] System Information failed', e);

@@ -7,6 +7,7 @@
  */
 
 import UIWindow from './UIWindow.js';
+import * as utils from '../../../puter-js/src/lib/utils.js';
 
 const triggerRefreshBtnAnimation = ($btn) => {
     const $icon = $btn.find('.update-usage-details-icon');
@@ -16,6 +17,7 @@ const triggerRefreshBtnAnimation = ($btn) => {
     // Cloned node required to get animation to play on refresh
     icon.parentNode.replaceChild(clone, icon);
 };
+
 // Leverage User-Agent Client Hints API to request user browser information
 async function getClientInfo () {
     let clientInfo = [];
@@ -113,6 +115,16 @@ async function getClientInfo () {
     return clientInfo;
 }
 
+async function getServerInfo (options = {}) {
+    const APIOrigin = window.puter?.APIOrigin;
+    const authToken = window.puter?.authToken;
+    return new Promise((resolve, reject) => {
+        const xhr = utils.initXhr('/getServerInfo', APIOrigin, authToken, 'get');
+        utils.setupXhrEventHandlers(xhr, options.success, options.error, resolve, reject);
+        xhr.send();
+    });
+}
+
 function renderSystemInfo ( information ) {
     let html = '';
     for ( const info of information ) {
@@ -133,7 +145,7 @@ async function UIWindowSystemInfo (options) {
         const h = `<div class="systeminfo-container">
                        <div class="clientinfo-container">
                            <h1>${i18n('client_information')}
-                               <button class="update-usage-details" style="float:right;">
+                               <button class="update-usage-details client-btn" style="float:right;">
                                    <svg class="update-usage-details-icon" xmlns="http://www.w3.org/2000/svg" width="16" height="16" fill="currentColor" viewBox="0 0 16 16">
                                        <path fill-rule="evenodd" d="M8 3a5 5 0 1 0 4.546 2.914.5.5 0 0 1 .908-.417A6 6 0 1 1 8 2z"/>
                                        <path d="M8 4.466V.534a.25.25 0 0 1 .41-.192l2.36 1.966c.12.1.12.284 0 .384L8.41 4.658A.25.25 0 0 1 8 4.466"/>
@@ -144,13 +156,14 @@ async function UIWindowSystemInfo (options) {
                        </div>
                        <div class="serverinfo-container">
                            <h1>${i18n('server_information')}
-                               <button class="update-usage-details" style="float:right;">
+                               <button class="update-usage-details server-btn" style="float:right;">
                                    <svg class="update-usage-details-icon" xmlns="http://www.w3.org/2000/svg" width="16" height="16" fill="currentColor" viewBox="0 0 16 16">
                                        <path fill-rule="evenodd" d="M8 3a5 5 0 1 0 4.546 2.914.5.5 0 0 1 .908-.417A6 6 0 1 1 8 2z"/>
                                        <path d="M8 4.466V.534a.25.25 0 0 1 .41-.192l2.36 1.966c.12.1.12.284 0 .384L8.41 4.658A.25.25 0 0 1 8 4.466"/>
                                    </svg>
                                </button>
                            </h1>
+                           <div class="serverinfo-content"></div>
                        </div>                    
                    </div>`;
 
@@ -198,10 +211,16 @@ async function UIWindowSystemInfo (options) {
 
         // Refresh button onclick event
         $win.on('click', '.update-usage-details', async function () {
-            triggerRefreshBtnAnimation($(this));
-            const clientInfo = await getClientInfo();
-            const clientInfohtml = renderSystemInfo(clientInfo);
-            $win.find('.clientinfo-content').html(clientInfohtml);
+            if ( $(this).hasClass('client-btn') ) {
+                triggerRefreshBtnAnimation($(this));
+                const clientInfo = await getClientInfo();
+                const clientInfohtml = renderSystemInfo(clientInfo);
+                $win.find('.clientinfo-content').html(clientInfohtml);
+            } else {
+                triggerRefreshBtnAnimation($(this));
+                const serverInfo = await getServerInfo();
+                console.log(serverInfo);
+            }
         });
 
         resolve(el_window);

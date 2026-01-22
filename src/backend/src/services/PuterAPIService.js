@@ -59,6 +59,7 @@ class PuterAPIService extends BaseService {
         app.use(require('../routers/down'));
         app.use(require('../routers/contactUs'));
         app.use(require('../routers/delete-site'));
+        app.use(require('../routers/getServerInfo'));
         app.use(require('../routers/get-dev-profile'));
         app.use(require('../routers/kvstore/getItem'));
         app.use(require('../routers/kvstore/setItem'));
