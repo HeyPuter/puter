@@ -65,7 +65,7 @@ const configurable_auth = options => async (req, res, next) => {
         token = req.header('Authorization');
         token = token.replace('Bearer ', '').trim();
         if ( token === 'undefined' ) {
-            res.status(401).text('Unauthenticated - token format invalid');
+            res.status(401).send('Unauthenticated - token format invalid');
             return;
         }
     }
@@ -90,10 +90,10 @@ const configurable_auth = options => async (req, res, next) => {
             next();
             return;
         }
-        res.status(401).text('Unauthenticated - Token missing');
+        res.status(401).send('Unauthenticated - Token missing');
         return;
     } else if ( typeof token !== 'string' ) {
-        res.status(401).text('Unauthenticated - token authentication failed');
+        res.status(401).send('Unauthenticated - token authentication failed');
         return;
     } else {
         token = token.replace('Bearer ', '');
@@ -113,7 +113,7 @@ const configurable_auth = options => async (req, res, next) => {
         actor = await svc_auth.authenticate_from_token(token);
     } catch ( e ) {
         if ( e instanceof APIError ) {
-            e.write(res);
+            res.status(500).send(e.message);
             return;
         }
         if ( e instanceof LegacyTokenError && is_whoami(req) ) {
@@ -140,7 +140,7 @@ const configurable_auth = options => async (req, res, next) => {
             next();
             return;
         }
-        res.status(401).text('Unauthenticated - token authentication failed');
+        res.status(401).send('Unauthenticated - token authentication failed');
         return;
     }
 
@@ -149,7 +149,7 @@ const configurable_auth = options => async (req, res, next) => {
     if ( actor.type.user ) {
         if ( actor.type.user?.suspended ) {
             console.warn('Suspended user attempted to make request:', { userId: actor.type.user.id, username: actor.type.user.username });
-            res.status(403).text('Forbidden - user suspended');
+            res.status(403).send('Forbidden - user suspended');
             return;
         }
         context.set('user', actor.type.user);
