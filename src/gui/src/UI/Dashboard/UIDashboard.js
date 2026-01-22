@@ -1,3 +1,4 @@
+/* eslint-disable @stylistic/indent */
 /**
  * Copyright (C) 2024-present Puter Technologies Inc.
  *
@@ -53,7 +54,7 @@ import TabSecurity from './TabSecurity.js';
 const builtinTabs = [
     TabHome,
     // TabApps,
-    // TabFiles,
+    TabFiles,
     TabUsage,
     TabAccount,
     TabSecurity,
@@ -71,12 +72,12 @@ async function UIDashboard (options) {
     let h = '';
 
     h += '<div class="dashboard">';
-    
+
         // Mobile sidebar toggle
         h += '<button class="dashboard-sidebar-toggle">';
             h += '<span></span><span></span><span></span>';
         h += '</button>';
-        
+
         // Sidebar
         h += '<div class="dashboard-sidebar hide-scrollbar">';
             // Navigation items container
@@ -90,14 +91,14 @@ async function UIDashboard (options) {
                 h += '</div>';
             }
             h += '</div>';
-            
+
             // User options button at bottom
             h += '<div class="dashboard-user-options hide-scrollbar">';
-                h += `<div class="dashboard-user-btn hide-scrollbar">`;
+                h += '<div class="dashboard-user-btn hide-scrollbar">';
                     h += `<div class="dashboard-user-avatar profile-pic" style="background-image: url(${window.user?.profile?.picture || window.icons['profile.svg']})"></div>`;
                     h += `<span class="dashboard-user-name">${html_encode(window.user?.username || 'User')}</span>`;
-                    h += `<svg class="dashboard-user-chevron" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="6 9 12 15 18 9"/></svg>`;
-                h += `</div>`;
+                    h += '<svg class="dashboard-user-chevron" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="6 9 12 15 18 9"/></svg>';
+                h += '</div>';
             h += '</div>';
         h += '</div>';
 
@@ -147,11 +148,11 @@ async function UIDashboard (options) {
     $el_window.on('click', '.dashboard-sidebar-item', function () {
         const $this = $(this);
         const section = $this.attr('data-section');
-        
+
         // Update active sidebar item
         $el_window.find('.dashboard-sidebar-item').removeClass('active');
         $this.addClass('active');
-        
+
         // Update active content section
         $el_window.find('.dashboard-section').removeClass('active');
         $el_window.find(`.dashboard-section[data-section="${section}"]`).addClass('active');
@@ -178,9 +179,9 @@ async function UIDashboard (options) {
         const $btn = $(this);
         const $chevron = $btn.find('.dashboard-user-chevron');
         const pos = this.getBoundingClientRect();
-        
+
         // Don't open if already open
-        if ($('.context-menu[data-id="dashboard-user-menu"]').length > 0) {
+        if ( $('.context-menu[data-id="dashboard-user-menu"]').length > 0 ) {
             return;
         }
 
@@ -190,7 +191,7 @@ async function UIDashboard (options) {
         let items = [];
 
         // Save Session (if temp user)
-        if (window.user.is_temp) {
+        if ( window.user.is_temp ) {
             items.push({
                 html: i18n('save_session'),
                 icon: '<svg style="margin-bottom: -4px; width: 16px; height: 16px;" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 48 48"><path d="M45.521,39.04L27.527,5.134c-1.021-1.948-3.427-2.699-5.375-1.679-.717,.376-1.303,.961-1.679,1.679L2.479,39.04c-.676,1.264-.635,2.791,.108,4.017,.716,1.207,2.017,1.946,3.42,1.943H41.993c1.403,.003,2.704-.736,3.42-1.943,.743-1.226,.784-2.753,.108-4.017ZM23.032,15h1.937c.565,0,1.017,.467,1,1.031l-.438,14c-.017,.54-.459,.969-1,.969h-1.062c-.54,0-.983-.429-1-.969l-.438-14c-.018-.564,.435-1.031,1-1.031Zm.968,25c-1.657,0-3-1.343-3-3s1.343-3,3-3,3,1.343,3,3-1.343,3-3,3Z" fill="#ffbb00"/></svg>',
@@ -212,7 +213,7 @@ async function UIDashboard (options) {
         }
 
         // Logged in users
-        if (window.logged_in_users.length > 0) {
+        if ( window.logged_in_users.length > 0 ) {
             let users_arr = window.logged_in_users;
 
             // bring logged in user's item to top
@@ -226,7 +227,7 @@ async function UIDashboard (options) {
                     html: l_user.username,
                     icon: l_user.username === window.user.username ? '✓' : '',
                     onClick: async function () {
-                        if (l_user.username === window.user.username) {
+                        if ( l_user.username === window.user.username ) {
                             return;
                         }
                         window.update_auth_data(l_user.auth_token, l_user);
@@ -288,7 +289,7 @@ async function UIDashboard (options) {
                 html: i18n('log_out'),
                 onClick: async function () {
                     // Check for open windows
-                    if ($('.window-app').length > 0) {
+                    if ( $('.window-app').length > 0 ) {
                         const alert_resp = await UIAlert({
                             message: `<p>${i18n('confirm_open_apps_log_out')}</p>`,
                             buttons: [
@@ -302,7 +303,7 @@ async function UIDashboard (options) {
                                 },
                             ],
                         });
-                        if (alert_resp === 'close_and_log_out') {
+                        if ( alert_resp === 'close_and_log_out' ) {
                             window.logout();
                         }
                     } else {
@@ -315,15 +316,15 @@ async function UIDashboard (options) {
         UIContextMenu({
             id: 'dashboard-user-menu',
             parent_element: $btn[0],
-            position: { 
+            position: {
                 top: pos.top - 8,
-                left: pos.left
+                left: pos.left,
             },
             items: menuItems,
             onClose: () => {
                 // Rotate chevron back to point downwards
                 $chevron.removeClass('open');
-            }
+            },
         });
     });
 

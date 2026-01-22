@@ -5783,6 +5783,106 @@ html.dark-mode .usage-table-show-less:hover {
     padding: 24px 0;
 }
 
+/* Dashboard files */
+.dashboard-tab-content.files-tab {
+    display: flex;
+    justify-content: flex-start;
+    align-items: flex-start;
+    /* max-width: unset; */
+    padding: 0;
+    /* margin: 0; */
+    height: calc(100vh - 50px);
+}
+
+.dashboard-section-files .directories {
+    width: 160px;
+    height: 100%;
+    padding-right: 20px;
+    border-right: 1px solid #e0e0e0;
+}
+
+.dashboard-section-files .directories ul {
+    list-style: none;
+    padding: 0;
+    margin: 0;
+}
+
+.dashboard-section-files .directories li {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    padding: 10px 12px;
+    margin-bottom: 4px;
+    border-radius: 6px;
+    cursor: pointer;
+    font-size: 14px;
+    color: #444;
+    transition: background-color 0.15s;
+}
+
+.dashboard-section-files .directories li:hover {
+    background: #e8e8e8;
+}
+
+.dashboard-section-files .directories li.active {
+    color: var(--select-color);
+    font-weight: 500;
+}
+
+.dashboard-section-files .directory-contents {
+    width: calc(100% - 160px);
+}
+
+.dashboard-section-files .files {
+    width: 100%;
+    display: flex;
+    flex-direction: column;
+    /* padding: 0px 20px; */
+}
+
+.dashboard-section-files .files .row {
+    display: grid;
+    height: 32px;
+    padding: 0 10px;
+    grid-template-columns: 24px auto 60px;
+    align-items: center;
+    font-size: 13px;
+    color: #444;
+    gap: 10px;
+}
+
+.dashboard-section-files .files .row:nth-child(1) {
+    color: #666;
+    border-bottom: 1px solid #e0e0e0;
+    font-size: 12px;
+}
+
+.dashboard-section-files .files .row:hover {
+    background: #e8e8e8;
+    border-radius: 3px;
+}
+
+.dashboard-section-files .files .row:nth-child(1):hover {
+    background-color: inherit;
+}
+
+.dashboard-section-files .files .row.selected {
+    color: white;
+    background-color: var(--select-color);
+    border-radius: 3px;
+}
+
+.dashboard-section-files .files .row img {
+    width: 18px;
+    height: 18px;
+}
+
+.dashboard-section-files .files .row .name {
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    overflow: hidden;
+}
+
 /* Mobile sidebar toggle */
 .dashboard-sidebar-toggle {
     display: none;
