@@ -136,6 +136,54 @@ async function getServerInfo (options = {}) {
     });
 }
 
+async function getServerInfoFormatted () {
+    try {
+        const rawServerData = await getServerInfo();
+
+        // Map raw data to render-ready array
+        return [
+            {
+                key: 'os',
+                icon: 'system-info-os.svg',
+                i18n_key: 'os',
+                title: i18n('os'),
+                value: rawServerData.os?.pretty || `${rawServerData.os?.type || 'Unknown'} ${rawServerData.os?.release || ''}`,
+            },
+            {
+                key: 'cpu',
+                icon: 'system-info-cpu.svg',
+                i18n_key: 'cpu',
+                title: i18n('cpu'),
+                value: `${rawServerData.cpu?.model || 'Unknown'} (${rawServerData.cpu?.cores || 0} cores)`,
+            },
+            {
+                key: 'ram',
+                icon: 'system-info-ram.svg',
+                i18n_key: 'ram',
+                title: i18n('ram'),
+                value: `${rawServerData.ram?.freeGB || 0} Free / ${rawServerData.ram?.totalGB || 0} GB`,
+            },
+            {
+                key: 'disk_storage',
+                icon: 'system-info-storage.svg',
+                i18n_key: 'disk_storage',
+                title: i18n('disk_storage'),
+                value: `${rawServerData.disk?.used || 0} Used / ${rawServerData.disk?.total || 0} GB`,
+            },
+            {
+                key: 'uptime',
+                icon: 'system-info-time.svg',
+                i18n_key: 'uptime',
+                title: i18n('uptime'),
+                value: rawServerData.uptime?.pretty || 'N/A',
+            },
+        ];
+    } catch ( err ) {
+        console.error('Failed to fetch server info:', err);
+        return [];
+    }
+}
+
 function renderSystemInfo ( information ) {
     let html = '';
     for ( const info of information ) {
@@ -202,7 +250,7 @@ async function UIWindowSystemInfo (options) {
             draggable_body: false,
             body_css: {
                 width: 'initial',
-                height: '100%',
+                height: 'calc(100% - 30px)',
                 overflow: 'auto',
             },
             ...options?.window_options ?? {},
@@ -215,6 +263,11 @@ async function UIWindowSystemInfo (options) {
         const clientInfo = await getClientInfo();
         const clientInfohtml = renderSystemInfo(clientInfo);
         $win.find('.clientinfo-content').html(clientInfohtml);
+        // Inject server info on launch
+        $win.find('.serverinfo-content').html('<p style="font-weight:500;font-size:14px;color:#3C4963">Loading server info...</p>');
+        const serverInfo = await getServerInfoFormatted();
+        const serverInfohtml = renderSystemInfo(serverInfo);
+        $win.find('.serverinfo-content').html(serverInfohtml);
 
         // Spin both reset buttons once on launch
         const $icons = $win.find('.update-usage-details-icon');
@@ -229,8 +282,9 @@ async function UIWindowSystemInfo (options) {
                 $win.find('.clientinfo-content').html(clientInfohtml);
             } else {
                 triggerRefreshBtnAnimation($(this));
-                const serverInfo = await getServerInfo();
-                console.log(serverInfo);
+                const serverInfo = await getServerInfoFormatted();
+                const serverInfohtml = renderSystemInfo(serverInfo);
+                $win.find('.serverinfo-content').html(serverInfohtml);
             }
         });
 

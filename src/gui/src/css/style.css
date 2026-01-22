@@ -2995,7 +2995,8 @@ label {
     to { transform: rotate(360deg); }
 }
 
-.clientinfo-content {
+.clientinfo-content,
+.serverinfo-content {
     display: flex;
     flex-wrap: wrap;
     gap: 16px;
