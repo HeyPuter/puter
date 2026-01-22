@@ -82,7 +82,7 @@ export class AIImageGenerationService extends BaseService {
         },
     };
 
-    getModel ({ modelId, provider}: { modelId: string, provider?: string }) {
+    getModel ({ modelId, provider }: { modelId: string, provider?: string }) {
         const models = this.#modelIdMap[modelId];
 
         if ( ! provider ) {
@@ -142,12 +142,23 @@ export class AIImageGenerationService extends BaseService {
 
             // build model id map
             for ( const model of await provider.models() ) {
+                model.id = model.id.trim().toLowerCase();
                 if ( ! this.#modelIdMap[model.id] ) {
                     this.#modelIdMap[model.id] = [];
                 }
                 this.#modelIdMap[model.id].push({ ...model, provider: providerName });
+
+                if ( model.puterId ) {
+                    if ( model.aliases ) {
+                        model.aliases.push(model.puterId);
+                    } else {
+                        model.aliases = [model.puterId];
+                    }
+                }
+
                 if ( model.aliases ) {
-                    for ( const alias of model.aliases ) {
+                    for ( let alias of model.aliases ) {
+                        alias = alias.trim().toLowerCase();
                         // join arrays which are aliased the same
                         if ( ! this.#modelIdMap[alias] ) {
                             this.#modelIdMap[alias] = this.#modelIdMap[model.id];
