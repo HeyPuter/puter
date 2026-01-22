@@ -619,32 +619,111 @@ window.is_fullscreen = () => {
         (document.msFullscreenElement && document.msFullscreenElement !== null);
 };
 
+const GET_APPS_TTL_MS = 30 * 1000;
+const getAppsCache = new Map();
+const getAppsInflight = new Map();
+
 window.get_apps = async (app_names, callback) => {
-    if ( Array.isArray(app_names) )
-    {
-        app_names = app_names.join('|');
-    }
+    const names = Array.isArray(app_names)
+        ? app_names
+        : (typeof app_names === 'string' ? app_names.split('|') : []);
 
     // 'explorer' is a special app, no metadata should be returned
-    if ( app_names === 'explorer' )
+    if ( names.length === 1 && names[0] === 'explorer' )
     {
         return [];
     }
 
-    let res = await $.ajax({
-        url: `${window.api_origin }/apps/${app_names}`,
-        type: 'GET',
-        async: true,
-        contentType: 'application/json',
-        headers: {
-            'Authorization': `Bearer ${window.auth_token}`,
-        },
-        success: function (res) {
-        },
-    });
+    if ( names.length === 0 ) {
+        return [];
+    }
 
-    if ( res.length === 1 )
-    {
+    const now = Date.now();
+    const resultsByName = new Map();
+    const pendingPromises = [];
+    const missingNames = [];
+
+    for ( const name of names ) {
+        if ( ! name ) continue;
+        const cached = getAppsCache.get(name);
+        if ( cached && cached.expiresAt > now ) {
+            resultsByName.set(name, cached.value);
+            continue;
+        }
+        if ( cached ) {
+            getAppsCache.delete(name);
+        }
+
+        const inflight = getAppsInflight.get(name);
+        if ( inflight ) {
+            pendingPromises.push(inflight.then((app) => {
+                if ( app ) {
+                    resultsByName.set(name, app);
+                }
+            }));
+            continue;
+        }
+
+        missingNames.push(name);
+    }
+
+    if ( missingNames.length ) {
+        const uniqueMissing = Array.from(new Set(missingNames));
+        const fetchPromise = (async () => {
+            const res = await $.ajax({
+                url: `${window.api_origin }/apps/${uniqueMissing.join('|')}`,
+                type: 'GET',
+                async: true,
+                contentType: 'application/json',
+                headers: {
+                    'Authorization': `Bearer ${window.auth_token}`,
+                },
+                success: function () {
+                },
+            });
+
+            let apps = res;
+            if ( ! Array.isArray(apps) ) {
+                apps = apps ? [apps] : [];
+            }
+
+            const appMap = new Map();
+            for ( const app of apps ) {
+                if ( app?.name ) {
+                    appMap.set(app.name, app);
+                }
+            }
+
+            return appMap;
+        })();
+
+        for ( const name of uniqueMissing ) {
+            getAppsInflight.set(name,
+                            fetchPromise.then((appMap) => appMap.get(name) ?? null));
+        }
+
+        pendingPromises.push(fetchPromise.then((appMap) => {
+            const fetchedAt = Date.now();
+            for ( const [name, app] of appMap.entries() ) {
+                getAppsCache.set(name, {
+                    value: app,
+                    expiresAt: fetchedAt + GET_APPS_TTL_MS,
+                });
+                resultsByName.set(name, app);
+            }
+        }).finally(() => {
+            for ( const name of uniqueMissing ) {
+                getAppsInflight.delete(name);
+            }
+        }));
+    }
+
+    if ( pendingPromises.length ) {
+        await Promise.all(pendingPromises);
+    }
+
+    let res = names.map(name => resultsByName.get(name)).filter(Boolean);
+    if ( res.length === 1 ) {
         res = res[0];
     }
 
