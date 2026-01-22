@@ -315,10 +315,10 @@ export default class AppService extends BaseService {
         }
 
         if ( ! app.stats.grouped_stats.open_count ) {
-            app.stats.grouped_stats.open_count = {};
+            app.stats.grouped_stats.open_count = [];
         }
         if ( ! app.stats.grouped_stats.user_count ) {
-            app.stats.grouped_stats.user_count = {};
+            app.stats.grouped_stats.user_count = [];
         }
 
         if ( params.icon_size ) {
