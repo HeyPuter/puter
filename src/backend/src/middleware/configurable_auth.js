@@ -65,8 +65,9 @@ const configurable_auth = options => async (req, res, next) => {
         token = req.header('Authorization');
         token = token.replace('Bearer ', '').trim();
         if ( token === 'undefined' ) {
-            res.status(401).send('Unauthenticated - token format invalid');
-            return;
+            APIError.create('unexpected_undefined', null, {
+                msg: 'The Authorization token cannot be the string "undefined"',
+            });
         }
     }
     // Cookie
@@ -90,10 +91,10 @@ const configurable_auth = options => async (req, res, next) => {
             next();
             return;
         }
-        res.status(401).send('Unauthenticated - Token missing');
+        APIError.create('token_missing').write(res);
         return;
     } else if ( typeof token !== 'string' ) {
-        res.status(401).send('Unauthenticated - token authentication failed');
+        APIError.create('token_auth_failed').write(res);
         return;
     } else {
         token = token.replace('Bearer ', '');
@@ -113,7 +114,7 @@ const configurable_auth = options => async (req, res, next) => {
         actor = await svc_auth.authenticate_from_token(token);
     } catch ( e ) {
         if ( e instanceof APIError ) {
-            res.status(500).send(e.message);
+            e.write(res);
             return;
         }
         if ( e instanceof LegacyTokenError && is_whoami(req) ) {
@@ -140,7 +141,8 @@ const configurable_auth = options => async (req, res, next) => {
             next();
             return;
         }
-        res.status(401).send('Unauthenticated - token authentication failed');
+        const re = APIError.create('token_auth_failed');
+        re.write(res);
         return;
     }
 
@@ -148,24 +150,12 @@ const configurable_auth = options => async (req, res, next) => {
     context.set('actor', actor);
     if ( actor.type.user ) {
         if ( actor.type.user?.suspended ) {
-            console.warn('Suspended user attempted to make request:', { userId: actor.type.user.id, username: actor.type.user.username });
-            res.status(403).send('Forbidden - user suspended');
-            return;
+            throw APIError.create('forbidden');
         }
         context.set('user', actor.type.user);
     }
 
     // === Populate Request ===
-    if ( actor ) {
-        console.log(`Authenticated actor ${actor.type?.user?.username} making request:`, {
-            actorId: actor.id,
-            actorType: actor.type.type,
-            userId: actor.type?.user?.id,
-            username: actor.type?.user?.username,
-            requestPath: req.path,
-            ip: req.ip,
-        });
-    }
     req.actor = actor;
     req.user = actor.type.user;
     req.token = token;
