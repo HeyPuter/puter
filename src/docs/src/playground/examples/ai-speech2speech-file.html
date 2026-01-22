@@ -1,0 +1,24 @@
+<html>
+<body>
+    <script src="https://js.puter.com/v2/"></script>
+    <input type="file" id="input" accept="audio/*" />
+    <button id="convert">Change voice</button>
+    <audio id="player" controls></audio>
+    <script>
+        document.getElementById('convert').onclick = async () => {
+            const file = document.getElementById('input').files[0];
+            if (!file) return alert('Pick an audio file first.');
+
+            const audio = await puter.ai.speech2speech(file, {
+                voice: '21m00Tcm4TlvDq8ikWAM', // Rachel sample voice
+                model: 'eleven_multilingual_sts_v2',
+                output_format: 'mp3_44100_128',
+                removeBackgroundNoise: true,
+            });
+
+            document.getElementById('player').src = audio.toString();
+            audio.play();
+        };
+    </script>
+</body>
+</html>

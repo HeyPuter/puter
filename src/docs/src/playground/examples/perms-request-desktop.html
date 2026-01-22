@@ -1,0 +1,17 @@
+<html>
+<body>
+    <script src="https://js.puter.com/v2/"></script>
+    <button id="request-desktop">Request Desktop Access</button>
+    <script>
+        document.getElementById('request-desktop').addEventListener('click', async () => {
+            const desktopPath = await puter.perms.requestReadDesktop();
+            if (desktopPath) {
+                puter.print(`Desktop path: ${desktopPath}`);
+            } else {
+                puter.print('Desktop access denied');
+            }
+        });
+    </script>
+</body>
+</html>
+

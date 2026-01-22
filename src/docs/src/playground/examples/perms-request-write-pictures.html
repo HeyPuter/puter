@@ -1,0 +1,20 @@
+<html>
+<body>
+    <script src="https://js.puter.com/v2/"></script>
+    <button id="request-pictures">Request Pictures Write Access</button>
+    <script>
+        document.getElementById('request-pictures').addEventListener('click', async () => {
+            const picturesPath = await puter.perms.requestWritePictures();
+            if (picturesPath) {
+                puter.print(`Pictures path: ${picturesPath}`);
+                // Now you can write files to the Pictures folder
+                await puter.fs.write(`${picturesPath}/my-image.txt`, 'Image data here');
+                puter.print('File written to Pictures folder');
+            } else {
+                puter.print('Pictures write access denied');
+            }
+        });
+    </script>
+</body>
+</html>
+

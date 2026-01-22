@@ -1,0 +1,22 @@
+<html>
+<body>
+    <script src="https://js.puter.com/v2/"></script>
+    <script>
+    (async () => {
+        // DeepSeek v3.2
+        const chat_resp = await puter.ai.chat('Tell me something I  might not know about chemistry.', {model: 'deepseek-v3.2', stream: true });
+        puter.print('<h1>DeepSeek v3.2:</h1>');
+        for await ( const part of chat_resp )
+            if (part?.reasoning) puter.print(part?.reasoning);
+            else puter.print(part?.text);
+
+        // DeepSeek Reasoner
+        const reasoner_resp = await puter.ai.chat('Tell me something I  might not know about chemistry.', {model: 'deepseek-reasoner', stream: true });
+        puter.print('<h1>DeepSeek Reasoner:</h1>');
+        for await ( const part of reasoner_resp )
+            if (part?.reasoning) puter.print(part?.reasoning);
+            else puter.print(part?.text);
+    })();
+    </script>
+</body>
+</html>

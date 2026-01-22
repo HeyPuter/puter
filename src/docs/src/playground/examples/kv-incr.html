@@ -1,0 +1,10 @@
+<html>
+<body>
+    <script src="https://js.puter.com/v2/"></script>
+    <script>
+        puter.kv.incr('testIncrKey').then((newValue) => {
+            puter.print(`New value: ${newValue}`);
+        });
+    </script>
+</body>
+</html>

@@ -1,0 +1,71 @@
+<html>
+<body>
+    <script src="https://js.puter.com/v2/"></script>
+    <main style="display:flex;flex-direction:column;gap:12px;">
+        <p>Click play to hear OpenAI's <code>gpt-4o-mini-tts</code> voice in real time.</p>
+        <textarea id="text" rows="4" style="width:100%;">OpenAI text to speech is now available right inside Puter.</textarea>
+        <label>
+            Voice:
+            <select id="voice">
+                <option value="alloy">alloy</option>
+                <option value="ash">ash</option>
+                <option value="ballad">ballad</option>
+                <option value="coral">coral</option>
+                <option value="echo">echo</option>
+                <option value="fable">fable</option>
+                <option value="nova">nova</option>
+                <option value="onyx">onyx</option>
+                <option value="sage">sage</option>
+                <option value="shimmer">shimmer</option>
+            </select>
+        </label>
+        <label>
+            Response format:
+            <select id="format">
+                <option value="mp3">mp3</option>
+                <option value="wav">wav</option>
+                <option value="opus">opus</option>
+                <option value="aac">aac</option>
+                <option value="flac">flac</option>
+                <option value="pcm">pcm</option>
+            </select>
+        </label>
+        <button id="play">Play</button>
+        <small id="status"></small>
+    </main>
+
+    <script>
+        const statusEl = document.getElementById('status');
+        document.getElementById('play').addEventListener('click', async () => {
+            const text = document.getElementById('text').value.trim();
+            const voice = document.getElementById('voice').value;
+            const responseFormat = document.getElementById('format').value;
+
+            if (!text) {
+                statusEl.textContent = 'Please enter some text first.';
+                return;
+            }
+            if (text.length > 3000) {
+                statusEl.textContent = 'Text must be under 3000 characters.';
+                return;
+            }
+
+            statusEl.textContent = 'Requesting OpenAI audio...';
+            try {
+                const audio = await puter.ai.txt2speech(text, {
+                    provider: 'openai',
+                    model: 'gpt-4o-mini-tts',
+                    voice,
+                    response_format: responseFormat,
+                    instructions: 'Keep the delivery clear and friendly.',
+                });
+                statusEl.textContent = 'Playing OpenAI audio.';
+                audio.play();
+            } catch (error) {
+                statusEl.textContent = `Error: ${error.message || error}`;
+                console.error(error);
+            }
+        });
+    </script>
+</body>
+</html>

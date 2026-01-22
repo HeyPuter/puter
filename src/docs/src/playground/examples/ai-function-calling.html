@@ -1,0 +1,55 @@
+<html>
+<body>
+    <script src="https://js.puter.com/v2/"></script>
+    <script>
+        // Mock weather function
+        function getWeather(location) {
+            return location + ': 22°C, Sunny';
+        }
+
+        // Define the tool
+        const tools = [{
+            type: "function",
+            function: {
+                name: "get_weather",
+                description: "Get current weather for a location",
+                parameters: {
+                    type: "object",
+                    properties: {
+                        location: { type: "string", description: "City name" }
+                    },
+                    required: ["location"]
+                }
+            }
+        }];
+
+        (async () => {
+            const question = "What's the weather in Paris?";
+            puter.print("Question: " + question + "<br/>");
+            puter.print("(Loading...)<br/>");
+
+            // Call AI with tools
+            const response = await puter.ai.chat(question, { tools });
+
+            // Check if AI wants to call a function
+            if (response.message.tool_calls?.length > 0) {
+                const toolCall = response.message.tool_calls[0];
+                const args = JSON.parse(toolCall.function.arguments);
+                const weatherData = getWeather(args.location);
+
+                // Send result back to AI
+                const finalResponse = await puter.ai.chat([
+                    { role: "user", content: question },
+                    response.message,
+                    { role: "tool", tool_call_id: toolCall.id, content: weatherData }
+                ]);
+
+                puter.print("Answer: " + finalResponse);
+            } else {
+                // If the AI responds directly without calling a tool, print its message
+                puter.print("Answer: " + response);
+            }
+        })();
+    </script>
+</body>
+</html>

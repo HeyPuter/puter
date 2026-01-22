@@ -1,0 +1,13 @@
+<html>
+<body>
+    <script src="https://js.puter.com/v2/"></script>
+    <script>
+        (async () => {
+            await puter.kv.set('profile', { tags: ['alpha'] });
+
+            const updated = await puter.kv.add('profile', { 'tags': ['beta', 'gamma'] });
+            puter.print(`Updated profile: ${JSON.stringify(updated)}`);
+        })();
+    </script>
+</body>
+</html>

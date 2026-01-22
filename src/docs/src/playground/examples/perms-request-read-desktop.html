@@ -1,0 +1,20 @@
+<html>
+<body>
+    <script src="https://js.puter.com/v2/"></script>
+    <button id="request-desktop">Request Desktop Read Access</button>
+    <script>
+        document.getElementById('request-desktop').addEventListener('click', async () => {
+            const desktopPath = await puter.perms.requestReadDesktop();
+            if (desktopPath) {
+                puter.print(`Desktop path: ${desktopPath}`);
+                // Now you can read files from the Desktop
+                const items = await puter.fs.readdir(desktopPath);
+                puter.print(`Desktop contains ${items.length} items`);
+            } else {
+                puter.print('Desktop read access denied');
+            }
+        });
+    </script>
+</body>
+</html>
+

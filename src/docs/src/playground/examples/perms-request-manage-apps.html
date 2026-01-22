@@ -1,0 +1,19 @@
+<html>
+<body>
+    <script src="https://js.puter.com/v2/"></script>
+    <button id="request-apps">Request Apps Manage Access</button>
+    <script>
+        document.getElementById('request-apps').addEventListener('click', async () => {
+            const granted = await puter.perms.requestManageApps();
+            if (granted) {
+                puter.print('Apps manage access granted');
+                // Now you can create, update, or delete apps
+                // Example: await puter.apps.create({ ... });
+            } else {
+                puter.print('Apps manage access denied');
+            }
+        });
+    </script>
+</body>
+</html>
+

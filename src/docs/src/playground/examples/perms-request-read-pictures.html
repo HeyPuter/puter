@@ -1,0 +1,20 @@
+<html>
+<body>
+    <script src="https://js.puter.com/v2/"></script>
+    <button id="request-pictures">Request Pictures Read Access</button>
+    <script>
+        document.getElementById('request-pictures').addEventListener('click', async () => {
+            const picturesPath = await puter.perms.requestReadPictures();
+            if (picturesPath) {
+                puter.print(`Pictures path: ${picturesPath}`);
+                // Now you can read files from the Pictures folder
+                const items = await puter.fs.readdir(picturesPath);
+                puter.print(`Pictures contains ${items.length} items`);
+            } else {
+                puter.print('Pictures read access denied');
+            }
+        });
+    </script>
+</body>
+</html>
+
