@@ -302,6 +302,10 @@ export default class AppService extends BaseService {
             }
         }
 
+        if ( ! app.filetype_associations ) {
+            app.filetype_associations = [];
+        }
+
         if ( params.icon_size ) {
             const icon_size = params.icon_size;
             const svc_appIcon = this.context.get('services').get('app-icon');
