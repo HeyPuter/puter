@@ -16,6 +16,7 @@
  * You should have received a copy of the GNU Affero General Public License
  * along with this program.  If not, see <https://www.gnu.org/licenses/>.
  */
+
 const eggspress = require('../api/eggspress');
 const os = require('os');
 const fs = require('fs/promises');
@@ -25,42 +26,55 @@ module.exports = eggspress(['/getServerInfo'], {
     subdomain: 'api',
     json: true,
 }, async (req, res, next) => {
-
-    console.log('Hostname:', os.hostname());
-
-    console.log('OS Platform:', os.platform());
-    console.log('OS Type:', os.type());
-    console.log('OS Release:', os.release());
+    const osData = {
+        platform: os.platform(),
+        type: os.type(),
+        release: os.release(),
+        pretty: `${os.type()} ${os.release()}`,
+    };
 
     const cpus = os.cpus();
-    console.log('CPU Count:', cpus.length);
-    console.log('CPU Model (first core):', cpus[0].model);
+    const cpuData = {
+        model: cpus[0]?.model || 'Unknown',
+        cores: cpus.length,
+    };
 
-    const totalMemGB = (os.totalmem() / (1024 * 1024 * 1024)).toFixed(2);
-    const freeMemGB = (os.freemem() / (1024 * 1024 * 1024)).toFixed(2);
-    console.log('Total RAM (GB):', totalMemGB);
-    console.log('Free RAM (GB):', freeMemGB);
+    const ramData = {
+        total: os.totalmem(),
+        free: os.freemem(),
+        totalGB: (os.totalmem() / 1073741824).toFixed(2),
+        freeGB: (os.freemem() / 1073741824).toFixed(2),
+    };
 
     const uptimeSeconds = os.uptime();
-    console.log('Uptime (seconds):', uptimeSeconds);
-    // Manual format example (days, hours, mins)
-    const days = Math.floor(uptimeSeconds / (3600 * 24));
-    const hours = Math.floor((uptimeSeconds % (3600 * 24)) / 3600);
-    const mins = Math.floor((uptimeSeconds % 3600) / 60);
-    console.log('Formatted Uptime:', `${days}d ${hours}h ${mins}m`);
-    // res.send(response);
+    const uptimeData = {
+        seconds: uptimeSeconds,
+        days: Math.floor(uptimeSeconds / 86400),
+        hours: Math.floor((uptimeSeconds % 86400) / 3600),
+        minutes: Math.floor((uptimeSeconds % 3600) / 60),
+        pretty: `${Math.floor(uptimeSeconds / 86400)}d ${Math.floor((uptimeSeconds % 86400) / 3600)}h ${Math.floor((uptimeSeconds % 3600) / 60)}m`,
+    };
 
-    const stats = await fs.statfs('/'); // or process.cwd() for current dir's filesystem
-    const totalGB = (stats.blocks * stats.bsize / (1024 * 1024 * 1024)).toFixed(2);
-    const freeGB = (stats.bfree * stats.bsize / (1024 * 1024 * 1024)).toFixed(2);
-    const usedGB = (totalGB - freeGB).toFixed(2);
-    console.log('Disk Total (GB):', totalGB);
-    console.log('Disk Free (GB):', freeGB);
-    console.log('Disk Used (GB):', usedGB);
+    let diskData = { total: 'N/A', free: 'N/A', used: 'N/A' };
+    try {
+        const stats = await fs.statfs('/');
+        const totalGB = (stats.blocks * stats.bsize / 1073741824).toFixed(2);
+        const freeGB = (stats.bfree * stats.bsize / 1073741824).toFixed(2);
+        const usedGB = (totalGB - freeGB).toFixed(2);
+        diskData = { total: totalGB, free: freeGB, used: usedGB };
+    } catch ( err ) {
+        console.error('Disk stats error:', err);
+    }
 
-    os.loadavg();
-    console.log(os.loadavg());
+    const response = {
+        os: osData,
+        cpu: cpuData,
+        ram: ramData,
+        uptime: uptimeData,
+        disk: diskData,
+        loadavg: os.loadavg(),
+        hostname: os.hostname(),
+    };
 
-    console.log('Fetched server info successfully.');
-    res.send('response');
+    res.json(response);
 });
