@@ -20,6 +20,7 @@ const _path = require('path');
 const micromatch = require('micromatch');
 const config = require('./config');
 const mime = require('mime-types');
+const { LRUCache } = require('lru-cache');
 const { ManagedError } = require('./util/errorutil.js');
 const { spanify } = require('./util/otelutil.js');
 const APIError = require('./api/APIError.js');
@@ -42,6 +43,30 @@ const tmp_provide_services = async ss => {
 
 // TTL for pending get_app queries (request coalescing)
 const PENDING_QUERY_TTL = 10; // seconds
+const SUGGESTED_APPS_CACHE_MAX = 10000;
+const suggestedAppsCache = new LRUCache({ max: SUGGESTED_APPS_CACHE_MAX });
+const DEFAULT_APP_ICON_SIZE = 256;
+
+const buildAppIconUrl = (app_uid, size = DEFAULT_APP_ICON_SIZE) => {
+    if ( ! app_uid ) return null;
+    const uid_string = String(app_uid);
+    const normalized_uid = uid_string.startsWith('app-') ? uid_string : `app-${uid_string}`;
+    const origin = config.origin ?? (
+        config.protocol && config.domain
+            ? `${config.protocol }://${ config.domain }`
+            : 'https://puter.com'
+    );
+    if ( ! origin ) return null;
+    const host = origin.replace(/\/$/, '');
+    return `${host}/app-icon/${normalized_uid}/${size}`;
+};
+
+const withAppIconUrl = (app) => {
+    if ( ! app ) return app;
+    const icon_url = buildAppIconUrl(app.uid ?? app.uuid);
+    if ( ! icon_url ) return { ...app };
+    return { ...app, icon: icon_url };
+};
 
 async function is_empty (dir_uuid) {
     /** @type BaseDatabaseAccessService */
@@ -357,6 +382,7 @@ async function get_app (options) {
  *
  * @param {Array<{uid?: string, name?: string, id?: string|number}>} specifiers
  * @param {Object} [options]
+ * @param {boolean} [options.rawIcon] - When true, include raw icon data.
  * @returns {Promise<Array<object|null>>}
  */
 const get_apps = spanify('get_apps', async (specifiers, options = {}) => {
@@ -367,13 +393,39 @@ const get_apps = spanify('get_apps', async (specifiers, options = {}) => {
             specifiers = [specifiers];
         }
 
+        const rawIcon = Boolean(options.rawIcon);
+        const cacheNamespace = rawIcon ? 'apps' : 'apps:lite';
+        const pendingNamespace = rawIcon ? 'pending_app' : 'pending_app_lite';
+        const decorateApp = (app) => (rawIcon ? app : withAppIconUrl(app));
         const cacheApp = (app) => {
             if ( ! app ) return;
-            app = { ...app };
-            kv.set(`apps:uid:${app.uid}`, app, { EX: 30 });
-            kv.set(`apps:name:${app.name}`, app, { EX: 30 });
-            kv.set(`apps:id:${app.id}`, app, { EX: 30 });
+            const cached_app = { ...app };
+            kv.set(`${cacheNamespace}:uid:${cached_app.uid}`, cached_app, { EX: 60 });
+            kv.set(`${cacheNamespace}:name:${cached_app.name}`, cached_app, { EX: 60 });
+            kv.set(`${cacheNamespace}:id:${cached_app.id}`, cached_app, { EX: 60 });
         };
+
+        const APP_COLUMNS_NO_ICON = [
+            'id',
+            'uid',
+            'owner_user_id',
+            'name',
+            'title',
+            'description',
+            'godmode',
+            'maximize_on_start',
+            'index_url',
+            'approved_for_listing',
+            'approved_for_opening_items',
+            'approved_for_incentive_program',
+            'timestamp',
+            'last_review',
+            'tags',
+            'app_owner',
+            'metadata',
+            'protected',
+            'background',
+        ].map(column => `\`${column}\``).join(', ');
 
         const normalized = specifiers.map(spec => spec ? { ...spec } : {});
 
@@ -412,7 +464,7 @@ const get_apps = spanify('get_apps', async (specifiers, options = {}) => {
                 return;
             }
 
-            const pendingKey = `pending_app:${queryKey}`;
+            const pendingKey = `${pendingNamespace}:${queryKey}`;
             const pending = kv.get(pendingKey);
             if ( pending ) {
                 pendingLookups.set(queryKey, pending);
@@ -439,27 +491,27 @@ const get_apps = spanify('get_apps', async (specifiers, options = {}) => {
 
         for ( const spec of normalized ) {
             if ( spec.uid ) {
-                const cached = kv.get(`apps:uid:${spec.uid}`);
+                const cached = kv.get(`${cacheNamespace}:uid:${spec.uid}`);
                 if ( cached ) {
-                    addApp(cached);
+                    addApp(decorateApp(cached));
                 } else {
                     queueMissing('uid', spec.uid);
                 }
                 continue;
             }
             if ( spec.name ) {
-                const cached = kv.get(`apps:name:${spec.name}`);
+                const cached = kv.get(`${cacheNamespace}:name:${spec.name}`);
                 if ( cached ) {
-                    addApp(cached);
+                    addApp(decorateApp(cached));
                 } else {
                     queueMissing('name', spec.name);
                 }
                 continue;
             }
             if ( spec.id ) {
-                const cached = kv.get(`apps:id:${spec.id}`);
+                const cached = kv.get(`${cacheNamespace}:id:${spec.id}`);
                 if ( cached ) {
-                    addApp(cached);
+                    addApp(decorateApp(cached));
                 } else {
                     queueMissing('id', spec.id);
                 }
@@ -496,26 +548,28 @@ const get_apps = spanify('get_apps', async (specifiers, options = {}) => {
             let rows = [];
             const resolvedKeys = new Set();
             try {
-                rows = await db.read(`SELECT * FROM \`apps\` WHERE ${clauses.join(' OR ')}`,
+                const select_columns = rawIcon ? '*' : APP_COLUMNS_NO_ICON;
+                rows = await db.read(`SELECT ${select_columns} FROM \`apps\` WHERE ${clauses.join(' OR ')}`,
                                 params);
                 for ( const app of rows ) {
-                    cacheApp(app);
-                    addApp(app);
+                    const decorated_app = decorateApp(app);
+                    cacheApp(decorated_app);
+                    addApp(decorated_app);
 
-                    const uidKey = `uid:${app.uid}`;
-                    const nameKey = `name:${app.name}`;
-                    const idKey = `id:${app.id}`;
+                    const uidKey = `uid:${decorated_app.uid}`;
+                    const nameKey = `name:${decorated_app.name}`;
+                    const idKey = `id:${decorated_app.id}`;
 
                     if ( pendingToResolve.has(uidKey) ) {
-                        pendingToResolve.get(uidKey).resolveQuery(app);
+                        pendingToResolve.get(uidKey).resolveQuery(decorated_app);
                         resolvedKeys.add(uidKey);
                     }
                     if ( pendingToResolve.has(nameKey) ) {
-                        pendingToResolve.get(nameKey).resolveQuery(app);
+                        pendingToResolve.get(nameKey).resolveQuery(decorated_app);
                         resolvedKeys.add(nameKey);
                     }
                     if ( pendingToResolve.has(idKey) ) {
-                        pendingToResolve.get(idKey).resolveQuery(app);
+                        pendingToResolve.get(idKey).resolveQuery(decorated_app);
                         resolvedKeys.add(idKey);
                     }
                 }
@@ -540,7 +594,7 @@ const get_apps = spanify('get_apps', async (specifiers, options = {}) => {
 
         const pendingResults = await pendingResultsPromise;
         for ( const app of pendingResults ) {
-            addApp(app);
+            addApp(decorateApp(app));
         }
 
         return normalized.map(spec => {
@@ -1643,6 +1697,7 @@ const buildSuggestedAppSpecifiers = (fsentry) => {
     // 3rd-party apps
     //---------------------------------------------
     const apps = kv.get(`assocs:${file_extension.slice(1)}:apps`) ?? [];
+    /** @type {{id:string}[]} */
     const id_specifiers = apps.map(app_id => ({ id: app_id }));
 
     return { name_specifiers, id_specifiers };
@@ -1681,6 +1736,20 @@ const normalizeSuggestedApps = (suggested_apps) => (
     })
 );
 
+const buildSuggestedAppsCacheKey = (fsentry, options) => {
+    const user_id = options?.user?.id ?? '';
+    const entry_id = fsentry?.uuid ?? fsentry?.uid ?? fsentry?.id ?? fsentry?.path ?? '';
+    const entry_name = fsentry?.name ?? '';
+    const entry_type = fsentry?.is_dir ? 'd' : 'f';
+    return `${user_id}:${entry_id}:${entry_type}:${entry_name}`;
+};
+
+const cloneSuggestedApps = (suggested_apps) => (
+    Array.isArray(suggested_apps)
+        ? suggested_apps.map(app => (app ? { ...app } : app))
+        : suggested_apps
+);
+
 async function suggestedAppsForFsEntries (fsentries, options) {
     if ( ! Array.isArray(fsentries) ) {
         fsentries = [fsentries];
@@ -1689,6 +1758,7 @@ async function suggestedAppsForFsEntries (fsentries, options) {
     const batches = [];
     const specifiers = [];
     const results = new Array(fsentries.length);
+    const cacheKeysByIndex = new Map();
 
     for ( let index = 0; index < fsentries.length; index++ ) {
         const fsentry = fsentries[index];
@@ -1697,11 +1767,19 @@ async function suggestedAppsForFsEntries (fsentries, options) {
             continue;
         }
 
+        const cache_key = buildSuggestedAppsCacheKey(fsentry, options);
+        const cached = suggestedAppsCache.get(cache_key);
+        if ( cached !== undefined ) {
+            results[index] = cloneSuggestedApps(cached);
+            continue;
+        }
+
         const { name_specifiers, id_specifiers } = buildSuggestedAppSpecifiers(fsentry);
         const entry_specifiers = [...name_specifiers, ...id_specifiers];
 
         if ( entry_specifiers.length === 0 ) {
             results[index] = [];
+            cacheKeysByIndex.set(index, cache_key);
             continue;
         }
 
@@ -1715,6 +1793,7 @@ async function suggestedAppsForFsEntries (fsentries, options) {
             suggested_apps: [],
             needs_codeapp: false,
         });
+        cacheKeysByIndex.set(index, cache_key);
     }
 
     let resolved = [];
@@ -1746,7 +1825,26 @@ async function suggestedAppsForFsEntries (fsentries, options) {
         results[batch.index] = normalizeSuggestedApps(suggested_apps);
     }
 
-    return results;
+    // Deduplicate results by ID
+    const deduplicatedResults = results.map(apps => {
+        if ( ! Array.isArray(apps) ) return apps;
+        const seen = new Set();
+        return apps.filter(app => {
+            if ( !app || !app.id ) return true;
+            if ( seen.has(app.id) ) return false;
+            seen.add(app.id);
+            return true;
+        });
+    });
+
+    for ( const [index, cache_key] of cacheKeysByIndex ) {
+        const apps = deduplicatedResults[index];
+        if ( apps !== undefined ) {
+            suggestedAppsCache.set(cache_key, cloneSuggestedApps(apps));
+        }
+    }
+
+    return deduplicatedResults;
 }
 
 async function suggestedAppForFsEntry (fsentry, options) {
@@ -1801,7 +1899,7 @@ async function get_taskbar_items (user, { icon_size, no_icons } = {}) {
         return {};
     });
 
-    const taskbar_apps = await get_apps(app_specifiers);
+    const taskbar_apps = await get_apps(app_specifiers, { rawIcon: !no_icons });
 
     // get apps that these taskbar items represent
     let taskbar_items = [];
