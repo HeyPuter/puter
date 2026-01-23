@@ -1,6 +1,9 @@
 export interface IImageModel {
     id: string;
     name: string;
+    puterId?: string;
+    provider?: string;
+    aliases?: string[];
     description?: string;
     version?: string;
     costs_currency: string;
@@ -8,8 +11,6 @@ export interface IImageModel {
     costs: Record<string, number>;
     allowedQualityLevels?: string[];
     allowedRatios?: { w: number, h: number }[];
-    provider?: string;
-    aliases?: string[];
 }
 
 export interface IGenerateParams {
