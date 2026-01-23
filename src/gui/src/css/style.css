@@ -5852,7 +5852,7 @@ html.dark-mode .usage-table-show-less:hover {
     display: grid;
     height: 32px;
     padding: 0 10px;
-    grid-template-columns: 24px auto 60px 100px 20px;
+    grid-template-columns: 24px auto 100px 100px 20px;
     align-items: center;
     font-size: 13px;
     color: #444;

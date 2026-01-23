@@ -60,7 +60,9 @@ const TabFiles = {
         $el_window.find('[data-folder]').each(function () {
             this.onclick = () => {
                 const folderName = this.getAttribute('data-folder');
-                _this.renderDirectory($el_window, folderName);
+                const directories = Object.keys(window.user.directories);
+                const path = directories.find(f => f.endsWith(folderName));
+                _this.renderDirectory(window.user.directories[path]);
                 _this.selectFolder(this);
             };
         });
@@ -73,13 +75,16 @@ const TabFiles = {
         $folderElement.classList.add('active');
     },
 
-    async renderDirectory ($el_window, folderName) {
+    async renderDirectory (uid) {
         const _this = this;
-        const directories = Object.keys(window.user.directories);
-        const path = directories.find(f => f.endsWith(folderName));
-        const directoryContents = await window.puter.fs.readdir({ uid: window.user.directories[path] });
+        const directoryContents = await window.puter.fs.readdir({ uid });
+        if ( ! directoryContents ) {
+            return;
+        }
+
         // Clear the container
         $('.files-tab .files').html('');
+
         // Add header row
         $('.files-tab .files').html(`<div class="row header">
             <div class="icon"></div>
@@ -88,6 +93,7 @@ const TabFiles = {
                 <div class="date">Modified</div>
                 <div class="more"></div>
             </div>`);
+
         // If directory has no files, tell about it
         if ( directoryContents.length === 0 ) {
             $('.files-tab .files').append(`<div class="row">
@@ -102,11 +108,8 @@ const TabFiles = {
 
         // Sort contents folders first, then render each row
         directoryContents.sort((a, b) => b.is_dir - a.is_dir).forEach(file => {
-            console.log(file);
             const icon = file.is_dir ? icons.folder : (file.thumbnail ? `<img src="${file.thumbnail}" alt="${file.name}" />` : icons.document);
-
             const rowAttributes = `data-id="${file.id}" data-name="${file.name}" data-metadata="{}" data-uid="${file.uid}" data-is_dir="${file.is_dir}" data-is_trash="0" data-has_website="0" data-website_url="" data-immutable="${file.immutable}" data-is_shortcut="${file.is_shortcut}" data-shortcut_to="" data-shortcut_to_path="" data-sortable="true" data-sort_by="" data-size="${file.size}" data-type="" data-modified="${file.modified}" data-associated_app_name="" data-path="${file.path}"`;
-
             const row = `
                 <div class="row ${file.is_dir ? 'folder' : 'file'}" ${rowAttributes}>
                     <div class="icon">${icon}</div>
@@ -121,8 +124,8 @@ const TabFiles = {
 
         // Create click handlers
         $('.files-tab .files .row').each(function () {
+            const _row = this;
             this.onclick = (e) => {
-                console.log(e.target.classList);
                 if ( e.target.classList.contains('more') ) {
                     _this.handleMoreClick(e, this);
                 }
@@ -136,6 +139,17 @@ const TabFiles = {
                     row.classList.remove('selected');
                 });
                 this.classList.add('selected');
+            };
+            this.ondblclick = () => {
+                const isFolder = _row.getAttribute('data-is_dir');
+                if ( isFolder === "true" ) {
+                    console.log('open folder');
+                    _this.renderDirectory(_row.getAttribute('data-path'), _row.getAttribute('data-uid'));
+                } else {
+                    console.log('open file');
+                    open_item({ item: _row });
+                }
+                this.classList.remove('selected');
             };
         });
     },
@@ -227,12 +241,15 @@ const TabFiles = {
     },
 
     createMoreMenu (fileUid, rowElement) {
-
+        const isFolder = rowElement.getAttribute('data-is_dir');
+        console.log('isFolder', isFolder);
         const menu = document.createElement('div');
         menu.className = 'more-menu';
 
         let menuHTML = '';
 
+        // Menu for file
+        // TO DO: folder has different items
         menuHTML += `
             <button class="menu-item" data-action="open">
                 <span>Open</span>
