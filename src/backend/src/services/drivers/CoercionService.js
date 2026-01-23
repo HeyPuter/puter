@@ -16,7 +16,6 @@
  * You should have received a copy of the GNU Affero General Public License
  * along with this program.  If not, see <https://www.gnu.org/licenses/>.
  */
-const APIError = require('../../api/APIError');
 const BaseService = require('../BaseService');
 const { TypeSpec } = require('./meta/Construct');
 const { TypedValue } = require('./meta/Runtime');
@@ -29,10 +28,6 @@ const { TypedValue } = require('./meta/Runtime');
 * consumes specifications.
 */
 class CoercionService extends BaseService {
-    static MODULES = {
-        axios: require('axios'),
-    };
-
     /**
      * Attempt to coerce a TypedValue to a target TypeSpec.
      * This method checks if the current TypedValue can be adapted to the specified target TypeSpec,
@@ -53,70 +48,6 @@ class CoercionService extends BaseService {
      * operations are performed.
      */
     async _init () {
-        this.coercions_.push({
-            produces: {
-                $: 'stream',
-                content_type: 'image',
-            },
-            consumes: {
-                $: 'string:url:web',
-                content_type: 'image',
-            },
-            coerce: async typed_value => {
-                console.debug('coercion is running!');
-
-                const response = await (async () => {
-                    try {
-                        return await CoercionService.MODULES.axios.get(typed_value.value, {
-                            responseType: 'stream',
-                        });
-                    } catch (e) {
-                        APIError.create('field_invalid', null, {
-                            key: 'url',
-                            expected: 'web URL',
-                            got: `error during request: ${ e.message}`,
-                        });
-                    }
-                })();
-
-                return new TypedValue({
-                    $: 'stream',
-                    content_type: response.headers['content-type'],
-                }, response.data);
-            },
-        });
-
-        this.coercions_.push({
-            produces: {
-                $: 'stream',
-                content_type: 'video',
-            },
-            consumes: {
-                $: 'string:url:web',
-                content_type: 'video',
-            },
-            coerce: async typed_value => {
-                const response = await (async () => {
-                    try {
-                        return await CoercionService.MODULES.axios.get(typed_value.value, {
-                            responseType: 'stream',
-                        });
-                    } catch (e) {
-                        APIError.create('field_invalid', null, {
-                            key: 'url',
-                            expected: 'web URL',
-                            got: `error during request: ${ e.message}`,
-                        });
-                    }
-                })();
-
-                return new TypedValue({
-                    $: 'stream',
-                    content_type: response.headers['content-type'] ?? 'video/mp4',
-                }, response.data);
-            },
-        });
-
         // Add coercion for data URLs to streams
         this.coercions_.push({
             produces: {

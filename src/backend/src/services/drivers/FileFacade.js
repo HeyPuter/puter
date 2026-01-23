@@ -22,7 +22,6 @@ const { MultiValue } = require('../../util/multivalue');
 const { stream_to_buffer } = require('../../util/streamutil');
 const { PassThrough } = require('stream');
 const { LLRead } = require('../../filesystem/ll_operations/ll_read');
-const APIError = require('../../api/APIError');
 
 /**
 * @class FileFacade
@@ -39,10 +38,6 @@ class FileFacade extends AdvancedBase {
     static OUT_TYPES = {
         S3_INFO: { key: 's3-info' },
         STREAM: { key: 'stream' },
-    };
-
-    static MODULES = {
-        axios: require('axios'),
     };
 
     constructor (...a) {
@@ -86,24 +81,6 @@ class FileFacade extends AdvancedBase {
             });
 
             return stream;
-        });
-
-        this.values.add_factory('stream', 'web_url', async web_url => {
-            const response = await (async () => {
-                try {
-                    return await FileFacade.MODULES.axios.get(web_url, {
-                        responseType: 'stream',
-                    });
-                } catch (e) {
-                    throw APIError.create('field_invalid', null, {
-                        key: 'url',
-                        expected: 'web URL',
-                        got: `error during request: ${ e.message}`,
-                    });
-                }
-            })();
-
-            return response.data;
         });
 
         this.values.add_factory('stream', 'data_url', async data_url => {
