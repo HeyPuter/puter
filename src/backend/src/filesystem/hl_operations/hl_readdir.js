@@ -19,7 +19,7 @@
 const APIError = require('../../api/APIError');
 const { Context } = require('../../util/context');
 const { stream_to_buffer } = require('../../util/streamutil');
-const { get_apps } = require('../../helpers');
+const { get_apps, suggestedAppsForFsEntries } = require('../../helpers');
 const { ECMAP } = require('../ECMAP');
 const { TYPE_DIRECTORY, TYPE_SYMLINK } = require('../FSNodeContext');
 const { LLListUsers } = require('../ll_operations/ll_listusers');
@@ -28,134 +28,6 @@ const { LLReadShares } = require('../ll_operations/ll_readshares');
 const { HLFilesystemOperation } = require('./definitions');
 const { DB_READ } = require('../../services/database/consts');
 const config = require('../../config');
-const mime = require('mime-types');
-const path = require('path');
-const { kv } = require('../../util/kvSingleton');
-
-const CODE_EXTENSIONS = [
-    '.asm',
-    '.asp',
-    '.aspx',
-    '.bash',
-    '.c',
-    '.cpp',
-    '.css',
-    '.csv',
-    '.dhtml',
-    '.f',
-    '.go',
-    '.h',
-    '.htm',
-    '.html',
-    '.html5',
-    '.java',
-    '.jl',
-    '.js',
-    '.jsa',
-    '.json',
-    '.jsonld',
-    '.jsf',
-    '.jsp',
-    '.kt',
-    '.log',
-    '.lock',
-    '.lua',
-    '.md',
-    '.perl',
-    '.phar',
-    '.php',
-    '.pl',
-    '.py',
-    '.r',
-    '.rb',
-    '.rdata',
-    '.rda',
-    '.rdf',
-    '.rds',
-    '.rs',
-    '.rlib',
-    '.rpy',
-    '.scala',
-    '.sc',
-    '.scm',
-    '.sh',
-    '.sol',
-    '.sql',
-    '.ss',
-    '.svg',
-    '.swift',
-    '.toml',
-    '.ts',
-    '.wasm',
-    '.xhtml',
-    '.xml',
-    '.yaml',
-];
-
-const buildSuggestedAppSpecifiers = (fsentry) => {
-    const nameSpecifiers = [];
-
-    let contentType = mime.contentType(fsentry.name);
-    if ( ! contentType ) contentType = '';
-
-    const fileName = (() => {
-        if ( ! fsentry.name ) return 'missing-fsentry-name';
-        let result = fsentry.name.toLowerCase();
-        if ( fsentry.is_dir ) result += '.directory';
-        return result;
-    })();
-
-    const fileExtension = path.extname(fileName).toLowerCase();
-    const anyOf = (list, name) => list.some(value => name.endsWith(value));
-
-    if ( anyOf(CODE_EXTENSIONS, fileName) || !fileName.includes('.') ) {
-        nameSpecifiers.push({ name: 'code' });
-        nameSpecifiers.push({ name: 'editor' });
-    }
-
-    if ( fileName.endsWith('.txt') || !fileName.includes('.') ) {
-        nameSpecifiers.push({ name: 'editor' });
-        nameSpecifiers.push({ name: 'code' });
-    }
-    if ( fileName.endsWith('.md') ) {
-        nameSpecifiers.push({ name: 'markus' });
-    }
-    if (
-        fileName.endsWith('.jpg') ||
-        fileName.endsWith('.png') ||
-        fileName.endsWith('.webp') ||
-        fileName.endsWith('.svg') ||
-        fileName.endsWith('.bmp') ||
-        fileName.endsWith('.jpeg')
-    ) {
-        nameSpecifiers.push({ name: 'viewer' });
-    }
-    if (
-        fileName.endsWith('.bmp') ||
-        contentType.startsWith('image/')
-    ) {
-        nameSpecifiers.push({ name: 'draw' });
-    }
-    if ( fileName.endsWith('.pdf') ) {
-        nameSpecifiers.push({ name: 'pdf' });
-    }
-    if (
-        fileName.endsWith('.mp4') ||
-        fileName.endsWith('.webm') ||
-        fileName.endsWith('.mpg') ||
-        fileName.endsWith('.mpv') ||
-        fileName.endsWith('.mp3') ||
-        fileName.endsWith('.m4a') ||
-        fileName.endsWith('.ogg')
-    ) {
-        nameSpecifiers.push({ name: 'player' });
-    }
-
-    const associatedAppIds = kv.get(`assocs:${fileExtension.slice(1)}:apps`) ?? [];
-    const idSpecifiers = associatedAppIds.map(appId => ({ id: appId }));
-
-    return { nameSpecifiers, idSpecifiers };
-};
 
 class HLReadDir extends HLFilesystemOperation {
     static CONCERN = 'filesystem';
@@ -318,76 +190,21 @@ class HLReadDir extends HLFilesystemOperation {
     }
 
     async #batchFetchSuggestedApps (children, user) {
-        const specifiers = [];
-        const batches = [];
+        const entries = [];
+        const targets = [];
 
         for ( const child of children ) {
             const entry = child.entry;
             if ( !entry || entry.suggested_apps ) continue;
-
-            const { nameSpecifiers, idSpecifiers } = buildSuggestedAppSpecifiers(entry);
-            const childSpecifiers = [...nameSpecifiers, ...idSpecifiers];
-
-            if ( childSpecifiers.length === 0 ) {
-                entry.suggested_apps = [];
-                continue;
-            }
-
-            const offset = specifiers.length;
-            const specCount = childSpecifiers.length;
-            specifiers.push(...childSpecifiers);
-            batches.push({
-                child,
-                offset,
-                specCount,
-                nameCount: nameSpecifiers.length,
-                needsCodeApp: false,
-                suggestedApps: [],
-            });
+            entries.push(entry);
+            targets.push(entry);
         }
 
-        if ( specifiers.length === 0 ) return;
+        if ( entries.length === 0 ) return;
 
-        const resolved = await get_apps(specifiers);
-        let anyNeedsCodeApp = false;
-
-        for ( const batch of batches ) {
-            const slice = resolved.slice(batch.offset, batch.offset + batch.specCount);
-            const nameApps = slice.slice(0, batch.nameCount);
-            const thirdPartyApps = slice.slice(batch.nameCount);
-
-            const suggestedApps = [];
-            suggestedApps.push(...nameApps);
-            for ( const thirdPartyApp of thirdPartyApps ) {
-                if ( ! thirdPartyApp ) continue;
-                if (
-                    thirdPartyApp.approved_for_opening_items ||
-                    (user && user.id === thirdPartyApp.owner_user_id)
-                ) {
-                    suggestedApps.push(thirdPartyApp);
-                }
-            }
-
-            batch.needsCodeApp = suggestedApps.some(app => app && app.name === 'editor');
-            if ( batch.needsCodeApp ) anyNeedsCodeApp = true;
-            batch.suggestedApps = suggestedApps;
-        }
-
-        let codeApp;
-        if ( anyNeedsCodeApp ) {
-            [codeApp] = await get_apps([{ name: 'codeapp' }]);
-        }
-
-        for ( const batch of batches ) {
-            let suggestedApps = batch.suggestedApps;
-            if ( batch.needsCodeApp && codeApp ) {
-                suggestedApps = [...suggestedApps, codeApp];
-            }
-
-            batch.child.entry.suggested_apps = suggestedApps.filter((suggestedApp, pos, self) => {
-                if ( ! suggestedApp ) return false;
-                return self.indexOf(suggestedApp) === pos;
-            });
+        const suggestedLists = await suggestedAppsForFsEntries(entries, { user });
+        for ( let index = 0; index < targets.length; index++ ) {
+            targets[index].suggested_apps = suggestedLists[index] ?? [];
         }
     }
 }

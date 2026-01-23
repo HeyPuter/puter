@@ -1491,8 +1491,67 @@ function seconds_to_string (seconds) {
  * @param {*} fsentry
  * @param {*} options
  */
-async function suggest_app_for_fsentry (fsentry, options) {
-    const suggested_apps = [];
+const SUGGEST_APP_CODE_EXTS = [
+    '.asm',
+    '.asp',
+    '.aspx',
+    '.bash',
+    '.c',
+    '.cpp',
+    '.css',
+    '.csv',
+    '.dhtml',
+    '.f',
+    '.go',
+    '.h',
+    '.htm',
+    '.html',
+    '.html5',
+    '.java',
+    '.jl',
+    '.js',
+    '.jsa',
+    '.json',
+    '.jsonld',
+    '.jsf',
+    '.jsp',
+    '.kt',
+    '.log',
+    '.lock',
+    '.lua',
+    '.md',
+    '.perl',
+    '.phar',
+    '.php',
+    '.pl',
+    '.py',
+    '.r',
+    '.rb',
+    '.rdata',
+    '.rda',
+    '.rdf',
+    '.rds',
+    '.rs',
+    '.rlib',
+    '.rpy',
+    '.scala',
+    '.sc',
+    '.scm',
+    '.sh',
+    '.sol',
+    '.sql',
+    '.ss',
+    '.svg',
+    '.swift',
+    '.toml',
+    '.ts',
+    '.wasm',
+    '.xhtml',
+    '.xml',
+    '.yaml',
+];
+
+const buildSuggestedAppSpecifiers = (fsentry) => {
     const name_specifiers = [];
 
     let content_type = mime.contentType(fsentry.name);
@@ -1510,74 +1569,12 @@ async function suggest_app_for_fsentry (fsentry, options) {
     })();
     const file_extension = _path.extname(fsname).toLowerCase();
 
-    const any_of = (list, name) => {
-        return list.some(v => name.endsWith(v));
-    };
+    const any_of = (list, name) => list.some(v => name.endsWith(v));
 
     //---------------------------------------------
     // Code
     //---------------------------------------------
-    const exts_code = [
-        '.asm',
-        '.asp',
-        '.aspx',
-        '.bash',
-        '.c',
-        '.cpp',
-        '.css',
-        '.csv',
-        '.dhtml',
-        '.f',
-        '.go',
-        '.h',
-        '.htm',
-        '.html',
-        '.html5',
-        '.java',
-        '.jl',
-        '.js',
-        '.jsa',
-        '.json',
-        '.jsonld',
-        '.jsf',
-        '.jsp',
-        '.kt',
-        '.log',
-        '.lock',
-        '.lua',
-        '.md',
-        '.perl',
-        '.phar',
-        '.php',
-        '.pl',
-        '.py',
-        '.r',
-        '.rb',
-        '.rdata',
-        '.rda',
-        '.rdf',
-        '.rds',
-        '.rs',
-        '.rlib',
-        '.rpy',
-        '.scala',
-        '.sc',
-        '.scm',
-        '.sh',
-        '.sol',
-        '.sql',
-        '.ss',
-        '.svg',
-        '.swift',
-        '.toml',
-        '.ts',
-        '.wasm',
-        '.xhtml',
-        '.xml',
-        '.yaml',
-    ];
-
-    if ( any_of(exts_code, fsname) || !fsname.includes('.') ) {
+    if ( any_of(SUGGEST_APP_CODE_EXTS, fsname) || !fsname.includes('.') ) {
         name_specifiers.push({ name: 'code' });
         name_specifiers.push({ name: 'editor' });
     }
@@ -1648,42 +1645,113 @@ async function suggest_app_for_fsentry (fsentry, options) {
     const apps = kv.get(`assocs:${file_extension.slice(1)}:apps`) ?? [];
     const id_specifiers = apps.map(app_id => ({ id: app_id }));
 
-    const specifiers = [...name_specifiers, ...id_specifiers];
-    const resolved = specifiers.length > 0
-        ? await get_apps(specifiers)
-        : [];
+    return { name_specifiers, id_specifiers };
+};
 
-    const name_apps = resolved.slice(0, name_specifiers.length);
+const buildSuggestedAppsFromResolved = (resolved, name_specifier_count, options) => {
+    const suggested_apps = [];
+
+    const name_apps = resolved.slice(0, name_specifier_count);
     suggested_apps.push(...name_apps);
 
-    const third_party_apps = resolved.slice(name_specifiers.length);
+    const third_party_apps = resolved.slice(name_specifier_count);
     for ( const third_party_app of third_party_apps ) {
         if ( ! third_party_app ) continue;
         if ( third_party_app.approved_for_opening_items ||
-            (options !== undefined && options.user !== undefined && options.user.id === third_party_app.owner_user_id) )
+            (options?.user && options.user.id === third_party_app.owner_user_id) )
         {
             suggested_apps.push(third_party_app);
         }
     }
 
-    // return list
-    if ( suggested_apps.some(app => app && app.name === 'editor') ) {
-        const [codeapp] = await get_apps([{ name: 'codeapp' }]);
-        if ( codeapp ) {
-            suggested_apps.push(codeapp);
-        }
-    }
-    return suggested_apps.filter((suggested_app, pos, self) => {
+    const needs_codeapp = suggested_apps.some(app => app && app.name === 'editor');
+    return { suggested_apps, needs_codeapp };
+};
+
+const normalizeSuggestedApps = (suggested_apps) => (
+    suggested_apps.filter((suggested_app, pos, self) => {
         // Remove any null values caused by calling `get_app()` for apps that don't exist.
         // This happens on self-host because we don't include `code`, among others.
-        if ( ! suggested_app )
-        {
+        if ( ! suggested_app ) {
             return false;
         }
 
         // Remove any duplicate entries
         return self.indexOf(suggested_app) === pos;
-    });
+    })
+);
+
+async function suggestedAppsForFsEntries (fsentries, options) {
+    if ( ! Array.isArray(fsentries) ) {
+        fsentries = [fsentries];
+    }
+
+    const batches = [];
+    const specifiers = [];
+    const results = new Array(fsentries.length);
+
+    for ( let index = 0; index < fsentries.length; index++ ) {
+        const fsentry = fsentries[index];
+        if ( ! fsentry ) {
+            results[index] = [];
+            continue;
+        }
+
+        const { name_specifiers, id_specifiers } = buildSuggestedAppSpecifiers(fsentry);
+        const entry_specifiers = [...name_specifiers, ...id_specifiers];
+
+        if ( entry_specifiers.length === 0 ) {
+            results[index] = [];
+            continue;
+        }
+
+        const offset = specifiers.length;
+        specifiers.push(...entry_specifiers);
+        batches.push({
+            index,
+            offset,
+            count: entry_specifiers.length,
+            name_count: name_specifiers.length,
+            suggested_apps: [],
+            needs_codeapp: false,
+        });
+    }
+
+    let resolved = [];
+    if ( specifiers.length > 0 ) {
+        resolved = await get_apps(specifiers);
+    }
+
+    let any_needs_codeapp = false;
+    for ( const batch of batches ) {
+        const slice = resolved.slice(batch.offset, batch.offset + batch.count);
+        const { suggested_apps, needs_codeapp } = buildSuggestedAppsFromResolved(slice,
+                        batch.name_count,
+                        options);
+        batch.suggested_apps = suggested_apps;
+        batch.needs_codeapp = needs_codeapp;
+        if ( needs_codeapp ) any_needs_codeapp = true;
+    }
+
+    let codeapp;
+    if ( any_needs_codeapp ) {
+        [codeapp] = await get_apps([{ name: 'codeapp' }]);
+    }
+
+    for ( const batch of batches ) {
+        let suggested_apps = batch.suggested_apps;
+        if ( batch.needs_codeapp && codeapp ) {
+            suggested_apps = [...suggested_apps, codeapp];
+        }
+        results[batch.index] = normalizeSuggestedApps(suggested_apps);
+    }
+
+    return results;
+}
+
+async function suggestedAppForFsEntry (fsentry, options) {
+    const [result] = await suggestedAppsForFsEntries([fsentry], options);
+    return result;
 }
 
 async function get_taskbar_items (user, { icon_size, no_icons } = {}) {
@@ -1907,7 +1975,8 @@ module.exports = {
     send_email_verification_token,
     sign_file,
     subdomain,
-    suggest_app_for_fsentry,
+    suggestedAppsForFsEntries,
+    suggestedAppForFsEntry,
     df,
     username_exists,
     uuid2fsentry,

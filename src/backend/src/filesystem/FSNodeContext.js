@@ -16,7 +16,7 @@
  * You should have received a copy of the GNU Affero General Public License
  * along with this program.  If not, see <https://www.gnu.org/licenses/>.
  */
-const { get_user, id2path, id2uuid, is_empty, suggest_app_for_fsentry, get_app } = require('../helpers');
+const { get_user, id2path, id2uuid, is_empty, suggestedAppForFsEntry, get_app } = require('../helpers');
 
 const putility = require('@heyputer/putility');
 const config = require('../config');
@@ -556,7 +556,7 @@ module.exports = class FSNodeContext {
         if ( ! this.entry ) return;
 
         this.entry.suggested_apps =
-            await suggest_app_for_fsentry(this.entry, { user });
+            await suggestedAppForFsEntry(this.entry, { user });
     }
 
     async fetchIsEmpty () {
