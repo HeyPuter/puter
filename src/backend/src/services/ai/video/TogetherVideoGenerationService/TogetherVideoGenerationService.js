@@ -17,10 +17,10 @@
  * along with this program.  If not, see <https://www.gnu.org/licenses/>.
  */
 
-const APIError = require('../../../api/APIError');
-const BaseService = require('../../BaseService');
-const { TypedValue } = require('../../drivers/meta/Runtime');
-const { Context } = require('../../../util/context');
+const APIError = require('../../../../api/APIError');
+const BaseService = require('../../../BaseService');
+const { TypedValue } = require('../../../drivers/meta/Runtime');
+const { Context } = require('../../../../util/context');
 const { Together } = require('together-ai');
 
 const DEFAULT_TEST_VIDEO_URL = 'https://assets.puter.site/txt2vid.mp4';
@@ -28,10 +28,12 @@ const POLL_INTERVAL_MS = 5_000;
 const DEFAULT_TIMEOUT_MS = 5 * 60 * 1000; // 5 minutes
 const DEFAULT_MODEL = 'minimax/video-01-director';
 const DEFAULT_DURATION_SECONDS = 6;
-const DEFAULT_USAGE_KEY = 'together-video:default';
+const DEFAULT_USAGE_KEY = 'togetherai:default';
+
+let models = [];
 
 class TogetherVideoGenerationService extends BaseService {
-    /** @type {import('../../MeteringService/MeteringService').MeteringService} */
+    /** @type {import('../../../MeteringService/MeteringService').MeteringService} */
     get meteringService () {
         return this.services.get('meteringService').meteringService;
     }
@@ -94,7 +96,7 @@ class TogetherVideoGenerationService extends BaseService {
             });
         }
 
-        const model = requestedModel ?? DEFAULT_MODEL;
+        const model = this.#stripTogetherPrefix(requestedModel ?? DEFAULT_MODEL);
 
         if ( testMode ) {
             return new TypedValue({
@@ -196,6 +198,16 @@ class TogetherVideoGenerationService extends BaseService {
         throw new Error('Together AI response did not include a video URL');
     }
 
+    async models () {
+        if ( models.length > 0 ) {
+            return models;
+        }
+
+        const { TOGETHER_VIDEO_GENERATION_MODELS } = await import('./models.js');
+        models = TOGETHER_VIDEO_GENERATION_MODELS;
+        return models;
+    }
+
     async #pollUntilComplete (jobId) {
         let job = await this.client.videos.retrieve(jobId);
         const start = Date.now();
@@ -218,9 +230,16 @@ class TogetherVideoGenerationService extends BaseService {
 
     #determineUsageKey (model) {
         if ( typeof model === 'string' && model.trim() ) {
-            return `together-video:${model}`;
+            return `togetherai:${model}`;
         }
         return DEFAULT_USAGE_KEY;
+    }
+
+    #stripTogetherPrefix (model) {
+        if ( typeof model === 'string' && model.startsWith('togetherai:') ) {
+            return model.slice('togetherai:'.length);
+        }
+        return model;
     }
 
     #coercePositiveInteger (value) {

@@ -17,10 +17,10 @@
  * along with this program.  If not, see <https://www.gnu.org/licenses/>.
  */
 
-const APIError = require('../../../api/APIError');
-const BaseService = require('../../BaseService');
-const { TypedValue } = require('../../drivers/meta/Runtime');
-const { Context } = require('../../../util/context');
+const APIError = require('../../../../api/APIError');
+const BaseService = require('../../../BaseService');
+const { TypedValue } = require('../../../drivers/meta/Runtime');
+const { Context } = require('../../../../util/context');
 const { Readable } = require('stream');
 
 const DEFAULT_TEST_VIDEO_URL = 'https://assets.puter.site/txt2vid.mp4';
@@ -30,9 +30,23 @@ const DEFAULT_DURATION_SECONDS = 4;
 const DEFAULT_SIZE = '720x1280';
 const ALLOWED_SIZES = new Set(['720x1280', '1280x720', '1024x1792', '1792x1024']);
 const ALLOWED_SECONDS = new Set(['4', '8', '12']);
+const OPENAI_VIDEO_MODELS = [
+    {
+        puterId: 'openai:openai/sora-2',
+        id: 'sora-2',
+        aliases: ['openai/sora-2'],
+        defaultUsageKey: 'openai:sora-2:default',
+    },
+    {
+        puterId: 'openai:openai/sora-2-pro',
+        id: 'sora-2-pro',
+        aliases: ['openai/sora-2-pro'],
+        defaultUsageKey: 'openai:sora-2-pro:default',
+    },
+];
 
 class OpenAIVideoGenerationService extends BaseService {
-    /** @type {import('../../MeteringService/MeteringService').MeteringService} */
+    /** @type {import('../../../MeteringService/MeteringService').MeteringService} */
     get meteringService () {
         return this.services.get('meteringService').meteringService;
     }
@@ -42,14 +56,10 @@ class OpenAIVideoGenerationService extends BaseService {
     };
 
     _construct () {
-        this.models_ = {
-            'sora-2': {
-                defaultUsageKey: 'openai:sora-2:default',
-            },
-            'sora-2-pro': {
-                defaultUsageKey: 'openai:sora-2-pro:default',
-            },
-        };
+        this.models_ = Object.fromEntries(OPENAI_VIDEO_MODELS.map(model => [
+            model.id,
+            { defaultUsageKey: model.defaultUsageKey },
+        ]));
     }
 
     async _init () {
@@ -85,6 +95,10 @@ class OpenAIVideoGenerationService extends BaseService {
         },
     };
 
+    models () {
+        return OPENAI_VIDEO_MODELS;
+    }
+
     async generateVideo (params) {
         const {
             prompt,
@@ -105,7 +119,11 @@ class OpenAIVideoGenerationService extends BaseService {
             });
         }
 
-        const model = requestedModel ?? 'sora-2';
+        const resolvedModel = OPENAI_VIDEO_MODELS.find(entry =>
+            entry.id === requestedModel ||
+            entry.puterId === requestedModel ||
+            (entry.aliases || []).includes(requestedModel))?.id;
+        const model = resolvedModel ?? requestedModel ?? 'sora-2';
         const modelConfig = this.models_[model];
         if ( ! modelConfig ) {
             throw APIError.create('field_invalid', null, {
