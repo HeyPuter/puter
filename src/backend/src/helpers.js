@@ -557,7 +557,7 @@ const get_apps = spanify('get_apps', async (specifiers, options = {}) => {
     } finally {
         const end = Date.now();
         console.log('Exiting at: ', end);
-        console.log('Total time taken for get_apps(): ', end - start);
+        console.log(`Total time taken for get_apps(): ${end - start}`);
     }
 });
 
