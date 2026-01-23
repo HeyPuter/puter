@@ -548,6 +548,7 @@ module.exports = class FSNodeContext {
         return this.entry.size;
     }
 
+    /** Avoid using if fetching directory items */
     async fetchSuggestedApps (user, force) {
         if ( this.entry.suggested_apps && !force ) return;
 
