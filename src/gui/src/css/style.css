@@ -5852,7 +5852,7 @@ html.dark-mode .usage-table-show-less:hover {
     display: grid;
     height: 32px;
     padding: 0 10px;
-    grid-template-columns: 24px auto 60px 100px;
+    grid-template-columns: 24px auto 60px 100px 20px;
     align-items: center;
     font-size: 13px;
     color: #444;
@@ -5860,7 +5860,7 @@ html.dark-mode .usage-table-show-less:hover {
 }
 
 .dashboard-section-files .files .row.folder {
-    background: #f0f0f0;
+    /* background: #f0f0f0; */
 }
 
 .dashboard-section-files .files .row:nth-child(1) {
@@ -5893,6 +5893,100 @@ html.dark-mode .usage-table-show-less:hover {
     text-overflow: ellipsis;
     white-space: nowrap;
     overflow: hidden;
+}
+
+.dashboard-section-files .files .row .more {
+    color: #e0e0e0;
+    cursor: pointer;
+}
+
+.dashboard-section-files .files .row .more svg {
+    pointer-events: none;
+}
+
+.dashboard-section-files .files .row:hover .more {
+    color: #444;
+}
+
+.more-btn {
+    background: none;
+    border: none;
+    padding: 6px;
+    cursor: pointer;
+    color: var(--text-muted);
+    border-radius: 50%;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    opacity: 0;
+    transition: all 0.15s ease;
+    position: relative;
+}
+
+.more-menu {
+    position: absolute;
+    min-width: 180px;
+    background: white;
+    border: 1px solid #e0e0e0;
+    border-radius: 8px;
+    box-shadow: 0 4px 20px rgba(0, 0, 0, 0.15);
+    z-index: 1000;
+    padding: 4px;
+}
+
+.more-menu .menu-item {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    width: 100%;
+    padding: 10px 12px;
+    background: none;
+    border: none;
+    border-radius: 6px;
+    font-size: 0.85rem;
+    color: #444;
+    cursor: pointer;
+    transition: background 0.15s ease;
+    text-align: left;
+}
+
+.more-menu .menu-item:hover {
+    background: #e8e8e8;
+}
+
+.more-menu .menu-item svg {
+    width: 16px;
+    height: 16px;
+    color: #e0e0e0;
+    flex-shrink: 0;
+}
+
+.more-menu .menu-item.has-submenu {
+    position: relative;
+}
+
+.more-menu .menu-item.has-submenu svg:last-child {
+    margin-left: auto;
+    width: 0.85rem;
+    height: 0.85rem;
+}
+
+.more-menu .menu-item.danger {
+    color: #ea4335;
+}
+
+.more-menu .menu-item.danger svg {
+    color: #ea4335;
+}
+
+.more-menu .menu-item.danger:hover {
+    background: rgba(234, 67, 53, 0.1);
+}
+
+.more-menu .menu-divider {
+    height: 1px;
+    background: #e0e0e0;
+    margin: 4px 0;
 }
 
 /* Mobile sidebar toggle */
