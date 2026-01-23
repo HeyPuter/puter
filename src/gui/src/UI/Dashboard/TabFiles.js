@@ -44,6 +44,7 @@ const TabFiles = {
                         <li data-folder="Documents">${icons.folder} <span>Documents</span></li>
                         <li data-folder="Pictures">${icons.folder} <span>Pictures</span></li>
                         <li data-folder="Videos">${icons.folder} <span>Videos</span></li>
+                        <li data-folder="Trash">${icons.folder} <span>Trash</span></li>
                     </ul>
                 </div>
                 <div class="directory-contents">
@@ -57,6 +58,7 @@ const TabFiles = {
     init ($el_window) {
         const _this = this;
         this.activeMenuFileUid = null;
+        this.selectedFolderUid = null;
         // Create click handler for each folder item
         $el_window.find('[data-folder]').each(function () {
             this.onclick = () => {
@@ -64,6 +66,7 @@ const TabFiles = {
                 const directories = Object.keys(window.user.directories);
                 const path = directories.find(f => f.endsWith(folderName));
                 _this.renderDirectory(window.user.directories[path]);
+                _this.selectedFolderUid = window.user.directories[path];
                 _this.selectFolder(this);
             };
         });
@@ -163,9 +166,8 @@ const TabFiles = {
         return `${Math.round((bytes / Math.pow(k, i)) * 100) / 100 } ${ sizes[i]}`;
     },
 
-    // More menu
-
     handleMoreClick (rowElement) {
+        const _this = this;
         UIContextMenu({
             items: [
                 {
@@ -233,8 +235,12 @@ const TabFiles = {
                 },
                 {
                     html: i18n('delete'),
-                    action: () => {
-
+                    action: async () => {
+                        console.log(_this.selectedFolderUid);
+                        await window.move_items([rowElement], window.trash_path);
+                        setTimeout(() => {
+                            _this.renderDirectory(this.selectedFolderUid);
+                        }, 0);
                     },
                 },
                 {
@@ -244,7 +250,6 @@ const TabFiles = {
                     },
                 },
                 '-',
-
                 {
                     html: i18n('properties'),
                     action: () => {
