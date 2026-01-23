@@ -20,6 +20,7 @@
 /* eslint-disable no-invalid-this */
 /* eslint-disable @stylistic/quotes */
 import open_item from '../../helpers/open_item.js';
+import UIContextMenu from '../UIContextMenu.js';
 
 const icons = {
     document: `<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"></path><polyline points="14 2 14 8 20 8"></polyline></svg>`,
@@ -127,7 +128,7 @@ const TabFiles = {
             const _row = this;
             this.onclick = (e) => {
                 if ( e.target.classList.contains('more') ) {
-                    _this.handleMoreClick(e, this);
+                    _this.handleMoreClick(this);
                 }
                 if ( this.classList.contains('selected') ) {
                     return;
@@ -164,199 +165,96 @@ const TabFiles = {
 
     // More menu
 
-    handleMoreClick (e, rowElement) {
-        e.stopPropagation();
-        const fileUid = rowElement.getAttribute('data-uid');
-        console.log('file uid:', fileUid);
-        // Close any existing menu
-        if ( this.activeMenuFileUid === fileUid ) {
-            this.closeMoreMenu();
-            return;
-        }
+    handleMoreClick (rowElement) {
+        UIContextMenu({
+            items: [
+                {
+                    html: i18n('open'),
+                    action: () => {
+                        open_item({ item: rowElement });
+                    },
+                },
+                {
+                    html: i18n('open_with'),
+                    action: () => {
 
-        this.closeMoreMenu();
-        this.activeMenuFileUid = fileUid;
+                    },
+                },
+                '-',
+                {
+                    html: i18n('Share With…'),
+                    action: () => {
 
-        // Find the button and create menu
-        const btn = e.currentTarget;
-        const menu = this.createMoreMenu(fileUid, rowElement);
+                    },
+                },
+                {
+                    html: i18n('open_in_ai'),
+                    action: () => {
 
-        // Position menu relative to button
-        const btnRect = btn.getBoundingClientRect();
-        const menuWidth = 200;
-        const menuHeight = 280;
+                    },
+                },
+                {
+                    html: i18n('download'),
+                    action: () => {
 
-        // Check if menu would go off-screen
-        const spaceBelow = window.innerHeight - btnRect.bottom;
-        const spaceRight = window.innerWidth - btnRect.right;
+                    },
+                },
+                {
+                    html: i18n('zip'),
+                    action: () => {
 
-        // Position to left of button if not enough space on right
-        if ( spaceRight < menuWidth ) {
-            menu.style.right = '0';
-            menu.style.left = 'auto';
-        } else {
-            menu.style.left = '0';
-            menu.style.right = 'auto';
-        }
+                    },
+                },
+                {
+                    html: i18n('tar'),
+                    action: () => {
 
-        // Position above button if not enough space below
-        if ( spaceBelow < menuHeight ) {
-            menu.style.bottom = '100%';
-            menu.style.top = 'auto';
-            menu.style.marginBottom = '4px';
-        } else {
-            menu.style.top = '100%';
-            menu.style.bottom = 'auto';
-            menu.style.marginTop = '4px';
-        }
+                    },
+                },
+                '-',
+                {
+                    html: i18n('cut'),
+                    action: () => {
 
-        btn.style.position = 'relative';
-        btn.appendChild(menu);
+                    },
+                },
+                {
+                    html: i18n('copy'),
+                    action: () => {
 
-        // Close menu when clicking outside
-        setTimeout(() => {
-            document.addEventListener('click', this.handleMenuOutsideClick.bind(this));
-            document.addEventListener('keydown', this.handleMenuEscape.bind(this));
-        }, 0);
-    },
+                    },
+                },
+                '-',
+                {
+                    html: i18n('create_shortcut'),
+                    action: () => {
 
-    handleMenuOutsideClick (e) {
-        if ( !e.target.closest('.more-menu') && !e.target.closest('.more-btn') ) {
-            this.closeMoreMenu();
-        }
-    },
+                    },
+                },
+                {
+                    html: i18n('delete'),
+                    action: () => {
 
-    handleMenuEscape (e) {
-        if ( e.key === 'Escape' ) {
-            this.closeMoreMenu();
-        }
-    },
+                    },
+                },
+                {
+                    html: i18n('rename'),
+                    action: () => {
 
-    closeMoreMenu () {
-        document.removeEventListener('click', this.handleMenuOutsideClick);
-        document.removeEventListener('keydown', this.handleMenuEscape);
-        this.activeMenuFileUid = null;
-        const menu = $('.more-menu');
-        if ( menu ) menu.remove();
-    },
+                    },
+                },
+                '-',
 
-    createMoreMenu (fileUid, rowElement) {
-        const isFolder = rowElement.getAttribute('data-is_dir');
-        console.log('isFolder', isFolder);
-        const menu = document.createElement('div');
-        menu.className = 'more-menu';
+                {
+                    html: i18n('properties'),
+                    action: () => {
 
-        let menuHTML = '';
-
-        // Menu for file
-        // TO DO: folder has different items
-        menuHTML += `
-            <button class="menu-item" data-action="open">
-                <span>Open</span>
-            </button>
-            <button class="menu-item" data-action="open-with">
-                <span>Open With</span>
-            </button>
-            <div class="menu-divider"></div>
-            <button class="menu-item" data-action="share-with">
-                <span>Share With...</span>
-            </button>
-            <button class="menu-item" data-action="open-in-ai">
-                <span>Open in AI</span>
-            </button>
-            <button class="menu-item" data-action="download">
-                <span>Download</span>
-            </button>
-            <button class="menu-item" data-action="zip">
-                <span>Zip</span>
-            </button>
-            <button class="menu-item" data-action="tar">
-                <span>Tar</span>
-            </button>
-            <div class="menu-divider"></div>
-            <button class="menu-item" data-action="cut">
-                <span>Cut</span>
-            </button>
-            <button class="menu-item" data-action="copy">
-                <span>Copy</span>
-            </button>
-            <div class="menu-divider"></div>
-            <button class="menu-item" data-action="create-shortcut">
-                <span>Create Shortcut</span>
-            </button>
-            <button class="menu-item" data-action="delete">
-                <span>Delete</span>
-            </button>
-            <button class="menu-item" data-action="rename">
-                <span>Rename</span>
-            </button>
-            <div class="menu-divider"></div>
-            <button class="menu-item" data-action="properties">
-                <span>Properties</span>
-            </button>
-        `;
-
-        menu.innerHTML = menuHTML;
-
-        // Add event listeners
-        menu.querySelectorAll('.menu-item').forEach(item => {
-            item.addEventListener('click', (e) => {
-                e.stopPropagation();
-                const action = item.dataset.action;
-                this.handleMenuAction(action, fileUid, rowElement);
-            });
+                    },
+                },
+            ],
         });
-
-        return menu;
     },
 
-    handleMenuAction (action, fileUid, rowElement) {
-        console.log('menu action', action, fileUid, rowElement);
-        switch ( action ) {
-        case 'open':
-            open_item({ item: rowElement });
-            this.closeMoreMenu();
-            break;
-        case 'open-with':
-            this.closeMoreMenu();
-            break;
-        case 'share-with':
-            this.closeMoreMenu();
-            break;
-        case 'open-in-ai':
-            this.closeMoreMenu();
-            break;
-        case 'download':
-            this.closeMoreMenu();
-            break;
-        case 'zip':
-            this.closeMoreMenu();
-            break;
-        case 'tar':
-            this.closeMoreMenu();
-            break;
-        case 'cut':
-            this.closeMoreMenu();
-            break;
-        case 'copy':
-            this.closeMoreMenu();
-            break;
-        case 'create-shortcut':
-            this.closeMoreMenu();
-            break;
-        case 'delete':
-            this.closeMoreMenu();
-            break;
-        case 'rename':
-            this.closeMoreMenu();
-            break;
-        case 'properties':
-            this.closeMoreMenu();
-            break;
-        default:
-            break;
-        }
-    },
 };
 
 export default TabFiles;
