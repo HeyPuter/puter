@@ -122,6 +122,16 @@ class AppIconService extends BaseService {
     }
 
     async get_icon_stream_ ({ app_icon, app_uid, size, tries = 0 }) {
+        const is_data_url = value => (
+            typeof value === 'string' &&
+            value.startsWith('data:') &&
+            value.includes(',')
+        );
+
+        if ( app_icon && !is_data_url(app_icon) ) {
+            app_icon = null;
+        }
+
         // If there is an icon provided, and it's an SVG, we'll just return it
         if ( app_icon ) {
             const [metadata, data] = app_icon.split(',');
@@ -147,8 +157,11 @@ class AppIconService extends BaseService {
             // Use database-stored icon as a fallback
             app_icon = app_icon || await (async () => {
                 const app = await get_app({ uid: app_uid });
-                return app.icon || DEFAULT_APP_ICON;
+                return app?.icon || DEFAULT_APP_ICON;
             })();
+            if ( ! is_data_url(app_icon) ) {
+                app_icon = DEFAULT_APP_ICON;
+            }
             const [metadata, base64] = app_icon.split(',');
             const mime = metadata.split(';')[0].split(':')[1];
             const img = Buffer.from(base64, 'base64');
