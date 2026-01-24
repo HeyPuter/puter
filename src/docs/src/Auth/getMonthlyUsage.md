@@ -6,6 +6,12 @@ platforms: [websites, apps, nodejs, workers]
 
 Get the user's current monthly resource usage in the Puter ecosystem.
 
+<div class="info">
+
+Usage data is scoped to the calling app only.
+
+</div>
+
 ## Syntax
 
 ```js
