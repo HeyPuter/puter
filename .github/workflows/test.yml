@@ -3,8 +3,12 @@ name: test
 on:
   push:
     branches: ["main"]
+    paths-ignore:
+      - "src/docs/**"
   pull_request:
     branches: ["main"]
+    paths-ignore:
+      - "src/docs/**"
 
 jobs:
   test-backend:
