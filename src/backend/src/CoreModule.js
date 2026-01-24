@@ -391,6 +391,9 @@ const install = async ({ context, services, app, useapi, modapi }) => {
 
     const { FileCacheService } = require('./services/file-cache/FileCacheService');
     services.registerService('file-cache', FileCacheService);
+
+    const { SystemInfoService } = require('./services/SystemInfoService');
+    services.registerService('system-info', SystemInfoService);
 };
 
 const install_legacy = async ({ services }) => {
