@@ -1867,6 +1867,138 @@ window.update_sites_cache = function () {
 };
 
 /**
+ * Fetches subdomains for directories and updates UI items with subdomain data.
+ * This function can be called after readdir to update website badges asynchronously.
+ *
+ * @param {Array} fsentries - Array of filesystem entries (from readdir)
+ * @param {jQuery|HTMLElement} [container] - Optional container to limit search scope. If not provided, searches entire document.
+ * @returns {Promise<void>}
+ */
+window.updateSubdomainsForItems = async function (fsentries, container) {
+    if ( !fsentries || fsentries.length === 0 ) {
+        console.log('[updateSubdomainsForItems] No fsentries provided');
+        return;
+    }
+
+    console.log(`[updateSubdomainsForItems] Starting update for ${fsentries.length} entries, container:`, container);
+
+    // Extract directory IDs and create a map of id -> fsentry
+    const directoryIds = [];
+    const fsentryById = new Map();
+
+    for ( const fsentry of fsentries ) {
+        if ( fsentry.is_dir && fsentry.id != null ) {
+            directoryIds.push(fsentry.id);
+            fsentryById.set(fsentry.id, fsentry);
+        }
+    }
+
+    if ( directoryIds.length === 0 ) {
+        console.log('[updateSubdomainsForItems] No directories found in fsentries');
+        return;
+    }
+
+    console.log(`[updateSubdomainsForItems] Fetching subdomains for ${directoryIds.length} directories:`, directoryIds);
+
+    try {
+        const subdomainResults = await puter.fs.readdirSubdomains({ directory_ids: directoryIds });
+        console.log('[updateSubdomainsForItems] Subdomain results:', subdomainResults);
+
+        // Create a map of directory_id -> subdomain data
+        const subdomainMap = new Map();
+        for ( const result of subdomainResults ) {
+            subdomainMap.set(result.directory_id, {
+                subdomains: result.subdomains,
+                has_website: result.has_website,
+            });
+        }
+
+        // Update UI items with subdomain data
+        // Always search entire document first to ensure we find items regardless of DOM structure
+        for ( const fsentry of fsentries ) {
+            if ( !fsentry.is_dir || !fsentry.id ) continue;
+
+            const subdomainData = subdomainMap.get(fsentry.id);
+            const has_website = subdomainData ? subdomainData.has_website : false;
+            const subdomains = subdomainData ? subdomainData.subdomains : [];
+
+            console.log('[updateSubdomainsForItems] Processing directory:', {
+                name: fsentry.name,
+                uid: fsentry.uid,
+                id: fsentry.id,
+                path: fsentry.path,
+                has_website: has_website,
+                subdomains_count: subdomains.length,
+            });
+
+            // Find the item element - search entire document by uid first
+            let $item = $(document).find(`.item[data-uid="${fsentry.uid}"]`);
+            console.log(`[updateSubdomainsForItems] Search by uid "${fsentry.uid}": found ${$item.length} item(s)`);
+
+            // If not found by uid, try path-based search
+            if ( $item.length === 0 && fsentry.path ) {
+                // Escape special characters in path for jQuery selector
+                const escapedPath = fsentry.path.replace(/[!"#$%&'()*+,.\/:;<=>?@[\\\]^`{|}~]/g, '\\$&');
+                $item = $(document).find(`.item[data-path="${escapedPath}"]`);
+                console.log(`[updateSubdomainsForItems] Search by path "${fsentry.path}": found ${$item.length} item(s)`);
+            }
+
+            // Debug: Check all items with matching uid in document
+            if ( $item.length === 0 ) {
+                const allItemsWithUid = $(document).find('.item[data-uid]');
+                const matchingUids = Array.from(allItemsWithUid).map(el => $(el).attr('data-uid')).filter(uid => uid === fsentry.uid);
+                console.log(`[updateSubdomainsForItems] Debug - Total items with data-uid in document: ${allItemsWithUid.length}, items with matching uid "${fsentry.uid}": ${matchingUids.length}`);
+
+                if ( fsentry.path ) {
+                    const allItemsWithPath = $(document).find('.item[data-path]');
+                    const matchingPaths = Array.from(allItemsWithPath).map(el => $(el).attr('data-path')).filter(path => path === fsentry.path);
+                    console.log(`[updateSubdomainsForItems] Debug - Total items with data-path in document: ${allItemsWithPath.length}, items with matching path "${fsentry.path}": ${matchingPaths.length}`);
+                }
+            }
+
+            if ( $item.length > 0 ) {
+                console.log(`[updateSubdomainsForItems] ✓ Found item, updating has_website to ${has_website}`);
+
+                // Update has_website attribute
+                $item.attr('data-has_website', has_website ? '1' : '0');
+
+                // Update website badge visibility
+                const $badge = $item.find('.item-has-website-badge');
+                if ( $badge.length > 0 ) {
+                    $badge.css('display', has_website ? 'block' : 'none');
+                    console.log(`[updateSubdomainsForItems] ✓ Updated badge visibility: ${has_website ? 'visible' : 'hidden'}`);
+                } else {
+                    console.log('[updateSubdomainsForItems] ⚠ Badge element not found in item');
+                }
+
+                // Update cache with subdomain data
+                if ( fsentry.path ) {
+                    const cachedItem = await puter._cache.get(`item:${fsentry.path}`);
+                    if ( cachedItem ) {
+                        cachedItem.subdomains = subdomains;
+                        cachedItem.has_website = has_website;
+                        puter._cache.set(`item:${fsentry.path}`, cachedItem);
+                        console.log(`[updateSubdomainsForItems] ✓ Updated cache for path: ${fsentry.path}`);
+                    }
+                }
+            } else {
+                console.warn('[updateSubdomainsForItems] ✗ Item not found for directory:', {
+                    name: fsentry.name,
+                    uid: fsentry.uid,
+                    id: fsentry.id,
+                    path: fsentry.path,
+                });
+            }
+        }
+
+        console.log('[updateSubdomainsForItems] Update complete');
+    } catch ( error ) {
+        // Silently fail subdomain fetching - don't block the UI
+        console.error('[updateSubdomainsForItems] Failed to fetch subdomains:', error);
+    }
+};
+
+/**
  *
  * @param {*} el_target_container
  * @param {*} target_path
