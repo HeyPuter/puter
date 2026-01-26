@@ -20,7 +20,10 @@
 /* eslint-disable no-invalid-this */
 /* eslint-disable @stylistic/quotes */
 import open_item from '../../helpers/open_item.js';
+import launch_app from '../../helpers/launch_app.js';
+import UIAlert from '../UIAlert.js';
 import UIContextMenu from '../UIContextMenu.js';
+import path from '../../lib/path.js';
 
 const icons = {
     document: `<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"></path><polyline points="14 2 14 8 20 8"></polyline></svg>`,
@@ -112,50 +115,69 @@ const TabFiles = {
 
         // Sort contents folders first, then render each row
         directoryContents.sort((a, b) => b.is_dir - a.is_dir).forEach(file => {
-            const icon = file.is_dir ? icons.folder : (file.thumbnail ? `<img src="${file.thumbnail}" alt="${file.name}" />` : icons.document);
-            const rowAttributes = `data-id="${file.id}" data-name="${file.name}" data-metadata="{}" data-uid="${file.uid}" data-is_dir="${file.is_dir}" data-is_trash="0" data-has_website="0" data-website_url="" data-immutable="${file.immutable}" data-is_shortcut="${file.is_shortcut}" data-shortcut_to="" data-shortcut_to_path="" data-sortable="true" data-sort_by="" data-size="${file.size}" data-type="" data-modified="${file.modified}" data-associated_app_name="" data-path="${file.path}"`;
-            const row = `
-                <div class="row ${file.is_dir ? 'folder' : 'file'}" ${rowAttributes}>
-                    <div class="icon">${icon}</div>
-                    <div class="name">${file.name}</div>
-                    ${file.is_dir ? '<div class="size"></div>' : `<div class="size">${this.formatFileSize(file.size)}</div>`}
-                    <div class="date">${window.timeago.format(file.modified * 1000)}</div>
-                    <div class="more">${icons.more}</div>
-                </div>
-            `;
-            $('.files-tab .files').append(row);
+            console.log(file);
+            this.renderItem(file);
         });
+    },
 
-        // Create click handlers
-        $('.files-tab .files .row').each(function () {
-            const _row = this;
-            this.onclick = (e) => {
-                if ( e.target.classList.contains('more') ) {
-                    _this.handleMoreClick(this);
-                }
-                if ( this.classList.contains('selected') ) {
-                    return;
-                }
-                if ( this.parentElement.querySelector('.header') === this ) {
-                    return; // Do not select header row
-                }
-                this.parentElement.querySelectorAll('.row').forEach(row => {
-                    row.classList.remove('selected');
-                });
-                this.classList.add('selected');
-            };
-            this.ondblclick = () => {
-                const isFolder = _row.getAttribute('data-is_dir');
-                if ( isFolder === "true" ) {
-                    console.log('open folder');
-                    _this.renderDirectory(_row.getAttribute('data-path'), _row.getAttribute('data-uid'));
-                } else {
-                    console.log('open file');
-                    open_item({ item: _row });
-                }
-                this.classList.remove('selected');
-            };
-        });
+    renderItem (file) {
+        const _this = this;
+        const icon = file.is_dir ? icons.folder : (file.thumbnail ? `<img src="${file.thumbnail}" alt="${file.name}" />` : icons.document);
+        const row = document.createElement("div");
+        row.setAttribute('class', `row ${file.is_dir ? 'folder' : 'file'}`);
+        row.setAttribute("data-id", file.id);
+        row.setAttribute("data-name", file.name);
+        row.setAttribute("data-uid", file.uid);
+        row.setAttribute("data-is_dir", file.is_dir);
+        row.setAttribute("data-is_trash", 0);
+        row.setAttribute("data-has_website", 0);
+        row.setAttribute("data-website_url", "");
+        row.setAttribute("data-immutable", file.immutable);
+        row.setAttribute("data-is_shortcut", file.is_shortcut);
+        row.setAttribute("data-shortcut_to", "");
+        row.setAttribute("data-shortcut_to_path", "");
+        row.setAttribute("data-sortable", "true");
+        row.setAttribute("data-metadata", "{}");
+        row.setAttribute("data-sort_by", "");
+        row.setAttribute("data-size", file.size);
+        row.setAttribute("data-type", "");
+        row.setAttribute("data-modified", file.modified);
+        row.setAttribute("data-associated_app_name", "");
+        row.setAttribute("data-path", file.path);
+        row.innerHTML = `
+            <div class="icon">${icon}</div>
+            <div class="name">${file.name}</div>
+            ${file.is_dir ? '<div class="size"></div>' : `<div class="size">${this.formatFileSize(file.size)}</div>`}
+            <div class="date">${window.timeago.format(file.modified * 1000)}</div>
+            <div class="more">${icons.more}</div>
+        `;
+        $('.files-tab .files').append(row);
+
+        // Create event listeners
+        row.onclick = (e) => {
+            if ( e.target.classList.contains('more') ) {
+                _this.handleMoreClick(row, file);
+            }
+            if ( row.classList.contains('selected') ) {
+                return;
+            }
+            if ( row.parentElement.querySelector('.header') === this ) {
+                return; // Do not select header row
+            }
+            row.parentElement.querySelectorAll('.row').forEach(r => {
+                r.classList.remove('selected');
+            });
+            row.classList.add('selected');
+        };
+        row.ondblclick = () => {
+            const isFolder = row.getAttribute('data-is_dir');
+            if ( isFolder === "true" ) {
+                _this.renderDirectory(row.getAttribute('data-path'), row.getAttribute('data-uid'));
+            } else {
+                open_item({ item: row });
+            }
+            row.classList.remove('selected');
+        };
     },
 
     formatFileSize (bytes) {
@@ -166,98 +188,210 @@ const TabFiles = {
         return `${Math.round((bytes / Math.pow(k, i)) * 100) / 100 } ${ sizes[i]}`;
     },
 
-    handleMoreClick (rowElement) {
-        const _this = this;
+    async handleMoreClick (rowElement, file) {
+        const items = await this.generateItems(rowElement, file);
+
         UIContextMenu({
-            items: [
-                {
-                    html: i18n('open'),
-                    action: () => {
-                        open_item({ item: rowElement });
-                    },
-                },
-                {
-                    html: i18n('open_with'),
-                    action: () => {
-
-                    },
-                },
-                '-',
-                {
-                    html: i18n('Share With…'),
-                    action: () => {
-
-                    },
-                },
-                {
-                    html: i18n('open_in_ai'),
-                    action: () => {
-
-                    },
-                },
-                {
-                    html: i18n('download'),
-                    action: () => {
-
-                    },
-                },
-                {
-                    html: i18n('zip'),
-                    action: () => {
-
-                    },
-                },
-                {
-                    html: i18n('tar'),
-                    action: () => {
-
-                    },
-                },
-                '-',
-                {
-                    html: i18n('cut'),
-                    action: () => {
-
-                    },
-                },
-                {
-                    html: i18n('copy'),
-                    action: () => {
-
-                    },
-                },
-                '-',
-                {
-                    html: i18n('create_shortcut'),
-                    action: () => {
-
-                    },
-                },
-                {
-                    html: i18n('delete'),
-                    action: async () => {
-                        console.log(_this.selectedFolderUid);
-                        await window.move_items([rowElement], window.trash_path);
-                        setTimeout(() => {
-                            _this.renderDirectory(this.selectedFolderUid);
-                        }, 0);
-                    },
-                },
-                {
-                    html: i18n('rename'),
-                    action: () => {
-
-                    },
-                },
-                '-',
-                {
-                    html: i18n('properties'),
-                    action: () => {
-
-                    },
-                },
-            ],
+            items: items,
         });
+    },
+
+    async generateItems (el_item, options) {
+        const _this = this;
+        let menu_items = [];
+
+        const fileUid = el_item.getAttribute("data-uid");
+        const is_trash = $(el_item).attr('data-path') === window.trash_path || $(el_item).attr('data-shortcut_to_path') === window.trash_path;
+        const is_trashed = ($(el_item).attr('data-path') || '').startsWith(`${window.trash_path }/`);
+
+        // Open
+        menu_items.push({
+            html: i18n('open'),
+            action: () => {
+                open_item({ item: el_item });
+            },
+        });
+
+        // Open With
+        if ( !is_trashed && !is_trash && (options.associated_app_name === null || options.associated_app_name === undefined) ) {
+            let items = [];
+            if ( !options.suggested_apps || options.suggested_apps.length === 0 ) {
+                // try to find suitable apps
+                const suitable_apps = await window.suggest_apps_for_fsentry({
+                    uid: options.uid,
+                    path: options.path,
+                });
+                if ( suitable_apps && suitable_apps.length > 0 ) {
+                    options.suggested_apps = suitable_apps;
+                }
+            }
+
+            if ( options.suggested_apps && options.suggested_apps.length > 0 ) {
+                console.log('found suggested apps', options.suggested_apps);
+                for ( let index = 0; index < options.suggested_apps.length; index++ ) {
+                    const suggested_app = options.suggested_apps[index];
+                    if ( ! suggested_app ) {
+                        console.warn('suggested_app is null', options.suggested_apps, index);
+                        continue;
+                    }
+                    console.log('suggested app', suggested_app);
+                    items.push({
+                        html: suggested_app.title,
+                        icon: `<img src="${html_encode(suggested_app.icon ?? window.icons['app.svg'])}" style="width:16px; height: 16px; margin-bottom: -4px;">`,
+                        onClick: async function () {
+                            var extension = path.extname($(el_item).attr('data-path')).toLowerCase();
+                            if (
+                                window.user_preferences[`default_apps${extension}`] !== suggested_app.name
+                                &&
+                                (
+                                    (!window.user_preferences[`default_apps${extension}`] && index > 0)
+                                    ||
+                                    (window.user_preferences[`default_apps${extension}`])
+                                )
+                            ) {
+                                const alert_resp = await UIAlert({
+                                    message: `${i18n('change_always_open_with')} ${ html_encode(suggested_app.title) }?`,
+                                    body_icon: suggested_app.icon,
+                                    buttons: [
+                                        {
+                                            label: i18n('yes'),
+                                            type: 'primary',
+                                            value: 'yes',
+                                        },
+                                        {
+                                            label: i18n('no'),
+                                        },
+                                    ],
+                                });
+                                if ( (alert_resp) === 'yes' ) {
+                                    window.user_preferences[`default_apps${ extension}`] = suggested_app.name;
+                                    window.mutate_user_preferences(window.user_preferences);
+                                }
+                            }
+                            launch_app({
+                                name: suggested_app.name,
+                                file_path: $(el_item).attr('data-path'),
+                                window_title: $(el_item).attr('data-name'),
+                                file_uid: $(el_item).attr('data-uid'),
+                            });
+                        },
+                    });
+                }
+            } else {
+                items.push({
+                    html: i18n('no_suitable_apps_found'),
+                    disabled: true,
+                });
+            }
+            // add all suitable apps
+            menu_items.push({
+                html: i18n('open_with'),
+                items: items,
+            });
+        }
+
+        menu_items.push('-');
+
+        // Share with
+        menu_items.push({
+            html: i18n('Share With…'),
+            action: () => {
+
+            },
+        });
+
+        // Open in AI
+        menu_items.push({
+            html: i18n('open_in_ai'),
+            action: () => {
+
+            },
+        });
+
+        // Download
+        menu_items.push({
+            html: i18n('download'),
+            action: () => {
+
+            },
+        });
+
+        // Zip
+        menu_items.push({
+            html: i18n('zip'),
+            action: () => {
+
+            },
+        });
+
+        // Tar
+        menu_items.push({
+            html: i18n('tar'),
+            action: () => {
+
+            },
+        });
+
+        menu_items.push('-');
+
+        // Cut
+        menu_items.push({
+            html: i18n('cut'),
+            action: () => {
+
+            },
+        });
+
+        // Copy
+        menu_items.push({
+            html: i18n('copy'),
+            action: () => {
+
+            },
+        });
+
+        menu_items.push('-');
+
+        // Create Shortcut
+        menu_items.push({
+            html: i18n('create_shortcut'),
+            action: () => {
+
+            },
+        });
+
+        menu_items.push('-');
+
+        // Delete
+        menu_items.push({
+            html: i18n('delete'),
+            action: async () => {
+                await window.move_items([el_item], window.trash_path);
+                setTimeout(() => {
+                    _this.renderDirectory(this.selectedFolderUid);
+                }, 0);
+            },
+        });
+
+        // Rename
+        menu_items.push({
+            html: i18n('rename'),
+            action: () => {
+
+            },
+        });
+
+        menu_items.push('-');
+
+        // Properties
+        menu_items.push({
+            html: i18n('properties'),
+            action: () => {
+
+            },
+        });
+
+        return menu_items;
     },
 
 };
