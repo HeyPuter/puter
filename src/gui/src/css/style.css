@@ -5841,6 +5841,23 @@ html.dark-mode .usage-table-show-less:hover {
     width: calc(100% - 160px);
 }
 
+.dashboard-section-files .directory-contents .path {
+    font-size: 14px;
+    display: flex;
+    align-items: center;
+    gap: 5px;
+    padding: 10px 12px;
+    border-bottom: 1px solid #e0e0e0;
+}
+
+.dashboard-section-files .directory-contents .path .dirname {
+    height: auto;
+    font-weight: 400;
+    -webkit-font-smoothing: subpixel-antialiased;
+    color: #666;
+    cursor: pointer;
+}
+
 .dashboard-section-files .files {
     width: 100%;
     display: flex;

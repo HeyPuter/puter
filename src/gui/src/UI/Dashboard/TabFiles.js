@@ -20,10 +20,8 @@
 /* eslint-disable no-invalid-this */
 /* eslint-disable @stylistic/quotes */
 import open_item from '../../helpers/open_item.js';
-import launch_app from '../../helpers/launch_app.js';
-import UIAlert from '../UIAlert.js';
 import UIContextMenu from '../UIContextMenu.js';
-import path from '../../lib/path.js';
+import generate_file_context_menu from '../../helpers/generate_file_context_menu.js';
 
 const icons = {
     document: `<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"></path><polyline points="14 2 14 8 20 8"></polyline></svg>`,
@@ -51,6 +49,7 @@ const TabFiles = {
                     </ul>
                 </div>
                 <div class="directory-contents">
+                    <div class="path"></div>
                     <div class="files"></div>
                 </div>
             </div>
@@ -89,6 +88,20 @@ const TabFiles = {
             return;
         }
 
+        let path = null;
+        Object.entries(window.user.directories).forEach(o => {
+            if ( o[1] === uid ) {
+                path = o[0];
+            }
+        });
+
+        $('.path').html(this.renderPath(path || uid, window.user.username));
+        $('.path .dirname').each(function () {
+            this.onclick = () => {
+                _this.renderDirectory(this.getAttribute("data-path"));
+            };
+        });
+
         // Clear the container
         $('.files-tab .files').html('');
 
@@ -115,7 +128,6 @@ const TabFiles = {
 
         // Sort contents folders first, then render each row
         directoryContents.sort((a, b) => b.is_dir - a.is_dir).forEach(file => {
-            console.log(file);
             this.renderItem(file);
         });
     },
@@ -161,8 +173,9 @@ const TabFiles = {
             if ( row.classList.contains('selected') ) {
                 return;
             }
+            // Header row cannot be selected
             if ( row.parentElement.querySelector('.header') === this ) {
-                return; // Do not select header row
+                return;
             }
             row.parentElement.querySelectorAll('.row').forEach(r => {
                 r.classList.remove('selected');
@@ -172,7 +185,7 @@ const TabFiles = {
         row.ondblclick = () => {
             const isFolder = row.getAttribute('data-is_dir');
             if ( isFolder === "true" ) {
-                _this.renderDirectory(row.getAttribute('data-path'), row.getAttribute('data-uid'));
+                _this.renderDirectory(file.path);
             } else {
                 open_item({ item: row });
             }
@@ -190,7 +203,6 @@ const TabFiles = {
 
     async handleMoreClick (rowElement, file) {
         const items = await this.generateItems(rowElement, file);
-
         UIContextMenu({
             items: items,
         });
@@ -198,202 +210,53 @@ const TabFiles = {
 
     async generateItems (el_item, options) {
         const _this = this;
-        let menu_items = [];
 
-        const fileUid = el_item.getAttribute("data-uid");
         const is_trash = $(el_item).attr('data-path') === window.trash_path || $(el_item).attr('data-shortcut_to_path') === window.trash_path;
         const is_trashed = ($(el_item).attr('data-path') || '').startsWith(`${window.trash_path }/`);
 
-        // Open
-        menu_items.push({
-            html: i18n('open'),
-            action: () => {
-                open_item({ item: el_item });
-            },
-        });
-
-        // Open With
-        if ( !is_trashed && !is_trash && (options.associated_app_name === null || options.associated_app_name === undefined) ) {
-            let items = [];
-            if ( !options.suggested_apps || options.suggested_apps.length === 0 ) {
-                // try to find suitable apps
-                const suitable_apps = await window.suggest_apps_for_fsentry({
-                    uid: options.uid,
-                    path: options.path,
-                });
-                if ( suitable_apps && suitable_apps.length > 0 ) {
-                    options.suggested_apps = suitable_apps;
-                }
-            }
-
-            if ( options.suggested_apps && options.suggested_apps.length > 0 ) {
-                console.log('found suggested apps', options.suggested_apps);
-                for ( let index = 0; index < options.suggested_apps.length; index++ ) {
-                    const suggested_app = options.suggested_apps[index];
-                    if ( ! suggested_app ) {
-                        console.warn('suggested_app is null', options.suggested_apps, index);
-                        continue;
-                    }
-                    console.log('suggested app', suggested_app);
-                    items.push({
-                        html: suggested_app.title,
-                        icon: `<img src="${html_encode(suggested_app.icon ?? window.icons['app.svg'])}" style="width:16px; height: 16px; margin-bottom: -4px;">`,
-                        onClick: async function () {
-                            var extension = path.extname($(el_item).attr('data-path')).toLowerCase();
-                            if (
-                                window.user_preferences[`default_apps${extension}`] !== suggested_app.name
-                                &&
-                                (
-                                    (!window.user_preferences[`default_apps${extension}`] && index > 0)
-                                    ||
-                                    (window.user_preferences[`default_apps${extension}`])
-                                )
-                            ) {
-                                const alert_resp = await UIAlert({
-                                    message: `${i18n('change_always_open_with')} ${ html_encode(suggested_app.title) }?`,
-                                    body_icon: suggested_app.icon,
-                                    buttons: [
-                                        {
-                                            label: i18n('yes'),
-                                            type: 'primary',
-                                            value: 'yes',
-                                        },
-                                        {
-                                            label: i18n('no'),
-                                        },
-                                    ],
-                                });
-                                if ( (alert_resp) === 'yes' ) {
-                                    window.user_preferences[`default_apps${ extension}`] = suggested_app.name;
-                                    window.mutate_user_preferences(window.user_preferences);
-                                }
-                            }
-                            launch_app({
-                                name: suggested_app.name,
-                                file_path: $(el_item).attr('data-path'),
-                                window_title: $(el_item).attr('data-name'),
-                                file_uid: $(el_item).attr('data-uid'),
-                            });
-                        },
-                    });
-                }
-            } else {
-                items.push({
-                    html: i18n('no_suitable_apps_found'),
-                    disabled: true,
-                });
-            }
-            // add all suitable apps
-            menu_items.push({
-                html: i18n('open_with'),
-                items: items,
-            });
-        }
-
-        menu_items.push('-');
-
-        // Share with
-        menu_items.push({
-            html: i18n('Share With…'),
-            action: () => {
-
-            },
-        });
-
-        // Open in AI
-        menu_items.push({
-            html: i18n('open_in_ai'),
-            action: () => {
-
-            },
-        });
-
-        // Download
-        menu_items.push({
-            html: i18n('download'),
-            action: () => {
-
-            },
-        });
-
-        // Zip
-        menu_items.push({
-            html: i18n('zip'),
-            action: () => {
-
-            },
-        });
-
-        // Tar
-        menu_items.push({
-            html: i18n('tar'),
-            action: () => {
-
-            },
-        });
-
-        menu_items.push('-');
-
-        // Cut
-        menu_items.push({
-            html: i18n('cut'),
-            action: () => {
-
-            },
-        });
-
-        // Copy
-        menu_items.push({
-            html: i18n('copy'),
-            action: () => {
-
-            },
-        });
-
-        menu_items.push('-');
-
-        // Create Shortcut
-        menu_items.push({
-            html: i18n('create_shortcut'),
-            action: () => {
-
-            },
-        });
-
-        menu_items.push('-');
-
-        // Delete
-        menu_items.push({
-            html: i18n('delete'),
-            action: async () => {
-                await window.move_items([el_item], window.trash_path);
+        // Use the shared helper to generate menu items
+        const menu_items = await generate_file_context_menu({
+            element: el_item,
+            fsentry: options,
+            is_trash: is_trash,
+            is_trashed: is_trashed,
+            suggested_apps: options.suggested_apps,
+            associated_app_name: options.associated_app_name,
+            onRefresh: () => {
                 setTimeout(() => {
-                    _this.renderDirectory(this.selectedFolderUid);
+                    _this.renderDirectory(_this.selectedFolderUid);
                 }, 0);
-            },
-        });
-
-        // Rename
-        menu_items.push({
-            html: i18n('rename'),
-            action: () => {
-
-            },
-        });
-
-        menu_items.push('-');
-
-        // Properties
-        menu_items.push({
-            html: i18n('properties'),
-            action: () => {
-
             },
         });
 
         return menu_items;
     },
 
+    renderPath (abs_path) {
+        const { html_encode } = window;
+        // remove trailing slash
+        if ( abs_path.endsWith('/') && abs_path !== '/' )
+        {
+            abs_path = abs_path.slice(0, -1);
+        }
+
+        const dirs = (abs_path === '/' ? [''] : abs_path.split('/'));
+        const dirpaths = (abs_path === '/' ? ['/'] : []);
+        const path_seperator_html = `<img class="path-seperator" draggable="false" src="${html_encode(window.icons['triangle-right.svg'])}">`;
+        if ( dirs.length > 1 ) {
+            for ( let i = 0; i < dirs.length; i++ ) {
+                dirpaths[i] = '';
+                for ( let j = 1; j <= i; j++ ) {
+                    dirpaths[i] += `/${dirs[j]}`;
+                }
+            }
+        }
+        let str = `${path_seperator_html}<span class="dirname" data-path="${html_encode('/')}">${html_encode(window.root_dirname)}</span>`;
+        for ( let k = 1; k < dirs.length; k++ ) {
+            str += `${path_seperator_html}<span class="dirname" data-path="${html_encode(dirpaths[k])}">${dirs[k] === 'Trash' ? i18n('trash') : html_encode(dirs[k])}</span>`;
+        }
+        return str;
+    },
 };
 
 export default TabFiles;
