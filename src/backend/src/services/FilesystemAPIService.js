@@ -54,6 +54,7 @@ class FilesystemAPIService extends BaseService {
         app.use(require('../routers/filesystem_api/read'));
         app.use(require('../routers/filesystem_api/token-read'));
         app.use(require('../routers/filesystem_api/readdir'));
+        app.use(require('../routers/filesystem_api/readdir-subdomains'));
         app.use(require('../routers/filesystem_api/copy'));
         app.use(require('../routers/filesystem_api/move'));
         app.use(require('../routers/filesystem_api/rename'));
