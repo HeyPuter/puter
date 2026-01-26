@@ -42,6 +42,7 @@ module.exports = eggspress('/readdir', {
         recursive: new FlagParam('recursive', { optional: true }),
         no_thumbs: new FlagParam('no_thumbs', { optional: true }),
         no_assocs: new FlagParam('no_assocs', { optional: true }),
+        no_subdomains: new FlagParam('no_subdomains', { optional: true }),
     },
 }, async (req, res, next) => {
     let log; {
@@ -56,6 +57,7 @@ module.exports = eggspress('/readdir', {
     const recursive = req.values.recursive;
     const no_thumbs = req.values.no_thumbs;
     const no_assocs = req.values.no_assocs;
+    const no_subdomains = req.values.no_subdomains;
 
     const hl_readdir = new HLReadDir();
     const result = await hl_readdir.run({
@@ -63,6 +65,7 @@ module.exports = eggspress('/readdir', {
         recursive,
         no_thumbs,
         no_assocs,
+        no_subdomains,
         user: req.user,
         actor: req.actor,
     });
