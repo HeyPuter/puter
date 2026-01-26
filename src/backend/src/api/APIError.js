@@ -553,6 +553,12 @@ class APIError {
             status: 422,
             message: 'Content moderation failed',
         },
+
+        // Requests
+        'ip_not_allowed': {
+            status: 422,
+            message: () => 'Specifying host by IP address is not allowed here.',
+        },
     };
 
     /**

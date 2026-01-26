@@ -19,7 +19,6 @@
 const http = require('http');
 const https = require('https');
 const dns = require('dns');
-const { Resolver } = require('dns/promises');
 const net = require('net');
 const { URL } = require('url');
 const APIError = require('../api/APIError');
@@ -27,33 +26,17 @@ const APIError = require('../api/APIError');
 // Cloudflare's malware-blocking DNS server
 const SECURE_DNS_SERVER = '1.1.1.3';
 
-// Create a DNS resolver using 1.1.1.3
-let secureResolver = null;
-function getSecureResolver () {
-    if ( ! secureResolver ) {
-        secureResolver = new Resolver();
-        secureResolver.setServers([SECURE_DNS_SERVER]);
-    }
-    return secureResolver;
-}
-
 /**
  * Validates that a URL does not contain an IP address (IPv4 or IPv6).
  * Only domain names are allowed to prevent SSRF attacks.
+ *
+ * This is NOT the only validation required to prevent SSRF attacks.
+ *
  * @param {string} url - The URL to validate
  * @throws {APIError} If the URL contains an IP address
  */
 function validateUrlNoIP (url) {
-    let parsedUrl;
-    try {
-        parsedUrl = new URL(url);
-    } catch (e) {
-        throw APIError.create('field_invalid', null, {
-            key: 'url',
-            expected: 'valid URL',
-            got: `invalid URL format: ${e.message}`,
-        });
-    }
+    const parsedUrl = new URL(url);
 
     const hostname = parsedUrl.hostname;
 
@@ -62,112 +45,103 @@ function validateUrlNoIP (url) {
         ? hostname.slice(1, -1)
         : hostname;
 
-    // Use Node.js's built-in IP validation (more reliable than regex)
+    // Disallow specifying the host by IP address directly.
+    // (we want to always use CloudFlare DNS here)
     const ipVersion = net.isIP(hostnameForValidation);
     if ( ipVersion === 4 || ipVersion === 6 ) {
-        throw APIError.create('field_invalid', null, {
-            key: 'url',
-            expected: 'domain name (IP addresses not allowed)',
-            got: `IPv${ipVersion} address`,
-        });
+        throw APIError.create('ip_not_allowed');
     }
 
-    // Additional check: reject localhost
+    // This is not necessary, but there's no reason not to disallow this
     if ( hostnameForValidation === 'localhost' ) {
-        throw APIError.create('field_invalid', null, {
-            key: 'url',
-            expected: 'domain name (localhost not allowed)',
-            got: 'localhost',
-        });
+        throw APIError.create('ip_not_allowed');
     }
 }
 
 /**
  * Creates a custom DNS lookup function that uses 1.1.1.3 for DNS resolution.
  * This function resolves hostnames using Node.js's built-in Resolver with the secure DNS server.
- * Falls back to system DNS if the secure resolver fails.
  * @param {string} hostname - The hostname to resolve
- * @param {Object} options - Lookup options
- * @param {Function} callback - Callback function (err, address, family)
+ * @param {Object|number|Function} options - Lookup options, family number, or callback
+ * @param {Function} callback - Callback function (err, address, family) or (err, addresses[])
  */
 function secureDNSLookup (hostname, options, callback) {
-    // First validate it's not an IP address (should have been validated already, but double-check)
+    // Overloading (possible call signatures)
+    if ( typeof options === 'function' ) {
+        callback = options;
+        options = { family: 0, all: false };
+    } else if ( typeof options === 'number' ) {
+        options = { family: options, all: false };
+    } else if ( ! options ) {
+        options = { family: 0, all: false };
+    }
+
+    const family = options.family || 0; // 0 = both, 4 = IPv4, 6 = IPv6
+    const all = options.all || false;
+
     const hostnameForValidation = hostname.startsWith('[') && hostname.endsWith(']')
         ? hostname.slice(1, -1)
         : hostname;
 
-    // Use Node.js's built-in IP validation
+    // Ensure IP addresses don't reach this DNS lookup
+    // (already checked in validateUrlNoIP, but double-check in
+    //  case this ever is called elsewhere)
     const ipVersion = net.isIP(hostnameForValidation);
     if ( ipVersion === 4 || ipVersion === 6 ) {
         return callback(new Error('IP addresses not allowed'));
     }
 
     // Use Resolver with 1.1.1.3 to resolve the hostname
-    const resolver = getSecureResolver();
+    const resolver = new dns.Resolver();
+    resolver.setServers([SECURE_DNS_SERVER]);
 
-    // Try IPv4 first, then IPv6
-    (async () => {
-        let resolverError = null;
-        try {
-            // Try IPv4 first
-            const records = await resolver.resolve4(hostname);
-            if ( records && records.length > 0 ) {
-                const ip = records[0];
-                // Validate it's actually an IP address
-                if ( ip && typeof ip === 'string' && net.isIP(ip) === 4 ) {
-                    console.log(`[securehttp] Resolved ${hostname} to ${ip} via 1.1.1.3 (IPv4)`);
-                    return callback(null, ip, 4);
-                }
-            }
-        } catch ( err ) {
-            resolverError = err;
-            // If IPv4 fails, try IPv6
-            try {
-                const records6 = await resolver.resolve6(hostname);
-                if ( records6 && records6.length > 0 ) {
-                    const ip6 = records6[0];
-                    // Validate it's actually an IPv6 address
-                    if ( ip6 && typeof ip6 === 'string' && net.isIP(ip6) === 6 ) {
-                        console.log(`[securehttp] Resolved ${hostname} to ${ip6} via 1.1.1.3 (IPv6)`);
-                        return callback(null, ip6, 6);
-                    }
-                }
-            } catch ( err6 ) {
-                // Both IPv4 and IPv6 failed with secure resolver
-                console.warn(`[securehttp] Secure resolver (1.1.1.3) failed for ${hostname}: IPv4 error: ${resolverError.message}, IPv6 error: ${err6.message}, falling back to system DNS`);
-            }
+    const resolveAddresses = (err, addresses, addrFamily) => {
+        if ( err || !addresses || addresses.length === 0 ) {
+            console.error(`[securehttp] Failed to resolve ${hostname}:`, err || 'No addresses found');
+            return callback(err || new Error('No addresses found'));
         }
 
-        // Fallback to system DNS if secure resolver fails or returns no results
-        dns.lookup(hostname, options, (lookupErr, address, family) => {
-            if ( lookupErr ) {
-                // If both failed, return a comprehensive error
-                const errorMsg = resolverError
-                    ? `DNS resolution failed: secure resolver (1.1.1.3) error: ${resolverError.message}, system DNS error: ${lookupErr.message}`
-                    : `DNS resolution failed: ${lookupErr.message}`;
-                console.error(`[securehttp] Failed to resolve ${hostname}: ${errorMsg}`);
-                return callback(new Error(errorMsg));
-            }
+        if ( all ) {
+            const result = addresses.map(addr => ({ address: addr, family: addrFamily }));
+            callback(null, result);
+        } else {
+            callback(null, addresses[0], addrFamily);
+        }
+    };
 
-            // Validate the address before using it
-            if ( !address || typeof address !== 'string' ) {
-                const errorMsg = `System DNS returned invalid address for ${hostname}: ${address}`;
-                console.error(`[securehttp] ${errorMsg}`);
-                return callback(new Error(errorMsg));
+    if ( family === 4 || family === 0 ) {
+        resolver.resolve4(hostname, (err, addresses) => {
+            if ( !err && addresses && addresses.length > 0 ) {
+                console.log(`[securehttp] Resolved ${hostname} to ${addresses[0]} via 1.1.1.3 (IPv4)`);
+                resolveAddresses(null, addresses, 4);
+            } else if ( family === 4 ) {
+                // If we only wanted IPv4 and it failed, return error
+                resolveAddresses(err || new Error('No IPv4 addresses found'), null, 4);
+            } else {
+                // Try IPv6 as fallback
+                resolver.resolve6(hostname, (err6, addresses6) => {
+                    if ( !err6 && addresses6 && addresses6.length > 0 ) {
+                        console.log(`[securehttp] Resolved ${hostname} to ${addresses6[0]} via 1.1.1.3 (IPv6)`);
+                        resolveAddresses(null, addresses6, 6);
+                    } else {
+                        resolveAddresses(err6 || err || new Error('No addresses found'), null, 0);
+                    }
+                });
             }
-
-            // Validate it's actually an IP address
-            const ipVersion = net.isIP(address);
-            if ( ! ipVersion ) {
-                const errorMsg = `System DNS returned non-IP address for ${hostname}: ${address}`;
-                console.error(`[securehttp] ${errorMsg}`);
-                return callback(new Error(errorMsg));
-            }
-
-            console.log(`[securehttp] Resolved ${hostname} to ${address} via system DNS (IPv${ipVersion})`);
-            callback(null, address, family || ipVersion);
         });
-    })();
+    } else if ( family === 6 ) {
+        // IPv6 only
+        resolver.resolve6(hostname, (err, addresses) => {
+            if ( !err && addresses && addresses.length > 0 ) {
+                console.log(`[securehttp] Resolved ${hostname} to ${addresses[0]} via 1.1.1.3 (IPv6)`);
+                resolveAddresses(null, addresses, 6);
+            } else {
+                resolveAddresses(err || new Error('No IPv6 addresses found'), null, 6);
+            }
+        });
+    } else {
+        callback(new Error('Invalid family'));
+    }
 }
 
 /**
