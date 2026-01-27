@@ -40,7 +40,6 @@ const TabFiles = {
         let h = `
             <div class="dashboard-tab-content files-tab">
                 <div class="directories">
-                    <h2>Folders</h2>
                     <ul>
                         <li data-folder="Desktop">${icons.folder} <span>Desktop</span></li>
                         <li data-folder="Documents">${icons.folder} <span>Documents</span></li>
@@ -83,6 +82,7 @@ const TabFiles = {
     },
 
     async renderDirectory (uid) {
+        this.selectedFolderUid = uid;
         const _this = this;
         const directoryContents = await window.puter.fs.readdir({ uid });
         if ( ! directoryContents ) {

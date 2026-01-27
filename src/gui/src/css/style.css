@@ -5784,6 +5784,10 @@ html.dark-mode .usage-table-show-less:hover {
 }
 
 /* Dashboard files */
+.dashboard-content.files {
+    padding: 24px 32px 24px 10px;
+}
+
 .dashboard-tab-content.files-tab {
     display: flex;
     justify-content: flex-start;
@@ -5805,7 +5809,6 @@ html.dark-mode .usage-table-show-less:hover {
 .dashboard-section-files .directories {
     width: 160px;
     height: 100%;
-    padding-right: 20px;
     border-right: 1px solid #e0e0e0;
 }
 
@@ -5819,8 +5822,8 @@ html.dark-mode .usage-table-show-less:hover {
     display: flex;
     align-items: center;
     gap: 10px;
-    padding: 10px 12px;
-    margin-bottom: 4px;
+    padding: 10px 0px 10px 10px;
+    margin-right: 10px;
     border-radius: 6px;
     cursor: pointer;
     font-size: 14px;
@@ -5848,6 +5851,10 @@ html.dark-mode .usage-table-show-less:hover {
     gap: 5px;
     padding: 10px 12px;
     border-bottom: 1px solid #e0e0e0;
+}
+
+.dashboard-section-files .directory-contents .path:empty {
+    border-bottom: none;
 }
 
 .dashboard-section-files .directory-contents .path .dirname {

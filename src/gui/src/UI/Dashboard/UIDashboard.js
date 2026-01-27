@@ -163,6 +163,9 @@ async function UIDashboard (options) {
             tab.onActivate($el_window);
         }
 
+        document.querySelector('.dashboard-content').setAttribute('class', 'dashboard-content');
+        document.querySelector('.dashboard-content').classList.add(section);
+
         // Close sidebar on mobile after selection
         $el_window.find('.dashboard-sidebar').removeClass('open');
         $el_window.find('.dashboard-sidebar-toggle').removeClass('open');
