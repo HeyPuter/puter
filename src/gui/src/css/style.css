@@ -5848,13 +5848,40 @@ html.dark-mode .usage-table-show-less:hover {
     font-size: 14px;
     display: flex;
     align-items: center;
-    gap: 5px;
+    justify-content: space-between;
     padding: 10px 12px;
     border-bottom: 1px solid #e0e0e0;
 }
 
-.dashboard-section-files .directory-contents .path:empty {
-    border-bottom: none;
+.dashboard-section-files .directory-contents .path-breadcrumbs {
+    display: flex;
+    align-items: center;
+    gap: 5px;
+}
+
+.dashboard-section-files .directory-contents .path-breadcrumbs:empty + .path-actions {
+    display: none;
+}
+
+.dashboard-section-files .directory-contents .path-actions {
+    display: flex;
+    gap: 4px;
+}
+
+.dashboard-section-files .directory-contents .path-action-btn {
+    background: none;
+    border: none;
+    cursor: pointer;
+    padding: 4px;
+    border-radius: 4px;
+    color: #666;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+}
+
+.dashboard-section-files .directory-contents .path-action-btn:hover {
+    background: #e8e8e8;
 }
 
 .dashboard-section-files .directory-contents .path .dirname {
@@ -5872,7 +5899,7 @@ html.dark-mode .usage-table-show-less:hover {
     /* padding: 0px 20px; */
 }
 
-.dashboard-section-files .files .row {
+.row {
     display: grid;
     height: 32px;
     padding: 0 10px;
@@ -5883,37 +5910,37 @@ html.dark-mode .usage-table-show-less:hover {
     gap: 10px;
 }
 
-.dashboard-section-files .files .row.folder {
-    /* background: #f0f0f0; */
+.row.folder {
+    border: 1px solid transparent;
 }
 
-.dashboard-section-files .files .row:nth-child(1) {
+.row:nth-child(1) {
     color: #666;
     border-bottom: 1px solid #e0e0e0;
     font-size: 12px;
 }
 
-.dashboard-section-files .files .row:hover {
+.row:hover {
     background: #e8e8e8;
     border-radius: 3px;
 }
 
-.dashboard-section-files .files .row:nth-child(1):hover {
+.row:nth-child(1):hover {
     background-color: inherit;
 }
 
-.dashboard-section-files .files .row.selected {
+.row.selected {
     color: white;
     background-color: var(--select-color);
     border-radius: 3px;
 }
 
-.dashboard-section-files .files .row img {
+.row img {
     width: 18px;
     height: 18px;
 }
 
-.dashboard-section-files .files .row .item-icon {
+.row .item-icon {
     padding: inherit;
     height: 100%;
     width: 100%;
@@ -5921,7 +5948,7 @@ html.dark-mode .usage-table-show-less:hover {
     margin: 0;
 }
 
-.dashboard-section-files .files .row .item-name {
+.row .item-name {
     text-overflow: ellipsis;
     white-space: nowrap;
     overflow: hidden;
@@ -5937,7 +5964,7 @@ html.dark-mode .usage-table-show-less:hover {
     word-break: inherit;
 }
 
-.dashboard-section-files .files .row textarea {
+.row textarea {
     align-items: center;
     width: 100%;
     height: 14px;
@@ -5948,17 +5975,73 @@ html.dark-mode .usage-table-show-less:hover {
     display: none;
 }
 
-.dashboard-section-files .files .row .item-more {
+.row .item-more {
     color: #e0e0e0;
     cursor: pointer;
 }
 
-.dashboard-section-files .files .row .item-more svg {
+.row .item-more svg {
     pointer-events: none;
 }
 
-.dashboard-section-files .files .row:hover .item-more {
+.row:hover .item-more {
     color: #444;
+}
+
+.row.ui-draggable-dragging {
+    opacity: 0.8;
+    background-color: var(--select-color);
+    color: white;
+    border-radius: 3px;
+    cursor: move;
+    width: auto;
+    min-width: 400px;
+    display: grid;
+    grid-template-columns: 24px auto 100px 100px 20px;
+    align-items: center;
+    padding: 0 10px;
+    height: 32px;
+}
+
+.item-selected-clone.row {
+    opacity: 0.6;
+    background-color: var(--select-color);
+    color: white;
+    border-radius: 3px;
+    display: grid;
+    height: 32px;
+    padding: 0 10px;
+    grid-template-columns: 24px auto 100px 100px 20px;
+    align-items: center;
+    pointer-events: none;
+}
+
+.row.folder.ui-droppable-hover,
+.row.folder.selected.ui-droppable-over {
+    background-color: rgba(59, 130, 246, 0.1);
+    border: 2px dashed var(--select-color);
+    border-radius: 3px;
+}
+
+.draggable-count-badge {
+    position: fixed;
+    background: var(--select-color);
+    color: white;
+    border-radius: 50%;
+    width: 24px;
+    height: 24px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 12px;
+    font-weight: bold;
+    pointer-events: none;
+    z-index: 10001;
+}
+
+.dashboard-section-files .directories li.ui-droppable-hover {
+    background-color: rgba(59, 130, 246, 0.1);
+    border-radius: 4px;
 }
 
 .more-btn {
