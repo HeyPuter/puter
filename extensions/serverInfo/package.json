@@ -1,0 +1,11 @@
+{
+  "name": "@heyputer/server-info-extension",
+  "main": "index.js",
+  "type": "module",
+  "scripts": {
+    "postinstall": "tsc --noCheck"
+  },
+  "devDependencies": {
+    "typescript": "^5.9.3"
+  }
+}
