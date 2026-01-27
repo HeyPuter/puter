@@ -221,10 +221,8 @@ const TabFiles = {
         const $pathActions = this.$el_window.find('.path-actions');
 
         if ( isTrashFolder ) {
-            // Hide New Folder and Upload buttons, show Empty Trash button
             $pathActions.find('.new-folder-btn, .upload-btn').hide();
 
-            // Add Empty Trash button if not already present
             if ( $pathActions.find('.empty-trash-btn').length === 0 ) {
                 const emptyTrashBtn = $(`<button class="path-action-btn empty-trash-btn" title="${i18n('empty_trash')}">${icons.trash}</button>`);
                 $pathActions.append(emptyTrashBtn);
@@ -309,7 +307,6 @@ const TabFiles = {
     renderItem (file) {
         // For trashed items, use original_name from metadata if available
         const metadata = JSON.parse(file.metadata) || {};
-        console.log(metadata);
         const displayName = metadata.original_name || file.name;
 
         const icon = file.is_dir ? icons.folder : (file.thumbnail ? `<img src="${file.thumbnail}" alt="${displayName}" />` : icons.document);
@@ -660,7 +657,6 @@ const TabFiles = {
         const is_trash = $(el_item).attr('data-path') === window.trash_path || $(el_item).attr('data-shortcut_to_path') === window.trash_path;
         const is_trashed = ($(el_item).attr('data-path') || '').startsWith(`${window.trash_path }/`);
 
-        // Use the shared helper to generate menu items
         const menu_items = await generate_file_context_menu({
             element: el_item,
             fsentry: options,
