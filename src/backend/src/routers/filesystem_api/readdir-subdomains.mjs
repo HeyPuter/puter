@@ -16,16 +16,15 @@
  * You should have received a copy of the GNU Affero General Public License
  * along with this program.  If not, see <https://www.gnu.org/licenses/>.
  */
-'use strict';
-const { Context } = require('../../util/context.js');
-const eggspress = require('../../api/eggspress.js');
-const { DB_READ } = require('../../services/database/consts');
-const config = require('../../config');
+import { Context } from '../../util/context.js';
+import eggspress from '../../api/eggspress.js';
+import { DB_READ } from '../../services/database/consts.js';
+import config from '../../config.js';
 
 // -----------------------------------------------------------------------//
 // POST /readdir-subdomains
 // -----------------------------------------------------------------------//
-module.exports = eggspress('/readdir-subdomains', {
+export default eggspress('/readdir-subdomains', {
     subdomain: 'api',
     auth2: true,
     verified: true,
