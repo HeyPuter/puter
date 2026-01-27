@@ -140,7 +140,7 @@ const TabFiles = {
         row.setAttribute("data-id", file.id);
         row.setAttribute("data-name", file.name);
         row.setAttribute("data-uid", file.uid);
-        row.setAttribute("data-is_dir", file.is_dir);
+        row.setAttribute("data-is_dir", file.is_dir ? "1" : "0");
         row.setAttribute("data-is_trash", 0);
         row.setAttribute("data-has_website", 0);
         row.setAttribute("data-website_url", "");
@@ -148,7 +148,7 @@ const TabFiles = {
         row.setAttribute("data-is_shortcut", file.is_shortcut);
         row.setAttribute("data-shortcut_to", "");
         row.setAttribute("data-shortcut_to_path", "");
-        row.setAttribute("data-sortable", "true");
+        row.setAttribute("data-sortable", "1");
         row.setAttribute("data-metadata", "{}");
         row.setAttribute("data-sort_by", "");
         row.setAttribute("data-size", file.size);
@@ -173,16 +173,13 @@ const TabFiles = {
         const el_item_name = el_item.querySelector(`.item-name`);
         const el_item_icon = el_item.querySelector('.item-icon');
         const el_item_name_editor = el_item.querySelector(`.item-name-editor`);
+        const isFolder = el_item.getAttribute('data-is_dir');
         let website_url = window.determine_website_url(file.path);
         let rename_cancelled = false;
 
         el_item.onclick = (e) => {
             if ( e.target.classList.contains('item-more') ) {
                 this.handleMoreClick(el_item, file);
-            }
-            if ( el_item.classList.contains('selected') ) {
-                window.activate_item_name_editor(el_item);
-                return;
             }
             // Header row cannot be selected
             if ( el_item.parentElement.querySelector('.header') === this ) {
@@ -195,8 +192,11 @@ const TabFiles = {
         };
 
         el_item.ondblclick = () => {
-            const isFolder = el_item.getAttribute('data-is_dir');
-            if ( isFolder === "true" ) {
+            // if ( el_item.classList.contains('selected') ) {
+            //     window.activate_item_name_editor(el_item);
+            //     return;
+            // }
+            if ( isFolder === "1" ) {
                 this.renderDirectory(file.path);
             } else {
                 open_item({ item: el_item });
