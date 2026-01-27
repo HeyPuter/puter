@@ -2672,11 +2672,11 @@ function parseTar (data) {
     return files;
 }
 
-window.rename_file = async (options, new_name, old_name, old_path, el_item, el_item_name, el_item_icon, el_item_name_editor, website_url, is_undo = false) => {
+window.rename_file = async (options, new_name, old_name, old_path, el_item, el_item_name, el_item_icon, el_item_name_editor, website_url, is_undo = false, callback) => {
     puter.fs.rename({
         uid: options.uid === 'null' ? null : options.uid,
         new_name: new_name,
-        excludeSocketID: window.socket.id,
+        excludeSocketID: window.socket?.id,
         success: async (fsentry) => {
             // Add action to actions_history for undo ability
             if ( ! is_undo )
@@ -2768,6 +2768,8 @@ window.rename_file = async (options, new_name, old_name, old_path, el_item, el_i
             $(`.item[data-uid='${$(el_item).attr('data-uid')}']`).parent('.item-container').each(function () {
                 window.sort_items(this, $(el_item).closest('.item-container').attr('data-sort_by'), $(el_item).closest('.item-container').attr('data-sort_order'));
             });
+
+            callback(new_name);
         },
         error: function (err) {
             // reset to old name

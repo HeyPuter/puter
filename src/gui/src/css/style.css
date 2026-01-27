@@ -5906,22 +5906,51 @@ html.dark-mode .usage-table-show-less:hover {
     height: 18px;
 }
 
-.dashboard-section-files .files .row .name {
+.dashboard-section-files .files .row .item-icon {
+    padding: inherit;
+    height: 100%;
+    width: 100%;
+    filter: none;
+    margin: 0;
+}
+
+.dashboard-section-files .files .row .item-name {
     text-overflow: ellipsis;
     white-space: nowrap;
     overflow: hidden;
+
+    max-width: unset;
+    cursor: pointer;
+    color: inherit;
+    text-shadow: none;
+    padding: 0 8px;
+    margin: 0;
+    font-size: inherit;
+    font-weight: 500;
+    word-break: inherit;
 }
 
-.dashboard-section-files .files .row .more {
+.dashboard-section-files .files .row textarea {
+    align-items: center;
+    width: 100%;
+    height: 14px;
+    margin: 0;
+    padding: 0 8px;
+    text-align: left;
+    font-weight: inherit;
+    display: none;
+}
+
+.dashboard-section-files .files .row .item-more {
     color: #e0e0e0;
     cursor: pointer;
 }
 
-.dashboard-section-files .files .row .more svg {
+.dashboard-section-files .files .row .item-more svg {
     pointer-events: none;
 }
 
-.dashboard-section-files .files .row:hover .more {
+.dashboard-section-files .files .row:hover .item-more {
     color: #444;
 }
 

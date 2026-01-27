@@ -22,6 +22,7 @@
 import open_item from '../../helpers/open_item.js';
 import UIContextMenu from '../UIContextMenu.js';
 import generate_file_context_menu from '../../helpers/generate_file_context_menu.js';
+import truncate_filename from '../../helpers/truncate_filename.js';
 
 const icons = {
     document: `<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"></path><polyline points="14 2 14 8 20 8"></polyline></svg>`,
@@ -107,21 +108,21 @@ const TabFiles = {
 
         // Add header row
         $('.files-tab .files').html(`<div class="row header">
-            <div class="icon"></div>
-                <div class="name">File name</div>
-                <div class="size">Size</div>
-                <div class="date">Modified</div>
-                <div class="more"></div>
-            </div>`);
+            <div class="item-icon"></div>
+            <div class="item-name">File name</div>
+            <div class="item-size">Size</div>
+            <div class="item-modified">Modified</div>
+            <div class="item-more"></div>
+        </div>`);
 
         // If directory has no files, tell about it
         if ( directoryContents.length === 0 ) {
             $('.files-tab .files').append(`<div class="row">
-                <div class="icon"></div>
-                <div class="name">No files in this directory.</div>
-                <div class="size"></div>
-                <div class="date"></div>
-                <div class="more"></div>
+                <div class="item-icon"></div>
+                <div class="item-name">No files in this directory.</div>
+                <div class="item-size"></div>
+                <div class="item-modified"></div>
+                <div class="item-more"></div>
             `);
             return;
         }
@@ -133,7 +134,6 @@ const TabFiles = {
     },
 
     renderItem (file) {
-        const _this = this;
         const icon = file.is_dir ? icons.folder : (file.thumbnail ? `<img src="${file.thumbnail}" alt="${file.name}" />` : icons.document);
         const row = document.createElement("div");
         row.setAttribute('class', `row ${file.is_dir ? 'folder' : 'file'}`);
@@ -157,40 +157,139 @@ const TabFiles = {
         row.setAttribute("data-associated_app_name", "");
         row.setAttribute("data-path", file.path);
         row.innerHTML = `
-            <div class="icon">${icon}</div>
-            <div class="name">${file.name}</div>
-            ${file.is_dir ? '<div class="size"></div>' : `<div class="size">${this.formatFileSize(file.size)}</div>`}
-            <div class="date">${window.timeago.format(file.modified * 1000)}</div>
-            <div class="more">${icons.more}</div>
+            <div class="item-icon">${icon}</div>
+            <pre class="item-name">${file.name}</pre>
+            <textarea class="item-name-editor hide-scrollbar" spellcheck="false" autocomplete="off" autocorrect="off" autocapitalize="off" data-gramm_editor="false">${file.name}</textarea>
+            ${file.is_dir ? '<div class="item-size"></div>' : `<div class="item-size">${this.formatFileSize(file.size)}</div>`}
+            <div class="item-modified">${window.timeago.format(file.modified * 1000)}</div>
+            <div class="item-more">${icons.more}</div>
         `;
         $('.files-tab .files').append(row);
 
-        // Create event listeners
-        row.onclick = (e) => {
-            if ( e.target.classList.contains('more') ) {
-                _this.handleMoreClick(row, file);
+        this.createItemListeners(row, file);
+    },
+
+    createItemListeners (el_item, file) {
+        const el_item_name = el_item.querySelector(`.item-name`);
+        const el_item_icon = el_item.querySelector('.item-icon');
+        const el_item_name_editor = el_item.querySelector(`.item-name-editor`);
+        let website_url = window.determine_website_url(file.path);
+        let rename_cancelled = false;
+
+        el_item.onclick = (e) => {
+            if ( e.target.classList.contains('item-more') ) {
+                this.handleMoreClick(el_item, file);
             }
-            if ( row.classList.contains('selected') ) {
+            if ( el_item.classList.contains('selected') ) {
+                window.activate_item_name_editor(el_item);
                 return;
             }
             // Header row cannot be selected
-            if ( row.parentElement.querySelector('.header') === this ) {
+            if ( el_item.parentElement.querySelector('.header') === this ) {
                 return;
             }
-            row.parentElement.querySelectorAll('.row').forEach(r => {
+            el_item.parentElement.querySelectorAll('.row').forEach(r => {
                 r.classList.remove('selected');
             });
-            row.classList.add('selected');
+            el_item.classList.add('selected');
         };
-        row.ondblclick = () => {
-            const isFolder = row.getAttribute('data-is_dir');
+
+        el_item.ondblclick = () => {
+            const isFolder = el_item.getAttribute('data-is_dir');
             if ( isFolder === "true" ) {
-                _this.renderDirectory(file.path);
+                this.renderDirectory(file.path);
             } else {
-                open_item({ item: row });
+                open_item({ item: el_item });
             }
-            row.classList.remove('selected');
+            el_item.classList.remove('selected');
         };
+
+        // --------------------------------------------------------
+        // Rename
+        // --------------------------------------------------------
+        function rename () {
+            if ( rename_cancelled ) {
+                rename_cancelled = false;
+                return;
+            }
+
+            const old_name = $(el_item).attr('data-name');
+            const old_path = $(el_item).attr('data-path');
+            const new_name = $(el_item_name_editor).val();
+
+            // Don't send a rename request if:
+            // the new name is the same as the old one,
+            // or it's empty,
+            // or editable was not even active at all
+            if ( old_name === new_name || !new_name || new_name === '.' || new_name === '..' || !$(el_item_name_editor).hasClass('item-name-editor-active') ) {
+                if ( new_name === '.' ) {
+                    UIAlert('The name "." is not allowed, because it is a reserved name. Please choose another name.');
+                }
+                else if ( new_name === '..' ) {
+                    UIAlert('The name ".." is not allowed, because it is a reserved name. Please choose another name.');
+                }
+                $(el_item_name).html(html_encode(truncate_filename(file.name)));
+                $(el_item_name).show();
+                $(el_item_name_editor).val($(el_item).attr('data-name'));
+                $(el_item_name_editor).hide();
+                return;
+            }
+            // deactivate item name editable
+            $(el_item_name_editor).removeClass('item-name-editor-active');
+
+            // Perform rename request
+            window.rename_file(file, new_name, old_name, old_path, el_item, el_item_name, el_item_icon, el_item_name_editor, website_url, false, (new_name) => {
+                $(el_item_name).html(html_encode(new_name));
+            });
+        }
+
+        // --------------------------------------------------------
+        // Rename if enter pressed on Item Name Editor
+        // --------------------------------------------------------
+        $(el_item_name_editor).on('keypress', function (e) {
+            // If name editor is not active don't continue
+            if ( ! $(el_item_name_editor).is(':visible') )
+            {
+                return;
+            }
+
+            // Enter key = rename
+            if ( e.which === 13 ) {
+                e.stopPropagation();
+                e.preventDefault();
+                $(el_item_name_editor).blur();
+                $(el_item).addClass('selected');
+                window.last_enter_pressed_to_rename_ts = Date.now();
+                window.update_explorer_footer_selected_items_count($(el_item).closest('.item-container'));
+                return false;
+            }
+        });
+
+        // --------------------------------------------------------
+        // Cancel and undo if escape pressed on Item Name Editor
+        // --------------------------------------------------------
+        $(el_item_name_editor).on('keyup', function (e) {
+            if ( ! $(el_item_name_editor).is(':visible') )
+            {
+                return;
+            }
+
+            // Escape = undo rename
+            else if ( e.which === 27 ) {
+                e.stopPropagation();
+                e.preventDefault();
+                rename_cancelled = true;
+                $(el_item_name_editor).hide();
+                $(el_item_name_editor).val(options.name);
+                $(el_item_name).show();
+            }
+        });
+
+        $(el_item_name_editor).on('focusout', function (e) {
+            e.stopPropagation();
+            e.preventDefault();
+            rename();
+        });
     },
 
     formatFileSize (bytes) {
@@ -202,13 +301,13 @@ const TabFiles = {
     },
 
     async handleMoreClick (rowElement, file) {
-        const items = await this.generateItems(rowElement, file);
+        const items = await this.generateContextMenuItems(rowElement, file);
         UIContextMenu({
             items: items,
         });
     },
 
-    async generateItems (el_item, options) {
+    async generateContextMenuItems (el_item, options) {
         const _this = this;
 
         const is_trash = $(el_item).attr('data-path') === window.trash_path || $(el_item).attr('data-shortcut_to_path') === window.trash_path;
