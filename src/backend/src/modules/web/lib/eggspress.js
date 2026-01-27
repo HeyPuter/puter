@@ -51,6 +51,18 @@ module.exports = function eggspress (route, settings, handler) {
         _defaultJsonOptions.limit = '10mb';
     }
 
+    // Subdomain should be checked before any other middleware to prevent
+    // unnecessary processing and re-sending headers.
+    if ( settings.subdomain ) {
+        mw.push((req, res, next) => {
+            if ( subdomain(req) !== settings.subdomain ) {
+                next('route');
+                return;
+            }
+            next();
+        });
+    }
+
     // These flags enable specific middleware.
     if ( settings.abuse ) mw.push(require('../../../middleware/abuse')(settings.abuse));
     if ( settings.verified ) mw.push(require('../../../middleware/verified'));
