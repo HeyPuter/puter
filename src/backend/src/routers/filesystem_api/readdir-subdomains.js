@@ -32,13 +32,12 @@ module.exports = eggspress('/readdir-subdomains', {
     json: true,
     allowedMethods: ['POST'],
 }, async (req, res, next) => {
-    let log; {
-        const x = Context.get();
-        log = x.get('services').get('log-service').create('readdir-subdomains', {
+    const log = (() => {
+        return Context.get('services').get('log-service').create('readdir-subdomains', {
             concern: 'filesystem',
         });
-        log.debug('readdir-subdomains: batch fetch subdomains');
-    }
+    })();
+    log.debug('readdir-subdomains: batch fetch subdomains');
 
     const { directory_ids } = req.body;
 
@@ -54,8 +53,6 @@ module.exports = eggspress('/readdir-subdomains', {
 
     // Note: directory_ids are actually UUIDs (not database IDs) because fsentry.id is set to uuid in getSafeEntry()
     // We need to convert UUIDs to database IDs first
-    log.debug(`readdir-subdomains: received ${directory_ids.length} directory UUIDs:`, directory_ids);
-
     // Convert UUIDs to database IDs
     const uuidPlaceholders = directory_ids.map(() => '?').join(',');
     const fsentries = await db.read(`SELECT id, uuid FROM fsentries WHERE uuid IN (${uuidPlaceholders})`,
@@ -70,8 +67,6 @@ module.exports = eggspress('/readdir-subdomains', {
     }
 
     const dbIds = Array.from(uuidToDbId.values());
-    log.debug(`readdir-subdomains: converted to ${dbIds.length} database IDs:`, dbIds);
-    log.debug(`readdir-subdomains: user_id: ${user.id}`);
 
     if ( dbIds.length === 0 ) {
         return res.send(directory_ids.map(dirUuid => ({
@@ -87,8 +82,6 @@ module.exports = eggspress('/readdir-subdomains', {
          FROM subdomains
          WHERE root_dir_id IN (${placeholders}) AND user_id = ?`,
     [...dbIds, user.id]);
-
-    log.debug(`readdir-subdomains: found ${rows.length} subdomain rows`);
 
     // Group subdomains by database ID
     const subdomainsByDbId = {};
@@ -111,8 +104,6 @@ module.exports = eggspress('/readdir-subdomains', {
         const subdomains = dbId ? (subdomainsByDbId[dbId] || []) : [];
         const has_website = subdomains.length > 0;
 
-        log.debug(`readdir-subdomains: directory_id ${dirUuid} (db_id: ${dbId}) -> ${subdomains.length} subdomains, has_website: ${has_website}`);
-
         return {
             directory_id: dirUuid,
             subdomains: subdomains,
@@ -120,7 +111,6 @@ module.exports = eggspress('/readdir-subdomains', {
         };
     });
 
-    log.debug(`readdir-subdomains: returning ${result.length} results`);
     res.send(result);
     return;
 });
