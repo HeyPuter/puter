@@ -130,7 +130,7 @@ async function getServerInfo (options = {}) {
     const APIOrigin = window.puter?.APIOrigin;
     const authToken = window.puter?.authToken;
     return new Promise((resolve, reject) => {
-        const xhr = utils.initXhr('/getServerInfo', APIOrigin, authToken, 'get');
+        const xhr = utils.initXhr('/serverInfo', APIOrigin, authToken, 'get');
         utils.setupXhrEventHandlers(xhr, options.success, options.error, resolve, reject);
         xhr.send();
     });
