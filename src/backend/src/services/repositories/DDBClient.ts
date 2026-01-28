@@ -84,7 +84,7 @@ export class DDBClient {
 
     @Span('ddb:get')
     async get <T extends Record<string, unknown>>(table: string, key: T, consistentRead = false) {
-        console.log(`Calling get with consistenRead=${consistentRead} on db with client config: ${JSON.stringify(this.#documentClient.config)}`);
+        console.log(`Calling get with consistenRead=${consistentRead} on db with client config: ${JSON.stringify({ region: this.#documentClient.config.region })}`);
         const command = new GetCommand({
             TableName: table,
             Key: key,
@@ -111,7 +111,7 @@ export class DDBClient {
 
     @Span('ddb:batchGet')
     async batchGet (params: { table: string, items: Record<string, unknown> }[], consistentRead = false) {
-        console.log(`Calling batchGet with consistenRead=${consistentRead} on db with client config: ${JSON.stringify(this.#documentClient.config)}`);
+        console.log(`Calling batchGet with consistenRead=${consistentRead} on db with client config: ${JSON.stringify({ region: this.#documentClient.config.region })}`);
         // TODO DS: implement chunking for more than 100 items or more than allowed req size
         const allRequestItemsPerTable = params.reduce((acc, curr) => {
             if ( ! acc[curr.table] ) acc[curr.table] = [];
