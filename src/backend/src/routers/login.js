@@ -54,138 +54,139 @@ const complete_ = async ({ req, res, user }) => {
 // -----------------------------------------------------------------------//
 // POST /login
 // -----------------------------------------------------------------------//
-router.post('/login', express.json(), body_parser_error_handler,
-                // Add diagnostic middleware to log captcha data
-                (req, res, next) => {
-                    if ( process.env.DEBUG ) {
-                        console.log('====== LOGIN CAPTCHA DIAGNOSTIC ======');
-                        console.log('LOGIN REQUEST RECEIVED with captcha data:', {
-                            hasCaptchaToken: !!req.body.captchaToken,
-                            hasCaptchaAnswer: !!req.body.captchaAnswer,
-                            captchaToken: req.body.captchaToken ? `${req.body.captchaToken.substring(0, 8) }...` : undefined,
-                            captchaAnswer: req.body.captchaAnswer,
-                        });
-                    }
-                    next();
-                }, requireCaptcha({ strictMode: true, eventType: 'login' }), async (req, res, next) => {
-                    // either api. subdomain or no subdomain
-                    if ( require('../helpers').subdomain(req) !== 'api' && require('../helpers').subdomain(req) !== '' )
-                    {
-                        next();
-                    }
+router.post('/login', express.json(), body_parser_error_handler, (req, res, next) => {
+    // Add diagnostic middleware to log captcha data
+    if ( process.env.DEBUG ) {
+        console.log('====== LOGIN CAPTCHA DIAGNOSTIC ======');
+        console.log('LOGIN REQUEST RECEIVED with captcha data:', {
+            hasCaptchaToken: !!req.body.captchaToken,
+            hasCaptchaAnswer: !!req.body.captchaAnswer,
+            captchaToken: req.body.captchaToken ? `${req.body.captchaToken.substring(0, 8) }...` : undefined,
+            captchaAnswer: req.body.captchaAnswer,
+        });
+    }
+    next();
+}, requireCaptcha({ strictMode: true, eventType: 'login' }), async (req, res, next) => {
+    // either api. subdomain or no subdomain
+    if ( require('../helpers').subdomain(req) !== 'api' && require('../helpers').subdomain(req) !== '' ) {
+        next();
+    }
 
-                    // modules
-                    const bcrypt = require('bcrypt');
-                    const validator = require('validator');
+    // modules
+    const bcrypt = require('bcrypt');
+    const validator = require('validator');
 
-                    // either username or email must be provided
-                    if ( !req.body.username && !req.body.email )
-                    {
-                        return res.status(400).send('Username or email is required.');
-                    }
-                    // password is required
-                    else if ( ! req.body.password )
-                    {
-                        return res.status(400).send('Password is required.');
-                    }
-                    // password must be a string
-                    else if ( typeof req.body.password !== 'string' && !(req.body.password instanceof String) )
-                    {
-                        return res.status(400).send('Password must be a string.');
-                    }
-                    // if password is too short it's invalid, no need to do a db lookup
-                    else if ( req.body.password.length < config.min_pass_length )
-                    {
-                        return res.status(400).send('Invalid password.');
-                    }
-                    // username, if present, must be a string
-                    else if ( req.body.username && typeof req.body.username !== 'string' && !(req.body.username instanceof String) )
-                    {
-                        return res.status(400).send('username must be a string.');
-                    }
-                    // if username doesn't pass regex test it's invalid anyway, no need to do DB lookup
-                    else if ( req.body.username && !req.body.username.match(config.username_regex) )
-                    {
-                        return res.status(400).send('Invalid username.');
-                    }
-                    // email, if present, must be a string
-                    else if ( req.body.email && typeof req.body.email !== 'string' && !(req.body.email instanceof String) )
-                    {
-                        return res.status(400).send('email must be a string.');
-                    }
-                    // if email is invalid, no need to do DB lookup anyway
-                    else if ( req.body.email && !validator.isEmail(req.body.email) )
-                    {
-                        return res.status(400).send('Invalid email.');
-                    }
+    // either username or email must be provided
+    if ( !req.body.username && !req.body.email ) {
+        return res.status(400).send('Username or email is required.');
+    }
+    // password is required
+    else if ( ! req.body.password )
+    {
+        return res.status(400).send('Password is required.');
+    }
+    // password must be a string
+    else if ( typeof req.body.password !== 'string' && !(req.body.password instanceof String) )
+    {
+        return res.status(400).send('Password must be a string.');
+    }
+    // if password is too short it's invalid, no need to do a db lookup
+    else if ( req.body.password.length < config.min_pass_length )
+    {
+        return res.status(400).send('Invalid password.');
+    }
+    // username, if present, must be a string
+    else if ( req.body.username && typeof req.body.username !== 'string' && !(req.body.username instanceof String) )
+    {
+        return res.status(400).send('username must be a string.');
+    }
+    // if username doesn't pass regex test it's invalid anyway, no need to do DB lookup
+    else if ( req.body.username && !req.body.username.match(config.username_regex) )
+    {
+        return res.status(400).send('Invalid username.');
+    }
+    // email, if present, must be a string
+    else if ( req.body.email && typeof req.body.email !== 'string' && !(req.body.email instanceof String) )
+    {
+        return res.status(400).send('email must be a string.');
+    }
+    // if email is invalid, no need to do DB lookup anyway
+    else if ( req.body.email && !validator.isEmail(req.body.email) )
+    {
+        return res.status(400).send('Invalid email.');
+    }
 
-                    const svc_edgeRateLimit = req.services.get('edge-rate-limit');
-                    if ( ! svc_edgeRateLimit.check('login') ) {
-                        return res.status(429).send('Too many requests.');
-                    }
+    /** @type {import('../services/abuse-prevention/EdgeRateLimitService').EdgeRateLimitService} */
+    const svc_edgeRateLimit = req.services.get('edge-rate-limit');
+    if ( ! svc_edgeRateLimit.check('login', true) ) {
+        return res.status(429).send('Too many requests.');
+    }
 
-                    try {
-                        let user;
-                        // log in using username
-                        if ( req.body.username ) {
-                            user = await get_user({ username: req.body.username, cached: false });
-                            if ( ! user )
-                            {
-                                return res.status(400).send('Username not found.');
-                            }
-                        }
-                        // log in using email
-                        else if ( validator.isEmail(req.body.email) ) {
-                            user = await get_user({ email: req.body.email, cached: false });
-                            if ( ! user )
-                            {
-                                return res.status(400).send('Email not found.');
-                            }
-                        }
-                        if ( user.username === 'system' && config.allow_system_login !== true ) {
-                            return res.status(400).send(
-                                            req.body.username
-                                                ? 'Username not found.'
-                                                : 'Email not found.');
-                        }
-                        // is user suspended?
-                        if ( user.suspended )
-                        {
-                            return res.status(401).send('This account is suspended.');
-                        }
-                        // pseudo user?
-                        // todo make this better, maybe ask them to create an account or send them an activation link
-                        if ( user.password === null )
-                        {
-                            return res.status(400).send('Incorrect password.');
-                        }
-                        // check password
-                        if ( await bcrypt.compare(req.body.password, user.password) ) {
-                            // We create a JWT that can ONLY be used on the endpoint that
-                            // accepts the OTP code.
-                            if ( user.otp_enabled ) {
-                                const svc_token = req.services.get('token');
-                                const otp_jwt_token = svc_token.sign('otp', {
-                                    user_uid: user.uuid,
-                                }, { expiresIn: '5m' });
+    try {
+        let user;
+        // log in using username
+        if ( req.body.username ) {
+            user = await get_user({ username: req.body.username, cached: false });
+            if ( ! user ) {
+                svc_edgeRateLimit.incr('login');
+                return res.status(400).send('Username not found.');
+            }
+        }
+        // log in using email
+        else if ( validator.isEmail(req.body.email) ) {
+            user = await get_user({ email: req.body.email, cached: false });
+            if ( ! user ) {
+                svc_edgeRateLimit.incr('login');
+                return res.status(400).send('Email not found.');
+            }
+        }
+        if ( user.username === 'system' && config.allow_system_login !== true ) {
+            svc_edgeRateLimit.incr('login');
+            return res.status(400).send(
+                            req.body.username
+                                ? 'Username not found.'
+                                : 'Email not found.');
+        }
+        // is user suspended?
+        if ( user.suspended ) {
+            svc_edgeRateLimit.incr('login');
+            return res.status(401).send('This account is suspended.');
+        }
+        // pseudo user?
+        // todo make this better, maybe ask them to create an account or send them an activation link
+        if ( user.password === null ) {
+            svc_edgeRateLimit.incr('login');
+            return res.status(400).send('Incorrect password.');
+        }
+        // check password
+        if ( await bcrypt.compare(req.body.password, user.password) ) {
+            // We create a JWT that can ONLY be used on the endpoint that
+            // accepts the OTP code.
+            if ( user.otp_enabled ) {
+                const svc_token = req.services.get('token');
+                const otp_jwt_token = svc_token.sign('otp', {
+                    user_uid: user.uuid,
+                }, { expiresIn: '5m' });
 
-                                return res.status(202).send({
-                                    proceed: true,
-                                    next_step: 'otp',
-                                    otp_jwt_token: otp_jwt_token,
-                                });
-                            }
-
-                            return await complete_({ req, res, user });
-                        } else {
-                            return res.status(400).send('Incorrect password.');
-                        }
-                    } catch (e) {
-                        console.error(e);
-                        return res.status(400).send(e);
-                    }
-
+                return res.status(202).send({
+                    proceed: true,
+                    next_step: 'otp',
+                    otp_jwt_token: otp_jwt_token,
                 });
+            }
+
+            return await complete_({ req, res, user });
+        } else {
+            svc_edgeRateLimit.incr('login');
+            return res.status(400).send('Incorrect password.');
+        }
+    } catch (e) {
+        console.error(e);
+        svc_edgeRateLimit.incr('login');
+        return res.status(400).send(e);
+    }
+
+});
 
 router.post('/login/otp', express.json(), body_parser_error_handler, requireCaptcha({ strictMode: true, eventType: 'login_otp' }), async (req, res, next) => {
     // either api. subdomain or no subdomain
