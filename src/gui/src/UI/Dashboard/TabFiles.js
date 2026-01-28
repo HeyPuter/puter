@@ -838,12 +838,13 @@ const TabFiles = {
         // Update selected count display
         if ( selectedCount > 0 ) {
             const selectedItemText = selectedCount === 1 ? 'item' : 'items';
-            $footer.find('.files-footer-selected-items').html(
-                            `${selectedCount} ${selectedItemText} selected · ${window.byte_format(selectedSize)}`).show();
-            $footer.find('.files-footer-separator').show();
+            $footer.find('.files-footer-selected-items')
+                .html(`${selectedCount} ${selectedItemText} selected · ${window.byte_format(selectedSize)}`)
+                .css('display', 'inline');
+            $footer.find('.files-footer-separator').css('display', 'inline');
         } else {
-            $footer.find('.files-footer-selected-items').hide();
-            $footer.find('.files-footer-separator').hide();
+            $footer.find('.files-footer-selected-items').css('display', 'none');
+            $footer.find('.files-footer-separator').css('display', 'none');
         }
     },
 

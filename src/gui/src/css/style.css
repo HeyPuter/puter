@@ -6081,7 +6081,7 @@ html.dark-mode .usage-table-show-less:hover {
 }
 
 .files-footer {
-    position: sticky;
+    position: fixed;
     bottom: 0;
     right: 0;
     left: 371px;
@@ -6141,6 +6141,7 @@ html.dark-mode .usage-table-show-less:hover {
     gap: 16px;
     padding: 16px;
     align-content: start;
+    margin-bottom: 30px;
 }
 
 .files-tab .files.files-grid-view .row {
@@ -6216,8 +6217,8 @@ html.dark-mode .usage-table-show-less:hover {
 
 .files-tab .files.files-grid-view .row:hover .item-more {
     position: absolute;
-    top: 0;
-    right: 0;
+    top: 1px;
+    right: 1px;
     color: #666;
     background: #f5f5f5;
     width: 24px;
@@ -6225,7 +6226,7 @@ html.dark-mode .usage-table-show-less:hover {
     display: flex;
     justify-content: center;
     align-items: center;
-    border-radius: 4px;
+    border-radius: 7px;
 }
 
 .files-tab .files.files-grid-view .row .item-name-editor {
