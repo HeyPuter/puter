@@ -50,7 +50,7 @@ export class DDBClient {
             const port = (typeof address === 'object' && address ? address.port : undefined) || 4567;
             const dynamoEndpoint = `http://127.0.0.1:${port}`;
 
-            return new DynamoDBClient({
+            const client =  new DynamoDBClient({
                 credentials: {
                     accessKeyId: 'fake',
                     secretAccessKey: 'fake',
@@ -64,9 +64,11 @@ export class DDBClient {
                 endpoint: dynamoEndpoint,
                 region: 'us-west-2',
             });
+            console.log(`Dynalite DynamoDB client created with region ${await client.config.region()}`);
+            return client;
         }
 
-        return new DynamoDBClient({
+        const client =  new DynamoDBClient({
             credentials: {
                 accessKeyId: this.config.aws.access_key,
                 secretAccessKey: this.config.aws.secret_key,
@@ -80,11 +82,13 @@ export class DDBClient {
             ...(this.config.endpoint ? { endpoint: this.config.endpoint } : {}),
             region: this.config.aws.region || 'us-west-2',
         });
+        console.log(`Dynalite DynamoDB client created with region ${await client.config.region()}`);
+        return client;
     }
 
     @Span('ddb:get')
     async get <T extends Record<string, unknown>>(table: string, key: T, consistentRead = false) {
-        console.log(`Calling get with consistenRead=${consistentRead} on db with client config: ${JSON.stringify(this.#documentClient.initConfig)} and region set to: ${this.config?.aws?.region}`);
+        console.log(`Calling get with consistenRead=${consistentRead} on db with client region: ${JSON.stringify(await this.#documentClient.config.region())} and region set initally to: ${this.config?.aws?.region}`);
         const command = new GetCommand({
             TableName: table,
             Key: key,
