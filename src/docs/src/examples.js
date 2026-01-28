@@ -68,6 +68,12 @@ const examples = [
                 source: '/playground/examples/ai-function-calling.html',
             },
             {
+                title: 'Streaming Function Calls',
+                description: 'Run AI function calling with streaming using Puter.js. Try out AI examples directly in Puter.js playground.',
+                slug: 'ai-streaming-function-calling',
+                source: '/playground/examples/ai-streaming-function-calling.html',
+            },
+            {
                 title: 'Web Search',
                 description: 'Perform web search using AI to generate accurate and up-to-date information. Try out this example in Puter.js playground.',
                 slug: 'ai-web-search',
