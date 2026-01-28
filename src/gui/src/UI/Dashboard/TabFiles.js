@@ -35,6 +35,8 @@ const icons = {
     newFolder: `<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"></path><line x1="12" y1="11" x2="12" y2="17"></line><line x1="9" y1="14" x2="15" y2="14"></line></svg>`,
     upload: `<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path><polyline points="17 8 12 3 7 8"></polyline><line x1="12" y1="3" x2="12" y2="15"></line></svg>`,
     trash: `<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><polyline points="3 6 5 6 21 6"></polyline><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"></path></svg>`,
+    list: `<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><line x1="8" y1="6" x2="21" y2="6"></line><line x1="8" y1="12" x2="21" y2="12"></line><line x1="8" y1="18" x2="21" y2="18"></line><line x1="3" y1="6" x2="3.01" y2="6"></line><line x1="3" y1="12" x2="3.01" y2="12"></line><line x1="3" y1="18" x2="3.01" y2="18"></line></svg>`,
+    grid: `<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><rect x="3" y="3" width="7" height="7"></rect><rect x="14" y="3" width="7" height="7"></rect><rect x="14" y="14" width="7" height="7"></rect><rect x="3" y="14" width="7" height="7"></rect></svg>`,
 };
 
 const TabFiles = {
@@ -62,6 +64,7 @@ const TabFiles = {
                         <div class="path">
                             <div class="path-breadcrumbs"></div>
                             <div class="path-actions">
+                                <button class="path-action-btn view-toggle-btn" title="Toggle view">${icons.grid}</button>
                                 <button class="path-action-btn new-folder-btn" title="${i18n('new_folder')}">${icons.newFolder}</button>
                                 <button class="path-action-btn upload-btn" title="${i18n('upload')}">${icons.upload}</button>
                             </div>
@@ -75,6 +78,11 @@ const TabFiles = {
                         </div>
                     </div>
                     <div class="files"></div>
+                    <div class="files-footer">
+                        <span class="files-footer-item-count"></span>
+                        <span class="files-footer-separator"> | </span>
+                        <span class="files-footer-selected-items"></span>
+                    </div>
                 </div>
             </div>
         `;
@@ -86,6 +94,7 @@ const TabFiles = {
         this.activeMenuFileUid = null;
         this.selectedFolderUid = null;
         this.currentPath = null;
+        this.currentView = 'list';
 
         // Create click handler for each folder item
         $el_window.find('[data-folder]').each(function () {
@@ -190,6 +199,22 @@ const TabFiles = {
 
         // Store reference to $el_window for later use
         this.$el_window = $el_window;
+
+        // Load saved view preference
+        const savedView = window.user_preferences?.files_view || 'list';
+        this.currentView = savedView;
+
+        // Apply initial view
+        const $filesContainer = this.$el_window.find('.files-tab .files');
+        const $tabContent = this.$el_window.find('.files-tab');
+        if ( savedView === 'grid' ) {
+            $filesContainer.addClass('files-grid-view');
+            $tabContent.addClass('files-grid-mode');
+            this.$el_window.find('.view-toggle-btn').html(icons.list);
+        } else {
+            $filesContainer.addClass('files-list-view');
+            this.$el_window.find('.view-toggle-btn').html(icons.grid);
+        }
     },
 
     createHeaderEventListeners () {
@@ -303,6 +328,11 @@ const TabFiles = {
             if ( ! this.currentPath ) return;
             fileInput.click();
         };
+
+        // View toggle button
+        document.querySelector('.view-toggle-btn').onclick = () => {
+            this.toggleView();
+        };
     },
 
     selectFolder ($folderElement) {
@@ -382,6 +412,7 @@ const TabFiles = {
                 <div class="item-modified"></div>
                 <div class="item-more"></div>
             `);
+            this.updateFooterStats();
             return;
         }
 
@@ -389,6 +420,9 @@ const TabFiles = {
         directoryContents.sort((a, b) => b.is_dir - a.is_dir).forEach(file => {
             this.renderItem(file);
         });
+
+        // Update footer with directory stats
+        this.updateFooterStats();
     },
 
     renderItem (file) {
@@ -432,37 +466,78 @@ const TabFiles = {
     },
 
     createItemListeners (el_item, file) {
+        const _this = this;
         const el_item_name = el_item.querySelector(`.item-name`);
         const el_item_icon = el_item.querySelector('.item-icon');
         const el_item_name_editor = el_item.querySelector(`.item-name-editor`);
         const isFolder = el_item.getAttribute('data-is_dir');
         let website_url = window.determine_website_url(file.path);
         let rename_cancelled = false;
+        let shift_clicked = false;
 
         el_item.onpointerdown = (e) => {
             if ( e.target.classList.contains('item-more') ) return;
             if ( el_item.classList.contains('header') ) return;
+
+            shift_clicked = false;
 
             if ( e.which === 3 && el_item.classList.contains('selected') &&
                 el_item.parentElement.querySelectorAll('.row.selected').length > 1 ) {
                 return;
             }
 
-            if ( !e.ctrlKey && !e.metaKey && !el_item.classList.contains('selected') ) {
+            // Handle Shift+Click for range selection
+            if ( e.shiftKey && window.latest_selected_item && window.latest_selected_item !== el_item ) {
+                e.preventDefault();
+                shift_clicked = true;
+
+                const allRows = $(el_item).parent().find('.row').toArray();
+                const clickedIndex = allRows.indexOf(el_item);
+                const lastSelectedIndex = allRows.indexOf(window.latest_selected_item);
+
+                if ( clickedIndex !== -1 && lastSelectedIndex !== -1 ) {
+                    const start = Math.min(clickedIndex, lastSelectedIndex);
+                    const end = Math.max(clickedIndex, lastSelectedIndex);
+
+                    // Clear selection if no Ctrl/Cmd held
+                    if ( !e.ctrlKey && !e.metaKey ) {
+                        el_item.parentElement.querySelectorAll('.row.selected').forEach(r => {
+                            r.classList.remove('selected');
+                        });
+                    }
+
+                    // Select all items in range
+                    for ( let i = start; i <= end; i++ ) {
+                        allRows[i].classList.add('selected');
+                    }
+
+                    // Update latest selected to the clicked item
+                    window.latest_selected_item = el_item;
+                    window.active_element = el_item;
+                    window.active_item_container = el_item.closest('.files');
+                    _this.updateFooterStats();
+                    return;
+                }
+            }
+
+            if ( !e.ctrlKey && !e.metaKey && !e.shiftKey && !el_item.classList.contains('selected') ) {
                 el_item.parentElement.querySelectorAll('.row.selected').forEach(r => {
                     r.classList.remove('selected');
                 });
             }
 
-            if ( (e.ctrlKey || e.metaKey) && el_item.classList.contains('selected') ) {
-                el_item.classList.remove('selected');
-            } else {
-                el_item.classList.add('selected');
-                window.latest_selected_item = el_item;
+            if ( ! e.shiftKey ) {
+                if ( (e.ctrlKey || e.metaKey) && el_item.classList.contains('selected') ) {
+                    el_item.classList.remove('selected');
+                } else {
+                    el_item.classList.add('selected');
+                    window.latest_selected_item = el_item;
+                }
             }
 
             window.active_element = el_item;
             window.active_item_container = el_item.closest('.files');
+            _this.updateFooterStats();
         };
 
         el_item.onclick = (e) => {
@@ -471,11 +546,18 @@ const TabFiles = {
                 return;
             }
 
-            if ( !e.ctrlKey && !e.metaKey ) {
+            // Skip if this was a shift-click (already handled in pointerdown)
+            if ( shift_clicked ) {
+                shift_clicked = false;
+                return;
+            }
+
+            if ( !e.ctrlKey && !e.metaKey && !e.shiftKey ) {
                 el_item.parentElement.querySelectorAll('.row.selected').forEach(r => {
                     if ( r !== el_item ) r.classList.remove('selected');
                 });
             }
+            _this.updateFooterStats();
         };
 
         el_item.ondblclick = () => {
@@ -722,6 +804,76 @@ const TabFiles = {
         const sizes = ['B', 'KB', 'MB', 'GB'];
         const i = Math.floor(Math.log(bytes) / Math.log(k));
         return `${Math.round((bytes / Math.pow(k, i)) * 100) / 100 } ${ sizes[i]}`;
+    },
+
+    calculateTotalSize (rows) {
+        let total = 0;
+        rows.forEach(row => {
+            const size = parseInt($(row).attr('data-size')) || 0;
+            total += size;
+        });
+        return total;
+    },
+
+    updateFooterStats () {
+        const $footer = this.$el_window.find('.files-footer');
+        if ( ! $footer.length ) return;
+
+        const allRows = this.$el_window.find('.files-tab .row').toArray();
+        const selectedRows = this.$el_window.find('.files-tab .row.selected').toArray();
+
+        // Calculate counts
+        const totalCount = allRows.length;
+        const selectedCount = selectedRows.length;
+
+        // Calculate sizes
+        const totalSize = this.calculateTotalSize(allRows);
+        const selectedSize = this.calculateTotalSize(selectedRows);
+
+        // Update total count display
+        const itemText = totalCount === 1 ? 'item' : 'items';
+        $footer.find('.files-footer-item-count').html(
+                        `${totalCount} ${itemText} · ${window.byte_format(totalSize)}`);
+
+        // Update selected count display
+        if ( selectedCount > 0 ) {
+            const selectedItemText = selectedCount === 1 ? 'item' : 'items';
+            $footer.find('.files-footer-selected-items').html(
+                            `${selectedCount} ${selectedItemText} selected · ${window.byte_format(selectedSize)}`).show();
+            $footer.find('.files-footer-separator').show();
+        } else {
+            $footer.find('.files-footer-selected-items').hide();
+            $footer.find('.files-footer-separator').hide();
+        }
+    },
+
+    toggleView () {
+        const $filesContainer = this.$el_window.find('.files-tab .files');
+        const $toggleBtn = this.$el_window.find('.view-toggle-btn');
+        const $tabContent = this.$el_window.find('.files-tab');
+
+        if ( this.currentView === 'list' ) {
+            // Switch to grid view
+            this.currentView = 'grid';
+            $filesContainer.removeClass('files-list-view').addClass('files-grid-view');
+            $tabContent.addClass('files-grid-mode');
+            $toggleBtn.html(icons.list);
+            $toggleBtn.attr('title', 'Switch to list view');
+        } else {
+            // Switch to list view
+            this.currentView = 'list';
+            $filesContainer.removeClass('files-grid-view').addClass('files-list-view');
+            $tabContent.removeClass('files-grid-mode');
+            $toggleBtn.html(icons.grid);
+            $toggleBtn.attr('title', 'Switch to grid view');
+        }
+
+        // Save preference
+        if ( ! window.user_preferences ) {
+            window.user_preferences = {};
+        }
+        window.user_preferences.files_view = this.currentView;
+        localStorage.setItem('user_preferences', JSON.stringify(window.user_preferences));
     },
 
     async handleMoreClick (rowElement, file) {

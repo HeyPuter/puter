@@ -5789,7 +5789,7 @@ html.dark-mode .usage-table-show-less:hover {
 }
 
 .dashboard-content.files {
-    padding: 0 32px 24px 10px;
+    padding: 0 0 0 10px;
 }
 
 .dashboard-tab-content.files-tab {
@@ -5799,7 +5799,6 @@ html.dark-mode .usage-table-show-less:hover {
     max-width: unset;
     padding: 0;
     margin: 0;
-    height: calc(100vh - 50px);
 }
 
 .dashboard-tab-content.files-tab h2 {
@@ -5847,6 +5846,7 @@ html.dark-mode .usage-table-show-less:hover {
 
 .dashboard-section-files .directory-contents {
     width: calc(100% - 160px);
+    min-height: 100vh;
     border-left: 1px solid #e0e0e0;
 }
 
@@ -5922,9 +5922,9 @@ html.dark-mode .usage-table-show-less:hover {
 
 .dashboard-section-files .files {
     width: 100%;
-    height: calc(100vh - 94px);
     display: flex;
     flex-direction: column;
+    padding-bottom: 30px;
 }
 
 .row {
@@ -5994,6 +5994,7 @@ html.dark-mode .usage-table-show-less:hover {
     text-align: left;
     font-weight: inherit;
     display: none;
+    white-space: nowrap;
 }
 
 .row .item-size {
@@ -6077,6 +6078,168 @@ html.dark-mode .usage-table-show-less:hover {
 .dashboard-section-files .directories li.ui-droppable-hover {
     background-color: rgba(59, 130, 246, 0.1);
     border-radius: 4px;
+}
+
+.files-footer {
+    position: sticky;
+    bottom: 0;
+    right: 0;
+    left: 371px;
+    background: linear-gradient(180deg, #fafafa, #fff);
+    border-top: 1px solid #e0e0e0;
+    height: 30px;
+    font-size: 13px;
+    line-height: 28px;
+    padding: 0 12px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 8px;
+    color: #666;
+    z-index: 10;
+}
+
+.files-footer-separator,
+.files-footer-selected-items {
+    display: none;
+}
+
+.files-footer-separator {
+    color: #CCC;
+}
+
+.files-tab .files.files-list-view .row {
+    display: grid;
+    grid-template-columns: 24px auto 100px 100px 20px;
+    height: 32px;
+    padding: 0 10px;
+    align-items: center;
+    gap: 10px;
+}
+
+.files-tab .files.files-list-view .row .item-icon {
+    width: 24px;
+    height: 24px;
+    padding: 0;
+}
+
+.files-tab .files.files-list-view .row .item-icon img {
+    width: 18px;
+    height: 18px;
+    object-fit: cover;
+}
+
+.files-tab .files.files-list-view .row .item-size,
+.files-tab .files.files-list-view .row .item-modified,
+.files-tab .files.files-list-view .row .item-more {
+    display: block;
+}
+
+.files-tab .files.files-grid-view {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(180px, 1fr));
+    gap: 16px;
+    padding: 16px;
+    align-content: start;
+}
+
+.files-tab .files.files-grid-view .row {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    position: relative;
+    padding: 12px;
+    height: auto;
+    gap: 8px;
+    border: 1px solid transparent;
+    border-radius: 8px;
+    cursor: pointer;
+    transition: all 0.15s ease;
+}
+
+.files-tab .files.files-grid-view .row:hover {
+    background: #f5f5f5;
+    border-color: #e0e0e0;
+}
+
+.files-tab .files.files-grid-view .row.selected {
+    background-color: var(--select-color);
+    color: white;
+    border-color: var(--select-color);
+}
+
+.files-tab .files.files-grid-view .row .item-icon {
+    width: 150px;
+    height: 150px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    /* background: #fafafa; */
+    border-radius: 8px;
+    overflow: hidden;
+}
+
+.files-tab .files.files-grid-view .row .item-icon img {
+    width: 100%;
+    height: 100%;
+    object-fit: cover;
+    max-width: fit-content;
+    max-height: fit-content;
+}
+
+.files-tab .files.files-grid-view .row .item-icon svg {
+    width: 64px;
+    height: 64px;
+    opacity: 0.5;
+}
+
+.files-tab .files.files-grid-view .row .item-name {
+    text-align: center;
+    width: 100%;
+    padding: 0;
+    font-size: 13px;
+    line-height: 1.4;
+    max-height: 2.8em;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    display: -webkit-box;
+    -webkit-line-clamp: 2;
+    -webkit-box-orient: vertical;
+    word-break: break-word;
+}
+
+.files-tab .files.files-grid-view .row .item-size,
+.files-tab .files.files-grid-view .row .item-modified,
+.files-tab .files.files-grid-view .row .item-more {
+    display: none;
+}
+
+.files-tab .files.files-grid-view .row:hover .item-more {
+    position: absolute;
+    top: 0;
+    right: 0;
+    color: #666;
+    background: #f5f5f5;
+    width: 24px;
+    height: 24px;
+    display: flex;
+    justify-content: center;
+    align-items: center;
+    border-radius: 4px;
+}
+
+.files-tab .files.files-grid-view .row .item-name-editor {
+    text-align: center;
+}
+
+.files-tab.files-grid-mode .header .columns {
+    display: none;
+}
+
+.files-tab .files.files-grid-view .row.ui-draggable-dragging {
+    width: 180px;
+    display: flex;
+    flex-direction: column;
 }
 
 .more-btn {
