@@ -22,10 +22,8 @@
 // be the correct path, not a way to shoot yourself in the foot.
 
 import { context, trace, SpanStatusCode } from '@opentelemetry/api';
-import { Context } from './context';
-import { libs } from '@heyputer/putility';
-
-const { TeePromise } = libs.promise;
+import { Context } from './context.js';
+import { TeePromise } from '@heyputer/putility/src/libs/promise.js';
 
 /*
 parallel span example from GPT-4:
