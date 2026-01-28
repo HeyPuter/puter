@@ -4,7 +4,6 @@ import { NodeHttpHandler } from '@smithy/node-http-handler';
 import dynalite from 'dynalite';
 import { once } from 'node:events';
 import { Agent as httpsAgent } from 'node:https';
-import { Span } from '../../util/otelutil.js';
 
 interface DBClientConfig {
     aws?: {
@@ -86,9 +85,7 @@ export class DDBClient {
         return client;
     }
 
-    @Span('ddb:get')
     async get <T extends Record<string, unknown>>(table: string, key: T, consistentRead = false) {
-        console.log(`Calling get with consistenRead=${consistentRead} on db with client region: ${JSON.stringify(await this.#documentClient.config.region())} and region set initally to: ${this.config?.aws?.region}`);
         const command = new GetCommand({
             TableName: table,
             Key: key,
@@ -101,7 +98,6 @@ export class DDBClient {
         return response;
     }
 
-    @Span('ddb:put')
     async put <T extends Record<string, unknown>>(table: string, item: T) {
         const command = new PutCommand({
             TableName: table,
@@ -113,7 +109,6 @@ export class DDBClient {
         return response;
     }
 
-    @Span('ddb:batchGet')
     async batchGet (params: { table: string, items: Record<string, unknown> }[], consistentRead = false) {
         // TODO DS: implement chunking for more than 100 items or more than allowed req size
         const allRequestItemsPerTable = params.reduce((acc, curr) => {
@@ -140,7 +135,6 @@ export class DDBClient {
         return this.#documentClient.send(command);
     }
 
-    @Span('ddb:del')
     async del<T extends Record<string, unknown>> (table: string, key: T) {
         const command = new DeleteCommand({
             TableName: table,
@@ -151,7 +145,6 @@ export class DDBClient {
         return this.#documentClient.send(command);
     }
 
-    @Span('ddb:query')
     async query<T extends Record<string, unknown>> (
         table: string,
         keys: T,
@@ -197,7 +190,6 @@ export class DDBClient {
         return await this.#documentClient.send(command);
     }
 
-    @Span('ddb:update')
     async update<T extends Record<string, unknown>> (
         table: string,
         key: T,

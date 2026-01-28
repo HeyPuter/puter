@@ -51,14 +51,26 @@ export const spanify = (label, fn, tracer) => async function (...args) {
         console.error('spanify failed', new Error('missing context'));
     }
 
-    tracer = tracer ?? context.get('services').get('traceService').tracer;
-    let result;
-    await tracer.startActiveSpan(label, async span => {
+    tracer = tracer ?? context?.get('services')?.get('traceService')?.tracer;
+    if ( ! tracer ) {
+        console.error('spanify failed', new Error('missing tracer or services'));
         // eslint-disable-next-line no-invalid-this
-        result = await fn.apply(this, args);
-        span.end();
+        return await fn.apply(this, args);
+    }
+    let result;
+    return await tracer.startActiveSpan(label, async span => {
+        try {
+        // eslint-disable-next-line no-invalid-this
+            result = await fn.apply(this, args);
+            span.setStatus({ code: SpanStatusCode.OK });
+            return result;
+        } catch (e) {
+            span.recordException(e);
+            span.setStatus({ code: SpanStatusCode.ERROR, message: e.message });
+        } finally {
+            span.end();
+        }
     });
-    return result;
 };
 
 /** @type {(label: string, tracer?: unknown) => MethodDecorator} */
