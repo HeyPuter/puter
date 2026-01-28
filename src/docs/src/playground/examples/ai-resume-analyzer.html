@@ -1,40 +1,104 @@
 <!DOCTYPE html>
 <html>
+
 <head>
     <title>Resume Analyzer</title>
     <script src="https://js.puter.com/v2/"></script>
+    <script src="https://unpkg.com/mammoth/mammoth.browser.min.js"></script>
     <style>
-        body { font-family: Arial, sans-serif; max-width: 600px; margin: 20px auto; padding: 20px;}
-        .container { border: 1px solid #ccc; padding: 20px; border-radius: 5px;}
-        .upload-area {border: 2px dashed #ccc; padding: 40px; text-align: center; margin: 20px 0; border-radius: 5px; cursor: pointer;  transition: border-color 0.3s;}
-        .upload-area:hover {border-color: #007bff;}
-        .upload-area.dragover { border-color: #007bff; background-color: #f8f9fa;}
-        input[type="file"] { display: none;}
-        button { width: 100%; padding: 10px; background: #007bff; color: white; border: none; border-radius: 5px; cursor: pointer; margin-top: 10px;}
-        button:disabled { background: #ccc; }
-        #response { margin-top: 20px; padding: 15px; background: #f8f9fa; border-radius: 5px; display: none; }
-        .file-name { margin-top: 10px; font-style: italic; color: #666; }
+        body {
+            font-family: Arial, sans-serif;
+            max-width: 600px;
+            margin: 20px auto;
+            padding: 20px;
+        }
+
+        .container {
+            border: 1px solid #ccc;
+            padding: 20px;
+            border-radius: 5px;
+        }
+
+        .upload-area {
+            border: 2px dashed #ccc;
+            padding: 40px;
+            text-align: center;
+            margin: 20px 0;
+            border-radius: 5px;
+            cursor: pointer;
+            transition: border-color 0.3s;
+        }
+
+        .upload-area:hover {
+            border-color: #007bff;
+        }
+
+        .upload-area.dragover {
+            border-color: #007bff;
+            background-color: #f8f9fa;
+        }
+
+        input[type="file"] {
+            display: none;
+        }
+
+        button {
+            width: 100%;
+            padding: 10px;
+            background: #007bff;
+            color: white;
+            border: none;
+            border-radius: 5px;
+            cursor: pointer;
+            margin-top: 10px;
+        }
+
+        button:disabled {
+            background: #ccc;
+        }
+
+        #response {
+            margin-top: 20px;
+            padding: 15px;
+            background: #f8f9fa;
+            border-radius: 5px;
+            display: none;
+        }
+
+        .file-name {
+            margin-top: 10px;
+            font-style: italic;
+            color: #666;
+        }
     </style>
 </head>
+
 <body>
     <div class="container">
         <h1>Resume Analyzer</h1>
-        <p>Upload your resume (PDF, DOC, or TXT) and get a quick analysis of your key strengths in two sentences.</p>
-        
+        <p>Upload your resume (PDF, DOCX, or TXT) and get a quick analysis of your key strengths in two sentences.</p>
+
         <div class="upload-area" onclick="document.getElementById('fileInput').click()">
             <p>Click here to upload your resume or drag and drop</p>
-            <input type="file" id="fileInput" accept=".pdf,.doc,.docx,.txt" />
+            <input type="file" id="fileInput" accept=".pdf,.docx,.txt" />
         </div>
-        
+
         <div class="file-name" id="fileName" style="display: none;"></div>
-        
+
         <button id="analyzeBtn" disabled>Analyze My Resume</button>
-        
+
         <div id="response"></div>
     </div>
 
+    
     <script>
+       // track: file-processing
+       // The AI model (claude-sonnet-4) only supports native PDF parsing.
+       // compare(original): original implementation attempted to upload DOC/DOCX/TXT directly.
+       // We now extract DOCX/TXT to text before analysis because the model treats them as binary.
+        
         let uploadedFile = null;
+        let extractedText = null;
         
         // File upload handling
         const fileInput = document.getElementById('fileInput');
@@ -54,6 +118,7 @@
                 fileName.textContent = `Selected: ${file.name}`;
                 fileName.style.display = 'block';
                 analyzeBtn.disabled = false;
+                processFile(file);
             }
         }
 
@@ -72,7 +137,54 @@
                 fileName.textContent = `Selected: ${file.name}`;
                 fileName.style.display = 'block';
                 analyzeBtn.disabled = false;
+                processFile(file)
             }
+        }
+
+        async function processFile(file) 
+        {
+            // track: file-type-handling
+            // PDF => upload directly (native support).
+            // DOCX => extracted via Mammoth (AI cannot parse DOCX binaries).
+            // TXT => read text because AI cannot parse raw .txt file uploads.
+
+            if (!file) return;
+            
+            uploadedFile = file;
+            extractedText = null;
+
+            const ext = file.name.split('.').pop().toLowerCase();
+
+
+            // PDF is supported natively by the AI, so no processing required.
+            if (ext === "pdf") {
+                console.log("PDF detected. Will upload directly.");
+            }
+            // DOCX must be converted to text because the AI cannot read binary OOXML directly.
+            else if (ext === "docx") {
+                console.log("DOCX detected. Extracting text using Mammoth...");
+                extractedText = await extractTextFromDocx(file);
+            }
+            // TXT is read directly
+            else if (ext === "txt") {
+                console.log("TXT detected. Reading text...");
+                extractedText = await file.text();
+            }
+            else {
+                // todo(file-support): add .doc support using doc2txt or LibreOffice WASM
+                alert("Unsupported file format. Only PDF, DOCX, and TXT are supported.");
+                uploadedFile = null;
+                analyzeBtn.disabled = true;
+                extractedText=null;
+            }
+        }
+
+        async function extractTextFromDocx(file) 
+        {
+            const arrayBuffer = await file.arrayBuffer();
+            const result = await mammoth.extractRawText({ arrayBuffer });
+            //return the final extracted text from docx or txt file
+            return result.value;
         }
 
         // Remove dragover class when drag leaves
@@ -80,8 +192,9 @@
             uploadArea.classList.remove('dragover');
         });
 
-        // Analyze resume
-        analyzeBtn.addEventListener('click', async () => {
+        //updates analyse resume 
+        analyzeBtn.addEventListener('click', async () => 
+        {
             if (!uploadedFile) return;
 
             analyzeBtn.disabled = true;
@@ -89,51 +202,144 @@
             response.style.display = 'none';
 
             try {
-                // First, upload the file to Puter
-                const puterFile = await puter.fs.write(`temp_resume_${Date.now()}.${uploadedFile.name.split('.').pop()}`,
-                    uploadedFile
-                );
+                const ext = uploadedFile.name.split('.').pop().toLowerCase();
 
-                const uploadedPath = puterFile.path;
+                let aiResponse;
 
-                // Analyze the resume with AI
-                const completion = await puter.ai.chat([
-                    {
-                        role: 'user',
-                        content: [
-                            {
-                                type: 'file',
-                                puter_path: uploadedPath
-                            },
-                            {
-                                type: 'text',
-                                text: 'Please analyze this resume and suggest how to improve it. Only a few sentences are needed.'
-                            }
-                        ]
-                    }
-                ], { model: 'claude-sonnet-4', stream: true });
+                // CASE 1: PDF → Upload to Puter and send as a file
+                if (ext === "pdf") {
+                    const puterFile = await puter.fs.write(
+                        `resume_${Date.now()}.pdf`,
+                        uploadedFile
+                    );
 
-                let text = '';
+                    aiResponse = await analyzeFileOnAI(puterFile.path);
 
-                // Display the response
-                for await ( const part of completion ) {
-                    text += part?.text;
-                    response.innerHTML = text;
+                    // cleanup
+                    await puter.fs.delete(puterFile.path);
                 }
 
+                // CASE 2: DOCX or TXT → send extracted text to AI
+                else if (extractedText) {
+                    aiResponse = await analyzeTextOnAI(extractedText);
+                }
+
+                response.innerHTML = aiResponse;
                 response.style.display = 'block';
 
-                // Clean up the temporary file
-                await puter.fs.delete(uploadedPath);
-
-            } catch (error) {
-                response.innerHTML = `<strong>Error:</strong><br>${error.message}`;
+            } catch (err) {
+                response.innerHTML = `<strong>Error:</strong><br>${err.message}`;
                 response.style.display = 'block';
             }
 
             analyzeBtn.disabled = false;
             analyzeBtn.textContent = 'Analyze My Resume';
         });
+
+        // AI call for PDF file
+        async function analyzeFileOnAI(puterPath) 
+        {
+            let text = "";
+
+            const completion = await puter.ai.chat([
+                {
+                    role: "user",
+                    content: [
+                        { type: "file", puter_path: puterPath },
+                        { type: "text", text: "Analyze this resume briefly." }
+                    ]
+                }
+            ], { model: "claude-sonnet-4", stream: true });
+
+            for await (const part of completion) {
+                text += part?.text || "";
+            }
+
+            return text;
+        }
+
+        // AI call for DOCX/TXT text
+        async function analyzeTextOnAI(textContent) {
+            let text = "";
+
+            const completion = await puter.ai.chat([
+                {
+                    role: "user",
+                    content: [
+                        { type: "text", text: textContent },
+                        { type: "text", text: "Analyze this resume briefly." }
+                    ]
+                }
+            ], { model: "claude-sonnet-4", stream: true });
+
+            for await (const part of completion) {
+                text += part?.text || "";
+            }
+
+            return text;
+        }
+
+        // compare(previous-implementation):
+        // The block below is the original implementation.
+        // It posted all uploaded files directly to puter.ai.chat.
+        // Because the model only supports PDF file parsing, DOCX/TXT would be interpreted as binary.
+        // Leaving it commented to maintain commit history context.
+
+        // Analyze resume
+        // analyzeBtn.addEventListener('click', async () => {
+        //     if (!uploadedFile) return;
+
+        //     analyzeBtn.disabled = true;
+        //     analyzeBtn.textContent = 'Analyzing...';
+        //     response.style.display = 'none';
+
+        //     try {
+        //         // First, upload the file to Puter
+        //         const puterFile = await puter.fs.write(`temp_resume_${Date.now()}.${uploadedFile.name.split('.').pop()}`,
+        //             uploadedFile
+        //         );
+
+        //         const uploadedPath = puterFile.path;
+
+        //         // Analyze the resume with AI
+        //         const completion = await puter.ai.chat([
+        //             {
+        //                 role: 'user',
+        //                 content: [
+        //                     {
+        //                         type: 'file',
+        //                         puter_path: uploadedPath
+        //                     },
+        //                     {
+        //                         type: 'text',
+        //                         text: 'Please analyze this resume and suggest how to improve it. Only a few sentences are needed.'
+        //                     }
+        //                 ]
+        //             }
+        //         ], { model: 'claude-sonnet-4', stream: true });
+
+        //         let text = '';
+
+        //         // Display the response
+        //         for await ( const part of completion ) {
+        //             text += part?.text;
+        //             response.innerHTML = text;
+        //         }
+
+        //         response.style.display = 'block';
+
+        //         // Clean up the temporary file
+        //         await puter.fs.delete(uploadedPath);
+
+        //     } catch (error) {
+        //         response.innerHTML = `<strong>Error:</strong><br>${error.message}`;
+        //         response.style.display = 'block';
+        //     }
+
+        //     analyzeBtn.disabled = false;
+        //     analyzeBtn.textContent = 'Analyze My Resume';
+        // });
     </script>
 </body>
+
 </html>
