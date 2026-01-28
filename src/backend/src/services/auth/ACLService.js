@@ -373,7 +373,12 @@ class ACLService extends BaseService {
         if ( actor.type instanceof AppUnderUserActorType ) {
             const username = actor.type.user.username;
             const app_uid = actor.type.app.uid;
-            const path_selector = fsNode.get_selector_of_type(NodePathSelector);
+            let path_selector = fsNode.get_selector_of_type(NodePathSelector);
+
+            // PATCH: Path selector must be obtained here due to a bug (#2295)
+            if ( ! path_selector ) {
+                path_selector = new NodePathSelector(await fsNode.get('path'));
+            }
 
             if ( path_selector ) {
                 const path = path_selector.value;
@@ -420,9 +425,7 @@ class ACLService extends BaseService {
         // Access tokens only work if the authorizer has permission
         if ( actor.type instanceof AccessTokenActorType ) {
             const authorizer = actor.type.authorizer;
-            const authorizer_perm = await this._check_fsNode(authorizer, fsNode, mode);
-
-            if ( ! authorizer_perm ) return false;
+            return await this._check_fsNode(authorizer, fsNode, mode);
         }
 
         // Hard rule: if app-under-user is accessing appdata directory, allow
