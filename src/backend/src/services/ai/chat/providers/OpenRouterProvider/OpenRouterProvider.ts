@@ -100,15 +100,16 @@ export class OpenRouterProvider implements IChatProvider {
         let completion;
         try {
             completion = await this.#openai.chat.completions.create(completionParams);
-        } catch ( e: any ) {
+        } catch ( e: unknown ) {
             // If you overestimate allowed max_tokens on openrouter then it will throw an error.
             // Since we know the user has enough for the query anyways, we should reexecute the
             // request without max_tokens.
-            if ( e && e.error && e.error.message && e.error.message.startsWith("This endpoint's maximum context length is ") ) {
+            const err = e as { error: Error };
+            if ( err && err.error && err.error.message && err.error.message.startsWith("This endpoint's maximum context length is ") ) {
                 delete completionParams.max_tokens;
                 completion = await this.#openai.chat.completions.create(completionParams);
             } else {
-                console.log('Openarouter error: ', e.error.message);
+                console.log('Openarouter error: ', err.error.message);
                 throw e;
             }
         }
@@ -120,6 +121,7 @@ export class OpenRouterProvider implements IChatProvider {
                     prompt: (usage.prompt_tokens ?? 0 ) - (usage.prompt_tokens_details?.cached_tokens ?? 0),
                     completion: usage.completion_tokens ?? 0,
                     input_cache_read: usage.prompt_tokens_details?.cached_tokens ?? 0,
+                    request: (usage as unknown as Record<string, number>).request || 1,
                 };
                 const costOverwrites = Object.fromEntries(Object.keys(trackedUsage).map((k) => {
                     return [k, (modelUsed.costs[k] || 0) * trackedUsage[k]];
