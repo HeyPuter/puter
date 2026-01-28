@@ -1962,7 +1962,7 @@ window.empty_trash = async function (callback) {
             setTimeout(() => {
                 progwin?.close();
             }, Math.max(0, window.copy_progress_hide_delay - (Date.now() - init_ts)));
-            callback();
+            if ( callback ) callback();
         },
         error: async function (err) {
             clearTimeout(progwin_timeout);
