@@ -32,11 +32,11 @@ const icons = {
     files: `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"/></svg>`,
     folder: `<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"></path></svg>`,
     more: `<svg width="20" height="20" viewBox="0 0 24 24" fill="currentColor"><path d="M6 10c-1.1 0-2 .9-2 2s.9 2 2 2 2-.9 2-2-.9-2-2-2zm12 0c-1.1 0-2 .9-2 2s.9 2 2 2 2-.9 2-2-.9-2-2-2zm-6 0c-1.1 0-2 .9-2 2s.9 2 2 2 2-.9 2-2-.9-2-2-2z"/></svg>`,
-    newFolder: `<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"></path><line x1="12" y1="11" x2="12" y2="17"></line><line x1="9" y1="14" x2="15" y2="14"></line></svg>`,
-    upload: `<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path><polyline points="17 8 12 3 7 8"></polyline><line x1="12" y1="3" x2="12" y2="15"></line></svg>`,
+    newFolder: `<svg xmlns="http://www.w3.org/2000/svg" height="18" viewBox="0 -960 960 960" width="18" fill="currentcolor"><path d="M560-320h80v-80h80v-80h-80v-80h-80v80h-80v80h80v80ZM160-160q-33 0-56.5-23.5T80-240v-480q0-33 23.5-56.5T160-800h240l80 80h320q33 0 56.5 23.5T880-640v400q0 33-23.5 56.5T800-160H160Zm0-80h640v-400H447l-80-80H160v480Zm0 0v-480 480Z"/></svg>`,
+    upload: `<svg xmlns="http://www.w3.org/2000/svg" height="18" viewBox="0 -960 960 960" width="18" fill="currentcolor"><path d="M440-320v-326L336-542l-56-58 200-200 200 200-56 58-104-104v326h-80ZM240-160q-33 0-56.5-23.5T160-240v-120h80v120h480v-120h80v120q0 33-23.5 56.5T720-160H240Z"/></svg>`,
     trash: `<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><polyline points="3 6 5 6 21 6"></polyline><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"></path></svg>`,
-    list: `<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><line x1="8" y1="6" x2="21" y2="6"></line><line x1="8" y1="12" x2="21" y2="12"></line><line x1="8" y1="18" x2="21" y2="18"></line><line x1="3" y1="6" x2="3.01" y2="6"></line><line x1="3" y1="12" x2="3.01" y2="12"></line><line x1="3" y1="18" x2="3.01" y2="18"></line></svg>`,
-    grid: `<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><rect x="3" y="3" width="7" height="7"></rect><rect x="14" y="3" width="7" height="7"></rect><rect x="14" y="14" width="7" height="7"></rect><rect x="3" y="14" width="7" height="7"></rect></svg>`,
+    list: `<svg xmlns="http://www.w3.org/2000/svg" height="18" viewBox="0 -960 960 960" width="18" fill="currentcolor"><path d="M280-600v-80h560v80H280Zm0 160v-80h560v80H280Zm0 160v-80h560v80H280ZM160-600q-17 0-28.5-11.5T120-640q0-17 11.5-28.5T160-680q17 0 28.5 11.5T200-640q0 17-11.5 28.5T160-600Zm0 160q-17 0-28.5-11.5T120-480q0-17 11.5-28.5T160-520q17 0 28.5 11.5T200-480q0 17-11.5 28.5T160-440Zm0 160q-17 0-28.5-11.5T120-320q0-17 11.5-28.5T160-360q17 0 28.5 11.5T200-320q0 17-11.5 28.5T160-280Z"/></svg>`,
+    grid: `<svg xmlns="http://www.w3.org/2000/svg" height="18" viewBox="0 -960 960 960" width="18" fill="currentcolor"><path d="M120-520v-320h320v320H120Zm0 400v-320h320v320H120Zm400-400v-320h320v320H520Zm0 400v-320h320v320H520ZM200-600h160v-160H200v160Zm400 0h160v-160H600v160Zm0 400h160v-160H600v160Zm-400 0h160v-160H200v160Zm400-400Zm0 240Zm-240 0Zm0-240Z"/></svg>`,
 };
 
 const TabFiles = {
@@ -822,20 +822,16 @@ const TabFiles = {
         const allRows = this.$el_window.find('.files-tab .row').toArray();
         const selectedRows = this.$el_window.find('.files-tab .row.selected').toArray();
 
-        // Calculate counts
         const totalCount = allRows.length;
         const selectedCount = selectedRows.length;
 
-        // Calculate sizes
         const totalSize = this.calculateTotalSize(allRows);
         const selectedSize = this.calculateTotalSize(selectedRows);
 
-        // Update total count display
         const itemText = totalCount === 1 ? 'item' : 'items';
         $footer.find('.files-footer-item-count').html(
                         `${totalCount} ${itemText} · ${window.byte_format(totalSize)}`);
 
-        // Update selected count display
         if ( selectedCount > 0 ) {
             const selectedItemText = selectedCount === 1 ? 'item' : 'items';
             $footer.find('.files-footer-selected-items')
@@ -854,14 +850,12 @@ const TabFiles = {
         const $tabContent = this.$el_window.find('.files-tab');
 
         if ( this.currentView === 'list' ) {
-            // Switch to grid view
             this.currentView = 'grid';
             $filesContainer.removeClass('files-list-view').addClass('files-grid-view');
             $tabContent.addClass('files-grid-mode');
             $toggleBtn.html(icons.list);
             $toggleBtn.attr('title', 'Switch to list view');
         } else {
-            // Switch to list view
             this.currentView = 'list';
             $filesContainer.removeClass('files-grid-view').addClass('files-list-view');
             $tabContent.removeClass('files-grid-mode');
@@ -869,7 +863,6 @@ const TabFiles = {
             $toggleBtn.attr('title', 'Switch to grid view');
         }
 
-        // Save preference
         if ( ! window.user_preferences ) {
             window.user_preferences = {};
         }
@@ -934,7 +927,7 @@ const TabFiles = {
                             window.move_items([row], dirname);
                             setTimeout(() => {
                                 _this.renderDirectory(_this.selectedFolderUid);
-                            }, 100);
+                            }, 500);
                         }
                     });
                 },
@@ -944,7 +937,7 @@ const TabFiles = {
 
         if ( ! anyTrashed ) {
             items.push({
-                html: i18n('download'),
+                html: `${i18n('download')} (${selectedRows.length})`,
                 onClick: function () {
                     window.zipItems(Array.from(selectedRows), _this.selectedFolderUid, true);
                 },
@@ -954,7 +947,7 @@ const TabFiles = {
 
         // Cut
         items.push({
-            html: i18n('cut'),
+            html: `${i18n('cut')} (${selectedRows.length})`,
             onClick: function () {
                 window.clipboard_op = 'move';
                 window.clipboard = [];
@@ -967,7 +960,7 @@ const TabFiles = {
         // Copy
         if ( ! anyTrashed ) {
             items.push({
-                html: i18n('copy'),
+                html: `${i18n('copy')} (${selectedRows.length})`,
                 onClick: function () {
                     window.clipboard_op = 'copy';
                     window.clipboard = [];
@@ -998,19 +991,19 @@ const TabFiles = {
                         }
                         setTimeout(() => {
                             _this.renderDirectory(_this.selectedFolderUid);
-                        }, 100);
+                        }, 500);
                     }
                 },
             });
         }
         else {
             items.push({
-                html: i18n('delete'),
+                html: `${i18n('delete')} (${selectedRows.length})`,
                 onClick: function () {
                     window.move_items(Array.from(selectedRows), window.trash_path);
                     setTimeout(() => {
                         _this.renderDirectory(_this.selectedFolderUid);
-                    }, 100);
+                    }, 500);
                 },
             });
         }

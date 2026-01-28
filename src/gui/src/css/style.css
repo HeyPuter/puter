@@ -5880,7 +5880,7 @@ html.dark-mode .usage-table-show-less:hover {
 
 .dashboard-section-files .header .path-actions {
     display: flex;
-    gap: 4px;
+    gap: 10px;
 }
 
 .dashboard-section-files .header .path-action-btn {
@@ -5897,6 +5897,11 @@ html.dark-mode .usage-table-show-less:hover {
 
 .dashboard-section-files .header .path-action-btn:hover {
     background: #e8e8e8;
+}
+
+.dashboard-section-files .header .path-action-btn svg {
+    width: 24px;
+    height: 24px;
 }
 
 .dashboard-section-files .header .path .dirname {
@@ -6152,10 +6157,11 @@ html.dark-mode .usage-table-show-less:hover {
     padding: 12px;
     height: auto;
     gap: 8px;
-    border: 1px solid transparent;
+    border: 1px solid #e0e0e0;
     border-radius: 8px;
     cursor: pointer;
     transition: all 0.15s ease;
+    box-shadow: 0px 1px 3px rgba(0, 0, 0, 0.1);
 }
 
 .files-tab .files.files-grid-view .row:hover {
