@@ -42,7 +42,8 @@ promises.push(tracer.startActiveSpan(`job:${job.id}`, (span) => {
 }));
 */
 
-const spanify = (label, fn, tracer) => async (...args) => {
+/** @type {<T extends Function>(label:string, fn:T, tracer?: unknown)=> T} */
+const spanify = (label, fn, tracer) => async function (...args) {
     const context = Context.get();
     if ( ! context ) {
         // We don't use the proper logger here because we would normally
@@ -53,10 +54,18 @@ const spanify = (label, fn, tracer) => async (...args) => {
     tracer = tracer ?? context.get('services').get('traceService').tracer;
     let result;
     await tracer.startActiveSpan(label, async span => {
-        result = await fn(...args);
+        // eslint-disable-next-line no-invalid-this
+        result = await fn.apply(this, args);
         span.end();
     });
     return result;
+};
+
+/** @type {(label: string, tracer?: unknown) => MethodDecorator} */
+const Span = (label, tracer) => (_target, _propertyKey, descriptor) => {
+    if ( !descriptor || typeof descriptor.value !== 'function' ) return descriptor;
+    descriptor.value = spanify(label, descriptor.value, tracer);
+    return descriptor;
 };
 
 const abtest = async (label, impls) => {
@@ -150,5 +159,6 @@ class ParallelTasks {
 module.exports = {
     ParallelTasks,
     spanify,
+    Span,
     abtest,
 };
