@@ -1910,7 +1910,7 @@ window.upload_items = async function (items, dest_path) {
                     });
 };
 
-window.empty_trash = async function () {
+window.empty_trash = async function (callback) {
     const alert_resp = await UIAlert({
         message: i18n('empty_trash_confirmation'),
         buttons: [
@@ -1962,6 +1962,7 @@ window.empty_trash = async function () {
             setTimeout(() => {
                 progwin?.close();
             }, Math.max(0, window.copy_progress_hide_delay - (Date.now() - init_ts)));
+            callback();
         },
         error: async function (err) {
             clearTimeout(progwin_timeout);

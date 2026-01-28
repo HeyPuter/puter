@@ -21,9 +21,11 @@
 /* eslint-disable @stylistic/quotes */
 import open_item from '../../helpers/open_item.js';
 import UIContextMenu from '../UIContextMenu.js';
+import UIWindowProgress from '../UIWindowProgress.js';
 import UIAlert from '../UIAlert.js';
 import generate_file_context_menu from '../../helpers/generate_file_context_menu.js';
 import truncate_filename from '../../helpers/truncate_filename.js';
+import update_title_based_on_uploads from '../../helpers/update_title_based_on_uploads.js';
 
 const icons = {
     document: `<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"></path><polyline points="14 2 14 8 20 8"></polyline></svg>`,
@@ -43,9 +45,7 @@ const TabFiles = {
     html () {
         let h = `
             <div class="dashboard-tab-content files-tab">
-                <form name="upload-form" id="upload-form" style="display:hidden;">
-                    <input type="hidden" name="name" id="upload-filename" value="">
-                    <input type="hidden" name="path" id="upload-target-path" value="">
+                <form>
                     <input type="file" name="file" id="upload-file-dialog" style="display: none;" multiple="multiple">
                 </form>
                 <div class="directories">
@@ -58,11 +58,20 @@ const TabFiles = {
                     </ul>
                 </div>
                 <div class="directory-contents">
-                    <div class="path">
-                        <div class="path-breadcrumbs"></div>
-                        <div class="path-actions">
-                            <button class="path-action-btn new-folder-btn" title="${i18n('new_folder')}">${icons.newFolder}</button>
-                            <button class="path-action-btn upload-btn" title="${i18n('upload')}">${icons.upload}</button>
+                    <div class="header">
+                        <div class="path">
+                            <div class="path-breadcrumbs"></div>
+                            <div class="path-actions">
+                                <button class="path-action-btn new-folder-btn" title="${i18n('new_folder')}">${icons.newFolder}</button>
+                                <button class="path-action-btn upload-btn" title="${i18n('upload')}">${icons.upload}</button>
+                            </div>
+                        </div>
+                        <div class="columns">
+                            <div class="item-icon"></div>
+                            <div class="item-name">File name</div>
+                            <div class="item-size">Size</div>
+                            <div class="item-modified">Modified</div>
+                            <div class="item-more"></div>
                         </div>
                     </div>
                     <div class="files"></div>
@@ -77,6 +86,7 @@ const TabFiles = {
         this.activeMenuFileUid = null;
         this.selectedFolderUid = null;
         this.currentPath = null;
+
         // Create click handler for each folder item
         $el_window.find('[data-folder]').each(function () {
             const folderElement = this;
@@ -168,7 +178,7 @@ const TabFiles = {
         });
 
         // Clear selection when clicking empty area
-        $el_window.find('.dashboard-tab-content').on('click', function (e) {
+        $el_window.find('.dashboard-tab-content').on('click', (e) => {
             if ( e.target === this || e.target.classList.contains('files') ) {
                 document.querySelectorAll('.files-tab .row.selected').forEach(r => {
                     r.classList.remove('selected');
@@ -176,8 +186,18 @@ const TabFiles = {
             }
         });
 
+        this.createHeaderEventListeners($el_window);
+
+        // Store reference to $el_window for later use
+        this.$el_window = $el_window;
+    },
+
+    createHeaderEventListeners () {
+        const _this = this;
+        const fileInput = document.querySelector('#upload-file-dialog');
+
         // New folder button
-        $el_window.find('.new-folder-btn').on('click', async () => {
+        document.querySelector('.new-folder-btn').onclick = async () => {
             if ( ! _this.currentPath ) return;
             try {
                 const result = await puter.fs.mkdir({
@@ -187,7 +207,7 @@ const TabFiles = {
                 });
                 await _this.renderDirectory(_this.selectedFolderUid);
                 // Find and select the new folder, then activate rename
-                const newFolderRow = $el_window.find(`.files-tab .row[data-name="${result.name}"]`);
+                const newFolderRow = this.$el_window.find(`.files-tab .row[data-name="${result.name}"]`);
                 if ( newFolderRow.length > 0 ) {
                     newFolderRow.addClass('selected');
                     window.activate_item_name_editor(newFolderRow[0]);
@@ -195,19 +215,94 @@ const TabFiles = {
             } catch ( err ) {
                 // Folder creation failed silently
             }
-        });
+        };
 
-        // Upload button
-        $el_window.find('.upload-btn').on('click', async () => {
-            console.log(_this.currentPath);
-            if ( ! _this.currentPath ) return;
-            const filesContainer = $el_window.find('.files-tab .files')[0];
-            window.init_upload_using_dialog(filesContainer, `${_this.currentPath}/`);
-            // _this.renderDirectory(_this.selectedFolderUid)
-        });
+        fileInput.onchange = async (e) => {
+            const files = e.target.files;
+            if ( !files || files.length === 0 ) return;
 
-        // Store reference to $el_window for later use
-        this.$el_window = $el_window;
+            let upload_progress_window;
+            let opid;
+
+            puter.fs.upload(files, _this.currentPath, {
+                generateThumbnails: true,
+                init: async (operation_id, xhr) => {
+                    opid = operation_id;
+                    // create upload progress window
+                    upload_progress_window = await UIWindowProgress({
+                        title: i18n('upload'),
+                        icon: window.icons['app-icon-uploader.svg'],
+                        operation_id: operation_id,
+                        show_progress: true,
+                        on_cancel: () => {
+                            window.show_save_account_notice_if_needed();
+                            xhr.abort();
+                        },
+                    });
+                    // add to active_uploads
+                    window.active_uploads[opid] = 0;
+                },
+                // start
+                start: async function () {
+                    // change upload progress window message to uploading
+                    upload_progress_window.set_status('Uploading');
+                    upload_progress_window.set_progress(0);
+                },
+                // progress
+                progress: async function (operation_id, op_progress) {
+                    upload_progress_window.set_progress(op_progress);
+                    // update active_uploads
+                    window.active_uploads[opid] = op_progress;
+                    // update title if window is not visible
+                    if ( document.visibilityState !== 'visible' ) {
+                        update_title_based_on_uploads();
+                    }
+                },
+                // success
+                success: function (items) {
+                    // Add action to actions_history for undo ability
+                    const files = [];
+                    if ( typeof items[Symbol.iterator] === 'function' ) {
+                        for ( const item of items ) {
+                            files.push(item.path);
+                        }
+                    } else {
+                        files.push(items.path);
+                    }
+                    window.actions_history.push({
+                        operation: 'upload',
+                        data: files,
+                    });
+                    setTimeout(() => {
+                        upload_progress_window.close();
+                    }, 1000);
+                    window.show_save_account_notice_if_needed();
+                    // remove from active_uploads
+                    delete window.active_uploads[opid];
+                    // refresh
+                    _this.renderDirectory(_this.selectedFolderUid);
+                    // Clear the input value to allow uploading the same file again
+                    fileInput.value = '';
+                    document.querySelector('form').reset();
+                },
+                // error
+                error: async function (err) {
+                    upload_progress_window.show_error(i18n('error_uploading_files'), err.message);
+                    // remove from active_uploads
+                    delete window.active_uploads[opid];
+                },
+                // abort
+                abort: async function (operation_id) {
+                    // remove from active_uploads
+                    delete window.active_uploads[opid];
+                },
+            });
+        };
+
+        document.querySelector('.upload-btn').onclick = async () => {
+            if ( ! this.currentPath ) return;
+            fileInput.click();
+        };
     },
 
     selectFolder ($folderElement) {
@@ -226,9 +321,10 @@ const TabFiles = {
             if ( $pathActions.find('.empty-trash-btn').length === 0 ) {
                 const emptyTrashBtn = $(`<button class="path-action-btn empty-trash-btn" title="${i18n('empty_trash')}">${icons.trash}</button>`);
                 $pathActions.append(emptyTrashBtn);
-
                 emptyTrashBtn.on('click', () => {
-                    window.empty_trash();
+                    window.empty_trash(() => {
+                        this.renderDirectory(this.selectedFolderUid);
+                    });
                 });
             }
             $pathActions.find('.empty-trash-btn').show();
@@ -276,15 +372,6 @@ const TabFiles = {
 
         // Clear the container
         $('.files-tab .files').html('');
-
-        // Add header row
-        $('.files-tab .files').html(`<div class="row header">
-            <div class="item-icon"></div>
-            <div class="item-name">File name</div>
-            <div class="item-size">Size</div>
-            <div class="item-modified">Modified</div>
-            <div class="item-more"></div>
-        </div>`);
 
         // If directory has no files, tell about it
         if ( directoryContents.length === 0 ) {
@@ -383,7 +470,6 @@ const TabFiles = {
                 this.handleMoreClick(el_item, file);
                 return;
             }
-            if ( el_item.classList.contains('header') ) return;
 
             if ( !e.ctrlKey && !e.metaKey ) {
                 el_item.parentElement.querySelectorAll('.row.selected').forEach(r => {
@@ -693,6 +779,9 @@ const TabFiles = {
                         if ( metadata.original_path ) {
                             const dirname = metadata.original_path.substring(0, metadata.original_path.lastIndexOf('/'));
                             window.move_items([row], dirname);
+                            setTimeout(() => {
+                                _this.renderDirectory(_this.selectedFolderUid);
+                            }, 100);
                         }
                     });
                 },
@@ -754,7 +843,9 @@ const TabFiles = {
                         for ( const row of selectedRows ) {
                             await window.delete_item(row);
                         }
-                        _this.renderDirectory(_this.selectedFolderUid);
+                        setTimeout(() => {
+                            _this.renderDirectory(_this.selectedFolderUid);
+                        }, 100);
                     }
                 },
             });
@@ -764,6 +855,9 @@ const TabFiles = {
                 html: i18n('delete'),
                 onClick: function () {
                     window.move_items(Array.from(selectedRows), window.trash_path);
+                    setTimeout(() => {
+                        _this.renderDirectory(_this.selectedFolderUid);
+                    }, 100);
                 },
             });
         }

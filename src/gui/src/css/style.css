@@ -5784,8 +5784,12 @@ html.dark-mode .usage-table-show-less:hover {
 }
 
 /* Dashboard files */
+* {
+    box-sizing: border-box;
+}
+
 .dashboard-content.files {
-    padding: 24px 32px 24px 10px;
+    padding: 0 32px 24px 10px;
 }
 
 .dashboard-tab-content.files-tab {
@@ -5807,9 +5811,10 @@ html.dark-mode .usage-table-show-less:hover {
 }
 
 .dashboard-section-files .directories {
+    position: sticky;
+    top: 0;
     width: 160px;
-    height: 100%;
-    border-right: 1px solid #e0e0e0;
+    padding: 16px 0;
 }
 
 .dashboard-section-files .directories ul {
@@ -5842,10 +5847,20 @@ html.dark-mode .usage-table-show-less:hover {
 
 .dashboard-section-files .directory-contents {
     width: calc(100% - 160px);
+    border-left: 1px solid #e0e0e0;
 }
 
-.dashboard-section-files .directory-contents .path {
+.dashboard-section-files .directory-contents .header {
+    position: sticky;
+    top: 0;
+    height: 94px;
+    padding-top: 12px;
+    background: white;
+}
+
+.dashboard-section-files .header .path {
     font-size: 14px;
+    height: 47px;
     display: flex;
     align-items: center;
     justify-content: space-between;
@@ -5853,22 +5868,22 @@ html.dark-mode .usage-table-show-less:hover {
     border-bottom: 1px solid #e0e0e0;
 }
 
-.dashboard-section-files .directory-contents .path-breadcrumbs {
+.dashboard-section-files .header .path-breadcrumbs {
     display: flex;
     align-items: center;
     gap: 5px;
 }
 
-.dashboard-section-files .directory-contents .path-breadcrumbs:empty + .path-actions {
+.dashboard-section-files .header .path-breadcrumbs:empty + .path-actions {
     display: none;
 }
 
-.dashboard-section-files .directory-contents .path-actions {
+.dashboard-section-files .header .path-actions {
     display: flex;
     gap: 4px;
 }
 
-.dashboard-section-files .directory-contents .path-action-btn {
+.dashboard-section-files .header .path-action-btn {
     background: none;
     border: none;
     cursor: pointer;
@@ -5880,11 +5895,11 @@ html.dark-mode .usage-table-show-less:hover {
     justify-content: center;
 }
 
-.dashboard-section-files .directory-contents .path-action-btn:hover {
+.dashboard-section-files .header .path-action-btn:hover {
     background: #e8e8e8;
 }
 
-.dashboard-section-files .directory-contents .path .dirname {
+.dashboard-section-files .header .path .dirname {
     height: auto;
     font-weight: 400;
     -webkit-font-smoothing: subpixel-antialiased;
@@ -5892,11 +5907,24 @@ html.dark-mode .usage-table-show-less:hover {
     cursor: pointer;
 }
 
+.dashboard-section-files .header .columns {
+    display: grid;
+    height: 32px;
+    padding: 0 10px;
+    grid-template-columns: 24px auto 100px 100px 20px;
+    align-items: center;
+    gap: 10px;
+    margin: 1px 2px;
+    color: #666;
+    border-bottom: 1px solid #e0e0e0;
+    font-size: 12px;
+}
+
 .dashboard-section-files .files {
     width: 100%;
+    height: calc(100vh - 94px);
     display: flex;
     flex-direction: column;
-    /* padding: 0px 20px; */
 }
 
 .row {
@@ -5908,25 +5936,16 @@ html.dark-mode .usage-table-show-less:hover {
     font-size: 13px;
     color: #444;
     gap: 10px;
+    margin: 1px 2px;
 }
 
 .row.folder {
     border: 1px solid transparent;
 }
 
-.row:nth-child(1) {
-    color: #666;
-    border-bottom: 1px solid #e0e0e0;
-    font-size: 12px;
-}
-
 .row:hover {
     background: #e8e8e8;
     border-radius: 3px;
-}
-
-.row:nth-child(1):hover {
-    background-color: inherit;
 }
 
 .row.selected {
@@ -5940,7 +5959,8 @@ html.dark-mode .usage-table-show-less:hover {
     height: 18px;
 }
 
-.row .item-icon {
+.row .item-icon,
+.dashboard-section-files .header .columns .item-icon {
     padding: inherit;
     height: 100%;
     width: 100%;
@@ -5948,11 +5968,11 @@ html.dark-mode .usage-table-show-less:hover {
     margin: 0;
 }
 
-.row .item-name {
+.row .item-name,
+.dashboard-section-files .header .columns .item-name {
     text-overflow: ellipsis;
     white-space: nowrap;
     overflow: hidden;
-
     max-width: unset;
     cursor: pointer;
     color: inherit;
@@ -5962,6 +5982,7 @@ html.dark-mode .usage-table-show-less:hover {
     font-size: inherit;
     font-weight: 500;
     word-break: inherit;
+    line-height: 32px;
 }
 
 .row textarea {
@@ -5973,6 +5994,20 @@ html.dark-mode .usage-table-show-less:hover {
     text-align: left;
     font-weight: inherit;
     display: none;
+}
+
+.row .item-size {
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    overflow: hidden;
+    line-height: 32px;
+}
+
+.row .item-modified {
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    overflow: hidden;
+    line-height: 32px;
 }
 
 .row .item-more {

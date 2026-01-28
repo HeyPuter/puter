@@ -332,6 +332,9 @@ const generate_file_context_menu = async function (options) {
             html: i18n('empty_trash'),
             onClick: async function () {
                 window.empty_trash();
+                setTimeout(() => {
+                    onRefresh();
+                }, 100);
             },
         });
     }
@@ -453,6 +456,9 @@ const generate_file_context_menu = async function (options) {
             onClick: async function () {
                 let metadata = $(el_item).attr('data-metadata') === '' ? {} : JSON.parse($(el_item).attr('data-metadata'));
                 window.move_items([el_item], path.dirname(metadata.original_path));
+                setTimeout(() => {
+                    onRefresh();
+                }, 100);
             },
         });
     }
@@ -536,6 +542,9 @@ const generate_file_context_menu = async function (options) {
                                 null, // appendTo - will be determined by create_shortcut
                                 fsentry.shortcut_to === '' ? fsentry.uid : fsentry.shortcut_to,
                                 fsentry.shortcut_to_path === '' ? fsentry.path : fsentry.shortcut_to_path);
+                setTimeout(() => {
+                    onRefresh();
+                }, 100);
             },
         });
     }
@@ -548,7 +557,9 @@ const generate_file_context_menu = async function (options) {
             html: i18n('delete'),
             onClick: async function () {
                 await window.move_items([el_item], window.trash_path);
-                onRefresh();
+                setTimeout(() => {
+                    onRefresh();
+                }, 100);
             },
         });
     }
@@ -586,7 +597,9 @@ const generate_file_context_menu = async function (options) {
                         $(`.item[data-path="${window.trash_path}" i], .item[data-shortcut_to_path="${window.trash_path}" i]`).find('.item-icon > img').attr('src', window.icons['trash.svg']);
                         $(`.window[data-path="${window.trash_path}"]`).find('.window-head-icon').attr('src', window.icons['trash.svg']);
                     }
-                    onRefresh();
+                    setTimeout(() => {
+                        onRefresh();
+                    }, 100);
                 }
             },
         });
