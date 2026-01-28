@@ -4,6 +4,7 @@ import { NodeHttpHandler } from '@smithy/node-http-handler';
 import dynalite from 'dynalite';
 import { once } from 'node:events';
 import { Agent as httpsAgent } from 'node:https';
+import { Span } from '../../util/otelutil';
 
 interface DBClientConfig {
     aws?: {
@@ -81,8 +82,9 @@ export class DDBClient {
         });
     }
 
+    @Span('ddb:get')
     async get <T extends Record<string, unknown>>(table: string, key: T, consistentRead = false) {
-
+        console.log(`Calling get on db with client config: ${JSON.stringify(this.#documentClient.config)}`);
         const command = new GetCommand({
             TableName: table,
             Key: key,
@@ -95,6 +97,7 @@ export class DDBClient {
         return response;
     }
 
+    @Span('ddb:put')
     async put <T extends Record<string, unknown>>(table: string, item: T) {
         const command = new PutCommand({
             TableName: table,
@@ -106,7 +109,9 @@ export class DDBClient {
         return response;
     }
 
+    @Span('ddb:batchGet')
     async batchGet (params: { table: string, items: Record<string, unknown> }[], consistentRead = false) {
+        console.log(`Calling batchGet on db with client config: ${JSON.stringify(this.#documentClient.config)}`);
         // TODO DS: implement chunking for more than 100 items or more than allowed req size
         const allRequestItemsPerTable = params.reduce((acc, curr) => {
             if ( ! acc[curr.table] ) acc[curr.table] = [];
@@ -132,6 +137,7 @@ export class DDBClient {
         return this.#documentClient.send(command);
     }
 
+    @Span('ddb:del')
     async del<T extends Record<string, unknown>> (table: string, key: T) {
         const command = new DeleteCommand({
             TableName: table,
@@ -142,6 +148,7 @@ export class DDBClient {
         return this.#documentClient.send(command);
     }
 
+    @Span('ddb:query')
     async query<T extends Record<string, unknown>> (
         table: string,
         keys: T,
@@ -187,6 +194,7 @@ export class DDBClient {
         return await this.#documentClient.send(command);
     }
 
+    @Span('ddb:update')
     async update<T extends Record<string, unknown>> (
         table: string,
         key: T,
