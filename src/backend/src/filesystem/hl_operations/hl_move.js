@@ -24,6 +24,7 @@ const { HLFilesystemOperation } = require('./definitions');
 const { MkTree } = require('./hl_mkdir');
 const { HLRemove } = require('./hl_remove');
 const { TYPE_DIRECTORY } = require('../FSNodeContext');
+const { v4: uuidv4 } = require('uuid');
 
 class HLMove extends HLFilesystemOperation {
     static MODULES = {
@@ -148,6 +149,9 @@ class HLMove extends HLFilesystemOperation {
         }
 
         let overwritten;
+        let destinationBackupNode = null;
+        let temporaryBackupName = null;
+
         if ( await dest.exists() ) {
             if ( !values.overwrite && !values.dedupe_name ) {
                 throw APIError.create('item_with_same_name_exists', null, {
@@ -171,10 +175,34 @@ class HLMove extends HLFilesystemOperation {
             }
             else if ( values.overwrite ) {
                 overwritten = await dest.getSafeEntry();
-                const hl_remove = new HLRemove();
-                await hl_remove.run({
-                    target: dest,
+
+                // Check if destination is immutable before attempting replacement
+                if ( dest.entry.immutable ) {
+                    throw APIError.create('immutable');
+                }
+
+                // Atomic replacement strategy to prevent data loss:
+                // 1. Rename destination file to a temporary name (backup)
+                // 2. Move source file to the destination
+                // 3. On success: delete the backup file
+                // 4. On failure: rename the backup file back to original name
+                //
+                // This ensures that at least one valid file always exists:
+                // - If step 1 fails: both files remain intact
+                // - If step 2 fails: source file is intact, backup is restored
+                // - If step 3 fails: operation succeeded, backup cleanup is best-effort
+
+                const destinationName = await dest.get('name');
+                temporaryBackupName = `.puter_backup_${uuidv4()}_${destinationName}`;
+
+                // Step 1: Rename destination to temporary backup name
+                const backupMoveOperation = new LLMove();
+                destinationBackupNode = await backupMoveOperation.run({
+                    source: dest,
+                    parent,
+                    target_name: temporaryBackupName,
                     user: values.user,
+                    metadata: await dest.get('metadata'),
                 });
             }
             else {
@@ -184,14 +212,78 @@ class HLMove extends HLFilesystemOperation {
 
         const old_path = await source.get('path');
 
-        const ll_move = new LLMove();
-        const source_new = await ll_move.run({
-            source,
-            parent,
-            target_name,
-            user: values.user,
-            metadata: metadata,
-        });
+        let source_new;
+        try {
+            // Step 2: Move source file to destination
+            const ll_move = new LLMove();
+            source_new = await ll_move.run({
+                source,
+                parent,
+                target_name,
+                user: values.user,
+                metadata: metadata,
+            });
+        } catch ( moveError ) {
+            // Step 4 (failure path): Restore the backup if we created one
+            if ( destinationBackupNode && temporaryBackupName ) {
+                let restoreSucceeded = false;
+                try {
+                    const restoreMoveOperation = new LLMove();
+                    await restoreMoveOperation.run({
+                        source: destinationBackupNode,
+                        parent,
+                        target_name: target_name,
+                        user: values.user,
+                        metadata: await destinationBackupNode.get('metadata'),
+                    });
+                    restoreSucceeded = true;
+                } catch ( restoreError ) {
+                    // Restore failed - the backup file still exists with the temporary name.
+                    // This is a critical failure: the destination is gone and we couldn't restore it.
+                    // The backup file remains with the temporary name for manual recovery.
+                    this.log?.error?.('Failed to restore destination backup after move failure', {
+                        original_error: moveError.message,
+                        restore_error: restoreError.message,
+                        backup_name: temporaryBackupName,
+                        parent_path: parent.path,
+                    });
+
+                    // Wrap the original error with additional context about the backup file
+                    const errorMessage =
+                        `Move failed and restore failed. Backup file "${temporaryBackupName}" ` +
+                        `may remain in the folder. Original error: ${moveError.message}`;
+                    const enhancedError = new Error(errorMessage);
+                    enhancedError.originalError = moveError;
+                    enhancedError.restoreError = restoreError;
+                    enhancedError.backupFileName = temporaryBackupName;
+                    throw enhancedError;
+                }
+
+                // Restore succeeded - folder is back to original state
+                if ( restoreSucceeded ) {
+                    throw moveError;
+                }
+            }
+            throw moveError;
+        }
+
+        // Step 3: Delete the backup file (best-effort cleanup)
+        if ( destinationBackupNode ) {
+            try {
+                const hl_remove = new HLRemove();
+                await hl_remove.run({
+                    target: destinationBackupNode,
+                    user: values.user,
+                });
+            } catch ( cleanupError ) {
+                // Log cleanup failure but don't fail the operation
+                // The move succeeded, so the backup can be cleaned up later
+                this.log?.warn?.('Failed to clean up destination backup after successful move', {
+                    error: cleanupError.message,
+                    backup_name: temporaryBackupName,
+                });
+            }
+        }
 
         await source_new.awaitStableEntry();
         await source_new.fetchSuggestedApps();
