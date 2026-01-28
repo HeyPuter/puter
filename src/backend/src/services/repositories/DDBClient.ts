@@ -4,7 +4,7 @@ import { NodeHttpHandler } from '@smithy/node-http-handler';
 import dynalite from 'dynalite';
 import { once } from 'node:events';
 import { Agent as httpsAgent } from 'node:https';
-import { Span } from '../../util/otelutil';
+import { Span } from '../../util/otelutil.js';
 
 interface DBClientConfig {
     aws?: {

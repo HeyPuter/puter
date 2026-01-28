@@ -21,9 +21,11 @@
 // to create spans correctly. The path of least resistance should
 // be the correct path, not a way to shoot yourself in the foot.
 
-const { context, trace, SpanStatusCode } = require('@opentelemetry/api');
-const { Context } = require('./context');
-const { TeePromise } = require('@heyputer/putility').libs.promise;
+import { context, trace, SpanStatusCode } from '@opentelemetry/api';
+import { Context } from './context';
+import { libs } from '@heyputer/putility';
+
+const { TeePromise } = libs.promise;
 
 /*
 parallel span example from GPT-4:
@@ -43,7 +45,7 @@ promises.push(tracer.startActiveSpan(`job:${job.id}`, (span) => {
 */
 
 /** @type {<T extends Function>(label:string, fn:T, tracer?: unknown)=> T} */
-const spanify = (label, fn, tracer) => async function (...args) {
+export const spanify = (label, fn, tracer) => async function (...args) {
     const context = Context.get();
     if ( ! context ) {
         // We don't use the proper logger here because we would normally
@@ -62,13 +64,13 @@ const spanify = (label, fn, tracer) => async function (...args) {
 };
 
 /** @type {(label: string, tracer?: unknown) => MethodDecorator} */
-const Span = (label, tracer) => (_target, _propertyKey, descriptor) => {
+export const Span = (label, tracer) => (_target, _propertyKey, descriptor) => {
     if ( !descriptor || typeof descriptor.value !== 'function' ) return descriptor;
     descriptor.value = spanify(label, descriptor.value, tracer);
     return descriptor;
 };
 
-const abtest = async (label, impls) => {
+export const abtest = async (label, impls) => {
     const context = Context.get();
     if ( ! context ) {
         // We don't use the proper logger here because we would normally
@@ -91,7 +93,7 @@ const abtest = async (label, impls) => {
     return result;
 };
 
-class ParallelTasks {
+export class ParallelTasks {
     constructor ({ tracer, max } = {}) {
         this.tracer = tracer;
         this.max = max ?? Infinity;
@@ -155,10 +157,3 @@ class ParallelTasks {
         }
     }
 }
-
-module.exports = {
-    ParallelTasks,
-    spanify,
-    Span,
-    abtest,
-};
