@@ -56,6 +56,7 @@ const readdir = async function (...args) {
             uid: options.uid,
             no_thumbs: options.no_thumbs,
             no_assocs: options.no_assocs,
+            no_subdomains: options.no_subdomains,
             consistency: options.consistency,
         });
 
@@ -124,6 +125,7 @@ const readdir = async function (...args) {
             const payload = {
                 no_thumbs: options.no_thumbs,
                 no_assocs: options.no_assocs,
+                no_subdomains: options.no_subdomains,
                 auth_token: this.authToken,
             };
 

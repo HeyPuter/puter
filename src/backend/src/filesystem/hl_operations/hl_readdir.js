@@ -39,7 +39,7 @@ class HLReadDir extends HLFilesystemOperation {
         });
     }
     async __run () {
-        const { subject: subject_let, user, no_thumbs, no_assocs, actor } = this.values;
+        const { subject: subject_let, user, no_thumbs, no_assocs, no_subdomains, actor } = this.values;
         let subject = subject_let;
 
         if ( ! await subject.exists() ) {
@@ -120,10 +120,11 @@ class HLReadDir extends HLFilesystemOperation {
         }
 
         if ( ! no_assocs ) {
-            await Promise.all([
-                this.#batchFetchSuggestedApps(children, user),
-                this.#batchFetchSubdomains(children, user),
-            ]);
+            await this.#batchFetchSuggestedApps(children, user);
+        }
+
+        if ( ! no_subdomains ) {
+            await this.#batchFetchSubdomains(children, user);
         }
 
         return Promise.all(children.map(async child => {

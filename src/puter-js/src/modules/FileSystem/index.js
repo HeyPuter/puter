@@ -13,6 +13,7 @@ import mkdir from './operations/mkdir.js';
 import move from './operations/move.js';
 import read from './operations/read.js';
 import readdir from './operations/readdir.js';
+import readdirSubdomains from './operations/readdirSubdomains.js';
 import rename from './operations/rename.js';
 import sign from './operations/sign.js';
 import space from './operations/space.js';
@@ -41,6 +42,7 @@ export class PuterJSFileSystemModule {
     symlink = symlink;
     getReadURL = getReadURL;
     readdir = readdir;
+    readdirSubdomains = readdirSubdomains;
     stat = stat;
 
     FSItem = FSItem;
