@@ -19,6 +19,7 @@
 
 /* eslint-disable no-invalid-this */
 /* eslint-disable @stylistic/quotes */
+import path from '../../lib/path.js';
 import open_item from '../../helpers/open_item.js';
 import UIContextMenu from '../UIContextMenu.js';
 import UIWindowProgress from '../UIWindowProgress.js';
@@ -52,19 +53,25 @@ const TabFiles = {
                 </form>
                 <div class="directories">
                     <ul>
-                        <li data-folder="Desktop">${icons.folder} <span>Desktop</span></li>
-                        <li data-folder="Documents">${icons.folder} <span>Documents</span></li>
-                        <li data-folder="Pictures">${icons.folder} <span>Pictures</span></li>
-                        <li data-folder="Videos">${icons.folder} <span>Videos</span></li>
-                        <li data-folder="Trash">${icons.folder} <span>Trash</span></li>
+                        <li data-folder="Desktop"><img src="${html_encode(window.icons['folder-desktop.svg'])}"/> <span>Desktop</span></li>
+                        <li data-folder="Documents"><img src="${html_encode(window.icons['folder-documents.svg'])}"/> <span>Documents</span></li>
+                        <li data-folder="Pictures"><img src="${html_encode(window.icons['folder-pictures.svg'])}"/> <span>Pictures</span></li>
+                        <li data-folder="Public"><img src="${html_encode(window.icons['folder-public.svg'])}"/> <span>Public</span></li>
+                        <li data-folder="Videos"><img src="${html_encode(window.icons['folder-videos.svg'])}"/> <span>Videos</span></li>
+                        <li data-folder="Trash"><img src="${html_encode(window.icons['trash.svg'])}"/> <span>Trash</span></li>
                     </ul>
                 </div>
                 <div class="directory-contents">
                     <div class="header">
                         <div class="path">
+                            <div class="path-nav-buttons">
+                                <img draggable="false" class="path-btn path-btn-back path-btn-disabled" src="${html_encode(window.icons['arrow-left.svg'])}" title="${i18n('window_click_to_go_back')}">
+                                <img draggable="false" class="path-btn path-btn-forward path-btn-disabled" src="${html_encode(window.icons['arrow-right.svg'])}" title="${i18n('window_click_to_go_forward')}">
+                                <img draggable="false" class="path-btn path-btn-up path-btn-disabled" src="${html_encode(window.icons['arrow-up.svg'])}" title="${i18n('window_click_to_go_up')}">
+                            </div>
                             <div class="path-breadcrumbs"></div>
                             <div class="path-actions">
-                                <button class="path-action-btn view-toggle-btn" title="Toggle view">${icons.grid}</button>
+                                <button class="path-action-btn view-toggle-btn" title="Toggle view"><img src="${icons.grid}/></button>
                                 <button class="path-action-btn new-folder-btn" title="${i18n('new_folder')}">${icons.newFolder}</button>
                                 <button class="path-action-btn upload-btn" title="${i18n('upload')}">${icons.upload}</button>
                             </div>
@@ -103,9 +110,10 @@ const TabFiles = {
             folderElement.onclick = () => {
                 const folderName = folderElement.getAttribute('data-folder');
                 const directories = Object.keys(window.user.directories);
-                const path = directories.find(f => f.endsWith(folderName));
-                _this.renderDirectory(window.user.directories[path]);
-                _this.selectedFolderUid = window.user.directories[path];
+                const folderPath = directories.find(f => f.endsWith(folderName));
+                _this.pushNavHistory(folderPath);
+                _this.renderDirectory(window.user.directories[folderPath]);
+                _this.selectedFolderUid = window.user.directories[folderPath];
                 _this.selectFolder(folderElement);
             };
 
@@ -221,6 +229,101 @@ const TabFiles = {
         const _this = this;
         const fileInput = document.querySelector('#upload-file-dialog');
 
+        const el_window_navbar_back_btn = document.querySelector(`.path-btn-back`);
+        const el_window_navbar_forward_btn = document.querySelector(`.path-btn-forward`);
+        const el_window_navbar_up_btn = document.querySelector(`.path-btn-up`);
+
+        // Back button
+        $(el_window_navbar_back_btn).on('click', function (e) {
+            // if history menu is open don't continue
+            if ( $(el_window_navbar_back_btn).hasClass('has-open-contextmenu') ) {
+                return;
+            }
+            if ( window.dashboard_nav_history_current_position > 0 ) {
+                window.dashboard_nav_history_current_position--;
+                const new_path = window.dashboard_nav_history[window.dashboard_nav_history_current_position];
+                _this.renderDirectory(new_path);
+            }
+        });
+
+        // Back button (hold click)
+        $(el_window_navbar_back_btn).on('taphold', function () {
+            let items = [];
+            const pos = el_window_navbar_back_btn.getBoundingClientRect();
+
+            for ( let index = window.dashboard_nav_history_current_position - 1; index >= 0; index-- ) {
+                const history_item = window.dashboard_nav_history[index];
+
+                items.push({
+                    html: `<span>${history_item === window.home_path ? i18n('home') : path.basename(history_item)}</span>`,
+                    val: index,
+                    onClick: function (e) {
+                        window.dashboard_nav_history_current_position = e.value;
+                        const new_path = window.dashboard_nav_history[window.dashboard_nav_history_current_position];
+                        _this.renderDirectory(new_path);
+                    },
+                });
+            }
+
+            if ( items.length > 0 ) {
+                UIContextMenu({
+                    position: { top: pos.top + pos.height + 3, left: pos.left },
+                    parent_element: el_window_navbar_back_btn,
+                    items: items,
+                });
+            }
+        });
+
+        // Forward button
+        $(el_window_navbar_forward_btn).on('click', function (e) {
+            // if history menu is open don't continue
+            if ( $(el_window_navbar_forward_btn).hasClass('has-open-contextmenu') ) {
+                return;
+            }
+            if ( window.dashboard_nav_history_current_position < window.dashboard_nav_history.length - 1 ) {
+                window.dashboard_nav_history_current_position++;
+                const target_path = window.dashboard_nav_history[window.dashboard_nav_history_current_position];
+                _this.renderDirectory(target_path);
+            }
+        });
+
+        // Forward button (hold click)
+        $(el_window_navbar_forward_btn).on('taphold', function () {
+            let items = [];
+            const pos = el_window_navbar_forward_btn.getBoundingClientRect();
+
+            for ( let index = window.dashboard_nav_history_current_position + 1; index < window.dashboard_nav_history.length; index++ ) {
+                const history_item = window.dashboard_nav_history[index];
+
+                items.push({
+                    html: `<span>${history_item === window.home_path ? i18n('home') : path.basename(history_item)}</span>`,
+                    val: index,
+                    onClick: function (e) {
+                        window.dashboard_nav_history_current_position = e.value;
+                        const new_path = window.dashboard_nav_history[window.dashboard_nav_history_current_position];
+                        _this.renderDirectory(new_path);
+                    },
+                });
+            }
+
+            if ( items.length > 0 ) {
+                UIContextMenu({
+                    parent_element: el_window_navbar_forward_btn,
+                    position: { top: pos.top + pos.height + 3, left: pos.left },
+                    items: items,
+                });
+            }
+        });
+
+        // Up button
+        $(el_window_navbar_up_btn).on('click', function (e) {
+            if ( _this.currentPath === '/' ) return;
+
+            const target_path = path.resolve(path.join(_this.currentPath, '..'));
+            _this.pushNavHistory(target_path);
+            _this.renderDirectory(target_path);
+        });
+
         // New folder button
         document.querySelector('.new-folder-btn').onclick = async () => {
             if ( ! _this.currentPath ) return;
@@ -242,6 +345,7 @@ const TabFiles = {
             }
         };
 
+        // Upload input element
         fileInput.onchange = async (e) => {
             const files = e.target.files;
             if ( !files || files.length === 0 ) return;
@@ -324,6 +428,7 @@ const TabFiles = {
             });
         };
 
+        // Upload button
         document.querySelector('.upload-btn').onclick = async () => {
             if ( ! this.currentPath ) return;
             fileInput.click();
@@ -396,7 +501,9 @@ const TabFiles = {
         $('.path-breadcrumbs').html(this.renderPath(this.currentPath, window.user.username));
         $('.path-breadcrumbs .dirname').each(function () {
             this.onclick = () => {
-                _this.renderDirectory(this.getAttribute("data-path"));
+                const clickedPath = this.getAttribute("data-path");
+                _this.pushNavHistory(clickedPath);
+                _this.renderDirectory(clickedPath);
             };
         });
 
@@ -413,6 +520,7 @@ const TabFiles = {
                 <div class="item-more"></div>
             `);
             this.updateFooterStats();
+            this.updateNavButtonStates();
             return;
         }
 
@@ -423,6 +531,9 @@ const TabFiles = {
 
         // Update footer with directory stats
         this.updateFooterStats();
+
+        // Update nav button states
+        this.updateNavButtonStates();
     },
 
     renderItem (file) {
@@ -566,7 +677,8 @@ const TabFiles = {
             //     return;
             // }
             if ( isFolder === "1" ) {
-                this.renderDirectory(file.path);
+                _this.pushNavHistory(file.path);
+                _this.renderDirectory(file.path);
             } else {
                 open_item({ item: el_item });
             }
@@ -649,7 +761,7 @@ const TabFiles = {
                 e.preventDefault();
                 rename_cancelled = true;
                 $(el_item_name_editor).hide();
-                $(el_item_name_editor).val(options.name);
+                $(el_item_name_editor).val(file.name);
                 $(el_item_name).show();
             }
         });
@@ -868,6 +980,46 @@ const TabFiles = {
         }
         window.user_preferences.files_view = this.currentView;
         localStorage.setItem('user_preferences', JSON.stringify(window.user_preferences));
+    },
+
+    initNavHistory (initialPath) {
+        window.dashboard_nav_history = [initialPath];
+        window.dashboard_nav_history_current_position = 0;
+        this.updateNavButtonStates();
+    },
+
+    pushNavHistory (newPath) {
+        // Truncate forward history when navigating to new location
+        window.dashboard_nav_history = window.dashboard_nav_history.slice(0, window.dashboard_nav_history_current_position + 1);
+        window.dashboard_nav_history.push(newPath);
+        window.dashboard_nav_history_current_position++;
+        this.updateNavButtonStates();
+    },
+
+    updateNavButtonStates () {
+        if ( ! this.$el_window ) return;
+
+        const backBtn = this.$el_window.find('.path-btn-back');
+        const forwardBtn = this.$el_window.find('.path-btn-forward');
+        const upBtn = this.$el_window.find('.path-btn-up');
+
+        if ( window.dashboard_nav_history_current_position === 0 ) {
+            backBtn.addClass('path-btn-disabled');
+        } else {
+            backBtn.removeClass('path-btn-disabled');
+        }
+
+        if ( window.dashboard_nav_history_current_position >= window.dashboard_nav_history.length - 1 ) {
+            forwardBtn.addClass('path-btn-disabled');
+        } else {
+            forwardBtn.removeClass('path-btn-disabled');
+        }
+
+        if ( this.currentPath === '/' ) {
+            upBtn.addClass('path-btn-disabled');
+        } else {
+            upBtn.removeClass('path-btn-disabled');
+        }
     },
 
     async handleMoreClick (rowElement, file) {

@@ -114,6 +114,13 @@ pre {
     --select-saturation: 74.22%;
     --select-lightness: 55.88%;
     --select-color: hsl(var(--select-hue), var(--select-saturation), var(--select-lightness));
+
+    --dashboard-text: #444;
+    --dashboard-border: #e0e0e0;
+    --dashboard-background: #ffffff;
+    --dashboard-hover: #e8e8e8;
+    --dashboard-icon: #999;
+    --dashboard-sidebar-background: #f5f5f5;
 }
 
 html, body {
@@ -5844,6 +5851,11 @@ html.dark-mode .usage-table-show-less:hover {
     font-weight: 500;
 }
 
+.dashboard-section-files .directories li img {
+    width: 28px;
+    height: auto;
+}
+
 .dashboard-section-files .directory-contents {
     width: calc(100% - 160px);
     min-height: 100vh;
@@ -5863,9 +5875,30 @@ html.dark-mode .usage-table-show-less:hover {
     height: 47px;
     display: flex;
     align-items: center;
-    justify-content: space-between;
+    justify-content: flex-start;
     padding: 10px 12px;
     border-bottom: 1px solid #e0e0e0;
+}
+.path-nav-buttons {
+    padding: 4px 10px 4px 0px;
+    display: flex;
+    justify-content: center;
+    align-items: center;
+    gap: 10px;
+    margin-right: 5px;
+    border-right: 1px dotted #e0e0e0;
+}
+
+.path-btn {
+    opacity: 0.4;
+    width: 28px;
+    cursor: pointer;
+    border-radius: 5px;
+    padding: 4px;
+}
+
+.path-btn:hover {
+    background: #e8e8e8;
 }
 
 .dashboard-section-files .header .path-breadcrumbs {
@@ -5881,6 +5914,7 @@ html.dark-mode .usage-table-show-less:hover {
 .dashboard-section-files .header .path-actions {
     display: flex;
     gap: 10px;
+    margin-left: auto;
 }
 
 .dashboard-section-files .header .path-action-btn {
@@ -5889,14 +5923,19 @@ html.dark-mode .usage-table-show-less:hover {
     cursor: pointer;
     padding: 4px;
     border-radius: 4px;
-    color: #666;
+    color: var(--dashboard-icon);
     display: flex;
     align-items: center;
     justify-content: center;
 }
 
 .dashboard-section-files .header .path-action-btn:hover {
-    background: #e8e8e8;
+    background: var(--dashboard-hover);
+}
+
+.dashboard-section-files .header .path-btn-disabled {
+    opacity: 0.1;
+    pointer-events: none;
 }
 
 .dashboard-section-files .header .path-action-btn svg {
