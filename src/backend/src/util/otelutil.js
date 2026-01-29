@@ -22,7 +22,6 @@
 // be the correct path, not a way to shoot yourself in the foot.
 
 import { context, trace, SpanStatusCode } from '@opentelemetry/api';
-import { Context } from './context.js';
 import { TeePromise } from '@heyputer/putility/src/libs/promise.js';
 
 /*
@@ -42,53 +41,57 @@ promises.push(tracer.startActiveSpan(`job:${job.id}`, (span) => {
 }));
 */
 
-/** @type {<T extends Function>(label:string, fn:T, tracer?: unknown)=> T} */
-export const spanify = (label, fn, tracer) => async function (...args) {
-    const context = Context.get();
-    if ( ! context ) {
-        // We don't use the proper logger here because we would normally
-        // be getting it from context
-        console.error('spanify failed', new Error('missing context'));
+export const DEFAULT_TRACER_NAME = 'puter-tracer';
+
+export const getTracer = (name = DEFAULT_TRACER_NAME) =>
+    trace.getTracer(name ?? DEFAULT_TRACER_NAME);
+
+const resolveTracer = (tracer, name) =>
+    tracer ?? getTracer(name ?? DEFAULT_TRACER_NAME);
+
+/** @type {<T extends Function>(label:string, fn:T, options?: object | unknown, tracer?: unknown)=> T} */
+export const spanify = (label, fn, options, tracer) => async function (...args) {
+    if ( options && typeof options.startActiveSpan === 'function' && !tracer ) {
+        tracer = options;
+        options = undefined;
     }
 
-    tracer = tracer ?? context?.get('services')?.get('traceService')?.tracer;
-    if ( ! tracer ) {
-        console.error('spanify failed', new Error('missing tracer or services'));
-        // eslint-disable-next-line no-invalid-this
-        return await fn.apply(this, args);
-    }
+    const resolvedTracer = resolveTracer(tracer);
     let result;
-    return await tracer.startActiveSpan(label, async span => {
+    const spanArgs = [label];
+    if ( options !== null && typeof options === 'object' ) {
+        spanArgs.push(options);
+    }
+    spanArgs.push(async span => {
         try {
-        // eslint-disable-next-line no-invalid-this
+            // eslint-disable-next-line no-invalid-this
             result = await fn.apply(this, args);
             span.setStatus({ code: SpanStatusCode.OK });
             return result;
         } catch (e) {
             span.recordException(e);
             span.setStatus({ code: SpanStatusCode.ERROR, message: e.message });
+            throw e;
         } finally {
             span.end();
         }
     });
+    return await resolvedTracer.startActiveSpan(...spanArgs);
 };
 
-/** @type {(label: string, tracer?: unknown) => MethodDecorator} */
-export const Span = (label, tracer) => (_target, _propertyKey, descriptor) => {
+/** @type {<T extends Function>(label:string, fn:T, options?: object | unknown, tracer?: unknown)=> ReturnType<T>} */
+export const span = async (label, fn, options, tracer) =>
+    await spanify(label, fn, options, tracer)();
+
+/** @type {(label: string, options?: object | unknown, tracer?: unknown) => MethodDecorator} */
+export const Span = (label, options, tracer) => (_target, _propertyKey, descriptor) => {
     if ( !descriptor || typeof descriptor.value !== 'function' ) return descriptor;
-    descriptor.value = spanify(label, descriptor.value, tracer);
+    descriptor.value = spanify(label, descriptor.value, options, tracer);
     return descriptor;
 };
 
 export const abtest = async (label, impls) => {
-    const context = Context.get();
-    if ( ! context ) {
-        // We don't use the proper logger here because we would normally
-        // be getting it from context
-        console.error('abtest failed', new Error('missing context'));
-    }
-
-    const tracer = context.get('services').get('traceService').tracer;
+    const tracer = getTracer();
     let result;
     const impl_keys = Object.keys(impls);
     const impl_i = Math.floor(Math.random() * impl_keys.length);
@@ -105,7 +108,7 @@ export const abtest = async (label, impls) => {
 
 export class ParallelTasks {
     constructor ({ tracer, max } = {}) {
-        this.tracer = tracer;
+        this.tracer = tracer ?? getTracer();
         this.max = max ?? Infinity;
         this.promises = [];
 

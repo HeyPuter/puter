@@ -25,6 +25,7 @@ const { PermissionUtil } = require('../auth/permissionUtils.mjs');
 const { Invoker } = require('../../../../putility/src/libs/invoker');
 const { get_user } = require('../../helpers');
 const { AdvancedBase } = require('@heyputer/putility');
+const { span } = require('../../util/otelutil');
 
 const strutil = require('@heyputer/putility').libs.string;
 
@@ -345,9 +346,7 @@ class DriverService extends BaseService {
 
         svc_event.emit('driver.create-call-context', event);
 
-        const svc_trace = this.services.get('traceService');
-
-        return await svc_trace.spanify(`driver:${driver}:${iface}:${method}`, async () => {
+        return await span(`driver:${driver}:${iface}:${method}`, async () => {
             return event.context.arun(async () => {
                 const result = await this.call_new_({
                     actor,

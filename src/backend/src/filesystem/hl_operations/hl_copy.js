@@ -24,6 +24,7 @@ const { HLFilesystemOperation } = require('./definitions');
 const { MkTree } = require('./hl_mkdir');
 const { HLRemove } = require('./hl_remove');
 const { LLCopy } = require('../ll_operations/ll_copy');
+const { getTracer } = require('../../util/otelutil');
 
 class HLCopy extends HLFilesystemOperation {
     static DESCRIPTION = `
@@ -129,7 +130,7 @@ class HLCopy extends HLFilesystemOperation {
         }
 
         // NEXT: implement _verify_room with profiling
-        const tracer = svc.get('traceService').tracer;
+        const tracer = getTracer();
         await tracer.startActiveSpan('fs:cp:verify-size-constraints', async span => {
             const source_file = source.entry;
             const dest_fsentry = parent.entry;

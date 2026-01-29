@@ -21,6 +21,7 @@ const eggspress = require('../../api/eggspress.js');
 const FSNodeParam = require('../../api/filesystem/FSNodeParam.js');
 const { HLMove } = require('../../filesystem/hl_operations/hl_move.js');
 const { Context } = require('../../util/context.js');
+const { getTracer } = require('../../util/otelutil.js');
 
 // -----------------------------------------------------------------------//
 // POST /move
@@ -57,7 +58,7 @@ module.exports = eggspress('/move', {
         x.set(operationTraceSvc.ckey('frame'), frame);
     }
 
-    const tracer = req.services.get('traceService').tracer;
+    const tracer = getTracer();
     await tracer.startActiveSpan('filesystem_api.move', async span => {
         const hl_move = new HLMove();
         const response = await hl_move.run({

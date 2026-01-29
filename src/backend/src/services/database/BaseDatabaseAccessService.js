@@ -16,8 +16,10 @@
  * You should have received a copy of the GNU Affero General Public License
  * along with this program.  If not, see <https://www.gnu.org/licenses/>.
  */
+const { trace } = require('@opentelemetry/api');
 const BaseService = require('../BaseService');
 const { DB_WRITE, DB_READ } = require('./consts');
+const { spanify } = require('../../util/otelutil');
 
 /**
 * BaseDatabaseAccessService class extends BaseService to provide
@@ -28,9 +30,15 @@ const { DB_WRITE, DB_READ } = require('./consts');
 class BaseDatabaseAccessService extends BaseService {
     static DB_WRITE = DB_WRITE;
     static DB_READ = DB_READ;
+    _setDbSpanAttributes (query) {
+        const activeSpan = trace.getActiveSpan();
+        if ( ! activeSpan ) return;
+        activeSpan.setAttribute('query', query);
+        activeSpan.setAttribute('trace', (new Error()).stack);
+    }
     case ( choices ) {
         const engine_name = this.constructor.ENGINE_NAME;
-        if ( choices.hasOwnProperty(engine_name) ) {
+        if ( Object.prototype.hasOwnProperty.call(choices, engine_name) ) {
             return choices[engine_name];
         }
         return choices.otherwise;
@@ -54,13 +62,11 @@ class BaseDatabaseAccessService extends BaseService {
         return this;
     }
 
-    async read (query, params) {
-        const svc_trace = this.services.get('traceService');
-        return await svc_trace.spanify('database:read', async () => {
-            if ( this.config.slow ) await new Promise(rslv => setTimeout(rslv, 70));
-            return await this._read(query, params);
-        }, { attributes: { query, trace: (new Error()).stack } });
-    }
+    read = spanify('database:read', async (query, params) => {
+        this._setDbSpanAttributes(query);
+        if ( this.config.slow ) await new Promise(rslv => setTimeout(rslv, 70));
+        return await this._read(query, params);
+    });
 
     /**
      * requireRead will fallback to the primary database
@@ -95,21 +101,17 @@ class BaseDatabaseAccessService extends BaseService {
         return results;
     }
 
-    async pread (query, params) {
+    pread = spanify('database:pread', async (query, params) => {
+        this._setDbSpanAttributes(query);
         if ( this.config.slow ) await new Promise(rslv => setTimeout(rslv, 70));
-        const svc_trace = this.services.get('traceService');
-        return await svc_trace.spanify('database:pread', async () => {
-            return await this._read(query, params, { use_primary: true });
-        }, { attributes: { query, trace: (new Error()).stack } });
-    }
+        return await this._read(query, params, { use_primary: true });
+    });
 
-    async write (query, params) {
+    write = spanify('database:write', async (query, params) => {
+        this._setDbSpanAttributes(query);
         if ( this.config.slow ) await new Promise(rslv => setTimeout(rslv, 70));
-        const svc_trace = this.services.get('traceService');
-        return await svc_trace.spanify('database:write', async () => {
-            return await this._write(query, params);
-        }, { attributes: { query, trace: (new Error()).stack } });
-    }
+        return await this._write(query, params);
+    });
 
     async insert (table_name, data) {
         const values = Object.values(data);

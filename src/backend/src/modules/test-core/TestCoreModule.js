@@ -10,7 +10,6 @@ import { DetailProviderService } from '../../services/DetailProviderService.js';
 import { EventService } from '../../services/EventService.js';
 import { FeatureFlagService } from '../../services/FeatureFlagService.js';
 import { GetUserService } from '../../services/GetUserService.js';
-import { InformationService } from '../../services/information/InformationService.js';
 import { MeteringServiceWrapper } from '../../services/MeteringService/MeteringServiceWrapper.mjs';
 import { NotificationService } from '../../services/NotificationService';
 import { RegistrantService } from '../../services/RegistrantService';
@@ -21,7 +20,6 @@ import { ScriptService } from '../../services/ScriptService';
 import { SessionService } from '../../services/SessionService';
 import { SUService } from '../../services/SUService';
 import { SystemValidationService } from '../../services/SystemValidationService';
-import { TraceService } from '../../services/TraceService';
 import { AlarmService } from '../core/AlarmService';
 import APIErrorService from '../web/APIErrorService';
 
@@ -32,7 +30,6 @@ export class TestCoreModule {
         services.registerService('whoami', DetailProviderService);
         services.registerService('get-user', GetUserService);
         services.registerService('database', SqliteDatabaseAccessService);
-        services.registerService('traceService', TraceService);
         services.registerService('su', SUService);
         services.registerService('alarm', AlarmService);
         services.registerService('event', EventService);
@@ -48,7 +45,6 @@ export class TestCoreModule {
         services.registerService('__registrant', RegistrantService);
         services.registerService('feature-flag', FeatureFlagService);
         services.registerService('token', TokenService);
-        services.registerService('information', InformationService);
         services.registerService('auth', AuthService);
         services.registerService('session', SessionService);
         services.registerService('notification', NotificationService);

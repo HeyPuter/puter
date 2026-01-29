@@ -17,6 +17,7 @@
  * along with this program.  If not, see <https://www.gnu.org/licenses/>.
  */
 const { Context } = require('../util/context');
+const { getTracer } = require('../util/otelutil');
 
 class OtelFeature {
     constructor (method_include_list) {
@@ -32,37 +33,10 @@ class OtelFeature {
 
                 const class_name = instance.constructor.name;
 
-                const tracer = context.get('services').get('traceService').tracer;
+                const tracer = getTracer();
                 let result;
                 await tracer.startActiveSpan(`${class_name}:${method_name}`, async span => {
                     result = await original_method.call(instance, ...args);
-                    span.end();
-                });
-                return result;
-            };
-        }
-    }
-}
-
-class SyncOtelFeature {
-    constructor (method_include_list) {
-        this.method_include_list = method_include_list;
-    }
-    install_in_instance (instance) {
-        for ( const method_name of this.method_include_list ) {
-            const original_method = instance[method_name];
-            instance[method_name] = (...args) => {
-                const context = Context.get();
-                if ( ! context ) {
-                    throw new Error('missing context');
-                }
-
-                const class_name = instance.constructor.name;
-
-                const tracer = context.get('services').get('traceService').tracer;
-                let result;
-                tracer.startActiveSpan(`${class_name}:${method_name}`, async span => {
-                    result = original_method.call(instance, ...args);
                     span.end();
                 });
                 return result;

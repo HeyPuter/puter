@@ -23,6 +23,7 @@ const config = require('../config');
 const _path = require('path');
 const { NodeInternalIDSelector, NodeChildSelector, NodeUIDSelector, RootNodeSelector, NodePathSelector } = require('./node/selectors');
 const { Context } = require('../util/context');
+const { getTracer, span } = require('../util/otelutil');
 const { NodeRawEntrySelector } = require('./node/selectors');
 const { DB_READ } = require('../services/database/consts');
 const { UserActorType, AppUnderUserActorType, Actor } = require('../services/auth/Actor');
@@ -135,7 +136,7 @@ module.exports = class FSNodeContext {
         for ( const method of fetch_methods ) {
             const original_method = this[method];
             this[method] = async (...args) => {
-                const tracer = this.services.get('traceService').tracer;
+                const tracer = getTracer();
                 let result;
                 const opts = { attributes: {
                     selector: selector.describe(),
@@ -276,11 +277,22 @@ module.exports = class FSNodeContext {
 
     async fetchPath () {
         if ( this.path ) return;
+        if ( this.entry?.path ) {
+            this.path = this.entry.path;
+            return;
+        }
+        const uid = this.entry?.uuid ?? this.uid;
+        if ( ! uid ) return;
+        this.path = await this.#resolvePathFromUuid(uid);
+    }
 
-        this.path = await this.services.get('information')
-            .with('fs.fsentry')
-            .obtain('fs.fsentry:path')
-            .exec(this.entry);
+    async #resolvePathFromUuid (uuid) {
+        if ( ! uuid ) return undefined;
+        try {
+            return await id2path(uuid);
+        } catch (e) {
+            return `/-void/${ uuid }`;
+        }
     }
 
     /**
@@ -295,7 +307,7 @@ module.exports = class FSNodeContext {
      */
     async fetchEntry (fetch_entry_options = {}) {
         if ( this.fetching !== null ) {
-            await Context.get('services').get('traceService').spanify('fetching', async () => {
+            await span('fetching', async () => {
                 // ???: does this need to be double-checked? I'm not actually sure...
                 if ( this.fetching === null ) return;
                 await this.fetching;
@@ -839,8 +851,6 @@ module.exports = class FSNodeContext {
             if ( fsentry.owner ) delete fsentry.owner.email;
         }
 
-        const info = this.services.get('information');
-
         if ( !this.uid && !this.entry.uuid ) {
             console.warn(`Potential Error in getSafeEntry with no uid or entry.uuid ${
                 this.selector.describe() } ${
@@ -849,10 +859,8 @@ module.exports = class FSNodeContext {
 
         // If fsentry was found by a path but the entry doesn't
         // have a path, use the path that was used to find it.
-        fsentry.path = res.path ?? this.path ?? await info
-            .with('fs.fsentry:uuid')
-            .obtain('fs.fsentry:path')
-            .exec(this.uid ?? this.entry.uuid);
+        const entry_uid = this.uid ?? this.entry.uuid;
+        fsentry.path = res.path ?? this.path ?? await this.#resolvePathFromUuid(entry_uid);
 
         if ( fsentry.path && fsentry.path.startsWith('/-void/') ) {
             fsentry.broken = true;
