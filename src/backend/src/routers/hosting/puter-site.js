@@ -384,6 +384,10 @@ class PuterSiteMiddleware extends AdvancedBase {
                         : `bytes=${start}-`;
                 }
             }
+        } else {
+            if ( target_node.entry.size ) {
+                res.set('x-expected-entity-length', target_node.entry.size);
+            }
         }
         res.set({ 'Accept-Ranges': 'bytes' });
 
