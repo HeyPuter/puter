@@ -27,6 +27,7 @@ import UIAlert from '../UIAlert.js';
 import generate_file_context_menu from '../../helpers/generate_file_context_menu.js';
 import truncate_filename from '../../helpers/truncate_filename.js';
 import update_title_based_on_uploads from '../../helpers/update_title_based_on_uploads.js';
+import new_context_menu_item from '../../helpers/new_context_menu_item.js';
 
 const icons = {
     document: `<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"></path><polyline points="14 2 14 8 20 8"></polyline></svg>`,
@@ -38,6 +39,7 @@ const icons = {
     trash: `<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><polyline points="3 6 5 6 21 6"></polyline><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"></path></svg>`,
     list: `<svg xmlns="http://www.w3.org/2000/svg" height="18" viewBox="0 -960 960 960" width="18" fill="currentcolor"><path d="M280-600v-80h560v80H280Zm0 160v-80h560v80H280Zm0 160v-80h560v80H280ZM160-600q-17 0-28.5-11.5T120-640q0-17 11.5-28.5T160-680q17 0 28.5 11.5T200-640q0 17-11.5 28.5T160-600Zm0 160q-17 0-28.5-11.5T120-480q0-17 11.5-28.5T160-520q17 0 28.5 11.5T200-480q0 17-11.5 28.5T160-440Zm0 160q-17 0-28.5-11.5T120-320q0-17 11.5-28.5T160-360q17 0 28.5 11.5T200-320q0 17-11.5 28.5T160-280Z"/></svg>`,
     grid: `<svg xmlns="http://www.w3.org/2000/svg" height="18" viewBox="0 -960 960 960" width="18" fill="currentcolor"><path d="M120-520v-320h320v320H120Zm0 400v-320h320v320H120Zm400-400v-320h320v320H520Zm0 400v-320h320v320H520ZM200-600h160v-160H200v160Zm400 0h160v-160H600v160Zm0 400h160v-160H600v160Zm-400 0h160v-160H200v160Zm400-400Zm0 240Zm-240 0Zm0-240Z"/></svg>`,
+    sort: `<svg xmlns="http://www.w3.org/2000/svg" height="18" viewBox="0 -960 960 960" width="18" fill="currentcolor"><path d="M120-240v-80h240v80H120Zm0-200v-80h480v80H120Zm0-200v-80h720v80H120Z"/></svg>`,
 };
 
 const { html_encode } = window;
@@ -73,16 +75,20 @@ const TabFiles = {
                             </div>
                             <div class="path-breadcrumbs"></div>
                             <div class="path-actions">
-                                <button class="path-action-btn view-toggle-btn" title="Toggle view"><img src="${icons.grid}/></button>
+                                <button class="path-action-btn sort-btn" title="Sort by">${icons.sort}</button>
+                                <button class="path-action-btn view-toggle-btn" title="Toggle view">${icons.grid}</button>
                                 <button class="path-action-btn new-folder-btn" title="${i18n('new_folder')}">${icons.newFolder}</button>
                                 <button class="path-action-btn upload-btn" title="${i18n('upload')}">${icons.upload}</button>
                             </div>
                         </div>
                         <div class="columns">
                             <div class="item-icon"></div>
-                            <div class="item-name">File name</div>
-                            <div class="item-size">Size</div>
-                            <div class="item-modified">Modified</div>
+                            <div class="item-name sortable" data-sort="name">File name</div>
+                            <div class="col-resize-handle" data-resize="name"></div>
+                            <div class="item-size sortable" data-sort="size">Size</div>
+                            <div class="col-resize-handle" data-resize="size"></div>
+                            <div class="item-modified sortable" data-sort="modified">Modified</div>
+                            <div class="col-resize-handle" data-resize="modified"></div>
                             <div class="item-more"></div>
                         </div>
                     </div>
@@ -104,6 +110,23 @@ const TabFiles = {
         this.selectedFolderUid = null;
         this.currentPath = null;
         this.currentView = await puter.kv.get('view_mode') || 'list';
+
+        // Sorting state
+        this.sortColumn = await puter.kv.get('sort_column') || 'name';
+        this.sortDirection = await puter.kv.get('sort_direction') || 'asc';
+
+        // Column widths state (for resizing)
+        const savedWidths = await puter.kv.get('column_widths');
+        this.columnWidths = savedWidths ? JSON.parse(savedWidths) : {
+            name: null, // auto/flex
+            size: 100,
+            modified: 120,
+        };
+
+        // Add touch-device class for touch devices to show .item-more button
+        if ( window.isMobile.phone || window.isMobile.tablet ) {
+            $el_window.find('.files-tab').addClass('touch-device');
+        }
 
         // Create click handler for each folder item
         $el_window.find('[data-folder]').each(function () {
@@ -207,10 +230,30 @@ const TabFiles = {
             }
         });
 
-        this.createHeaderEventListeners($el_window);
+        // Right-click on background shows folder context menu
+        $el_window.find('.files').on('contextmenu taphold', async (e) => {
+            // Dismiss taphold on non-touch devices
+            if ( e.type === 'taphold' && !window.isMobile.phone && !window.isMobile.tablet ) {
+                return;
+            }
+            // Only trigger if clicking directly on .files container (not on a row)
+            if ( e.target.classList.contains('files') ||
+                e.target.classList.contains('files-list-view') ||
+                e.target.classList.contains('files-grid-view') ) {
+                e.preventDefault();
+                // Clear selection when right-clicking background
+                document.querySelectorAll('.files-tab .row.selected').forEach(r => {
+                    r.classList.remove('selected');
+                });
+                const items = await _this.generateFolderContextMenu();
+                UIContextMenu({ items: items, position: { left: e.pageX, top: e.pageY } });
+            }
+        });
 
-        // Store reference to $el_window for later use
+        // Store reference to $el_window for later use (must be before createHeaderEventListeners)
         this.$el_window = $el_window;
+
+        this.createHeaderEventListeners($el_window);
 
         // Apply initial view
         const $filesContainer = this.$el_window.find('.files-tab .files');
@@ -438,6 +481,85 @@ const TabFiles = {
         document.querySelector('.view-toggle-btn').onclick = () => {
             this.toggleView();
         };
+
+        // Sort button (shows dropdown menu)
+        document.querySelector('.sort-btn').onclick = (e) => {
+            this.showSortMenu(e);
+        };
+
+        // Column header sorting
+        this.$el_window.find('.header .columns .sortable').on('click', (e) => {
+            const column = $(e.currentTarget).attr('data-sort');
+            if ( column ) {
+                this.handleSort(column);
+            }
+        });
+
+        // Initialize sort indicators
+        this.updateSortIndicators();
+
+        // Column resize handles
+        this.initColumnResizing();
+    },
+
+    initColumnResizing () {
+        const _this = this;
+        const $columns = this.$el_window.find('.header .columns');
+
+        this.applyColumnWidths();
+
+        $columns.find('.col-resize-handle').on('mousedown', function (e) {
+            e.preventDefault();
+            e.stopPropagation();
+
+            const $handle = $(this);
+            const column = $handle.attr('data-resize');
+            const $header = $columns;
+            const startX = e.pageX;
+
+            // Get the column element to resize
+            let $targetColumn;
+            if ( column === 'name' ) {
+                $targetColumn = $header.find('.item-name');
+            } else if ( column === 'size' ) {
+                $targetColumn = $header.find('.item-size');
+            } else if ( column === 'modified' ) {
+                $targetColumn = $header.find('.item-modified');
+            }
+
+            const startWidth = $targetColumn.outerWidth();
+
+            $(document).on('mousemove.colresize', function (moveEvent) {
+                const diff = moveEvent.pageX - startX;
+                let newWidth = Math.max(60, startWidth + diff); // Minimum width of 60px
+
+                // For name column, limit max width
+                if ( column === 'name' ) {
+                    newWidth = Math.max(100, newWidth);
+                }
+
+                _this.columnWidths[column] = newWidth;
+                _this.applyColumnWidths();
+            });
+
+            $(document).on('mouseup.colresize', function () {
+                $(document).off('mousemove.colresize mouseup.colresize');
+                puter.kv.set('column_widths', JSON.stringify(_this.columnWidths));
+            });
+        });
+    },
+
+    applyColumnWidths () {
+        const $filesTab = this.$el_window.find('.files-tab');
+        const nameWidth = this.columnWidths.name;
+        const sizeWidth = this.columnWidths.size || 100;
+        const modifiedWidth = this.columnWidths.modified || 120;
+
+        const nameCol = nameWidth ? `${nameWidth}px` : 'auto';
+        const gridTemplate = `24px ${nameCol} 4px ${sizeWidth}px 4px ${modifiedWidth}px 4px 20px`;
+
+        $filesTab.find('.header .columns').css('grid-template-columns', gridTemplate);
+        $filesTab.find('.files.files-list-view .row').css('grid-template-columns', gridTemplate);
     },
 
     selectFolder ($folderElement) {
@@ -448,14 +570,11 @@ const TabFiles = {
     },
 
     updateSidebarSelection () {
-        // Clear all sidebar selections first
         this.$el_window.find('.directories li').removeClass('active');
 
-        // Check if current path matches any sidebar folder
         const currentPath = this.currentPath;
         if ( ! currentPath ) return;
 
-        // Find matching sidebar folder
         this.$el_window.find('[data-folder]').each(function () {
             const folderName = this.getAttribute('data-folder');
             const directories = Object.keys(window.user.directories);
@@ -484,17 +603,111 @@ const TabFiles = {
             }
             $pathActions.find('.empty-trash-btn').show();
         } else {
-            // Show New Folder and Upload buttons, hide Empty Trash button
             $pathActions.find('.new-folder-btn, .upload-btn').show();
             $pathActions.find('.empty-trash-btn').hide();
         }
+    },
+
+    showSortMenu (e) {
+        const _this = this;
+
+        const sortOptions = [
+            { column: 'name', label: 'Name' },
+            { column: 'size', label: 'Size' },
+            { column: 'modified', label: 'Date Modified' },
+        ];
+
+        const items = sortOptions.map(opt => {
+            const isActive = _this.sortColumn === opt.column;
+            const directionIcon = _this.sortDirection === 'asc' ? ' ↑' : ' ↓';
+
+            return {
+                html: `<span>${opt.label}${isActive ? directionIcon : ''}</span>`,
+                checked: isActive,
+                onClick: () => {
+                    _this.handleSort(opt.column);
+                },
+            };
+        });
+
+        UIContextMenu({
+            items: items,
+            position: { left: e.pageX, top: e.pageY },
+        });
+    },
+
+    sortFiles (files) {
+        const folders = files.filter(f => f.is_dir);
+        const regularFiles = files.filter(f => !f.is_dir);
+
+        const getDisplayName = (file) => {
+            try {
+                const metadata = file.metadata ? JSON.parse(file.metadata) : {};
+                return (metadata.original_name || file.name).toLowerCase();
+            } catch {
+                return file.name.toLowerCase();
+            }
+        };
+
+        const sortFn = (a, b) => {
+            let comparison = 0;
+            const aName = getDisplayName(a);
+            const bName = getDisplayName(b);
+
+            switch ( this.sortColumn ) {
+            case 'name':
+                comparison = aName.localeCompare(bName);
+                break;
+            case 'size':
+                comparison = (a.size || 0) - (b.size || 0);
+                break;
+            case 'modified':
+                comparison = (a.modified || 0) - (b.modified || 0);
+                break;
+            default:
+                comparison = aName.localeCompare(bName);
+            }
+
+            return this.sortDirection === 'asc' ? comparison : -comparison;
+        };
+
+        folders.sort(sortFn);
+        regularFiles.sort(sortFn);
+
+        return [...folders, ...regularFiles];
+    },
+
+    async handleSort (column) {
+        if ( this.sortColumn === column ) {
+            this.sortDirection = this.sortDirection === 'asc' ? 'desc' : 'asc';
+        } else {
+            this.sortColumn = column;
+            this.sortDirection = 'asc';
+        }
+
+        await puter.kv.set('sort_column', this.sortColumn);
+        await puter.kv.set('sort_direction', this.sortDirection);
+
+        this.updateSortIndicators();
+
+        this.renderDirectory(this.selectedFolderUid);
+    },
+
+    updateSortIndicators () {
+        if ( ! this.$el_window ) return;
+
+        const $columns = this.$el_window.find('.header .columns');
+
+        $columns.find('.sortable').removeClass('sort-asc sort-desc');
+
+        const $activeColumn = $columns.find(`.sortable[data-sort="${this.sortColumn}"]`);
+        $activeColumn.addClass(this.sortDirection === 'asc' ? 'sort-asc' : 'sort-desc');
     },
 
     async renderDirectory (uid) {
         this.selectedFolderUid = uid;
         const _this = this;
 
-        // Clear previous selections
         document.querySelectorAll('.files-tab .row.selected').forEach(r => {
             r.classList.remove('selected');
         });
@@ -511,35 +724,46 @@ const TabFiles = {
             }
         });
 
-        // Store current path for new folder/upload actions
         this.currentPath = path || uid;
 
-        // Update sidebar selection based on current path
         this.updateSidebarSelection();
 
-        // Update action buttons based on whether we're in the trash folder
         const isTrashFolder = this.currentPath === window.trash_path;
         this.updateActionButtons(isTrashFolder);
 
         $('.path-breadcrumbs').html(this.renderPath(this.currentPath, window.user.username));
         $('.path-breadcrumbs .dirname').each(function () {
-            this.onclick = () => {
-                const clickedPath = this.getAttribute("data-path");
+            const dirnameElement = this;
+            const clickedPath = dirnameElement.getAttribute("data-path");
+
+            dirnameElement.onclick = () => {
                 _this.pushNavHistory(clickedPath);
                 _this.renderDirectory(clickedPath);
             };
+
+            $(dirnameElement).on('contextmenu taphold', async (e) => {
+                // Dismiss taphold on non-touch devices
+                if ( e.type === 'taphold' && !window.isMobile.phone && !window.isMobile.tablet ) {
+                    return;
+                }
+                e.preventDefault();
+                e.stopPropagation();
+                const items = _this.generateFolderContextMenu(clickedPath);
+                UIContextMenu({ items: items, position: { left: e.pageX, top: e.pageY } });
+            });
         });
 
-        // Clear the container
         $('.files-tab .files').html('');
 
-        // If directory has no files, tell about it
         if ( directoryContents.length === 0 ) {
             $('.files-tab .files').append(`<div class="row">
                 <div class="item-icon"></div>
                 <div class="item-name">No files in this directory.</div>
+                <div class="col-spacer"></div>
                 <div class="item-size"></div>
+                <div class="col-spacer"></div>
                 <div class="item-modified"></div>
+                <div class="col-spacer"></div>
                 <div class="item-more"></div>
             `);
             this.updateFooterStats();
@@ -547,15 +771,13 @@ const TabFiles = {
             return;
         }
 
-        // Sort contents folders first, then render each row
-        directoryContents.sort((a, b) => b.is_dir - a.is_dir).forEach(file => {
+        const sortedContents = this.sortFiles(directoryContents);
+        sortedContents.forEach(file => {
             this.renderItem(file);
         });
 
-        // Update footer with directory stats
+        this.applyColumnWidths();
         this.updateFooterStats();
-
-        // Update nav button states
         this.updateNavButtonStates();
     },
 
@@ -588,10 +810,15 @@ const TabFiles = {
         row.setAttribute("data-path", file.path);
         row.innerHTML = `
             <div class="item-icon">${icon}</div>
-            <pre class="item-name">${displayName}</pre>
-            <textarea class="item-name-editor hide-scrollbar" spellcheck="false" autocomplete="off" autocorrect="off" autocapitalize="off" data-gramm_editor="false">${displayName}</textarea>
+            <div class="item-name-wrapper">
+                <pre class="item-name">${displayName}</pre>
+                <textarea class="item-name-editor hide-scrollbar" spellcheck="false" autocomplete="off" autocorrect="off" autocapitalize="off" data-gramm_editor="false">${displayName}</textarea>
+            </div>
+            <div class="col-spacer"></div>
             ${file.is_dir ? '<div class="item-size"></div>' : `<div class="item-size">${this.formatFileSize(file.size)}</div>`}
+            <div class="col-spacer"></div>
             <div class="item-modified">${window.timeago.format(file.modified * 1000)}</div>
+            <div class="col-spacer"></div>
             <div class="item-more">${icons.more}</div>
         `;
         $('.files-tab .files').append(row);
@@ -898,6 +1125,25 @@ const TabFiles = {
             e.stopPropagation();
             e.preventDefault();
             rename();
+        });
+
+        // Right-click context menu handler (desktop) and taphold (touch devices)
+        $(el_item).on('contextmenu taphold', async (e) => {
+            // Dismiss taphold on non-touch devices
+            if ( e.type === 'taphold' && !window.isMobile.phone && !window.isMobile.tablet ) {
+                return;
+            }
+            e.preventDefault();
+            e.stopPropagation();
+
+            const selectedRows = document.querySelectorAll('.files-tab .row.selected');
+            if ( selectedRows.length > 1 && el_item.classList.contains('selected') ) {
+                const items = await _this.generateMultiSelectContextMenu(selectedRows);
+                UIContextMenu({ items: items, position: { left: e.pageX, top: e.pageY } });
+            } else {
+                const items = await _this.generateContextMenuItems(el_item, file);
+                UIContextMenu({ items: items, position: { left: e.pageX, top: e.pageY } });
+            }
         });
 
         // Skip header row for drag-and-drop
@@ -1286,6 +1532,133 @@ const TabFiles = {
                     setTimeout(() => {
                         _this.renderDirectory(_this.selectedFolderUid);
                     }, 500);
+                },
+            });
+        }
+
+        return items;
+    },
+
+    generateFolderContextMenu (folderPath) {
+        const _this = this;
+        const targetPath = folderPath || this.currentPath;
+
+        if ( ! targetPath ) return [];
+
+        const isTrashFolder = targetPath === window.trash_path;
+        const items = [];
+
+        // New submenu (folder, text document, etc.) - not available in Trash
+        // We create a custom "New" submenu to handle folder creation with refresh and rename activation
+        if ( ! isTrashFolder ) {
+            const newMenuItems = new_context_menu_item(targetPath, null);
+
+            // Override the "New Folder" onClick to refresh and activate rename
+            if ( newMenuItems.items && newMenuItems.items.length > 0 ) {
+                const folderItem = newMenuItems.items[0]; // First item is "New Folder"
+                folderItem.onClick = async () => {
+                    try {
+                        const result = await puter.fs.mkdir({
+                            path: `${targetPath}/New Folder`,
+                            rename: true,
+                            overwrite: false,
+                        });
+                        await _this.renderDirectory(_this.selectedFolderUid);
+                        // Find and select the new folder, then activate rename
+                        const newFolderRow = _this.$el_window.find(`.files-tab .row[data-name="${result.name}"]`);
+                        if ( newFolderRow.length > 0 ) {
+                            newFolderRow.addClass('selected');
+                            window.activate_item_name_editor(newFolderRow[0]);
+                        }
+                    } catch ( err ) {
+                        // Folder creation failed silently
+                    }
+                };
+
+                // Override other file creation items to also refresh the directory
+                for ( let i = 2; i < newMenuItems.items.length; i++ ) {
+                    const item = newMenuItems.items[i];
+                    if ( item && item.onClick && typeof item !== 'string' ) {
+                        const originalItemOnClick = item.onClick;
+                        item.onClick = async () => {
+                            await originalItemOnClick();
+                            setTimeout(() => {
+                                _this.renderDirectory(_this.selectedFolderUid);
+                            }, 500);
+                        };
+                    }
+                }
+            }
+
+            items.push(newMenuItems);
+            items.push('-');
+        }
+
+        // Paste - only if clipboard has items and not in Trash
+        if ( !isTrashFolder && window.clipboard && window.clipboard.length > 0 ) {
+            items.push({
+                html: i18n('paste'),
+                onClick: function () {
+                    if ( window.clipboard_op === 'copy' ) {
+                        window.copy_clipboard_items(targetPath, null);
+                    } else if ( window.clipboard_op === 'move' ) {
+                        window.move_clipboard_items(null, targetPath);
+                    }
+                    setTimeout(() => {
+                        _this.renderDirectory(_this.selectedFolderUid);
+                    }, 500);
+                },
+            });
+        }
+
+        // Undo - if there are actions to undo
+        if ( window.actions_history && window.actions_history.length > 0 ) {
+            items.push({
+                html: i18n('undo'),
+                onClick: function () {
+                    window.undo_last_action();
+                    setTimeout(() => {
+                        _this.renderDirectory(_this.selectedFolderUid);
+                    }, 500);
+                },
+            });
+        }
+
+        // Add separator if we added paste or undo
+        if ( items.length > 2 || (isTrashFolder && items.length > 0) ) {
+            items.push('-');
+        }
+
+        // Upload Here - not available in Trash
+        if ( ! isTrashFolder ) {
+            items.push({
+                html: i18n('upload'),
+                onClick: function () {
+                    const fileInput = document.querySelector('#upload-file-dialog');
+                    if ( fileInput ) {
+                        fileInput.click();
+                    }
+                },
+            });
+        }
+
+        // Refresh
+        items.push({
+            html: i18n('refresh'),
+            onClick: function () {
+                _this.renderDirectory(_this.selectedFolderUid);
+            },
+        });
+
+        // Empty Trash - only in Trash folder
+        if ( isTrashFolder ) {
+            items.push('-');
+            items.push({
+                html: i18n('empty_trash'),
+                onClick: function () {
+                    window.empty_trash(() => {
+                        _this.renderDirectory(_this.selectedFolderUid);
+                    });
                 },
             });
         }
