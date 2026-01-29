@@ -40,6 +40,8 @@ const icons = {
     grid: `<svg xmlns="http://www.w3.org/2000/svg" height="18" viewBox="0 -960 960 960" width="18" fill="currentcolor"><path d="M120-520v-320h320v320H120Zm0 400v-320h320v320H120Zm400-400v-320h320v320H520Zm0 400v-320h320v320H520ZM200-600h160v-160H200v160Zm400 0h160v-160H600v160Zm0 400h160v-160H600v160Zm-400 0h160v-160H200v160Zm400-400Zm0 240Zm-240 0Zm0-240Z"/></svg>`,
 };
 
+const { html_encode } = window;
+
 const TabFiles = {
     id: 'files',
     label: 'Files',
@@ -566,7 +568,7 @@ const TabFiles = {
         const metadata = JSON.parse(file.metadata) || {};
         const displayName = metadata.original_name || file.name;
 
-        const icon = file.is_dir ? icons.folder : (file.thumbnail ? `<img src="${file.thumbnail}" alt="${displayName}" />` : icons.document);
+        const icon = file.is_dir ? `<img src="${html_encode(window.icons['folder.svg'])}"/>` : (file.thumbnail ? `<img src="${file.thumbnail}" alt="${displayName}" />` : this.determineIcon(file));
         const row = document.createElement("div");
         row.setAttribute('class', `row ${file.is_dir ? 'folder' : 'file'}`);
         row.setAttribute("data-id", file.id);
@@ -599,6 +601,111 @@ const TabFiles = {
         $('.files-tab .files').append(row);
 
         this.createItemListeners(row, file);
+    },
+
+    determineIcon (file) {
+        const extension = file.name.split('.').pop().toLowerCase();
+        switch ( extension ) {
+        case 'm4a':
+        case 'ogg':
+        case 'aac':
+        case 'flac':
+            return `<img src="${html_encode(window.icons['file-audio.svg'])}"/>`;
+        case 'cpp':
+            return `<img src="${html_encode(window.icons['file-cpp.svg'])}"/>`;
+        case 'css':
+            return `<img src="${html_encode(window.icons['file-css.svg'])}"/>`;
+        case 'csv':
+            return `<img src="${html_encode(window.icons['file-csv.svg'])}"/>`;
+        case 'doc':
+        case 'docx':
+            return `<img src="${html_encode(window.icons['file-word.svg'])}"/>`;
+        case 'exe':
+            return `<img src="${html_encode(window.icons['file-exe.svg'])}"/>`;
+        case 'gzip':
+            return `<img src="${html_encode(window.icons['file-gzip.svg'])}"/>`;
+        case 'html':
+            return `<img src="${html_encode(window.icons['file-html.svg'])}"/>`;
+        case 'jpg':
+        case 'jpeg':
+        case 'png':
+        case 'webp':
+        case 'gif':
+            return `<img src="${html_encode(window.icons['file-image.svg'])}"/>`;
+        case 'jar':
+            return `<img src="${html_encode(window.icons['file-jar.svg'])}"/>`;
+        case 'java':
+            return `<img src="${html_encode(window.icons['file-pdf.svg'])}"/>`;
+        case 'js':
+            return `<img src="${html_encode(window.icons['file-js.svg'])}"/>`;
+        case 'json':
+            return `<img src="${html_encode(window.icons['file-json.svg'])}"/>`;
+        case 'jsp':
+            return `<img src="${html_encode(window.icons['file-jsp.svg'])}"/>`;
+        case 'log':
+            return `<img src="${html_encode(window.icons['file-log.svg'])}"/>`;
+        case 'md':
+            return `<img src="${html_encode(window.icons['file-md.svg'])}"/>`;
+        case 'mp3':
+            return `<img src="${html_encode(window.icons['file-mp3.svg'])}"/>`;
+        case 'otf':
+            return `<img src="${html_encode(window.icons['file-otf.svg'])}"/>`;
+        case 'pdf':
+            return `<img src="${html_encode(window.icons['file-pdf.svg'])}"/>`;
+        case 'php':
+            return `<img src="${html_encode(window.icons['file-php.svg'])}"/>`;
+        case 'pptx':
+            return `<img src="${html_encode(window.icons['file-pptx.svg'])}"/>`;
+        case 'psd':
+            return `<img src="${html_encode(window.icons['file-psd.svg'])}"/>`;
+        case 'py':
+            return `<img src="${html_encode(window.icons['file-py.svg'])}"/>`;
+        case 'rss':
+            return `<img src="${html_encode(window.icons['file-rss.svg'])}"/>`;
+        case 'rtf':
+            return `<img src="${html_encode(window.icons['file-rtf.svg'])}"/>`;
+        case 'ruby':
+            return `<img src="${html_encode(window.icons['file-ruby.svg'])}"/>`;
+        case 'sketch':
+            return `<img src="${html_encode(window.icons['file-sketch.svg'])}"/>`;
+        case 'sql':
+            return `<img src="${html_encode(window.icons['file-sql.svg'])}"/>`;
+        case 'svg':
+            return `<img src="${html_encode(window.icons['file-svg.svg'])}"/>`;
+        case 'tar':
+            return `<img src="${html_encode(window.icons['file-tar.svg'])}"/>`;
+        case 'tpl':
+        case 'xltx':
+        case 'potx':
+        case 'tmpl':
+            return `<img src="${html_encode(window.icons['file-template.svg'])}"/>`;
+        case 'text':
+        case 'txt':
+            return `<img src="${html_encode(window.icons['file-text.svg'])}"/>`;
+        case 'tif':
+            return `<img src="${html_encode(window.icons['file-tif.svg'])}"/>`;
+        case 'tiff':
+            return `<img src="${html_encode(window.icons['file-tiff.svg'])}"/>`;
+        case 'ttf':
+            return `<img src="${html_encode(window.icons['file-ttf.svg'])}"/>`;
+        case 'mp4':
+        case 'avi':
+        case 'mov':
+        case 'wmf':
+        case 'mkv':
+        case 'webm':
+            return `<img src="${html_encode(window.icons['file-video.svg'])}"/>`;
+        case 'wav':
+            return `<img src="${html_encode(window.icons['file-wav.svg'])}"/>`;
+        case 'xlsx':
+            return `<img src="${html_encode(window.icons['file-xlsx.svg'])}"/>`;
+        case 'xml':
+            return `<img src="${html_encode(window.icons['file-xml.svg'])}"/>`;
+        case 'zip':
+            return `<img src="${html_encode(window.icons['file-zip.svg'])}"/>`;
+        default:
+            return `<img src="${html_encode(window.icons['file.svg'])}"/>`;
+        }
     },
 
     createItemListeners (el_item, file) {
@@ -1014,10 +1121,16 @@ const TabFiles = {
     },
 
     pushNavHistory (newPath) {
-        // Truncate forward history when navigating to new location
-        window.dashboard_nav_history = window.dashboard_nav_history.slice(0, window.dashboard_nav_history_current_position + 1);
-        window.dashboard_nav_history.push(newPath);
-        window.dashboard_nav_history_current_position++;
+        // If history is empty, initialize with this path
+        if ( window.dashboard_nav_history.length === 0 ) {
+            window.dashboard_nav_history = [newPath];
+            window.dashboard_nav_history_current_position = 0;
+        } else {
+            // Truncate forward history when navigating to new location
+            window.dashboard_nav_history = window.dashboard_nav_history.slice(0, window.dashboard_nav_history_current_position + 1);
+            window.dashboard_nav_history.push(newPath);
+            window.dashboard_nav_history_current_position++;
+        }
         this.updateNavButtonStates();
     },
 
