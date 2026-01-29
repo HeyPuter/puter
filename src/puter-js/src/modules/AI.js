@@ -736,6 +736,10 @@ class AI {
             requestParams.max_tokens = userParams.max_tokens;
         }
 
+        if ( userParams.provider ) {
+            requestParams.provider = userParams.provider;
+        }
+
         // convert undefined to empty string so that .startsWith works
         requestParams.model = requestParams.model ?? '';
 
@@ -745,11 +749,11 @@ class AI {
         }
 
         if ( userParams.driver ) {
-            driver = userParams.driver;
+            requestParams.provider = requestParams.provider || userParams.driver;
         }
 
         // Additional parameters to pass from userParams to requestParams
-        const PARAMS_TO_PASS = ['tools', 'response', 'reasoning', 'reasoning_effort', 'text', 'verbosity'];
+        const PARAMS_TO_PASS = ['tools', 'response', 'reasoning', 'reasoning_effort', 'text', 'verbosity', 'provider'];
         for ( const name of PARAMS_TO_PASS ) {
             if ( userParams[name] ) {
                 requestParams[name] = userParams[name];

@@ -25,7 +25,6 @@ import { Context } from '../../../util/context.js';
 import { kv } from '../../../util/kvSingleton.js';
 import BaseService from '../../BaseService.js';
 import { BaseDatabaseAccessService } from '../../database/BaseDatabaseAccessService.js';
-import { DB_WRITE } from '../../database/consts.js';
 import { DriverService } from '../../drivers/DriverService.js';
 import { TypedValue } from '../../drivers/meta/Runtime.js';
 import { EventService } from '../../EventService.js';
@@ -35,19 +34,19 @@ import { normalize_tools_object } from '../utils/FunctionCalling.js';
 import { extract_text, normalize_messages, normalize_single_message } from '../utils/Messages.js';
 import Streaming from '../utils/Streaming.js';
 import { ClaudeProvider } from './providers/ClaudeProvider/ClaudeProvider.js';
+import { DeepSeekProvider } from './providers/DeepSeekProvider/DeepSeekProvider.js';
 import { FakeChatProvider } from './providers/FakeChatProvider.js';
 import { GeminiChatProvider } from './providers/GeminiProvider/GeminiChatProvider.js';
 import { GroqAIProvider } from './providers/GroqAiProvider/GroqAIProvider.js';
 import { MistralAIProvider } from './providers/MistralAiProvider/MistralAiProvider.js';
+import { OllamaChatProvider } from './providers/OllamaProvider.js';
 import { OpenAiChatProvider } from './providers/OpenAiProvider/OpenAiChatCompletionsProvider.js';
 import { OpenAiResponsesChatProvider } from './providers/OpenAiProvider/OpenAiChatResponsesProvider.js';
+import { OpenRouterProvider } from './providers/OpenRouterProvider/OpenRouterProvider.js';
+import { TogetherAIProvider } from './providers/TogetherAiProvider/TogetherAIProvider.js';
 import { IChatModel, IChatProvider, ICompleteArguments } from './providers/types.js';
 import { UsageLimitedChatProvider } from './providers/UsageLimitedChatProvider.js';
-import { OllamaChatProvider } from './providers/OllamaProvider.js';
-import { DeepSeekProvider } from './providers/DeepSeekProvider/DeepSeekProvider.js';
 import { XAIProvider } from './providers/XAIProvider/XAIProvider.js';
-import { TogetherAIProvider } from './providers/TogetherAiProvider/TogetherAIProvider.js';
-import { OpenRouterProvider } from './providers/OpenRouterProvider/OpenRouterProvider.js';
 
 // Maximum number of fallback attempts when a model fails, including the first attempt
 const MAX_FALLBACKS = 3 + 1; // includes first attempt
@@ -63,7 +62,7 @@ export class AIChatService extends BaseService {
     }
 
     get db (): BaseDatabaseAccessService {
-        return this.services.get('database').get(DB_WRITE, 'ai-service');
+        return this.services.get('database').get();
     }
 
     get errorService (): ErrorService {
@@ -218,12 +217,11 @@ export class AIChatService extends BaseService {
                 }
                 this.#modelIdMap[model.id].push({ ...model, provider: providerName });
                 if ( model.puterId ) {
-                    if (model.aliases) {
+                    if ( model.aliases ) {
                         model.aliases.push(model.puterId);
                     } else {
-                        model.aliases = [model.puterId]
+                        model.aliases = [model.puterId];
                     }
-                    
                 }
                 if ( model.aliases ) {
                     for ( let alias of model.aliases ) {
@@ -241,6 +239,14 @@ export class AIChatService extends BaseService {
                     }
                 }
                 this.#modelIdMap[model.id].sort((a, b) => {
+                    // Sort togetherai provider models last
+                    if ( a.provider === 'together-ai' && b.provider !== 'together-ai' ) {
+                        return 1;
+                    }
+                    if ( b.provider === 'together-ai' && a.provider !== 'together-ai' ) {
+                        return -1;
+                    }
+
                     if ( a.costs[a.input_cost_key || 'input_tokens'] === b.costs[b.input_cost_key || 'input_tokens'] ) {
                         return a.id.length - b.id.length; // use shorter id since its likely the official one
                     }
@@ -279,7 +285,7 @@ export class AIChatService extends BaseService {
         let { test_mode: testMode, response_metadata: resMetadata, intended_service: legacyProviderName } = clientDriverCall as { test_mode?: boolean; response_metadata: Record<string, unknown>; intended_service?: string };
         const actor = Context.get('actor');
 
-        let intendedProvider = parameters.provider || legacyProviderName === AIChatService.SERVICE_NAME ? '' : legacyProviderName ; // should now all go through here
+        let intendedProvider = parameters.provider || (legacyProviderName === AIChatService.SERVICE_NAME ? '' : legacyProviderName); // should now all go through here
 
         if ( !parameters.model && !intendedProvider ) {
             intendedProvider = AIChatService.DEFAULT_PROVIDER;
