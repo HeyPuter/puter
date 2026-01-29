@@ -76,12 +76,13 @@ const TabFiles = {
                 </form>
                 <div class="directories">
                     <ul>
-                        <li data-folder="Desktop"><img src="${html_encode(window.icons['folder-desktop.svg'])}"/> <span>Desktop</span></li>
-                        <li data-folder="Documents"><img src="${html_encode(window.icons['folder-documents.svg'])}"/> <span>Documents</span></li>
-                        <li data-folder="Pictures"><img src="${html_encode(window.icons['folder-pictures.svg'])}"/> <span>Pictures</span></li>
-                        <li data-folder="Public"><img src="${html_encode(window.icons['folder-public.svg'])}"/> <span>Public</span></li>
-                        <li data-folder="Videos"><img src="${html_encode(window.icons['folder-videos.svg'])}"/> <span>Videos</span></li>
-                        <li data-folder="Trash"><img src="${html_encode(window.icons['trash.svg'])}"/> <span>Trash</span></li>
+                        <li data-folder="Home" style="display: none !important;" data-path="${html_encode(window.home_path)}"><img src="${html_encode(window.icons['folder-home.svg'])}"/> <span>Home</span></li>
+                        <li data-folder="Desktop" data-path="${html_encode(window.docs_path)}"><img src="${html_encode(window.icons['folder-desktop.svg'])}"/> <span>Desktop</span></li>
+                        <li data-folder="Documents" data-path="${html_encode(window.public_path)}"><img src="${html_encode(window.icons['folder-documents.svg'])}"/> <span>Documents</span></li>
+                        <li data-folder="Pictures" data-path="${html_encode(window.pictures_path)}"><img src="${html_encode(window.icons['folder-pictures.svg'])}"/> <span>Pictures</span></li>
+                        <li data-folder="Public" data-path="${html_encode(window.desktop_path)}"><img src="${html_encode(window.icons['folder-public.svg'])}"/> <span>Public</span></li>
+                        <li data-folder="Videos" data-path="${html_encode(window.videos_path)}"><img src="${html_encode(window.icons['folder-videos.svg'])}"/> <span>Videos</span></li>
+                        <li data-folder="Trash" data-path="${html_encode(window.trash_path)}"><img src="${html_encode(window.icons['trash.svg'])}"/> <span>Trash</span></li>
                     </ul>
                 </div>
                 <div class="directory-contents">
@@ -163,7 +164,7 @@ const TabFiles = {
             folderElement.onclick = async () => {
                 const folderName = folderElement.getAttribute('data-folder');
                 const directories = await puter.fs.readdir(`/${window.user.username}`);
-                const folderPath = directories.find(f => f.is_dir && f.name === folderName).path;
+                const folderPath = folderElement.getAttribute('data-path'); //directories.find(f => f.is_dir && f.name === folderName).path;
                 const folderUid = directories.find(f => f.is_dir && f.name === folderName).uid;
 
                 _this.pushNavHistory(folderPath);
