@@ -23,6 +23,7 @@ const auth = require('../middleware/auth.js');
 const config = require('../config');
 const { Context } = require('../util/context.js');
 const { NodeInternalIDSelector } = require('../filesystem/node/selectors.js');
+const { convert_path_to_fsentry, uuid2fsentry, suggestedAppForFsEntry }  = require('../helpers');
 
 // -----------------------------------------------------------------------//
 // POST /suggest_apps
@@ -46,8 +47,6 @@ router.post('/suggest_apps', auth, express.json(), async (req, res, next) => {
         return res.status(400).send({ message: '`uid` or `path` required' });
     }
 
-    // modules
-    const { convert_path_to_fsentry, uuid2fsentry, suggest_app_for_fsentry }  = require('../helpers');
     let fsentry;
 
     // by uid
@@ -84,7 +83,7 @@ router.post('/suggest_apps', auth, express.json(), async (req, res, next) => {
 
     // get suggestions
     try {
-        return res.send(await suggest_app_for_fsentry(fsentry));
+        return res.send(await suggestedAppForFsEntry(fsentry));
     }
     catch (e) {
         return res.status(400).send(e);

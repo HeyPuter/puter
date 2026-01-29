@@ -2044,10 +2044,10 @@ async function UIWindow (options) {
                         }
                     }
 
-                        if ( ! activeZone ) {
-                            hideSnapPlaceholder();
-                        }
+                    if ( ! activeZone ) {
+                        hideSnapPlaceholder();
                     }
+                }
             },
             stop: function () {
                 window.a_window_is_being_dragged = false;
@@ -2310,6 +2310,66 @@ async function UIWindow (options) {
             }
         }
     });
+
+    const resize_window_to_aspect_ratio = (ratio) => {
+        if ( ! options.is_resizable ) {
+            return;
+        }
+
+        const snap_dims = getSnapDimensions();
+        const head_height = options.has_head ? $(el_window_head).outerHeight() : 0;
+        const max_body_width = snap_dims.available_width;
+        const max_body_height = Math.max(0, snap_dims.available_height - head_height);
+
+        if ( max_body_width <= 0 || max_body_height <= 0 ) {
+            return;
+        }
+
+        let body_width = max_body_width;
+        let body_height = max_body_height;
+
+        if ( max_body_width / max_body_height > ratio ) {
+            body_height = max_body_height;
+            body_width = Math.floor(body_height * ratio);
+        } else {
+            body_width = max_body_width;
+            body_height = Math.floor(body_width / ratio);
+        }
+
+        const window_width = Math.max(1, Math.floor(body_width));
+        const window_height = Math.max(1, Math.floor(body_height + head_height));
+        const left = snap_dims.start_x + Math.max(0, (snap_dims.available_width - window_width) / 2);
+        const top = snap_dims.start_y + Math.max(0, (snap_dims.available_height - window_height) / 2);
+
+        $(el_window).css({
+            width: `${window_width}px`,
+            height: `${window_height}px`,
+            left: `${left}px`,
+            top: `${top}px`,
+            transform: 'none',
+        });
+
+        if ( window_width < window.window_width_threshold_for_sidebar ) {
+            $(el_window_sidebar).hide();
+            sidebar_hidden = true;
+        } else {
+            if ( sidebar_hidden ) {
+                $(el_window_sidebar).show();
+            }
+            sidebar_hidden = false;
+        }
+
+        $(el_window_sidebar).resizable('option', 'maxWidth', el_window.getBoundingClientRect().width / 2);
+        $(el_window).attr({
+            'data-orig-width': window_width,
+            'data-orig-height': window_height,
+            'data-orig-top': top,
+            'data-orig-left': left,
+            'data-is_maximized': '0',
+        });
+        $(el_window_head_scale_btn).find('img').attr('src', window.icons['scale.svg']);
+        window_is_snapped = false;
+    };
     // --------------------------------------------------------
     // Head Context Menu
     // --------------------------------------------------------
@@ -2354,6 +2414,29 @@ async function UIWindow (options) {
                 onClick: function () {
                     $(el_window).hideWindow();
                 },
+            });
+            menu_items.push({
+                html: 'Advanced',
+                items: [
+                    {
+                        html: '16:9',
+                        onClick: function () {
+                            resize_window_to_aspect_ratio(16 / 9);
+                        },
+                    },
+                    {
+                        html: '4:3',
+                        onClick: function () {
+                            resize_window_to_aspect_ratio(4 / 3);
+                        },
+                    },
+                    {
+                        html: '9:16',
+                        onClick: function () {
+                            resize_window_to_aspect_ratio(9 / 16);
+                        },
+                    },
+                ],
             });
             // -
             menu_items.push('-');
@@ -2785,7 +2868,7 @@ async function UIWindow (options) {
 
                 // Clear any existing timeout for this item
                 const existingTimeout = $item.data('grabTimeout');
-                if (existingTimeout) {
+                if ( existingTimeout ) {
                     clearTimeout(existingTimeout);
                 }
 
@@ -2797,7 +2880,7 @@ async function UIWindow (options) {
 
                 $(document).one('mouseup', function () {
                     const timeout = $item.data('grabTimeout');
-                    if(timeout){
+                    if ( timeout ) {
                         clearTimeout(timeout);
                         $item.removeData('grabTimeout');
                     }
@@ -2809,7 +2892,7 @@ async function UIWindow (options) {
         $sidebar.on('mouseup mouseleave', '.window-sidebar-item', function () {
             const $item = $(this);
             const timeout = $item.data('grabTimeout');
-            if (timeout) {
+            if ( timeout ) {
                 clearTimeout(timeout);
                 $item.removeData('grabTimeout');
             }

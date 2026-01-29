@@ -28,8 +28,8 @@ import { OpenAISpeechToTextService } from '../../services/ai/stt/OpenAISpeechToT
 import { AWSPollyService } from '../../services/ai/tts/AWSPollyService.js';
 import { ElevenLabsTTSService } from '../../services/ai/tts/ElevenLabsTTSService.js';
 import { OpenAITTSService } from '../../services/ai/tts/OpenAITTSService.js';
-import { TogetherVideoGenerationService } from '../../services/ai/video/TogetherVideoGenerationService.js';
-import { OpenAIVideoGenerationService } from '../../services/ai/video/OpenAIVideoGenerationService.js';
+import { TogetherVideoGenerationService } from '../../services/ai/video/TogetherVideoGenerationService/TogetherVideoGenerationService.js';
+import { OpenAIVideoGenerationService } from '../../services/ai/video/OpenAIVideoGenerationService/OpenAIVideoGenerationService.js';
 // import { AIVideoGenerationService } from '../../services/ai/video/AIVideoGenerationService.js';
 
 /**

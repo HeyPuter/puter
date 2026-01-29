@@ -34,7 +34,7 @@ export const MOVE = async ( req, res, filePath, fileNode, headerLockToken ) => {
                 res.status(400).end( 'Bad Request: Destination must be within WebDAV namespace');
                 return;
             }
-            destinationPath = destUrl.pathname.slice(4); // Remove '/dav' prefix
+            destinationPath = destUrl.pathname; // Remove '/dav' prefix
             if ( ! destinationPath.startsWith('/') ) {
                 destinationPath = `/${destinationPath}`;
             }

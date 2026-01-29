@@ -78,7 +78,7 @@ class ChatAPIService extends BaseService {
                     });
 
                     // Return the list of models
-                    res.json({ models: models.filter(e => !["costly", "fake", "abuse", "usage-limited", "model-fallback-test-1"].includes(e)) });
+                    res.json({ models: models.filter(e => !['costly', 'fake', 'abuse', 'usage-limited', 'model-fallback-test-1'].includes(e)) });
                 } catch ( error ) {
                     this.log.error('Error fetching models:', error);
                     throw APIError.create('internal_server_error');
@@ -101,7 +101,7 @@ class ChatAPIService extends BaseService {
                     });
 
                     // Return the detailed list of models
-                    res.json({ models: models.filter((e) => !["costly", "fake", "abuse", "usage-limited", "model-fallback-test-1"].includes(e.id)) });
+                    res.json({ models: models.filter((e) => !['costly', 'fake', 'abuse', 'usage-limited', 'model-fallback-test-1'].includes(e.id)) });
                 } catch ( error ) {
                     this.log.error('Error fetching model details:', error);
                     throw APIError.create('internal_server_error');
@@ -146,6 +146,66 @@ class ChatAPIService extends BaseService {
                     res.json({ models });
                 } catch ( error ) {
                     this.log.error('Error fetching image model details:', error);
+                    throw APIError.create('internal_server_error');
+                }
+            },
+        }).attach(router);
+
+        Endpoint({
+            route: '/video/models/details',
+            methods: ['GET'],
+            handler: async (req, res) => {
+                try {
+                    const svc_su = this.services.get('su');
+                    const models = await svc_su.sudo(async () => {
+                        const items = [];
+                        if ( this.services.has('openai-video-generation') ) {
+                            const svc_video = this.services.get('openai-video-generation');
+                            if ( typeof svc_video.models === 'function' ) {
+                                items.push(...await svc_video.models());
+                            }
+                        }
+                        if ( this.services.has('together-video-generation') ) {
+                            const svc_video = this.services.get('together-video-generation');
+                            if ( typeof svc_video.models === 'function' ) {
+                                items.push(...await svc_video.models());
+                            }
+                        }
+                        return items;
+                    });
+                    res.json({ models });
+                } catch ( error ) {
+                    this.log.error('Error fetching video model details:', error);
+                    throw APIError.create('internal_server_error');
+                }
+            },
+        }).attach(router);
+
+        Endpoint({
+            route: '/video/models',
+            methods: ['GET'],
+            handler: async (req, res) => {
+                try {
+                    const svc_su = this.services.get('su');
+                    const models = await svc_su.sudo(async () => {
+                        const items = [];
+                        if ( this.services.has('openai-video-generation') ) {
+                            const svc_video = this.services.get('openai-video-generation');
+                            if ( typeof svc_video.models === 'function' ) {
+                                items.push(...(await svc_video.models()).map(model => model.puterId || model.id));
+                            }
+                        }
+                        if ( this.services.has('together-video-generation') ) {
+                            const svc_video = this.services.get('together-video-generation');
+                            if ( typeof svc_video.models === 'function' ) {
+                                items.push(...(await svc_video.models()).map(model => model.id));
+                            }
+                        }
+                        return items;
+                    });
+                    res.json({ models });
+                } catch ( error ) {
+                    this.log.error('Error fetching video models:', error);
                     throw APIError.create('internal_server_error');
                 }
             },

@@ -34,7 +34,7 @@ export const GEMINI_IMAGE_GENERATION_MODELS: IImageModel[] = [
         name: 'Gemini 2.5 Flash Image',
         version: '1.0',
         costs_currency: 'usd-cents',
-        index_cost_key: '1024x1024',
+        index_cost_key: '1x1',
         allowedQualityLevels: [''],
         costs: {
             '1x1': 3.9, // $0.039 per image
@@ -67,7 +67,7 @@ export const GEMINI_IMAGE_GENERATION_MODELS: IImageModel[] = [
         name: 'Gemini 3 Pro Image',
         version: '1.0',
         costs_currency: 'usd-cents',
-        index_cost_key: '1024x1024',
+        index_cost_key: '1K:1x1',
         aliases: [
             'gemini-3-flash-image-preview', 'gemini-3-flash-image',
             'google/gemini-3-flash-image-preview', 'google/gemini-3-flash-image',

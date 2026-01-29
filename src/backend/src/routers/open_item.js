@@ -22,7 +22,7 @@ const FSNodeParam = require('../api/filesystem/FSNodeParam.js');
 const { Context } = require('../util/context.js');
 const { UserActorType } = require('../services/auth/Actor.js');
 const APIError = require('../api/APIError.js');
-const { sign_file, suggest_app_for_fsentry, get_app } = require('../helpers.js');
+const { sign_file, suggestedAppForFsEntry, get_app } = require('../helpers.js');
 
 // -----------------------------------------------------------------------//
 // POST /open_item
@@ -37,7 +37,7 @@ module.exports = eggspress('/open_item', {
     parameters: {
         subject: new FSNodeParam('path'),
     },
-}, async (req, res, next) => {
+}, async (req, res) => {
     const subject = req.values.subject;
 
     const actor = Context.get('actor');
@@ -60,13 +60,13 @@ module.exports = eggspress('/open_item', {
     }
 
     const signature = await sign_file(subject.entry, action);
-    const suggested_apps = await suggest_app_for_fsentry(subject.entry);
+    const suggested_apps = await suggestedAppForFsEntry(subject.entry);
     const apps_only_one = suggested_apps.slice(0, 1);
     const _app = apps_only_one[0];
     if ( ! _app ) {
         throw APIError.create('no_suitable_app', null, { entry_name: subject.entry.name });
     }
-    const app = await get_app(_app.hasOwnProperty('id')
+    const app = await get_app(Object.prototype.hasOwnProperty.call(_app, 'id')
         ? { id: _app.id }
         : { uid: _app.uid }) ?? apps_only_one[0];
 

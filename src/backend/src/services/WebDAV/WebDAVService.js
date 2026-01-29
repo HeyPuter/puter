@@ -218,9 +218,10 @@ class WebDAVService extends BaseService {
         } )();
         r_webdav.use(xmlparser());
 
-        app.use('/dav', r_webdav);
+        app.use('/', r_webdav);
 
         Endpoint({
+            subdomain: 'dav',
             route: '/*',
             methods: [
                 'PROPFIND',
@@ -260,50 +261,6 @@ class WebDAVService extends BaseService {
                 });
             },
         }).attach( r_webdav);
-
-        const r_rootdav = (() => {
-            const require = this.require;
-            const express = require('express');
-            return express.Router();
-        } )();
-        app.use('/', r_rootdav);
-        Endpoint({
-            route: '/*',
-            methods: [ 'PROPFIND' ],
-            mw: [ configurable_auth({ optional: true }) ],
-            /**
-             *
-             * @param {import("express").Request} req
-             * @param {import("express").Response} res
-             */
-            handler: async ( req, res ) => {
-                const svc_su = this.services.get('su');
-
-                let actor = await this.handleHttpBasicAuth(req.actor, req, res);
-                if ( ! actor ) {
-                    return;
-                }
-
-                if ( req.path !== '/' && !req.path.startsWith('/dav') ) {
-                    return res.status(404).end( 'Not Found');
-                }
-                if ( req.path === '/dav' ) {
-                    svc_su.sudo(actor, async () => {
-                        this.handleWebDavServer('/', req, res);
-                    });
-                }
-
-                // Set proper headers for WebDAV XML response
-                res.set({
-                    'Content-Type': 'application/xml; charset=utf-8',
-                    DAV: '1, 2',
-                    'MS-Author-Via': 'DAV',
-                });
-
-                res.status(207);
-                res.end(ROOT_WEB_DAV_RESPONSE_XML);
-            },
-        }).attach( r_rootdav);
     }
 }
 

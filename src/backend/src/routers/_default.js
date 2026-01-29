@@ -482,7 +482,7 @@ router.all('*', async function (req, res, next) {
     //------------------------------------------
     else {
         // replace hostname with static hosting domain and redirect to the same path
-        return res.redirect(301, `${req.protocol }://${ req.get('host').replace(config.domain, config.static_hosting_domain) }${req.originalUrl}`);
+        return res.redirect(302, `${req.protocol }://${ req.get('host').replace(config.domain, config.static_hosting_domain) }${req.originalUrl}`);
     }
 });
 

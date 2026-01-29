@@ -7,6 +7,7 @@ import murmurhash from 'murmurhash';
 import { DDBClient } from '../DDBClient.js';
 import { PUTER_KV_STORE_TABLE_DEFINITION } from './tableDefinition.js';
 import APIError from '../../../api/APIError.js';
+import { Span } from '../../../util/otelutil.js';
 
 export class DynamoKVStore {
     static GLOBAL_APP_KEY = 'os-global';
@@ -45,6 +46,7 @@ export class DynamoKVStore {
         }
     }
 
+    @Span('kv:get')
     async get ({ key }: { key: string | string[]; }): Promise<unknown | null | (unknown | null)[]> {
         if ( key === '' ) {
             throw APIError.create('field_empty', null, {
@@ -138,6 +140,7 @@ export class DynamoKVStore {
 
     }
 
+    @Span('kv:set')
     async set ({ key, value, expireAt }: { key: string; value: unknown; expireAt?: number; }): Promise<boolean> {
 
         const context = Context.get();
@@ -171,6 +174,7 @@ export class DynamoKVStore {
         return true;
     }
 
+    @Span('kv:del')
     async del ({ key }: { key: string; }): Promise<boolean> {
         const actor = Context.get('actor');
 
@@ -267,6 +271,7 @@ export class DynamoKVStore {
         return trimmed;
     }
 
+    @Span('kv:list')
     async list ({
         as,
         limit,
@@ -364,6 +369,7 @@ export class DynamoKVStore {
         return items;
     }
 
+    @Span('kv:flush')
     async flush () {
         const actor = Context.get('actor');
 
@@ -407,6 +413,7 @@ export class DynamoKVStore {
         return !!allRes;
     }
 
+    @Span('kv:expireAt')
     async expireAt ({ key, timestamp }: { key: string; timestamp: number; }): Promise<void> {
         if ( key === '' ) {
             throw APIError.create('field_empty', null, {
@@ -419,6 +426,7 @@ export class DynamoKVStore {
         return await this.#expireAt(key, timestamp);
     }
 
+    @Span('kv:expire')
     async expire ({ key, ttl }: { key: string; ttl: number; }): Promise<void> {
         if ( key === '' ) {
             throw APIError.create('field_empty', null, {
@@ -521,6 +529,7 @@ export class DynamoKVStore {
     }
 
     // Ideally the paths support syntax like "a.b[2].c"
+    @Span('kv:incr')
     async incr<T extends Record<string, number>>({ key, pathAndAmountMap }: { key: string; pathAndAmountMap: T; }): Promise<T extends { '': number; } ? number : RecursiveRecord<number>> {
         if ( Object.values(pathAndAmountMap).find((v) => typeof v !== 'number') ) {
             throw new Error('All values in pathAndAmountMap must be numbers');
@@ -581,6 +590,11 @@ export class DynamoKVStore {
         return res.Attributes?.value;
     }
 
+    async decr<T extends Record<string, number>>({ key, pathAndAmountMap }: { key: string; pathAndAmountMap: T; }) {
+        return await this.incr({ key, pathAndAmountMap: Object.fromEntries(Object.entries(pathAndAmountMap).map(([k, v]) => [k, -v])) as T });
+    }
+
+    @Span('kv:add')
     async add ({ key, pathAndValueMap }: { key: string; pathAndValueMap: Record<string, unknown>; }): Promise<unknown> {
         if ( !pathAndValueMap || Object.keys(pathAndValueMap).length === 0 ) {
             throw new Error('invalid use of #add: no pathAndValueMap');
@@ -637,6 +651,7 @@ export class DynamoKVStore {
         return res.Attributes?.value;
     }
 
+    @Span('kv:remove')
     async remove ({ key, paths }: { key: string; paths: string[]; }): Promise<unknown> {
         if ( !paths || paths.length === 0 ) {
             throw new Error('invalid use of #remove: no paths');
@@ -698,6 +713,7 @@ export class DynamoKVStore {
         }
     }
 
+    @Span('kv:update')
     async update ({ key, pathAndValueMap, ttl }: { key: string; pathAndValueMap: Record<string, unknown>; ttl?: number; }): Promise<unknown> {
         if ( !pathAndValueMap || Object.keys(pathAndValueMap).length === 0 ) {
             throw new Error('invalid use of #update: no pathAndValueMap');
@@ -762,10 +778,6 @@ export class DynamoKVStore {
         writeUnits += res.ConsumedCapacity?.CapacityUnits ?? 0;
         this.#meteringService.incrementUsage(actor, 'kv:write', writeUnits);
         return res.Attributes?.value;
-    }
-
-    async decr<T extends Record<string, number>>({ key, pathAndAmountMap }: { key: string; pathAndAmountMap: T; }) {
-        return await this.incr({ key, pathAndAmountMap: Object.fromEntries(Object.entries(pathAndAmountMap).map(([k, v]) => [k, -v])) as T });
     }
 
     async #expireAt (key: string, timestamp: number) {

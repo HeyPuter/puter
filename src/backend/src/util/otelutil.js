@@ -21,9 +21,9 @@
 // to create spans correctly. The path of least resistance should
 // be the correct path, not a way to shoot yourself in the foot.
 
-const { context, trace, SpanStatusCode } = require('@opentelemetry/api');
-const { Context } = require('./context');
-const { TeePromise } = require('@heyputer/putility').libs.promise;
+import { context, trace, SpanStatusCode } from '@opentelemetry/api';
+import { Context } from './context.js';
+import { TeePromise } from '@heyputer/putility/src/libs/promise.js';
 
 /*
 parallel span example from GPT-4:
@@ -42,7 +42,8 @@ promises.push(tracer.startActiveSpan(`job:${job.id}`, (span) => {
 }));
 */
 
-const spanify = (label, fn, tracer) => async (...args) => {
+/** @type {<T extends Function>(label:string, fn:T, tracer?: unknown)=> T} */
+export const spanify = (label, fn, tracer) => async function (...args) {
     const context = Context.get();
     if ( ! context ) {
         // We don't use the proper logger here because we would normally
@@ -50,16 +51,36 @@ const spanify = (label, fn, tracer) => async (...args) => {
         console.error('spanify failed', new Error('missing context'));
     }
 
-    tracer = tracer ?? context.get('services').get('traceService').tracer;
+    tracer = tracer ?? context?.get('services')?.get('traceService')?.tracer;
+    if ( ! tracer ) {
+        console.error('spanify failed', new Error('missing tracer or services'));
+        // eslint-disable-next-line no-invalid-this
+        return await fn.apply(this, args);
+    }
     let result;
-    await tracer.startActiveSpan(label, async span => {
-        result = await fn(...args);
-        span.end();
+    return await tracer.startActiveSpan(label, async span => {
+        try {
+        // eslint-disable-next-line no-invalid-this
+            result = await fn.apply(this, args);
+            span.setStatus({ code: SpanStatusCode.OK });
+            return result;
+        } catch (e) {
+            span.recordException(e);
+            span.setStatus({ code: SpanStatusCode.ERROR, message: e.message });
+        } finally {
+            span.end();
+        }
     });
-    return result;
 };
 
-const abtest = async (label, impls) => {
+/** @type {(label: string, tracer?: unknown) => MethodDecorator} */
+export const Span = (label, tracer) => (_target, _propertyKey, descriptor) => {
+    if ( !descriptor || typeof descriptor.value !== 'function' ) return descriptor;
+    descriptor.value = spanify(label, descriptor.value, tracer);
+    return descriptor;
+};
+
+export const abtest = async (label, impls) => {
     const context = Context.get();
     if ( ! context ) {
         // We don't use the proper logger here because we would normally
@@ -82,7 +103,7 @@ const abtest = async (label, impls) => {
     return result;
 };
 
-class ParallelTasks {
+export class ParallelTasks {
     constructor ({ tracer, max } = {}) {
         this.tracer = tracer;
         this.max = max ?? Infinity;
@@ -146,9 +167,3 @@ class ParallelTasks {
         }
     }
 }
-
-module.exports = {
-    ParallelTasks,
-    spanify,
-    abtest,
-};

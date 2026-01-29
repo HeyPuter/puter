@@ -79,6 +79,13 @@ class WebServerService extends BaseService {
             return res.sendStatus(200);
         });
 
+        // Catch-all 404 for unmatched routes (e.g. api subdomain with unknown path)
+        // There seem to be some cases (ex: other subdomains) where this doesn't work
+        // as intended still, but this is an improvement over the previous behavior.
+        app.use((req, res) => {
+            res.status(404).send('Not Found');
+        });
+
         this.log.debug('web server setup done');
     }
 

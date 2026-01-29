@@ -19,13 +19,15 @@
 const APIError = require('../../api/APIError');
 const { Context } = require('../../util/context');
 const { stream_to_buffer } = require('../../util/streamutil');
-const { get_apps } = require('../../helpers');
+const { get_apps, suggestedAppsForFsEntries } = require('../../helpers');
 const { ECMAP } = require('../ECMAP');
 const { TYPE_DIRECTORY, TYPE_SYMLINK } = require('../FSNodeContext');
 const { LLListUsers } = require('../ll_operations/ll_listusers');
 const { LLReadDir } = require('../ll_operations/ll_readdir');
 const { LLReadShares } = require('../ll_operations/ll_readshares');
 const { HLFilesystemOperation } = require('./definitions');
+const { DB_READ } = require('../../services/database/consts');
+const config = require('../../config');
 
 class HLReadDir extends HLFilesystemOperation {
     static CONCERN = 'filesystem';
@@ -117,13 +119,14 @@ class HLReadDir extends HLFilesystemOperation {
             }
         }
 
+        if ( ! no_assocs ) {
+            await Promise.all([
+                this.#batchFetchSuggestedApps(children, user),
+                this.#batchFetchSubdomains(children, user),
+            ]);
+        }
+
         return Promise.all(children.map(async child => {
-            if ( ! no_assocs ) {
-                await Promise.all([
-                    child.fetchSuggestedApps(user),
-                    child.fetchSubdomains(user),
-                ]);
-            }
             const entry = await child.getSafeEntry();
             if ( !no_thumbs && entry.associated_app ) {
                 const svc_appIcon = this.context.get('services').get('app-icon');
@@ -150,6 +153,59 @@ class HLReadDir extends HLFilesystemOperation {
             }
             return entry;
         }));
+    }
+
+    async #batchFetchSubdomains (children, user) {
+        const dirChildren = [];
+        const childById = new Map();
+
+        for ( const child of children ) {
+            const entry = child.entry;
+            if ( ! entry?.is_dir ) continue;
+            entry.subdomains = [];
+            if ( entry.id == null ) continue;
+            dirChildren.push(entry.id);
+            childById.set(entry.id, child);
+        }
+
+        if ( dirChildren.length === 0 ) return;
+
+        const placeholders = dirChildren.map(() => '?').join(',');
+        const db = this.context.get('services').get('database').get(DB_READ, 'filesystem');
+        const rows = await db.read(`SELECT root_dir_id, subdomain, uuid
+             FROM subdomains
+             WHERE root_dir_id IN (${placeholders}) AND user_id = ?`,
+        [...dirChildren, user.id]);
+
+        for ( const row of rows ) {
+            const child = childById.get(row.root_dir_id);
+            if ( ! child ) continue;
+            child.entry.subdomains.push({
+                subdomain: row.subdomain,
+                address: `${config.protocol }://${ row.subdomain }.puter.site`,
+                uuid: row.uuid,
+            });
+            child.entry.has_website = true;
+        }
+    }
+
+    async #batchFetchSuggestedApps (children, user) {
+        const entries = [];
+        const targets = [];
+
+        for ( const child of children ) {
+            const entry = child.entry;
+            if ( !entry || entry.suggested_apps ) continue;
+            entries.push(entry);
+            targets.push(entry);
+        }
+
+        if ( entries.length === 0 ) return;
+
+        const suggestedLists = await suggestedAppsForFsEntries(entries, { user });
+        for ( let index = 0; index < targets.length; index++ ) {
+            targets[index].suggested_apps = suggestedLists[index] ?? [];
+        }
     }
 }
 

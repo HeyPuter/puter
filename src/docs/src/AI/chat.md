@@ -270,6 +270,88 @@ List of OpenAI models that support the web search can be found in their [API com
 </html>
 ```
 
+<strong class="example-title">Streaming Function Calling</strong>
+
+```html;ai-streaming-function-calling
+<html>
+<body>
+    <script src="https://js.puter.com/v2/"></script>
+    <script>
+        // Define the tool
+        const tools = [{
+            type: "function",
+            function: {
+                name: "get_weather",
+                description: "Get current weather for a location",
+                parameters: {
+                    type: "object",
+                    properties: {
+                        location: { type: "string", description: "City name" }
+                    },
+                    required: ["location"]
+                }
+            }
+        }];
+
+        // Mock weather function
+        function getWeather(location) {
+            return `The weather in ${location} is 22°C and Sunny.`;
+        }
+
+        (async () => {
+            const question = "What's the weather in Paris?";
+            puter.print(`Question: ${question}<br/>`);
+
+            // 1. Call AI with stream: true AND tools
+            const response = await puter.ai.chat(question, { 
+                tools,
+                stream: true 
+            });
+
+            // 2. Iterate through the stream
+            for await (const part of response) {
+                
+                // Standard Text Stream
+                if (part.type === 'text') {
+                    puter.print(part.text);
+                }
+                
+                // Tool Call Detected
+                else if (part.type === 'tool_use') {
+                    const toolCall = part;
+                    const funcName = toolCall.name;
+                    const args = toolCall.input; // Already parsed: { location: "Paris" }
+
+                    puter.print(`<br/>[System] Calling tool: ${funcName} with args: ${JSON.stringify(args)}<br/>`);
+
+                    // Execute the local function
+                    let result;
+                    if (funcName === 'get_weather') {
+                        result = getWeather(args.location);
+                    }
+
+                    // Send the tool result back to the AI to get the final answer
+                    const finalResponse = await puter.ai.chat([
+                        { role: "user", content: question },
+                        { role: "assistant", tool_calls: [{
+                            id: toolCall.id,
+                            type: "function",
+                            function: { name: funcName, arguments: JSON.stringify(args) }
+                        }]},
+                        { role: "tool", tool_call_id: toolCall.id, content: result }
+                    ], { stream: true });
+
+                    for await (const finalPart of finalResponse) {
+                        if (finalPart.text) puter.print(finalPart.text);
+                    }
+                }
+            }
+        })();
+    </script>
+</body>
+</html>
+```
+
 <strong class="example-title">Web Search</strong>
 
 ```html;ai-web-search

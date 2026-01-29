@@ -9,6 +9,7 @@ Get detailed usage statistics for an application.
 <div class="info">
 
 Users can only see the usage of applications they have accessed before.
+Usage data is scoped to the calling app only.
 
 </div>
 
