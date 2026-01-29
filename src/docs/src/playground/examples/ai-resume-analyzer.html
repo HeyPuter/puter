@@ -92,11 +92,6 @@
 
     
     <script>
-       // track: file-processing
-       // The AI model (claude-sonnet-4) only supports native PDF parsing.
-       // compare(original): original implementation attempted to upload DOC/DOCX/TXT directly.
-       // We now extract DOCX/TXT to text before analysis because the model treats them as binary.
-        
         let uploadedFile = null;
         let extractedText = null;
         
@@ -143,11 +138,6 @@
 
         async function processFile(file) 
         {
-            // track: file-type-handling
-            // PDF => upload directly (native support).
-            // DOCX => extracted via Mammoth (AI cannot parse DOCX binaries).
-            // TXT => read text because AI cannot parse raw .txt file uploads.
-
             if (!file) return;
             
             uploadedFile = file;
@@ -171,7 +161,6 @@
                 extractedText = await file.text();
             }
             else {
-                // todo(file-support): add .doc support using doc2txt or LibreOffice WASM
                 alert("Unsupported file format. Only PDF, DOCX, and TXT are supported.");
                 uploadedFile = null;
                 analyzeBtn.disabled = true;
@@ -249,7 +238,7 @@
                         { type: "text", text: "Analyze this resume briefly." }
                     ]
                 }
-            ], { model: "claude-sonnet-4", stream: true });
+            ], { model: "claude-haiku-4-5", stream: true });
 
             for await (const part of completion) {
                 text += part?.text || "";
@@ -270,7 +259,7 @@
                         { type: "text", text: "Analyze this resume briefly." }
                     ]
                 }
-            ], { model: "claude-sonnet-4", stream: true });
+            ], { model: "claude-haiku-4-5", stream: true });
 
             for await (const part of completion) {
                 text += part?.text || "";
@@ -279,66 +268,6 @@
             return text;
         }
 
-        // compare(previous-implementation):
-        // The block below is the original implementation.
-        // It posted all uploaded files directly to puter.ai.chat.
-        // Because the model only supports PDF file parsing, DOCX/TXT would be interpreted as binary.
-        // Leaving it commented to maintain commit history context.
-
-        // Analyze resume
-        // analyzeBtn.addEventListener('click', async () => {
-        //     if (!uploadedFile) return;
-
-        //     analyzeBtn.disabled = true;
-        //     analyzeBtn.textContent = 'Analyzing...';
-        //     response.style.display = 'none';
-
-        //     try {
-        //         // First, upload the file to Puter
-        //         const puterFile = await puter.fs.write(`temp_resume_${Date.now()}.${uploadedFile.name.split('.').pop()}`,
-        //             uploadedFile
-        //         );
-
-        //         const uploadedPath = puterFile.path;
-
-        //         // Analyze the resume with AI
-        //         const completion = await puter.ai.chat([
-        //             {
-        //                 role: 'user',
-        //                 content: [
-        //                     {
-        //                         type: 'file',
-        //                         puter_path: uploadedPath
-        //                     },
-        //                     {
-        //                         type: 'text',
-        //                         text: 'Please analyze this resume and suggest how to improve it. Only a few sentences are needed.'
-        //                     }
-        //                 ]
-        //             }
-        //         ], { model: 'claude-sonnet-4', stream: true });
-
-        //         let text = '';
-
-        //         // Display the response
-        //         for await ( const part of completion ) {
-        //             text += part?.text;
-        //             response.innerHTML = text;
-        //         }
-
-        //         response.style.display = 'block';
-
-        //         // Clean up the temporary file
-        //         await puter.fs.delete(uploadedPath);
-
-        //     } catch (error) {
-        //         response.innerHTML = `<strong>Error:</strong><br>${error.message}`;
-        //         response.style.display = 'block';
-        //     }
-
-        //     analyzeBtn.disabled = false;
-        //     analyzeBtn.textContent = 'Analyze My Resume';
-        // });
     </script>
 </body>
 
