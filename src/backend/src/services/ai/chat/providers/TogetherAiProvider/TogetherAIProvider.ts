@@ -24,6 +24,11 @@ import { MeteringService } from '../../../../MeteringService/MeteringService.js'
 import * as OpenAIUtil from '../../../utils/OpenAIUtil.js';
 import { IChatModel, IChatProvider, ICompleteArguments } from '../types.js';
 
+const TOGETHER_AI_CHAT_COST_MAP = {
+    'input': 'prompt_tokens',
+    'output': 'completion_tokens',
+};
+
 export class TogetherAIProvider implements IChatProvider {
     #together: Together;
 
@@ -127,8 +132,10 @@ export class TogetherAIProvider implements IChatProvider {
             usage_calculator: ({ usage }) => {
                 const trackedUsage = OpenAIUtil.extractMeteredUsage(usage);
                 const costsOverride = Object.fromEntries(Object.entries(trackedUsage).map(([k, v]) => {
-                    return [k, v * (modelUsed.costs[k] || 0)];
-                }));
+                    k = TOGETHER_AI_CHAT_COST_MAP[k] || k;
+                    return modelUsed.costs[k] ? [k, v * (modelUsed.costs[k] || 0)] : null;
+                }).filter(Boolean) as [string, number][]);
+
                 this.#meteringService.utilRecordUsageObject(trackedUsage, actor, `togetherai:${modelIdForParams}`, costsOverride);
                 return trackedUsage;
             },
