@@ -25,8 +25,8 @@ import * as OpenAIUtil from '../../../utils/OpenAIUtil.js';
 import { IChatModel, IChatProvider, ICompleteArguments } from '../types.js';
 
 const TOGETHER_AI_CHAT_COST_MAP = {
-    'input': 'prompt_tokens',
-    'output': 'completion_tokens',
+    prompt_tokens: 'input',
+    completion_tokens: 'output',
 };
 
 export class TogetherAIProvider implements IChatProvider {
