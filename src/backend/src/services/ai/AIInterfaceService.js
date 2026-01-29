@@ -107,6 +107,7 @@ class AIInterfaceService extends BaseService {
                         stream: { type: 'flag' },
                         response: { type: 'json' },
                         model: { type: 'string' },
+                        provider: { type: 'string', optional: true },
                         temperature: { type: 'number' },
                         max_tokens: { type: 'number' },
                     },
