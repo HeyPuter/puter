@@ -98,12 +98,12 @@ const TabFiles = {
         return h;
     },
 
-    init ($el_window) {
+    async init ($el_window) {
         const _this = this;
         this.activeMenuFileUid = null;
         this.selectedFolderUid = null;
         this.currentPath = null;
-        this.currentView = 'list';
+        this.currentView = await puter.kv.get('view_mode') || 'list';
 
         // Create click handler for each folder item
         $el_window.find('[data-folder]').each(function () {
@@ -212,14 +212,10 @@ const TabFiles = {
         // Store reference to $el_window for later use
         this.$el_window = $el_window;
 
-        // Load saved view preference
-        const savedView = window.user_preferences?.files_view || 'list';
-        this.currentView = savedView;
-
         // Apply initial view
         const $filesContainer = this.$el_window.find('.files-tab .files');
         const $tabContent = this.$el_window.find('.files-tab');
-        if ( savedView === 'grid' ) {
+        if ( this.currentView === 'grid' ) {
             $filesContainer.addClass('files-grid-view');
             $tabContent.addClass('files-grid-mode');
             this.$el_window.find('.view-toggle-btn').html(icons.list);
@@ -1107,11 +1103,7 @@ const TabFiles = {
             $toggleBtn.attr('title', 'Switch to grid view');
         }
 
-        if ( ! window.user_preferences ) {
-            window.user_preferences = {};
-        }
-        window.user_preferences.files_view = this.currentView;
-        localStorage.setItem('user_preferences', JSON.stringify(window.user_preferences));
+        puter.kv.set('view_mode', this.currentView);
     },
 
     initNavHistory (initialPath) {
