@@ -47,15 +47,6 @@ class FilesystemService extends BaseService {
         // used by update_child_paths
         this.db = services.get('database').get(DB_WRITE, 'filesystem');
 
-        const info = services.get('information');
-        info.given('fs.fsentry').provide('fs.fsentry:path')
-            .addStrategy('entry-or-delegate', async entry => {
-                if ( entry.path ) return entry.path;
-                return await info
-                    .with('fs.fsentry:uuid')
-                    .obtain('fs.fsentry:path')
-                    .exec(entry.uuid);
-            });
     }
 
     async _init () {

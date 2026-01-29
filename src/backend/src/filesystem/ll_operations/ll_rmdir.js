@@ -18,7 +18,7 @@
  */
 const APIError = require('../../api/APIError');
 const { MemoryFSProvider } = require('../../modules/puterfs/customfs/MemoryFSProvider');
-const { ParallelTasks } = require('../../util/otelutil');
+const { ParallelTasks, getTracer } = require('../../util/otelutil');
 const FSNodeContext = require('../FSNodeContext');
 const { NodeUIDSelector } = require('../node/selectors');
 const { LLFilesystemOperation } = require('./definitions');
@@ -68,7 +68,7 @@ class LLRmDir extends LLFilesystemOperation {
             throw APIError.create('not_empty');
         }
 
-        const tracer = svc.get('traceService').tracer;
+        const tracer = getTracer();
         const tasks = new ParallelTasks({ tracer, max: max_tasks });
 
         for ( const child_uuid of children ) {
