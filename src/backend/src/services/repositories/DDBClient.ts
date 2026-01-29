@@ -49,7 +49,7 @@ export class DDBClient {
             const port = (typeof address === 'object' && address ? address.port : undefined) || 4567;
             const dynamoEndpoint = `http://127.0.0.1:${port}`;
 
-            return new DynamoDBClient({
+            const client =  new DynamoDBClient({
                 credentials: {
                     accessKeyId: 'fake',
                     secretAccessKey: 'fake',
@@ -63,9 +63,11 @@ export class DDBClient {
                 endpoint: dynamoEndpoint,
                 region: 'us-west-2',
             });
+            console.log(`Dynalite DynamoDB client created with region ${await client.config.region()}`);
+            return client;
         }
 
-        return new DynamoDBClient({
+        const client =  new DynamoDBClient({
             credentials: {
                 accessKeyId: this.config.aws.access_key,
                 secretAccessKey: this.config.aws.secret_key,
@@ -79,10 +81,11 @@ export class DDBClient {
             ...(this.config.endpoint ? { endpoint: this.config.endpoint } : {}),
             region: this.config.aws.region || 'us-west-2',
         });
+        console.log(`Dynalite DynamoDB client created with region ${await client.config.region()}`);
+        return client;
     }
 
     async get <T extends Record<string, unknown>>(table: string, key: T, consistentRead = false) {
-
         const command = new GetCommand({
             TableName: table,
             Key: key,

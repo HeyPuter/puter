@@ -93,7 +93,7 @@ class RateLimitService extends BaseService {
             kv.set(`${kvkey}:window_start`, window_start);
             kv.set(`${kvkey}:count`, 0);
 
-            await this.db.write('INSERT INTO `rl_usage_fixed_window` (`key`, `window_start`, `count`) VALUES (?, ?, ?)',
+            this.db.write('INSERT INTO `rl_usage_fixed_window` (`key`, `window_start`, `count`) VALUES (?, ?, ?)',
                             [dbkey, ts_to_sql(window_start), 0]);
 
             this.log.debug('CREATE window_start and count',
@@ -105,7 +105,7 @@ class RateLimitService extends BaseService {
             kv.set(`${kvkey}:window_start`, window_start);
             kv.set(`${kvkey}:count`, 0);
 
-            await this.db.write('UPDATE `rl_usage_fixed_window` SET `window_start` = ?, `count` = ? WHERE `key` = ?',
+            this.db.write('UPDATE `rl_usage_fixed_window` SET `window_start` = ?, `count` = ? WHERE `key` = ?',
                             [ts_to_sql(window_start), 0, dbkey]);
         }
 
@@ -118,7 +118,7 @@ class RateLimitService extends BaseService {
         }
 
         kv.incr(`${kvkey}:count`);
-        await this.db.write('UPDATE `rl_usage_fixed_window` SET `count` = `count` + 1 WHERE `key` = ?',
+        this.db.write('UPDATE `rl_usage_fixed_window` SET `count` = `count` + 1 WHERE `key` = ?',
                         [dbkey]);
     }
 

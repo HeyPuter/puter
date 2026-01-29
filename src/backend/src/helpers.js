@@ -386,233 +386,226 @@ async function get_app (options) {
  * @returns {Promise<Array<object|null>>}
  */
 const get_apps = spanify('get_apps', async (specifiers, options = {}) => {
-    const start = Date.now();
-    console.log('Entering Get apps at: ', start);
-    try {
-        if ( ! Array.isArray(specifiers) ) {
-            specifiers = [specifiers];
-        }
-
-        const rawIcon = Boolean(options.rawIcon);
-        const cacheNamespace = rawIcon ? 'apps' : 'apps:lite';
-        const pendingNamespace = rawIcon ? 'pending_app' : 'pending_app_lite';
-        const decorateApp = (app) => (rawIcon ? app : withAppIconUrl(app));
-        const cacheApp = (app) => {
-            if ( ! app ) return;
-            const cached_app = { ...app };
-            kv.set(`${cacheNamespace}:uid:${cached_app.uid}`, cached_app, { EX: 60 });
-            kv.set(`${cacheNamespace}:name:${cached_app.name}`, cached_app, { EX: 60 });
-            kv.set(`${cacheNamespace}:id:${cached_app.id}`, cached_app, { EX: 60 });
-        };
-
-        const APP_COLUMNS_NO_ICON = [
-            'id',
-            'uid',
-            'owner_user_id',
-            'name',
-            'title',
-            'description',
-            'godmode',
-            'maximize_on_start',
-            'index_url',
-            'approved_for_listing',
-            'approved_for_opening_items',
-            'approved_for_incentive_program',
-            'timestamp',
-            'last_review',
-            'tags',
-            'app_owner',
-            'metadata',
-            'protected',
-            'background',
-        ].map(column => `\`${column}\``).join(', ');
-
-        const normalized = specifiers.map(spec => spec ? { ...spec } : {});
-
-        if ( options.follow_old_names ) {
-            const svc_oldAppName = _servicesHolder.services.get('old-app-name');
-            for ( const spec of normalized ) {
-                if ( spec.uid || !spec.name ) continue;
-                const old_name = await svc_oldAppName.check_app_name(spec.name);
-                if ( old_name ) {
-                    spec.uid = old_name.app_uid;
-                    delete spec.name;
-                }
-            }
-        }
-
-        const appByUid = new Map();
-        const appByName = new Map();
-        const appById = new Map();
-
-        const addApp = (app) => {
-            if ( ! app ) return;
-            appByUid.set(app.uid, app);
-            appByName.set(app.name, app);
-            appById.set(app.id, app);
-        };
-
-        const pendingLookups = new Map();
-        const pendingToResolve = new Map();
-        const queryUids = new Set();
-        const queryNames = new Set();
-        const queryIds = new Set();
-
-        const queueMissing = (type, value) => {
-            const queryKey = `${type}:${value}`;
-            if ( pendingToResolve.has(queryKey) || pendingLookups.has(queryKey) ) {
-                return;
-            }
-
-            const pendingKey = `${pendingNamespace}:${queryKey}`;
-            const pending = kv.get(pendingKey);
-            if ( pending ) {
-                pendingLookups.set(queryKey, pending);
-                return;
-            }
-
-            let resolveQuery;
-            let rejectQuery;
-            const queryPromise = new Promise((resolve, reject) => {
-                resolveQuery = resolve;
-                rejectQuery = reject;
-            });
-            kv.set(pendingKey, queryPromise, { EX: PENDING_QUERY_TTL });
-            pendingToResolve.set(queryKey, { resolveQuery, rejectQuery, pendingKey });
-
-            if ( type === 'uid' ) {
-                queryUids.add(value);
-            } else if ( type === 'name' ) {
-                queryNames.add(value);
-            } else if ( type === 'id' ) {
-                queryIds.add(value);
-            }
-        };
-
-        for ( const spec of normalized ) {
-            if ( spec.uid ) {
-                const cached = kv.get(`${cacheNamespace}:uid:${spec.uid}`);
-                if ( cached ) {
-                    addApp(decorateApp(cached));
-                } else {
-                    queueMissing('uid', spec.uid);
-                }
-                continue;
-            }
-            if ( spec.name ) {
-                const cached = kv.get(`${cacheNamespace}:name:${spec.name}`);
-                if ( cached ) {
-                    addApp(decorateApp(cached));
-                } else {
-                    queueMissing('name', spec.name);
-                }
-                continue;
-            }
-            if ( spec.id ) {
-                const cached = kv.get(`${cacheNamespace}:id:${spec.id}`);
-                if ( cached ) {
-                    addApp(decorateApp(cached));
-                } else {
-                    queueMissing('id', spec.id);
-                }
-            }
-        }
-
-        const pendingResultsPromise = pendingLookups.size
-            ? Promise.all(Array.from(pendingLookups.values()))
-            : Promise.resolve([]);
-
-        if ( queryUids.size || queryNames.size || queryIds.size ) {
-        /** @type BaseDatabaseAccessService */
-            const db = _servicesHolder.services.get('database').get(DB_READ, 'apps');
-
-            const clauses = [];
-            const params = [];
-
-            if ( queryUids.size ) {
-                const uids = Array.from(queryUids);
-                clauses.push(`uid IN (${uids.map(() => '?').join(', ')})`);
-                params.push(...uids);
-            }
-            if ( queryNames.size ) {
-                const names = Array.from(queryNames);
-                clauses.push(`name IN (${names.map(() => '?').join(', ')})`);
-                params.push(...names);
-            }
-            if ( queryIds.size ) {
-                const ids = Array.from(queryIds);
-                clauses.push(`id IN (${ids.map(() => '?').join(', ')})`);
-                params.push(...ids);
-            }
-
-            let rows = [];
-            const resolvedKeys = new Set();
-            try {
-                const select_columns = rawIcon ? '*' : APP_COLUMNS_NO_ICON;
-                rows = await db.read(`SELECT ${select_columns} FROM \`apps\` WHERE ${clauses.join(' OR ')}`,
-                                params);
-                for ( const app of rows ) {
-                    const decorated_app = decorateApp(app);
-                    cacheApp(decorated_app);
-                    addApp(decorated_app);
-
-                    const uidKey = `uid:${decorated_app.uid}`;
-                    const nameKey = `name:${decorated_app.name}`;
-                    const idKey = `id:${decorated_app.id}`;
-
-                    if ( pendingToResolve.has(uidKey) ) {
-                        pendingToResolve.get(uidKey).resolveQuery(decorated_app);
-                        resolvedKeys.add(uidKey);
-                    }
-                    if ( pendingToResolve.has(nameKey) ) {
-                        pendingToResolve.get(nameKey).resolveQuery(decorated_app);
-                        resolvedKeys.add(nameKey);
-                    }
-                    if ( pendingToResolve.has(idKey) ) {
-                        pendingToResolve.get(idKey).resolveQuery(decorated_app);
-                        resolvedKeys.add(idKey);
-                    }
-                }
-
-                for ( const [key, { resolveQuery }] of pendingToResolve.entries() ) {
-                    if ( ! resolvedKeys.has(key) ) {
-                        resolveQuery(null);
-                    }
-                }
-            } catch ( err ) {
-                for ( const { rejectQuery } of pendingToResolve.values() ) {
-                    rejectQuery(err);
-                }
-                throw err;
-            } finally {
-                for ( const { pendingKey } of pendingToResolve.values() ) {
-                    kv.del(pendingKey);
-                }
-            }
-
-        }
-
-        const pendingResults = await pendingResultsPromise;
-        for ( const app of pendingResults ) {
-            addApp(decorateApp(app));
-        }
-
-        return normalized.map(spec => {
-            let app;
-            if ( spec.uid ) {
-                app = appByUid.get(spec.uid);
-            } else if ( spec.name ) {
-                app = appByName.get(spec.name);
-            } else if ( spec.id ) {
-                app = appById.get(spec.id);
-            }
-            return app ? { ...app } : null;
-        });
-    } finally {
-        const end = Date.now();
-        console.log('Exiting at: ', end);
-        console.log(`Total time taken for get_apps(): ${end - start}`);
+    if ( ! Array.isArray(specifiers) ) {
+        specifiers = [specifiers];
     }
+
+    const rawIcon = Boolean(options.rawIcon);
+    const cacheNamespace = rawIcon ? 'apps' : 'apps:lite';
+    const pendingNamespace = rawIcon ? 'pending_app' : 'pending_app_lite';
+    const decorateApp = (app) => (rawIcon ? app : withAppIconUrl(app));
+    const cacheApp = (app) => {
+        if ( ! app ) return;
+        const cached_app = { ...app };
+        kv.set(`${cacheNamespace}:uid:${cached_app.uid}`, cached_app, { EX: 60 });
+        kv.set(`${cacheNamespace}:name:${cached_app.name}`, cached_app, { EX: 60 });
+        kv.set(`${cacheNamespace}:id:${cached_app.id}`, cached_app, { EX: 60 });
+    };
+
+    const APP_COLUMNS_NO_ICON = [
+        'id',
+        'uid',
+        'owner_user_id',
+        'name',
+        'title',
+        'description',
+        'godmode',
+        'maximize_on_start',
+        'index_url',
+        'approved_for_listing',
+        'approved_for_opening_items',
+        'approved_for_incentive_program',
+        'timestamp',
+        'last_review',
+        'tags',
+        'app_owner',
+        'metadata',
+        'protected',
+        'background',
+    ].map(column => `\`${column}\``).join(', ');
+
+    const normalized = specifiers.map(spec => spec ? { ...spec } : {});
+
+    if ( options.follow_old_names ) {
+        const svc_oldAppName = _servicesHolder.services.get('old-app-name');
+        for ( const spec of normalized ) {
+            if ( spec.uid || !spec.name ) continue;
+            const old_name = await svc_oldAppName.check_app_name(spec.name);
+            if ( old_name ) {
+                spec.uid = old_name.app_uid;
+                delete spec.name;
+            }
+        }
+    }
+
+    const appByUid = new Map();
+    const appByName = new Map();
+    const appById = new Map();
+
+    const addApp = (app) => {
+        if ( ! app ) return;
+        appByUid.set(app.uid, app);
+        appByName.set(app.name, app);
+        appById.set(app.id, app);
+    };
+
+    const pendingLookups = new Map();
+    const pendingToResolve = new Map();
+    const queryUids = new Set();
+    const queryNames = new Set();
+    const queryIds = new Set();
+
+    const queueMissing = (type, value) => {
+        const queryKey = `${type}:${value}`;
+        if ( pendingToResolve.has(queryKey) || pendingLookups.has(queryKey) ) {
+            return;
+        }
+
+        const pendingKey = `${pendingNamespace}:${queryKey}`;
+        const pending = kv.get(pendingKey);
+        if ( pending ) {
+            pendingLookups.set(queryKey, pending);
+            return;
+        }
+
+        let resolveQuery;
+        let rejectQuery;
+        const queryPromise = new Promise((resolve, reject) => {
+            resolveQuery = resolve;
+            rejectQuery = reject;
+        });
+        kv.set(pendingKey, queryPromise, { EX: PENDING_QUERY_TTL });
+        pendingToResolve.set(queryKey, { resolveQuery, rejectQuery, pendingKey });
+
+        if ( type === 'uid' ) {
+            queryUids.add(value);
+        } else if ( type === 'name' ) {
+            queryNames.add(value);
+        } else if ( type === 'id' ) {
+            queryIds.add(value);
+        }
+    };
+
+    for ( const spec of normalized ) {
+        if ( spec.uid ) {
+            const cached = kv.get(`${cacheNamespace}:uid:${spec.uid}`);
+            if ( cached ) {
+                addApp(decorateApp(cached));
+            } else {
+                queueMissing('uid', spec.uid);
+            }
+            continue;
+        }
+        if ( spec.name ) {
+            const cached = kv.get(`${cacheNamespace}:name:${spec.name}`);
+            if ( cached ) {
+                addApp(decorateApp(cached));
+            } else {
+                queueMissing('name', spec.name);
+            }
+            continue;
+        }
+        if ( spec.id ) {
+            const cached = kv.get(`${cacheNamespace}:id:${spec.id}`);
+            if ( cached ) {
+                addApp(decorateApp(cached));
+            } else {
+                queueMissing('id', spec.id);
+            }
+        }
+    }
+
+    const pendingResultsPromise = pendingLookups.size
+        ? Promise.all(Array.from(pendingLookups.values()))
+        : Promise.resolve([]);
+
+    if ( queryUids.size || queryNames.size || queryIds.size ) {
+        /** @type BaseDatabaseAccessService */
+        const db = _servicesHolder.services.get('database').get(DB_READ, 'apps');
+
+        const clauses = [];
+        const params = [];
+
+        if ( queryUids.size ) {
+            const uids = Array.from(queryUids);
+            clauses.push(`uid IN (${uids.map(() => '?').join(', ')})`);
+            params.push(...uids);
+        }
+        if ( queryNames.size ) {
+            const names = Array.from(queryNames);
+            clauses.push(`name IN (${names.map(() => '?').join(', ')})`);
+            params.push(...names);
+        }
+        if ( queryIds.size ) {
+            const ids = Array.from(queryIds);
+            clauses.push(`id IN (${ids.map(() => '?').join(', ')})`);
+            params.push(...ids);
+        }
+
+        let rows = [];
+        const resolvedKeys = new Set();
+        try {
+            const select_columns = rawIcon ? '*' : APP_COLUMNS_NO_ICON;
+            rows = await db.read(`SELECT ${select_columns} FROM \`apps\` WHERE ${clauses.join(' OR ')}`,
+                            params);
+            for ( const app of rows ) {
+                const decorated_app = decorateApp(app);
+                cacheApp(decorated_app);
+                addApp(decorated_app);
+
+                const uidKey = `uid:${decorated_app.uid}`;
+                const nameKey = `name:${decorated_app.name}`;
+                const idKey = `id:${decorated_app.id}`;
+
+                if ( pendingToResolve.has(uidKey) ) {
+                    pendingToResolve.get(uidKey).resolveQuery(decorated_app);
+                    resolvedKeys.add(uidKey);
+                }
+                if ( pendingToResolve.has(nameKey) ) {
+                    pendingToResolve.get(nameKey).resolveQuery(decorated_app);
+                    resolvedKeys.add(nameKey);
+                }
+                if ( pendingToResolve.has(idKey) ) {
+                    pendingToResolve.get(idKey).resolveQuery(decorated_app);
+                    resolvedKeys.add(idKey);
+                }
+            }
+
+            for ( const [key, { resolveQuery }] of pendingToResolve.entries() ) {
+                if ( ! resolvedKeys.has(key) ) {
+                    resolveQuery(null);
+                }
+            }
+        } catch ( err ) {
+            for ( const { rejectQuery } of pendingToResolve.values() ) {
+                rejectQuery(err);
+            }
+            throw err;
+        } finally {
+            for ( const { pendingKey } of pendingToResolve.values() ) {
+                kv.del(pendingKey);
+            }
+        }
+
+    }
+
+    const pendingResults = await pendingResultsPromise;
+    for ( const app of pendingResults ) {
+        addApp(decorateApp(app));
+    }
+
+    return normalized.map(spec => {
+        let app;
+        if ( spec.uid ) {
+            app = appByUid.get(spec.uid);
+        } else if ( spec.name ) {
+            app = appByName.get(spec.name);
+        } else if ( spec.id ) {
+            app = appById.get(spec.id);
+        }
+        return app ? { ...app } : null;
+    });
+
 });
 
 /**
