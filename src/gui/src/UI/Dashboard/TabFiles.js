@@ -44,11 +44,30 @@ const icons = {
 
 const { html_encode } = window;
 
+/**
+ * TabFiles - File browser tab component for the Puter Dashboard.
+ *
+ * Provides a full-featured file management interface including:
+ * - Directory navigation with breadcrumb path
+ * - List and grid view modes
+ * - File sorting by name, size, or modification date
+ * - Drag-and-drop file operations (move, copy, shortcut)
+ * - Context menus for file/folder operations
+ * - File upload with progress tracking
+ * - Trash folder support with restore/permanent delete
+ *
+ * @module TabFiles
+ */
 const TabFiles = {
     id: 'files',
     label: 'Files',
     icon: icons.files,
 
+    /**
+     * Generates the HTML template for the files tab.
+     *
+     * @returns {string} HTML string containing the file browser structure
+     */
     html () {
         let h = `
             <div class="dashboard-tab-content files-tab">
@@ -104,6 +123,15 @@ const TabFiles = {
         return h;
     },
 
+    /**
+     * Initializes the files tab with event listeners and state.
+     *
+     * Sets up folder click handlers, drag-and-drop zones, context menus,
+     * and restores persisted preferences (view mode, sort settings, column widths).
+     *
+     * @param {jQuery} $el_window - The jQuery-wrapped window/container element
+     * @returns {Promise<void>}
+     */
     async init ($el_window) {
         const _this = this;
         this.activeMenuFileUid = null;
@@ -255,7 +283,8 @@ const TabFiles = {
 
         this.createHeaderEventListeners($el_window);
 
-        // Apply initial view
+        // Apply initial view mode from persisted preferences
+
         const $filesContainer = this.$el_window.find('.files-tab .files');
         const $tabContent = this.$el_window.find('.files-tab');
         if ( this.currentView === 'grid' ) {
@@ -268,6 +297,14 @@ const TabFiles = {
         }
     },
 
+    /**
+     * Sets up event listeners for header controls.
+     *
+     * Handles navigation buttons (back/forward/up), new folder, upload,
+     * view toggle, sort menu, and column header sorting.
+     *
+     * @returns {void}
+     */
     createHeaderEventListeners () {
         const _this = this;
         const fileInput = document.querySelector('#upload-file-dialog');
@@ -502,6 +539,13 @@ const TabFiles = {
         this.initColumnResizing();
     },
 
+    /**
+     * Initializes column resize functionality for list view.
+     *
+     * Enables drag-to-resize on column headers and persists widths to storage.
+     *
+     * @returns {void}
+     */
     initColumnResizing () {
         const _this = this;
         const $columns = this.$el_window.find('.header .columns');
@@ -549,6 +593,11 @@ const TabFiles = {
         });
     },
 
+    /**
+     * Applies the current column widths to the header and file rows.
+     *
+     * @returns {void}
+     */
     applyColumnWidths () {
         const $filesTab = this.$el_window.find('.files-tab');
         const nameWidth = this.columnWidths.name;
@@ -562,6 +611,12 @@ const TabFiles = {
         $filesTab.find('.files.files-list-view .row').css('grid-template-columns', gridTemplate);
     },
 
+    /**
+     * Visually selects a folder in the sidebar directory list.
+     *
+     * @param {HTMLElement} $folderElement - The folder list item element to select
+     * @returns {void}
+     */
     selectFolder ($folderElement) {
         $folderElement.parentElement.querySelectorAll('li').forEach(li => {
             li.classList.remove('active');
@@ -569,6 +624,11 @@ const TabFiles = {
         $folderElement.classList.add('active');
     },
 
+    /**
+     * Updates the sidebar folder selection to match the current path.
+     *
+     * @returns {void}
+     */
     updateSidebarSelection () {
         this.$el_window.find('.directories li').removeClass('active');
 
@@ -586,6 +646,14 @@ const TabFiles = {
         });
     },
 
+    /**
+     * Updates header action buttons based on current folder context.
+     *
+     * Shows/hides new folder, upload, and empty trash buttons as appropriate.
+     *
+     * @param {boolean} isTrashFolder - Whether the current folder is the Trash
+     * @returns {void}
+     */
     updateActionButtons (isTrashFolder) {
         const $pathActions = this.$el_window.find('.path-actions');
 
@@ -608,6 +676,12 @@ const TabFiles = {
         }
     },
 
+    /**
+     * Displays the sort options context menu.
+     *
+     * @param {MouseEvent} e - The click event from the sort button
+     * @returns {void}
+     */
     showSortMenu (e) {
         const _this = this;
 
@@ -636,6 +710,15 @@ const TabFiles = {
         });
     },
 
+    /**
+     * Sorts an array of files according to current sort settings.
+     *
+     * Folders are always sorted before files. Within each group, items are
+     * sorted by the selected column (name, size, or modified date).
+     *
+     * @param {Array<Object>} files - Array of file/folder objects to sort
+     * @returns {Array<Object>} Sorted array with folders first, then files
+     */
     sortFiles (files) {
         const folders = files.filter(f => f.is_dir);
         const regularFiles = files.filter(f => !f.is_dir);
@@ -677,6 +760,15 @@ const TabFiles = {
         return [...folders, ...regularFiles];
     },
 
+    /**
+     * Handles sort column selection or direction toggle.
+     *
+     * Clicking the same column toggles direction; clicking a new column
+     * sets ascending order. Persists settings and re-renders the directory.
+     *
+     * @param {string} column - Column name to sort by ('name', 'size', or 'modified')
+     * @returns {Promise<void>}
+     */
     async handleSort (column) {
         if ( this.sortColumn === column ) {
             this.sortDirection = this.sortDirection === 'asc' ? 'desc' : 'asc';
@@ -693,6 +785,11 @@ const TabFiles = {
         this.renderDirectory(this.selectedFolderUid);
     },
 
+    /**
+     * Updates visual sort indicators on column headers.
+     *
+     * @returns {void}
+     */
     updateSortIndicators () {
         if ( ! this.$el_window ) return;
 
@@ -704,6 +801,15 @@ const TabFiles = {
         $activeColumn.addClass(this.sortDirection === 'asc' ? 'sort-asc' : 'sort-desc');
     },
 
+    /**
+     * Renders the contents of a directory.
+     *
+     * Fetches directory contents, applies sorting, renders each item,
+     * and updates navigation UI elements.
+     *
+     * @param {string} uid - The UID or path of the directory to render
+     * @returns {Promise<void>}
+     */
     async renderDirectory (uid) {
         this.selectedFolderUid = uid;
         const _this = this;
@@ -781,6 +887,15 @@ const TabFiles = {
         this.updateNavButtonStates();
     },
 
+    /**
+     * Renders a single file or folder item as a row in the file list.
+     *
+     * Creates the DOM element with appropriate data attributes and appends
+     * it to the files container, then attaches event listeners.
+     *
+     * @param {Object} file - The file/folder object from the filesystem API
+     * @returns {void}
+     */
     renderItem (file) {
         // For trashed items, use original_name from metadata if available
         const metadata = JSON.parse(file.metadata) || {};
@@ -826,6 +941,12 @@ const TabFiles = {
         this.createItemListeners(row, file);
     },
 
+    /**
+     * Determines the appropriate icon for a file based on its extension.
+     *
+     * @param {Object} file - The file object containing the filename
+     * @returns {string} HTML string for the icon image element
+     */
     determineIcon (file) {
         const extension = file.name.split('.').pop().toLowerCase();
         switch ( extension ) {
@@ -931,6 +1052,16 @@ const TabFiles = {
         }
     },
 
+    /**
+     * Attaches event listeners to a file/folder row element.
+     *
+     * Handles selection, double-click to open, rename functionality,
+     * context menus, and drag-and-drop operations.
+     *
+     * @param {HTMLElement} el_item - The row DOM element
+     * @param {Object} file - The file/folder object data
+     * @returns {void}
+     */
     createItemListeners (el_item, file) {
         const _this = this;
         const el_item_name = el_item.querySelector(`.item-name`);
@@ -1284,6 +1415,12 @@ const TabFiles = {
         }
     },
 
+    /**
+     * Formats a byte count into a human-readable size string.
+     *
+     * @param {number} bytes - The size in bytes
+     * @returns {string} Formatted size string (e.g., "1.5 MB")
+     */
     formatFileSize (bytes) {
         if ( bytes === 0 ) return '0 B';
         const k = 1024;
@@ -1292,6 +1429,12 @@ const TabFiles = {
         return `${Math.round((bytes / Math.pow(k, i)) * 100) / 100 } ${ sizes[i]}`;
     },
 
+    /**
+     * Calculates the total size of files represented by row elements.
+     *
+     * @param {Array<HTMLElement>} rows - Array of row DOM elements with data-size attributes
+     * @returns {number} Total size in bytes
+     */
     calculateTotalSize (rows) {
         let total = 0;
         rows.forEach(row => {
@@ -1301,6 +1444,13 @@ const TabFiles = {
         return total;
     },
 
+    /**
+     * Updates the footer status bar with item counts and sizes.
+     *
+     * Shows total item count and size, plus selected item count and size if any.
+     *
+     * @returns {void}
+     */
     updateFooterStats () {
         const $footer = this.$el_window.find('.files-footer');
         if ( ! $footer.length ) return;
@@ -1330,6 +1480,13 @@ const TabFiles = {
         }
     },
 
+    /**
+     * Toggles between list and grid view modes.
+     *
+     * Persists the preference to storage.
+     *
+     * @returns {void}
+     */
     toggleView () {
         const $filesContainer = this.$el_window.find('.files-tab .files');
         const $toggleBtn = this.$el_window.find('.view-toggle-btn');
@@ -1352,12 +1509,26 @@ const TabFiles = {
         puter.kv.set('view_mode', this.currentView);
     },
 
+    /**
+     * Initializes the navigation history with a starting path.
+     *
+     * @param {string} initialPath - The initial directory path
+     * @returns {void}
+     */
     initNavHistory (initialPath) {
         window.dashboard_nav_history = [initialPath];
         window.dashboard_nav_history_current_position = 0;
         this.updateNavButtonStates();
     },
 
+    /**
+     * Pushes a new path onto the navigation history stack.
+     *
+     * Truncates any forward history when navigating to a new location.
+     *
+     * @param {string} newPath - The path to add to history
+     * @returns {void}
+     */
     pushNavHistory (newPath) {
         // If history is empty, initialize with this path
         if ( window.dashboard_nav_history.length === 0 ) {
@@ -1372,6 +1543,14 @@ const TabFiles = {
         this.updateNavButtonStates();
     },
 
+    /**
+     * Updates the enabled/disabled state of navigation buttons.
+     *
+     * Disables back button at history start, forward button at history end,
+     * and up button at root directory.
+     *
+     * @returns {void}
+     */
     updateNavButtonStates () {
         if ( ! this.$el_window ) return;
 
@@ -1398,6 +1577,15 @@ const TabFiles = {
         }
     },
 
+    /**
+     * Handles click on the "more" button (three dots) for a file row.
+     *
+     * Shows appropriate context menu for single or multi-selection.
+     *
+     * @param {HTMLElement} rowElement - The row element that was clicked
+     * @param {Object} file - The file/folder object data
+     * @returns {Promise<void>}
+     */
     async handleMoreClick (rowElement, file) {
         const selectedRows = document.querySelectorAll('.files-tab .row.selected');
 
@@ -1411,6 +1599,13 @@ const TabFiles = {
         }
     },
 
+    /**
+     * Generates context menu items for a single file/folder.
+     *
+     * @param {HTMLElement} el_item - The row DOM element
+     * @param {Object} options - The file/folder object with metadata
+     * @returns {Promise<Array>} Array of menu item objects
+     */
     async generateContextMenuItems (el_item, options) {
         const _this = this;
 
@@ -1434,6 +1629,14 @@ const TabFiles = {
         return menu_items;
     },
 
+    /**
+     * Generates context menu items for multiple selected files/folders.
+     *
+     * Provides bulk operations like download, cut, copy, and delete.
+     *
+     * @param {NodeList|Array<HTMLElement>} selectedRows - The selected row elements
+     * @returns {Promise<Array>} Array of menu item objects
+     */
     async generateMultiSelectContextMenu (selectedRows) {
         const _this = this;
         const items = [];
@@ -1539,6 +1742,14 @@ const TabFiles = {
         return items;
     },
 
+    /**
+     * Generates context menu items for folder background (empty area).
+     *
+     * Includes options for new folder/file, paste, upload, refresh, etc.
+     *
+     * @param {string} [folderPath] - The folder path, defaults to current path
+     * @returns {Array} Array of menu item objects
+     */
     generateFolderContextMenu (folderPath) {
         const _this = this;
         const targetPath = folderPath || this.currentPath;
@@ -1666,6 +1877,14 @@ const TabFiles = {
         return items;
     },
 
+    /**
+     * Renders the breadcrumb path navigation HTML.
+     *
+     * Creates clickable path segments with separators.
+     *
+     * @param {string} abs_path - The absolute path to render
+     * @returns {string} HTML string for the breadcrumb navigation
+     */
     renderPath (abs_path) {
         const { html_encode } = window;
         // remove trailing slash
