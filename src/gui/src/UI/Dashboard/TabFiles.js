@@ -107,13 +107,15 @@ const TabFiles = {
         $el_window.find('[data-folder]').each(function () {
             const folderElement = this;
 
-            folderElement.onclick = () => {
+            folderElement.onclick = async () => {
                 const folderName = folderElement.getAttribute('data-folder');
-                const directories = Object.keys(window.user.directories);
-                const folderPath = directories.find(f => f.endsWith(folderName));
+                const directories = await puter.fs.readdir(`/${window.user.username}`);
+                const folderPath = directories.find(f => f.is_dir && f.name === folderName).path;
+                const folderUid = directories.find(f => f.is_dir && f.name === folderName).uid;
+
                 _this.pushNavHistory(folderPath);
-                _this.renderDirectory(window.user.directories[folderPath]);
-                _this.selectedFolderUid = window.user.directories[folderPath];
+                _this.renderDirectory(folderUid);
+                _this.selectedFolderUid = folderUid;
                 _this.selectFolder(folderElement);
             };
 
@@ -447,6 +449,26 @@ const TabFiles = {
         $folderElement.classList.add('active');
     },
 
+    updateSidebarSelection () {
+        // Clear all sidebar selections first
+        this.$el_window.find('.directories li').removeClass('active');
+
+        // Check if current path matches any sidebar folder
+        const currentPath = this.currentPath;
+        if ( ! currentPath ) return;
+
+        // Find matching sidebar folder
+        this.$el_window.find('[data-folder]').each(function () {
+            const folderName = this.getAttribute('data-folder');
+            const directories = Object.keys(window.user.directories);
+            const folderPath = directories.find(f => f.endsWith(folderName));
+
+            if ( folderPath === currentPath ) {
+                this.classList.add('active');
+            }
+        });
+    },
+
     updateActionButtons (isTrashFolder) {
         const $pathActions = this.$el_window.find('.path-actions');
 
@@ -493,6 +515,9 @@ const TabFiles = {
 
         // Store current path for new folder/upload actions
         this.currentPath = path || uid;
+
+        // Update sidebar selection based on current path
+        this.updateSidebarSelection();
 
         // Update action buttons based on whether we're in the trash folder
         const isTrashFolder = this.currentPath === window.trash_path;
