@@ -22,7 +22,6 @@ import { PassThrough } from 'stream';
 import { APIError } from '../../../api/APIError.js';
 import { ErrorService } from '../../../modules/core/ErrorService.js';
 import { Context } from '../../../util/context.js';
-import { kv } from '../../../util/kvSingleton.js';
 import BaseService from '../../BaseService.js';
 import { BaseDatabaseAccessService } from '../../database/BaseDatabaseAccessService.js';
 import { DriverService } from '../../drivers/DriverService.js';
@@ -47,6 +46,7 @@ import { TogetherAIProvider } from './providers/TogetherAiProvider/TogetherAIPro
 import { IChatModel, IChatProvider, ICompleteArguments } from './providers/types.js';
 import { UsageLimitedChatProvider } from './providers/UsageLimitedChatProvider.js';
 import { XAIProvider } from './providers/XAIProvider/XAIProvider.js';
+import { redisClient } from '../../../clients/redis/redisSingleton.js';
 
 // Maximum number of fallback attempts when a model fails, including the first attempt
 const MAX_FALLBACKS = 3 + 1; // includes first attempt
@@ -308,7 +308,7 @@ export class AIChatService extends BaseService {
         if ( !parameters.model && intendedProvider ) {
             parameters.model = this.#providers[intendedProvider].getDefaultModel();
         }
-        let model = this.getModel({ modelId: parameters.model, provider: intendedProvider }) || this.getFallbackModel(parameters.model, [], []);
+        let model = this.getModel({ modelId: parameters.model, provider: intendedProvider }) || await this.getFallbackModel(parameters.model, [], []);
         const abuseModel = this.getModel({ modelId: 'abuse' });
         const usageLimitedModel = this.getModel({ modelId: 'usage-limited' });
 
@@ -452,7 +452,7 @@ export class AIChatService extends BaseService {
                     break;
                 }
 
-                const fallback = this.getFallbackModel(model.id, tried, triedProviders);
+                const fallback = await this.getFallbackModel(model.id, tried, triedProviders);
 
                 if ( ! fallback ) {
                     throw new Error('no fallback model available');
@@ -624,7 +624,7 @@ export class AIChatService extends BaseService {
      * @param {*} param0
      * @returns
      */
-    getFallbackModel (modelId: string, triedIds: string[], triedProviders: string[]) {
+    async getFallbackModel (modelId: string, triedIds: string[], triedProviders: string[]) {
         const models = this.#modelIdMap[modelId];
 
         if ( ! models ) {
@@ -645,7 +645,15 @@ export class AIChatService extends BaseService {
         }
 
         // First check KV for the sorted list
-        let potentialFallbacks = kv.get(`aichat:fallbacks:${targetModel.id}`);
+        let potentialFallbacks;
+        const cached_fallbacks = await redisClient.get(`aichat:fallbacks:${targetModel.id}`);
+        if ( cached_fallbacks ) {
+            try {
+                potentialFallbacks = JSON.parse(cached_fallbacks);
+            } catch (e) {
+                // no-op cache in invalid state
+            }
+        }
 
         if ( ! potentialFallbacks ) {
             // Calculate the sorted list
@@ -666,7 +674,7 @@ export class AIChatService extends BaseService {
                 return !!possibleModelNames.find(possibleName => model.id.toLowerCase() === possibleName);
             }).slice(0, MAX_FALLBACKS);
 
-            kv.set(`aichat:fallbacks:${modelId}`, potentialMatches);
+            await redisClient.set(`aichat:fallbacks:${modelId}`, JSON.stringify(potentialMatches));
             potentialFallbacks = potentialMatches;
         }
 
