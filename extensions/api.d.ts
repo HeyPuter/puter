@@ -35,6 +35,8 @@ declare global {
     }
 }
 
+export type { Cluster } from 'ioredis';
+
 interface EndpointOptions {
     allowedMethods?: string[];
     subdomain?: string;
