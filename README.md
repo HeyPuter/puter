@@ -39,6 +39,18 @@ Puter is an advanced, open-source internet operating system designed to be featu
 
 ## Getting Started
 
+### install requirements 
+
+#### (Debian, Ubuntu)
+
+```bash
+sudo apt install npm git curl
+
+curl -o- https://raw.githubusercontent.com/nvm-sh/nvm/v0.40.3/install.sh | bash
+source ~/.bashrc
+nvm install 24
+```
+
 ### 💻 Local Development
 
 ```bash
