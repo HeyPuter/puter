@@ -36,6 +36,7 @@ class BroadcastService extends BaseService {
         this.peersByKey_ = {};
         this.webhookPeers_ = [];
         this.incomingLastNonceByPeer_ = new Map();
+        this.outgoingNonceByPeer_ = new Map();
     }
 
     async _init () {
@@ -85,6 +86,14 @@ class BroadcastService extends BaseService {
                 peer.send({ key, data, meta });
             } catch (e) {
                 //
+            }
+        }
+
+        for ( const peer_config of this.webhookPeers_ ) {
+            try {
+                await this.sendWebhookToPeer_(peer_config, key, data, meta);
+            } catch (e) {
+                this.log?.warn?.('broadcast webhook send failed', { peer: peer_config.key, error: e });
             }
         }
     }
@@ -208,6 +217,39 @@ class BroadcastService extends BaseService {
         });
 
         res.status(200).send({ ok: true });
+    }
+
+    async sendWebhookToPeer_ (peer_config, key, data, meta) {
+        const peerId = peer_config.key;
+        const url = peer_config.webhook_url;
+        const mySecretKey = this.config.webhook?.secret ?? '';
+        if ( !url || !mySecretKey ) return;
+
+        let nextNonce = this.outgoingNonceByPeer_.get(peerId) ?? 0;
+        this.outgoingNonceByPeer_.set(peerId, nextNonce + 1);
+
+        const timestamp = Math.floor(Date.now() / 1000);
+        const body = { key, data, meta };
+        const rawBody = JSON.stringify(body);
+        const payloadToSign = `${timestamp}.${nextNonce}.${rawBody}`;
+        const signature = crypto.createHmac('sha256', mySecretKey).update(payloadToSign).digest('hex');
+
+        const myPublicKey = this.config.webhook?.key ?? '';
+        const response = await fetch(url, {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json',
+                'X-Broadcast-Peer-Id': myPublicKey,
+                'X-Broadcast-Timestamp': String(timestamp),
+                'X-Broadcast-Nonce': String(nextNonce),
+                'X-Broadcast-Signature': signature,
+            },
+            body: rawBody,
+        });
+
+        if ( ! response.ok ) {
+            throw new Error(`Webhook POST failed: ${response.status} ${response.statusText}`);
+        }
     }
 
     async ['__on_install.websockets'] () {
