@@ -1,5 +1,20 @@
 # Backend Tools Directory
 
+## Manual Test for Broadcast Webhook Support
+
+`test-webhook.js` can be used for manual testing the `/broadcast/webhook` endpoint.
+It prints a one-off peer config (peer id and `webhook_secret`) for you to add to your instance’s broadcast config,
+then prompts for the instance base URL and sends an event with key `"test"`.
+
+**Usage** (from repo root):
+
+```bash
+node src/backend/tools/test-webhook.js
+```
+
+Add the printed peer to your config under `broadcast.peers`, restart the instance, then run the script and enter the instance URL
+(your Puter API URL, such as `http://api.puter.localhost:4100`) when prompted.
+
 ## Test Kernel
 
 The **Test Kernel** is a drop-in replacement for Puter's main kernel. Instead of
