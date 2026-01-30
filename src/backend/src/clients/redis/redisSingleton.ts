@@ -5,7 +5,12 @@ let redisOpt: Cluster;
 
 if ( process.env.REDIS_CONFIG ) {
     const redisConfig = JSON.parse(process.env.REDIS_CONFIG);
-    redisOpt = new Redis.Cluster(redisConfig);
+    redisOpt = new Redis.Cluster(redisConfig, {
+        dnsLookup: (address, callback) => callback(null, address),
+        redisOptions: {
+            tls: {},
+        },
+    });
 } else {
     redisOpt = new MockRedis.Cluster(['redis://localhost:7001']);
 }
