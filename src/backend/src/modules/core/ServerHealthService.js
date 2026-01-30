@@ -16,8 +16,8 @@
  * You should have received a copy of the GNU Affero General Public License
  * along with this program.  If not, see <https://www.gnu.org/licenses/>.
  */
+const { redisClient } = require('../../clients/redis/redisSingleton');
 const BaseService = require('../../services/BaseService');
-const { kv } = require('../../util/kvSingleton');
 const { promise } = require('@heyputer/putility').libs;
 const SECOND = 1000;
 
@@ -224,10 +224,12 @@ class ServerHealthService extends BaseService {
         const cache_key = 'server-health:status';
 
         // Check cache first
-        if ( kv ) {
-            const cached = kv.get(cache_key);
-            if ( cached ) {
-                return cached;
+        const cached = await redisClient.get(cache_key);
+        if ( cached ) {
+            try {
+                return JSON.parse(cached);
+            } catch (e) {
+                // no op cache is in an invalid state
             }
         }
 
@@ -238,10 +240,8 @@ class ServerHealthService extends BaseService {
             ...(failures.length ? { failed: failures } : {}),
         };
 
-        // Cache with 30 second TTL
-        if ( kv ) {
-            kv.set(cache_key, status, { EX: 5 });
-        }
+        // Cache with 5 second TTL
+        await redisClient.set(cache_key, JSON.stringify(status), 'EX', 5);
 
         return status;
     }

@@ -18,7 +18,6 @@
  */
 const { AdvancedBase } = require('@heyputer/putility');
 const BaseService = require('./BaseService');
-const { kv } = require('../util/kvSingleton');
 const uuidv4 = require('uuid').v4;
 
 /**
@@ -26,38 +25,32 @@ const uuidv4 = require('uuid').v4;
 * @extends AdvancedBase
 *
 * The `MapCollection` class extends the `AdvancedBase` class and is responsible for managing a collection of key-value pairs.
-* It leverages the `kvjs` library for key-value storage and the `uuid` library for generating unique identifiers for each key-value pair.
+* It uses `uuid` library for generating unique identifiers for each key-value pair.
 * This class provides methods for basic CRUD operations (create, read, update, delete) on the key-value pairs, as well as methods for checking the existence of a key and retrieving all keys in the collection.
 */
 class MapCollection extends AdvancedBase {
-    /**
-    * @method MapCollection#_mk_key
-    * @description Creates a unique key for the map collection.
-    * @param {string} key - The key to be prefixed.
-    * @returns {string} The prefixed key.
-    */
     constructor () {
         super();
         // We use kvjs instead of a plain object because it doesn't
         // have a limit on the number of keys it can store.
         this.map_id = uuidv4();
-        this.kv = kv;
+        this.map = new Map();
     }
 
     get (key) {
-        return this.kv.get(this._mk_key(key));
+        return this.map.get(this._mk_key(key));
     }
 
     exists (key) {
-        return this.kv.exists(this._mk_key(key));
+        return this.map.has(this._mk_key(key));
     }
 
     set (key, value) {
-        return this.kv.set(this._mk_key(key), value);
+        return this.map.set(this._mk_key(key), value);
     }
 
     del (key) {
-        return this.kv.del(this._mk_key(key));
+        return this.map.delete(this._mk_key(key));
     }
 
     /**
@@ -69,7 +62,7 @@ class MapCollection extends AdvancedBase {
     * @returns {string[]} An array of keys without the prefix.
     */
     keys () {
-        const keys = this.kv.keys(`registry:map:${this.map_id}:*`);
+        const keys = this.map.keys().find((k) => k.startsWith(`registry:map:${this.map_id}:`));
         return keys.map(k => k.slice(`registry:map:${this.map_id}:`.length));
     }
 

@@ -4,10 +4,10 @@ import type { MeteringService } from '@heyputer/backend/src/services/MeteringSer
 import { RecursiveRecord } from '@heyputer/backend/src/services/MeteringService/types.js';
 import { Context } from '@heyputer/backend/src/util/context.js';
 import murmurhash from 'murmurhash';
-import { DDBClient } from '../DDBClient.js';
+import type { DDBClient } from '../../clients/dynamodb/DDBClient.js';
 import { PUTER_KV_STORE_TABLE_DEFINITION } from './tableDefinition.js';
-import APIError from '../../../api/APIError.js';
-import { Span } from '../../../util/otelutil.js';
+import { Span } from '../../util/otelutil.js';
+import APIError from '../../api/APIError.js';
 
 export class DynamoKVStore {
     static GLOBAL_APP_KEY = 'os-global';

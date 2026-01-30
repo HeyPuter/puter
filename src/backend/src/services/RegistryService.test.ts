@@ -1,30 +1,8 @@
-import { beforeAll, describe, expect, it } from 'vitest';
+import { describe, expect, it } from 'vitest';
 import { createTestKernel } from '../../tools/test.mjs';
 import { RegistryService } from './RegistryService';
 
 describe('RegistryService', async () => {
-    // Initialize globalThis.kv for testing
-    beforeAll(() => {
-        if ( ! globalThis.kv ) {
-            globalThis.kv = new Map();
-            globalThis.kv.set = function (key, value) {
-                return Map.prototype.set.call(this, key, value);
-            };
-            globalThis.kv.get = function (key) {
-                return Map.prototype.get.call(this, key);
-            };
-            globalThis.kv.exists = function (key) {
-                return this.has(key);
-            };
-            globalThis.kv.del = function (key) {
-                return this.delete(key);
-            };
-            globalThis.kv.keys = function (pattern) {
-                const prefix = pattern.replace('*', '');
-                return Array.from(this.keys()).filter(k => k.startsWith(prefix));
-            };
-        }
-    });
 
     const testKernel = await createTestKernel({
         serviceMap: {

@@ -22,6 +22,7 @@ const BaseService = require('../../BaseService');
 const { TypedValue } = require('../../drivers/meta/Runtime');
 const APIError = require('../../../api/APIError');
 const { Context } = require('../../../util/context');
+const { redisClient } = require('../../../clients/redis/redisSingleton');
 
 // Polly price calculation per engine
 const ENGINE_PRICING = {
@@ -48,11 +49,6 @@ class AWSPollyService extends BaseService {
     get meteringService () {
         return this.services.get('meteringService').meteringService;
     }
-
-    static MODULES = {
-        kv: globalThis.kv,
-    };
-
     /**
     * Initializes the service by creating an empty clients object.
     * This method is called during service construction to set up
@@ -194,10 +190,15 @@ class AWSPollyService extends BaseService {
     * Uses KV store for caching to avoid repeated API calls
     */
     async describe_voices () {
-        let voices = this.modules.kv.get('svc:polly:voices');
-        if ( voices ) {
-            this.log.debug('voices cache hit');
-            return voices;
+        const cached_voices = await redisClient.get('svc:polly:voices');
+        if ( cached_voices ) {
+            try {
+                const voices = JSON.parse(cached_voices);
+                this.log.debug('voices cache hit');
+                return voices;
+            } catch (e) {
+                // no op cache is in an invalid state
+            }
         }
 
         this.log.debug('voices cache miss');
@@ -210,8 +211,7 @@ class AWSPollyService extends BaseService {
 
         const response = await client.send(command);
 
-        this.modules.kv.set('svc:polly:voices', response);
-        this.modules.kv.expire('svc:polly:voices', 60 * 10); // 10 minutes
+        await redisClient.set('svc:polly:voices', JSON.stringify(response), 'EX', 60 * 10); // 10 minutes
 
         return response;
     }
