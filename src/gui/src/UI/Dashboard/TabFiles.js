@@ -1417,6 +1417,39 @@ const TabFiles = {
     },
 
     /**
+     * Restores a trashed item to its original location.
+     *
+     * This is a simplified restore function for the dashboard that calls
+     * puter.fs.move() directly, avoiding the complexity of window.move_items()
+     * which is designed for the desktop window system.
+     *
+     * @param {HTMLElement} el_item - The row element representing the trashed item
+     * @returns {Promise<Object>} The result from puter.fs.move()
+     */
+    async restoreItem (el_item) {
+        const uid = $(el_item).attr('data-uid');
+        const metadataStr = $(el_item).attr('data-metadata');
+        const metadata = metadataStr ? JSON.parse(metadataStr) : {};
+
+        if ( ! metadata.original_path ) {
+            throw new Error('Cannot restore: original path not found in metadata');
+        }
+
+        const destPath = path.dirname(metadata.original_path);
+        const originalName = metadata.original_name;
+
+        const resp = await puter.fs.move({
+            source: uid,
+            destination: destPath,
+            newName: originalName,
+            newMetadata: {},
+            createMissingParents: true,
+        });
+
+        return resp;
+    },
+
+    /**
      * Formats a byte count into a human-readable size string.
      *
      * @param {number} bytes - The size in bytes
@@ -1620,10 +1653,11 @@ const TabFiles = {
             is_trashed: is_trashed,
             suggested_apps: options.suggested_apps,
             associated_app_name: options.associated_app_name,
+            onRestore: async (el) => {
+                await _this.restoreItem(el);
+            },
             onRefresh: () => {
-                setTimeout(() => {
-                    _this.renderDirectory(_this.selectedFolderUid);
-                }, 0);
+                _this.renderDirectory(_this.selectedFolderUid);
             },
         });
 
@@ -1651,17 +1685,15 @@ const TabFiles = {
         if ( anyTrashed ) {
             items.push({
                 html: i18n('restore'),
-                onClick: function () {
-                    selectedRows.forEach(row => {
-                        const metadata = JSON.parse($(row).attr('data-metadata') || '{}');
-                        if ( metadata.original_path ) {
-                            const dirname = metadata.original_path.substring(0, metadata.original_path.lastIndexOf('/'));
-                            window.move_items([row], dirname);
-                            setTimeout(() => {
-                                _this.renderDirectory(_this.selectedFolderUid);
-                            }, 500);
+                onClick: async function () {
+                    for ( const row of selectedRows ) {
+                        try {
+                            await _this.restoreItem(row);
+                        } catch ( err ) {
+                            console.error('Failed to restore item:', err);
                         }
-                    });
+                    }
+                    _this.renderDirectory(_this.selectedFolderUid);
                 },
             });
             items.push('-');
