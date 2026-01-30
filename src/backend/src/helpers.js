@@ -848,6 +848,85 @@ function byte_format (bytes) {
     return `${Math.round(bytes / Math.pow(1024, i), 2) } ${ sizes[i]}`;
 };
 
+const get_descendants = spanify('get_descendants', async (...args) => {
+    return await getDescendantsHelper(...args);
+});
+
+/**
+ *
+ * @param {integer} entry_id
+ * @returns
+ */
+const id2path = spanify('helpers:id2path', async (entry_uid) => {
+    if ( entry_uid == null ) {
+        throw new Error('got null or undefined entry id');
+    }
+
+    /** @type BaseDatabaseAccessService */
+    const db = _servicesHolder.services.get('database').get(DB_READ, 'filesystem');
+
+    const log = _servicesHolder.services.get('log-service').create('helpers.id2path');
+    log.traceOn();
+    const errors = _servicesHolder.services.get('error-service').create(log);
+    log.called();
+
+    let result;
+
+    log.debug(`entry id: ${entry_uid}`);
+    if ( typeof entry_uid === 'number' ) {
+        const old = entry_uid;
+        entry_uid = await id2uuid(entry_uid);
+        log.debug(`entry id resolved: resolved ${old} ${entry_uid}`);
+    }
+
+    try {
+        result = await db.read(`
+                WITH RECURSIVE cte AS (
+                    SELECT uuid, parent_uid, name, name AS path
+                    FROM fsentries
+                    WHERE uuid = ?
+
+                    UNION ALL
+
+                    SELECT e.uuid, e.parent_uid, e.name, ${
+                        db.case({
+                            sqlite: 'e.name || \'/\' || cte.path',
+                            otherwise: 'CONCAT(e.name, \'/\', cte.path)',
+                        })
+                    }
+                    FROM fsentries e
+                    INNER JOIN cte ON cte.parent_uid = e.uuid
+                )
+                SELECT *
+                FROM cte
+                WHERE parent_uid IS NULL
+            `, [entry_uid]);
+    } catch (e) {
+        errors.report('id2path.select', {
+            alarm: true,
+            source: e,
+            message: `error while resolving path for ${entry_uid}: ${e.message}`,
+            extra: {
+                entry_uid,
+            },
+        });
+        throw new ManagedError(`cannot create path for ${entry_uid}`);
+    }
+
+    if ( !result || !result[0] ) {
+        errors.report('id2path.select', {
+            alarm: true,
+            message: `no result for ${entry_uid}`,
+            extra: {
+                entry_uid,
+            },
+        });
+        throw new ManagedError(`cannot create path for ${entry_uid}`);
+    }
+
+    return `/${ result[0].path}`;
+});
+
 /**
  * Recursively retrieve all files, directories, and subdirectories under `path`.
  * Optionally the `depth` can be set.
@@ -1035,16 +1114,6 @@ async function getDescendantsHelper (path, user, depth, return_thumbnail = false
     return ret.flat();
 };
 
-async function get_descendants (...args) {
-    const tracer = _servicesHolder.services.get('traceService').tracer;
-    let ret;
-    await tracer.startActiveSpan('get_descendants', async span => {
-        ret = await getDescendantsHelper(...args);
-        span.end();
-    });
-    return ret;
-};
-
 const get_dir_size = async (path, user) => {
     let size = 0;
     const descendants = await get_descendants(path, user);
@@ -1055,84 +1124,6 @@ const get_dir_size = async (path, user) => {
     }
 
     return size;
-};
-
-/**
- *
- * @param {integer} entry_id
- * @returns
- */
-async function id2path (entry_uid) {
-    if ( entry_uid == null ) {
-        throw new Error('got null or undefined entry id');
-    }
-
-    /** @type BaseDatabaseAccessService */
-    const db = _servicesHolder.services.get('database').get(DB_READ, 'filesystem');
-
-    const traces = _servicesHolder.services.get('traceService');
-    const log = _servicesHolder.services.get('log-service').create('helpers.id2path');
-    log.traceOn();
-    const errors = _servicesHolder.services.get('error-service').create(log);
-    log.called();
-
-    let result;
-
-    return await traces.spanify('helpers:id2path', async () => {
-        log.debug(`entry id: ${entry_uid}`);
-        if ( typeof entry_uid === 'number' ) {
-            const old = entry_uid;
-            entry_uid = await id2uuid(entry_uid);
-            log.debug(`entry id resolved: resolved ${old} ${entry_uid}`);
-        }
-
-        try {
-            result = await db.read(`
-                WITH RECURSIVE cte AS (
-                    SELECT uuid, parent_uid, name, name AS path
-                    FROM fsentries
-                    WHERE uuid = ?
-
-                    UNION ALL
-
-                    SELECT e.uuid, e.parent_uid, e.name, ${
-                        db.case({
-                            sqlite: 'e.name || \'/\' || cte.path',
-                            otherwise: 'CONCAT(e.name, \'/\', cte.path)',
-                        })
-                    }
-                    FROM fsentries e
-                    INNER JOIN cte ON cte.parent_uid = e.uuid
-                )
-                SELECT *
-                FROM cte
-                WHERE parent_uid IS NULL
-            `, [entry_uid]);
-        } catch (e) {
-            errors.report('id2path.select', {
-                alarm: true,
-                source: e,
-                message: `error while resolving path for ${entry_uid}: ${e.message}`,
-                extra: {
-                    entry_uid,
-                },
-            });
-            throw new ManagedError(`cannot create path for ${entry_uid}`);
-        }
-
-        if ( !result || !result[0] ) {
-            errors.report('id2path.select', {
-                alarm: true,
-                message: `no result for ${entry_uid}`,
-                extra: {
-                    entry_uid,
-                },
-            });
-            throw new ManagedError(`cannot create path for ${entry_uid}`);
-        }
-
-        return `/${ result[0].path}`;
-    });
 };
 
 /**
