@@ -5946,16 +5946,19 @@ html.dark-mode .usage-table-show-less:hover {
     cursor: pointer;
     border-radius: 5px;
     padding: 4px;
+    background-color: transparent;
+    transition: background-color 0.3s ease-in-out;
 }
 
 .path-btn:hover {
-    background: var(--dashboard-hover);
+    filter: invert(1) hue-rotate(180deg);
+    background-color: var(--select-color);
+    opacity: 1;
 }
 
 .dashboard-section-files .header .path-breadcrumbs {
     display: flex;
     align-items: center;
-    gap: 5px;
     margin-left: 10px;
 }
 
@@ -5970,7 +5973,7 @@ html.dark-mode .usage-table-show-less:hover {
 }
 
 .dashboard-section-files .header .path-action-btn {
-    background: none;
+    background-color: transparent;
     border: none;
     cursor: pointer;
     padding: 4px;
@@ -5979,10 +5982,12 @@ html.dark-mode .usage-table-show-less:hover {
     display: flex;
     align-items: center;
     justify-content: center;
+    transition: background-color 0.3s ease-in-out;
 }
 
 .dashboard-section-files .header .path-action-btn:hover {
-    background: var(--dashboard-hover);
+    color: var(--dashboard-background);
+    background-color: var(--select-color);
 }
 
 .dashboard-section-files .header .path-btn-disabled {
@@ -6001,6 +6006,18 @@ html.dark-mode .usage-table-show-less:hover {
     -webkit-font-smoothing: subpixel-antialiased;
     color: var(--dashboard-text-secondary);
     cursor: pointer;
+    background-color: transparent;
+    padding: 3px 6px;
+    font-size: 13px;
+    border: 1px solid transparent;
+    border-radius: 6px;
+    transition: border 0.3s ease-in-out, background-color 0.3s ease-in-out;
+}
+
+.dashboard-section-files .header .path .dirname:hover {
+    color: var(--dashboard-background);
+    background-color: var(--select-color);
+    border: 1px solid var(--select-color);
 }
 
 .dashboard-section-files .header .columns {
@@ -6032,6 +6049,7 @@ html.dark-mode .usage-table-show-less:hover {
     font-size: 13px;
     color: #444;
     margin: 1px 2px;
+    cursor: pointer;
 }
 
 .row.folder {
@@ -6076,7 +6094,6 @@ html.dark-mode .usage-table-show-less:hover {
     white-space: nowrap;
     overflow: hidden;
     max-width: unset;
-    cursor: pointer;
     color: inherit;
     text-shadow: none;
     padding: 0 8px;
@@ -6234,6 +6251,7 @@ html.dark-mode .usage-table-show-less:hover {
 .files-tab .files.files-list-view .row .item-modified,
 .files-tab .files.files-list-view .row .item-more {
     display: block;
+    padding: 0 10px;
 }
 
 .files-tab .files.files-grid-view {
@@ -6361,7 +6379,8 @@ html.dark-mode .usage-table-show-less:hover {
     display: flex;
     align-items: center;
     gap: 4px;
-    padding-left: 10px;
+    padding: 0 10px;
+    justify-content: space-between;
 }
 
 .dashboard-section-files .header .columns .sortable:hover {

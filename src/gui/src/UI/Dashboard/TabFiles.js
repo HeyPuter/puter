@@ -296,6 +296,12 @@ const TabFiles = {
             $filesContainer.addClass('files-list-view');
             this.$el_window.find('.view-toggle-btn').html(icons.grid);
         }
+
+        // Auto-select Documents folder on initialization
+        const documentsFolder = $el_window.find('[data-folder="Documents"]');
+        if ( documentsFolder.length ) {
+            documentsFolder.trigger('click');
+        }
     },
 
     /**
