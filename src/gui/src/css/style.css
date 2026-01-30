@@ -6158,7 +6158,7 @@ html.dark-mode .usage-table-show-less:hover {
 }
 
 .dashboard-section-files .row.selected {
-    color: var(--dashboard-background);
+    color: var(--primary-color-sidebar-item);
     background-color: var(--select-color);
     border-radius: 3px;
 }
@@ -6190,7 +6190,7 @@ html.dark-mode .usage-table-show-less:hover {
     white-space: nowrap;
     overflow: hidden;
     max-width: unset;
-    color: var(--dashboard-text);
+    color: currentColor;
     text-shadow: none;
     padding: 0 8px;
     margin: 0;

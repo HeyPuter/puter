@@ -1718,7 +1718,7 @@ const TabFiles = {
 
         if ( ! anyTrashed ) {
             items.push({
-                html: `${i18n('download')} (${selectedRows.length})`,
+                html: `${i18n('download')}`,
                 onClick: function () {
                     window.zipItems(Array.from(selectedRows), _this.selectedFolderUid, true);
                 },
@@ -1728,7 +1728,7 @@ const TabFiles = {
 
         // Cut
         items.push({
-            html: `${i18n('cut')} (${selectedRows.length})`,
+            html: `${i18n('cut')}`,
             onClick: function () {
                 window.clipboard_op = 'move';
                 window.clipboard = [];
@@ -1741,7 +1741,7 @@ const TabFiles = {
         // Copy
         if ( ! anyTrashed ) {
             items.push({
-                html: `${i18n('copy')} (${selectedRows.length})`,
+                html: `${i18n('copy')}`,
                 onClick: function () {
                     window.clipboard_op = 'copy';
                     window.clipboard = [];
@@ -1779,7 +1779,7 @@ const TabFiles = {
         }
         else {
             items.push({
-                html: `${i18n('delete')} (${selectedRows.length})`,
+                html: `${i18n('delete')}`,
                 onClick: function () {
                     window.move_items(Array.from(selectedRows), window.trash_path);
                     setTimeout(() => {
