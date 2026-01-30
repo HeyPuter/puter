@@ -250,8 +250,13 @@ const TabFiles = {
             });
         });
 
-        // Clear selection when clicking empty area
+        // Clear selection when clicking empty area (but not after rubber band selection)
         $el_window.find('.dashboard-tab-content').on('click', (e) => {
+            // Skip if this click is the end of a rubber band selection
+            if ( _this.rubberBandSelectionJustEnded ) {
+                _this.rubberBandSelectionJustEnded = false;
+                return;
+            }
             if ( e.target === this || e.target.classList.contains('files') ) {
                 document.querySelectorAll('.files-tab .row.selected').forEach(r => {
                     r.classList.remove('selected');
@@ -283,6 +288,7 @@ const TabFiles = {
         this.$el_window = $el_window;
 
         this.createHeaderEventListeners($el_window);
+        this.initRubberBandSelection();
 
         // Apply initial view mode from persisted preferences
 
@@ -1914,6 +1920,168 @@ const TabFiles = {
         }
 
         return items;
+    },
+
+    /**
+     * Initializes rubber band (drag-to-select) selection for the files container.
+     *
+     * Uses the viselect library to enable drag selection in both list and grid views.
+     * Only activates when dragging from empty space, not from file/folder items.
+     *
+     * @returns {void}
+     */
+    initRubberBandSelection () {
+        const _this = this;
+
+        // Skip on mobile/touch devices
+        if ( window.isMobile.phone || window.isMobile.tablet ) {
+            return;
+        }
+
+        let selected_ctrl_items = [];
+        let selection_area = null;
+        let selection_area_start_x = 0;
+        let selection_area_start_y = 0;
+        let initial_container_scroll_width = 0;
+        let initial_container_scroll_height = 0;
+
+        const filesContainer = this.$el_window.find('.files-tab .files')[0];
+        if ( ! filesContainer ) return;
+
+        const containerId = `tabfiles-container-${Date.now()}`;
+        filesContainer.id = containerId;
+
+        const selection = new SelectionArea({
+            selectionContainerClass: 'selection-area-container',
+            selectionAreaClass: 'hidden-selection-area',
+            container: `#${containerId}`,
+            selectables: [`#${containerId} .row`],
+            startareas: [`#${containerId}`],
+            boundaries: [`#${containerId}`],
+            behaviour: {
+                overlap: 'drop',
+                intersect: 'touch',
+                startThreshold: 10,
+                scrolling: {
+                    speedDivider: 10,
+                    manualSpeed: 750,
+                    startScrollMargins: { x: 0, y: 0 },
+                },
+            },
+            features: {
+                touch: false,
+                range: true,
+                singleTap: {
+                    allow: true,
+                    intersect: 'native',
+                },
+            },
+        });
+
+        this.rubberBandSelection = selection;
+
+        selection.on('beforestart', ({ event }) => {
+            selected_ctrl_items = [];
+
+            const target = event.target;
+            const isEmptySpace = $(target).hasClass('files') ||
+                $(target).hasClass('files-list-view') ||
+                $(target).hasClass('files-grid-view');
+
+            if ( ! isEmptySpace ) {
+                return false;
+            }
+
+            selection_area = document.createElement('div');
+            $(filesContainer).append(selection_area);
+            $(selection_area).addClass('tabfiles-selection-area');
+
+            const scrollLeft = $(filesContainer).scrollLeft();
+            const scrollTop = $(filesContainer).scrollTop();
+            const containerRect = filesContainer.getBoundingClientRect();
+
+            initial_container_scroll_width = filesContainer.scrollWidth;
+            initial_container_scroll_height = filesContainer.scrollHeight;
+
+            let relativeX = event.clientX - containerRect.left + scrollLeft;
+            let relativeY = event.clientY - containerRect.top + scrollTop;
+
+            relativeX = Math.max(0, Math.min(initial_container_scroll_width, relativeX));
+            relativeY = Math.max(0, Math.min(initial_container_scroll_height, relativeY));
+
+            selection_area_start_x = relativeX;
+            selection_area_start_y = relativeY;
+
+            $(selection_area).css({
+                position: 'absolute',
+                top: relativeY,
+                left: relativeX,
+                width: 0,
+                height: 0,
+                zIndex: 1000,
+                display: 'block',
+            });
+
+            return true;
+        });
+
+        selection.on('start', ({ store, event }) => {
+            if ( !event.ctrlKey && !event.metaKey ) {
+                for ( const el of store.stored ) {
+                    el.classList.remove('selected');
+                }
+                selection.clearSelection();
+            }
+        });
+
+        selection.on('move', ({ store: { changed: { added, removed } }, event }) => {
+            const scrollLeft = $(filesContainer).scrollLeft();
+            const scrollTop = $(filesContainer).scrollTop();
+            const containerRect = filesContainer.getBoundingClientRect();
+
+            let currentMouseX = event.clientX - containerRect.left + scrollLeft;
+            let currentMouseY = event.clientY - containerRect.top + scrollTop;
+
+            const constrainedMouseX = Math.max(0, Math.min(filesContainer.scrollWidth, currentMouseX));
+            const constrainedMouseY = Math.max(0, Math.min(filesContainer.scrollHeight, currentMouseY));
+
+            const width = Math.abs(constrainedMouseX - selection_area_start_x);
+            const height = Math.abs(constrainedMouseY - selection_area_start_y);
+            const left = Math.min(constrainedMouseX, selection_area_start_x);
+            const top = Math.min(constrainedMouseY, selection_area_start_y);
+
+            $(selection_area).css({ width, height, left, top });
+
+            for ( const el of added ) {
+                if ( (event.ctrlKey || event.metaKey) && $(el).hasClass('selected') ) {
+                    el.classList.remove('selected');
+                    selected_ctrl_items.push(el);
+                } else {
+                    el.classList.add('selected');
+                    window.active_element = el;
+                    window.latest_selected_item = el;
+                }
+            }
+
+            for ( const el of removed ) {
+                el.classList.remove('selected');
+                if ( selected_ctrl_items.includes(el) ) {
+                    $(el).addClass('selected');
+                }
+            }
+
+            _this.updateFooterStats();
+        });
+
+        selection.on('stop', () => {
+            if ( selection_area ) {
+                $(selection_area).remove();
+                selection_area = null;
+                // Flag to prevent the click handler from clearing selection
+                _this.rubberBandSelectionJustEnded = true;
+            }
+            _this.updateFooterStats();
+        });
     },
 
     /**

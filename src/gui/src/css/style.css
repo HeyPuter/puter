@@ -738,7 +738,6 @@ span.header-sort-icon img {
 
 .item-name {
     transition: opacity 0.2s ease-in-out;
-    cursor: default;
     max-width: 110px;
     pointer-events: all;
 }
@@ -1862,6 +1861,19 @@ span.header-sort-icon img {
 .hidden-selection-area{
     background-color: none;
     border: none;
+}
+
+/* TabFiles rubber band selection area */
+.tabfiles-selection-area {
+    background-color: rgba(59, 130, 246, 0.15);
+    border: 1px solid var(--select-color);
+    position: absolute;
+    pointer-events: none;
+    z-index: 1000;
+}
+
+.dashboard-section-files .files {
+    position: relative;
 }
 
 .container {
@@ -5906,6 +5918,14 @@ html.dark-mode .usage-table-show-less:hover {
     height: auto;
 }
 
+.dashboard-section-files .directories li[data-folder="Trash"] {
+    position: fixed;
+    bottom: 0;
+    margin-bottom: 20px;
+    width: 150px;
+    height: 38px;
+}
+
 .dashboard-section-files .directory-contents {
     width: calc(100% - 160px);
     min-height: 100vh;
@@ -6040,7 +6060,7 @@ html.dark-mode .usage-table-show-less:hover {
     padding-bottom: 30px;
 }
 
-.row {
+.dashboard-section-files .row {
     display: grid;
     height: 32px;
     padding: 0 10px;
@@ -6052,27 +6072,27 @@ html.dark-mode .usage-table-show-less:hover {
     cursor: pointer;
 }
 
-.row.folder {
+.dashboard-section-files .row.folder {
     border: 1px solid transparent;
 }
 
-.row:hover {
+.dashboard-section-files .row:hover {
     background: #e8e8e8;
     border-radius: 3px;
 }
 
-.row.selected {
+.dashboard-section-files .row.selected {
     color: white;
     background-color: var(--select-color);
     border-radius: 3px;
 }
 
-.row img {
+.dashboard-section-files .row img {
     width: 18px;
     height: 18px;
 }
 
-.row .item-icon,
+.dashboard-section-files .row .item-icon,
 .dashboard-section-files .header .columns .item-icon {
     padding: inherit;
     height: 100%;
@@ -6081,14 +6101,14 @@ html.dark-mode .usage-table-show-less:hover {
     margin: 0;
 }
 
-.row .item-name-wrapper {
+.dashboard-section-files .row .item-name-wrapper {
     display: flex;
     align-items: center;
     overflow: hidden;
     min-width: 0;
 }
 
-.row .item-name,
+.dashboard-section-files .row .item-name,
 .dashboard-section-files .header .columns .item-name {
     text-overflow: ellipsis;
     white-space: nowrap;
@@ -6104,7 +6124,7 @@ html.dark-mode .usage-table-show-less:hover {
     line-height: 32px;
 }
 
-.row textarea {
+.dashboard-section-files .row textarea {
     align-items: center;
     width: 100%;
     height: 14px;
@@ -6116,34 +6136,34 @@ html.dark-mode .usage-table-show-less:hover {
     white-space: nowrap;
 }
 
-.row .item-size {
+.dashboard-section-files .row .item-size {
     text-overflow: ellipsis;
     white-space: nowrap;
     overflow: hidden;
     line-height: 32px;
 }
 
-.row .item-modified {
+.dashboard-section-files .row .item-modified {
     text-overflow: ellipsis;
     white-space: nowrap;
     overflow: hidden;
     line-height: 32px;
 }
 
-.row .item-more {
+.dashboard-section-files .row .item-more {
     color: #e0e0e0;
     cursor: pointer;
 }
 
-.row .item-more svg {
+.dashboard-section-files .row .item-more svg {
     pointer-events: none;
 }
 
-.row:hover .item-more {
+.dashboard-section-files .row:hover .item-more {
     color: #444;
 }
 
-.row.ui-draggable-dragging {
+.dashboard-section-files .row.ui-draggable-dragging {
     opacity: 0.8;
     background-color: var(--select-color);
     color: white;
@@ -6158,7 +6178,7 @@ html.dark-mode .usage-table-show-less:hover {
     height: 32px;
 }
 
-.item-selected-clone.row {
+.dashboard-section-files .item-selected-clone.row {
     opacity: 0.6;
     background-color: var(--select-color);
     color: white;
@@ -6171,14 +6191,14 @@ html.dark-mode .usage-table-show-less:hover {
     pointer-events: none;
 }
 
-.row.folder.ui-droppable-hover,
-.row.folder.selected.ui-droppable-over {
+.dashboard-section-files .row.folder.ui-droppable-hover,
+.dashboard-section-files .row.folder.selected.ui-droppable-over {
     background-color: rgba(59, 130, 246, 0.1);
     border: 2px dashed var(--select-color);
     border-radius: 3px;
 }
 
-.draggable-count-badge {
+.dashboard-section-files .draggable-count-badge {
     position: fixed;
     background: var(--select-color);
     color: white;
@@ -6194,12 +6214,12 @@ html.dark-mode .usage-table-show-less:hover {
     z-index: 10001;
 }
 
-.dashboard-section-files .directories li.ui-droppable-hover {
+.dashboard-section-files .dashboard-section-files .directories li.ui-droppable-hover {
     background-color: rgba(59, 130, 246, 0.1);
     border-radius: 4px;
 }
 
-.files-footer {
+.dashboard-section-files .files-footer {
     position: fixed;
     bottom: 0;
     right: 0;
@@ -6218,16 +6238,16 @@ html.dark-mode .usage-table-show-less:hover {
     z-index: 10;
 }
 
-.files-footer-separator,
-.files-footer-selected-items {
+.dashboard-section-files .files-footer-separator,
+.dashboard-section-files .files-footer-selected-items {
     display: none;
 }
 
-.files-footer-separator {
+.dashboard-section-files .files-footer-separator {
     color: #CCC;
 }
 
-.files-tab .files.files-list-view .row {
+.dashboard-section-files .files-tab .files.files-list-view .row {
     display: grid;
     grid-template-columns: 24px auto 4px 100px 4px 120px 4px 20px;
     height: 32px;
@@ -6235,26 +6255,26 @@ html.dark-mode .usage-table-show-less:hover {
     align-items: center;
 }
 
-.files-tab .files.files-list-view .row .item-icon {
+.dashboard-section-files .files-tab .files.files-list-view .row .item-icon {
     width: 24px;
     height: 24px;
     padding: 0;
 }
 
-.files-tab .files.files-list-view .row .item-icon img {
+.dashboard-section-files .files-tab .files.files-list-view .row .item-icon img {
     width: 18px;
     height: 18px;
     object-fit: cover;
 }
 
-.files-tab .files.files-list-view .row .item-size,
-.files-tab .files.files-list-view .row .item-modified,
-.files-tab .files.files-list-view .row .item-more {
+.dashboard-section-files .files-tab .files.files-list-view .row .item-size,
+.dashboard-section-files .files-tab .files.files-list-view .row .item-modified,
+.dashboard-section-files .files-tab .files.files-list-view .row .item-more {
     display: block;
     padding: 0 10px;
 }
 
-.files-tab .files.files-grid-view {
+.dashboard-section-files .files-tab .files.files-grid-view {
     display: grid;
     grid-template-columns: repeat(auto-fill, minmax(180px, 1fr));
     gap: 16px;
@@ -6263,7 +6283,7 @@ html.dark-mode .usage-table-show-less:hover {
     margin-bottom: 30px;
 }
 
-.files-tab .files.files-grid-view .row {
+.dashboard-section-files .files-tab .files.files-grid-view .row {
     display: flex;
     flex-direction: column;
     align-items: center;
@@ -6278,18 +6298,18 @@ html.dark-mode .usage-table-show-less:hover {
     box-shadow: 0px 1px 3px rgba(0, 0, 0, 0.1);
 }
 
-.files-tab .files.files-grid-view .row:hover {
+.dashboard-section-files .files-tab .files.files-grid-view .row:hover {
     background: #f5f5f5;
     border-color: #e0e0e0;
 }
 
-.files-tab .files.files-grid-view .row.selected {
+.dashboard-section-files .files-tab .files.files-grid-view .row.selected {
     background-color: var(--select-color);
     color: white;
     border-color: var(--select-color);
 }
 
-.files-tab .files.files-grid-view .row .item-icon {
+.dashboard-section-files .files-tab .files.files-grid-view .row .item-icon {
     width: 150px;
     height: 150px;
     display: flex;
@@ -6300,7 +6320,7 @@ html.dark-mode .usage-table-show-less:hover {
     overflow: hidden;
 }
 
-.files-tab .files.files-grid-view .row .item-icon img {
+.dashboard-section-files .files-tab .files.files-grid-view .row .item-icon img {
     width: 100%;
     height: 100%;
     object-fit: cover;
@@ -6308,13 +6328,13 @@ html.dark-mode .usage-table-show-less:hover {
     max-height: fit-content;
 }
 
-.files-tab .files.files-grid-view .row .item-icon svg {
+.dashboard-section-files .files-tab .files.files-grid-view .row .item-icon svg {
     width: 64px;
     height: 64px;
     opacity: 0.5;
 }
 
-.files-tab .files.files-grid-view .row .item-name {
+.dashboard-section-files .files-tab .files.files-grid-view .row .item-name {
     text-align: center;
     width: 100%;
     padding: 0;
@@ -6329,19 +6349,19 @@ html.dark-mode .usage-table-show-less:hover {
     word-break: break-word;
 }
 
-.files-tab .files.files-grid-view .row .item-size,
-.files-tab .files.files-grid-view .row .item-modified,
-.files-tab .files.files-grid-view .row .item-more,
-.files-tab .files.files-grid-view .row .col-spacer {
+.dashboard-section-files .files-tab .files.files-grid-view .row .item-size,
+.dashboard-section-files .files-tab .files.files-grid-view .row .item-modified,
+.dashboard-section-files .files-tab .files.files-grid-view .row .item-more,
+.dashboard-section-files .files-tab .files.files-grid-view .row .col-spacer {
     display: none;
 }
 
-.files-tab .files.files-grid-view .row .item-name-wrapper {
+.dashboard-section-files .files-tab .files.files-grid-view .row .item-name-wrapper {
     width: 100%;
     display: block;
 }
 
-.files-tab .files.files-grid-view .row:hover .item-more {
+.dashboard-section-files .files-tab .files.files-grid-view .row:hover .item-more {
     position: absolute;
     top: 1px;
     right: 1px;
@@ -6356,18 +6376,18 @@ html.dark-mode .usage-table-show-less:hover {
 }
 
 /* Hide .item-more on desktop (non-touch devices) - use right-click context menu instead */
-.files-tab:not(.touch-device) .files.files-list-view .row .item-more,
-.files-tab:not(.touch-device) .files.files-grid-view .row .item-more,
-.files-tab:not(.touch-device) .files.files-grid-view .row:hover .item-more,
-.files-tab:not(.touch-device) .header .columns .item-more {
+.dashboard-section-files .files-tab:not(.touch-device) .files.files-list-view .row .item-more,
+.dashboard-section-files .files-tab:not(.touch-device) .files.files-grid-view .row .item-more,
+.dashboard-section-files .files-tab:not(.touch-device) .files.files-grid-view .row:hover .item-more,
+.dashboard-section-files .files-tab:not(.touch-device) .header .columns .item-more {
     display: none !important;
 }
 
-.files-tab .files.files-grid-view .row .item-name-editor {
+.dashboard-section-files .files-tab .files.files-grid-view .row .item-name-editor {
     text-align: center;
 }
 
-.files-tab.files-grid-mode .header .columns {
+.dashboard-section-files .files-tab.files-grid-mode .header .columns {
     display: none;
 }
 
@@ -6429,13 +6449,13 @@ html.dark-mode .usage-table-show-less:hover {
     background: var(--select-color);
 }
 
-.files-tab .files.files-grid-view .row.ui-draggable-dragging {
+.dashboard-section-files .files-tab .files.files-grid-view .row.ui-draggable-dragging {
     width: 180px;
     display: flex;
     flex-direction: column;
 }
 
-.more-btn {
+.dashboard-section-files .more-btn {
     background: none;
     border: none;
     padding: 6px;
@@ -6450,7 +6470,7 @@ html.dark-mode .usage-table-show-less:hover {
     position: relative;
 }
 
-.more-menu {
+.dashboard-section-files .more-menu {
     position: absolute;
     min-width: 180px;
     background: white;
@@ -6461,7 +6481,7 @@ html.dark-mode .usage-table-show-less:hover {
     padding: 4px;
 }
 
-.more-menu .menu-item {
+.dashboard-section-files .more-menu .menu-item {
     display: flex;
     align-items: center;
     gap: 10px;
@@ -6477,40 +6497,40 @@ html.dark-mode .usage-table-show-less:hover {
     text-align: left;
 }
 
-.more-menu .menu-item:hover {
+.dashboard-section-files .more-menu .menu-item:hover {
     background: #e8e8e8;
 }
 
-.more-menu .menu-item svg {
+.dashboard-section-files .more-menu .menu-item svg {
     width: 16px;
     height: 16px;
     color: #e0e0e0;
     flex-shrink: 0;
 }
 
-.more-menu .menu-item.has-submenu {
+.dashboard-section-files .more-menu .menu-item.has-submenu {
     position: relative;
 }
 
-.more-menu .menu-item.has-submenu svg:last-child {
+.dashboard-section-files .more-menu .menu-item.has-submenu svg:last-child {
     margin-left: auto;
     width: 0.85rem;
     height: 0.85rem;
 }
 
-.more-menu .menu-item.danger {
+.dashboard-section-files .more-menu .menu-item.danger {
     color: #ea4335;
 }
 
-.more-menu .menu-item.danger svg {
+.dashboard-section-files .more-menu .menu-item.danger svg {
     color: #ea4335;
 }
 
-.more-menu .menu-item.danger:hover {
+.dashboard-section-files .more-menu .menu-item.danger:hover {
     background: rgba(234, 67, 53, 0.1);
 }
 
-.more-menu .menu-divider {
+.dashboard-section-files .more-menu .menu-divider {
     height: 1px;
     background: #e0e0e0;
     margin: 4px 0;
