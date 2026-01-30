@@ -308,6 +308,260 @@ const TabFiles = {
         if ( documentsFolder.length ) {
             documentsFolder.trigger('click');
         }
+
+        // Setup keyboard shortcuts
+        this.setupKeyboardShortcuts();
+    },
+
+    /**
+     * Checks if the Dashboard Files tab is currently active and visible.
+     *
+     * @returns {boolean} True if Dashboard is visible and Files tab is active
+     */
+    isDashboardFilesActive () {
+        if ( !this.$el_window || !this.$el_window.is(':visible') ) return false;
+        const filesSection = this.$el_window.find('.dashboard-section-files');
+        return filesSection.hasClass('active');
+    },
+
+    /**
+     * Sets up Dashboard-specific keyboard shortcuts.
+     *
+     * Handles arrow navigation, selection, copy/cut/paste, delete, rename, etc.
+     */
+    setupKeyboardShortcuts () {
+        const _this = this;
+
+        $(document).on('keydown.tabfiles', async function (e) {
+            // Only handle if Dashboard Files tab is active
+            if ( ! _this.isDashboardFilesActive() ) return;
+
+            const focused_el = document.activeElement;
+
+            // Skip if user is typing in an input/textarea (except for Escape)
+            if ( $(focused_el).is('input, textarea') && e.which !== 27 ) return;
+
+            const $container = _this.$el_window.find('.files-tab .files');
+            const $allRows = $container.find('.row');
+            const $selectedRows = $container.find('.row.selected');
+
+            // F2 - Rename selected item
+            if ( e.which === 113 ) {
+                const $selectedRow = $selectedRows.first();
+                if ( $selectedRow.length > 0 ) {
+                    e.preventDefault();
+                    e.stopPropagation();
+                    const $nameEditor = $selectedRow.find('.item-name-editor');
+                    const $itemName = $selectedRow.find('.item-name');
+                    if ( $nameEditor.length > 0 ) {
+                        $itemName.hide();
+                        $nameEditor.show().addClass('item-name-editor-active').focus().select();
+                    }
+                }
+                return false;
+            }
+
+            // Enter - Open selected items
+            if ( e.which === 13 && !$(focused_el).hasClass('item-name-editor') ) {
+                if ( $selectedRows.length > 0 ) {
+                    e.preventDefault();
+                    e.stopPropagation();
+                    $selectedRows.each(function () {
+                        const isDir = $(this).attr('data-is_dir') === '1';
+                        const itemPath = $(this).attr('data-path');
+                        if ( isDir ) {
+                            _this.pushNavHistory(itemPath);
+                            _this.renderDirectory(itemPath);
+                        } else {
+                            open_item({ item: this });
+                        }
+                    });
+                }
+                return false;
+            }
+
+            // Escape - Clear selection or cancel rename
+            if ( e.which === 27 ) {
+                if ( $(focused_el).hasClass('item-name-editor') ) {
+                    // Cancel rename - handled by item's own keyup handler
+                    return;
+                }
+                $selectedRows.removeClass('selected');
+                _this.updateFooterStats();
+                return false;
+            }
+
+            // Delete - Move to trash or permanently delete
+            if ( e.keyCode === 46 || (e.keyCode === 8 && (e.ctrlKey || e.metaKey)) ) {
+                if ( $selectedRows.length > 0 ) {
+                    e.preventDefault();
+                    e.stopPropagation();
+
+                    // Check if any items are in trash (for permanent delete)
+                    const trashedItems = $selectedRows.filter(function () {
+                        return $(this).attr('data-path')?.startsWith(`${window.trash_path}/`);
+                    });
+
+                    if ( trashedItems.length > 0 ) {
+                        // Permanent delete with confirmation
+                        const alert_resp = await UIAlert({
+                            message: i18n('confirm_delete_multiple_items'),
+                            buttons: [
+                                { label: i18n('delete'), type: 'primary' },
+                                { label: i18n('cancel') },
+                            ],
+                        });
+                        if ( alert_resp === 'Delete' ) {
+                            for ( const row of trashedItems.toArray() ) {
+                                await window.delete_item(row);
+                            }
+                            _this.renderDirectory(_this.selectedFolderUid);
+                        }
+                    } else {
+                        // Move to trash
+                        await window.move_items($selectedRows.toArray(), window.trash_path);
+                        _this.renderDirectory(_this.selectedFolderUid);
+                    }
+                }
+                return false;
+            }
+
+            // Ctrl/Cmd + A - Select all
+            if ( (e.ctrlKey || e.metaKey) && e.which === 65 ) {
+                e.preventDefault();
+                e.stopPropagation();
+                $allRows.addClass('selected');
+                if ( $allRows.length > 0 ) {
+                    window.active_element = $allRows.last().get(0);
+                    window.latest_selected_item = $allRows.last().get(0);
+                }
+                _this.updateFooterStats();
+                return false;
+            }
+
+            // Ctrl/Cmd + C - Copy
+            if ( (e.ctrlKey || e.metaKey) && e.which === 67 ) {
+                if ( $selectedRows.length > 0 ) {
+                    e.preventDefault();
+                    e.stopPropagation();
+                    window.clipboard = [];
+                    window.clipboard_op = 'copy';
+                    $selectedRows.each(function () {
+                        if ( $(this).attr('data-path') !== window.trash_path ) {
+                            window.clipboard.push({
+                                path: $(this).attr('data-path'),
+                                uid: $(this).attr('data-uid'),
+                                metadata: $(this).attr('data-metadata'),
+                            });
+                        }
+                    });
+                }
+                return false;
+            }
+
+            // Ctrl/Cmd + X - Cut
+            if ( (e.ctrlKey || e.metaKey) && e.which === 88 ) {
+                if ( $selectedRows.length > 0 ) {
+                    e.preventDefault();
+                    e.stopPropagation();
+                    window.clipboard = [];
+                    window.clipboard_op = 'move';
+                    $selectedRows.each(function () {
+                        window.clipboard.push($(this).attr('data-path'));
+                    });
+                }
+                return false;
+            }
+
+            // Ctrl/Cmd + V - Paste
+            if ( (e.ctrlKey || e.metaKey) && e.which === 86 ) {
+                if ( window.clipboard.length > 0 && _this.currentPath ) {
+                    e.preventDefault();
+                    e.stopPropagation();
+                    // Don't allow paste in Trash unless it's a move operation
+                    if ( _this.currentPath.startsWith(window.trash_path) && window.clipboard_op !== 'move' ) {
+                        return false;
+                    }
+                    if ( window.clipboard_op === 'copy' ) {
+                        window.copy_clipboard_items(_this.currentPath, null);
+                    } else {
+                        window.move_clipboard_items(null, _this.currentPath);
+                    }
+                }
+                return false;
+            }
+
+            // Arrow keys - Navigate items
+            if ( e.which >= 37 && e.which <= 40 ) {
+                e.preventDefault();
+                e.stopPropagation();
+
+                if ( $allRows.length === 0 ) return false;
+
+                // If nothing selected, select first item
+                if ( $selectedRows.length === 0 ) {
+                    const $first = $allRows.first();
+                    $first.addClass('selected');
+                    window.active_element = $first.get(0);
+                    window.latest_selected_item = $first.get(0);
+                    $first.get(0).scrollIntoView({ block: 'nearest' });
+                    _this.updateFooterStats();
+                    return false;
+                }
+
+                // Find current item and calculate next
+                const $current = $(window.latest_selected_item || $selectedRows.last().get(0));
+                const currentIndex = $allRows.index($current);
+                let nextIndex = currentIndex;
+
+                // Calculate grid dimensions for grid view
+                const isGridView = $container.hasClass('files-grid-view');
+                let cols = 1;
+                if ( isGridView && $allRows.length > 1 ) {
+                    const firstTop = $allRows.eq(0).offset().top;
+                    for ( let i = 1; i < $allRows.length; i++ ) {
+                        if ( $allRows.eq(i).offset().top !== firstTop ) {
+                            cols = i;
+                            break;
+                        }
+                    }
+                    if ( cols === 1 ) cols = $allRows.length; // All on one row
+                }
+
+                // Calculate next index based on arrow key
+                switch ( e.which ) {
+                case 37: // Left
+                    nextIndex = Math.max(0, currentIndex - 1);
+                    break;
+                case 38: // Up
+                    nextIndex = Math.max(0, currentIndex - cols);
+                    break;
+                case 39: // Right
+                    nextIndex = Math.min($allRows.length - 1, currentIndex + 1);
+                    break;
+                case 40: // Down
+                    nextIndex = Math.min($allRows.length - 1, currentIndex + cols);
+                    break;
+                }
+
+                if ( nextIndex !== currentIndex ) {
+                    const $next = $allRows.eq(nextIndex);
+
+                    if ( ! e.shiftKey ) {
+                        // Normal navigation - clear selection
+                        $allRows.removeClass('selected');
+                    }
+
+                    $next.addClass('selected');
+                    window.active_element = $next.get(0);
+                    window.latest_selected_item = $next.get(0);
+                    $next.get(0).scrollIntoView({ block: 'nearest' });
+                    _this.updateFooterStats();
+                }
+
+                return false;
+            }
+        });
     },
 
     /**
