@@ -69,6 +69,12 @@ class BroadcastService extends BaseService {
 
         const svc_event = this.services.get('event');
         svc_event.on('outer.*', this.on_event.bind(this));
+
+        // Test event (logs a message to console if DEBUG is set in env)
+        svc_event.on('test', (key, data, _meta) => {
+            const { contents } = data;
+            console.log(`Test Message: ${contents}`);
+        });
     }
 
     async on_event (key, data, meta) {
@@ -94,7 +100,7 @@ class BroadcastService extends BaseService {
         }).attach(app);
     }
 
-    handleWebhookRequest_ (req, res) {
+    async handleWebhookRequest_ (req, res) {
         const rawBody = req.rawBody;
         if ( rawBody === undefined || rawBody === null ) {
             res.status(400).send({ error: { message: 'Missing or invalid body' } });
@@ -127,6 +133,8 @@ class BroadcastService extends BaseService {
             res.status(403).send({ error: { message: 'Missing X-Broadcast-Peer-Id' } });
             return;
         }
+
+        this.log.debug('received peerId', { value: peerId });
 
         const peer = this.peersByKey_[peerId];
         if ( !peer || !peer.webhook_secret ) {
@@ -192,7 +200,10 @@ class BroadcastService extends BaseService {
         const svc_event = this.services.get('event');
         const metaOut = { ...meta, from_outside: true };
         const context = Context.get(undefined, { allow_fallback: true });
-        context.arun(async () => {
+        await context.arun(async () => {
+            this.log.debug('Emitting to the event service', {
+                key, data, metaOut,
+            });
             await svc_event.emit(key, data, metaOut);
         });
 
