@@ -914,7 +914,7 @@ const TabFiles = {
         const metadata = JSON.parse(file.metadata) || {};
         const displayName = metadata.original_name || file.name;
 
-        const icon = file.is_dir ? `<img src="${html_encode(window.icons['folder.svg'])}"/>` : (file.thumbnail ? `<img src="${file.thumbnail}" alt="${displayName}" />` : this.determineIcon(file));
+        const icon = file.is_dir ? `<img src="${html_encode(window.icons['folder.svg'])}"/>` : ((file.thumbnail && this.currentView === 'grid') ? `<img src="${file.thumbnail}" alt="${displayName}" />` : this.determineIcon(file));
         const row = document.createElement("div");
         row.setAttribute('class', `row ${file.is_dir ? 'folder' : 'file'}`);
         row.setAttribute("data-id", file.id);
@@ -1553,6 +1553,11 @@ const TabFiles = {
         }
 
         puter.kv.set('view_mode', this.currentView);
+
+        // Refresh content to update icons for the new view mode
+        if ( this.selectedFolderUid ) {
+            this.renderDirectory(this.selectedFolderUid);
+        }
     },
 
     /**
