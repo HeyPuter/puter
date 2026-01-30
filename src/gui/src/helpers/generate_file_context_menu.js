@@ -451,12 +451,7 @@ const generate_file_context_menu = async function (options) {
         menu_items.push({
             html: i18n('restore'),
             onClick: async function () {
-                if ( options.onRestore ) {
-                    await options.onRestore(el_item);
-                } else {
-                    let metadata = $(el_item).attr('data-metadata') === '' ? {} : JSON.parse($(el_item).attr('data-metadata'));
-                    window.move_items([el_item], path.dirname(metadata.original_path));
-                }
+                await options.onRestore(el_item);
                 if ( typeof onRefresh === 'function' ) {
                     onRefresh();
                 }
