@@ -95,8 +95,45 @@ class OpenAIVideoGenerationService extends BaseService {
         },
     };
 
-    models () {
-        return OPENAI_VIDEO_MODELS;
+    async models () {
+        // Import cost map dynamically
+        const costMapModule = await import('../../../MeteringService/costMaps/openaiVideoCostMap.ts');
+        const OPENAI_VIDEO_COST_MAP = costMapModule.OPENAI_VIDEO_COST_MAP;
+
+        // Convert microcents to cents (divide by 1,000,000)
+        const microCentsToCents = (microCents) => microCents / 1_000_000;
+
+        return OPENAI_VIDEO_MODELS.map(model => {
+            const result = { ...model };
+
+            // Get cost for default usage key
+            const defaultCostMicroCents = OPENAI_VIDEO_COST_MAP[model.defaultUsageKey];
+            if ( defaultCostMicroCents !== undefined ) {
+                const perSecondCost = microCentsToCents(defaultCostMicroCents);
+                result.costs_currency = 'usd-cents';
+                result.costs = {
+                    'per-second': perSecondCost,
+                    'default-duration-per-video': perSecondCost * DEFAULT_DURATION_SECONDS,
+                };
+                result.output_cost_key = 'default-duration-per-video';
+            }
+
+            // Add cost for xl variant if it exists (sora-2-pro only)
+            if ( model.id === 'sora-2-pro' ) {
+                const xlCostMicroCents = OPENAI_VIDEO_COST_MAP['openai:sora-2-pro:xl'];
+                if ( xlCostMicroCents !== undefined ) {
+                    if ( ! result.costs ) {
+                        result.costs = {};
+                        result.costs_currency = 'usd-cents';
+                    }
+                    const perSecondXlCost = microCentsToCents(xlCostMicroCents);
+                    result.costs['per-second-xl'] = perSecondXlCost;
+                    result.costs['default-duration-per-video-xl'] = perSecondXlCost * DEFAULT_DURATION_SECONDS;
+                }
+            }
+
+            return result;
+        });
     }
 
     async generateVideo (params) {

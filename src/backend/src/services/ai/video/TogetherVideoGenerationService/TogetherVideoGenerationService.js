@@ -199,12 +199,35 @@ class TogetherVideoGenerationService extends BaseService {
     }
 
     async models () {
-        if ( models.length > 0 ) {
+        if ( models.length > 0 && models[0].costs_currency ) {
             return models;
         }
 
         const { TOGETHER_VIDEO_GENERATION_MODELS } = await import('./models.js');
-        models = TOGETHER_VIDEO_GENERATION_MODELS;
+        const costMapModule = await import('../../../MeteringService/costMaps/togetherCostMap.ts');
+        const TOGETHER_COST_MAP = costMapModule.TOGETHER_COST_MAP;
+
+        // Convert microcents to cents (divide by 1,000,000)
+        const microCentsToCents = (microCents) => microCents / 1_000_000;
+
+        models = TOGETHER_VIDEO_GENERATION_MODELS.map(model => {
+            const result = { ...model };
+
+            // Convert model ID from 'togetherai:google/veo-3.0' to cost key 'together-video:google/veo-3.0'
+            const costKey = model.id.replace('togetherai:', 'together-video:');
+            const costMicroCents = TOGETHER_COST_MAP[costKey];
+
+            if ( costMicroCents !== undefined && costMicroCents > 0 ) {
+                result.costs_currency = 'usd-cents';
+                result.costs = {
+                    'per-video': microCentsToCents(costMicroCents),
+                };
+                result.output_cost_key = 'per-video';
+            }
+
+            return result;
+        });
+
         return models;
     }
 
