@@ -1,6 +1,6 @@
 import type { AlarmService } from '../../modules/core/AlarmService';
+import type { DynamoKVStore } from '../DynamoKVStore/DynamoKVStore';
 import type { EventService } from '../EventService';
-import { DynamoKVStore } from '../repositories/DynamoKVStore/DynamoKVStore';
 import type { SUService } from '../SUService';
 
 export interface UsageAddons {

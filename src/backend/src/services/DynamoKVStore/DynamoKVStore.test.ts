@@ -2,9 +2,9 @@ import { Actor } from '@heyputer/backend/src/services/auth/Actor.js';
 import { SUService } from '@heyputer/backend/src/services/SUService';
 import { createTestKernel } from '@heyputer/backend/tools/test.mjs';
 import { describe, expect, it } from 'vitest';
+import config from '../../loadTestConfig.js';
 import { DynamoKVStore } from './DynamoKVStore.js';
 import { DynamoKVStoreWrapper, IDynamoKVStoreWrapper } from './DynamoKVStoreWrapper.js';
-import { config } from '../../../loadTestConfig.js';
 
 describe('DynamoKVStore', async () => {
     const TABLE_NAME = 'store-kv-v1';
@@ -481,8 +481,8 @@ describe('DynamoKVStore', async () => {
 
     it('enforces key and value size limits', async () => {
         const actor = makeActor(11);
-        const oversizedKey = 'a'.repeat((config.kv_max_key_size as number) + 1);
-        const oversizedValue = 'b'.repeat((config.kv_max_value_size as number) + 1);
+        const oversizedKey = 'a'.repeat(((config as unknown as Record<string, number>).kv_max_key_size as number) + 1);
+        const oversizedValue = 'b'.repeat(((config as unknown as Record<string, number>).kv_max_value_size as number) + 1);
 
         await expect(su.sudo(actor, () => kvStore.set({ key: oversizedKey, value: 'x' })))
             .rejects

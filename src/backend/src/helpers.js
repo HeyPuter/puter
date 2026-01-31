@@ -27,6 +27,7 @@ const APIError = require('./api/APIError.js');
 const { DB_READ, DB_WRITE } = require('./services/database/consts.js');
 const { Context } = require('./util/context');
 const { NodeUIDSelector } = require('./filesystem/node/selectors');
+const { redisClient } = require('./clients/redis/redisSingleton');
 const { kv } = require('./util/kvSingleton');
 
 const identifying_uuid = require('uuid').v4();
@@ -46,6 +47,15 @@ const PENDING_QUERY_TTL = 10; // seconds
 const SUGGESTED_APPS_CACHE_MAX = 10000;
 const suggestedAppsCache = new LRUCache({ max: SUGGESTED_APPS_CACHE_MAX });
 const DEFAULT_APP_ICON_SIZE = 256;
+
+const safe_json_parse = (value, fallback) => {
+    if ( value === null || value === undefined ) return fallback;
+    try {
+        return JSON.parse(value);
+    } catch ( error ) {
+        return fallback;
+    }
+};
 
 const buildAppIconUrl = (app_uid, size = DEFAULT_APP_ICON_SIZE) => {
     if ( ! app_uid ) return null;
@@ -235,22 +245,19 @@ async function get_user (options) {
  *
  * @param {User} userID - the user entry to invalidate
  */
-function invalidate_cached_user (user) {
-    kv.del(`users:username:${ user.username}`);
-    kv.del(`users:uuid:${ user.uuid}`);
-    kv.del(`users:email:${ user.email}`);
-    kv.del(`users:id:${ user.id}`);
-}
+const invalidate_cached_user = async (user) => {
+    await redisClient.del(`users:username:${ user.username}`, `users:uuid:${ user.uuid}`, `users:email:${ user.email}`, `users:id:${ user.id}`);
+};
 
 /**
  * Invalidate the cached entries for the user specified by an id
  * @param {number} id - the id of the user to invalidate
  */
-function invalidate_cached_user_by_id (id) {
-    const user = kv.get(`users:id:${ id}`);
+const invalidate_cached_user_by_id = async (id) => {
+    const user = safe_json_parse(await redisClient.get(`users:id:${ id}`), null);
     if ( ! user ) return;
     invalidate_cached_user(user);
-}
+};
 
 async function refresh_associations_cache () {
     /** @type BaseDatabaseAccessService */
@@ -269,7 +276,7 @@ async function refresh_associations_cache () {
     }
 
     for ( const k in lists ) {
-        kv.set(`assocs:${k}:apps`, lists[k]);
+        await redisClient.set(`assocs:${k}:apps`, JSON.stringify(lists[k]));
     }
 }
 
@@ -281,12 +288,12 @@ async function refresh_associations_cache () {
  */
 async function get_app (options) {
 
-    const cacheApp = (app) => {
+    const cacheApp = async (app) => {
         if ( ! app ) return;
-        app = { ...app };
-        kv.set(`apps:uid:${app.uid}`, app, { EX: 30 });
-        kv.set(`apps:name:${app.name}`, app, { EX: 30 });
-        kv.set(`apps:id:${app.id}`, app, { EX: 30 });
+        app = JSON.stringify(app);
+        await redisClient.set(`apps:uid:${app.uid}`, app, 'EX', 30);
+        await redisClient.set(`apps:name:${app.name}`, app, 'EX', 30);
+        await redisClient.set(`apps:id:${app.id}`, app, 'EX', 30);
     };
 
     // This condition should be updated if the code below is re-ordered.
@@ -320,7 +327,7 @@ async function get_app (options) {
     }
 
     // Check cache first
-    let app = kv.get(cacheKey);
+    let app = safe_json_parse(await redisClient.get(cacheKey), null);
     if ( app ) {
         // shallow clone because we use the `delete` operator
         // and it corrupts the cache otherwise
@@ -345,7 +352,7 @@ async function get_app (options) {
         rejectQuery = reject;
     });
 
-    kv.set(pendingKey, queryPromise, { EX: PENDING_QUERY_TTL });
+    kv.set(pendingKey, queryPromise, { 'EX': PENDING_QUERY_TTL });
 
     try {
         /** @type BaseDatabaseAccessService */
@@ -394,12 +401,12 @@ const get_apps = spanify('get_apps', async (specifiers, options = {}) => {
     const cacheNamespace = rawIcon ? 'apps' : 'apps:lite';
     const pendingNamespace = rawIcon ? 'pending_app' : 'pending_app_lite';
     const decorateApp = (app) => (rawIcon ? app : withAppIconUrl(app));
-    const cacheApp = (app) => {
+    const cacheApp = async (app) => {
         if ( ! app ) return;
-        const cached_app = { ...app };
-        kv.set(`${cacheNamespace}:uid:${cached_app.uid}`, cached_app, { EX: 60 });
-        kv.set(`${cacheNamespace}:name:${cached_app.name}`, cached_app, { EX: 60 });
-        kv.set(`${cacheNamespace}:id:${cached_app.id}`, cached_app, { EX: 60 });
+        const cached_app = JSON.stringify(app);
+        await redisClient.set(`${cacheNamespace}:uid:${cached_app.uid}`, cached_app, 'EX', 60);
+        await redisClient.set(`${cacheNamespace}:name:${cached_app.name}`, cached_app, 'EX', 60);
+        await redisClient.set(`${cacheNamespace}:id:${cached_app.id}`, cached_app, 'EX', 60);
     };
 
     const APP_COLUMNS_NO_ICON = [
@@ -474,7 +481,7 @@ const get_apps = spanify('get_apps', async (specifiers, options = {}) => {
             resolveQuery = resolve;
             rejectQuery = reject;
         });
-        kv.set(pendingKey, queryPromise, { EX: PENDING_QUERY_TTL });
+        kv.set(pendingKey, queryPromise, { 'EX': PENDING_QUERY_TTL });
         pendingToResolve.set(queryKey, { resolveQuery, rejectQuery, pendingKey });
 
         if ( type === 'uid' ) {
@@ -488,7 +495,7 @@ const get_apps = spanify('get_apps', async (specifiers, options = {}) => {
 
     for ( const spec of normalized ) {
         if ( spec.uid ) {
-            const cached = kv.get(`${cacheNamespace}:uid:${spec.uid}`);
+            const cached = safe_json_parse(await redisClient.get(`${cacheNamespace}:uid:${spec.uid}`), null);
             if ( cached ) {
                 addApp(decorateApp(cached));
             } else {
@@ -497,7 +504,7 @@ const get_apps = spanify('get_apps', async (specifiers, options = {}) => {
             continue;
         }
         if ( spec.name ) {
-            const cached = kv.get(`${cacheNamespace}:name:${spec.name}`);
+            const cached = safe_json_parse(await redisClient.get(`${cacheNamespace}:name:${spec.name}`), null);
             if ( cached ) {
                 addApp(decorateApp(cached));
             } else {
@@ -506,7 +513,7 @@ const get_apps = spanify('get_apps', async (specifiers, options = {}) => {
             continue;
         }
         if ( spec.id ) {
-            const cached = kv.get(`${cacheNamespace}:id:${spec.id}`);
+            const cached = safe_json_parse(await redisClient.get(`${cacheNamespace}:id:${spec.id}`), null);
             if ( cached ) {
                 addApp(decorateApp(cached));
             } else {
@@ -583,7 +590,7 @@ const get_apps = spanify('get_apps', async (specifiers, options = {}) => {
             throw err;
         } finally {
             for ( const { pendingKey } of pendingToResolve.values() ) {
-                kv.del(pendingKey);
+                await redisClient.del(pendingKey);
             }
         }
 
@@ -1589,7 +1596,7 @@ const SUGGEST_APP_CODE_EXTS = [
     '.yaml',
 ];
 
-const buildSuggestedAppSpecifiers = (fsentry) => {
+const buildSuggestedAppSpecifiers = async (fsentry) => {
     const name_specifiers = [];
 
     let content_type = mime.contentType(fsentry.name);
@@ -1680,7 +1687,7 @@ const buildSuggestedAppSpecifiers = (fsentry) => {
     //---------------------------------------------
     // 3rd-party apps
     //---------------------------------------------
-    const apps = kv.get(`assocs:${file_extension.slice(1)}:apps`) ?? [];
+    const apps = safe_json_parse(await redisClient.get(`assocs:${file_extension.slice(1)}:apps`), []);
     /** @type {{id:string}[]} */
     const id_specifiers = apps.map(app_id => ({ id: app_id }));
 
@@ -1758,7 +1765,7 @@ async function suggestedAppsForFsEntries (fsentries, options) {
             continue;
         }
 
-        const { name_specifiers, id_specifiers } = buildSuggestedAppSpecifiers(fsentry);
+        const { name_specifiers, id_specifiers } = await buildSuggestedAppSpecifiers(fsentry);
         const entry_specifiers = [...name_specifiers, ...id_specifiers];
 
         if ( entry_specifiers.length === 0 ) {

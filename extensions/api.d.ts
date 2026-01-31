@@ -3,6 +3,7 @@ import type { WebServerService } from '@heyputer/backend/src/modules/web/WebServ
 import query from '@heyputer/backend/src/om/query/query';
 import type { Actor } from '@heyputer/backend/src/services/auth/Actor.js';
 import type { BaseDatabaseAccessService } from '@heyputer/backend/src/services/database/BaseDatabaseAccessService.d.ts';
+import { type EmailService } from '@heyputer/backend/src/services/EmailService.js';
 import type { MeteringService } from '@heyputer/backend/src/services/MeteringService/MeteringService.ts';
 import type { MeteringServiceWrapper } from '@heyputer/backend/src/services/MeteringService/MeteringServiceWrapper.mjs';
 import { DynamoKVStore } from '@heyputer/backend/src/services/repositories/DynamoKVStore/DynamoKVStore.ts';
@@ -10,12 +11,12 @@ import type { SUService } from '@heyputer/backend/src/services/SUService.js';
 import type { IUser } from '@heyputer/backend/src/services/User.js';
 import type { UserService } from '@heyputer/backend/src/services/UserService.d.ts';
 import { Context } from '@heyputer/backend/src/util/context.js';
-import kvjs from '@heyputer/kv.js';
 import type { RequestHandler } from 'express';
+import { Cluster } from 'ioredis';
 import type FSNodeContext from '../src/backend/src/filesystem/FSNodeContext.js';
 import type helpers from '../src/backend/src/helpers.js';
 import type * as ExtensionControllerExports from './ExtensionController/src/ExtensionController.ts';
-import { type EmailService } from '@heyputer/backend/src/services/EmailService.js';
+
 declare global {
     namespace Express {
         interface Request {
@@ -76,6 +77,7 @@ interface CoreRuntimeModule {
     util: {
         helpers: typeof helpers;
     };
+    redisClient: Cluster;
     Context: typeof Context;
     APIError: typeof APIError;
 }
@@ -161,7 +163,7 @@ interface Extension extends RouterMethods {
     import(module: 'data'): {
         db: BaseDatabaseAccessService;
         kv: DynamoKVStore;
-        cache: kvjs;
+        cache: Cluster;
     };
     import(module: 'core'): CoreRuntimeModule;
     import(module: 'fs'): FilesystemModule;
