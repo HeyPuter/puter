@@ -263,6 +263,8 @@ function generateDocsHTML (filePath, rootDir, page, isIndex = false) {
     // create the HTML file
     html += '<head>';
     html += '<meta charset="utf-8">';
+    html += '<script src="https://cdn.jsdelivr.net/npm/fuse.js@6.6.2"></script>';
+
     // Title
     if ( isIndex ) {
         html += '<title>Puter.js: Free, Serverless, Cloud and AI Powered by Puter.</title>';
