@@ -3,6 +3,8 @@ import type { WebServerService } from '@heyputer/backend/src/modules/web/WebServ
 import query from '@heyputer/backend/src/om/query/query';
 import type { Actor } from '@heyputer/backend/src/services/auth/Actor.js';
 import type { BaseDatabaseAccessService } from '@heyputer/backend/src/services/database/BaseDatabaseAccessService.d.ts';
+import { type EmailService } from '@heyputer/backend/src/services/EmailService.js';
+import type { GetUserService } from '@heyputer/backend/src/services/GetUserService.js';
 import type { MeteringService } from '@heyputer/backend/src/services/MeteringService/MeteringService.ts';
 import type { MeteringServiceWrapper } from '@heyputer/backend/src/services/MeteringService/MeteringServiceWrapper.mjs';
 import { DynamoKVStore } from '@heyputer/backend/src/services/repositories/DynamoKVStore/DynamoKVStore.ts';
@@ -15,7 +17,7 @@ import type { RequestHandler } from 'express';
 import type FSNodeContext from '../src/backend/src/filesystem/FSNodeContext.js';
 import type helpers from '../src/backend/src/helpers.js';
 import type * as ExtensionControllerExports from './ExtensionController/src/ExtensionController.ts';
-import { type EmailService } from '@heyputer/backend/src/services/EmailService.js';
+
 declare global {
     namespace Express {
         interface Request {
@@ -85,10 +87,6 @@ interface FilesystemModule {
     selectors: unknown;
 }
 
-type StripPrefix<
-    TPrefix extends string,
-    T extends string,
-> = T extends `${TPrefix}.${infer R}` ? R : never;
 // TODO DS: define this globally in core to use it there too
 interface ServiceNameMap {
     meteringService: Pick<MeteringServiceWrapper, 'meteringService'> &
@@ -97,6 +95,7 @@ interface ServiceNameMap {
     su: SUService;
     database: BaseDatabaseAccessService;
     user: UserService;
+    'get-user': GetUserService;
     'web-server': WebServerService;
     'email': EmailService
 }
