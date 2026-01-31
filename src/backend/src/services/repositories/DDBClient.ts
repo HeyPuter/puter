@@ -63,7 +63,7 @@ export class DDBClient {
                 endpoint: dynamoEndpoint,
                 region: 'us-west-2',
             });
-            console.log(`Dynalite DynamoDB client created with region ${await client.config.region()}`);
+            console.log(`DynamoDB client created with region ${await client.config.region()}`);
             return client;
         }
 
