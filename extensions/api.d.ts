@@ -3,9 +3,9 @@ import type { WebServerService } from '@heyputer/backend/src/modules/web/WebServ
 import type query from '@heyputer/backend/src/om/query/query';
 import type { Actor } from '@heyputer/backend/src/services/auth/Actor.js';
 import type { BaseDatabaseAccessService } from '@heyputer/backend/src/services/database/BaseDatabaseAccessService.d.ts';
-import type { GetUserService } from '@heyputer/backend/src/services/GetUserService.js';
 import type { EmailService } from '@heyputer/backend/src/services/EmailService.js';
 import type { EntityStoreService } from '@heyputer/backend/src/services/EntityStoreService.js';
+import type { GetUserService } from '@heyputer/backend/src/services/GetUserService.js';
 import type { MeteringService } from '@heyputer/backend/src/services/MeteringService/MeteringService.ts';
 import type { MeteringServiceWrapper } from '@heyputer/backend/src/services/MeteringService/MeteringServiceWrapper.mjs';
 import type { DynamoKVStore } from '@heyputer/backend/src/services/repositories/DynamoKVStore/DynamoKVStore.ts';
