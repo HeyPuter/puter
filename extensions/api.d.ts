@@ -1,18 +1,19 @@
-import APIError from '@heyputer/backend/src/api/APIError.js';
+import type APIError from '@heyputer/backend/src/api/APIError.js';
 import type { WebServerService } from '@heyputer/backend/src/modules/web/WebServerService.js';
-import query from '@heyputer/backend/src/om/query/query';
+import type query from '@heyputer/backend/src/om/query/query';
 import type { Actor } from '@heyputer/backend/src/services/auth/Actor.js';
 import type { BaseDatabaseAccessService } from '@heyputer/backend/src/services/database/BaseDatabaseAccessService.d.ts';
-import { type EmailService } from '@heyputer/backend/src/services/EmailService.js';
 import type { GetUserService } from '@heyputer/backend/src/services/GetUserService.js';
+import type { EmailService } from '@heyputer/backend/src/services/EmailService.js';
+import type { EntityStoreService } from '@heyputer/backend/src/services/EntityStoreService.js';
 import type { MeteringService } from '@heyputer/backend/src/services/MeteringService/MeteringService.ts';
 import type { MeteringServiceWrapper } from '@heyputer/backend/src/services/MeteringService/MeteringServiceWrapper.mjs';
-import { DynamoKVStore } from '@heyputer/backend/src/services/repositories/DynamoKVStore/DynamoKVStore.ts';
+import type { DynamoKVStore } from '@heyputer/backend/src/services/repositories/DynamoKVStore/DynamoKVStore.ts';
 import type { SUService } from '@heyputer/backend/src/services/SUService.js';
 import type { IUser } from '@heyputer/backend/src/services/User.js';
 import type { UserService } from '@heyputer/backend/src/services/UserService.d.ts';
-import { Context } from '@heyputer/backend/src/util/context.js';
-import kvjs from '@heyputer/kv.js';
+import type { Context } from '@heyputer/backend/src/util/context.js';
+import type kvjs from '@heyputer/kv.js';
 import type { RequestHandler } from 'express';
 import type FSNodeContext from '../src/backend/src/filesystem/FSNodeContext.js';
 import type helpers from '../src/backend/src/helpers.js';
@@ -97,7 +98,8 @@ interface ServiceNameMap {
     user: UserService;
     'get-user': GetUserService;
     'web-server': WebServerService;
-    'email': EmailService
+    'email': EmailService;
+    'es:app': EntityStoreService;
 }
 
 export interface ExtensionEventTypeMap {
