@@ -42,6 +42,7 @@
         "webpack-cli": "^5.1.4"
     },
     "dependencies": {
-        "@heyputer/kv.js": "^0.2.1"
+        "@heyputer/kv.js": "^0.2.1",
+        "open": "^10.2.0"
     }
 }
