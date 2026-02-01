@@ -37,6 +37,32 @@ const open_item = async function (options) {
     const file_uid = $(el_item).attr('data-uid');
 
     //----------------------------------------------------------------
+    // Is this an app shortcut?
+    //----------------------------------------------------------------
+    const app_name = $(el_item).attr('data-app');
+    if ( app_name ) {
+        launch_app({ name: app_name });
+        return;
+    }
+
+    //----------------------------------------------------------------
+    // Is this an .app file?
+    //----------------------------------------------------------------
+    if ( item_path && item_path.toLowerCase().endsWith('.app') ) {
+        try {
+            const content = await puter.fs.read({ path: item_path });
+            const text = typeof content === 'string' ? content : await content.text();
+            const data = JSON.parse(text);
+            if ( data.app ) {
+                launch_app({ name: data.app });
+                return;
+            }
+        } catch (e) {
+            console.error('Error reading .app file:', e);
+        }
+    }
+
+    //----------------------------------------------------------------
     // Is this a shortcut whose source is perma-deleted?
     //----------------------------------------------------------------
     if ( is_shortcut && shortcut_to_path === '' ) {
