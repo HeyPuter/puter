@@ -77,7 +77,7 @@ export class GeminiChatProvider implements IChatProvider {
                 const costsOverrideFromModel = Object.fromEntries(Object.entries(trackedUsage).map(([k, v]) => {
                     return [k, v * (modelUsed.costs[k] || 0)];
                 }));
-                this.meteringService.utilRecordUsageObject(trackedUsage, actor, `gemini:${modelUsed?.id}`), costsOverrideFromModel;
+                this.meteringService.utilRecordUsageObject(trackedUsage, actor, `gemini:${modelUsed?.id}`, costsOverrideFromModel);
 
                 return trackedUsage;
             },
