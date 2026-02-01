@@ -156,7 +156,7 @@ async function UIWindowAuthMe (options = {}) {
             body_content: h,
             has_head: false,
             selectable_body: false,
-            draggable_body: true,
+            draggable_body: false,
             allow_context_menu: false,
             is_resizable: false,
             is_droppable: false,
