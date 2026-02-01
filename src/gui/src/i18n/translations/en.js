@@ -550,6 +550,14 @@ const en = {
 
         'error_user_or_path_not_found': 'User or path not found.',
         'error_invalid_username': 'Invalid username.',
+
+        // Auth token
+        auth_token: 'Auth Token',
+        token_copied: 'Token copied',
+        copy_auth_token: 'Copy Auth Token',
+        approve: 'Approve',
+        copy_token_message: 'Your authentication token is shown below. Keep it secret \u2014 anyone with this token can access your account.',
+        copy_token_description: 'View and copy your authentication token',
     },
 };
 

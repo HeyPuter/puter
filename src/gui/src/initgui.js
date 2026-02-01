@@ -30,6 +30,7 @@ import UIWindowRequestPermission from './UI/UIWindowRequestPermission.js';
 import UIWindowSaveAccount from './UI/UIWindowSaveAccount.js';
 import UIWindowSessionList from './UI/UIWindowSessionList.js';
 import UIWindowSignup from './UI/UIWindowSignup.js';
+import UIWindowCopyToken from './UI/UIWindowCopyToken.js';
 import { PROCESS_RUNNING } from './definitions.js';
 import item_icon from './helpers/item_icon.js';
 import update_last_touch_coordinates from './helpers/update_last_touch_coordinates.js';
@@ -623,7 +624,7 @@ window.initgui = async function (options) {
                     const approved = await UIAlert({
                         message: `Do you want to authorize and redirect to <strong>${html_encode(redirectURL)}</strong>?`,
                         buttons: [
-                            { label: i18n('approve') || 'Approve', value: 'approve', type: 'primary' },
+                            { label: i18n('approve'), value: 'approve', type: 'primary' },
                             { label: i18n('cancel'), value: 'cancel', type: 'secondary' },
                         ],
                         type: 'confirm',
@@ -635,6 +636,13 @@ window.initgui = async function (options) {
                         return;
                     }
                 }
+            }
+
+            // -------------------------------------------------------------------------------------
+            // Action: CopyAuth — show dialog to copy auth token
+            // -------------------------------------------------------------------------------------
+            if ( action === 'copyauth' ) {
+                await UIWindowCopyToken({ show_header: true });
             }
 
             // -------------------------------------------------------------------------------------
@@ -968,21 +976,27 @@ window.initgui = async function (options) {
     // Un-authed but not first visit -> try to log in/sign up
     // -------------------------------------------------------------------------------------
     if ( !window.is_auth() && (!window.first_visit_ever || window.disable_temp_users) ) {
+        const needs_action = action === 'authme' || action === 'copyauth';
+        const reload_on_success = !needs_action;
         if ( window.logged_in_users.length > 0 ) {
-            UIWindowSessionList();
+            await UIWindowSessionList({
+                reload_on_success,
+            });
         }
         else {
             const resp = await fetch(`${window.gui_origin }/whoarewe`);
             const whoarewe = await resp.json();
             await UIWindowLogin({
-                // show_signup_button:
-                reload_on_success: true,
+                reload_on_success,
                 send_confirmation_code: false,
                 show_signup_button: ( !whoarewe.disable_user_signup ),
                 window_options: {
                     has_head: false,
                 },
             });
+        }
+        if ( !reload_on_success && window.is_auth() ) {
+            document.dispatchEvent(new Event('login', { bubbles: true }));
         }
     }
 
@@ -1153,7 +1167,7 @@ window.initgui = async function (options) {
                 const approved = await UIAlert({
                     message: `Do you want to authorize and redirect to <strong>${html_encode(redirectURL)}</strong>?`,
                     buttons: [
-                        { label: i18n('approve') || 'Approve', value: 'approve', type: 'primary' },
+                        { label: i18n('approve'), value: 'approve', type: 'primary' },
                         { label: i18n('cancel'), value: 'cancel', type: 'secondary' },
                     ],
                     type: 'confirm',
@@ -1165,6 +1179,13 @@ window.initgui = async function (options) {
                     return;
                 }
             }
+        }
+
+        // -------------------------------------------------------------------------------------
+        // Action: CopyAuth — show dialog to copy auth token
+        // -------------------------------------------------------------------------------------
+        if ( action === 'copyauth' ) {
+            await UIWindowCopyToken({ show_header: true });
         }
 
         // -------------------------------------------------------------------------------------
