@@ -35,6 +35,7 @@
 */
 
 import { describe, it, expect, beforeEach, vi } from 'vitest';
+import { Context } from '../util/context.js';
 const { ChatAPIService } = require('./ChatAPIService');
 
 describe('ChatAPIService', () => {
@@ -45,6 +46,7 @@ describe('ChatAPIService', () => {
     let mockSUService;
     let mockAIChatService;
     let mockEndpoint;
+    let mockWebServer;
     let mockReq;
     let mockRes;
 
@@ -68,11 +70,17 @@ describe('ChatAPIService', () => {
             }),
         };
 
+        // Mock web server
+        mockWebServer = {
+            allow_undefined_origin: vi.fn(),
+        };
+
         // Mock services
         mockServices = {
             get: vi.fn().mockImplementation((serviceName) => {
                 if ( serviceName === 'su' ) return mockSUService;
                 if ( serviceName === 'ai-chat' ) return mockAIChatService;
+                if ( serviceName === 'web-server' ) return mockWebServer;
                 return null;
             }),
         };
@@ -108,6 +116,8 @@ describe('ChatAPIService', () => {
         chatApiService.log = {
             error: vi.fn(),
         };
+
+        Context.root.set('services', mockServices);
 
         // Mock the require function
         const oldInstanceRequire_ = chatApiService.require;
