@@ -186,8 +186,46 @@ async function UIWindowAuthMe (options = {}) {
 
         $(el_window).find('.authme-cancel').on('click', function () {
             $(this).addClass('disabled');
-            $(el_window).close();
-            resolve(false);
+            $(el_window).find('.authme-approve').addClass('disabled');
+
+            // Show cancelled state
+            let cancelledHtml = '';
+
+            // Header with icon
+            cancelledHtml += `<div style="
+                display: flex;
+                flex-direction: column;
+                align-items: center;
+                padding: 30px 20px 20px;
+                background: linear-gradient(135deg, #6b7280 0%, #4b5563 100%);
+                border-bottom: 1px solid #ced7e1;
+            ">`;
+            cancelledHtml += `<div style="
+                width: 60px;
+                height: 60px;
+                background: rgba(255,255,255,0.2);
+                border-radius: 16px;
+                display: flex;
+                align-items: center;
+                justify-content: center;
+                margin-bottom: 14px;
+            ">`;
+            cancelledHtml += `<svg width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="white" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">
+                <circle cx="12" cy="12" r="10"/>
+                <line x1="15" y1="9" x2="9" y2="15"/>
+                <line x1="9" y1="9" x2="15" y2="15"/>
+            </svg>`;
+            cancelledHtml += '</div>';
+            cancelledHtml += `<h2 style="margin: 0; font-size: 17px; font-weight: 600; color: white;">${i18n('authorization_cancelled')}</h2>`;
+            cancelledHtml += `<p style="margin: 6px 0 0; font-size: 13px; color: rgba(255,255,255,0.85); text-align: center; line-height: 1.4;">${i18n('authorization_cancelled_desc')}</p>`;
+            cancelledHtml += '</div>';
+
+            // Content area
+            cancelledHtml += '<div style="padding: 20px;">';
+            cancelledHtml += `<p style="margin: 0; font-size: 14px; color: #4b5563; text-align: center; line-height: 1.5;">${i18n('authorization_cancelled_message')}</p>`;
+            cancelledHtml += '</div>';
+
+            $(el_window).find('.window-body').html(cancelledHtml);
         });
 
         $(el_window).on('close', () => {

@@ -566,6 +566,9 @@ const en = {
         redirect_destination: 'Redirect Destination',
         will_be_shared: 'Will be shared',
         your_auth_token: 'Your authentication token',
+        authorization_cancelled: 'Authorization Cancelled',
+        authorization_cancelled_desc: 'You have declined the authorization request.',
+        authorization_cancelled_message: 'The app will not receive access to your account. You can close this window safely.',
     },
 };
 
