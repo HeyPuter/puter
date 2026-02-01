@@ -281,8 +281,23 @@ export class AIChatService extends BaseService {
     }
 
     async complete (parameters: ICompleteArguments) {
-        const clientDriverCall = Context.get('client_driver_call');
-        let { test_mode: testMode, response_metadata: resMetadata, intended_service: legacyProviderName } = clientDriverCall as { test_mode?: boolean; response_metadata: Record<string, unknown>; intended_service?: string };
+        const clientDriverCall = Context.get('client_driver_call') as {
+            test_mode?: boolean;
+            response_metadata?: Record<string, unknown>;
+            intended_service?: string;
+        } | undefined;
+        const fallbackDriverCall = {
+            test_mode: false,
+            response_metadata: {},
+            intended_service: undefined,
+        } as {
+            test_mode?: boolean;
+            response_metadata?: Record<string, unknown>;
+            intended_service?: string;
+        };
+        let { test_mode: testMode, response_metadata: resMetadata, intended_service: legacyProviderName } =
+            clientDriverCall ?? fallbackDriverCall;
+        resMetadata = (resMetadata ?? {}) as Record<string, unknown>;
         const actor = Context.get('actor');
 
         let intendedProvider = parameters.provider || (legacyProviderName === AIChatService.SERVICE_NAME ? '' : legacyProviderName); // should now all go through here

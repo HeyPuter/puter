@@ -63,6 +63,8 @@ class ChatAPIService extends BaseService {
     */
     install_chat_endpoints_ ({ router }) {
         const Endpoint = this.require('Endpoint');
+        router.use(require('../routers/puterai/openai/completions'));
+        router.use(require('../routers/puterai/openai/chat_completions'));
         // Endpoint to list available AI chat models
         Endpoint({
             route: '/chat/models',
