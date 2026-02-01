@@ -558,6 +558,14 @@ const en = {
         approve: 'Approve',
         copy_token_message: 'Your authentication token is shown below. Keep it secret \u2014 anyone with this token can access your account.',
         copy_token_description: 'View and copy your authentication token',
+
+        // AuthMe dialog
+        authorization_required: 'Authorization Required',
+        external_site_auth_request: 'An app is requesting access to your account.',
+        authme_security_warning: 'Your authentication token will be shared with this app to complete sign-in.',
+        redirect_destination: 'Redirect Destination',
+        will_be_shared: 'Will be shared',
+        your_auth_token: 'Your authentication token',
     },
 };
 

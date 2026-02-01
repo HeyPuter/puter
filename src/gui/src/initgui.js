@@ -31,6 +31,7 @@ import UIWindowSaveAccount from './UI/UIWindowSaveAccount.js';
 import UIWindowSessionList from './UI/UIWindowSessionList.js';
 import UIWindowSignup from './UI/UIWindowSignup.js';
 import UIWindowCopyToken from './UI/UIWindowCopyToken.js';
+import UIWindowAuthMe from './UI/UIWindowAuthMe.js';
 import { PROCESS_RUNNING } from './definitions.js';
 import item_icon from './helpers/item_icon.js';
 import update_last_touch_coordinates from './helpers/update_last_touch_coordinates.js';
@@ -621,15 +622,10 @@ window.initgui = async function (options) {
             if ( action === 'authme' ) {
                 const redirectURL = window.url_query_params.get('redirectURL');
                 if ( redirectURL ) {
-                    const approved = await UIAlert({
-                        message: `Do you want to authorize and redirect to <strong>${html_encode(redirectURL)}</strong>?`,
-                        buttons: [
-                            { label: i18n('approve'), value: 'approve', type: 'primary' },
-                            { label: i18n('cancel'), value: 'cancel', type: 'secondary' },
-                        ],
-                        type: 'confirm',
+                    const approved = await UIWindowAuthMe({
+                        redirect_url: redirectURL,
                     });
-                    if ( approved === 'approve' ) {
+                    if ( approved ) {
                         const url = new URL(redirectURL);
                         url.searchParams.set('token', window.auth_token);
                         window.location.href = url.href;
@@ -1164,15 +1160,10 @@ window.initgui = async function (options) {
         if ( action === 'authme' ) {
             const redirectURL = window.url_query_params.get('redirectURL');
             if ( redirectURL ) {
-                const approved = await UIAlert({
-                    message: `Do you want to authorize and redirect to <strong>${html_encode(redirectURL)}</strong>?`,
-                    buttons: [
-                        { label: i18n('approve'), value: 'approve', type: 'primary' },
-                        { label: i18n('cancel'), value: 'cancel', type: 'secondary' },
-                    ],
-                    type: 'confirm',
+                const approved = await UIWindowAuthMe({
+                    redirect_url: redirectURL,
                 });
-                if ( approved === 'approve' ) {
+                if ( approved ) {
                     const url = new URL(redirectURL);
                     url.searchParams.set('token', window.auth_token);
                     window.location.href = url.href;
