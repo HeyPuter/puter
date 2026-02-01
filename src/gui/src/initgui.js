@@ -152,7 +152,7 @@ if ( jQuery ) {
 }
 
 // are we in dashboard mode?
-if(window.location.pathname === '/dashboard' || window.location.pathname === '/dashboard/'){
+if ( window.location.pathname === '/dashboard' || window.location.pathname === '/dashboard/' ) {
     window.is_dashboard_mode = true;
 }
 
@@ -345,6 +345,8 @@ window.initgui = async function (options) {
     let action;
     if ( window.url_paths[0]?.toLocaleLowerCase() === 'action' && window.url_paths[1] ) {
         action = window.url_paths[1].toLowerCase();
+    } else if ( window.url_query_params.has('action') ) {
+        action = window.url_query_params.get('action').toLowerCase();
     }
 
     //--------------------------------------------------------------------------------------
@@ -359,7 +361,7 @@ window.initgui = async function (options) {
 
         // Puter is in fullpage mode.
         window.is_fullpage_mode = true;
-    } else if (window.is_dashboard_mode) {
+    } else if ( window.is_dashboard_mode ) {
         window.is_fullpage_mode = true;
     }
 
@@ -501,7 +503,6 @@ window.initgui = async function (options) {
     else if ( action === 'signup' ) {
         await UIWindowSignup();
     }
-
     // -------------------------------------------------------------------------------------
     // If in embedded in a popup, it is important to check whether the opener app has a relationship with the user
     // if yes, we need to get the user app token and send it to the opener
@@ -614,9 +615,32 @@ window.initgui = async function (options) {
             window.update_auth_data(whoami.token || window.auth_token, whoami);
 
             // -------------------------------------------------------------------------------------
+            // Action: AuthMe — redirect to a third-party URL with the user's auth token
+            // -------------------------------------------------------------------------------------
+            if ( action === 'authme' ) {
+                const redirectURL = window.url_query_params.get('redirectURL');
+                if ( redirectURL ) {
+                    const approved = await UIAlert({
+                        message: `Do you want to authorize and redirect to <strong>${html_encode(redirectURL)}</strong>?`,
+                        buttons: [
+                            { label: i18n('approve') || 'Approve', value: 'approve', type: 'primary' },
+                            { label: i18n('cancel'), value: 'cancel', type: 'secondary' },
+                        ],
+                        type: 'confirm',
+                    });
+                    if ( approved === 'approve' ) {
+                        const url = new URL(redirectURL);
+                        url.searchParams.set('token', window.auth_token);
+                        window.location.href = url.href;
+                        return;
+                    }
+                }
+            }
+
+            // -------------------------------------------------------------------------------------
             // Load desktop, only if we're not embedded in a popup and not on the dashboard page
             // -------------------------------------------------------------------------------------
-            if ( ! window.embedded_in_popup && ! window.is_dashboard_mode ) {
+            if ( !window.embedded_in_popup && !window.is_dashboard_mode ) {
                 await window.get_auto_arrange_data();
                 puter.fs.stat({ path: window.desktop_path, consistency: 'eventual' }).then(desktop_fsentry => {
                     UIDesktop({ desktop_fsentry: desktop_fsentry });
@@ -1121,9 +1145,32 @@ window.initgui = async function (options) {
         $('.window').close();
 
         // -------------------------------------------------------------------------------------
+        // Action: AuthMe — redirect to a third-party URL with the user's auth token
+        // -------------------------------------------------------------------------------------
+        if ( action === 'authme' ) {
+            const redirectURL = window.url_query_params.get('redirectURL');
+            if ( redirectURL ) {
+                const approved = await UIAlert({
+                    message: `Do you want to authorize and redirect to <strong>${html_encode(redirectURL)}</strong>?`,
+                    buttons: [
+                        { label: i18n('approve') || 'Approve', value: 'approve', type: 'primary' },
+                        { label: i18n('cancel'), value: 'cancel', type: 'secondary' },
+                    ],
+                    type: 'confirm',
+                });
+                if ( approved === 'approve' ) {
+                    const url = new URL(redirectURL);
+                    url.searchParams.set('token', window.auth_token);
+                    window.location.href = url.href;
+                    return;
+                }
+            }
+        }
+
+        // -------------------------------------------------------------------------------------
         // Load desktop, if not embedded in a popup and not on the dashboard page
         // -------------------------------------------------------------------------------------
-        if ( ! window.embedded_in_popup && ! window.is_dashboard_mode ) {
+        if ( !window.embedded_in_popup && !window.is_dashboard_mode ) {
             await window.get_auto_arrange_data();
             puter.fs.stat({ path: window.desktop_path, consistency: 'eventual' }).then(desktop_fsentry => {
                 UIDesktop({ desktop_fsentry: desktop_fsentry });
