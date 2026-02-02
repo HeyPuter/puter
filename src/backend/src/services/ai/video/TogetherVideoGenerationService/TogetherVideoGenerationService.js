@@ -28,7 +28,7 @@ const POLL_INTERVAL_MS = 5_000;
 const DEFAULT_TIMEOUT_MS = 5 * 60 * 1000; // 5 minutes
 const DEFAULT_MODEL = 'minimax/video-01-director';
 const DEFAULT_DURATION_SECONDS = 6;
-const DEFAULT_USAGE_KEY = 'togetherai:default';
+const DEFAULT_USAGE_KEY = 'together-video:default';
 
 let models = [];
 
@@ -253,7 +253,7 @@ class TogetherVideoGenerationService extends BaseService {
 
     #determineUsageKey (model) {
         if ( typeof model === 'string' && model.trim() ) {
-            return `togetherai:${model}`;
+            return `together-video:${model}`;
         }
         return DEFAULT_USAGE_KEY;
     }

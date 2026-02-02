@@ -454,14 +454,6 @@ export class AIChatService extends BaseService {
 
                 const fallback = this.getFallbackModel(model.id, tried, triedProviders);
 
-                tried.push(model.id);
-                triedProviders.push(model.provider!);
-
-                if ( tried.length >= MAX_FALLBACKS ) {
-                    console.error('max fallbacks reached', { tried, triedProviders });
-                    break;
-                }
-
                 if ( ! fallback ) {
                     throw new Error('no fallback model available');
                 }
@@ -477,6 +469,14 @@ export class AIChatService extends BaseService {
                 });
 
                 let fallBackModel = this.getModel({ modelId: fallbackModelId, provider: fallbackProvider });
+
+                tried.push(fallbackModelId);
+                triedProviders.push(fallbackProvider);
+
+                if ( tried.length > MAX_FALLBACKS ) {
+                    console.error('max fallbacks reached', { tried, triedProviders });
+                    break;
+                }
 
                 const fallbackUsageAllowed = await this.meteringService.hasEnoughCredits(actor, 1); // we checked earlier, assume same costs
 
@@ -655,7 +655,7 @@ export class AIChatService extends BaseService {
             if ( targetModel.id.startsWith('openrouter:') || targetModel.id.startsWith('togetherai:') ) {
                 [aiProvider, modelToSearch] = targetModel.id.replace('openrouter:', '').replace('togetherai:', '').toLowerCase().split('/');
             } else {
-                [aiProvider, modelToSearch] = targetModel.provider!.toLowerCase().replace('gemini', 'google').replace('openai-completion', 'openai'), targetModel.id.toLowerCase();
+                [aiProvider, modelToSearch] = targetModel.provider!.toLowerCase().replace('gemini', 'google').replace('openai-completion', 'openai').replace('openai-responses', 'openai'), targetModel.id.toLowerCase();
             }
 
             const potentialMatches = models.filter(model => {
