@@ -46,7 +46,7 @@ const convertToWebDAVPropfindXML = ( fsEntry ) => {
     const xml = `<?xml version="1.0" encoding="utf-8"?>
 <D:multistatus xmlns:D="DAV:">
   <D:response>
-    <D:href>/dav${escapeXml(encodeURI(href))}</D:href>
+    <D:href>${escapeXml(encodeURI(href))}</D:href>
     <D:propstat>
       <D:prop>
         <D:displayname>${escapeXml(fsEntry.name)}</D:displayname>
@@ -92,7 +92,7 @@ const convertMultipleToWebDAVPropfindXML = ( selfStat, fsEntries ) => {
                 href += '/';
             }
             return `  <D:response>
-    <D:href>/dav${escapeXml(encodeURI(href))}</D:href>
+    <D:href>${escapeXml(encodeURI(href))}</D:href>
     <D:propstat>
       <D:prop>
         <D:displayname>${escapeXml(fsEntry.name)}</D:displayname>
