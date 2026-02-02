@@ -27,11 +27,14 @@ export class MeteringService {
     }
 
     utilRecordUsageObject<T extends Record<string, number>>(trackedUsageObject: T, actor: Actor, modelPrefix: string, costsOverrides?: Partial<Record<keyof T, number>>) {
-        this.batchIncrementUsages(actor, Object.entries(trackedUsageObject).map(([usageKind, amount]) => ({
-            usageType: `${modelPrefix}:${usageKind}`,
-            usageAmount: amount,
-            costOverride: costsOverrides?.[usageKind as keyof T] || undefined,
-        })));
+        this.batchIncrementUsages(actor, Object.entries(trackedUsageObject).map(([usageKind, amount]) => {
+            const hasOverride = !!costsOverrides && Object.prototype.hasOwnProperty.call(costsOverrides, usageKind);
+            return {
+                usageType: `${modelPrefix}:${usageKind}`,
+                usageAmount: amount,
+                costOverride: hasOverride ? costsOverrides![usageKind as keyof T] : undefined,
+            };
+        }));
     }
 
     #getMonthYearString () {
