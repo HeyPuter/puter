@@ -516,7 +516,10 @@ const TabFiles = {
                     window.clipboard = [];
                     window.clipboard_op = 'move';
                     $selectedRows.each(function () {
-                        window.clipboard.push($(this).attr('data-path'));
+                        window.clipboard.push({
+                            path: $(this).attr('data-path'),
+                            uid: $(this).attr('data-uid'),
+                        });
                     });
                 }
                 return false;
@@ -534,7 +537,9 @@ const TabFiles = {
                     if ( window.clipboard_op === 'copy' ) {
                         window.copy_clipboard_items(_this.currentPath, null);
                     } else {
-                        window.move_clipboard_items(null, _this.currentPath);
+                        _this.moveClipboardItems(_this.currentPath).then(() => {
+                            _this.renderDirectory(_this.selectedFolderUid);
+                        });
                     }
                 }
                 return false;
@@ -1814,6 +1819,37 @@ const TabFiles = {
     },
 
     /**
+     * Moves clipboard items to the specified destination path.
+     *
+     * This is a Dashboard-specific implementation that calls puter.fs.move()
+     * directly, bypassing window.move_clipboard_items() which relies on
+     * .item DOM elements that don't exist in the Dashboard.
+     *
+     * @param {string} destPath - The destination folder path
+     * @returns {Promise<void>}
+     */
+    async moveClipboardItems (destPath) {
+        if ( !window.clipboard || window.clipboard.length === 0 ) {
+            return;
+        }
+
+        for ( const item of window.clipboard ) {
+            // Handle both object format { path, uid } and legacy string format
+            const source = item.uid || item.path || item;
+            try {
+                await puter.fs.move({
+                    source: source,
+                    destination: destPath,
+                });
+            } catch ( err ) {
+                console.error('Failed to move item:', err);
+            }
+        }
+
+        window.clipboard = [];
+    },
+
+    /**
      * Formats a byte count into a human-readable size string.
      *
      * @param {number} bytes - The size in bytes
@@ -2085,7 +2121,10 @@ const TabFiles = {
                 window.clipboard_op = 'move';
                 window.clipboard = [];
                 selectedRows.forEach(row => {
-                    window.clipboard.push($(row).attr('data-path'));
+                    window.clipboard.push({
+                        path: $(row).attr('data-path'),
+                        uid: $(row).attr('data-uid'),
+                    });
                 });
             },
         });
@@ -2211,11 +2250,11 @@ const TabFiles = {
         if ( !isTrashFolder && window.clipboard && window.clipboard.length > 0 ) {
             items.push({
                 html: i18n('paste'),
-                onClick: function () {
+                onClick: async function () {
                     if ( window.clipboard_op === 'copy' ) {
                         window.copy_clipboard_items(targetPath, null);
                     } else if ( window.clipboard_op === 'move' ) {
-                        window.move_clipboard_items(null, targetPath);
+                        await _this.moveClipboardItems(targetPath);
                     }
                     setTimeout(() => {
                         _this.renderDirectory(_this.selectedFolderUid);
