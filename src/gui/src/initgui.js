@@ -976,7 +976,7 @@ window.initgui = async function (options) {
         const reload_on_success = needs_action;
         if ( window.logged_in_users.length > 0 ) {
             await UIWindowSessionList({
-                reload_on_success,
+                redirect_url: needs_action ? window.location.href : undefined,
             });
         }
         else {
