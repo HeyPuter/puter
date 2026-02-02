@@ -973,7 +973,7 @@ window.initgui = async function (options) {
     // -------------------------------------------------------------------------------------
     if ( !window.is_auth() && (!window.first_visit_ever || window.disable_temp_users) ) {
         const needs_action = action === 'authme' || action === 'copyauth';
-        const reload_on_success = !needs_action;
+        const reload_on_success = needs_action;
         if ( window.logged_in_users.length > 0 ) {
             await UIWindowSessionList({
                 reload_on_success,
@@ -986,6 +986,7 @@ window.initgui = async function (options) {
                 reload_on_success,
                 send_confirmation_code: false,
                 show_signup_button: ( !whoarewe.disable_user_signup ),
+                redirect_url: needs_action ? window.location.href : undefined,
                 window_options: {
                     has_head: false,
                 },

@@ -44,7 +44,7 @@ function UIWindowSignup (options) {
 
         // Form
         h += '<div style="padding: 15px;">';
-        
+
         // title
         h += `<h1 class="signup-form-title">${i18n('create_free_account')}</h1>`;
         // signup form
@@ -189,6 +189,7 @@ function UIWindowSignup (options) {
             const login = await UIWindowLogin({
                 referrer: options.referrer,
                 reload_on_success: options.reload_on_success,
+                redirect_url: options.redirect_url,
                 window_options: options.window_options,
                 show_close_button: options.show_close_button,
                 send_confirmation_code: options.send_confirmation_code,
@@ -308,7 +309,7 @@ function UIWindowSignup (options) {
                     if ( options.reload_on_success ) {
                         window.onbeforeunload = null;
                         // Replace with a clean URL to prevent sensitive data leakage
-                        const cleanUrl = window.location.origin + window.location.pathname;
+                        const cleanUrl = options.redirect_url || window.location.origin + window.location.pathname;
                         window.location.replace(cleanUrl);
                     } else if ( options.send_confirmation_code ) {
                         $(el_window).close();

@@ -84,24 +84,6 @@ async function UIWindowAuthMe (options = {}) {
         // Content area
         h += '<div style="padding: 20px;">';
 
-        // Info message
-        h += `<div style="
-            background: #f0f9ff;
-            border: 1px solid #bae6fd;
-            border-radius: 8px;
-            padding: 12px 14px;
-            margin-bottom: 16px;
-        ">`;
-        h += '<div style="display: flex; align-items: flex-start; gap: 10px;">';
-        h += `<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="#0284c7" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="flex-shrink: 0; margin-top: 1px;">
-            <circle cx="12" cy="12" r="10"/>
-            <line x1="12" y1="16" x2="12" y2="12"/>
-            <line x1="12" y1="8" x2="12.01" y2="8"/>
-        </svg>`;
-        h += `<p style="margin: 0; font-size: 13px; color: #0369a1; line-height: 1.5;">${i18n('authme_security_warning')}</p>`;
-        h += '</div>';
-        h += '</div>';
-
         // Destination URL display
         h += '<div style="margin-bottom: 16px;">';
         h += `<label style="display: block; font-size: 12px; font-weight: 500; color: #6b7280; margin-bottom: 6px; text-transform: uppercase; letter-spacing: 0.5px;">${i18n('redirect_destination')}</label>`;
