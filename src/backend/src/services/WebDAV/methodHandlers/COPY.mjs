@@ -29,10 +29,6 @@ export const COPY = async ( req, res, _filePath, fileNode, headerLockToken ) => 
         let destinationPath;
         try {
             const destUrl = new URL(destinationHeader, `http://${req.headers.host}`);
-            if ( ! destUrl.pathname.startsWith('/dav/') ) {
-                res.status(400).end( 'Bad Request: Destination must be within WebDAV namespace');
-                return;
-            }
             destinationPath = destUrl.pathname;
             if ( ! destinationPath.startsWith('/') ) {
                 destinationPath = `/${destinationPath}`;

@@ -54,7 +54,7 @@ const ROOT_WEB_DAV_RESPONSE_XML = `<?xml version="1.0" encoding="utf-8"?>
     </D:propstat>
   </D:response>
   <D:response>
-    <D:href>/dav/</D:href>
+    <D:href>/</D:href>
     <D:propstat>
       <D:prop>
         <D:displayname>dav</D:displayname>

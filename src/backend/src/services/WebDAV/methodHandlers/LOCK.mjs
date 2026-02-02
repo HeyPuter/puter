@@ -24,7 +24,7 @@ const getLockResponse = ( lockToken, lockScope, filePath ) => {
                 <D:href>${lockToken}</D:href>
             </D:locktoken>
             <D:lockroot>
-                <D:href>/dav${escapeXml(encodeURI(filePath))}</D:href>
+                <D:href>${escapeXml(encodeURI(filePath))}</D:href>
             </D:lockroot>
         </D:activelock>
     </D:lockdiscovery>
