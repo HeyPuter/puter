@@ -2292,7 +2292,7 @@ window.sleep = function (ms) {
     return new Promise(resolve => setTimeout(resolve, ms));
 };
 
-window.unzipItem = async function (itemPath) {
+window.unzipItem = async function (itemPath, callback) {
     const unzip_operation_id = window.operation_id++;
     window.operation_cancelled[unzip_operation_id] = false;
     let terminateOp = () => {
@@ -2371,6 +2371,7 @@ window.unzipItem = async function (itemPath) {
                                     setTimeout(() => {
                                         progwin?.close();
                                     }, Math.max(0, window.unzip_progress_hide_delay - (Date.now() - start_ts)));
+                                    if ( callback ) callback(items);
                                 },
                             });
         }
@@ -2553,7 +2554,7 @@ function createTar (files) {
  * @param {string} itemPath - Path to the tar file to extract
  * @returns {Promise<void>}
  */
-window.untarItem = async function (itemPath) {
+window.untarItem = async function (itemPath, callback) {
     const untar_operation_id = window.operation_id++;
     window.operation_cancelled[untar_operation_id] = false;
 
@@ -2617,6 +2618,7 @@ window.untarItem = async function (itemPath) {
                                 setTimeout(() => {
                                     progwin?.close();
                                 }, Math.max(0, window.unzip_progress_hide_delay - (Date.now() - start_ts)));
+                                if ( callback ) callback(items);
                             },
                         });
     } catch ( err ) {

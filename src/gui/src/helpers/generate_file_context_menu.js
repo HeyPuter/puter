@@ -414,7 +414,11 @@ const generate_file_context_menu = async function (options) {
             html: i18n('unzip'),
             onClick: async function () {
                 let filePath = $(el_item).attr('data-path');
-                window.unzipItem(filePath);
+                window.unzipItem(filePath, () => {
+                    if ( typeof onRefresh === 'function' ) {
+                        onRefresh();
+                    }
+                });
             },
         });
     }
@@ -439,7 +443,11 @@ const generate_file_context_menu = async function (options) {
             html: i18n('untar'),
             onClick: async function () {
                 let filePath = $(el_item).attr('data-path');
-                window.untarItem(filePath);
+                window.untarItem(filePath, () => {
+                    if ( typeof onRefresh === 'function' ) {
+                        onRefresh();
+                    }
+                });
             },
         });
     }

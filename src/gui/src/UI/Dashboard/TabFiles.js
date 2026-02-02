@@ -138,6 +138,7 @@ const TabFiles = {
         this.activeMenuFileUid = null;
         this.selectedFolderUid = null;
         this.currentPath = null;
+        this.hoveringOverSubfolder = false;
         this.currentView = await puter.kv.get('view_mode') || 'list';
 
         // Sorting state
@@ -248,6 +249,53 @@ const TabFiles = {
                     }
                 },
             });
+
+            // Add native file drop support to sidebar folders
+            $(folderElement).dragster({
+                enter: function (_dragsterEvent, event) {
+                    const e = event.originalEvent;
+                    if ( ! e.dataTransfer?.types?.includes('Files') ) {
+                        return;
+                    }
+
+                    const folderPath = folderElement.getAttribute('data-path');
+
+                    // Don't allow drop on trash
+                    if ( folderPath === window.trash_path ) {
+                        return;
+                    }
+
+                    $(folderElement).addClass('native-drop-target');
+                },
+
+                leave: function (_dragsterEvent, _event) {
+                    $(folderElement).removeClass('native-drop-target');
+                },
+
+                drop: async function (_dragsterEvent, event) {
+                    const e = event.originalEvent;
+                    $(folderElement).removeClass('native-drop-target');
+
+                    if ( ! e.dataTransfer?.types?.includes('Files') ) {
+                        return;
+                    }
+
+                    const folderPath = folderElement.getAttribute('data-path');
+
+                    // Block uploads to trash
+                    if ( folderPath === window.trash_path ) {
+                        return;
+                    }
+
+                    if ( e.dataTransfer?.items?.length > 0 ) {
+                        _this.uploadFiles(e.dataTransfer.items, folderPath);
+                    }
+
+                    e.stopPropagation();
+                    e.preventDefault();
+                    return false;
+                },
+            });
         });
 
         // Clear selection when clicking empty area (but not after rubber band selection)
@@ -289,6 +337,7 @@ const TabFiles = {
 
         this.createHeaderEventListeners($el_window);
         this.initRubberBandSelection();
+        this.initNativeFileDrop();
 
         // Apply initial view mode from persisted preferences
 
@@ -1679,6 +1728,55 @@ const TabFiles = {
                     }
                 },
             });
+
+            // Add native file drop support to folder rows
+            $(el_item).dragster({
+                enter: function (_dragsterEvent, event) {
+                    const e = event.originalEvent;
+                    if ( ! e.dataTransfer?.types?.includes('Files') ) {
+                        return;
+                    }
+
+                    const targetPath = $(el_item).attr('data-path');
+
+                    // Don't allow drop on trash folder
+                    if ( targetPath === window.trash_path ||
+                        targetPath?.startsWith(`${window.trash_path}/`) ) {
+                        return;
+                    }
+
+                    $(el_item).addClass('native-drop-target');
+                },
+
+                leave: function (_dragsterEvent, _event) {
+                    $(el_item).removeClass('native-drop-target');
+                },
+
+                drop: async function (_dragsterEvent, event) {
+                    const e = event.originalEvent;
+                    $(el_item).removeClass('native-drop-target');
+
+                    if ( ! e.dataTransfer?.types?.includes('Files') ) {
+                        return;
+                    }
+
+                    const targetPath = $(el_item).attr('data-path');
+
+                    // Block uploads to trash
+                    if ( targetPath === window.trash_path ||
+                        targetPath?.startsWith(`${window.trash_path}/`) ) {
+                        return;
+                    }
+
+                    if ( e.dataTransfer?.items?.length > 0 ) {
+                        TabFiles.uploadFiles(e.dataTransfer.items, targetPath);
+                    }
+
+                    e.stopPropagation();
+                    e.preventDefault();
+                    return false;
+                },
+            });
         }
     },
 
@@ -2340,6 +2438,168 @@ const TabFiles = {
                 _this.rubberBandSelectionJustEnded = true;
             }
             _this.updateFooterStats();
+        });
+    },
+
+    /**
+     * Initializes native file drag-and-drop upload support.
+     *
+     * Sets up dragster on the main files container to allow dropping
+     * local files for upload. Sidebar folders and folder rows get their
+     * dragster initialized in init() and createItemListeners() respectively.
+     *
+     * @returns {void}
+     */
+    initNativeFileDrop () {
+        this.initContentAreaDragster();
+    },
+
+    /**
+     * Initializes dragster on the main files content area.
+     *
+     * Dropping files here uploads them to the current directory (this.currentPath).
+     * Only responds to native file drags (from OS), not internal item drags.
+     *
+     * @returns {void}
+     */
+    initContentAreaDragster () {
+        const _this = this;
+        const $filesContainer = this.$el_window.find('.files-tab .files');
+
+        $filesContainer.dragster({
+            enter: function (_dragsterEvent, event) {
+                const e = event.originalEvent;
+                // Only respond to native file drags, not internal item drags
+                if ( ! e.dataTransfer?.types?.includes('Files') ) {
+                    return;
+                }
+
+                // Don't show drop zone if we're in trash
+                if ( _this.currentPath === window.trash_path ) {
+                    return;
+                }
+
+                // Remove any context menus
+                $('.context-menu').remove();
+
+                // Add visual drop zone indicator
+                $filesContainer.addClass('native-drop-active');
+            },
+
+            leave: function (_dragsterEvent, _event) {
+                $filesContainer.removeClass('native-drop-active');
+            },
+
+            drop: async function (_dragsterEvent, event) {
+                const e = event.originalEvent;
+                $filesContainer.removeClass('native-drop-active');
+
+                // Only handle native file drops
+                if ( ! e.dataTransfer?.types?.includes('Files') ) {
+                    return;
+                }
+
+                // Skip if drop was on a subfolder (check if target is inside a folder row)
+                const $target = $(e.target);
+                const $folderRow = $target.closest('.row.folder');
+                if ( $folderRow.length > 0 ) {
+                    // Drop was on a folder row, let it handle the upload
+                    return;
+                }
+
+                // Block uploads to trash
+                if ( _this.currentPath === window.trash_path ) {
+                    return;
+                }
+
+                // Upload the dropped files
+                if ( e.dataTransfer?.items?.length > 0 ) {
+                    _this.uploadFiles(e.dataTransfer.items, _this.currentPath);
+                }
+
+                e.stopPropagation();
+                e.preventDefault();
+                return false;
+            },
+        });
+    },
+
+    /**
+     * Uploads files to the specified destination path.
+     *
+     * This method handles the complete upload flow including progress modal,
+     * error handling, and directory refresh on completion. Used by drag-drop
+     * upload handlers to ensure the Dashboard view updates after uploads.
+     *
+     * @param {DataTransferItemList|FileList} items - The files to upload
+     * @param {string} destPath - The destination directory path
+     * @returns {void}
+     */
+    uploadFiles (items, destPath) {
+        const _this = this;
+        let upload_progress_window;
+        let opid;
+
+        if ( destPath === window.trash_path ) {
+            UIAlert('Uploading to trash is not allowed!');
+            return;
+        }
+
+        puter.fs.upload(items, destPath, {
+            generateThumbnails: true,
+            init: async (operation_id, xhr) => {
+                opid = operation_id;
+                upload_progress_window = await UIWindowProgress({
+                    title: i18n('upload'),
+                    icon: window.icons['app-icon-uploader.svg'],
+                    operation_id: operation_id,
+                    show_progress: true,
+                    on_cancel: () => {
+                        window.show_save_account_notice_if_needed();
+                        xhr.abort();
+                    },
+                });
+                window.active_uploads[opid] = 0;
+            },
+            start: async function () {
+                upload_progress_window.set_status('Uploading');
+                upload_progress_window.set_progress(0);
+            },
+            progress: async function (_operation_id, op_progress) {
+                upload_progress_window.set_progress(op_progress);
+                window.active_uploads[opid] = op_progress;
+                if ( document.visibilityState !== 'visible' ) {
+                    update_title_based_on_uploads();
+                }
+            },
+            success: function (items) {
+                const files = [];
+                if ( typeof items[Symbol.iterator] === 'function' ) {
+                    for ( const item of items ) {
+                        files.push(item.path);
+                    }
+                } else {
+                    files.push(items.path);
+                }
+                window.actions_history.push({
+                    operation: 'upload',
+                    data: files,
+                });
+                setTimeout(() => {
+                    upload_progress_window.close();
+                }, 1000);
+                window.show_save_account_notice_if_needed();
+                delete window.active_uploads[opid];
+                // Refresh directory to show uploaded files
+                _this.renderDirectory(_this.selectedFolderUid);
+            },
+            error: async function (err) {
+                upload_progress_window.show_error(i18n('error_uploading_files'), err.message);
+                delete window.active_uploads[opid];
+            },
+            abort: async function (_operation_id) {
+                delete window.active_uploads[opid];
+            },
         });
     },
 
