@@ -59,6 +59,34 @@ export const process_input_messages = async (messages) => {
 
 export const process_input_messages_responses_api = async (messages) => {
     for ( const msg of messages ) {
+        const content_as_string = (content) => {
+            if ( content === undefined || content === null ) return '';
+            if ( typeof content === 'string' ) return content;
+            if ( Array.isArray(content) ) {
+                return content.map((part) => {
+                    if ( typeof part === 'string' ) return part;
+                    if ( part && typeof part.text === 'string' ) return part.text;
+                    if ( part && typeof part.content === 'string' ) return part.content;
+                    return '';
+                }).join('');
+            }
+            if ( content && typeof content.text === 'string' ) return content.text;
+            if ( content && typeof content.content === 'string' ) return content.content;
+            return '';
+        };
+
+        if ( msg.role === 'tool' ) {
+            msg.type = 'function_call_output';
+            msg.call_id = msg.tool_call_id || msg.tool_use_id;
+            msg.output = content_as_string(msg.content);
+            delete msg.role;
+            delete msg.content;
+            delete msg.tool_call_id;
+            delete msg.tool_use_id;
+            delete msg.tool_calls;
+            continue;
+        }
+
         if ( ! msg.content ) continue;
         if ( typeof msg.content !== 'object' ) continue;
 
@@ -129,7 +157,6 @@ export const process_input_messages_responses_api = async (messages) => {
             delete msg.content;
         }
     }
-    console.log('coreced ', messages);
 
     return messages;
 };
@@ -270,7 +297,6 @@ export const create_chat_stream_handler_responses_api = ({
 
     let last_usage = null;
     for await ( let chunk of completion ) {
-        console.log('Chunk from API: ', chunk);
 
         if ( chunk.type === 'response.output_text.delta' ) {
             textblock.addText(chunk.delta);
@@ -413,9 +439,6 @@ export const handle_completion_output_responses_api = async ({
             throw new Error('message is not allowed');
         }
     }
-
-    console.log('Completion: ', completion);
-    console.log('output: ', completion.output[0]);
 
     const ret = {
         finish_reason: 'stop',
