@@ -133,6 +133,7 @@ const sendSelectionToAIApp = async ($elements) => {
  * @param {Array} options.suggested_apps - Optional pre-loaded suggested apps
  * @param {string} options.associated_app_name - Optional associated app
  * @param {Function} options.onRefresh - Optional callback to refresh after operations
+ * @param {Function} options.onOpen - Optional custom open handler (used by Dashboard)
  * @returns {Promise<Array>} Array of context menu items
  */
 const generate_file_context_menu = async function (options) {
@@ -144,6 +145,7 @@ const generate_file_context_menu = async function (options) {
     const is_trashed = options.is_trashed ?? false;
     const onRefresh = options.onRefresh || (() => {
     });
+    const onOpen = options.onOpen;
 
     const is_shared_with_me = (fsentry.path !== `/${window.user.username}` && !fsentry.path.startsWith(`/${window.user.username}/`));
 
@@ -156,7 +158,11 @@ const generate_file_context_menu = async function (options) {
         menu_items.push({
             html: i18n('open'),
             onClick: () => {
-                open_item({ item: el_item });
+                if ( onOpen ) {
+                    onOpen(el_item, fsentry);
+                } else {
+                    open_item({ item: el_item });
+                }
             },
         });
 

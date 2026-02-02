@@ -1251,9 +1251,11 @@ const TabFiles = {
                 <textarea class="item-name-editor hide-scrollbar" spellcheck="false" autocomplete="off" autocorrect="off" autocapitalize="off" data-gramm_editor="false">${displayName}</textarea>
             </div>
             <div class="col-spacer"></div>
-            ${file.is_dir ? '<div class="item-size"></div>' : `<div class="item-size">${this.formatFileSize(file.size)}</div>`}
-            <div class="col-spacer"></div>
-            <div class="item-modified">${window.timeago.format(file.modified * 1000)}</div>
+            <div class="item-metadata">
+                ${file.is_dir ? '<div class="item-size"></div>' : `<div class="item-size">${this.formatFileSize(file.size)}</div>`}
+                <div class="col-spacer"></div>
+                <div class="item-modified">${window.timeago.format(file.modified * 1000)}</div>
+            </div>
             <div class="col-spacer"></div>
             <div class="item-more">${icons.more}</div>
         `;
@@ -1476,6 +1478,17 @@ const TabFiles = {
                 });
             }
             _this.updateFooterStats();
+
+            // On mobile, single tap opens folders (no double-tap on touch devices)
+            if ( window.isMobile.phone || window.isMobile.tablet ) {
+                if ( isFolder === "1" ) {
+                    _this.pushNavHistory(file.path);
+                    _this.renderDirectory(file.path);
+                } else {
+                    open_item({ item: el_item });
+                }
+                el_item.classList.remove('selected');
+            }
         };
 
         el_item.ondblclick = () => {
@@ -2063,6 +2076,15 @@ const TabFiles = {
             },
             onRefresh: () => {
                 _this.renderDirectory(_this.selectedFolderUid);
+            },
+            onOpen: (el, fsentry) => {
+                // Custom open handler for Dashboard (avoids window_nav_history issues)
+                if ( fsentry.is_dir ) {
+                    _this.pushNavHistory(fsentry.path);
+                    _this.renderDirectory(fsentry.path);
+                } else {
+                    open_item({ item: el });
+                }
             },
         });
 

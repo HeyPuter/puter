@@ -6781,6 +6781,152 @@ html.dark-mode .usage-table-show-less:hover {
     }
 }
 
+/* Desktop: Make metadata wrapper transparent */
+.dashboard-section-files .files-tab .files.files-list-view .row .item-metadata {
+    display: contents;
+}
+
+/* Mobile phone optimizations */
+@media (max-width: 480px) {
+    .dashboard-content.files {
+        padding: 0;
+    }
+
+    /* Hide directories sidebar */
+    .dashboard-section-files .directories {
+        display: none;
+    }
+
+    /* Full width for directory contents */
+    .dashboard-section-files .directory-contents {
+        width: 100%;
+        border-left: none;
+    }
+
+    .dashboard-section-files .directory-contents .header {
+        margin-bottom: 12px;
+    }
+
+    /* Hide column headers */
+    .dashboard-section-files .header .columns {
+        display: none;
+    }
+
+    /* Two-row header layout */
+    .dashboard-section-files .header .path {
+        flex-wrap: wrap;
+        height: auto;
+        padding: 8px 12px;
+    }
+
+    .dashboard-section-files .header .path-breadcrumbs {
+        order: 1;
+        width: 100%;
+        margin: 0 0 8px 0;
+        padding-bottom: 8px;
+        margin-left: 50px;
+        border-bottom: 1px solid var(--dashboard-border);
+    }
+
+    .dashboard-section-files .header .path-nav-buttons {
+        order: 2;
+        border-right: none;
+        margin-right: 0;
+    }
+
+    .dashboard-section-files .header .path-actions {
+        order: 3;
+        margin-left: auto;
+    }
+
+    /* Two-row item layout */
+    .dashboard-section-files .files-tab .files.files-list-view .row {
+        display: grid;
+        grid-template-columns: 48px 1fr !important;
+        grid-template-rows: auto auto;
+        height: auto;
+        padding: 6px 10px;
+        gap: 2px 8px;
+    }
+
+    /* Thumbnail spans both rows */
+    .dashboard-section-files .files-tab .files.files-list-view .row .item-icon {
+        grid-row: 1 / 3;
+        width: 48px;
+        height: 48px;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+    }
+
+    .dashboard-section-files .files-tab .files.files-list-view .row .item-icon img {
+        width: 40px;
+        height: 40px;
+    }
+
+    /* File name on first row */
+    .dashboard-section-files .files-tab .files.files-list-view .row .item-name-wrapper {
+        grid-column: 2;
+        grid-row: 1;
+    }
+
+    .dashboard-section-files .files-tab .files.files-list-view .row .item-name {
+        padding: 0;
+        line-height: 24px;
+    }
+
+    /* Metadata wrapper for second row */
+    .dashboard-section-files .files-tab .files.files-list-view .row .item-metadata {
+        grid-column: 2;
+        grid-row: 2;
+        display: flex;
+        align-items: center;
+        font-size: 11px;
+    }
+
+    .dashboard-section-files .files-tab .files.files-list-view .row .item-metadata .col-spacer {
+        display: none;
+    }
+
+    .dashboard-section-files .files-tab .files.files-list-view .row .item-modified,
+    .dashboard-section-files .files-tab .files.files-list-view .row .item-size {
+        font-size: 11px;
+        padding: 0;
+        line-height: 24px;
+        color: var(--dashboard-text-muted);        
+    }
+
+    .dashboard-section-files .files-tab .files.files-list-view .row:hover .item-modified,
+    .dashboard-section-files .files-tab .files.files-list-view .row:hover .item-size,
+    .dashboard-section-files .files-tab .files.files-list-view .row.selected .item-modified,
+    .dashboard-section-files .files-tab .files.files-list-view .row.selected .item-size {
+        color: var(--primary-color-sidebar-item);        
+    }
+
+    /* Bullet separator between size and modified */
+    .dashboard-section-files .files-tab .files.files-list-view .row .item-size:not(:empty)::after {
+        content: '•';
+        margin: 0 6px;
+    }
+
+    /* Hide outer spacers */
+    .dashboard-section-files .files-tab .files.files-list-view .row > .col-spacer {
+        display: none;
+    }
+
+    /* Hide more button (use long-press for context menu on touch) */
+    .dashboard-section-files .files-tab .files.files-list-view .row .item-more {
+        position: absolute;
+        right: 10px;
+    }
+
+    /* Adjust footer position - full width since sidebar is hidden */
+    .dashboard-section-files .files-footer {
+        left: 0;
+        padding: 0;
+    }
+}
+
 /* Full HD */
 @media (min-width: 1920px) {
     .dashboard-section-home .bento-container {
