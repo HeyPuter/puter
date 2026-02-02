@@ -96,7 +96,6 @@ module.exports = eggspress('/openai/v1/completions', {
     jsonCanBeLarge: true,
     allowedMethods: ['POST'],
 }, async (req, res) => {
-    console.log('got req');
     const body = req.body || {};
     const stream = !!body.stream;
 

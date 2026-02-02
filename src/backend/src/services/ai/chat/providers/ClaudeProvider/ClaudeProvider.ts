@@ -97,6 +97,61 @@ export class ClaudeProvider implements IChatProvider {
             return message;
         });
 
+        // Convert OpenAI-style tool result messages to Claude format.
+        messages = messages.map(message => {
+            if ( message.role !== 'tool' ) return message;
+
+            const toolUseId = message.tool_call_id || message.tool_use_id;
+            const contentValue = (() => {
+                if ( Array.isArray(message.content) ) {
+                    const toolResultBlock = message.content.find((part: any) => part?.type === 'tool_result');
+                    if ( toolResultBlock ) {
+                        return toolResultBlock.content ?? toolResultBlock.text ?? '';
+                    }
+                    return message.content.map((part: any) => {
+                        if ( typeof part === 'string' ) return part;
+                        if ( part && typeof part.text === 'string' ) return part.text;
+                        if ( part && typeof part.content === 'string' ) return part.content;
+                        return '';
+                    }).join('');
+                }
+                if ( typeof message.content === 'string' ) return message.content;
+                if ( message.content && typeof message.content.text === 'string' ) return message.content.text;
+                if ( message.content && typeof message.content.content === 'string' ) return message.content.content;
+                return '';
+            })();
+
+            return {
+                role: 'user',
+                content: [
+                    {
+                        type: 'tool_result',
+                        tool_use_id: toolUseId,
+                        content: contentValue,
+                    },
+                ],
+            };
+        });
+
+        // Claude requires tool_use.input to be a dictionary, not a JSON string.
+        messages = messages.map(message => {
+            if ( ! Array.isArray(message.content) ) return message;
+            message.content = message.content.map((part: any) => {
+                if ( part?.type !== 'tool_use' ) return part;
+                if ( typeof part.input === 'string' ) {
+                    try {
+                        part.input = JSON.parse(part.input);
+                    } catch {
+                        part.input = {};
+                    }
+                } else if ( part.input === undefined || part.input === null ) {
+                    part.input = {};
+                }
+                return part;
+            });
+            return message;
+        });
+
         const modelUsed = this.models().find(m => [m.id, ...(m.aliases || [])].includes(model)) || this.models().find(m => m.id === this.getDefaultModel())!;
         const sdkParams: MessageCreateParams = {
             model: modelUsed.id,
@@ -283,7 +338,13 @@ export class ClaudeProvider implements IChatProvider {
             };
         }
 
-        const msg = await anthropic.messages.create(sdkParams);
+        let msg;
+        try {
+            msg = await anthropic.messages.create(sdkParams);
+        } catch (e) {
+            console.log('FUCK! anthropic error: ', e);
+            throw e;
+        }
         await cleanup_files();
 
         const usage = this.#usageFormatterUtil((msg as Message).usage as Usage | BetaUsage);
