@@ -5960,11 +5960,12 @@ html.dark-mode .usage-table-show-less:hover {
     gap: 10px;
     margin-top: 3px;
     margin-right: 10px;
-    padding: 5px 0px 5px 5px;
+    padding: 3px 0px 3px 5px;
     border-radius: 6px;
     cursor: pointer;
     font-size: 13px;
     color: var(--dashboard-text);
+    border: 2px dashed transparent;
     transition: background-color 0.15s;
 }
 
@@ -6314,6 +6315,7 @@ html.dark-mode .usage-table-show-less:hover {
 
 .dashboard-section-files .row.folder.ui-droppable-hover,
 .dashboard-section-files .row.folder.selected.ui-droppable-over {
+    color: var(--dashboard-text);
     background-color: rgba(59, 130, 246, 0.1);
     border: 2px dashed var(--select-color);
     border-radius: 3px;
@@ -6335,8 +6337,9 @@ html.dark-mode .usage-table-show-less:hover {
     z-index: 10001;
 }
 
-.dashboard-section-files .dashboard-section-files .directories li.ui-droppable-hover {
+.dashboard-section-files .directories li.ui-droppable-hover.active {
     background-color: rgba(59, 130, 246, 0.1);
+    border: 2px dashed var(--select-color);
     border-radius: 4px;
 }
 
