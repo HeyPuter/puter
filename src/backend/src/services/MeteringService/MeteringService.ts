@@ -81,9 +81,9 @@ export class MeteringService {
                 const mappedCost = COST_MAPS[usageType as keyof typeof COST_MAPS];
                 const totalCost = (((costOverride && costOverride < 0) ? 1 : costOverride) ?? ((mappedCost || 0) * usageAmount));
 
-                if ( totalCost === 0 && mappedCost !== 0 && costOverride !== 0 ) {
-                    // could be something is off, there are some models that cost nothing from openrouter, but then our overrides should not be undefined, so will flag
-                    this.#alarmService.create('metering-service-0-cost-warning', 'potential abuse vector', {
+                if ( totalCost === 0 && (mappedCost !== 0 && costOverride !== 0) ) {
+                    // cost is zero but no explicit override to 0, so flag as potential abuse
+                    this.#alarmService.create(`metering unexpected 0 cost access to: ${usageType}`, '0 cost abuse vector', {
                         userId: actor.type?.user?.uuid,
                         username: actor.type?.user?.username,
                         appId: actor.type?.app?.uid,
@@ -179,7 +179,7 @@ export class MeteringService {
                 const isChangeOverPastOverage = previousAllowedUsageMultiple < allowedUsageMultiple;
                 const hasNoAddonCredit = (actorAddons.purchasedCredits || 0) <= (actorAddons.consumedPurchaseCredits || 0);
                 if ( isOver2x && isChangeOverPastOverage && hasNoAddonCredit ) {
-                    this.#alarmService.create('metering-service-usage-limit-exceeded', `Actor ${userId} has exceeded their usage allowance significantly`, {
+                    this.#alarmService.create(`metering usage exceeded by user: ${actor.type?.user?.username}`, `Actor ${userId} has exceeded their usage allowance significantly`, {
                         userId: actor.type?.user?.uuid,
                         username: actor.type?.user?.username,
                         appId: actor.type?.app?.uid,
@@ -194,7 +194,7 @@ export class MeteringService {
             });
         } catch ( e ) {
             console.error('Metering: Failed to increment usage for actor', actor, 'usageType', usageType, 'usageAmount', usageAmount, e);
-            this.#alarmService.create('metering-service-error', (e as Error).message, {
+            this.#alarmService.create(`metering service error for user: ${ actor.type?.user?.username} app: ${ actor.type.app.uid}`, (e as Error).message, {
                 userId: actor.type?.user?.uuid,
                 username: actor.type?.user?.username,
                 appId: actor.type?.app?.uid,
@@ -242,9 +242,9 @@ export class MeteringService {
                     totalBatchCost += totalCost;
 
                     // Check for zero cost warning (only flag once per batch)
-                    if ( !hasZeroCostWarning && totalCost === 0 && mappedCost !== 0 && costOverride !== 0 ) {
+                    if ( !hasZeroCostWarning && totalCost === 0 && (mappedCost !== 0 && costOverride !== 0 ) ) {
                         hasZeroCostWarning = true;
-                        this.#alarmService.create('metering-service-0-cost-warning', 'potential abuse vector', {
+                        this.#alarmService.create(`metering unexpected 0 cost access to: ${usageType}`, '0 cost abuse vector', {
                             userId: actor.type?.user?.uuid,
                             username: actor.type?.user?.username,
                             appId: actor.type?.app?.uid,
@@ -343,7 +343,7 @@ export class MeteringService {
                 const hasNoAddonCredit = (actorAddons.purchasedCredits || 0) <= (actorAddons.consumedPurchaseCredits || 0);
 
                 if ( isOver2x && isChangeOverPastOverage && hasNoAddonCredit ) {
-                    this.#alarmService.create('metering-service-usage-limit-exceeded', `Actor ${userId} has exceeded their usage allowance significantly`, {
+                    this.#alarmService.create(`metering usage exceeded by user: ${actor.type?.user?.username}`, `Actor ${userId} has exceeded their usage allowance significantly`, {
                         userId: actor.type?.user?.uuid,
                         username: actor.type?.user?.username,
                         appId: actor.type?.app?.uid,
@@ -358,7 +358,7 @@ export class MeteringService {
             });
         } catch (e) {
             console.error('Metering: Failed to batch increment usage for actor', actor, 'usages', usages, e);
-            this.#alarmService.create('metering-service-error', (e as Error).message, {
+            this.#alarmService.create(`metering service error for user: ${ actor.type?.user?.username} app: ${ actor.type.app.uid}`, (e as Error).message, {
                 userId: actor.type?.user?.uuid,
                 username: actor.type?.user?.username,
                 appId: actor.type?.app?.uid,
