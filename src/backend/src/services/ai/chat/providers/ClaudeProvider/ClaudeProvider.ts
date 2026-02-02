@@ -97,8 +97,23 @@ export class ClaudeProvider implements IChatProvider {
             return message;
         });
 
-        // Convert OpenAI-style tool result messages to Claude format.
+        // Convert OpenAI-style tool calls/results to Claude format.
         messages = messages.map(message => {
+            if ( message.tool_calls && Array.isArray(message.tool_calls) ) {
+                if ( ! Array.isArray(message.content) ) {
+                    message.content = message.content ? [message.content] : [];
+                }
+                for ( const toolCall of message.tool_calls ) {
+                    message.content.push({
+                        type: 'tool_use',
+                        id: toolCall.id,
+                        name: toolCall.function?.name,
+                        input: toolCall.function?.arguments ?? {},
+                    });
+                }
+                delete message.tool_calls;
+            }
+
             if ( message.role !== 'tool' ) return message;
 
             const toolUseId = message.tool_call_id || message.tool_use_id;
