@@ -51,6 +51,7 @@ export const HEAD_GET = async ( req, res, _filePath, fileNode, _headerLockToken 
         // Set Content-Length for files (not directories)
         if ( ! fileStat.is_dir ) {
             headers['Content-Length'] = fileStat.size || 0;
+            headers['x-expected-entity-length'] = fileStat.size || 0;
             headers['Content-Type'] = getProperMimeType(fileStat.type, fileStat.name);
         }
 
