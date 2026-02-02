@@ -147,17 +147,15 @@ class WorkerService extends BaseService {
 
                     // Send user the appropriate notification
                     if ( cfData.success ) {
-                        // svc_notification.notify(
-                        //     UsernameNotifSelector(actor.type.user.username),
-                        //     {
-                        //         source: 'worker',
-                        //         title: `Succesfully deployed ${cfData.url}`,
-                        //         template: 'user-requesting-share',
-                        //         fields: {
-                        //             username: actor.type.user.username,
-                        //         },
-                        //     }
-                        // );
+                        svc_notification.notify(UsernameNotifSelector(actor.type.user.username),
+                                        {
+                                            source: 'worker',
+                                            title: `Succesfully deployed ${cfData.url}`,
+                                            template: 'user-requesting-share',
+                                            fields: {
+                                                username: actor.type.user.username,
+                                            },
+                                        });
                     } else {
                         svc_notification.notify(UsernameNotifSelector(actor.type.user.username),
                                         {
