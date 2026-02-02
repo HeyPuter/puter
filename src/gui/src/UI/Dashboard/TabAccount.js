@@ -180,6 +180,7 @@ const TabAccount = {
                     close_on_backdrop_click: false,
                     parent_center: true,
                     stay_on_top: true,
+                    has_head: true,
                 },
             });
         });
