@@ -235,6 +235,7 @@ class BroadcastService extends BaseService {
         const signature = crypto.createHmac('sha256', mySecretKey).update(payloadToSign).digest('hex');
 
         const myPublicKey = this.config.webhook?.key ?? '';
+        this.log.debug('Sending webhook message to peer', { peerId });
         const response = await fetch(url, {
             method: 'POST',
             headers: {
@@ -297,6 +298,7 @@ class BroadcastService extends BaseService {
                 id: 'test',
                 description: 'send a test message',
                 handler: async () => {
+                    this.log.info('broadcast service test command was run');
                     this.on_event('test', {
                         contents: 'I am a test message',
                     }, {});
