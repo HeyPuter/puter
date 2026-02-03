@@ -29,6 +29,7 @@ const { MultiDetachable } = require('@heyputer/putility/src/libs/listener.js');
 const { OperationFrame } = require('./services/OperationTraceService');
 const opentelemetry = require('@opentelemetry/api');
 const query = require('./om/query/query');
+const { redisClient } = require('./clients/redis/redisSingleton');
 
 /**
  * @footgun - real install method is defined above
@@ -80,6 +81,8 @@ const install = async ({ context, services, app, useapi, modapi }) => {
         def('core.validation', require('./validation'));
 
         def('core.database', require('./services/database/consts.js'));
+
+        def('core.redisClient', redisClient);
 
         // Add otelutil functions to `core.`
         def('core.spanify', require('./util/otelutil').spanify);
@@ -156,7 +159,7 @@ const install = async ({ context, services, app, useapi, modapi }) => {
     // side-effects from the events of other services.
 
     // === Services which extend BaseService ===
-    const { DDBClientWrapper } = require('./services/repositories/DDBClientWrapper');
+    const { DDBClientWrapper } = require('./clients/dynamodb/DDBClientWrapper');
     services.registerService('dynamo', DDBClientWrapper);
 
     services.registerService('system-validation', SystemValidationService);
@@ -377,7 +380,7 @@ const install = async ({ context, services, app, useapi, modapi }) => {
     const { MeteringServiceWrapper } = require('./services/MeteringService/MeteringServiceWrapper.mjs');
     services.registerService('meteringService', MeteringServiceWrapper);
 
-    const { DynamoKVStoreWrapper } = require('./services/repositories/DynamoKVStore/DynamoKVStoreWrapper');
+    const { DynamoKVStoreWrapper } = require('./services/DynamoKVStore/DynamoKVStoreWrapper.js');
     services.registerService('puter-kvstore', DynamoKVStoreWrapper);
 
     const { PermissionShortcutService } = require('./services/auth/PermissionShortcutService');
