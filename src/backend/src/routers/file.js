@@ -125,111 +125,106 @@ router.get('/file', async (req, res, next) => {
     });
     const fileSize = fsentry[0].size;
 
-    //--------------------------------------------------
-    // No range
-    //--------------------------------------------------
-    if ( ! range ) {
-        // set content-type, if available
-        if ( contentType !== null ) {
-            res.setHeader('Content-Type', contentType);
+    res.setHeader('Accept-Ranges', 'bytes');
+
+    const parseRangeHeader = (rangeHeader) => {
+        // Check if this is a multipart range request
+        if ( rangeHeader.includes(',') ) {
+            // For now, we'll only serve the first range in multipart requests
+            // as the underlying storage layer doesn't support multipart responses
+            const firstRange = rangeHeader.split(',')[0].trim();
+            const matches = firstRange.match(/bytes=(\d+)-(\d*)/);
+            if ( ! matches ) return null;
+
+            const start = parseInt(matches[1], 10);
+            const end = matches[2] ? parseInt(matches[2], 10) : null;
+
+            return { start, end, isMultipart: true };
         }
 
-        const svc_filesystem = req.services.get('filesystem');
+        // Single range request
+        const matches = rangeHeader.match(/bytes=(\d+)-(\d*)/);
+        if ( ! matches ) return null;
 
-        // stream data from S3
-        try {
-            /* eslint-disable */
-            const fsNode = await svc_filesystem.node(
-                new NodeRawEntrySelector(fsentry[0]),
-            );
-            /* eslint-enable */
-            const ll_read = new LLRead();
-            const stream = await ll_read.run({
-                no_acl: true,
-                actor: req.actor ?? ownerActor,
-                fsNode,
-            });
+        const start = parseInt(matches[1], 10);
+        const end = matches[2] ? parseInt(matches[2], 10) : null;
 
-            return stream.pipe(res);
-        } catch (e) {
-            errors.report('read from storage', {
-                source: e,
-                trace: true,
-                alarm: true,
-            });
-            return res.type('application/json').status(500).send({ message: 'There was an internal problem reading the file.' });
-        }
-    }
+        return { start, end, isMultipart: false };
+    };
+
     //--------------------------------------------------
     // Range
     //--------------------------------------------------
-    else {
-        const total = fsentry[0].size;
-        const user_agent = req.get('User-Agent');
+    if ( range ) {
+        res.status(206);
+        const rangeInfo = parseRangeHeader(req.headers['range']);
+        if ( rangeInfo ) {
+            const { start, end, isMultipart } = rangeInfo;
 
-        let start, end, chunkSize = 5000000;
-        let is_safari = false;
+            // For open-ended ranges, we need to calculate the actual end byte
+            let actualEnd = end;
+            let fileSize = null;
 
-        // Parse range header
-        var parts = range.replace(/bytes=/, '').split('-');
-        var partialstart = parts[0];
-        var partialend = parts[1];
+            try {
+                fileSize = fsentry[0].size;
+                if ( end === null ) {
+                    actualEnd = fileSize - 1; // File size is 1-based, end byte is 0-based
+                }
+            } catch (e) {
+                // If we can't get file size, we'll let the storage layer handle it
+                // and not set Content-Range header
+                actualEnd = null;
+                fileSize = null;
+            }
 
-        start = parseInt(partialstart, 10);
-        end = partialend ? parseInt(partialend, 10) : total - 1;
+            if ( actualEnd !== null ) {
+                const totalSize = fileSize !== null ? fileSize : '*';
+                const contentRange = `bytes ${start}-${actualEnd}/${totalSize}`;
+                res.set('Content-Range', contentRange);
+            }
 
-        if ( user_agent && user_agent.toLowerCase().includes('safari') && !user_agent.includes('Chrome') ) {
-            // Safari
-            is_safari = true;
-            chunkSize = (end - start) + 1;
-        } else {
-            // All other user agents
-            end = Math.min(start + chunkSize, fileSize - 1);
+            // If this was a multipart request, modify the range header to only include the first range
+            if ( isMultipart ) {
+                req.headers['range'] = end !== null
+                    ? `bytes=${start}-${end}`
+                    : `bytes=${start}-`;
+            }
         }
+    }
 
-        // Create headers
-        const headers = {
-            'Content-Range': `bytes ${start}-${end}/${fileSize}`,
-            'Accept-Ranges': 'bytes',
-            'Content-Length': is_safari ? chunkSize : (end - start + 1),
-        };
+    //--------------------------------------------------
+    // No range
+    //--------------------------------------------------
+    // set content-type, if available
+    if ( contentType !== null ) {
+        res.setHeader('Content-Type', contentType);
+    }
 
-        // Set Content-Type, if available
-        if ( contentType ) {
-            headers['Content-Type'] = contentType;
-        }
+    const svc_filesystem = req.services.get('filesystem');
 
-        // HTTP Status 206 for Partial Content
-        res.writeHead(206, headers);
+    // stream data from S3
+    try {
+        /* eslint-disable */
+        const fsNode = await svc_filesystem.node(
+            new NodeRawEntrySelector(fsentry[0]),
+        );
+        /* eslint-enable */
+        const ll_read = new LLRead();
+        const stream = await ll_read.run({
+            range,
+            no_acl: true,
+            actor: req.actor ?? ownerActor,
+            fsNode,
+        });
 
-        try {
-            const svc_filesystem = req.services.get('filesystem');
-            /* eslint-disable */
-            const fsNode = await svc_filesystem.node(
-                new NodeRawEntrySelector(fsentry[0]),
-            );
-            /* eslint-enable */
-            const ll_read = new LLRead();
-            const stream = await ll_read.run({
-                no_acl: true,
-                actor: req.actor ?? ownerActor,
-                fsNode,
-                ...(req.headers['range'] ? { range: req.headers['range'] } : { }),
-            });
-            // const storage = Context.get('storage');
-            // let stream = await storage.create_read_stream(fsentry[0].uuid, {
-            //     bucket: fsentry[0].bucket,
-            //     bucket_region: fsentry[0].bucket_region,
-            // });
-            return stream.pipe(res);
-        } catch (e) {
-            errors.report('read from storage', {
-                source: e,
-                trace: true,
-                alarm: true,
-            });
-            return res.type('application/json').status(500).send({ message: 'There was an internal problem reading the file.' });
-        }
+        return stream.pipe(res);
+    } catch (e) {
+        errors.report('read from storage', {
+            source: e,
+            trace: true,
+            alarm: true,
+        });
+        return res.type('application/json').status(500).send({ message: 'There was an internal problem reading the file.' });
     }
 });
 

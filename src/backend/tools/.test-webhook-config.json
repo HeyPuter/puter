@@ -1,0 +1,6 @@
+{
+  "key": "test-webhook-66999928605bc47b",
+  "webhook_secret": "9c193c4e111780a42b3d27661779adebba03c132078847490eb61639ce73288c",
+  "nonce": 13,
+  "instance_url": "http://api.puter.localhost:4100"
+}
