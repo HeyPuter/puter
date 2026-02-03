@@ -336,7 +336,7 @@ class WSPushService extends BaseService {
             const key = `last_change_timestamp:${user_id}`;
 
             try {
-                /** @type {import('../clients/dynamodb/DynamoKVStore/DynamoKVStore.js').DynamoKVStore} */
+                /** @type {import('./repositories/DynamoKVStore/DynamoKVStore.js').DynamoKVStore} */
                 const kvStore = Context.get('services').get('puter-kvstore');
                 await kvStore.set({ key: key, value: ts });
             } catch ( error ) {
