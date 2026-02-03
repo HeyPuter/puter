@@ -87,3 +87,7 @@ See [events.md](./events.md)
 ## Definitions
 
 See [definitions.md](./definitions.md)
+
+## Bundled extensions
+
+- [dev-console](./dev-console.md) – Dev socket for running backend commands locally (opt-in via `DEVCONSOLE=1`).
