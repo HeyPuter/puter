@@ -22,7 +22,6 @@ const router = new express.Router();
 const auth = require('../middleware/auth.js');
 const { DB_WRITE } = require('../services/database/consts');
 const APIError = require('../api/APIError.js');
-const { redisClient } = require('../clients/redis/redisSingleton.js');
 
 // -----------------------------------------------------------------------//
 // POST /confirm-email
@@ -48,12 +47,12 @@ router.post('/confirm-email', auth, express.json(), async (req, res, next) => {
     const db = req.services.get('database').get(DB_WRITE, 'auth');
 
     // Increment & check rate limit
-    if ( await redisClient.incr(`confirm-email|${req.ip}|${req.user.email ?? req.user.username}`) > 10 )
+    if ( kv.incr(`confirm-email|${req.ip}|${req.user.email ?? req.user.username}`) > 10 )
     {
         return res.status(429).send({ error: 'Too many requests.' });
     }
     // Set expiry for rate limit
-    redisClient.expire(`confirm-email|${req.ip}|${req.user.email ?? req.user.username}`, 60 * 10, 'NX');
+    kv.expire(`confirm-email|${req.ip}|${req.user.email ?? req.user.username}`, 60 * 10, 'NX');
 
     if ( req.body.code !== req.user.email_confirm_code ) {
         res.send({ email_confirmed: false });
