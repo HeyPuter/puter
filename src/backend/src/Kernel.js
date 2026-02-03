@@ -35,7 +35,6 @@ const readline = require('node:readline/promises');
 const { RuntimeModuleRegistry } = require('./extension/RuntimeModuleRegistry');
 const { RuntimeModule } = require('./extension/RuntimeModule');
 const deep_proto_merge = require('./config/deep_proto_merge');
-const { kv } = require('./util/kvSingleton');
 const url = require('url');
 const { quot } = libs.string;
 
@@ -64,7 +63,6 @@ class Kernel extends AdvancedBase {
     }
 
     _runtime_init (boot_parameters) {
-        global.kv = kv;
         global.cl = console.log;
 
         const { RuntimeEnvironment } = require('./boot/RuntimeEnvironment');

@@ -17,11 +17,12 @@
  * along with this program.  If not, see <https://www.gnu.org/licenses/>.
  */
 const APIError = require('../../api/APIError');
+const { redisClient } = require('../../clients/redis/redisSingleton');
 const Group = require('../../entities/Group');
 const { DENY_SERVICE_INSTRUCTION } = require('../AnomalyService');
 const BaseService = require('../BaseService');
 const { DB_WRITE } = require('../database/consts');
-
+const { v4: uuidv4 } = require('uuid');
 /**
 * The GroupService class provides functionality for managing groups within the Puter application.
 * It extends the BaseService to handle group-related operations such as creation, retrieval,
@@ -30,10 +31,6 @@ const { DB_WRITE } = require('../database/consts');
 * of user permissions and group metadata.
 */
 class GroupService extends BaseService {
-    static MODULES = {
-        kv: globalThis.kv,
-        uuidv4: require('uuid').v4,
-    };
 
     /**
     * Initializes the GroupService by setting up the database connection and registering
@@ -44,7 +41,7 @@ class GroupService extends BaseService {
     */
     _init () {
         this.db = this.services.get('database').get(DB_WRITE, 'permissions');
-        this.kvkey = this.modules.uuidv4();
+        this.kvkey = uuidv4();
 
         const svc_anomaly = this.services.get('anomaly');
         svc_anomaly.register('groups-user-hour', {
@@ -96,7 +93,7 @@ class GroupService extends BaseService {
         extra = extra ?? {};
         metadata = metadata ?? {};
 
-        const uid = this.modules.uuidv4();
+        const uid = uuidv4();
 
         const [{ n_groups }] = await this.db.read('SELECT COUNT(*) AS n_groups FROM `group` WHERE ' +
             `owner_user_id=? AND created_at >= ${
@@ -187,12 +184,17 @@ class GroupService extends BaseService {
             this.global_config.default_temp_group,
         ];
 
-        let groups = this.modules.kv.get(`${this.kvkey}:public-groups`);
-        if ( groups ) {
-            return groups;
+        const cache_key = `${this.kvkey}:public-groups`;
+        const cached_groups = await redisClient.get(cache_key);
+        if ( cached_groups ) {
+            try {
+                return JSON.parse(cached_groups).map(g => Group(g));
+            } catch (e) {
+                // no op cache is in an invalid state
+            }
         }
 
-        groups = await this.db.read(`SELECT * FROM \`group\` WHERE uid IN (${
+        let groups = await this.db.read(`SELECT * FROM \`group\` WHERE uid IN (${
             public_group_uids.map(() => '?').join(', ')
         })`,
         public_group_uids);
@@ -206,9 +208,9 @@ class GroupService extends BaseService {
                 otherwise: () => JSON.parse(group.metadata),
             })();
         }
-        groups = groups.map(g => Group(g));
-        this.modules.kv.set(`${this.kvkey}:public-groups`, groups, 60);
-        return groups;
+        const group_entities = groups.map(g => Group(g));
+        await redisClient.set(cache_key, JSON.stringify(groups), 'EX', 60);
+        return group_entities;
     }
 
     /**
