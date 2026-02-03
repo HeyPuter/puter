@@ -619,7 +619,8 @@ class WebServerService extends BaseService {
             // Website(s) to allow to connect
             if (
                 config.experimental_no_subdomain ||
-                req.subdomains[req.subdomains.length - 1] === 'api'
+                req.subdomains[req.subdomains.length - 1] === 'api' ||
+                req.subdomains[req.subdomains.length - 1] === 'dav'
             ) {
                 res.setHeader('Access-Control-Allow-Origin', origin ?? '*');
             }
