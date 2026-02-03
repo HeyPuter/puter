@@ -6509,8 +6509,8 @@ html.dark-mode .usage-table-show-less:hover {
 }
 
 .dashboard-section-files .selection-action-btn svg {
-    width: 18px;
-    height: 18px;
+    width: 24px;
+    height: 24px;
     flex-shrink: 0;
 }
 
@@ -6528,6 +6528,53 @@ html.dark-mode .usage-table-show-less:hover {
 
 .dashboard-section-files .selection-action-btn.delete-btn:hover {
     background: rgba(229, 57, 53, 0.1);
+}
+
+/* Select mode button - hidden on desktop by default */
+.dashboard-section-files .header .path-action-btn.select-mode-btn {
+    display: none;
+}
+
+/* Done button in floating action bar - hidden by default, shown in select mode on mobile */
+.dashboard-section-files .files-selection-actions .done-btn {
+    display: none;
+}
+
+/* Checkbox in item rows - hidden by default */
+.dashboard-section-files .files-tab .files .row .item-checkbox {
+    display: none;
+    width: 24px;
+    height: 24px;
+    align-items: center;
+    justify-content: center;
+    flex-shrink: 0;
+}
+
+.dashboard-section-files .files-tab .files .row .item-checkbox .checkbox-icon {
+    width: 20px;
+    height: 20px;
+    border: 2px solid var(--dashboard-border);
+    border-radius: 4px;
+    background: var(--dashboard-card-background);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    transition: all 0.15s ease;
+}
+
+.dashboard-section-files .files-tab .files .row.selected .item-checkbox .checkbox-icon {
+    background: var(--primary-color, #3b82f6);
+    border-color: var(--primary-color, #3b82f6);
+}
+
+.dashboard-section-files .files-tab .files .row.selected .item-checkbox .checkbox-icon::after {
+    content: '';
+    width: 6px;
+    height: 10px;
+    border: solid white;
+    border-width: 0 2px 2px 0;
+    transform: rotate(45deg);
+    margin-bottom: 2px;
 }
 
 .dashboard-section-files .files-tab .files.files-list-view .row {
@@ -6884,7 +6931,7 @@ html.dark-mode .usage-table-show-less:hover {
         top: 0;
         height: 100%;
         z-index: 99;
-        transform: translateX(-100%);
+        transform: translateX(-110%);
         transition: transform 0.2s ease;
         box-shadow: 2px 0 8px rgba(0, 0, 0, 0.1);
     }
@@ -6988,6 +7035,9 @@ html.dark-mode .usage-table-show-less:hover {
         margin: 0 0 8px 0;
         padding-bottom: 8px;
         margin-left: 50px;
+        flex-wrap: nowrap;
+        white-space: nowrap;
+        overflow-x: auto;
         border-bottom: 1px solid var(--dashboard-border);
     }
 
@@ -7109,8 +7159,64 @@ html.dark-mode .usage-table-show-less:hover {
     }
 
     .dashboard-section-files .selection-action-btn {
-        padding: 12px;
+        padding: 9px 8px;
         border-radius: 50%;
+    }
+
+    /* Mobile: Show select mode button */
+    .dashboard-section-files .header .path-action-btn.select-mode-btn {
+        display: flex;
+    }
+
+    .dashboard-section-files .header .path-action-btn.select-mode-btn.active {
+        background: var(--primary-color, #3b82f6);
+        color: white;
+        border-radius: 6px;
+    }
+
+    /* Mobile: Show checkboxes in select mode */
+    .dashboard-section-files .files-tab.select-mode-active .files .row .item-checkbox {
+        display: flex;
+        grid-row: 1 / 3;
+    }
+
+    /* Mobile: Adjust grid for checkbox in list view */
+    .dashboard-section-files .files-tab.select-mode-active .files.files-list-view .row {
+        grid-template-columns: 32px 48px 1fr !important;
+    }
+
+    /* Adjust grid-column for content when checkbox is visible */
+    .dashboard-section-files .files-tab.select-mode-active .files.files-list-view .row .item-icon {
+        grid-column: 2;
+    }
+
+    .dashboard-section-files .files-tab.select-mode-active .files.files-list-view .row .item-name-wrapper {
+        grid-column: 3;
+    }
+
+    .dashboard-section-files .files-tab.select-mode-active .files.files-list-view .row .item-metadata {
+        grid-column: 3;
+    }
+
+    /* Mobile: Show Done button in floating action bar during select mode */
+    .dashboard-section-files .files-tab.select-mode-active .files-selection-actions .done-btn {
+        display: flex;
+        background: var(--primary-color, #3b82f6);
+        color: white;
+        padding: 5px;
+        margin-left: 8px;
+    }
+
+    /* Mobile: Grid view checkbox positioning */
+    .dashboard-section-files .files-tab.select-mode-active .files.files-grid-view .row {
+        position: relative;
+    }
+
+    .dashboard-section-files .files-tab.select-mode-active .files.files-grid-view .row .item-checkbox {
+        position: absolute;
+        top: 8px;
+        left: 8px;
+        z-index: 2;
     }
 }
 

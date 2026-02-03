@@ -36,14 +36,16 @@ const icons = {
     more: `<svg width="20" height="20" viewBox="0 0 24 24" fill="currentColor"><path d="M6 10c-1.1 0-2 .9-2 2s.9 2 2 2 2-.9 2-2-.9-2-2-2zm12 0c-1.1 0-2 .9-2 2s.9 2 2 2 2-.9 2-2-.9-2-2-2zm-6 0c-1.1 0-2 .9-2 2s.9 2 2 2 2-.9 2-2-.9-2-2-2z"/></svg>`,
     newFolder: `<svg xmlns="http://www.w3.org/2000/svg" height="18" viewBox="0 -960 960 960" width="18" fill="currentcolor"><path d="M560-320h80v-80h80v-80h-80v-80h-80v80h-80v80h80v80ZM160-160q-33 0-56.5-23.5T80-240v-480q0-33 23.5-56.5T160-800h240l80 80h320q33 0 56.5 23.5T880-640v400q0 33-23.5 56.5T800-160H160Zm0-80h640v-400H447l-80-80H160v480Zm0 0v-480 480Z"/></svg>`,
     upload: `<svg xmlns="http://www.w3.org/2000/svg" height="18" viewBox="0 -960 960 960" width="18" fill="currentcolor"><path d="M440-320v-326L336-542l-56-58 200-200 200 200-56 58-104-104v326h-80ZM240-160q-33 0-56.5-23.5T160-240v-120h80v120h480v-120h80v120q0 33-23.5 56.5T720-160H240Z"/></svg>`,
-    trash: `<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><polyline points="3 6 5 6 21 6"></polyline><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"></path></svg>`,
-    download: `<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path><polyline points="7 10 12 15 17 10"></polyline><line x1="12" y1="15" x2="12" y2="3"></line></svg>`,
-    cut: `<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><circle cx="6" cy="6" r="3"></circle><circle cx="6" cy="18" r="3"></circle><line x1="20" y1="4" x2="8.12" y2="15.88"></line><line x1="14.47" y1="14.48" x2="20" y2="20"></line><line x1="8.12" y1="8.12" x2="12" y2="12"></line></svg>`,
-    copy: `<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><rect x="9" y="9" width="13" height="13" rx="2" ry="2"></rect><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"></path></svg>`,
-    restore: `<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><polyline points="1 4 1 10 7 10"></polyline><path d="M3.51 15a9 9 0 1 0 2.13-9.36L1 10"></path></svg>`,
+    trash: `<svg xmlns="http://www.w3.org/2000/svg" height="18" viewBox="0 -960 960 960" width="18" fill="currentcolor"><path d="M280-120q-33 0-56.5-23.5T200-200v-520h-40v-80h200v-40h240v40h200v80h-40v520q0 33-23.5 56.5T680-120H280Zm400-600H280v520h400v-520ZM360-280h80v-360h-80v360Zm160 0h80v-360h-80v360ZM280-720v520-520Z"/></svg>`,
+    download: `<svg xmlns="http://www.w3.org/2000/svg" height="18" viewBox="0 -960 960 960" width="18" fill="currentcolor"><path d="M480-320 280-520l56-58 104 104v-326h80v326l104-104 56 58-200 200ZM240-160q-33 0-56.5-23.5T160-240v-120h80v120h480v-120h80v120q0 33-23.5 56.5T720-160H240Z"/></svg>`,
+    cut: `<svg xmlns="http://www.w3.org/2000/svg" height="18" viewBox="0 -960 960 960" width="18" fill="currentcolor"><path d="M760-120 480-400l-94 94q8 15 11 32t3 34q0 66-47 113T240-80q-66 0-113-47T80-240q0-66 47-113t113-47q17 0 34 3t32 11l94-94-94-94q-15 8-32 11t-34 3q-66 0-113-47T80-720q0-66 47-113t113-47q66 0 113 47t47 113q0 17-3 34t-11 32l494 494v40H760ZM600-520l-80-80 240-240h120v40L600-520ZM240-640q33 0 56.5-23.5T320-720q0-33-23.5-56.5T240-800q-33 0-56.5 23.5T160-720q0 33 23.5 56.5T240-640Zm240 180q8 0 14-6t6-14q0-8-6-14t-14-6q-8 0-14 6t-6 14q0 8 6 14t14 6ZM240-160q33 0 56.5-23.5T320-240q0-33-23.5-56.5T240-320q-33 0-56.5 23.5T160-240q0 33 23.5 56.5T240-160Z"/></svg>`,
+    copy: `<svg xmlns="http://www.w3.org/2000/svg" height="18" viewBox="0 -960 960 960" width="18" fill="currentcolor"><path d="M360-240q-33 0-56.5-23.5T280-320v-480q0-33 23.5-56.5T360-880h360q33 0 56.5 23.5T800-800v480q0 33-23.5 56.5T720-240H360Zm0-80h360v-480H360v480ZM200-80q-33 0-56.5-23.5T120-160v-560h80v560h440v80H200Zm160-240v-480 480Z"/></svg>`,
+    restore: `<svg xmlns="http://www.w3.org/2000/svg" height="18" viewBox="0 -960 960 960" width="18" fill="currentcolor"><path d="M440-320h80v-166l64 62 56-56-160-160-160 160 56 56 64-62v166ZM280-120q-33 0-56.5-23.5T200-200v-520h-40v-80h200v-40h240v40h200v80h-40v520q0 33-23.5 56.5T680-120H280Zm400-600H280v520h400v-520Zm-400 0v520-520Z"/></svg>`,
     list: `<svg xmlns="http://www.w3.org/2000/svg" height="18" viewBox="0 -960 960 960" width="18" fill="currentcolor"><path d="M280-600v-80h560v80H280Zm0 160v-80h560v80H280Zm0 160v-80h560v80H280ZM160-600q-17 0-28.5-11.5T120-640q0-17 11.5-28.5T160-680q17 0 28.5 11.5T200-640q0 17-11.5 28.5T160-600Zm0 160q-17 0-28.5-11.5T120-480q0-17 11.5-28.5T160-520q17 0 28.5 11.5T200-480q0 17-11.5 28.5T160-440Zm0 160q-17 0-28.5-11.5T120-320q0-17 11.5-28.5T160-360q17 0 28.5 11.5T200-320q0 17-11.5 28.5T160-280Z"/></svg>`,
     grid: `<svg xmlns="http://www.w3.org/2000/svg" height="18" viewBox="0 -960 960 960" width="18" fill="currentcolor"><path d="M120-520v-320h320v320H120Zm0 400v-320h320v320H120Zm400-400v-320h320v320H520Zm0 400v-320h320v320H520ZM200-600h160v-160H200v160Zm400 0h160v-160H600v160Zm0 400h160v-160H600v160Zm-400 0h160v-160H200v160Zm400-400Zm0 240Zm-240 0Zm0-240Z"/></svg>`,
     sort: `<svg xmlns="http://www.w3.org/2000/svg" height="18" viewBox="0 -960 960 960" width="18" fill="currentcolor"><path d="M120-240v-80h240v80H120Zm0-200v-80h480v80H120Zm0-200v-80h720v80H120Z"/></svg>`,
+    select: `<svg xmlns="http://www.w3.org/2000/svg" height="18" viewBox="0 -960 960 960" width="18" fill="currentcolor"><path d="m424-312 282-282-56-56-226 226-114-114-56 56 170 170ZM200-120q-33 0-56.5-23.5T120-200v-560q0-33 23.5-56.5T200-840h560q33 0 56.5 23.5T840-760v560q0 33-23.5 56.5T760-120H200Zm0-80h560v-560H200v560Zm0-560v560-560Z"/></svg>`,
+    done: `<svg xmlns="http://www.w3.org/2000/svg" height="18" viewBox="0 -960 960 960" width="18" fill="currentcolor"><path d="M382-240 154-468l57-57 171 171 367-367 57 57-424 424Z"/></svg>`,
 };
 
 const { html_encode } = window;
@@ -99,6 +101,7 @@ const TabFiles = {
                             </div>
                             <div class="path-breadcrumbs"></div>
                             <div class="path-actions">
+                                <button class="path-action-btn select-mode-btn" title="${i18n('select')}">${icons.select}</button>
                                 <button class="path-action-btn sort-btn" title="Sort by">${icons.sort}</button>
                                 <button class="path-action-btn view-toggle-btn" title="Toggle view">${icons.grid}</button>
                                 <button class="path-action-btn new-folder-btn" title="${i18n('new_folder')}">${icons.newFolder}</button>
@@ -128,6 +131,7 @@ const TabFiles = {
                         <button class="selection-action-btn cut-btn" title="${i18n('cut')}">${icons.cut}<span>${i18n('cut')}</span></button>
                         <button class="selection-action-btn copy-btn" title="${i18n('copy')}">${icons.copy}<span>${i18n('copy')}</span></button>
                         <button class="selection-action-btn delete-btn" title="${i18n('delete')}">${icons.trash}<span>${i18n('delete')}</span></button>
+                        <button class="selection-action-btn done-btn" title="${i18n('done')}">${icons.done}<span>${i18n('done')}</span></button>
                     </div>
                 </div>
             </div>
@@ -152,6 +156,7 @@ const TabFiles = {
         this.hoveringOverSubfolder = false;
         this.previewOpen = false;
         this.previewCurrentUid = null;
+        this.selectModeActive = false;
         this.currentView = await puter.kv.get('view_mode') || 'list';
 
         // Sorting state
@@ -964,6 +969,11 @@ const TabFiles = {
             this.showSortMenu(e);
         };
 
+        // Select mode toggle button (mobile only)
+        document.querySelector('.select-mode-btn').onclick = () => {
+            this.toggleSelectMode();
+        };
+
         // Column header sorting
         this.$el_window.find('.header .columns .sortable').on('click', (e) => {
             const column = $(e.currentTarget).attr('data-sort');
@@ -1067,6 +1077,11 @@ const TabFiles = {
                     _this.renderDirectory(_this.selectedFolderUid);
                 }, 500);
             }
+        });
+
+        // Done button (exits select mode on mobile)
+        $actions.find('.done-btn').on('click', function () {
+            _this.exitSelectMode();
         });
     },
 
@@ -1488,6 +1503,7 @@ const TabFiles = {
         row.setAttribute("data-associated_app_name", "");
         row.setAttribute("data-path", file.path);
         row.innerHTML = `
+            <div class="item-checkbox"><span class="checkbox-icon"></span></div>
             <div class="item-icon">${icon}</div>
             <div class="item-name-wrapper">
                 <pre class="item-name">${displayName}</pre>
@@ -1683,14 +1699,17 @@ const TabFiles = {
                 }
             }
 
-            if ( !e.ctrlKey && !e.metaKey && !e.shiftKey && !el_item.classList.contains('selected') ) {
+            // In select mode on mobile, treat taps like Ctrl+click (toggle selection)
+            const isMobileSelectMode = (window.isMobile.phone || window.isMobile.tablet) && _this.selectModeActive;
+
+            if ( !e.ctrlKey && !e.metaKey && !e.shiftKey && !el_item.classList.contains('selected') && !isMobileSelectMode ) {
                 el_item.parentElement.querySelectorAll('.row.selected').forEach(r => {
                     r.classList.remove('selected');
                 });
             }
 
             if ( ! e.shiftKey ) {
-                if ( (e.ctrlKey || e.metaKey) && el_item.classList.contains('selected') ) {
+                if ( ((e.ctrlKey || e.metaKey) || isMobileSelectMode) && el_item.classList.contains('selected') ) {
                     el_item.classList.remove('selected');
                 } else {
                     el_item.classList.add('selected');
@@ -1727,6 +1746,12 @@ const TabFiles = {
                 return;
             }
 
+            // On mobile in select mode, selection was already handled in pointerdown
+            // Just return early to prevent any further processing
+            if ( (window.isMobile.phone || window.isMobile.tablet) && _this.selectModeActive ) {
+                return;
+            }
+
             if ( !e.ctrlKey && !e.metaKey && !e.shiftKey ) {
                 el_item.parentElement.querySelectorAll('.row.selected').forEach(r => {
                     if ( r !== el_item ) r.classList.remove('selected');
@@ -1736,6 +1761,7 @@ const TabFiles = {
 
             // On mobile, single tap opens folders (no double-tap on touch devices)
             if ( window.isMobile.phone || window.isMobile.tablet ) {
+                // Normal mode: open the item
                 if ( isFolder === "1" ) {
                     _this.pushNavHistory(file.path);
                     _this.renderDirectory(file.path);
@@ -2183,7 +2209,11 @@ const TabFiles = {
         }
 
         // Show/hide floating action bar based on selection count
-        if ( selectedCount >= 2 ) {
+        // In mobile select mode, show with 1+ items; otherwise require 2+
+        const isMobileSelectMode = (window.isMobile.phone || window.isMobile.tablet) && this.selectModeActive;
+        const minCountForActionBar = isMobileSelectMode ? 1 : 2;
+
+        if ( selectedCount >= minCountForActionBar ) {
             $selectionActions.addClass('visible');
             this.updateSelectionActionsState(selectedRows);
         } else {
@@ -2222,6 +2252,49 @@ const TabFiles = {
         // Refresh content to update icons for the new view mode
         if ( this.selectedFolderUid ) {
             this.renderDirectory(this.selectedFolderUid);
+        }
+    },
+
+    /**
+     * Toggles select mode for mobile multi-file selection.
+     *
+     * When active, tapping files toggles their selection instead of opening them.
+     * Checkboxes appear next to each item for visual feedback.
+     *
+     * @returns {void}
+     */
+    toggleSelectMode () {
+        this.selectModeActive = !this.selectModeActive;
+        const $filesTab = this.$el_window.find('.files-tab');
+        const $selectBtn = this.$el_window.find('.select-mode-btn');
+
+        if ( this.selectModeActive ) {
+            $filesTab.addClass('select-mode-active');
+            $selectBtn.addClass('active');
+        } else {
+            $filesTab.removeClass('select-mode-active');
+            $selectBtn.removeClass('active');
+            // Clear all selections when exiting select mode
+            this.$el_window.find('.files .row.selected').removeClass('selected');
+            this.updateFooterStats();
+        }
+    },
+
+    /**
+     * Exits select mode and clears selections.
+     *
+     * @returns {void}
+     */
+    exitSelectMode () {
+        if ( this.selectModeActive ) {
+            this.selectModeActive = false;
+            const $filesTab = this.$el_window.find('.files-tab');
+            const $selectBtn = this.$el_window.find('.select-mode-btn');
+            $filesTab.removeClass('select-mode-active');
+            $selectBtn.removeClass('active');
+            // Clear all selections
+            this.$el_window.find('.files .row.selected').removeClass('selected');
+            this.updateFooterStats();
         }
     },
 
