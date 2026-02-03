@@ -646,7 +646,18 @@ class AppInformationService extends BaseService {
     * @returns {Promise<void>} Resolves when the cache has been updated.
     */
     async _refresh_recent_cache () {
-        const app_keys = await redisClient.keys('apps:uid:*');
+        const app_keys = [];
+        let cursor = '0';
+        do {
+            // Use SCAN to avoid KEYS, which is often disabled on managed/serverless Redis.
+            const [next_cursor, keys] = await redisClient.scan(cursor,
+                            'MATCH',
+                            'apps:uid:*',
+                            'COUNT',
+                            1000);
+            cursor = next_cursor;
+            if ( keys && keys.length ) app_keys.push(...keys);
+        } while ( cursor !== '0' );
 
         const apps = (await Promise.all(app_keys.map(async (key) => {
             const cached_app = await redisClient.get(key);
