@@ -2,7 +2,7 @@ import { Actor } from '@heyputer/backend/src/services/auth/Actor.js';
 import { SUService } from '@heyputer/backend/src/services/SUService';
 import { createTestKernel } from '@heyputer/backend/tools/test.mjs';
 import { describe, expect, it } from 'vitest';
-import config from '../../loadTestConfig.js';
+import { config } from '../../loadTestConfig.js';
 import { DynamoKVStore } from './DynamoKVStore.js';
 import { DynamoKVStoreWrapper, IDynamoKVStoreWrapper } from './DynamoKVStoreWrapper.js';
 
