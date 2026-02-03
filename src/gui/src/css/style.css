@@ -159,8 +159,13 @@ pre {
 
     --dashboard-icon-blue-start: #3b82f6;
     --dashboard-icon-blue-end: #2563eb;
+    --dashboard-icon-blue-shadow: rgba(59, 130, 246, 0.3);
     --dashboard-icon-green-start: #10b981;
     --dashboard-icon-green-end: #059669;
+    --dashboard-icon-green-shadow: rgba(16, 185, 129, 0.3);
+
+    --dashboard-fancy-header-start: rgba(200, 220, 255, 0.5);
+    --dashboard-fancy-header-end: rgba(180, 210, 255, 0.3);
 
     --dashboard-shadow-subtle: rgba(0, 0, 0, 0.04);
     --dashboard-shadow-light: rgba(0, 0, 0, 0.06);
@@ -170,6 +175,15 @@ pre {
     --dashboard-gradient-indigo: rgba(99, 102, 241, 0.08);
     --dashboard-gradient-purple: rgba(168, 85, 247, 0.06);
     --dashboard-gradient-pink: rgba(236, 72, 153, 0.04);
+    --dashboard-gradient-green: rgba(34, 197, 94, 0.05);
+    --dashboard-gradient-blue: rgba(59, 130, 246, 0.05);
+
+    --dashboard-usage-bar-background: #e5e7eb;
+    --dashboard-usage-bar-start: #f59e0b;
+    --dashboard-usage-bar-end: #f97316;
+
+    --dashboard-legacy-bar-start: #dbe3ef;
+    --dashboard-legacy-bar-mid: #c2ccdc;
 }
 
 @media (prefers-color-scheme: dark) {
@@ -222,8 +236,13 @@ pre {
 
         --dashboard-icon-blue-start: #60a5fa;
         --dashboard-icon-blue-end: #3b82f6;
+        --dashboard-icon-blue-shadow: rgba(96, 165, 250, 0.25);
         --dashboard-icon-green-start: #34d399;
         --dashboard-icon-green-end: #10b981;
+        --dashboard-icon-green-shadow: rgba(52, 211, 153, 0.25);
+
+        --dashboard-fancy-header-start: rgba(60, 80, 120, 0.4);
+        --dashboard-fancy-header-end: rgba(50, 70, 100, 0.3);
 
         --dashboard-shadow-subtle: rgba(0, 0, 0, 0.2);
         --dashboard-shadow-light: rgba(0, 0, 0, 0.3);
@@ -233,6 +252,15 @@ pre {
         --dashboard-gradient-indigo: rgba(99, 102, 241, 0.15);
         --dashboard-gradient-purple: rgba(168, 85, 247, 0.12);
         --dashboard-gradient-pink: rgba(236, 72, 153, 0.08);
+        --dashboard-gradient-green: rgba(34, 197, 94, 0.1);
+        --dashboard-gradient-blue: rgba(59, 130, 246, 0.1);
+
+        --dashboard-usage-bar-background: #3f3f46;
+        --dashboard-usage-bar-start: #fbbf24;
+        --dashboard-usage-bar-end: #fb923c;
+
+        --dashboard-legacy-bar-start: #3f3f46;
+        --dashboard-legacy-bar-mid: #52525b;
     }
 }
 
@@ -4446,7 +4474,7 @@ fieldset[name=number-code] {
 .settings-sidebar {
     width: 200px;
     background-color: #f9f9f9;
-    border-right: 1px solid var(--dashboard-border);
+    border-right: 1px solid #3d3d3d;
     padding: 20px;
     position: fixed;
     margin-top: 1px;
@@ -4481,7 +4509,7 @@ fieldset[name=number-code] {
 }
 
 .settings-sidebar-item.active {
-    background-color: var(--dashboard-border)a6;
+    background-color: #e0e0e0a6;
 }
 
 .settings-content-container {
@@ -4508,7 +4536,7 @@ fieldset[name=number-code] {
 .settings-content h1 {
     font-size: 24px;
     margin-bottom: 20px;
-    border-bottom: 1px solid var(--dashboard-border);
+    border-bottom: 1px solid #3d3d3d;
     padding-bottom: 10px;
     padding-left: 5px;
     font-weight: 500;
@@ -4637,6 +4665,15 @@ fieldset[name=number-code] {
     flex-direction: column;
 }
 
+.dashboard-section-usage {
+    color: var(--dashboard-text);
+}
+
+.dashboard-section-usage .driver-usage {
+    color: var(--dashboard-text);
+    background-color: transparent;
+}
+
 .driver-usage-container .driver-usage{
     flex-grow: 1;
 }
@@ -4706,6 +4743,10 @@ fieldset[name=number-code] {
     border-top-left-radius: 3px;
     border-bottom-left-radius: 3px;
     width: 0;
+}
+
+.dashboard-section-usage #storage-bar-host {
+    background: linear-gradient(var(--dashboard-icon-blue-start), var(--dashboard-icon-blue-end));
 }
 
 #storage-used-percent {
@@ -4871,10 +4912,15 @@ html.dark-mode .usage-table-show-less:hover {
 
 .driver-usage-details-content-table thead th {
     padding: 7px 5px;
-    border: 1px solid var(--dashboard-border);
+    border: 1px solid #e0e0e0;
     text-align: left;
     font-size: 13px;
     font-weight: 500;
+}
+
+.dashboard-section-usage .driver-usage-details-content-table thead th {
+    border-color: var(--dashboard-border);
+    background: var(--dashboard-input-background);
 }
 
 .driver-usage-details-content-table thead th.sortable-th {
@@ -4885,6 +4931,14 @@ html.dark-mode .usage-table-show-less:hover {
 
 .driver-usage-details-content-table thead th.sortable-th:hover {
     background-color: #e5e5e5;
+}
+
+.dashboard-section-usage .driver-usage-details-content-table thead th.sortable-th {
+    background-color: var(--dashboard-input-background);
+}
+
+.dashboard-section-usage .driver-usage-details-content-table thead th.sortable-th:hover {
+    background-color: var(--dashboard-shadow-light);
 }
 
 .driver-usage-details-content-table thead th .sort-icon {
@@ -4964,7 +5018,7 @@ html.dark-mode .usage-table-show-less:hover {
 }
 
 .language-item.active {
-    background-color: var(--dashboard-border);
+    background-color: #e0e0e0;
 }
 
 .language-item.active .checkmark {
@@ -4998,21 +5052,21 @@ html.dark-mode .usage-table-show-less:hover {
 }
 
 .settings-card-danger {
-    border-color: var(--dashboard-danger-border);
-    background: var(--dashboard-danger-background);
-    color: var(--dashboard-danger-text);
+    border-color: #fecaca;;
+    background: #fef2f2;
+    color: #dc2626;
 }
 
 .settings-card-success {
-    border-color: var(--dashboard-success-border);
-    background: var(--dashboard-success-background);
-    color: var(--dashboard-success-text);
+    border-color: #08bf4e;
+    background: #e6ffed;
+    color: #03933a;
 }
 
 .settings-card-warning {
-    border-color: var(--dashboard-warning-border);
-    background: var(--dashboard-warning-background);
-    color: var(--dashboard-warning-text);
+    border-color: #f59e0b;
+    background: #fef3c7;
+    color: #92400e;
 }
 
 .error-message {
@@ -6964,17 +7018,17 @@ html.dark-mode .usage-table-show-less:hover {
     background: var(--dashboard-background);
     border-radius: 20px;
     overflow: hidden;
-    box-shadow: 
-        0 1px 3px rgba(0, 0, 0, 0.04),
-        0 4px 12px rgba(0, 0, 0, 0.03);
-    border: 1px solid rgba(0, 0, 0, 0.06);
+    box-shadow:
+        0 1px 3px var(--dashboard-shadow-subtle),
+        0 4px 12px var(--dashboard-shadow-subtle);
+    border: 1px solid var(--dashboard-shadow-light);
 }
 
 /* Welcome Card */
 .bento-welcome {
     position: relative;
-    background: linear-gradient(135deg, #f8fafc 0%, #e2e8f0 100%);
-    color: #1e293b;
+    background: linear-gradient(135deg, var(--dashboard-card-gradient-start) 0%, var(--dashboard-card-gradient-end) 100%);
+    color: var(--dashboard-text-primary);
     min-height: 280px;
 }
 
@@ -6995,9 +7049,9 @@ html.dark-mode .usage-table-show-less:hover {
     left: 0;
     right: 0;
     bottom: 0;
-    background-image: 
-        radial-gradient(circle at 20% 30%, rgba(99, 102, 241, 0.08) 0%, transparent 50%),
-        radial-gradient(circle at 80% 70%, rgba(168, 85, 247, 0.06) 0%, transparent 40%);
+    background-image:
+        radial-gradient(circle at 20% 30%, var(--dashboard-gradient-indigo) 0%, transparent 50%),
+        radial-gradient(circle at 80% 70%, var(--dashboard-gradient-purple) 0%, transparent 40%);
     pointer-events: none;
 }
 
@@ -7012,15 +7066,15 @@ html.dark-mode .usage-table-show-less:hover {
     border-radius: 50%;
     background-size: cover;
     background-position: center;
-    background-color: #e2e8f0;
+    background-color: var(--dashboard-avatar-background);
     border: 3px solid var(--dashboard-background);
     margin-bottom: 16px;
-    box-shadow: 0 4px 16px rgba(0, 0, 0, 0.1);
+    box-shadow: 0 4px 16px var(--dashboard-shadow-medium);
 }
 
 .bento-greeting {
     font-size: 14px;
-    color: #64748b;
+    color: var(--dashboard-text-hint);
     font-weight: 400;
     letter-spacing: 0.02em;
     display: block;
@@ -7033,7 +7087,7 @@ html.dark-mode .usage-table-show-less:hover {
     margin: 0 0 8px 0;
     line-height: 1.1;
     letter-spacing: -0.02em;
-    color: #414b62;
+    color: var(--dashboard-text-username);
     overflow: hidden;
     text-overflow: ellipsis;
     white-space: nowrap;
@@ -7051,10 +7105,10 @@ html.dark-mode .usage-table-show-less:hover {
     gap: 6px;
     margin-top: 12px;
     padding: 8px 14px;
-    background-color: #fef3c7;
-    border: 1px solid #f59e0b;
+    background-color: var(--dashboard-warning-background);
+    border: 1px solid var(--dashboard-warning-border);
     border-radius: 8px;
-    color: #92400e;
+    color: var(--dashboard-warning-text);
     font-size: 13px;
     font-weight: 500;
     cursor: pointer;
@@ -7063,18 +7117,18 @@ html.dark-mode .usage-table-show-less:hover {
 }
 
 .bento-save-account-warning:hover {
-    background-color: #fde68a;
-    border-color: #d97706;
-    color: #78350f;
+    background-color: var(--dashboard-warning-hover-bg);
+    border-color: var(--dashboard-warning-hover-border);
+    color: var(--dashboard-warning-hover-text);
 }
 
 .bento-save-account-warning svg {
     flex-shrink: 0;
-    color: #f59e0b;
+    color: var(--dashboard-warning-icon);
 }
 
 .bento-save-account-warning:hover svg {
-    color: #d97706;
+    color: var(--dashboard-warning-hover-border);
 }
 
 /* Recent Apps Card - Rectangle */
@@ -7082,10 +7136,10 @@ html.dark-mode .usage-table-show-less:hover {
     min-height: 310px;
     display: flex;
     flex-direction: column;
-    background: 
-        radial-gradient(circle at 90% 10%, rgba(99, 102, 241, 0.06) 0%, transparent 40%),
-        radial-gradient(circle at 10% 90%, rgba(236, 72, 153, 0.04) 0%, transparent 35%),
-        linear-gradient(135deg, #f8fafc 0%, #f1f5f9 100%);
+    background:
+        radial-gradient(circle at 90% 10%, var(--dashboard-gradient-indigo) 0%, transparent 40%),
+        radial-gradient(circle at 10% 90%, var(--dashboard-gradient-pink) 0%, transparent 35%),
+        linear-gradient(135deg, var(--dashboard-card-gradient-start) 0%, var(--dashboard-card-gradient-end) 100%);
 }
 
 .bento-card-header {
@@ -7099,7 +7153,7 @@ html.dark-mode .usage-table-show-less:hover {
     margin: 0;
     font-size: 15px;
     font-weight: 600;
-    color: #1a1a1a;
+    color: var(--dashboard-text-card-title);
     letter-spacing: -0.01em;
 }
 
@@ -7109,8 +7163,8 @@ html.dark-mode .usage-table-show-less:hover {
     align-items: center;
     gap: 14px;
     padding: 20px 24px;
-    background: linear-gradient(135deg, rgba(200, 220, 255, 0.5) 0%, rgba(180, 210, 255, 0.3) 100%);
-    border-bottom: 1px solid rgb(0 0 0 / 1%);
+    background: linear-gradient(135deg, var(--dashboard-fancy-header-start) 0%, var(--dashboard-fancy-header-end) 100%);
+    border-bottom: 1px solid var(--dashboard-shadow-light);
 }
 
 .bento-card-fancy-icon {
@@ -7129,15 +7183,15 @@ html.dark-mode .usage-table-show-less:hover {
 }
 
 .bento-card-fancy-icon-apps {
-    background: linear-gradient(135deg, #3b82f6 0%, #2563eb 100%);
+    background: linear-gradient(135deg, var(--dashboard-icon-blue-start) 0%, var(--dashboard-icon-blue-end) 100%);
     color: white;
-    box-shadow: 0 4px 12px rgba(59, 130, 246, 0.3);
+    box-shadow: 0 4px 12px var(--dashboard-icon-blue-shadow);
 }
 
 .bento-card-fancy-icon-usage {
-    background: linear-gradient(135deg, #10b981 0%, #059669 100%);
+    background: linear-gradient(135deg, var(--dashboard-icon-green-start) 0%, var(--dashboard-icon-green-end) 100%);
     color: white;
-    box-shadow: 0 4px 12px rgba(16, 185, 129, 0.3);
+    box-shadow: 0 4px 12px var(--dashboard-icon-green-shadow);
 }
 
 .bento-card-fancy-text {
@@ -7150,7 +7204,7 @@ html.dark-mode .usage-table-show-less:hover {
     margin: 0;
     font-size: 20px;
     font-weight: 600;
-    color: #1e293b;
+    color: var(--dashboard-text-primary);
     letter-spacing: -0.02em;
 }
 
@@ -7159,7 +7213,7 @@ html.dark-mode .usage-table-show-less:hover {
     align-items: center;
     gap: 5px;
     font-size: 13px;
-    color: #64748b;
+    color: var(--dashboard-text-hint);
 }
 
 .bento-card-fancy-subtitle svg {
@@ -7169,14 +7223,14 @@ html.dark-mode .usage-table-show-less:hover {
 
 .bento-view-more {
     font-size: 13px;
-    color: #5271ff;
+    color: var(--dashboard-link);
     text-decoration: none;
     font-weight: 500;
     transition: color 0.15s ease;
 }
 
 .bento-view-more:hover {
-    color: #3d5bd9;
+    color: var(--dashboard-link-hover);
     text-decoration: underline;
 }
 
@@ -7236,7 +7290,7 @@ html.dark-mode .usage-table-show-less:hover {
 .bento-recent-app-title {
     font-size: 13px;
     font-weight: 500;
-    color: #333;
+    color: var(--dashboard-text);
     text-align: left;
     white-space: nowrap;
     overflow: hidden;
@@ -7254,13 +7308,13 @@ html.dark-mode .usage-table-show-less:hover {
     height: 100%;
     height: 180px;
     text-align: center;
-    color: #888;
+    color: var(--dashboard-icon);
 }
 
 .bento-recent-apps-empty svg {
     width: 48px;
     height: 48px;
-    stroke: #ccc;
+    stroke: var(--dashboard-border);
     margin-bottom: 16px;
 }
 
@@ -7268,22 +7322,22 @@ html.dark-mode .usage-table-show-less:hover {
     margin: 0 0 4px 0;
     font-size: 14px;
     font-weight: 500;
-    color: #666;
+    color: var(--dashboard-text-secondary);
 }
 
 .bento-recent-apps-empty span {
     font-size: 13px;
-    color: #999;
+    color: var(--dashboard-text-tertiary);
 }
 
 /* Usage bento card */
 .bento-usage {
     grid-column: 1 / -1;
     min-height: auto;
-    background: 
-        radial-gradient(circle at 5% 50%, rgba(34, 197, 94, 0.05) 0%, transparent 40%),
-        radial-gradient(circle at 95% 50%, rgba(59, 130, 246, 0.05) 0%, transparent 40%),
-        linear-gradient(135deg, #f8fafc 0%, #f1f5f9 100%);
+    background:
+        radial-gradient(circle at 5% 50%, var(--dashboard-gradient-green) 0%, transparent 40%),
+        radial-gradient(circle at 95% 50%, var(--dashboard-gradient-blue) 0%, transparent 40%),
+        linear-gradient(135deg, var(--dashboard-card-gradient-start) 0%, var(--dashboard-card-gradient-end) 100%);
 }
 
 .bento-usage-container {
@@ -7315,19 +7369,19 @@ html.dark-mode .usage-table-show-less:hover {
 }
 
 .bento-plan-badge.active {
-    color: #16a34a;
+    color: var(--dashboard-success-text);
 }
 
 .bento-plan-upgrade {
     font-size: 14px;
     font-weight: 500;
-    color: #3b82f6;
+    color: var(--dashboard-link);
     text-decoration: none;
     transition: color 0.2s;
 }
 
 .bento-plan-upgrade:hover {
-    color: #2563eb;
+    color: var(--dashboard-link-hover);
     text-decoration: underline;
 }
 
@@ -7342,13 +7396,13 @@ html.dark-mode .usage-table-show-less:hover {
     margin: 0;
     font-size: 14px;
     font-weight: 500;
-    color: #3c4963;
+    color: var(--dashboard-text-primary);
     flex-grow: 1;
 }
 
 .bento-usage-section-values {
     font-size: 13px;
-    color: #3c4963;
+    color: var(--dashboard-text-primary);
     opacity: 0.85;
 }
 
@@ -7376,27 +7430,27 @@ html.dark-mode .usage-table-show-less:hover {
     margin: 0;
     font-size: 16px;
     font-weight: 500;
-    color: #1e293b;
+    color: var(--dashboard-text-primary);
 }
 
 .bento-usage-card-arrow {
     font-size: 18px;
     font-weight: 300;
-    color: #64748b;
+    color: var(--dashboard-text-hint);
     line-height: 1;
 }
 
 .bento-usage-card-bar-wrapper {
     width: 100%;
     height: 14px;
-    background-color: #e5e7eb;
+    background-color: var(--dashboard-usage-bar-background);
     border-radius: 7px;
     overflow: hidden;
 }
 
 .bento-usage-card-bar {
     height: 100%;
-    background: linear-gradient(90deg, #f59e0b, #f97316);
+    background: linear-gradient(90deg, var(--dashboard-usage-bar-start), var(--dashboard-usage-bar-end));
     border-radius: 7px;
     width: 0;
     transition: width 0.4s ease;
@@ -7411,21 +7465,21 @@ html.dark-mode .usage-table-show-less:hover {
 .bento-usage-card-used {
     font-size: 20px;
     font-weight: 600;
-    color: #1e293b;
+    color: var(--dashboard-text-primary);
 }
 
 .bento-usage-card-details {
     font-size: 14px;
-    color: #64748b;
+    color: var(--dashboard-text-hint);
 }
 
 /* Legacy bar styles (kept for compatibility) */
 .bento-usage-bar-wrapper {
     width: 100%;
     height: 20px;
-    border: 1px solid #dddddd;
+    border: 1px solid var(--dashboard-border);
     border-radius: 3px;
-    background-color: #fbfbfb;
+    background-color: var(--dashboard-card-background);
     position: relative;
     display: flex;
     align-items: center;
@@ -7433,7 +7487,7 @@ html.dark-mode .usage-table-show-less:hover {
 
 .bento-usage-bar {
     height: 20px;
-    background: linear-gradient(#dbe3ef, #c2ccdc, #dbe3ef);
+    background: linear-gradient(var(--dashboard-legacy-bar-start), var(--dashboard-legacy-bar-mid), var(--dashboard-legacy-bar-start));
     border-top-left-radius: 3px;
     border-bottom-left-radius: 3px;
     width: 0;
@@ -7718,6 +7772,8 @@ html.dark-mode .usage-table-show-less:hover {
 
 .dashboard-settings-card .button {
     flex-shrink: 0;
+    color: var(--dashboard-text);
+    background: linear-gradient(var(--dashboard-sidebar-background), var(--dashboard-border));
 }
 
 .dashboard-settings-card-success {
