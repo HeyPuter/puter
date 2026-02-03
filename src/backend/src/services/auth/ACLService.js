@@ -425,7 +425,8 @@ class ACLService extends BaseService {
         // Access tokens only work if the authorizer has permission
         if ( actor.type instanceof AccessTokenActorType ) {
             const authorizer = actor.type.authorizer;
-            return await this._check_fsNode(authorizer, fsNode, mode);
+            const authorizer_perm = await this._check_fsNode(authorizer, fsNode, mode);
+            if ( ! authorizer_perm ) return false;
         }
 
         // Hard rule: if app-under-user is accessing appdata directory, allow
