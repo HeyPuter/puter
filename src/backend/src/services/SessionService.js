@@ -16,6 +16,7 @@
  * You should have received a copy of the GNU Affero General Public License
  * along with this program.  If not, see <https://www.gnu.org/licenses/>.
  */
+const { redisClient } = require('../clients/redis/redisSingleton');
 const { get_user } = require('../helpers');
 const { asyncSafeSetInterval } = require('@heyputer/putility').libs.promise;
 const SECOND = 1000;
@@ -233,9 +234,15 @@ class SessionService extends BaseService {
                 'SET `last_activity_ts` = ? ' +
                 'WHERE `id` = ? LIMIT 1',
             [sql_ts, user_id]);
-            const user = kv.get(`users:id:${ user_id}`);
-            if ( user ) {
-                user.last_activity_ts = sql_ts;
+            const cached_user = await redisClient.get(`users:id:${ user_id}`);
+            if ( cached_user ) {
+                try {
+                    const user = JSON.parse(cached_user);
+                    user.last_activity_ts = sql_ts;
+                    await redisClient.set(`users:id:${ user_id}`, JSON.stringify(user));
+                } catch ( e ) {
+                    // ignore malformed cache entries
+                }
             }
         }
     }
