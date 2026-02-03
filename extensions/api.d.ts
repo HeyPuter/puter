@@ -15,7 +15,6 @@ import type { UserService } from '@heyputer/backend/src/services/UserService.d.t
 import type { Context } from '@heyputer/backend/src/util/context.js';
 import type kvjs from '@heyputer/kv.js';
 import type { RequestHandler } from 'express';
-import type { Cluster } from 'ioredis';
 import type FSNodeContext from '../src/backend/src/filesystem/FSNodeContext.js';
 import type helpers from '../src/backend/src/helpers.js';
 import type * as ExtensionControllerExports from './ExtensionController/src/ExtensionController.ts';
@@ -35,8 +34,6 @@ declare global {
         }
     }
 }
-
-export type { Cluster } from 'ioredis';
 
 interface EndpointOptions {
     allowedMethods?: string[];
@@ -82,8 +79,6 @@ interface CoreRuntimeModule {
     util: {
         helpers: typeof helpers;
     };
-    redisClient: Cluster;
-    kvjs: kvjs
     Context: typeof Context;
     APIError: typeof APIError;
 }
@@ -167,7 +162,7 @@ interface Extension extends RouterMethods {
     import(module: 'data'): {
         db: BaseDatabaseAccessService;
         kv: DynamoKVStore;
-        cache: Cluster;
+        cache: kvjs;
     };
     import(module: 'core'): CoreRuntimeModule;
     import(module: 'fs'): FilesystemModule;

@@ -27,7 +27,6 @@ const { DB_WRITE } = require('../services/database/consts.js');
 const configurable_auth = require('../middleware/configurable_auth.js');
 const { UserActorType, AppUnderUserActorType } = require('../services/auth/Actor.js');
 const APIError = require('../api/APIError.js');
-const { redisClient } = require('../clients/redis/redisSingleton');
 
 // -----------------------------------------------------------------------//
 // POST /rao
@@ -89,18 +88,10 @@ router.post('/rao', configurable_auth(), express.json(), async (req, res, next) 
     // Update the 'app opens' cache
     // -----------------------------------------------------------------------//
     // First try the cache to see if we have recent apps
-    let recent_apps;
-    const recent_apps_raw = await redisClient.get(`app_opens:user:${ req.user.id}`);
-    if ( recent_apps_raw ) {
-        try {
-            recent_apps = JSON.parse(recent_apps_raw);
-        } catch ( e ) {
-            recent_apps = null;
-        }
-    }
+    let recent_apps = kv.get(`app_opens:user:${ req.user.id}`);
 
     // If cache is not empty, prepend it with the new app
-    if ( recent_apps && Array.isArray(recent_apps) && recent_apps.length > 0 ) {
+    if ( recent_apps && recent_apps.length > 0 ) {
         // add the app to the beginning of the array
         recent_apps.unshift({ app_uid: app_uid });
 
@@ -111,7 +102,7 @@ router.post('/rao', configurable_auth(), express.json(), async (req, res, next) 
         recent_apps = recent_apps.slice(0, 10);
 
         // update cache
-        await redisClient.set(`app_opens:user:${ req.user.id}`, JSON.stringify(recent_apps));
+        kv.set(`app_opens:user:${ req.user.id}`, recent_apps);
     }
     // Cache is empty, query the db and update the cache
     else {
@@ -119,7 +110,7 @@ router.post('/rao', configurable_auth(), express.json(), async (req, res, next) 
                         [req.user.id]).then( ([apps]) => {
             // Update cache with the results from the db (if any results were returned)
             if ( apps && Array.isArray(apps) && apps.length > 0 ) {
-                redisClient.set(`app_opens:user:${ req.user.id}`, JSON.stringify(apps));
+                kv.set(`app_opens:user:${ req.user.id}`, apps);
             }
         });
     }

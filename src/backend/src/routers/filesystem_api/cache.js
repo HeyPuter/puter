@@ -28,7 +28,7 @@ module.exports = eggspress('/cache/last-change-timestamp', {
     json: true,
     allowedMethods: ['GET'],
 }, async (req, res) => {
-    /** @type {import('../../clients/dynamodb/DynamoKVStore/DynamoKVStore.js').DynamoKVStore} */
+    /** @type {import('../../services/repositories/DynamoKVStore/DynamoKVStore.js').DynamoKVStore} */
     const kvStore = Context.get('services').get('puter-kvstore');
     const timestamp = await kvStore.get({ key: `last_change_timestamp:${req.user?.id}` });
     res.json({ timestamp });

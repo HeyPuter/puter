@@ -18,6 +18,7 @@
  */
 
 import { describe, it, expect, beforeEach, vi } from 'vitest';
+import { kv } from '../util/kvSingleton';
 import * as uuid from 'uuid';
 
 vi.mock('../helpers.js', () => ({
@@ -161,6 +162,7 @@ const get_mock_context = () => {
 };
 
 describe('GET /launch-apps', () => {
+    globalThis.kv = kv;
 
     beforeEach(() => {
         vi.clearAllMocks();

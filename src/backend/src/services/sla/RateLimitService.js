@@ -21,7 +21,6 @@ const { Context } = require('../../util/context');
 const BaseService = require('../BaseService');
 const { SyncFeature } = require('../../traits/SyncFeature');
 const { DB_WRITE } = require('../database/consts');
-const { redisClient } = require('../../clients/redis/redisSingleton');
 
 const ts_to_sql = (ts) => Math.floor(ts / 1000);
 const ts_fr_sql = (ts) => ts * 1000;
@@ -34,6 +33,10 @@ const ts_fr_sql = (ts) => ts * 1000;
 * for synchronized rate limit checking and incrementing.
 */
 class RateLimitService extends BaseService {
+    static MODULES = {
+        kv: globalThis.kv,
+    };
+
     static FEATURES = [
         new SyncFeature([
             'check_and_increment',
@@ -61,6 +64,7 @@ class RateLimitService extends BaseService {
     * @throws {APIError} When rate limit is exceeded
     */
     async check_and_increment (key, max, period, options = {}) {
+        const { kv } = this.modules;
         const consumer_id = this._get_consumer_id();
         const method_name = key;
         key = `${consumer_id}:${key}`;
@@ -68,8 +72,7 @@ class RateLimitService extends BaseService {
         const dbkey = options.global ? key : `${this.global_config.server_id}:${key}`;
 
         // Fixed window counter strategy (see devlog 2023-11-21)
-        const window_start_raw = await redisClient.get(`${kvkey}:window_start`);
-        let window_start = Number.isFinite(Number(window_start_raw)) ? Number(window_start_raw) : 0;
+        let window_start = kv.get(`${kvkey}:window_start`) ?? 0;
         if ( window_start === 0 ) {
             // Try database
             const rows = await this.db.read('SELECT * FROM `rl_usage_fixed_window` WHERE `key` = ?',
@@ -80,19 +83,15 @@ class RateLimitService extends BaseService {
                 window_start = ts_fr_sql(row.window_start);
                 const count = row.count;
 
-                await Promise.all([
-                    redisClient.set(`${kvkey}:window_start`, window_start),
-                    redisClient.set(`${kvkey}:count`, count),
-                ]);
+                kv.set(`${kvkey}:window_start`, window_start);
+                kv.set(`${kvkey}:count`, count);
             }
         }
 
         if ( window_start === 0 ) {
             window_start = Date.now();
-            await Promise.all([
-                redisClient.set(`${kvkey}:window_start`, window_start),
-                redisClient.set(`${kvkey}:count`, 0),
-            ]);
+            kv.set(`${kvkey}:window_start`, window_start);
+            kv.set(`${kvkey}:count`, 0);
 
             this.db.write('INSERT INTO `rl_usage_fixed_window` (`key`, `window_start`, `count`) VALUES (?, ?, ?)',
                             [dbkey, ts_to_sql(window_start), 0]);
@@ -103,17 +102,14 @@ class RateLimitService extends BaseService {
 
         if ( window_start + period < Date.now() ) {
             window_start = Date.now();
-            await Promise.all([
-                redisClient.set(`${kvkey}:window_start`, window_start),
-                redisClient.set(`${kvkey}:count`, 0),
-            ]);
+            kv.set(`${kvkey}:window_start`, window_start);
+            kv.set(`${kvkey}:count`, 0);
 
             this.db.write('UPDATE `rl_usage_fixed_window` SET `window_start` = ?, `count` = ? WHERE `key` = ?',
                             [ts_to_sql(window_start), 0, dbkey]);
         }
 
-        const current_raw = await redisClient.get(`${kvkey}:count`);
-        const current = Number.isFinite(Number(current_raw)) ? Number(current_raw) : 0;
+        const current = kv.get(`${kvkey}:count`) ?? 0;
         if ( current >= max ) {
             throw APIError.create('rate_limit_exceeded', null, {
                 method_name,
@@ -121,7 +117,7 @@ class RateLimitService extends BaseService {
             });
         }
 
-        await redisClient.incr(`${kvkey}:count`);
+        kv.incr(`${kvkey}:count`);
         this.db.write('UPDATE `rl_usage_fixed_window` SET `count` = `count` + 1 WHERE `key` = ?',
                         [dbkey]);
     }

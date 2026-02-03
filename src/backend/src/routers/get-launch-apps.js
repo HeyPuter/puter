@@ -17,9 +17,9 @@
  * along with this program.  If not, see <https://www.gnu.org/licenses/>.
  */
 'use strict';
-import { redisClient } from '../clients/redis/redisSingleton.js';
 import { get_apps } from '../helpers.js';
 import { DB_READ } from '../services/database/consts.js';
+import { kv } from '@heyputer/backend/src/util/kvSingleton.js';
 
 const iconify_apps = async (context, { apps, size }) => {
     return await Promise.all(apps.map(async app => {
@@ -66,14 +66,7 @@ export default async (req, res) => {
     const db = req.services.get('database').get(DB_READ, 'apps');
 
     // First try the cache to see if we have recent apps
-    const cached_apps = await redisClient.get(`app_opens:user:${ req.user.id}`);
-    if ( cached_apps ) {
-        try {
-            apps = JSON.parse(cached_apps);
-        } catch (e) {
-            apps = [];
-        }
-    }
+    apps = kv.get(`app_opens:user:${ req.user.id}`);
 
     // If cache is empty, query the db and update the cache
     if ( !apps || !Array.isArray(apps) || apps.length === 0 ) {
@@ -81,7 +74,7 @@ export default async (req, res) => {
                         [req.user.id]);
         // Update cache with the results from the db (if any results were returned)
         if ( apps && Array.isArray(apps) && apps.length > 0 ) {
-            await redisClient.set(`app_opens:user:${ req.user.id}`, JSON.stringify(apps));
+            kv.set(`app_opens:user:${ req.user.id}`, apps);
         }
     }
 

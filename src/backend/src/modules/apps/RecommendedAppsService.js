@@ -17,9 +17,9 @@
  * along with this program.  If not, see <https://www.gnu.org/licenses/>.
  */
 
-import { redisClient } from '../../clients/redis/redisSingleton.js';
 import { get_apps } from '../../helpers.js';
 import BaseService from '../../services/BaseService.js';
+import { kv } from '@heyputer/backend/src/util/kvSingleton.js';
 
 export default class RecommendedAppsService extends BaseService {
     static APP_NAMES = [
@@ -72,7 +72,7 @@ export default class RecommendedAppsService extends BaseService {
     ['__on_boot.consolidation'] () {
         const svc_appIcon = this.services.get('app-icon');
         const svc_event = this.services.get('event');
-        svc_event.on('apps.invalidate', async (_, { app }) => {
+        svc_event.on('apps.invalidate', (_, { app }) => {
             const sizes = svc_appIcon.get_sizes();
 
             // If it's a single-app invalidation, only invalidate if the
@@ -82,12 +82,11 @@ export default class RecommendedAppsService extends BaseService {
                 if ( ! this.app_names.has(name) ) return;
             }
 
-            const deletions = [redisClient.del('global:recommended-apps')];
+            kv.del('global:recommended-apps');
             for ( const size of sizes ) {
                 const key = `global:recommended-apps:icon-size:${size}`;
-                deletions.push(redisClient.del(key));
+                kv.del(key);
             }
-            await Promise.all(deletions);
         });
     }
 
@@ -95,18 +94,12 @@ export default class RecommendedAppsService extends BaseService {
         const recommended_cache_key = `global:recommended-apps${
             icon_size ? `:icon-size:${icon_size}` : ''}`;
 
-        const cached_recommended = await redisClient.get(recommended_cache_key);
-        if ( cached_recommended ) {
-            try {
-                return JSON.parse(cached_recommended);
-            } catch (e) {
-                // no op cache is in an invalid state
-            }
-        }
+        let recommended = kv.get(recommended_cache_key);
+        if ( recommended ) return recommended;
 
         // Prepare each app for returning to user by only returning the necessary fields
         // and adding them to the retobj array
-        let recommended = (await get_apps(Array.from(this.app_names).map(name => ({ name })))).filter(app => !!app).map(app => {
+        recommended = (await get_apps(Array.from(this.app_names).map(name => ({ name })))).filter(app => !!app).map(app => {
             return {
                 uuid: app.uid,
                 name: app.name,
@@ -128,7 +121,7 @@ export default class RecommendedAppsService extends BaseService {
             });
         }
 
-        await redisClient.set(recommended_cache_key, JSON.stringify(recommended));
+        kv.set(recommended_cache_key, recommended);
 
         return recommended;
     }
