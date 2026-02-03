@@ -5976,6 +5976,7 @@ html.dark-mode .usage-table-show-less:hover {
 
 .dashboard-content.files {
     padding: 0 0 0 10px;
+    overflow: hidden;
 }
 
 .dashboard-tab-content.files-tab {
@@ -6189,6 +6190,7 @@ html.dark-mode .usage-table-show-less:hover {
     display: flex;
     flex-direction: column;
     padding-bottom: 30px;
+    overflow-y: auto;
 }
 
 
@@ -6838,6 +6840,38 @@ html.dark-mode .usage-table-show-less:hover {
 /* Desktop: Make metadata wrapper transparent */
 .dashboard-section-files .files-tab .files.files-list-view .row .item-metadata {
     display: contents;
+}
+
+/* Image preview popover */
+.image-preview-popover {
+    position: fixed;
+    z-index: 9999;
+    background: var(--dashboard-background);
+    border: 1px solid var(--dashboard-border);
+    border-radius: 8px;
+    padding: 16px;
+    box-shadow: 0 8px 32px rgba(0, 0, 0, 0.3);
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 12px;
+}
+
+.image-preview-popover img {
+    max-width: 100%;
+    max-height: 70vh;
+    object-fit: contain;
+    border-radius: 4px;
+}
+
+.image-preview-name {
+    font-size: 14px;
+    color: var(--dashboard-text);
+    text-align: center;
+    max-width: 100%;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
 }
 
 /* Mobile phone optimizations */

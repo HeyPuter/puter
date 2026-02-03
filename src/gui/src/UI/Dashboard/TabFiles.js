@@ -139,6 +139,8 @@ const TabFiles = {
         this.selectedFolderUid = null;
         this.currentPath = null;
         this.hoveringOverSubfolder = false;
+        this.previewOpen = false;
+        this.previewCurrentUid = null;
         this.currentView = await puter.kv.get('view_mode') || 'list';
 
         // Sorting state
@@ -611,11 +613,114 @@ const TabFiles = {
                     window.latest_selected_item = $next.get(0);
                     $next.get(0).scrollIntoView({ block: 'nearest' });
                     _this.updateFooterStats();
+
+                    // If preview is open, switch to newly selected file
+                    if ( _this.previewOpen && !e.shiftKey ) {
+                        const newUid = $next.attr('data-uid');
+                        if ( newUid !== _this.previewCurrentUid ) {
+                            _this.showImagePreview($next);
+                        }
+                    }
                 }
 
                 return false;
             }
+
+            // Space - Toggle image preview
+            if ( e.which === 32 ) {
+                e.preventDefault();
+                e.stopPropagation();
+
+                // If preview is open, close it
+                if ( _this.previewOpen ) {
+                    _this.closeImagePreview();
+                    return false;
+                }
+
+                // Open preview for single selected image file
+                if ( $selectedRows.length === 1 ) {
+                    const $row = $selectedRows.first();
+                    const isDir = $row.attr('data-is_dir') === '1';
+                    if ( ! isDir ) {
+                        _this.showImagePreview($row);
+                    }
+                }
+                return false;
+            }
         });
+    },
+
+    /**
+     * Shows an image preview popover for the selected file.
+     *
+     * Fetches a signed URL for the actual image and displays it in a centered
+     * popover. The popover can be dismissed by pressing spacebar or clicking outside.
+     *
+     * @param {jQuery} $row - The selected row element
+     * @returns {Promise<void>}
+     */
+    async showImagePreview ($row) {
+        const uid = $row.attr('data-uid');
+        const fileName = $row.attr('data-name');
+        const filePath = $row.attr('data-path');
+
+        // Check if it's an image file
+        const extension = fileName.split('.').pop().toLowerCase();
+        const imageExtensions = ['jpg', 'jpeg', 'png', 'gif', 'webp', 'bmp', 'svg'];
+        if ( ! imageExtensions.includes(extension) ) {
+            return;
+        }
+
+        // Get read URL for the actual image
+        const imageUrl = await puter.fs.getReadURL(filePath);
+
+        // Remove any existing preview
+        $('.image-preview-popover').remove();
+
+        const $filesContainer = this.$el_window.find('.files-tab .files');
+        const containerWidth = $filesContainer.width();
+        const containerOffset = $filesContainer.offset();
+
+        const previewHtml = `
+            <div class="image-preview-popover" data-uid="${html_encode(uid)}">
+                <img src="${html_encode(imageUrl)}" alt="${html_encode(fileName)}" />
+                <div class="image-preview-name">${html_encode(fileName)}</div>
+            </div>
+        `;
+
+        $('body').append(previewHtml);
+        const $popover = $('.image-preview-popover');
+
+        // Position centered over the files container
+        $popover.css({
+            maxWidth: `${containerWidth}px`,
+            left: `${containerOffset.left + (containerWidth / 2)}px`,
+            top: `${containerOffset.top + ($filesContainer.height() / 2)}px`,
+            transform: 'translate(-50%, -50%)',
+        });
+
+        this.previewOpen = true;
+        this.previewCurrentUid = uid;
+
+        // Close on click outside the popover
+        const _this = this;
+        $(document).on('click.imagepreview', (e) => {
+            if ( ! $(e.target).closest('.image-preview-popover').length ) {
+                _this.closeImagePreview();
+            }
+        });
+    },
+
+    /**
+     * Closes the image preview popover.
+     *
+     * @returns {void}
+     */
+    closeImagePreview () {
+        $('.image-preview-popover').remove();
+        $(document).off('click.imagepreview');
+        this.previewOpen = false;
+        this.previewCurrentUid = null;
     },
 
     /**
@@ -1458,6 +1563,18 @@ const TabFiles = {
             window.active_element = el_item;
             window.active_item_container = el_item.closest('.files');
             _this.updateFooterStats();
+
+            // If preview is open, switch to newly selected file
+            if ( _this.previewOpen ) {
+                const $container = $(el_item).closest('.files');
+                const $newSelected = $container.find('.row.selected');
+                if ( $newSelected.length === 1 ) {
+                    const newUid = $newSelected.attr('data-uid');
+                    if ( newUid !== _this.previewCurrentUid ) {
+                        _this.showImagePreview($newSelected);
+                    }
+                }
+            }
         };
 
         el_item.onclick = (e) => {
