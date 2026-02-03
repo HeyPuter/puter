@@ -718,7 +718,11 @@ class AppInformationService extends BaseService {
                         [app_uid]);
 
         // remove from caches
-        await redisClient.del(`apps:name:${ app.name}`, `apps:id:${ app.id}`, `apps:uid:${ app.uid}`);
+        await Promise.all([
+            redisClient.del(`apps:name:${ app.name}`),
+            redisClient.del(`apps:id:${ app.id}`),
+            redisClient.del(`apps:uid:${ app.uid}`),
+        ]);
 
         // remove from recent
         const index = this.collections.recent.indexOf(app_uid);

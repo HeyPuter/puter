@@ -246,7 +246,12 @@ async function get_user (options) {
  * @param {User} userID - the user entry to invalidate
  */
 const invalidate_cached_user = async (user) => {
-    await redisClient.del(`users:username:${ user.username}`, `users:uuid:${ user.uuid}`, `users:email:${ user.email}`, `users:id:${ user.id}`);
+    await Promise.all([
+        redisClient.del(`users:username:${ user.username}`),
+        redisClient.del(`users:uuid:${ user.uuid}`),
+        redisClient.del(`users:email:${ user.email}`),
+        redisClient.del(`users:id:${ user.id}`),
+    ]);
 };
 
 /**
