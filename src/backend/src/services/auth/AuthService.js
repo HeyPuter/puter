@@ -444,7 +444,37 @@ class AuthService extends BaseService {
             Object.values(insert_object));
         }
 
+        console.log('token uuid?', uuid);
+
         return jwt;
+    }
+
+    /**
+     * Revokes an access token by removing it from the database.
+     * Accepts either the access token JWT or the token UUID.
+     *
+     * @param {string} tokenOrUuid - The access token JWT or the token UUID.
+     * @returns {Promise<void>}
+     */
+    async revoke_access_token (tokenOrUuid) {
+        let token_uid;
+        const isJwt = typeof tokenOrUuid === 'string' &&
+            /^[\w-]*\.[\w-]*\.[\w-]*$/.test(tokenOrUuid.trim());
+        if ( isJwt ) {
+            const decoded = this.modules.jwt.verify(tokenOrUuid, this.global_config.jwt_secret);
+            if ( decoded.type !== 'access-token' || !decoded.token_uid ) {
+                throw APIError.create('token_auth_failed');
+            }
+            token_uid = decoded.token_uid;
+        } else {
+            token_uid = tokenOrUuid;
+        }
+        /* eslint-disable */
+        await this.db.write(
+            'DELETE FROM `access_token_permissions` WHERE `token_uid` = ?',
+            [token_uid],
+        );
+        /* eslint-enable */
     }
 
     /**
