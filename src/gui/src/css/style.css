@@ -6047,6 +6047,7 @@ html.dark-mode .usage-table-show-less:hover {
 }
 
 .dashboard-section-files .directory-contents {
+    position: relative;
     width: calc(100% - 160px);
     min-height: 100vh;
     border-left: 1px solid var(--dashboard-border);
@@ -6453,6 +6454,80 @@ html.dark-mode .usage-table-show-less:hover {
 
 .dashboard-section-files .files-footer-separator {
     color: #CCC;
+}
+
+/* Floating Selection Actions Bar */
+.dashboard-section-files .files-selection-actions {
+    position: absolute;
+    bottom: 40px;
+    left: 50%;
+    transform: translateX(-50%) translateY(100px);
+    background: var(--dashboard-card-background);
+    border: 1px solid var(--dashboard-border);
+    border-radius: 12px;
+    padding: 8px 12px;
+    display: flex;
+    align-items: center;
+    gap: 4px;
+    box-shadow: 0 4px 20px var(--dashboard-shadow-medium),
+                0 2px 8px var(--dashboard-shadow-light);
+    z-index: 15;
+    opacity: 0;
+    visibility: hidden;
+    transition: transform 0.25s cubic-bezier(0.4, 0, 0.2, 1),
+                opacity 0.25s ease,
+                visibility 0.25s ease;
+}
+
+.dashboard-section-files .files-selection-actions.visible {
+    transform: translateX(-50%) translateY(0);
+    opacity: 1;
+    visibility: visible;
+}
+
+.dashboard-section-files .selection-action-btn {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    padding: 8px 14px;
+    border: none;
+    border-radius: 8px;
+    background: transparent;
+    color: var(--dashboard-text);
+    font-size: 13px;
+    font-weight: 500;
+    cursor: pointer;
+    transition: background-color 0.15s ease, color 0.15s ease;
+}
+
+.dashboard-section-files .selection-action-btn:hover {
+    background: var(--dashboard-hover);
+}
+
+.dashboard-section-files .selection-action-btn:active {
+    transform: scale(0.97);
+}
+
+.dashboard-section-files .selection-action-btn svg {
+    width: 18px;
+    height: 18px;
+    flex-shrink: 0;
+}
+
+.dashboard-section-files .selection-action-btn.restore-btn {
+    color: #43a047;
+}
+
+.dashboard-section-files .selection-action-btn.restore-btn:hover {
+    background: rgba(67, 160, 71, 0.1);
+}
+
+.dashboard-section-files .selection-action-btn.delete-btn {
+    color: #e53935;
+}
+
+.dashboard-section-files .selection-action-btn.delete-btn:hover {
+    background: rgba(229, 57, 53, 0.1);
 }
 
 .dashboard-section-files .files-tab .files.files-list-view .row {
@@ -7012,6 +7087,30 @@ html.dark-mode .usage-table-show-less:hover {
     .dashboard-section-files .files-footer {
         left: 0;
         padding: 0;
+    }
+
+    /* Mobile: Floating selection actions - icon-only, full width */
+    .dashboard-section-files .files-selection-actions {
+        left: 0;
+        right: 0;
+        bottom: 38px;
+        transform: translateX(0) translateY(100px);
+        border-radius: 0;
+        justify-content: center;
+        padding: 10px 8px;
+    }
+
+    .dashboard-section-files .files-selection-actions.visible {
+        transform: translateX(0) translateY(0);
+    }
+
+    .dashboard-section-files .selection-action-btn span {
+        display: none;
+    }
+
+    .dashboard-section-files .selection-action-btn {
+        padding: 12px;
+        border-radius: 50%;
     }
 }
 

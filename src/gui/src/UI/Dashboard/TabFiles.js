@@ -37,6 +37,10 @@ const icons = {
     newFolder: `<svg xmlns="http://www.w3.org/2000/svg" height="18" viewBox="0 -960 960 960" width="18" fill="currentcolor"><path d="M560-320h80v-80h80v-80h-80v-80h-80v80h-80v80h80v80ZM160-160q-33 0-56.5-23.5T80-240v-480q0-33 23.5-56.5T160-800h240l80 80h320q33 0 56.5 23.5T880-640v400q0 33-23.5 56.5T800-160H160Zm0-80h640v-400H447l-80-80H160v480Zm0 0v-480 480Z"/></svg>`,
     upload: `<svg xmlns="http://www.w3.org/2000/svg" height="18" viewBox="0 -960 960 960" width="18" fill="currentcolor"><path d="M440-320v-326L336-542l-56-58 200-200 200 200-56 58-104-104v326h-80ZM240-160q-33 0-56.5-23.5T160-240v-120h80v120h480v-120h80v120q0 33-23.5 56.5T720-160H240Z"/></svg>`,
     trash: `<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><polyline points="3 6 5 6 21 6"></polyline><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"></path></svg>`,
+    download: `<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path><polyline points="7 10 12 15 17 10"></polyline><line x1="12" y1="15" x2="12" y2="3"></line></svg>`,
+    cut: `<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><circle cx="6" cy="6" r="3"></circle><circle cx="6" cy="18" r="3"></circle><line x1="20" y1="4" x2="8.12" y2="15.88"></line><line x1="14.47" y1="14.48" x2="20" y2="20"></line><line x1="8.12" y1="8.12" x2="12" y2="12"></line></svg>`,
+    copy: `<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><rect x="9" y="9" width="13" height="13" rx="2" ry="2"></rect><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"></path></svg>`,
+    restore: `<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><polyline points="1 4 1 10 7 10"></polyline><path d="M3.51 15a9 9 0 1 0 2.13-9.36L1 10"></path></svg>`,
     list: `<svg xmlns="http://www.w3.org/2000/svg" height="18" viewBox="0 -960 960 960" width="18" fill="currentcolor"><path d="M280-600v-80h560v80H280Zm0 160v-80h560v80H280Zm0 160v-80h560v80H280ZM160-600q-17 0-28.5-11.5T120-640q0-17 11.5-28.5T160-680q17 0 28.5 11.5T200-640q0 17-11.5 28.5T160-600Zm0 160q-17 0-28.5-11.5T120-480q0-17 11.5-28.5T160-520q17 0 28.5 11.5T200-480q0 17-11.5 28.5T160-440Zm0 160q-17 0-28.5-11.5T120-320q0-17 11.5-28.5T160-360q17 0 28.5 11.5T200-320q0 17-11.5 28.5T160-280Z"/></svg>`,
     grid: `<svg xmlns="http://www.w3.org/2000/svg" height="18" viewBox="0 -960 960 960" width="18" fill="currentcolor"><path d="M120-520v-320h320v320H120Zm0 400v-320h320v320H120Zm400-400v-320h320v320H520Zm0 400v-320h320v320H520ZM200-600h160v-160H200v160Zm400 0h160v-160H600v160Zm0 400h160v-160H600v160Zm-400 0h160v-160H200v160Zm400-400Zm0 240Zm-240 0Zm0-240Z"/></svg>`,
     sort: `<svg xmlns="http://www.w3.org/2000/svg" height="18" viewBox="0 -960 960 960" width="18" fill="currentcolor"><path d="M120-240v-80h240v80H120Zm0-200v-80h480v80H120Zm0-200v-80h720v80H120Z"/></svg>`,
@@ -117,6 +121,13 @@ const TabFiles = {
                         <span class="files-footer-item-count"></span>
                         <span class="files-footer-separator"> | </span>
                         <span class="files-footer-selected-items"></span>
+                    </div>
+                    <div class="files-selection-actions">
+                        <button class="selection-action-btn restore-btn" title="${i18n('restore')}">${icons.restore}<span>${i18n('restore')}</span></button>
+                        <button class="selection-action-btn download-btn" title="${i18n('download')}">${icons.download}<span>${i18n('download')}</span></button>
+                        <button class="selection-action-btn cut-btn" title="${i18n('cut')}">${icons.cut}<span>${i18n('cut')}</span></button>
+                        <button class="selection-action-btn copy-btn" title="${i18n('copy')}">${icons.copy}<span>${i18n('copy')}</span></button>
+                        <button class="selection-action-btn delete-btn" title="${i18n('delete')}">${icons.trash}<span>${i18n('delete')}</span></button>
                     </div>
                 </div>
             </div>
@@ -311,6 +322,7 @@ const TabFiles = {
                 document.querySelectorAll('.files-tab .row.selected').forEach(r => {
                     r.classList.remove('selected');
                 });
+                _this.updateFooterStats();
             }
         });
 
@@ -329,6 +341,7 @@ const TabFiles = {
                 document.querySelectorAll('.files-tab .row.selected').forEach(r => {
                     r.classList.remove('selected');
                 });
+                _this.updateFooterStats();
                 const items = await _this.generateFolderContextMenu();
                 UIContextMenu({ items: items, position: { left: e.pageX, top: e.pageY } });
             }
@@ -338,6 +351,7 @@ const TabFiles = {
         this.$el_window = $el_window;
 
         this.createHeaderEventListeners($el_window);
+        this.createSelectionActionListeners($el_window);
         this.initRubberBandSelection();
         this.initNativeFileDrop();
 
@@ -963,6 +977,130 @@ const TabFiles = {
 
         // Column resize handles
         this.initColumnResizing();
+    },
+
+    /**
+     * Creates event listeners for the floating selection action buttons.
+     *
+     * @param {jQuery} $el_window - The jQuery-wrapped window/container element
+     * @returns {void}
+     */
+    createSelectionActionListeners ($el_window) {
+        const _this = this;
+        const $actions = $el_window.find('.files-selection-actions');
+
+        // Restore button (for trash items)
+        $actions.find('.restore-btn').on('click', async function () {
+            const selectedRows = document.querySelectorAll('.files-tab .row.selected');
+            for ( const row of selectedRows ) {
+                try {
+                    await _this.restoreItem(row);
+                } catch ( err ) {
+                    console.error('Failed to restore item:', err);
+                }
+            }
+            setTimeout(() => {
+                _this.renderDirectory(_this.selectedFolderUid);
+            }, 500);
+        });
+
+        // Download button
+        $actions.find('.download-btn').on('click', function () {
+            const selectedRows = document.querySelectorAll('.files-tab .row.selected');
+            if ( selectedRows.length >= 2 ) {
+                window.zipItems(Array.from(selectedRows), _this.selectedFolderUid, true);
+            }
+        });
+
+        // Cut button
+        $actions.find('.cut-btn').on('click', function () {
+            const selectedRows = document.querySelectorAll('.files-tab .row.selected');
+            window.clipboard_op = 'move';
+            window.clipboard = [];
+            selectedRows.forEach(row => {
+                window.clipboard.push({
+                    path: $(row).attr('data-path'),
+                    uid: $(row).attr('data-uid'),
+                });
+            });
+        });
+
+        // Copy button
+        $actions.find('.copy-btn').on('click', function () {
+            const selectedRows = document.querySelectorAll('.files-tab .row.selected');
+            window.clipboard_op = 'copy';
+            window.clipboard = [];
+            selectedRows.forEach(row => {
+                window.clipboard.push({ path: $(row).attr('data-path') });
+            });
+        });
+
+        // Delete button
+        $actions.find('.delete-btn').on('click', async function () {
+            const selectedRows = document.querySelectorAll('.files-tab .row.selected');
+
+            // Check if any items are in trash (for permanent delete)
+            const anyTrashed = Array.from(selectedRows).some(row => {
+                const rowPath = $(row).attr('data-path');
+                return rowPath?.startsWith(`${window.trash_path}/`);
+            });
+
+            if ( anyTrashed ) {
+                const confirmed = await UIAlert({
+                    message: i18n('confirm_delete_multiple_items'),
+                    buttons: [
+                        { label: i18n('delete'), type: 'primary' },
+                        { label: i18n('cancel') },
+                    ],
+                });
+                if ( confirmed === 'Delete' ) {
+                    for ( const row of selectedRows ) {
+                        await window.delete_item(row);
+                    }
+                    setTimeout(() => {
+                        _this.renderDirectory(_this.selectedFolderUid);
+                    }, 500);
+                }
+            } else {
+                window.move_items(Array.from(selectedRows), window.trash_path);
+                setTimeout(() => {
+                    _this.renderDirectory(_this.selectedFolderUid);
+                }, 500);
+            }
+        });
+    },
+
+    /**
+     * Updates the state of selection action buttons based on current selection.
+     * Hides download/copy for trashed items, changes delete label for trash.
+     *
+     * @param {Array<HTMLElement>} selectedRows - The selected row elements
+     * @returns {void}
+     */
+    updateSelectionActionsState (selectedRows) {
+        const $actions = this.$el_window.find('.files-selection-actions');
+
+        const anyTrashed = Array.from(selectedRows).some(row => {
+            const rowPath = $(row).attr('data-path');
+            return rowPath?.startsWith(`${window.trash_path}/`);
+        });
+
+        if ( anyTrashed ) {
+            // Show restore, hide download and copy for trashed items
+            $actions.find('.restore-btn').show();
+            $actions.find('.download-btn').hide();
+            $actions.find('.cut-btn').hide();
+            $actions.find('.copy-btn').hide();
+            // Change delete label to "Delete Permanently"
+            $actions.find('.delete-btn span').text(i18n('delete_permanently') || 'Delete Permanently');
+        } else {
+            // Hide restore, show normal actions
+            $actions.find('.restore-btn').hide();
+            $actions.find('.download-btn').show();
+            $actions.find('.cut-btn').show();
+            $actions.find('.copy-btn').show();
+            $actions.find('.delete-btn span').text(i18n('delete'));
+        }
     },
 
     /**
@@ -2017,6 +2155,7 @@ const TabFiles = {
      */
     updateFooterStats () {
         const $footer = this.$el_window.find('.files-footer');
+        const $selectionActions = this.$el_window.find('.files-selection-actions');
         if ( ! $footer.length ) return;
 
         const allRows = this.$el_window.find('.files-tab .row').toArray();
@@ -2041,6 +2180,14 @@ const TabFiles = {
         } else {
             $footer.find('.files-footer-selected-items').css('display', 'none');
             $footer.find('.files-footer-separator').css('display', 'none');
+        }
+
+        // Show/hide floating action bar based on selection count
+        if ( selectedCount >= 2 ) {
+            $selectionActions.addClass('visible');
+            this.updateSelectionActionsState(selectedRows);
+        } else {
+            $selectionActions.removeClass('visible');
         }
     },
 
