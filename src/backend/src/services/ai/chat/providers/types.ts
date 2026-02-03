@@ -15,6 +15,8 @@ export interface IChatModel<T extends ModelCost = ModelCost> extends Record<stri
     costs: T,
     context?: number,
     max_tokens: number,
+    subscriberOnly?: boolean,
+    minimumCredits?: number,
 }
 
 export type PuterMessage = Message | any; // TODO DS: type this more strictly
