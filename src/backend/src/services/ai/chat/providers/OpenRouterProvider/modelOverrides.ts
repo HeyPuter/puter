@@ -1,4 +1,4 @@
-import { toMicroCents } from '../../../../MeteringService/utils';
+import { toMicroCents } from '../../../../MeteringService/utils.js';
 import { IChatModel } from '../types';
 
 export const OPEN_ROUTER_MODEL_OVERRIDES: IChatModel[] = [
