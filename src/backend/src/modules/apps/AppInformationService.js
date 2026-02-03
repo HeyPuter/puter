@@ -81,11 +81,17 @@ class AppInformationService extends BaseService {
             setInterval(async () => {
                 try {
                     await this._refresh_app_stats();
+                } catch (e) {
+                    console.error('App stats cache failed to update:', e);
+                }
+            }, 15.314 * 60 * 1000);
+            setInterval(async () => {
+                try {
                     await this._refresh_recent_cache();
                 } catch (e) {
                     console.error('App stats cache failed to update:', e);
                 }
-            }, 4 * 60 * 1000);
+            }, 4.271 * 60 * 1000);
         })();
     }
 
