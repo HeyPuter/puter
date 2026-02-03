@@ -237,6 +237,24 @@ class PermissionService extends BaseService {
         return reading;
     }
 
+    /**
+     * Removes permission-scan cache entries for an access token.
+     * Used when revoking an access token so stale scan results are not served.
+     * Only keys for this token are removed (see PermissionUtil.permission_scan_cache_pattern_for_access_token).
+     *
+     * @param {string} token_uid - The access token UUID.
+     */
+    invalidate_permission_scan_cache_for_access_token (token_uid) {
+        const kv = this.modules.memKVMap;
+        if ( ! kv?.keys ) return;
+        const pattern = PermissionUtil.permission_scan_cache_pattern_for_access_token(token_uid);
+        const keys = kv.keys(pattern);
+        if ( ! Array.isArray(keys) ) return;
+        for ( const key of keys ) {
+            kv.del(key);
+        }
+    }
+
     async validateUserPerms ({ actor, permissions }) {
 
         const flatPermsReading = await this.#flat_validateUserPerms({ actor, permissions });
