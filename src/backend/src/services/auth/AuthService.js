@@ -475,6 +475,8 @@ class AuthService extends BaseService {
             [token_uid],
         );
         /* eslint-enable */
+        const svc_permission = this.services.get('permission');
+        svc_permission.invalidate_permission_scan_cache_for_access_token(token_uid);
     }
 
     /**
