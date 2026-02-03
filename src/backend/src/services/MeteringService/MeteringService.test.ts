@@ -1,8 +1,8 @@
 import { describe, expect, it, vi } from 'vitest';
 import { createTestKernel } from '../../../tools/test.mjs';
 import { Actor } from '../auth/Actor';
-import { DynamoKVStoreWrapper } from '../DynamoKVStore/DynamoKVStoreWrapper.js';
 import type { EventService } from '../EventService.js';
+import { DynamoKVStoreWrapper } from '../repositories/DynamoKVStore/DynamoKVStoreWrapper.js';
 import { GLOBAL_APP_KEY, PERIOD_ESCAPE } from './consts.js';
 import { COST_MAPS } from './costMaps/index.js';
 import { MeteringService } from './MeteringService';

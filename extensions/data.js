@@ -1,6 +1,6 @@
 //@extension priority -10000
 
-const { redisClient } = extension.import('core');
+const { DB_WRITE } = extension.import('core').database;
 const svc_database = extension.import('service:database');
 const svc_kvstore = extension.import('service:puter-kvstore');
 
@@ -26,7 +26,7 @@ simplified_kv.set = (...a) => {
 };
 
 extension.exports = {
-    db: svc_database.get(),
+    db: svc_database.get(DB_WRITE, 'extensions'),
     kv: simplified_kv,
-    cache: redisClient,
+    cache: kv,
 };

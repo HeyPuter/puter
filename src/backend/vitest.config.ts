@@ -5,6 +5,7 @@ import { defineConfig } from 'vitest/config';
 export default defineConfig(({ mode }) => ({
     test: {
         globals: true,
+        setupFiles: ['./vitest.setup.js'],
         coverage: {
             provider: 'v8',
             reporter: ['text', 'json', 'json-summary', 'html', 'lcov'],

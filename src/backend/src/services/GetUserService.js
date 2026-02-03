@@ -16,8 +16,7 @@
  * You should have received a copy of the GNU Affero General Public License
  * along with this program.  If not, see <https://www.gnu.org/licenses/>.
  */
-const { redisClient } = require('../clients/redis/redisSingleton');
-const { UserActorType } = require('./auth/Actor');
+const { Actor, UserActorType } = require('./auth/Actor');
 const { PermissionImplicator } = require('./auth/permissionUtils.mjs');
 const BaseService = require('./BaseService');
 const { DB_READ } = require('./database/consts');
@@ -118,15 +117,9 @@ class GetUserService extends BaseService {
 
         if ( cached && !options.force ) {
             for ( const prop of this.id_properties ) {
-                if ( Object.prototype.hasOwnProperty.call(options, prop) ) {
-                    const cached_user = await redisClient.get(`users:${prop}:${options[prop]}`);
-                    if ( cached_user ) {
-                        try {
-                            return JSON.parse(cached_user);
-                        } catch (e) {
-                            // no-op cache in invalid state
-                        }
-                    }
+                if ( options.hasOwnProperty(prop) ) {
+                    const user = globalThis.kv?.get(`users:${prop}:${options[prop]}`);
+                    if ( user ) return user;
                 }
             }
         }
@@ -135,7 +128,7 @@ class GetUserService extends BaseService {
 
         if ( ! options.force ) {
             for ( const prop of this.id_properties ) {
-                if ( Object.prototype.hasOwnProperty.call(options, prop) ) {
+                if ( options.hasOwnProperty(prop) ) {
                     [user] = await db.read(`SELECT * FROM \`user\` WHERE \`${prop}\` = ? LIMIT 1`, [options[prop]]);
                     if ( user ) break;
                 }
@@ -144,7 +137,7 @@ class GetUserService extends BaseService {
 
         if ( !user || !user[0] ) {
             for ( const prop of this.id_properties ) {
-                if ( Object.prototype.hasOwnProperty.call(options, prop) ) {
+                if ( options.hasOwnProperty(prop) ) {
                     [user] = await db.pread(`SELECT * FROM \`user\` WHERE \`${prop}\` = ? LIMIT 1`, [options[prop]]);
                     if ( user ) break;
                 }
@@ -154,15 +147,10 @@ class GetUserService extends BaseService {
         if ( ! user ) return null;
 
         try {
-            const cached_user = JSON.stringify(user);
-            const cache_sets = [];
             for ( const prop of this.id_properties ) {
                 if ( user[prop] ) {
-                    cache_sets.push(redisClient.set(`users:${prop}:${user[prop]}`, cached_user));
+                    globalThis.kv?.set(`users:${prop}:${user[prop]}`, user);
                 }
-            }
-            if ( cache_sets.length ) {
-                await Promise.all(cache_sets);
             }
         } catch ( e ) {
             console.error(e);

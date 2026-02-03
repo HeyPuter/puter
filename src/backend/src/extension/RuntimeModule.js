@@ -20,7 +20,7 @@ class RuntimeModule extends AdvancedBase {
         return this.exports_;
     }
     import (name) {
-        if ( Object.prototype.hasOwnProperty.call(this.remappings, name) ) {
+        if ( this.remappings.hasOwnProperty(name) ) {
             name = this.remappings[name];
         }
         return this.runtimeModuleRegistry.exportsOf(name);

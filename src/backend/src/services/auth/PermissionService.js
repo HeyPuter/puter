@@ -28,7 +28,6 @@ const { UserActorType, Actor, AppUnderUserActorType } = require('./Actor');
 const { PERM_KEY_PREFIX, MANAGE_PERM_PREFIX } = require('./permissionConts.mjs');
 const { PermissionUtil, PermissionExploder, PermissionImplicator, PermissionRewriter } = require('./permissionUtils.mjs');
 const { spanify } = require('../../util/otelutil');
-const { redisClient } = require('../../clients/redis/redisSingleton');
 
 /**
 * @class PermissionService
@@ -41,6 +40,10 @@ const { redisClient } = require('../../clients/redis/redisSingleton');
 * This service interacts with the database to manage permissions and logs actions for auditing purposes.
 */
 class PermissionService extends BaseService {
+    static MODULES = {
+        memKVMap: globalThis.kv,
+    };
+
     static CONCERN = 'permissions';
     /**
     * Initializes the PermissionService by setting up internal arrays for permission handling.
@@ -201,13 +204,9 @@ class PermissionService extends BaseService {
                         'options-list',
                         ...permission_options);
 
-        const cached = await redisClient.get(cache_str);
+        const cached = this.modules.memKVMap.get(cache_str);
         if ( cached && !scan_options.no_cache ) {
-            try {
-                return JSON.parse(cached);
-            } catch (e) {
-                // no op cache is in an invalid state
-            }
+            return cached;
         }
 
         // TODO: command to enable these logs
@@ -232,7 +231,7 @@ class PermissionService extends BaseService {
             value: end_ts - start_ts,
         });
 
-        await redisClient.set(cache_str, JSON.stringify(reading), 'EX', 20);
+        this.modules.memKVMap.set(cache_str, reading, { EX: 20 });
 
         return reading;
     }
