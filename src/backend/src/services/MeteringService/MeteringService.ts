@@ -566,7 +566,7 @@ export class MeteringService {
         ]);
 
         const defaultSubscriptionId = defaultSubscriptionEvent.defaultSubscriptionId as unknown as (typeof SUB_POLICIES)[number]['id'] || defaultUserSubscriptionId;
-        const availablePolicies = [ ...availablePoliciesEvent.availablePolicies, ...SUB_POLICIES ];
+        const availablePolicies = [...availablePoliciesEvent.availablePolicies, ...SUB_POLICIES];
         const userSubscriptionId = userSubscriptionEvent.userSubscriptionId as unknown as typeof SUB_POLICIES[number]['id'] || defaultSubscriptionId;
 
         return availablePolicies.find(({ id }) => id === userSubscriptionId) || availablePolicies.find(({ id }) => id === defaultSubscriptionId)!;

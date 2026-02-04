@@ -59,6 +59,13 @@ export const rules = {
     'no-use-before-define': ['error', {
         'functions': false,
     }],
+    '@stylistic/array-bracket-spacing': ['error', 'never'],
+    '@stylistic/linebreak-style': ['error', 'unix'],
+    'no-sequences': [
+        'error', {
+            allowInParentheses: false,
+        },
+    ],
 };
 
 const tsRules = {
