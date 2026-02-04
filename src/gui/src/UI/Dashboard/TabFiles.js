@@ -1441,15 +1441,17 @@ const TabFiles = {
         $('.files-tab .files').html('');
 
         if ( directoryContents.length === 0 ) {
-            $('.files-tab .files').append(`<div class="row">
-                <div class="item-icon"></div>
-                <div class="item-name">No files in this directory.</div>
-                <div class="col-spacer"></div>
-                <div class="item-size"></div>
-                <div class="col-spacer"></div>
-                <div class="item-modified"></div>
-                <div class="col-spacer"></div>
-                <div class="item-more"></div>
+            $('.files-tab .files').append(`<div style="
+                display: flex;
+                justify-content: center;
+                align-items: center;
+                position: absolute;
+                top: 0;
+                left: 0;
+                right: 0;
+                bottom: 0;            
+            ">
+                No files in this directory.
             `);
             this.updateFooterStats();
             this.updateNavButtonStates();
