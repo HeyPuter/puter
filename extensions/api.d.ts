@@ -13,6 +13,7 @@ import type { SUService } from '@heyputer/backend/src/services/SUService.js';
 import type { IUser } from '@heyputer/backend/src/services/User.js';
 import type { UserService } from '@heyputer/backend/src/services/UserService.d.ts';
 import type { Context } from '@heyputer/backend/src/util/context.js';
+import type kvjs from '@heyputer/kv.js';
 import type { RequestHandler } from 'express';
 import type { Cluster } from 'ioredis';
 import type FSNodeContext from '../src/backend/src/filesystem/FSNodeContext.js';
@@ -82,6 +83,7 @@ interface CoreRuntimeModule {
         helpers: typeof helpers;
     };
     redisClient: Cluster;
+    kvjs: kvjs
     Context: typeof Context;
     APIError: typeof APIError;
 }

@@ -245,6 +245,10 @@ class WebDAVService extends BaseService {
              * @param {import("express").Response} res
              */
             handler: async ( req, res ) => {
+                if ( req.method === 'OPTIONS' ) {
+                    this.handleWebDavServer('/', req, res);
+                    return;
+                }
                 const svc_su = this.services.get('su');
                 let actor = await this.handleHttpBasicAuth(req.actor, req, res);
                 if ( ! actor ) {

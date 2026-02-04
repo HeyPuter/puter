@@ -72,6 +72,10 @@ key-value store, and in-memory cache.
 ### Adding Features to Puter
 - [Implementing Drivers](./pages/drivers.md)
 
+### Bundled extensions
+
+- **dev-console** – When `DEVCONSOLE=1` is set (e.g. `npm run dev`), the dev-console extension registers a UNIX socket (`dev.sock`) so you can run backend commands (see [CommandService](../../src/services/CommandService.js)) from a terminal. See [Backend – dev socket](../dev_socket.md).
+
 ## Extensions - Planned Features
 
 Extensions are under refactor currently. This is the checklist:

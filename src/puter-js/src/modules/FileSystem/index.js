@@ -1,6 +1,6 @@
+import path from '../../lib/path.js';
 import io from '../../lib/socket.io/socket.io.esm.min.js';
 import * as utils from '../../lib/utils.js';
-import path from '../../lib/path.js';
 
 // Constants
 //
@@ -8,21 +8,22 @@ import path from '../../lib/path.js';
 const LAST_VALID_TS = 'last_valid_ts';
 
 // Operations
+import FSItem from '../FSItem.js';
 import copy from './operations/copy.js';
+import deleteFSEntry from './operations/deleteFSEntry.js';
+import getReadURL from './operations/getReadUrl.js';
 import mkdir from './operations/mkdir.js';
 import move from './operations/move.js';
 import read from './operations/read.js';
 import readdir from './operations/readdir.js';
 import rename from './operations/rename.js';
+import revokeReadURL from './operations/revokeReadUrl.js';
 import sign from './operations/sign.js';
 import space from './operations/space.js';
 import stat from './operations/stat.js';
 import symlink from './operations/symlink.js';
 import upload from './operations/upload.js';
 import write from './operations/write.js';
-import FSItem from '../FSItem.js';
-import deleteFSEntry from './operations/deleteFSEntry.js';
-import getReadURL from './operations/getReadUrl.js';
 
 export class PuterJSFileSystemModule {
 
@@ -40,6 +41,7 @@ export class PuterJSFileSystemModule {
     sign = sign;
     symlink = symlink;
     getReadURL = getReadURL;
+    revokeReadURL = revokeReadURL;
     readdir = readdir;
     stat = stat;
 

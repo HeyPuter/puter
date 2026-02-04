@@ -372,11 +372,24 @@ export class AIChatService extends BaseService {
         const text = extract_text(parameters.messages);
         const approximateTokenCount = Math.floor(((text.length / 4) + (text.split(/\s+/).length * (4 / 3))) / 2); // see https://help.openai.com/en/articles/4936856-what-are-tokens-and-how-to-count-them
         const approximateInputCost = approximateTokenCount * inputTokenCost;
-        const usageAllowed = await this.meteringService.hasEnoughCredits(actor, approximateInputCost);
+        const minimumCredits = model.minimumCredits || 0;
+        const usageAllowed = await this.meteringService.hasEnoughCredits(actor, Math.max(approximateInputCost, minimumCredits));
 
         // Handle usage limits reached case
         if ( ! usageAllowed ) {
             model = usageLimitedModel;
+        }
+
+        // block non subscriber only models for non-subscribers
+        if ( model.subscriberOnly ) {
+            const eventObject = { actor, userSubscriptionId: '' };
+            await this.eventService.emit('metering:getUserSubscription', eventObject);
+            if ( ! eventObject.userSubscriptionId ) {
+                //TODO DS: register checker events when we add more of these exclusions
+                throw APIError.create('permission_denied', undefined, {
+                    message: `The model ${model.id} is only available to subscribers. Please subscribe to access this model.`,
+                });
+            }
         }
 
         const availableCredits = await this.meteringService.getRemainingUsage(actor);

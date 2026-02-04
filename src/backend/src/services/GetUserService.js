@@ -90,11 +90,47 @@ class GetUserService extends BaseService {
      * @returns {Promise<Object|null>} The user object if found, else null.
      */
     async get_user (options) {
-        const user = await this.get_user_(options);
+        const cached = options.cached ?? true;
+
+        let user;
+        if ( cached && !options.force ) {
+            for ( const prop of this.id_properties ) {
+                if ( Object.prototype.hasOwnProperty.call(options, prop) ) {
+                    const cached_user = await redisClient.get(`users:${prop}:${options[prop]}`);
+                    if ( cached_user ) {
+                        try {
+                            user = JSON.parse(cached_user);
+                        } catch (e) {
+                            console.warn(e);
+                            // no-op cache in invalid state
+                        }
+                    }
+                }
+            }
+        }
+        if ( ! user ) {
+            user = await this.get_user_(options);
+        }
         if ( ! user ) return null;
 
         const svc_whoami = this.services.get('whoami');
         await svc_whoami.get_details({ user }, user);
+
+        try {
+            const cached_user = JSON.stringify(user);
+            const cache_sets = [];
+            for ( const prop of this.id_properties ) {
+                if ( user[prop] ) {
+                    cache_sets.push(redisClient.set(`users:${prop}:${user[prop]}`, cached_user));
+                }
+            }
+            if ( cache_sets.length ) {
+                await Promise.all(cache_sets);
+            }
+        } catch ( e ) {
+            console.error(e);
+        }
+
         return user;
     }
 
@@ -113,23 +149,6 @@ class GetUserService extends BaseService {
 
         /** @type BaseDatabaseAccessService */
         const db = services.get('database').get(DB_READ, 'filesystem');
-
-        const cached = options.cached ?? true;
-
-        if ( cached && !options.force ) {
-            for ( const prop of this.id_properties ) {
-                if ( Object.prototype.hasOwnProperty.call(options, prop) ) {
-                    const cached_user = await redisClient.get(`users:${prop}:${options[prop]}`);
-                    if ( cached_user ) {
-                        try {
-                            return JSON.parse(cached_user);
-                        } catch (e) {
-                            // no-op cache in invalid state
-                        }
-                    }
-                }
-            }
-        }
 
         let user;
 
@@ -153,20 +172,6 @@ class GetUserService extends BaseService {
 
         if ( ! user ) return null;
 
-        try {
-            const cached_user = JSON.stringify(user);
-            const cache_sets = [];
-            for ( const prop of this.id_properties ) {
-                if ( user[prop] ) {
-                    cache_sets.push(redisClient.set(`users:${prop}:${user[prop]}`, cached_user));
-                }
-            }
-            if ( cache_sets.length ) {
-                await Promise.all(cache_sets);
-            }
-        } catch ( e ) {
-            console.error(e);
-        }
         if ( user.metadata && typeof user.metadata === 'string' ) {
             user.metadata = JSON.parse(user.metadata);
         } else if ( ! user.metadata ) {

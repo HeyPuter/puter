@@ -80,6 +80,19 @@ export const PermissionUtil =  {
     },
 
     /**
+     * Glob pattern for permission-scan cache keys belonging to a given access token.
+     * Cache keys are built as join('permission-scan', actor.uid, 'options-list', ...);
+     * for access tokens, actor.uid ends with ':' + token_uid (token_uid is not escaped).
+     * Use with kv.keys() to list only entries for that token when invalidating.
+     *
+     * @param {string} token_uid - The access token UUID.
+     * @returns {string} A glob pattern matching only that token's permission-scan cache keys.
+     */
+    permission_scan_cache_pattern_for_access_token (token_uid) {
+        return `permission-scan:*${token_uid}:options-list:*`;
+    },
+
+    /**
      * Converts a permission reading structure into an array of option objects.
      * Recursively traverses the reading tree to collect all options with their associated path and data.
      * @param {Array<Object>} reading - The permission reading structure to convert.

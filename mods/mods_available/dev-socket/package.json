@@ -1,0 +1,8 @@
+{
+  "name": "@heyputer/extension-dev-console",
+  "version": "1.0.0",
+  "description": "Dev socket for running backend commands locally (opt-in via DEVCONSOLE=1)",
+  "main": "main.js",
+  "type": "module",
+  "private": true
+}

@@ -30,6 +30,7 @@ const { OperationFrame } = require('./services/OperationTraceService');
 const opentelemetry = require('@opentelemetry/api');
 const query = require('./om/query/query');
 const { redisClient } = require('./clients/redis/redisSingleton');
+const { kv } = require('./util/kvSingleton');
 
 /**
  * @footgun - real install method is defined above
@@ -83,6 +84,7 @@ const install = async ({ context, services, app, useapi, modapi }) => {
         def('core.database', require('./services/database/consts.js'));
 
         def('core.redisClient', redisClient);
+        def('core.kvjs', kv);
 
         // Add otelutil functions to `core.`
         def('core.spanify', require('./util/otelutil').spanify);
