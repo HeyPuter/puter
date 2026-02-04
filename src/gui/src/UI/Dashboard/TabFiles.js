@@ -712,7 +712,8 @@ const TabFiles = {
 
         // Position centered over the files container
         $popover.css({
-            maxWidth: `${containerWidth}px`,
+            maxWidth: `${containerWidth - 40}px`,
+            width: '100%',
             left: `${containerOffset.left + (containerWidth / 2)}px`,
             top: `${containerOffset.top + ($filesContainer.height() / 2)}px`,
             transform: 'translate(-50%, -50%)',
