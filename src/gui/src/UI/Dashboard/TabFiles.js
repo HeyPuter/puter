@@ -2749,10 +2749,7 @@ const TabFiles = {
                 return false;
             }
 
-            selection_area = document.createElement('div');
-            $(filesContainer).append(selection_area);
-            $(selection_area).addClass('tabfiles-selection-area');
-
+            // Capture starting position (element created later in 'start' event)
             const scrollLeft = $(filesContainer).scrollLeft();
             const scrollTop = $(filesContainer).scrollTop();
             const containerRect = filesContainer.getBoundingClientRect();
@@ -2769,16 +2766,6 @@ const TabFiles = {
             selection_area_start_x = relativeX;
             selection_area_start_y = relativeY;
 
-            $(selection_area).css({
-                position: 'absolute',
-                top: relativeY,
-                left: relativeX,
-                width: 0,
-                height: 0,
-                zIndex: 1000,
-                display: 'block',
-            });
-
             return true;
         });
 
@@ -2789,9 +2776,26 @@ const TabFiles = {
                 }
                 selection.clearSelection();
             }
+
+            // Create selection area element only when drag actually starts (after threshold)
+            selection_area = document.createElement('div');
+            $(filesContainer).append(selection_area);
+            $(selection_area).addClass('tabfiles-selection-area');
+            $(selection_area).css({
+                position: 'absolute',
+                top: selection_area_start_y,
+                left: selection_area_start_x,
+                width: 0,
+                height: 0,
+                zIndex: 1000,
+                display: 'block',
+            });
         });
 
         selection.on('move', ({ store: { changed: { added, removed } }, event }) => {
+            // Skip if no event (can happen during programmatic moves)
+            if ( ! event ) return;
+
             const scrollLeft = $(filesContainer).scrollLeft();
             const scrollTop = $(filesContainer).scrollTop();
             const containerRect = filesContainer.getBoundingClientRect();
