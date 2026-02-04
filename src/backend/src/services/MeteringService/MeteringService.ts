@@ -8,6 +8,7 @@ import { DEFAULT_FREE_SUBSCRIPTION, DEFAULT_TEMP_SUBSCRIPTION, GLOBAL_APP_KEY, M
 import { COST_MAPS } from './costMaps/index.js';
 import { SUB_POLICIES } from './subPolicies/index.js';
 import { AppTotals, MeteringServiceDeps, UsageAddons, UsageByType, UsageRecord } from './types.js';
+import { toMicroCents } from './utils.js';
 /**
  * Handles usage metering and supports stubbs for billing methods for current scoped actor
  */
@@ -15,6 +16,7 @@ export class MeteringService {
 
     static GLOBAL_SHARD_COUNT = 1000; // number of global usage shards to spread writes across
     static APP_SHARD_COUNT = 1000; // number of app usage shards to spread writes across
+    static MAX_GLOBAL_USAGE_PER_MINUTE = toMicroCents(.2); // 20 cents per minute max global usage to help detect abuse
     #kvStore: DynamoKVStore;
     #superUserService: SUService;
     #alarmService: AlarmService;
@@ -24,6 +26,9 @@ export class MeteringService {
         this.#kvStore = kvStore;
         this.#alarmService = alarmService;
         this.#eventService = eventService;
+        setInterval(() => {
+            this.#checkRateOfChange();
+        }, 1000 * 60 * 5); // check every 5 minutes
     }
 
     utilRecordUsageObject<T extends Record<string, number>>(trackedUsageObject: T, actor: Actor, modelPrefix: string, costsOverrides?: Partial<Record<keyof T, number>>) {
@@ -640,5 +645,38 @@ export class MeteringService {
                 },
             });
         });
+    }
+
+    async #checkRateOfChange () {
+        const globalUsage = await this.getGlobalUsage();
+        const now = Date.now();
+        const lastChange = await this.#superUserService.sudo(async () => {
+            return this.#kvStore.get({ key: `${METRICS_PREFIX}:lastGlobalUsageCheck` }) as Promise<{ total: number, timestamp: number } | null>;
+        });
+
+        const currTotal = globalUsage.total;
+
+        if ( lastChange ) {
+            const timeDelta = now - lastChange.timestamp;
+            const usageDelta = currTotal - lastChange.total;
+            const usagePerMinute = (usageDelta / (timeDelta / 60000));
+
+            if ( usagePerMinute > MeteringService.MAX_GLOBAL_USAGE_PER_MINUTE ) {
+                this.#alarmService.create('metering:excessiveGlobalUsageRate', `Global usage rate is excessive: ${usagePerMinute} micro-cents per minute`, {
+                    usagePerMinute,
+                    maxAllowedPerMinute: MeteringService.MAX_GLOBAL_USAGE_PER_MINUTE,
+                });
+            }
+        }
+        await this.#superUserService.sudo(async () => {
+            await this.#kvStore.set({
+                key: `${METRICS_PREFIX}:lastGlobalUsageCheck`,
+                value: {
+                    total: currTotal,
+                    timestamp: now,
+                },
+            });
+        });
+
     }
 }
