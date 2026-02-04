@@ -202,6 +202,7 @@ const en = {
         no_dir_associated_with_site: 'No directory associated with this address.',
         no_websites_published: 'You have not published any websites yet. Right click on a folder to get started.',
         ok: 'OK',
+        or: 'or',
         open: 'Open',
         new_window: 'New Window',
         open_in_ai: 'Open in AI',
@@ -481,6 +482,8 @@ const en = {
 
         // Signup Window
         'signup_confirm_password': 'Confirm Password',
+        sign_in_with_google: 'Sign in with Google',
+        sign_up_with_google: 'Sign up with Google',
 
         // Login Window
         'login_email_username_required': 'Email or username is required',

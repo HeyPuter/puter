@@ -17,17 +17,17 @@
  * along with this program.  If not, see <https://www.gnu.org/licenses/>.
  */
 
-import UIWindow from './UIWindow.js';
-import UIWindowSignup from './UIWindowSignup.js';
-import UIWindowRecoverPassword from './UIWindowRecoverPassword.js';
 import TeePromise from '../util/TeePromise.js';
-import UIComponentWindow from './UIComponentWindow.js';
-import Flexer from './Components/Flexer.js';
-import CodeEntryView from './Components/CodeEntryView.js';
-import JustHTML from './Components/JustHTML.js';
-import StepView from './Components/StepView.js';
 import Button from './Components/Button.js';
+import CodeEntryView from './Components/CodeEntryView.js';
+import Flexer from './Components/Flexer.js';
+import JustHTML from './Components/JustHTML.js';
 import RecoveryCodeEntryView from './Components/RecoveryCodeEntryView.js';
+import StepView from './Components/StepView.js';
+import UIComponentWindow from './UIComponentWindow.js';
+import UIWindow from './UIWindow.js';
+import UIWindowRecoverPassword from './UIWindowRecoverPassword.js';
+import UIWindowSignup from './UIWindowSignup.js';
 
 async function UIWindowLogin (options) {
     options = options ?? {};
@@ -83,6 +83,10 @@ async function UIWindowLogin (options) {
         // password recovery
         h += `<p style="text-align:center; margin-bottom: 0;"><span class="forgot-password-link">${i18n('forgot_pass_c2a')}</span></p>`;
         h += '</form>';
+        h += '<div class="oidc-providers-wrapper" style="display:none; padding: 0 0 10px 0;">';
+        h += `<div style="text-align:center; margin: 10px 0; font-size:13px; color:var(--color-text-muted);">${ i18n('or') }</div>`;
+        h += `<button type="button" class="oidc-google-btn button button-block button-normal" style="display:flex; align-items:center; justify-content:center; gap:8px;">${i18n('sign_in_with_google')}</button>`;
+        h += '</div>';
         h += '</div>';
         // create account link
 
@@ -147,6 +151,23 @@ async function UIWindowLogin (options) {
                 },
             });
         });
+
+        (async () => {
+            try {
+                const origin = window.gui_origin || window.location.origin;
+                const res = await fetch(`${origin}/auth/oidc/providers`);
+                if ( ! res.ok ) return;
+                const data = await res.json();
+                if ( data.providers && data.providers.includes('google') ) {
+                    $(el_window).find('.oidc-providers-wrapper').show();
+                    $(el_window).find('.oidc-google-btn').on('click', function () {
+                        const redirectUri = encodeURIComponent(window.location.origin + (window.location.pathname || '/'));
+                        window.location.href = `${origin}/auth/oidc/google/start?redirect_uri=${redirectUri}`;
+                    });
+                }
+            } catch (_) {
+            }
+        })();
 
         $(el_window).find('.login-btn').on('click', function (e) {
             // Prevent default button behavior (important for async requests)

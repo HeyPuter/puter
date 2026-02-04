@@ -627,7 +627,7 @@ class WebServerService extends BaseService {
                 req.co_isolation_enabled
                 ;
 
-            if ( req.path === '/signup' || req.path === '/login' || req.path.startsWith('/extensions/') ) {
+            if ( req.path === '/signup' || req.path === '/login' || req.path.startsWith('/extensions/') || req.path.startsWith('/auth/oidc') ) {
                 res.setHeader('Access-Control-Allow-Origin', origin ?? '*');
             }
             // Website(s) to allow to connect

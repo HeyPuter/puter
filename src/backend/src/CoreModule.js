@@ -269,6 +269,9 @@ const install = async ({ context, services, app, useapi, modapi }) => {
     const { OTPService } = require('./services/auth/OTPService');
     services.registerService('otp', OTPService);
 
+    const { OIDCService } = require('./services/auth/OIDCService');
+    services.registerService('oidc', OIDCService);
+
     const { UserProtectedEndpointsService } = require('./services/web/UserProtectedEndpointsService');
     services.registerService('__user-protected-endpoints', UserProtectedEndpointsService);
 
