@@ -93,7 +93,7 @@ class DefaultUserService extends BaseService {
         const realConsole = globalThis.original_console_object ?? console;
         realConsole.log('\n************************************************************');
         realConsole.log('* Your default login credentials are:');
-        realConsole.log(`* Username: admin`);
+        realConsole.log('* Username: admin');
         realConsole.log(`* Password: ${tmp_password}`);
         realConsole.log('* (change the password to remove this message)');
         realConsole.log('************************************************************\n');

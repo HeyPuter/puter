@@ -239,8 +239,9 @@ class SessionService extends BaseService {
                 try {
                     const user = JSON.parse(cached_user);
                     user.last_activity_ts = sql_ts;
-                    await redisClient.set(`users:id:${ user_id}`, JSON.stringify(user));
+                    await redisClient.set(`users:id:${user_id}`, JSON.stringify(user));
                 } catch ( e ) {
+                    console.warn(e);
                     // ignore malformed cache entries
                 }
             }

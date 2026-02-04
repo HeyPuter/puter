@@ -707,6 +707,7 @@ class AppInformationService extends BaseService {
                 try {
                     app = JSON.parse(cached_app);
                 } catch (e) {
+                    console.warn(e);
                     // no-op cache in invalid state
                 }
             }

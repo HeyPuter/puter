@@ -19,7 +19,7 @@
 'use strict';
 const express = require('express');
 const router = new express.Router();
-const { get_user, body_parser_error_handler } = require('../helpers');
+const { get_user, body_parser_error_handler, invalidate_cached_user } = require('../helpers');
 const config = require('../config');
 const { DB_WRITE } = require('../services/database/consts');
 const { requireCaptcha } = require('../modules/captcha/middleware/captcha-middleware');
@@ -311,6 +311,7 @@ router.post('/login/recovery-code', express.json(), body_parser_error_handler, r
     await db.write('UPDATE user SET otp_recovery_codes = ? WHERE uuid = ?',
                     [codes.join(','), user.uuid]);
     user.otp_recovery_codes = codes.join(',');
+    invalidate_cached_user(user);
 
     return await complete_({ req, res, user });
 });
