@@ -366,10 +366,17 @@ class AppES extends BaseES {
             }
 
             const hosting_domain = config.static_hosting_domain?.toLowerCase();
+            const hosting_domain_alt = config.static_hosting_domain_alt?.toLowerCase();
             if ( ! hosting_domain ) return;
 
             const suffix = `.${hosting_domain}`;
-            if ( ! hostname.endsWith(suffix) ) return;
+            const suffix2 = `.${hosting_domain_alt}`;
+            if (
+                !hostname.endsWith(suffix) &&
+                !(hosting_domain_alt && hostname.endsWith(suffix2))
+            ) {
+                return;
+            }
 
             const subdomain = hostname.slice(0, hostname.length - suffix.length);
             if ( ! subdomain ) return;
