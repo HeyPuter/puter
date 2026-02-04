@@ -134,6 +134,11 @@ async function UIDashboard (options) {
 
     const $el_window = $(el_window);
 
+    // Set initial file path BEFORE tabs are initialized (so TabFiles.init() can use it)
+    if ( window.dashboard_initial_route?.tab === 'files' && window.dashboard_initial_route?.path ) {
+        window.dashboard_initial_file_path = window.dashboard_initial_route.path;
+    }
+
     // Initialize all tabs
     for ( const tab of tabs ) {
         if ( tab.init ) {
@@ -143,6 +148,72 @@ async function UIDashboard (options) {
 
     // Dispatch 'dashboard-ready' event for extensions
     window.dispatchEvent(new CustomEvent('dashboard-ready', { detail: { window: $el_window } }));
+
+    // Apply initial route from URL - activate the correct tab
+    if ( window.dashboard_initial_route ) {
+        const route = window.dashboard_initial_route;
+
+        // Activate the correct tab if not home
+        if ( route.tab && route.tab !== 'home' ) {
+            const tabId = route.tab;
+            const $targetTab = $el_window.find(`.dashboard-sidebar-item[data-section="${tabId}"]`);
+
+            // Only switch if the tab exists
+            if ( $targetTab.length > 0 ) {
+                $el_window.find('.dashboard-sidebar-item').removeClass('active');
+                $targetTab.addClass('active');
+                $el_window.find('.dashboard-section').removeClass('active');
+                $el_window.find(`.dashboard-section[data-section="${tabId}"]`).addClass('active');
+
+                document.querySelector('.dashboard-content').setAttribute('class', 'dashboard-content');
+                document.querySelector('.dashboard-content').classList.add(tabId);
+
+                // Call onActivate if exists
+                const tab = tabs.find(t => t.id === tabId);
+                if ( tab?.onActivate ) {
+                    tab.onActivate($el_window);
+                }
+            }
+        }
+    }
+
+    // Handle browser back/forward navigation
+    // This handler is called for both hashchange (manual hash changes) and popstate (back/forward)
+    const handleRouteChange = () => {
+        const route = window.parseDashboardRoute();
+        const tab = route.tab;
+        const filePath = route.path;
+
+        // Switch to correct tab
+        const $targetTab = $el_window.find(`.dashboard-sidebar-item[data-section="${tab}"]`);
+        if ( tab === 'home' ) {
+            // Home tab
+            $el_window.find('.dashboard-sidebar-item').removeClass('active');
+            $el_window.find('.dashboard-sidebar-item').first().addClass('active');
+            $el_window.find('.dashboard-section').removeClass('active');
+            $el_window.find('.dashboard-section').first().addClass('active');
+            document.querySelector('.dashboard-content').setAttribute('class', 'dashboard-content');
+        } else if ( $targetTab.length > 0 ) {
+            $el_window.find('.dashboard-sidebar-item').removeClass('active');
+            $targetTab.addClass('active');
+            $el_window.find('.dashboard-section').removeClass('active');
+            $el_window.find(`.dashboard-section[data-section="${tab}"]`).addClass('active');
+            document.querySelector('.dashboard-content').setAttribute('class', 'dashboard-content');
+            document.querySelector('.dashboard-content').classList.add(tab);
+        }
+
+        // If files tab with path, navigate without adding to history
+        if ( tab === 'files' && filePath ) {
+            const filesTab = tabs.find(t => t.id === 'files');
+            if ( filesTab?.renderDirectory ) {
+                filesTab.renderDirectory(filePath, { skipUrlUpdate: true, skipNavHistory: true });
+            }
+        }
+    };
+
+    // Listen for both hashchange and popstate to handle all navigation scenarios
+    window.addEventListener('hashchange', handleRouteChange);
+    window.addEventListener('popstate', handleRouteChange);
 
     // Sidebar item click handler
     $el_window.on('click', '.dashboard-sidebar-item', function () {
@@ -165,6 +236,13 @@ async function UIDashboard (options) {
 
         document.querySelector('.dashboard-content').setAttribute('class', 'dashboard-content');
         document.querySelector('.dashboard-content').classList.add(section);
+
+        // Update hash to reflect current tab
+        // Note: Files tab updates its own hash with full path via onActivate, so skip it here
+        if ( section !== 'files' ) {
+            const newHash = section === 'home' ? '' : section;
+            history.replaceState(null, '', newHash ? `#${newHash}` : window.location.pathname);
+        }
 
         // Close sidebar on mobile after selection
         $el_window.find('.dashboard-sidebar').removeClass('open');

@@ -373,14 +373,36 @@ const TabFiles = {
             this.$el_window.find('.view-toggle-btn').html(icons.grid);
         }
 
-        // Auto-select Documents folder on initialization
-        const documentsFolder = $el_window.find('[data-folder="Documents"]');
-        if ( documentsFolder.length ) {
-            documentsFolder.trigger('click');
+        // Check for initial file path from URL routing
+        if ( window.dashboard_initial_file_path ) {
+            const initialPath = window.dashboard_initial_file_path;
+            delete window.dashboard_initial_file_path; // Clear so it only runs once
+            this.pushNavHistory(initialPath);
+            this.renderDirectory(initialPath, { skipUrlUpdate: true });
+        } else {
+            // Auto-select Documents folder on initialization
+            const documentsFolder = $el_window.find('[data-folder="Documents"]');
+            if ( documentsFolder.length ) {
+                documentsFolder.trigger('click');
+            }
         }
 
         // Setup keyboard shortcuts
         this.setupKeyboardShortcuts();
+    },
+
+    /**
+     * Called when the Files tab becomes active.
+     * Updates the URL hash to reflect the current file path.
+     *
+     * @param {jQuery} _$el_window - The jQuery-wrapped window/container element (unused)
+     * @returns {void}
+     */
+    onActivate (_$el_window) {
+        // Update URL to show current path when Files tab becomes active
+        if ( this.currentPath && window.is_dashboard_mode ) {
+            this.updateDashboardUrl(this.currentPath);
+        }
     },
 
     /**
@@ -1388,9 +1410,12 @@ const TabFiles = {
      * and updates navigation UI elements.
      *
      * @param {string} uid - The UID or path of the directory to render
+     * @param {Object} [options] - Optional settings
+     * @param {boolean} [options.skipUrlUpdate] - If true, don't update browser URL
+     * @param {boolean} [options.skipNavHistory] - If true, don't add to navigation history
      * @returns {Promise<void>}
      */
-    async renderDirectory (uid) {
+    async renderDirectory (uid, options = {}) {
         this.selectedFolderUid = uid;
         const _this = this;
 
@@ -1411,6 +1436,11 @@ const TabFiles = {
         });
 
         this.currentPath = path || uid;
+
+        // Update browser URL to reflect current file path (only when Files tab is active)
+        if ( !options.skipUrlUpdate && window.is_dashboard_mode && this.isDashboardFilesActive() ) {
+            this.updateDashboardUrl(this.currentPath);
+        }
 
         this.updateSidebarSelection();
 
@@ -2366,6 +2396,21 @@ const TabFiles = {
             upBtn.addClass('path-btn-disabled');
         } else {
             upBtn.removeClass('path-btn-disabled');
+        }
+    },
+
+    /**
+     * Updates the browser URL hash to reflect the current file path in Dashboard.
+     *
+     * @param {string} filePath - The current file system path (e.g., /username/Documents)
+     * @returns {void}
+     */
+    updateDashboardUrl (filePath) {
+        // Use direct hash assignment - this fires hashchange event
+        // which enables proper back/forward navigation
+        const newHash = `#files${filePath}`;
+        if ( window.location.hash !== newHash ) {
+            window.location.hash = newHash;
         }
     },
 
