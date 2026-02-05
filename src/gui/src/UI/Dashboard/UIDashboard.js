@@ -63,6 +63,14 @@ const builtinTabs = [
 async function UIDashboard (options) {
     options = options ?? {};
 
+    // Dynamically load dashboard CSS if not already loaded
+    if ( ! document.querySelector('link[href*="dashboard.css"]') ) {
+        const link = document.createElement('link');
+        link.rel = 'stylesheet';
+        link.href = '/css/dashboard.css';
+        document.head.appendChild(link);
+    }
+
     // Create mutable tabs array from built-in tabs
     const tabs = [...builtinTabs];
 
