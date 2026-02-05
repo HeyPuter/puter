@@ -1566,6 +1566,67 @@ const TabFiles = {
                 const items = _this.generateFolderContextMenu(clickedPath);
                 UIContextMenu({ items: items, position: { left: e.pageX, top: e.pageY } });
             });
+
+            // Make breadcrumb items droppable for file/folder moves
+            $(dirnameElement).droppable({
+                accept: '.row',
+                tolerance: 'pointer',
+
+                drop: async function (event, ui) {
+                    const targetPath = $(this).attr('data-path');
+                    const draggedPath = $(ui.draggable).attr('data-path');
+
+                    // Block copying trashed items
+                    if ( event.ctrlKey && draggedPath?.startsWith(`${window.trash_path}/`) ) {
+                        return;
+                    }
+
+                    // Don't drop on current directory
+                    if ( targetPath === _this.currentPath ) {
+                        return;
+                    }
+
+                    ui.helper.data('dropped', true);
+
+                    // Collect all items to move (primary + any selected clones)
+                    const itemsToMove = [ui.draggable[0]];
+                    $('.item-selected-clone').each(function () {
+                        const sourceId = $(this).attr('data-id');
+                        const sourceItem = document.querySelector(`.row[data-id="${sourceId}"]`);
+                        if ( sourceItem ) itemsToMove.push(sourceItem);
+                    });
+
+                    // Perform operation based on modifier keys
+                    if ( event.ctrlKey ) {
+                        await window.copy_items(itemsToMove, targetPath);
+                    } else if ( event.altKey && window.feature_flags?.create_shortcut ) {
+                        for ( const item of itemsToMove ) {
+                            const itemPath = $(item).attr('data-path');
+                            const itemName = itemPath.split('/').pop();
+                            const isDir = $(item).attr('data-is_dir') === '1';
+                            const shortcutTo = $(item).attr('data-shortcut_to') || $(item).attr('data-uid');
+                            const shortcutToPath = $(item).attr('data-shortcut_to_path') || itemPath;
+                            await window.create_shortcut(itemName, isDir, targetPath, null, shortcutTo, shortcutToPath);
+                        }
+                    } else {
+                        await window.move_items(itemsToMove, targetPath);
+                    }
+
+                    setTimeout(() => _this.renderDirectory(_this.selectedFolderUid), 100);
+                },
+
+                over: function (_event, ui) {
+                    if ( $(ui.draggable).hasClass('row') ) {
+                        $(this).addClass('drop-target');
+                    }
+                },
+
+                out: function (_event, ui) {
+                    if ( $(ui.draggable).hasClass('row') ) {
+                        $(this).removeClass('drop-target');
+                    }
+                },
+            });
         });
 
         $('.files-tab .files').html('');

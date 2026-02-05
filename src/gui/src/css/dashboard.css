@@ -586,6 +586,12 @@
     border: 1px solid var(--select-color);
 }
 
+.dashboard-section-files .header .path .dirname.drop-target {
+    color: var(--dashboard-text);
+    background-color: rgba(59, 130, 246, 0.15);
+    border: 1px dashed var(--select-color);
+}
+
 .dashboard-section-files .header .columns {
     display: grid;
     height: 32px;
