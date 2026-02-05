@@ -18,6 +18,13 @@
  */
 
 export const CLAUDE_COST_MAP = {
+    // Claude Opus 4.6
+    'claude:claude-opus-4-6:input_tokens': 500,
+    'claude:claude-opus-4-6:ephemeral_5m_input_tokens': 500 * 1.25,
+    'claude:claude-opus-4-6:ephemeral_1h_input_tokens': 500 * 2,
+    'claude:claude-opus-4-6:cache_read_input_tokens': 500 * 0.1,
+    'claude:claude-opus-4-6:output_tokens': 2500,
+
     // Claude Opus 4.5
     'claude:claude-opus-4-5-20251101:input_tokens': 500,
     'claude:claude-opus-4-5-20251101:ephemeral_5m_input_tokens': 500 * 1.25,
