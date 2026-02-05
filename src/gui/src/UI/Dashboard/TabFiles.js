@@ -1930,7 +1930,15 @@ const TabFiles = {
 
         $(el_item).draggable({
             appendTo: 'body',
-            helper: 'clone',
+            helper: function () {
+                const $clone = $(el_item).clone();
+
+                // Wrap in container structure so CSS selectors match
+                const viewClass = _this.currentView === 'grid' ? 'files-grid-view' : 'files-list-view';
+                const $wrapper = $(`<div class="dashboard-section-files"><div class="files-tab"><div class="files ${viewClass}"></div></div></div>`);
+                $wrapper.find('.files').append($clone);
+                return $wrapper;
+            },
             revert: 'invalid',
             zIndex: 10000,
             scroll: false,
@@ -1951,17 +1959,14 @@ const TabFiles = {
 
                 ui.helper.addClass('selected');
 
-                // Add view-mode class for proper drag ghost styling
-                if ( _this.currentView === 'grid' ) {
-                    ui.helper.addClass('grid-view-drag');
-                }
-
-                $(el_item).siblings('.row.selected')
-                    .clone()
-                    .addClass('item-selected-clone')
-                    .css('position', 'absolute')
-                    .appendTo('body')
-                    .hide();
+                // Clone other selected items with proper container structure
+                const viewClass = _this.currentView === 'grid' ? 'files-grid-view' : 'files-list-view';
+                $(el_item).siblings('.row.selected').each(function () {
+                    const $clone = $(this).clone();
+                    const $wrapper = $(`<div class="dashboard-section-files item-selected-clone"><div class="files-tab"><div class="files ${viewClass}"></div></div></div>`);
+                    $wrapper.find('.files').append($clone);
+                    $wrapper.css('position', 'absolute').appendTo('body').hide();
+                });
 
                 const itemCount = $('.item-selected-clone').length;
                 if ( itemCount > 0 ) {

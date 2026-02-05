@@ -6827,12 +6827,6 @@ html.dark-mode .usage-table-show-less:hover {
     background: var(--select-color);
 }
 
-.dashboard-section-files .files-tab .files.files-grid-view .row.ui-draggable-dragging {
-    width: 180px;
-    display: flex;
-    flex-direction: column;
-}
-
 .dashboard-section-files .more-btn {
     background: none;
     border: none;
