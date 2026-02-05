@@ -6299,7 +6299,7 @@ html.dark-mode .usage-table-show-less:hover {
 }
 
 .row.ui-draggable-dragging {
-    opacity: 0.8;
+    /* opacity: 0.8; */
     background-color: var(--select-color);
     color: var(--dashboard-background);
     border-radius: 3px;
@@ -6313,14 +6313,14 @@ html.dark-mode .usage-table-show-less:hover {
     height: 32px;
 }
 
-.ui-draggable-dragging.row .item-name-wrapper {
+.row.ui-draggable-dragging .item-name-wrapper {
     display: flex;
     align-items: center;
     overflow: hidden;
     min-width: 0;
 }
 
-.ui-draggable-dragging.row .item-icon {
+.row.ui-draggable-dragging .item-icon {
     width: 24px;
     height: 24px;
     padding: 0;
@@ -6328,13 +6328,13 @@ html.dark-mode .usage-table-show-less:hover {
     border-radius: 2px;
 }
 
-.ui-draggable-dragging.row .item-icon img {
+.row.ui-draggable-dragging .item-icon img {
     width: 18px;
     height: 18px;
     object-fit: cover;
 }
 
-.ui-draggable-dragging.row .item-name {
+.row.ui-draggable-dragging .item-name {
     text-overflow: ellipsis;
     white-space: nowrap;
     overflow: hidden;
@@ -6349,12 +6349,56 @@ html.dark-mode .usage-table-show-less:hover {
     line-height: 32px;
 }
 
-.ui-draggable-dragging.row .item-size {
+.row.ui-draggable-dragging .item-size {
     font-size: 12px;
 }
 
-.ui-draggable-dragging.row .item-modified {
+.row.ui-draggable-dragging .item-modified {
     font-size: 12px;
+}
+
+/* Grid view drag ghost styling - uses class added by JS since helper is appended to body */
+.row.ui-draggable-dragging.grid-view-drag {
+    width: inherit;
+    min-width: unset;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    height: auto;
+    grid-template-columns: unset;
+    padding: 12px;
+    gap: 8px;
+    border-radius: 8px;
+}
+
+.row.ui-draggable-dragging.grid-view-drag .item-icon {
+    width: 150px;
+    height: 150px;
+    background: white;
+    border-radius: 2px;
+}
+
+.row.ui-draggable-dragging.grid-view-drag .item-icon img {
+    width: 100%;
+    height: 100%;
+    object-fit: contain;
+}
+
+.row.ui-draggable-dragging.grid-view-drag .item-name {
+    text-align: center;
+    width: 100%;
+    padding: 0;
+    font-size: 13px;
+    line-height: 1.4;
+    max-width: unset;
+    text-shadow: none;
+}
+
+.row.ui-draggable-dragging.grid-view-drag .item-size,
+.row.ui-draggable-dragging.grid-view-drag .item-modified,
+.row.ui-draggable-dragging.grid-view-drag .col-spacer,
+.row.ui-draggable-dragging.grid-view-drag .item-more {
+    display: none;
 }
 
 .dashboard-section-files .item-selected-clone.row {

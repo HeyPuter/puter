@@ -1951,6 +1951,11 @@ const TabFiles = {
 
                 ui.helper.addClass('selected');
 
+                // Add view-mode class for proper drag ghost styling
+                if ( _this.currentView === 'grid' ) {
+                    ui.helper.addClass('grid-view-drag');
+                }
+
                 $(el_item).siblings('.row.selected')
                     .clone()
                     .addClass('item-selected-clone')
@@ -1991,7 +1996,7 @@ const TabFiles = {
                 });
             },
 
-            stop: function (_event, _ui) {
+            stop: function (_event) {
                 $('.item-selected-clone').remove();
                 $('.draggable-count-badge').remove();
                 window.an_item_is_being_dragged = false;
