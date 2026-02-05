@@ -151,6 +151,7 @@ const TabFiles = {
      */
     async init ($el_window) {
         const _this = this;
+        window.dashboard_object = _this;
         this.activeMenuFileUid = null;
         this.selectedFolderUid = null;
         this.currentPath = null;
@@ -2856,9 +2857,6 @@ const TabFiles = {
                 html: i18n('undo'),
                 onClick: function () {
                     window.undo_last_action();
-                    setTimeout(() => {
-                        _this.renderDirectory(_this.selectedFolderUid);
-                    }, 500);
                 },
             });
         }

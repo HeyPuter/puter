@@ -2810,61 +2810,70 @@ window.delete_item_with_path = async function (path) {
 };
 
 window.undo_last_action = async () => {
-    if ( window.actions_history.length > 0 ) {
-        const last_action = window.actions_history.pop();
+    if ( window.actions_history.length === 0 ) return;
 
-        // Undo the create file action
-        if ( last_action.operation === 'create_file' || last_action.operation === 'create_folder' ) {
-            const lastCreatedItem = last_action.data;
-            window.undo_create_file_or_folder(lastCreatedItem);
-        } else if ( last_action.operation === 'rename' ) {
-            const { options, new_name, old_name, old_path, el_item, el_item_name, el_item_icon, el_item_name_editor, website_url }  = last_action.data;
-            window.rename_file(options, old_name, new_name, old_path, el_item, el_item_name, el_item_icon, el_item_name_editor, website_url, true);
-        } else if ( last_action.operation === 'upload' ) {
-            const files = last_action.data;
-            window.undo_upload(files);
-        } else if ( last_action.operation === 'copy' ) {
-            const files = last_action.data;
-            window.undo_copy(files);
-        } else if ( last_action.operation === 'move' ) {
-            const items = last_action.data;
-            window.undo_move(items);
-        } else if ( last_action.operation === 'delete' ) {
-            const items = last_action.data;
-            window.undo_delete(items);
-        }
-    }
+    const last_action = window.actions_history.pop();
+    const { operation, data } = last_action;
+
+    // Refresh callback for dashboard mode
+    const onComplete = window.is_dashboard_mode ? () => {
+        setTimeout(() => {
+            window.dashboard_object.renderDirectory(window.dashboard_object.selectedFolderUid);
+        }, 500);
+    } : undefined;
+
+    // Map operations to their undo handlers
+    const undoHandlers = {
+        create_file: () => window.undo_create_file_or_folder(data, onComplete),
+        create_folder: () => window.undo_create_file_or_folder(data, onComplete),
+        upload: () => window.undo_upload(data, onComplete),
+        copy: () => window.undo_copy(data, onComplete),
+        move: () => window.undo_move(data, onComplete),
+        delete: () => window.undo_delete(data, onComplete),
+        rename: () => {
+            const { options, new_name, old_name, old_path, el_item, el_item_name, el_item_icon, el_item_name_editor, website_url } = data;
+            window.rename_file(options, old_name, new_name, old_path, el_item, el_item_name, el_item_icon, el_item_name_editor, website_url, true, onComplete);
+        },
+    };
+
+    const handler = undoHandlers[operation];
+    if ( handler ) handler();
 };
 
-window.undo_create_file_or_folder = async (item) => {
+window.undo_create_file_or_folder = async (item, callback) => {
     await window.delete_item(item);
+    if ( callback ) callback();
 };
 
-window.undo_upload = async (files) => {
+window.undo_upload = async (files, callback) => {
     for ( const file of files ) {
         await window.delete_item_with_path(file);
     }
+    if ( callback ) callback();
 };
 
-window.undo_copy = async (files) => {
+window.undo_copy = async (files, callback) => {
     for ( const file of files ) {
         await window.delete_item_with_path(file);
     }
+    if ( callback ) callback();
 };
 
-window.undo_move = async (items) => {
+window.undo_move = async (items, callback) => {
     for ( const item of items ) {
         const el = await get_html_element_from_options(item.options);
         window.move_items([el], path.dirname(item.original_path), true);
     }
+    if ( callback ) callback();
 };
 
-window.undo_delete = async (items) => {
+window.undo_delete = async (items, callback) => {
     for ( const item of items ) {
         const el = await get_html_element_from_options(item.options);
         let metadata = $(el).attr('data-metadata') === '' ? {} : JSON.parse($(el).attr('data-metadata'));
         window.move_items([el], path.dirname(metadata.original_path), true);
     }
+    if ( callback ) callback();
 };
 
 window.store_auto_arrange_preference = (preference) => {
