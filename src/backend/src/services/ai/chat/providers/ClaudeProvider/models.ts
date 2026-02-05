@@ -2,7 +2,26 @@ import { IChatModel } from '../types';
 
 export const CLAUDE_MODELS: IChatModel[] = [
     {
-        puterId: "anthropic:anthropic/claude-opus-4-5",
+        puterId: 'anthropic:anthropic/claude-opus-4-6',
+        id: 'claude-opus-4-6',
+        aliases: ['claude-opus-4-6-latest', 'claude-opus-4.6', 'anthropic/claude-opus-4-6'],
+        name: 'Claude Opus 4.5',
+        costs_currency: 'usd-cents',
+        input_cost_key: 'input_tokens',
+        output_cost_key: 'output_tokens',
+        costs: {
+            tokens: 1_000_000,
+            input_tokens: 500,
+            ephemeral_5m_input_tokens: 500 * 1.25,
+            ephemeral_1h_input_tokens: 500 * 2,
+            cache_read_input_tokens: 500 * 0.1,
+            output_tokens: 2500,
+        },
+        context: 200000,
+        max_tokens: 64000,
+    },
+    {
+        puterId: 'anthropic:anthropic/claude-opus-4-5',
         id: 'claude-opus-4-5-20251101',
         aliases: ['claude-opus-4-5-latest', 'claude-opus-4-5', 'claude-opus-4.5', 'anthropic/claude-opus-4-5'],
         name: 'Claude Opus 4.5',
@@ -21,7 +40,7 @@ export const CLAUDE_MODELS: IChatModel[] = [
         max_tokens: 64000,
     },
     {
-        puterId: "anthropic:anthropic/claude-haiku-4-5",
+        puterId: 'anthropic:anthropic/claude-haiku-4-5',
         id: 'claude-haiku-4-5-20251001',
         aliases: ['claude-haiku-4.5', 'claude-haiku-4-5', 'claude-4-5-haiku', 'anthropic/claude-haiku-4-5'],
         name: 'Claude Haiku 4.5',
@@ -40,7 +59,7 @@ export const CLAUDE_MODELS: IChatModel[] = [
         max_tokens: 64000,
     },
     {
-        puterId: "anthropic:anthropic/claude-sonnet-4-5",
+        puterId: 'anthropic:anthropic/claude-sonnet-4-5',
         id: 'claude-sonnet-4-5-20250929',
         aliases: ['claude-sonnet-4.5', 'claude-sonnet-4-5', 'anthropic/claude-sonnet-4-5'],
         name: 'Claude Sonnet 4.5',
@@ -59,7 +78,7 @@ export const CLAUDE_MODELS: IChatModel[] = [
         max_tokens: 64000,
     },
     {
-        puterId: "anthropic:anthropic/claude-opus-4-1",
+        puterId: 'anthropic:anthropic/claude-opus-4-1',
         id: 'claude-opus-4-1-20250805',
         aliases: ['claude-opus-4-1', 'anthropic/claude-opus-4-1'],
         name: 'Claude Opus 4.1',
@@ -78,7 +97,7 @@ export const CLAUDE_MODELS: IChatModel[] = [
         max_tokens: 32000,
     },
     {
-        puterId: "anthropic:anthropic/claude-opus-4",
+        puterId: 'anthropic:anthropic/claude-opus-4',
         id: 'claude-opus-4-20250514',
         aliases: ['claude-opus-4', 'claude-opus-4-latest', 'anthropic/claude-opus-4'],
         name: 'Claude Opus 4',
@@ -97,7 +116,7 @@ export const CLAUDE_MODELS: IChatModel[] = [
         max_tokens: 32000,
     },
     {
-        puterId: "anthropic:anthropic/claude-sonnet-4",
+        puterId: 'anthropic:anthropic/claude-sonnet-4',
         id: 'claude-sonnet-4-20250514',
         aliases: ['claude-sonnet-4', 'claude-sonnet-4-latest', 'anthropic/claude-sonnet-4'],
         name: 'Claude Sonnet 4',
@@ -116,7 +135,7 @@ export const CLAUDE_MODELS: IChatModel[] = [
         max_tokens: 64000,
     },
     {
-        puterId: "anthropic:anthropic/claude-3-7-sonnet",
+        puterId: 'anthropic:anthropic/claude-3-7-sonnet',
         id: 'claude-3-7-sonnet-20250219',
         aliases: ['claude-3-7-sonnet-latest', 'anthropic/claude-3-7-sonnet'],
         succeeded_by: 'claude-sonnet-4-20250514',
@@ -135,7 +154,7 @@ export const CLAUDE_MODELS: IChatModel[] = [
         max_tokens: 8192,
     },
     {
-        puterId: "anthropic:anthropic/claude-3-5-sonnet",
+        puterId: 'anthropic:anthropic/claude-3-5-sonnet',
         id: 'claude-3-5-sonnet-20241022',
         name: 'Claude 3.5 Sonnet',
         aliases: ['claude-3-5-sonnet-latest', 'anthropic/claude-3-5-sonnet'],
@@ -156,7 +175,7 @@ export const CLAUDE_MODELS: IChatModel[] = [
         max_tokens: 8192,
     },
     {
-        puterId: "anthropic:anthropic/claude-3-5-sonnet-20240620",
+        puterId: 'anthropic:anthropic/claude-3-5-sonnet-20240620',
         id: 'claude-3-5-sonnet-20240620',
         succeeded_by: 'claude-3-5-sonnet-20241022',
         aliases: ['anthropic/claude-3-5-sonnet-20240620'],
@@ -175,7 +194,7 @@ export const CLAUDE_MODELS: IChatModel[] = [
         max_tokens: 8192,
     },
     {
-        puterId: "anthropic:anthropic/claude-3-haiku",
+        puterId: 'anthropic:anthropic/claude-3-haiku',
         id: 'claude-3-haiku-20240307',
         aliases: ['anthropic/claude-3-haiku'],
         costs_currency: 'usd-cents',

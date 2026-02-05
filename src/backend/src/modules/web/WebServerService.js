@@ -474,7 +474,6 @@ class WebServerService extends BaseService {
 
             // Parse the Host header to isolate the hostname (strip out port if present)
             const hostName = hostHeader.split(':')[0].trim().toLowerCase();
-            console.log('Hostname: ', hostName);
             // Check if the hostname matches any of the allowed domains or is a subdomain of an allowed domain
             if ( allowedDomains.some(allowedDomain => hostName === allowedDomain || hostName.endsWith(`.${ allowedDomain}`)) ) {
                 next(); // Proceed if the host is valid
