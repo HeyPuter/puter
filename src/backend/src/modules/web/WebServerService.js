@@ -452,6 +452,10 @@ class WebServerService extends BaseService {
                 `at.${ config.static_hosting_domain.toLowerCase()}`,
             ];
 
+            if ( config.static_hosting_domain_alt ) {
+                allowedDomains.push(config.static_hosting_domain_alt.toLowerCase());
+            }
+
             if ( config.allow_nipio_domains ) {
                 allowedDomains.push('nip.io');
             }
@@ -470,7 +474,7 @@ class WebServerService extends BaseService {
 
             // Parse the Host header to isolate the hostname (strip out port if present)
             const hostName = hostHeader.split(':')[0].trim().toLowerCase();
-
+            console.log('Hostname: ', hostName);
             // Check if the hostname matches any of the allowed domains or is a subdomain of an allowed domain
             if ( allowedDomains.some(allowedDomain => hostName === allowedDomain || hostName.endsWith(`.${ allowedDomain}`)) ) {
                 next(); // Proceed if the host is valid
@@ -601,8 +605,9 @@ class WebServerService extends BaseService {
 
             const is_site =
                 req.hostname.endsWith(config.static_hosting_domain) ||
-                req.hostname === 'docs.puter.com'
-                ;
+                (config.static_hosting_domain_alt && req.hostname.endsWith(config.static_hosting_domain_alt));
+            req.hostname === 'docs.puter.com'
+            ;
             const is_popup = !!req.query.embedded_in_popup;
             const is_parent_co = !!req.query.cross_origin_isolated;
             const is_app = !!req.query['puter.app_instance_id'];
