@@ -81,6 +81,8 @@ module.exports = eggspress('/openai/v1/chat/completions', {
     jsonCanBeLarge: true,
     allowedMethods: ['POST'],
 }, async (req, res) => {
+    console.log('OPENAI COMPLETIONS PERSON: ');
+    console.log('OPENAI COMPLETIONS ENDPOINT: ', body);
     const body = req.body || {};
     const stream = !!body.stream;
 
