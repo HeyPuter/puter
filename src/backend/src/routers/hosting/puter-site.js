@@ -73,6 +73,8 @@ class PuterSiteMiddleware extends AdvancedBase {
                 });
             } else await this.run_(req, res, next);
         } catch ( e ) {
+
+            console.error('fuck!', e);
             // TODO: html_error_handler
             api_error_handler(e, req, res, next);
         }
@@ -116,7 +118,8 @@ class PuterSiteMiddleware extends AdvancedBase {
             };
         });
 
-        if ( subdomain === '' || subdomain === 'www' ) {
+        if ( req.hostname === config.static_hosting_domain || req.hostname === config.static_hosting_domain_alt || subdomain === 'www' ) {
+
             // redirect to information page about static hosting
             return res.redirect(config.static_hosting_base_domain_redirect);
         }
