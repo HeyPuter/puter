@@ -44,7 +44,6 @@ import { OpenAiResponsesChatProvider } from './providers/OpenAiProvider/OpenAiCh
 import { OpenRouterProvider } from './providers/OpenRouterProvider/OpenRouterProvider.js';
 import { TogetherAIProvider } from './providers/TogetherAiProvider/TogetherAIProvider.js';
 import { IChatModel, IChatProvider, ICompleteArguments } from './providers/types.js';
-import { UsageLimitedChatProvider } from './providers/UsageLimitedChatProvider.js';
 import { XAIProvider } from './providers/XAIProvider/XAIProvider.js';
 import { redisClient } from '../../../clients/redis/redisSingleton.js';
 
@@ -179,9 +178,8 @@ export class AIChatService extends BaseService {
             this.#providers['ollama'] = new OllamaChatProvider(ollamaConfig, this.meteringService);
         }
 
-        // fake and usage-limited providers last
+        // fake providers last
         this.#providers['fake-chat'] = new FakeChatProvider();
-        this.#providers['usage-limited-chat'] = new UsageLimitedChatProvider();
 
         // emit event for extensions to add providers
         const extensionProviders = {} as Record<string, IChatProvider>;
@@ -310,7 +308,6 @@ export class AIChatService extends BaseService {
         }
         let model = this.getModel({ modelId: parameters.model, provider: intendedProvider }) || await this.getFallbackModel(parameters.model, [], []);
         const abuseModel = this.getModel({ modelId: 'abuse' });
-        const usageLimitedModel = this.getModel({ modelId: 'usage-limited' });
 
         const completionId = cuid2();
         const event = {
@@ -377,7 +374,10 @@ export class AIChatService extends BaseService {
 
         // Handle usage limits reached case
         if ( ! usageAllowed ) {
-            model = usageLimitedModel;
+            throw APIError.create('insufficient_funds', new Error('No usage left for request.'), {
+                delegate: 'usage-limited-chat',
+                message: 'No usage left for request.',
+            });
         }
 
         // block non subscriber only models for non-subscribers
@@ -494,7 +494,10 @@ export class AIChatService extends BaseService {
                 const fallbackUsageAllowed = await this.meteringService.hasEnoughCredits(actor, 1); // we checked earlier, assume same costs
 
                 if ( ! fallbackUsageAllowed ) {
-                    fallBackModel = usageLimitedModel;
+                    throw APIError.create('insufficient_funds', new Error('No usage left for request.'), {
+                        delegate: 'usage-limited-chat',
+                        message: 'No usage left for request.',
+                    });
                 }
 
                 const provider = this.#providers[fallBackModel.provider!];
@@ -518,11 +521,6 @@ export class AIChatService extends BaseService {
 
         resMetadata.service_used = model.provider; // legacy field
         resMetadata.providerUsed = model.id;
-
-        // Add flag if we're using the usage-limited service
-        if ( model.provider === 'usage-limited-chat' ) {
-            resMetadata.usage_limited = true;
-        }
 
         const username = actor.type?.user?.username;
 
