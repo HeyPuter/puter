@@ -6164,7 +6164,6 @@ html.dark-mode .usage-table-show-less:hover {
     font-size: 13px;
     border: 1px solid transparent;
     border-radius: 6px;
-    transition: border 0.3s ease-in-out, background-color 0.3s ease-in-out;
 }
 
 .dashboard-section-files .header .path .dirname:hover {
@@ -6272,7 +6271,6 @@ html.dark-mode .usage-table-show-less:hover {
 }
 
 .dashboard-section-files .row .item-size {
-    text-overflow: ellipsis;
     white-space: nowrap;
     overflow: hidden;
     line-height: 32px;

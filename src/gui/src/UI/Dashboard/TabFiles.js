@@ -48,7 +48,7 @@ const icons = {
     done: `<svg xmlns="http://www.w3.org/2000/svg" height="18" viewBox="0 -960 960 960" width="18" fill="currentcolor"><path d="M382-240 154-468l57-57 171 171 367-367 57 57-424 424Z"/></svg>`,
 };
 
-const { html_encode } = window;
+const { html_encode, SelectionArea } = window;
 
 /**
  * TabFiles - File browser tab component for the Puter Dashboard.
@@ -1193,24 +1193,123 @@ const TabFiles = {
                 puter.kv.set('column_widths', JSON.stringify(_this.columnWidths));
             });
         });
+
+        // Double-click on resize handle to auto-fit column to longest content
+        $columns.find('.col-resize-handle').on('dblclick', function (e) {
+            e.preventDefault();
+            e.stopPropagation();
+
+            const column = $(this).attr('data-resize');
+            const $filesTab = _this.$el_window.find('.files-tab');
+            const padding = 16; // 8px padding on each side
+            let maxWidth = 60; // Minimum width
+
+            if ( column === 'name' ) {
+                maxWidth = 100;
+                $filesTab.find('.files.files-list-view .row:not(.header)').each(function () {
+                    const fullName = $(this).attr('data-name');
+                    if ( fullName ) {
+                        const textWidth = measureTextWidth(fullName) + padding;
+                        maxWidth = Math.max(maxWidth, textWidth);
+                    }
+                });
+            } else if ( column === 'size' ) {
+                $filesTab.find('.files.files-list-view .row:not(.header) .item-size').each(function () {
+                    const text = $(this).text();
+                    if ( text ) {
+                        const textWidth = measureTextWidth(text) + padding;
+                        maxWidth = Math.max(maxWidth, textWidth);
+                    }
+                });
+            } else if ( column === 'modified' ) {
+                $filesTab.find('.files.files-list-view .row:not(.header) .item-modified').each(function () {
+                    const text = $(this).text();
+                    if ( text ) {
+                        const textWidth = measureTextWidth(text) + padding;
+                        maxWidth = Math.max(maxWidth + 10, textWidth);
+                    }
+                });
+            }
+
+            // Apply the new width
+            _this.columnWidths[column] = Math.ceil(maxWidth);
+            _this.applyColumnWidths();
+            puter.kv.set('column_widths', JSON.stringify(_this.columnWidths));
+        });
     },
 
     /**
      * Applies the current column widths to the header and file rows.
+     * Also truncates file names to fit the available width.
+     * Resets to defaults if saved widths don't fit the current screen.
      *
      * @returns {void}
      */
     applyColumnWidths () {
         const $filesTab = this.$el_window.find('.files-tab');
-        const nameWidth = this.columnWidths.name;
-        const sizeWidth = this.columnWidths.size || 100;
-        const modifiedWidth = this.columnWidths.modified || 120;
+        const $container = $filesTab.find('.files');
+        const containerWidth = $container.width();
+
+        // Fixed widths: icon(24) + spacers(4*3) + more(20) = 56px, plus some margin
+        const fixedWidth = 56 + 20;
+
+        let nameWidth = this.columnWidths.name;
+        let sizeWidth = this.columnWidths.size || 100;
+        let modifiedWidth = this.columnWidths.modified || 120;
+
+        // Check if total width exceeds container width
+        if ( containerWidth > 0 && nameWidth ) {
+            const totalWidth = fixedWidth + nameWidth + sizeWidth + modifiedWidth;
+            if ( totalWidth > containerWidth ) {
+                // Reset to defaults - columns don't fit
+                this.columnWidths = {
+                    name: null,
+                    size: 100,
+                    modified: 120,
+                };
+                nameWidth = null;
+                sizeWidth = 100;
+                modifiedWidth = 120;
+            }
+        }
 
         const nameCol = nameWidth ? `${nameWidth}px` : 'auto';
         const gridTemplate = `24px ${nameCol} 4px ${sizeWidth}px 4px ${modifiedWidth}px 4px 20px`;
 
         $filesTab.find('.header .columns').css('grid-template-columns', gridTemplate);
         $filesTab.find('.files.files-list-view .row').css('grid-template-columns', gridTemplate);
+
+        // Apply middle-truncation to file names
+        if ( this.currentView === 'list' && nameWidth ) {
+            const padding = 16; // 8px padding on each side
+            const availableWidth = nameWidth - padding;
+            $filesTab.find('.files.files-list-view .row:not(.header) .item-name').each(function () {
+                const $name = $(this);
+                const fullName = $name.closest('.row').attr('data-name');
+                if ( fullName ) {
+                    $name.text(truncateFilenameToWidth(fullName, availableWidth));
+                }
+            });
+        } else if ( this.currentView === 'list' ) {
+            // Reset to full names when column is auto-width
+            $filesTab.find('.files.files-list-view .row:not(.header) .item-name').each(function () {
+                const $name = $(this);
+                const fullName = $name.closest('.row').attr('data-name');
+                if ( fullName ) {
+                    $name.text(fullName);
+                }
+            });
+        } else if ( this.currentView === 'grid' ) {
+            // Apply middle-truncation in grid view (fixed width items)
+            const gridItemWidth = 180 - 24; // Grid item width minus padding
+            $filesTab.find('.files.files-grid-view .row .item-name').each(function () {
+                const $name = $(this);
+                const fullName = $name.closest('.row').attr('data-name');
+                if ( fullName ) {
+                    $name.text(truncateFilenameToWidth(fullName, gridItemWidth));
+                }
+            });
+        }
     },
 
     /**
@@ -3096,5 +3195,89 @@ const TabFiles = {
         return str;
     },
 };
+
+// Canvas context for measuring text width (reused for performance)
+let measureContext = null;
+
+/**
+ * Measures the pixel width of text using a canvas context.
+ *
+ * @param {string} text - The text to measure
+ * @param {string} font - CSS font string (e.g., '500 13px system-ui')
+ * @returns {number} Width in pixels
+ */
+function measureTextWidth (text, font = '500 13px system-ui, -apple-system, sans-serif') {
+    if ( ! measureContext ) {
+        const canvas = document.createElement('canvas');
+        measureContext = canvas.getContext('2d');
+    }
+    measureContext.font = font;
+    return measureContext.measureText(text).width;
+}
+
+/**
+ * Truncates a filename in the middle to fit a given pixel width, preserving the extension.
+ *
+ * @param {string} filename - The full filename to truncate
+ * @param {number} maxWidth - Maximum width in pixels
+ * @param {string} font - CSS font string for measurement
+ * @returns {string} Truncated filename with ellipsis in middle, or original if it fits
+ */
+function truncateFilenameToWidth (filename, maxWidth, font = '500 13px system-ui, -apple-system, sans-serif') {
+    const fullWidth = measureTextWidth(filename, font);
+    if ( fullWidth <= maxWidth ) {
+        return filename;
+    }
+
+    // Find extension
+    const lastDot = filename.lastIndexOf('.');
+    const hasExtension = lastDot > 0 && lastDot < filename.length - 1;
+    const extension = hasExtension ? filename.slice(lastDot) : '';
+    const baseName = hasExtension ? filename.slice(0, lastDot) : filename;
+
+    const ellipsis = '…';
+    const ellipsisWidth = measureTextWidth(ellipsis, font);
+    const extensionWidth = measureTextWidth(extension, font);
+
+    // Available width for the base name (before and after ellipsis)
+    const availableWidth = maxWidth - ellipsisWidth - extensionWidth;
+    if ( availableWidth <= 0 ) {
+        return ellipsis + extension;
+    }
+
+    // Binary search to find how many characters fit
+    // We want roughly equal parts before and after the ellipsis
+    const targetHalfWidth = availableWidth / 2;
+
+    let startChars = 0;
+    let endChars = 0;
+
+    // Find characters for start
+    for ( let i = 1; i <= baseName.length; i++ ) {
+        if ( measureTextWidth(baseName.slice(0, i), font) > targetHalfWidth ) {
+            startChars = i - 1;
+            break;
+        }
+        startChars = i;
+    }
+
+    // Find characters for end (before extension)
+    for ( let i = 1; i <= baseName.length - startChars; i++ ) {
+        if ( measureTextWidth(baseName.slice(-i), font) > targetHalfWidth ) {
+            endChars = i - 1;
+            break;
+        }
+        endChars = i;
+    }
+
+    if ( startChars === 0 && endChars === 0 ) {
+        return ellipsis + extension;
+    }
+
+    const start = baseName.slice(0, startChars);
+    const end = endChars > 0 ? baseName.slice(-endChars) : '';
+
+    return start + ellipsis + end + extension;
+}
 
 export default TabFiles;
