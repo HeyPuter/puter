@@ -28,6 +28,7 @@ import generate_file_context_menu from '../../helpers/generate_file_context_menu
 import truncate_filename from '../../helpers/truncate_filename.js';
 import update_title_based_on_uploads from '../../helpers/update_title_based_on_uploads.js';
 import new_context_menu_item from '../../helpers/new_context_menu_item.js';
+import ContextMenuModal, { isTouchPrimaryDevice } from './ContextMenu/ContextMenu.js';
 
 const icons = {
     document: `<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"></path><polyline points="14 2 14 8 20 8"></polyline></svg>`,
@@ -782,7 +783,7 @@ const TabFiles = {
         const el_window_navbar_up_btn = document.querySelector(`.path-btn-up`);
 
         // Back button
-        $(el_window_navbar_back_btn).on('click', function (e) {
+        $(el_window_navbar_back_btn).on('click', function () {
             // if history menu is open don't continue
             if ( $(el_window_navbar_back_btn).hasClass('has-open-contextmenu') ) {
                 return;
@@ -823,7 +824,7 @@ const TabFiles = {
         });
 
         // Forward button
-        $(el_window_navbar_forward_btn).on('click', function (e) {
+        $(el_window_navbar_forward_btn).on('click', function () {
             // if history menu is open don't continue
             if ( $(el_window_navbar_forward_btn).hasClass('has-open-contextmenu') ) {
                 return;
@@ -864,7 +865,7 @@ const TabFiles = {
         });
 
         // Up button
-        $(el_window_navbar_up_btn).on('click', function (e) {
+        $(el_window_navbar_up_btn).on('click', function () {
             if ( _this.currentPath === '/' ) return;
 
             const target_path = path.resolve(path.join(_this.currentPath, '..'));
@@ -969,6 +970,7 @@ const TabFiles = {
                     delete window.active_uploads[opid];
                 },
                 // abort
+                // eslint-disable-next-line no-unused-vars
                 abort: async function (operation_id) {
                     // remove from active_uploads
                     delete window.active_uploads[opid];
@@ -1929,7 +1931,7 @@ const TabFiles = {
 
         el_item.onclick = (e) => {
             if ( e.target.classList.contains('item-more') ) {
-                this.handleMoreClick(el_item, file);
+                this.handleMoreClick(el_item, file, e.target);
                 return;
             }
 
@@ -2593,15 +2595,23 @@ const TabFiles = {
      * @param {Object} file - The file/folder object data
      * @returns {Promise<void>}
      */
-    async handleMoreClick (rowElement, file) {
+    async handleMoreClick (rowElement, file, targetElement) {
         const selectedRows = document.querySelectorAll('.files-tab .row.selected');
 
+        let items;
         if ( selectedRows.length > 1 && rowElement.classList.contains('selected') ) {
-            const items = await this.generateMultiSelectContextMenu(selectedRows);
-            UIContextMenu({ items: items });
+            items = await this.generateMultiSelectContextMenu(selectedRows);
         }
         else {
-            const items = await this.generateContextMenuItems(rowElement, file);
+            items = await this.generateContextMenuItems(rowElement, file);
+        }
+
+        // Use mobile-friendly context menu on touch devices
+        if ( window.isMobile.phone || window.isMobile.tablet ) {
+            const targetRect = targetElement.getBoundingClientRect();
+            const modal = new ContextMenuModal();
+            modal.show(items, targetRect);
+        } else {
             UIContextMenu({ items: items });
         }
     },
