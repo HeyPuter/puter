@@ -4,7 +4,7 @@ export const CLAUDE_MODELS: IChatModel[] = [
     {
         puterId: 'anthropic:anthropic/claude-opus-4-6',
         id: 'claude-opus-4-6',
-        aliases: ['claude-opus-4-6-latest', 'claude-opus-4.6', 'anthropic/claude-opus-4-6'],
+        aliases: ['claude-opus-4-6-latest', 'claude-opus-4.6', 'claude-opus-4-6', 'anthropic/claude-opus-4-6'],
         name: 'Claude Opus 4.6',
         costs_currency: 'usd-cents',
         input_cost_key: 'input_tokens',

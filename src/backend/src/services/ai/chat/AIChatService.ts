@@ -20,6 +20,7 @@
 import { createId as cuid2 } from '@paralleldrive/cuid2';
 import { PassThrough } from 'stream';
 import { APIError } from '../../../api/APIError.js';
+import { redisClient } from '../../../clients/redis/redisSingleton.js';
 import { ErrorService } from '../../../modules/core/ErrorService.js';
 import { Context } from '../../../util/context.js';
 import BaseService from '../../BaseService.js';
@@ -45,7 +46,6 @@ import { OpenRouterProvider } from './providers/OpenRouterProvider/OpenRouterPro
 import { TogetherAIProvider } from './providers/TogetherAiProvider/TogetherAIProvider.js';
 import { IChatModel, IChatProvider, ICompleteArguments } from './providers/types.js';
 import { XAIProvider } from './providers/XAIProvider/XAIProvider.js';
-import { redisClient } from '../../../clients/redis/redisSingleton.js';
 
 // Maximum number of fallback attempts when a model fails, including the first attempt
 const MAX_FALLBACKS = 3 + 1; // includes first attempt
@@ -150,13 +150,13 @@ export class AIChatService extends BaseService {
         if ( xaiConfig && xaiConfig.apiKey ) {
             this.#providers['xai'] = new XAIProvider(xaiConfig, this.meteringService);
         }
-        const togetherConfig = this.config.providers?.['together-ai'] || this.global_config?.services?.['together-ai'];
-        if ( togetherConfig && togetherConfig.apiKey ) {
-            this.#providers['together-ai'] = new TogetherAIProvider(togetherConfig, this.meteringService);
-        }
         const openrouterConfig = this.config.providers?.['openrouter'] || this.global_config?.services?.['openrouter'];
         if ( openrouterConfig && openrouterConfig.apiKey ) {
             this.#providers['openrouter'] = new OpenRouterProvider(openrouterConfig, this.meteringService);
+        }
+        const togetherConfig = this.config.providers?.['together-ai'] || this.global_config?.services?.['together-ai'];
+        if ( togetherConfig && togetherConfig.apiKey ) {
+            this.#providers['together-ai'] = new TogetherAIProvider(togetherConfig, this.meteringService);
         }
 
         // ollama if local instance detected
@@ -221,6 +221,23 @@ export class AIChatService extends BaseService {
                         model.aliases = [model.puterId];
                     }
                 }
+
+                let exists = false;
+                if ( model.aliases ) {
+                    for ( let alias of model.aliases ) {
+                        if ( this.#modelIdMap[alias] && this.#modelIdMap[alias] !== this.#modelIdMap[model.id] ) {
+                            if ( providerName === 'together-ai' || providerName === 'openrouter' ) {
+                                delete this.#modelIdMap[model.id];
+                                exists = true;
+                                break;
+                            }
+                        }
+                    }
+                }
+                if ( exists ) {
+                    continue;
+                }
+
                 if ( model.aliases ) {
                     for ( let alias of model.aliases ) {
                         alias = alias.trim().toLowerCase();
@@ -674,7 +691,7 @@ export class AIChatService extends BaseService {
             if ( targetModel.id.startsWith('openrouter:') || targetModel.id.startsWith('togetherai:') ) {
                 [aiProvider, modelToSearch] = targetModel.id.replace('openrouter:', '').replace('togetherai:', '').toLowerCase().split('/');
             } else {
-                [aiProvider, modelToSearch] = targetModel.provider!.toLowerCase().replace('gemini', 'google').replace('openai-completion', 'openai').replace('openai-responses', 'openai'), targetModel.id.toLowerCase();
+                [aiProvider, modelToSearch] = [targetModel.provider!.toLowerCase().replace('gemini', 'google').replace('openai-completion', 'openai').replace('openai-responses', 'openai'), targetModel.id.toLowerCase()];
             }
 
             const potentialMatches = models.filter(model => {
