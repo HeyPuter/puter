@@ -1064,7 +1064,7 @@
     width: 24px;
     height: 24px;
     padding: 0;
-    background: white;
+    background: var(--dashboard-background);
     border-radius: 2px;
 }
 
