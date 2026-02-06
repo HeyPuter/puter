@@ -157,6 +157,7 @@ const TabFiles = {
         this.currentPath = null;
         this.folderDwellTimer = null;
         this.folderDwellTarget = null;
+        this.springLoadedActive = false;
         this.previewOpen = false;
         this.previewCurrentUid = null;
         this.selectModeActive = false;
@@ -279,6 +280,7 @@ const TabFiles = {
                         _this.folderDwellTimer = setTimeout(() => {
                             _this.folderDwellTimer = null;
                             _this.folderDwellTarget = null;
+                            _this.springLoadedActive = true;
                             $(folderElement).removeClass('dwell-opening active');
 
                             _this.pushNavHistory(folderPath);
@@ -2204,7 +2206,40 @@ const TabFiles = {
                 });
             },
 
-            stop: function (_event) {
+            stop: function (event, ui) {
+                const _this = TabFiles;
+
+                // If we spring-loaded into a folder and the item wasn't dropped
+                // on a specific target, move it to the current directory
+                if ( _this.springLoadedActive && !ui.helper.data('dropped') ) {
+                    const itemsToMove = [el_item];
+
+                    // Collect additional selected items from body-level clones
+                    $('.item-selected-clone').find('.row').each(function () {
+                        itemsToMove.push(this);
+                    });
+
+                    if ( event.ctrlKey ) {
+                        window.copy_items(itemsToMove, _this.currentPath);
+                    }
+                    else if ( event.altKey && window.feature_flags?.create_shortcut ) {
+                        for ( const item of itemsToMove ) {
+                            const itemPath = $(item).attr('data-path');
+                            const itemName = itemPath.split('/').pop();
+                            const isDir = $(item).attr('data-is_dir') === '1';
+                            const shortcutTo = $(item).attr('data-shortcut_to') || $(item).attr('data-uid');
+                            const shortcutToPath = $(item).attr('data-shortcut_to_path') || itemPath;
+                            window.create_shortcut(itemName, isDir, _this.currentPath, null, shortcutTo, shortcutToPath);
+                        }
+                    }
+                    else {
+                        window.move_items(itemsToMove, _this.currentPath);
+                    }
+
+                    setTimeout(() => _this.renderDirectory(_this.selectedFolderUid), 100);
+                }
+
+                _this.springLoadedActive = false;
                 $('.item-selected-clone').remove();
                 $('.draggable-count-badge').remove();
                 window.an_item_is_being_dragged = false;
@@ -2291,6 +2326,7 @@ const TabFiles = {
                         _this.folderDwellTimer = setTimeout(() => {
                             _this.folderDwellTimer = null;
                             _this.folderDwellTarget = null;
+                            _this.springLoadedActive = true;
                             $(el_item).removeClass('dwell-opening selected');
 
                             _this.pushNavHistory(targetPath);
