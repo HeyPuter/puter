@@ -6,14 +6,21 @@ import OpenAI from 'openai';
 import { createOpenAI } from '@ai-sdk/openai';
 import { jsonSchema, stepCountIs, streamText, tool } from 'ai';
 
-const loadConfig = () => {
+interface ClientConfig {
+    api_url: string;
+    auth_token?: string;
+    do_expensive_ai_tests?: boolean;
+}
+
+const loadConfig = (): ClientConfig => {
     const envApiUrl = process.env.PUTER_API_URL;
     const envAuthToken = process.env.PUTER_AUTH_TOKEN;
     if ( envApiUrl ) {
         return {
             api_url: envApiUrl,
             auth_token: envAuthToken,
-        } as { api_url: string; auth_token?: string };
+            do_expensive_ai_tests: process.env.PUTER_DO_EXPENSIVE_AI_TESTS === 'true',
+        };
     }
 
     const configPath = path.join(__dirname, '../client-config.yaml');
@@ -21,10 +28,7 @@ const loadConfig = () => {
         throw new Error('Missing client-config.yaml. Create tests/client-config.yaml ' +
             'or set PUTER_API_URL and PUTER_AUTH_TOKEN.');
     }
-    return yaml.parse(fs.readFileSync(configPath, 'utf8')) as {
-        api_url: string;
-        auth_token?: string;
-    };
+    return yaml.parse(fs.readFileSync(configPath, 'utf8')) as ClientConfig;
 };
 
 const buildHeaders = (authToken?: string) => {
@@ -51,6 +55,7 @@ const postChat = async (body: unknown) => {
 describe('Puter OpenAI-Compatible Chat Completions', () => {
     it('works with the OpenAI SDK (tool round-trip)', async () => {
         const config = loadConfig();
+        if ( ! config.do_expensive_ai_tests ) return;
         const apiKey = config.auth_token || process.env.OPENAI_API_KEY;
         if ( ! apiKey ) throw new Error('Missing auth token for OpenAI SDK test');
 
@@ -116,6 +121,7 @@ describe('Puter OpenAI-Compatible Chat Completions', () => {
 
     it('works with the Vercel AI SDK (tool round-trip)', async () => {
         const config = loadConfig();
+        if ( ! config.do_expensive_ai_tests ) return;
         const apiKey = config.auth_token || process.env.OPENAI_API_KEY;
         if ( ! apiKey ) throw new Error('Missing auth token for AI SDK test');
 
@@ -161,6 +167,8 @@ describe('Puter OpenAI-Compatible Chat Completions', () => {
     }, 20000);
 
     it('accepts OpenAI tool result format (non-streaming)', async () => {
+        const config = loadConfig();
+        if ( ! config.do_expensive_ai_tests ) return;
         const messages = [
             {
                 role: 'user',
@@ -266,6 +274,8 @@ describe('Puter OpenAI-Compatible Chat Completions', () => {
     }, 20000);
 
     it('streams and returns a well-formed SSE response', async () => {
+        const config = loadConfig();
+        if ( ! config.do_expensive_ai_tests ) return;
         const { response } = await postChat({
             model: 'claude-haiku-4-5',
             messages: [
