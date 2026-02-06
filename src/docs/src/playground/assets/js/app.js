@@ -210,6 +210,14 @@ document.addEventListener('click', function (e) {
 
     e.preventDefault();
 
+    // Auto-collapse sidebar on mobile after clicking a link
+    if ( window.innerWidth <= 768 ) {
+        sidebarContainer.classList.add('collapsed');
+        if ( editor ) {
+            editor.layout();
+        }
+    }
+
     // Update history
     window.history.pushState({ reload: true }, '', href);
 
