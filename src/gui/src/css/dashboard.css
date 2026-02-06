@@ -837,6 +837,22 @@
     border-radius: 3px;
 }
 
+/* Spring-loaded folder dwell animation */
+.dashboard-section-files .row.folder.dwell-opening,
+.dashboard-section-files .directories li.dwell-opening {
+    background: linear-gradient(90deg, rgba(59, 130, 246, 0.15) 100%, transparent 100%);
+    background-size: 0% 100%;
+    background-repeat: no-repeat;
+    border: 2px dashed var(--select-color);
+    border-radius: 3px;
+    animation: dwell-fill 700ms linear forwards;
+}
+
+@keyframes dwell-fill {
+    from { background-size: 0% 100%; }
+    to { background-size: 100% 100%; }
+}
+
 .dashboard-section-files .draggable-count-badge {
     position: fixed;
     background: var(--select-color);
