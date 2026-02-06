@@ -1,3 +1,4 @@
+/* global require, monaco, clarity */
 let editor;
 // on document load
 document.addEventListener('DOMContentLoaded', function () {
@@ -86,7 +87,7 @@ document.addEventListener('keydown', function (e) {
     }
 });
 
-var code = document.getElementById('code');
+document.getElementById('code');
 var run = document.getElementById('run');
 run.addEventListener('click', function () {
     loadStringInIframe(editor.getValue());
@@ -192,6 +193,11 @@ document.addEventListener('click', function (e) {
     // Check if clicked element is a sidebar item
     const sidebarItem = e.target.closest('.sidebar-item');
     if ( ! sidebarItem ) return;
+
+    // Collapse sidebar by default on mobile after clicking a link
+    if ( window.innerWidth <= 768 ) {
+        sidebarContainer.classList.add('collapsed');
+    }
 
     // Don't intercept if modifier keys are pressed
     if ( e.metaKey || e.ctrlKey || e.shiftKey || e.altKey ) return;
@@ -336,7 +342,7 @@ document.addEventListener('click', function (e) {
 // Handle popstate (back/forward navigation) with reload
 window.addEventListener('popstate', function () {
     if ( window.history.state && window.history.state.reload ) {
-        window.location.href = window.location.href;
+        window.location.reload();
     }
 });
 
