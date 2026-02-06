@@ -17,8 +17,8 @@ export const CLAUDE_MODELS: IChatModel[] = [
             cache_read_input_tokens: 500 * 0.1,
             output_tokens: 2500,
         },
-        context: 200000,
-        max_tokens: 64000,
+        context: 1000000,
+        max_tokens: 128000,
     },
     {
         puterId: 'anthropic:anthropic/claude-opus-4-5',
