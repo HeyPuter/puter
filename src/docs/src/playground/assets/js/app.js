@@ -87,7 +87,6 @@ document.addEventListener('keydown', function (e) {
     }
 });
 
-document.getElementById('code');
 var run = document.getElementById('run');
 run.addEventListener('click', function () {
     loadStringInIframe(editor.getValue());
