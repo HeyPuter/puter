@@ -155,7 +155,8 @@ const TabFiles = {
         this.activeMenuFileUid = null;
         this.selectedFolderUid = null;
         this.currentPath = null;
-        this.hoveringOverSubfolder = false;
+        this.folderDwellTimer = null;
+        this.folderDwellTarget = null;
         this.previewOpen = false;
         this.previewCurrentUid = null;
         this.selectModeActive = false;
@@ -200,6 +201,11 @@ const TabFiles = {
                 tolerance: 'pointer',
 
                 drop: async function (event, ui) {
+                    // Clear dwell timer to prevent folder from opening after drop
+                    clearTimeout(_this.folderDwellTimer);
+                    _this.folderDwellTimer = null;
+                    _this.folderDwellTarget = null;
+
                     // Block if ctrl and trashed
                     const draggedPath = $(ui.draggable).attr('data-path');
                     if ( event.ctrlKey && draggedPath?.startsWith(`${window.trash_path}/`) ) {
@@ -253,11 +259,45 @@ const TabFiles = {
                 over: function (_event, ui) {
                     if ( $(ui.draggable).hasClass('row') ) {
                         $(folderElement).addClass('active');
+
+                        const folderPath = folderElement.getAttribute('data-path');
+
+                        // Don't auto-open the current directory or trash
+                        if ( folderPath === _this.currentPath ||
+                            folderPath === window.trash_path ) {
+                            return;
+                        }
+
+                        // Clear any existing dwell timer
+                        clearTimeout(_this.folderDwellTimer);
+
+                        // Add visual feedback animation
+                        $(folderElement).addClass('dwell-opening');
+                        _this.folderDwellTarget = folderElement;
+
+                        // Start dwell timer — navigate into folder after 700ms
+                        _this.folderDwellTimer = setTimeout(() => {
+                            _this.folderDwellTimer = null;
+                            _this.folderDwellTarget = null;
+                            $(folderElement).removeClass('dwell-opening active');
+
+                            _this.pushNavHistory(folderPath);
+                            _this.renderDirectory(folderPath);
+                            _this.selectFolder(folderElement);
+                        }, 700);
                     }
                 },
 
                 out: function (_event, ui) {
                     if ( $(ui.draggable).hasClass('row') ) {
+                        // Clear dwell timer
+                        if ( _this.folderDwellTarget === folderElement ) {
+                            clearTimeout(_this.folderDwellTimer);
+                            _this.folderDwellTimer = null;
+                            _this.folderDwellTarget = null;
+                        }
+                        $(folderElement).removeClass('dwell-opening');
+
                         // Only remove active if it's not the currently selected folder
                         const folderName = folderElement.getAttribute('data-folder');
                         const directories = Object.keys(window.user.directories);
@@ -1632,10 +1672,10 @@ const TabFiles = {
             });
         });
 
-        $('.files-tab .files').html('');
+        this.$el_window.find('.files-tab .files').html('');
 
         if ( directoryContents.length === 0 ) {
-            $('.files-tab .files').append(`<div style="
+            this.$el_window.find('.files-tab .files').append(`<div style="
                 display: flex;
                 justify-content: center;
                 align-items: center;
@@ -1714,7 +1754,7 @@ const TabFiles = {
             <div class="col-spacer"></div>
             <div class="item-more">${icons.more}</div>
         `;
-        $('.files-tab .files').append(row);
+        this.$el_window.find('.files-tab .files').append(row);
 
         this.createItemListeners(row, file);
     },
@@ -2180,6 +2220,11 @@ const TabFiles = {
                 drop: async function (event, ui) {
                     const _this = TabFiles;
 
+                    // Clear dwell timer to prevent folder from opening after drop
+                    clearTimeout(_this.folderDwellTimer);
+                    _this.folderDwellTimer = null;
+                    _this.folderDwellTarget = null;
+
                     const draggedPath = $(ui.draggable).attr('data-path');
                     if ( event.ctrlKey && draggedPath?.startsWith(`${window.trash_path}/`) ) {
                         return;
@@ -2224,12 +2269,46 @@ const TabFiles = {
                 over: function (_event, ui) {
                     if ( $(ui.draggable).hasClass('row') ) {
                         $(el_item).addClass('selected');
+
+                        const _this = TabFiles;
+                        const targetPath = $(el_item).attr('data-path');
+
+                        // Don't auto-open the current directory or trash
+                        if ( targetPath === _this.currentPath ||
+                            targetPath === window.trash_path ||
+                            targetPath?.startsWith(`${window.trash_path}/`) ) {
+                            return;
+                        }
+
+                        // Clear any existing dwell timer
+                        clearTimeout(_this.folderDwellTimer);
+
+                        // Add visual feedback animation
+                        $(el_item).addClass('dwell-opening');
+                        _this.folderDwellTarget = el_item;
+
+                        // Start dwell timer — navigate into folder after 700ms
+                        _this.folderDwellTimer = setTimeout(() => {
+                            _this.folderDwellTimer = null;
+                            _this.folderDwellTarget = null;
+                            $(el_item).removeClass('dwell-opening selected');
+
+                            _this.pushNavHistory(targetPath);
+                            _this.renderDirectory(targetPath);
+                        }, 700);
                     }
                 },
 
                 out: function (_event, ui) {
                     if ( $(ui.draggable).hasClass('row') ) {
-                        $(el_item).removeClass('selected');
+                        $(el_item).removeClass('selected dwell-opening');
+
+                        const _this = TabFiles;
+                        if ( _this.folderDwellTarget === el_item ) {
+                            clearTimeout(_this.folderDwellTimer);
+                            _this.folderDwellTimer = null;
+                            _this.folderDwellTarget = null;
+                        }
                     }
                 },
             });
