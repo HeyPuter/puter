@@ -58,6 +58,11 @@ const launch_app = async (options) => {
     else
     {
         app_info = await puter.apps.get(options.name, { icon_size: 64 });
+
+        // TEMPORARY MIGRATION SHIM!
+        const url = new URL(app_info.index_url);
+        url.hostname = url.hostname.replace('.puter.site', '.puter.host');
+        app_info.index_url = url.toString();
     }
 
     // For backward compatibility reasons we need to make sure that both `uuid` and `uid` are set
