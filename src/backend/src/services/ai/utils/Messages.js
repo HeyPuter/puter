@@ -44,6 +44,22 @@ export const normalize_single_message = (message, params = {}) => {
             throw new Error('each message must have a \'content\' property');
         }
     }
+
+    // Normalize OpenAI-style tool results into internal tool_result blocks
+    if ( message.role === 'tool' ) {
+        const tool_use_id = message.tool_call_id || message.tool_use_id || message.id;
+        const tool_content = message.content;
+        message.tool_use_id = tool_use_id;
+        message.content = [
+            {
+                type: 'tool_result',
+                tool_use_id,
+                content: typeof tool_content === 'string'
+                    ? tool_content
+                    : JSON.stringify(tool_content ?? {}),
+            },
+        ];
+    }
     if ( ! Array.isArray(message.content) ) {
         message.content = [message.content];
     }
@@ -90,33 +106,43 @@ export const normalize_messages = (messages, params = {}) => {
         messages[i] = normalize_single_message(messages[i], params);
     }
 
-    // Split messages with tool_use content into separate messages
+    // Split messages with multiple content blocks into separate messages.
+    // Keep assistant tool_use blocks together to preserve OpenAI tool-call ordering.
     // TODO: unit test this
     messages = [...messages];
     for ( let i = 0 ; i < messages.length ; i++ ) {
         let message = messages[i];
         let separated_messages = [];
+        const has_tool_use = message.role === 'assistant' &&
+            message.content?.some(c => c?.type === 'tool_use');
+        if ( has_tool_use ) {
+            separated_messages.push(message);
+            messages.splice(i, 1, ...separated_messages);
+            continue;
+        }
         for ( let j = 0 ; j < message.content.length ; j++ ) {
-            if ( message.content[j].type === 'tool_result' ) {
-                separated_messages.push({
-                    ...message,
-                    content: [message.content[j]],
-                });
-            } else {
-                separated_messages.push({
-                    ...message,
-                    content: [message.content[j]],
-                });
-            }
+            separated_messages.push({
+                ...message,
+                content: [message.content[j]],
+            });
         }
         messages.splice(i, 1, ...separated_messages);
     }
 
     // If multiple messages are from the same role, merge them
+    // but avoid merging tool_use/tool_result messages, since order matters
+    const hasToolContent = (message) => {
+        if ( !message || !Array.isArray(message.content) ) return false;
+        return message.content.some((part) =>
+            part && (part.type === 'tool_use' || part.type === 'tool_result'));
+    };
     let merged_messages = [];
     let current_role = null;
     for ( let i = 0 ; i < messages.length ; i++ ) {
-        if ( current_role === messages[i].role ) {
+        const can_merge = current_role === messages[i].role &&
+            !hasToolContent(messages[i]) &&
+            !hasToolContent(merged_messages[merged_messages.length - 1]);
+        if ( can_merge ) {
             merged_messages[merged_messages.length - 1].content.push(...messages[i].content);
         } else {
             merged_messages.push(messages[i]);

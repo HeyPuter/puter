@@ -132,6 +132,8 @@ module.exports = eggspress('/openai/v1/chat/completions', {
 
         let buffer = '';
         let usage = null;
+        let toolCallIndex = 0;
+        let sawToolCalls = false;
 
         const sendChunk = (delta, finishReason = null, extra = {}) => {
             const payload = {
@@ -170,9 +172,11 @@ module.exports = eggspress('/openai/v1/chat/completions', {
                     sendChunk({ content: event.text });
                 }
                 if ( event.type === 'tool_use' ) {
+                    sawToolCalls = true;
                     sendChunk({
                         tool_calls: [
                             {
+                                index: toolCallIndex++,
                                 id: event.id,
                                 type: 'function',
                                 function: {
@@ -181,7 +185,7 @@ module.exports = eggspress('/openai/v1/chat/completions', {
                                 },
                             },
                         ],
-                    }, 'tool_calls');
+                    });
                 }
                 if ( event.type === 'usage' ) {
                     usage = event.usage;
@@ -190,7 +194,8 @@ module.exports = eggspress('/openai/v1/chat/completions', {
         });
 
         streamValue.on('end', () => {
-            sendChunk({}, 'stop', usage ? { usage: buildUsage(usage) } : {});
+            const finishReason = sawToolCalls ? 'tool_calls' : 'stop';
+            sendChunk({}, finishReason, usage ? { usage: buildUsage(usage) } : {});
             res.write('data: [DONE]\n\n');
             res.end();
         });
