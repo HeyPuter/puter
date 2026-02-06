@@ -84,10 +84,10 @@ const TabFiles = {
                 <div class="directories">
                     <ul>
                         <li data-folder="Home" style="display: none !important;" data-path="${html_encode(window.home_path)}"><img src="${html_encode(window.icons['folder-home.svg'])}"/> <span>Home</span></li>
-                        <li data-folder="Desktop" data-path="${html_encode(window.docs_path)}"><img src="${html_encode(window.icons['folder-desktop.svg'])}"/> <span>Desktop</span></li>
-                        <li data-folder="Documents" data-path="${html_encode(window.public_path)}"><img src="${html_encode(window.icons['folder-documents.svg'])}"/> <span>Documents</span></li>
+                        <li data-folder="Desktop" data-path="${html_encode(window.desktop_path)}"><img src="${html_encode(window.icons['folder-desktop.svg'])}"/> <span>Desktop</span></li>
+                        <li data-folder="Documents" data-path="${html_encode(window.documents_path)}"><img src="${html_encode(window.icons['folder-documents.svg'])}"/> <span>Documents</span></li>
                         <li data-folder="Pictures" data-path="${html_encode(window.pictures_path)}"><img src="${html_encode(window.icons['folder-pictures.svg'])}"/> <span>Pictures</span></li>
-                        <li data-folder="Public" data-path="${html_encode(window.desktop_path)}"><img src="${html_encode(window.icons['folder-public.svg'])}"/> <span>Public</span></li>
+                        <li data-folder="Public" data-path="${html_encode(window.public_path)}"><img src="${html_encode(window.icons['folder-public.svg'])}"/> <span>Public</span></li>
                         <li data-folder="Videos" data-path="${html_encode(window.videos_path)}"><img src="${html_encode(window.icons['folder-videos.svg'])}"/> <span>Videos</span></li>
                         <li data-folder="Trash" data-path="${html_encode(window.trash_path)}"><img src="${html_encode(window.icons['trash.svg'])}"/> <span>Trash</span></li>
                     </ul>
@@ -277,15 +277,20 @@ const TabFiles = {
                         _this.folderDwellTarget = folderElement;
 
                         // Start dwell timer — navigate into folder after 700ms
-                        _this.folderDwellTimer = setTimeout(() => {
+                        _this.folderDwellTimer = setTimeout(async () => {
                             _this.folderDwellTimer = null;
                             _this.folderDwellTarget = null;
                             _this.springLoadedActive = true;
                             $(folderElement).removeClass('dwell-opening active');
 
                             _this.pushNavHistory(folderPath);
-                            _this.renderDirectory(folderPath);
+                            await _this.renderDirectory(folderPath);
                             _this.selectFolder(folderElement);
+
+                            // Refresh jQuery UI droppable detection for the active drag
+                            if ( $.ui.ddmanager && $.ui.ddmanager.current ) {
+                                $.ui.ddmanager.prepareOffsets($.ui.ddmanager.current);
+                            }
                         }, 700);
                     }
                 },
@@ -2135,6 +2140,7 @@ const TabFiles = {
 
         $(el_item).draggable({
             appendTo: 'body',
+            refreshPositions: true,
             helper: function () {
                 const $clone = $(el_item).clone();
 
@@ -2323,14 +2329,19 @@ const TabFiles = {
                         _this.folderDwellTarget = el_item;
 
                         // Start dwell timer — navigate into folder after 700ms
-                        _this.folderDwellTimer = setTimeout(() => {
+                        _this.folderDwellTimer = setTimeout(async () => {
                             _this.folderDwellTimer = null;
                             _this.folderDwellTarget = null;
                             _this.springLoadedActive = true;
                             $(el_item).removeClass('dwell-opening selected');
 
                             _this.pushNavHistory(targetPath);
-                            _this.renderDirectory(targetPath);
+                            await _this.renderDirectory(targetPath);
+
+                            // Refresh jQuery UI droppable detection for the active drag
+                            if ( $.ui.ddmanager && $.ui.ddmanager.current ) {
+                                $.ui.ddmanager.prepareOffsets($.ui.ddmanager.current);
+                            }
                         }, 700);
                     }
                 },
