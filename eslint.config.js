@@ -25,6 +25,10 @@ export const rules = {
     '@stylistic/curly-newline': ['error', 'always'],
     '@stylistic/object-curly-spacing': ['error', 'always'],
     '@stylistic/indent': ['error', 4, {
+        ignoredNodes: [
+            'CallExpression',
+            'NewExpression',
+        ],
         CallExpression: {
             arguments: 4,
         },
