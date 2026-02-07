@@ -45,6 +45,40 @@ The Puter Team
 </p>
         `,
     },
+    'listing-rejected': {
+        subject: 'Update needed for your app listing',
+        html: `
+<p>Hi{{#if owner_username}} {{owner_username}}{{/if}},</p>
+<p>
+Thanks for submitting <strong>{{app_title}}</strong> for the Puter App Center. We reviewed your listing and need some changes before it can be approved.
+</p>
+<p><strong>Reason:</strong></p>
+<blockquote>{{reason}}</blockquote>
+<p>
+Please update your listing and resubmit when ready. If you have questions, just reply to this email.
+</p>
+<p>Best,<br />
+The Puter Team
+</p>
+        `,
+    },
+    'listing-update-request': {
+        subject: 'Update request for your app listing',
+        html: `
+<p>Hi{{#if owner_username}} {{owner_username}}{{/if}},</p>
+<p>
+We reviewed <strong>{{app_title}}</strong> and need some updates before it can move forward.
+</p>
+<p><strong>Requested updates:</strong></p>
+<blockquote>{{message}}</blockquote>
+<p>
+Once you make the changes, please resubmit your listing request.
+</p>
+<p>Best,<br />
+The Puter Team
+</p>
+        `,
+    },
     'email_change_request': {
         subject: '\u{1f4dd} Confirm your email change',
         html: `
