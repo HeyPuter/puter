@@ -227,6 +227,10 @@ export class AIChatService extends BaseService {
                     for ( let alias of model.aliases ) {
                         if ( this.#modelIdMap[alias] && this.#modelIdMap[alias] !== this.#modelIdMap[model.id] ) {
                             if ( providerName === 'together-ai' || providerName === 'openrouter' ) {
+                                if ( this.#modelIdMap[alias].find(m => m.provider === 'gemini') ) {
+                                    // enable openrouter gemini for now since exposing some tools we don't
+                                    continue;
+                                }
                                 delete this.#modelIdMap[model.id];
                                 exists = true;
                                 break;
