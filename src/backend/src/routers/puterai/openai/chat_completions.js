@@ -81,6 +81,11 @@ module.exports = eggspress('/openai/v1/chat/completions', {
     jsonCanBeLarge: true,
     allowedMethods: ['POST'],
 }, async (req, res) => {
+    // We don't allow apps
+    if ( Context.get('actor').type.app ) {
+        throw APIError.create('permission_denied');
+    }
+
     const body = req.body || {};
     const stream = !!body.stream;
 
