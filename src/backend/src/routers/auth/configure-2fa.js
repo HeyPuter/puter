@@ -87,7 +87,7 @@ module.exports = eggspress('/auth/configure-2fa/:action', {
     // this should never be used to verify the user's 2FA code
     // for authentication purposes.
     actions.test = async () => {
-        const user = req.user;
+        const user = await get_user({ id: req.user.id, force: true });
         const svc_otp = x.get('services').get('otp');
         const code = req.body.code;
         const ok = svc_otp.verify(user.username, user.otp_secret, code);
