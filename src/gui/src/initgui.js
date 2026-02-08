@@ -1123,7 +1123,7 @@ window.initgui = async function (options) {
                         $('.captcha-modal').hide();
 
                         await UIWindowSignup({
-                            reload_on_success: false,
+                            reload_on_success: !window.embedded_in_popup,
                             send_confirmation_code: false,
                             window_options: {
                                 has_head: false,
