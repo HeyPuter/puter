@@ -311,9 +311,9 @@ function UIWindowSignup (options) {
                         // Replace with a clean URL to prevent sensitive data leakage
                         const cleanUrl = options.redirect_url || window.location.origin + window.location.pathname;
                         window.location.replace(cleanUrl);
-                    } else if ( options.send_confirmation_code ) {
+                    } else if ( options.send_confirmation_code || data.user?.requires_email_confirmation ) {
                         $(el_window).close();
-                        let is_verified = await UIWindowEmailConfirmationRequired({ stay_on_top: true, has_head: true });
+                        let is_verified = await UIWindowEmailConfirmationRequired({ stay_on_top: true, has_head: true, window_options: options.window_options ?? {} });
                         resolve(is_verified);
                     } else {
                         resolve(true);
