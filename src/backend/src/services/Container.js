@@ -41,6 +41,10 @@ class Container {
 
         this.modname_ = null;
         this.modules_ = {};
+        this.enforcers = [];
+    }
+    registerEnforcer (func) {
+        this.enforcers.push(func);
     }
 
     registerModule (name, module) {
@@ -131,12 +135,24 @@ class Container {
     set (name, instance) {
         this.instances_[name] = instance;
     }
-    get (name, opts) {
+    _get (name, opts) {
         if ( this.instances_[name] ) {
             return this.instances_[name];
         }
         if ( ! opts?.optional ) {
             throw new Error(`missing service: ${name}`);
+        }
+    }
+
+    get (name, opts) {
+        let meta = {};
+        // Extensions should be allowed to (synchronously) guard extensions and access to them
+        this.enforcers.forEach(func => {
+            func({ name, opts, meta });
+        });
+
+        if ( ! meta.disallow ) {
+            return this._get(name, opts);
         }
     }
     /**
