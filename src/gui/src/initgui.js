@@ -927,8 +927,9 @@ window.initgui = async function (options) {
             'method': 'POST',
         }).then(response => response.json())
             .then(async data => {
-            // Show register screen
+                // Show register screen
                 if ( data.email && data.email !== window.user?.email ) {
+                    // show signup window
                     await UIWindowSignup({
                         reload_on_success: true,
                         email: data.email,
@@ -1118,6 +1119,9 @@ window.initgui = async function (options) {
                         err_obj = e;
                     }
                     if ( err_obj.code === 'must_login_or_signup' ) {
+                        // hide Turnstile challenge
+                        $('.captcha-modal').hide();
+
                         await UIWindowSignup({
                             reload_on_success: false,
                             send_confirmation_code: false,
