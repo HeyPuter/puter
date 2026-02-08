@@ -1130,6 +1130,28 @@ window.initgui = async function (options) {
                                 cover_page: window.is_embedded || window.is_fullpage_mode,
                             },
                         });
+
+                        (async () => {
+                            let msg_id = window.url_query_params.get('msg_id');
+                            let data = await window.getUserAppToken(new URL(window.openerOrigin).origin);
+                            // This is an implicit app and the app_uid is sent back from the server
+                            // we cache it here so that we can use it later
+                            window.host_app_uid = data.app_uid;
+                            // send token to parent
+                            window.opener.postMessage({
+                                msg: 'puter.token',
+                                success: true,
+                                msg_id: msg_id,
+                                token: data.token,
+                                username: window.user.username,
+                                app_uid: data.app_uid,
+                            }, window.openerOrigin);
+                            // close popup
+                            if ( !action || action === 'sign-in' ) {
+                                window.close();
+                                window.open('', '_self').close();
+                            }
+                        })();
                     } else {
                         UIAlert({
                             message: err_obj.message ?? 'There was an error creating your account. Please try again.',
