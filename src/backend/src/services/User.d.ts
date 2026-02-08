@@ -12,4 +12,5 @@ export interface IUser {
     metadata?: Record<string, unknown> & { hasDevAccountAccess?: boolean };
     repscore: number;
     email_confirmed: 1 | 0;
+    requires_email_confirmation: 1 | 0;
 }

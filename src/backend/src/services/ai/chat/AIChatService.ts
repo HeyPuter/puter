@@ -334,6 +334,14 @@ export class AIChatService extends BaseService {
             intended_service: intendedProvider || '',
             parameters,
         } as Record<string, unknown>;
+
+        const user = actor.type.user;
+        if ( user.requires_email_confirmation && !user.email_confirmed ) {
+            throw APIError.create('email_must_be_confirmed', null, {
+                action: 'use this service',
+            });
+        }
+
         await this.eventService.emit('ai.prompt.validate', event);
         if ( ! event.allow ) {
             testMode = true;
