@@ -260,9 +260,10 @@ module.exports = eggspress(['/signup'], {
         uuid_user = uuid_user[0];
     }
 
-    // email confirmation is required by default unless:
+    // email confirmation is not required by default
+    let email_confirmation_required = 0;
+
     // Pseudo user converting and matching uuid is provided
-    let email_confirmation_required = 1;
     if ( pseudo_user && uuid_user && pseudo_user.id === uuid_user.id )
     {
         email_confirmation_required = 0;
