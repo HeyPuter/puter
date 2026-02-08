@@ -610,6 +610,10 @@ window.initgui = async function (options) {
                     is_verified = await UIWindowEmailConfirmationRequired({
                         stay_on_top: true,
                         has_head: false,
+                        logout_in_footer: true,
+                        window_options: {
+                            cover_page: window.is_embedded,
+                        },
                     });
                 }
                 while ( !is_verified );
@@ -941,10 +945,12 @@ window.initgui = async function (options) {
                 }
                 // Show email confirmation screen
                 else if ( data.email && data.email === window.user.email && !window.user.email_confirmed ) {
-                // todo show email confirmation window
                     await UIWindowEmailConfirmationRequired({
                         stay_on_top: true,
                         has_head: false,
+                        window_options: {
+                            cover_page: window.is_embedded,
+                        },
                     });
                 }
 
