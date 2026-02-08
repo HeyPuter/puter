@@ -1111,9 +1111,26 @@ window.initgui = async function (options) {
                     document.dispatchEvent(new Event('login', { bubbles: true }));
                 },
                 error: async (err) => {
-                    UIAlert({
-                        message: html_encode(err.responseText),
-                    });
+                    let err_obj = null;
+                    try {
+                        err_obj = JSON.parse(err.responseText);
+                    } catch (e) {
+                        err_obj = e;
+                    }
+                    if ( err_obj.code === 'must_login_or_signup' ) {
+                        await UIWindowSignup({
+                            reload_on_success: false,
+                            send_confirmation_code: false,
+                            window_options: {
+                                has_head: false,
+                                cover_page: window.is_embedded || window.is_fullpage_mode,
+                            },
+                        });
+                    } else {
+                        UIAlert({
+                            message: err_obj.message ?? 'There was an error creating your account. Please try again.',
+                        });
+                    }
                 },
                 complete: function () {
 
