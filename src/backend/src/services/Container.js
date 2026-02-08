@@ -43,6 +43,10 @@ class Container {
         this.modules_ = {};
         this.enforcers = [];
     }
+    /**
+     *
+     * @param {(object: {name: string, options: any, meta: {disallow: boolean|undefined}})=>void} func
+     */
     registerEnforcer (func) {
         this.enforcers.push(func);
     }
