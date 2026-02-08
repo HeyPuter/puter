@@ -927,8 +927,9 @@ window.initgui = async function (options) {
             'method': 'POST',
         }).then(response => response.json())
             .then(async data => {
-            // Show register screen
+                // Show register screen
                 if ( data.email && data.email !== window.user?.email ) {
+                    // show signup window
                     await UIWindowSignup({
                         reload_on_success: true,
                         email: data.email,
@@ -1111,9 +1112,51 @@ window.initgui = async function (options) {
                     document.dispatchEvent(new Event('login', { bubbles: true }));
                 },
                 error: async (err) => {
-                    UIAlert({
-                        message: html_encode(err.responseText),
-                    });
+                    let err_obj = null;
+                    try {
+                        err_obj = JSON.parse(err.responseText);
+                    } catch (e) {
+                        err_obj = e;
+                    }
+                    if ( err_obj.code === 'must_login_or_signup' ) {
+                        // hide Turnstile challenge
+                        $('.captcha-modal').hide();
+
+                        await UIWindowSignup({
+                            reload_on_success: false,
+                            send_confirmation_code: false,
+                            window_options: {
+                                has_head: false,
+                                cover_page: window.is_embedded || window.is_fullpage_mode,
+                            },
+                        });
+
+                        (async () => {
+                            let msg_id = window.url_query_params.get('msg_id');
+                            let data = await window.getUserAppToken(new URL(window.openerOrigin).origin);
+                            // This is an implicit app and the app_uid is sent back from the server
+                            // we cache it here so that we can use it later
+                            window.host_app_uid = data.app_uid;
+                            // send token to parent
+                            window.opener.postMessage({
+                                msg: 'puter.token',
+                                success: true,
+                                msg_id: msg_id,
+                                token: data.token,
+                                username: window.user.username,
+                                app_uid: data.app_uid,
+                            }, window.openerOrigin);
+                            // close popup
+                            if ( !action || action === 'sign-in' ) {
+                                window.close();
+                                window.open('', '_self').close();
+                            }
+                        })();
+                    } else {
+                        UIAlert({
+                            message: err_obj.message ?? 'There was an error creating your account. Please try again.',
+                        });
+                    }
                 },
                 complete: function () {
 
