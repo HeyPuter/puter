@@ -268,6 +268,11 @@ module.exports = eggspress(['/signup'], {
         email_confirmation_required = 0;
     }
 
+    // if an extension requires email confirmation, set it to required
+    if ( event.requires_email_confirmation ) {
+        email_confirmation_required = 1;
+    }
+
     // -----------------------------------
     // Get referral user
     // -----------------------------------
