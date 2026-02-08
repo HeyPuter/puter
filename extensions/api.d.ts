@@ -19,6 +19,7 @@ import type { Cluster } from 'ioredis';
 import type FSNodeContext from '../src/backend/src/filesystem/FSNodeContext.js';
 import type helpers from '../src/backend/src/helpers.js';
 import type * as ExtensionControllerExports from './ExtensionController/src/ExtensionController.ts';
+import type { ICompleteArguments } from '../src/backend/src/services/ai/chat/providers/types.ts';
 
 declare global {
     namespace Express {
@@ -148,6 +149,14 @@ export interface ExtensionEventTypeMap {
         app_uid: string;
         action: 'updated' | 'deleted';
     };
+    'ai.prompt.validate': {
+        actor: Actor;
+        actor,
+        completionId: string,
+        allow: boolean,
+        intended_service: string,
+        parameters: ICompleteArguments
+    }
 }
 
 interface Extension extends RouterMethods {
