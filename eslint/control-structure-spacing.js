@@ -129,10 +129,10 @@ export default {
             const afterOpen = sourceCode.getTokenAfter(openParen);
             const beforeClose = sourceCode.getTokenBefore(closeParen);
 
-            // Function calls should NOT have spacing
+            // Function calls should NOT have spacing on the same line (multi-line calls are allowed)
             if ( afterOpen && openParen.range[1] !== afterOpen.range[0] ) {
                 const spaceAfter = sourceCode.getText().slice(openParen.range[1], afterOpen.range[0]);
-                if ( /^\s+$/.test(spaceAfter) ) {
+                if ( /^\s+$/.test(spaceAfter) && !spaceAfter.includes('\n') ) {
                     context.report({
                         node,
                         loc: openParen.loc,
@@ -146,7 +146,7 @@ export default {
 
             if ( beforeClose && beforeClose.range[1] !== closeParen.range[0] ) {
                 const spaceBefore = sourceCode.getText().slice(beforeClose.range[1], closeParen.range[0]);
-                if ( /^\s+$/.test(spaceBefore) ) {
+                if ( /^\s+$/.test(spaceBefore) && !spaceBefore.includes('\n') ) {
                     context.report({
                         node,
                         loc: closeParen.loc,

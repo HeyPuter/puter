@@ -70,6 +70,7 @@
     ]
   },
   "dependencies": {
+    "@ai-sdk/openai": "^3.0.25",
     "@anthropic-ai/sdk": "^0.68.0",
     "@aws-sdk/client-dynamodb": "^3.490.0",
     "@aws-sdk/client-secrets-manager": "^3.879.0",
@@ -79,6 +80,7 @@
     "@heyputer/putility": "^1.0.2",
     "@paralleldrive/cuid2": "^2.2.2",
     "@stylistic/eslint-plugin-js": "^4.4.1",
+    "ai": "^6.0.73",
     "dedent": "^1.5.3",
     "dynalite": "^4.0.0",
     "express-xml-bodyparser": "^0.4.1",

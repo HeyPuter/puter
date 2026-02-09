@@ -28,7 +28,7 @@
     "args": "^5.0.3",
     "axios": "^1.8.2",
     "bcrypt": "^5.1.0",
-    "better-sqlite3": "^11.9.0",
+    "better-sqlite3": "^12.6.0",
     "busboy": "^1.6.0",
     "chai-as-promised": "^7.1.1",
     "clean-css": "^5.3.2",

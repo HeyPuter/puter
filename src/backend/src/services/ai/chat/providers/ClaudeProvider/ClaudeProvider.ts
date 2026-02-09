@@ -244,7 +244,7 @@ export class ClaudeProvider implements IChatProvider {
                     return 'container_upload';
                 })();
 
-                delete task.contentPart.puter_path,
+                delete task.contentPart.puter_path;
                 task.contentPart.type = contentBlockTypeForFileBasedOnMime;
                 task.contentPart.source = {
                     type: 'file',

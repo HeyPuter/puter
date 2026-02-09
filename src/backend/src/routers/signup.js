@@ -120,7 +120,7 @@ module.exports = eggspress(['/signup'], {
     await svc_event.emit('puter.signup', event);
 
     if ( ! event.allow ) {
-        return res.status(400).send(event.error ?? 'You are not allowed to sign up.');
+        return res.status(400).send({ message: event.error ?? 'You are not allowed to sign up.', code: 'not_allowed_to_signup' });
     }
 
     // check if user is already logged in
@@ -153,19 +153,19 @@ module.exports = eggspress(['/signup'], {
     const is_user_signup_disabled = await lazy_user_signup();
 
     if ( is_temp_users_disabled && is_user_signup_disabled ) {
-        return res.status(403).send('User signup and Temporary users are disabled.');
+        return res.status(403).send({ message: 'User signup and Temporary users are disabled.', code: 'user_signup_and_temp_users_disabled' });
     }
 
     if ( !req.body.is_temp && is_user_signup_disabled ) {
-        return res.status(403).send('User signup is disabled.');
+        return res.status(403).send({ message: 'User signup is disabled.', code: 'user_signup_disabled' });
     }
 
     if ( req.body.is_temp && is_temp_users_disabled ) {
-        return res.status(403).send('Temporary users are disabled.');
+        return res.status(403).send({ message: 'Temporary users are disabled.', code: 'temp_users_disabled' });
     }
 
     if ( req.body.is_temp && event.no_temp_user ) {
-        return res.status(403).send('You must login or signup.');
+        return res.status(403).send({ message: 'You must login or signup.', code: 'must_login_or_signup' });
     }
 
     // Create temp user data
@@ -260,12 +260,18 @@ module.exports = eggspress(['/signup'], {
         uuid_user = uuid_user[0];
     }
 
-    // email confirmation is required by default unless:
+    // email confirmation is not required by default
+    let email_confirmation_required = 0;
+
     // Pseudo user converting and matching uuid is provided
-    let email_confirmation_required = 1;
     if ( pseudo_user && uuid_user && pseudo_user.id === uuid_user.id )
     {
         email_confirmation_required = 0;
+    }
+
+    // if an extension requires email confirmation, set it to required
+    if ( event.requires_email_confirmation ) {
+        email_confirmation_required = 1;
     }
 
     // -----------------------------------
@@ -301,10 +307,10 @@ module.exports = eggspress(['/signup'], {
                 username, email, clean_email, password, uuid, referrer, 
                 email_confirm_code, email_confirm_token, free_storage, 
                 referred_by, audit_metadata, signup_ip, signup_ip_forwarded, 
-                signup_user_agent, signup_origin, signup_server
+                signup_user_agent, signup_origin, signup_server, requires_email_confirmation
             ) 
             VALUES 
-            (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+            (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
         [
             // username
             req.body.username,
@@ -338,6 +344,8 @@ module.exports = eggspress(['/signup'], {
             req.headers['origin'] ?? null,
             // signup_server
             config.server_id ?? null,
+            // requires_email_confirmation
+            email_confirmation_required,
         ]);
 
         // record activity

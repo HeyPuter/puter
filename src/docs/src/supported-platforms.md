@@ -87,8 +87,6 @@ The Puter ecosystem hosts over 60,000 live applications, from essential tools li
 
 ## **Node.js**
 
-> **Note:** Node.js support is currently in beta.
-
 Puter.js works seamlessly in Node.js environments, allowing you to integrate AI, databases, and cloud storage with your Node.js applications. This makes it ideal for building backend services and APIs, performing server-side data processing, or creating CLI tools and automation scripts.
 
 ```js
@@ -105,6 +103,8 @@ puter.ai.chat("What color was Napoleon's white horse?").then((response) => {
 ```
 
 Get started quickly with the [Node.js + Express template](https://github.com/HeyPuter/node.js-express.js).
+
+<div class="info">If your environment has browser access (e.g. CLI tools), you can use <code>getAuthToken()</code> to obtain a token via web-based login.</div>
 
 ## **Serverless Workers**
 

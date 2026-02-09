@@ -25,6 +25,10 @@ export const rules = {
     '@stylistic/curly-newline': ['error', 'always'],
     '@stylistic/object-curly-spacing': ['error', 'always'],
     '@stylistic/indent': ['error', 4, {
+        ignoredNodes: [
+            'CallExpression',
+            'NewExpression',
+        ],
         CallExpression: {
             arguments: 4,
         },
@@ -59,6 +63,13 @@ export const rules = {
     'no-use-before-define': ['error', {
         'functions': false,
     }],
+    '@stylistic/array-bracket-spacing': ['error', 'never'],
+    '@stylistic/linebreak-style': ['error', 'unix'],
+    'no-sequences': [
+        'error', {
+            allowInParentheses: false,
+        },
+    ],
 };
 
 const tsRules = {

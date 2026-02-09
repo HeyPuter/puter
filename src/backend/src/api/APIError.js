@@ -507,7 +507,7 @@ class APIError {
         'email_must_be_confirmed': {
             status: 422,
             message: ({ action }) =>
-                `Email must be confirmed to ${action ?? 'apply a share'}.`,
+                `Email must be confirmed to ${action ?? 'apply a share'}. Go to https://puter.com to confirm your email address.`,
         },
         'no_need_to_request': {
             status: 422,

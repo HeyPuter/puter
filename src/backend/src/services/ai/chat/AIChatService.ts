@@ -20,6 +20,7 @@
 import { createId as cuid2 } from '@paralleldrive/cuid2';
 import { PassThrough } from 'stream';
 import { APIError } from '../../../api/APIError.js';
+import { redisClient } from '../../../clients/redis/redisSingleton.js';
 import { ErrorService } from '../../../modules/core/ErrorService.js';
 import { Context } from '../../../util/context.js';
 import BaseService from '../../BaseService.js';
@@ -44,9 +45,7 @@ import { OpenAiResponsesChatProvider } from './providers/OpenAiProvider/OpenAiCh
 import { OpenRouterProvider } from './providers/OpenRouterProvider/OpenRouterProvider.js';
 import { TogetherAIProvider } from './providers/TogetherAiProvider/TogetherAIProvider.js';
 import { IChatModel, IChatProvider, ICompleteArguments } from './providers/types.js';
-import { UsageLimitedChatProvider } from './providers/UsageLimitedChatProvider.js';
 import { XAIProvider } from './providers/XAIProvider/XAIProvider.js';
-import { redisClient } from '../../../clients/redis/redisSingleton.js';
 
 // Maximum number of fallback attempts when a model fails, including the first attempt
 const MAX_FALLBACKS = 3 + 1; // includes first attempt
@@ -151,13 +150,13 @@ export class AIChatService extends BaseService {
         if ( xaiConfig && xaiConfig.apiKey ) {
             this.#providers['xai'] = new XAIProvider(xaiConfig, this.meteringService);
         }
-        const togetherConfig = this.config.providers?.['together-ai'] || this.global_config?.services?.['together-ai'];
-        if ( togetherConfig && togetherConfig.apiKey ) {
-            this.#providers['together-ai'] = new TogetherAIProvider(togetherConfig, this.meteringService);
-        }
         const openrouterConfig = this.config.providers?.['openrouter'] || this.global_config?.services?.['openrouter'];
         if ( openrouterConfig && openrouterConfig.apiKey ) {
             this.#providers['openrouter'] = new OpenRouterProvider(openrouterConfig, this.meteringService);
+        }
+        const togetherConfig = this.config.providers?.['together-ai'] || this.global_config?.services?.['together-ai'];
+        if ( togetherConfig && togetherConfig.apiKey ) {
+            this.#providers['together-ai'] = new TogetherAIProvider(togetherConfig, this.meteringService);
         }
 
         // ollama if local instance detected
@@ -179,9 +178,8 @@ export class AIChatService extends BaseService {
             this.#providers['ollama'] = new OllamaChatProvider(ollamaConfig, this.meteringService);
         }
 
-        // fake and usage-limited providers last
+        // fake providers last
         this.#providers['fake-chat'] = new FakeChatProvider();
-        this.#providers['usage-limited-chat'] = new UsageLimitedChatProvider();
 
         // emit event for extensions to add providers
         const extensionProviders = {} as Record<string, IChatProvider>;
@@ -223,6 +221,27 @@ export class AIChatService extends BaseService {
                         model.aliases = [model.puterId];
                     }
                 }
+
+                let exists = false;
+                if ( model.aliases ) {
+                    for ( let alias of model.aliases ) {
+                        if ( this.#modelIdMap[alias] && this.#modelIdMap[alias] !== this.#modelIdMap[model.id] ) {
+                            if ( providerName === 'together-ai' || providerName === 'openrouter' ) {
+                                if ( this.#modelIdMap[alias].find(m => m.provider === 'gemini') ) {
+                                    // enable openrouter gemini for now since exposing some tools we don't
+                                    continue;
+                                }
+                                delete this.#modelIdMap[model.id];
+                                exists = true;
+                                break;
+                            }
+                        }
+                    }
+                }
+                if ( exists ) {
+                    continue;
+                }
+
                 if ( model.aliases ) {
                     for ( let alias of model.aliases ) {
                         alias = alias.trim().toLowerCase();
@@ -310,7 +329,6 @@ export class AIChatService extends BaseService {
         }
         let model = this.getModel({ modelId: parameters.model, provider: intendedProvider }) || await this.getFallbackModel(parameters.model, [], []);
         const abuseModel = this.getModel({ modelId: 'abuse' });
-        const usageLimitedModel = this.getModel({ modelId: 'usage-limited' });
 
         const completionId = cuid2();
         const event = {
@@ -320,6 +338,14 @@ export class AIChatService extends BaseService {
             intended_service: intendedProvider || '',
             parameters,
         } as Record<string, unknown>;
+
+        const user = actor.type.user;
+        if ( user.requires_email_confirmation && !user.email_confirmed ) {
+            throw APIError.create('email_must_be_confirmed', null, {
+                action: 'use this service',
+            });
+        }
+
         await this.eventService.emit('ai.prompt.validate', event);
         if ( ! event.allow ) {
             testMode = true;
@@ -377,7 +403,10 @@ export class AIChatService extends BaseService {
 
         // Handle usage limits reached case
         if ( ! usageAllowed ) {
-            model = usageLimitedModel;
+            throw APIError.create('insufficient_funds', new Error('No usage left for request.'), {
+                delegate: 'usage-limited-chat',
+                message: 'No usage left for request.',
+            });
         }
 
         // block non subscriber only models for non-subscribers
@@ -494,7 +523,10 @@ export class AIChatService extends BaseService {
                 const fallbackUsageAllowed = await this.meteringService.hasEnoughCredits(actor, 1); // we checked earlier, assume same costs
 
                 if ( ! fallbackUsageAllowed ) {
-                    fallBackModel = usageLimitedModel;
+                    throw APIError.create('insufficient_funds', new Error('No usage left for request.'), {
+                        delegate: 'usage-limited-chat',
+                        message: 'No usage left for request.',
+                    });
                 }
 
                 const provider = this.#providers[fallBackModel.provider!];
@@ -518,11 +550,6 @@ export class AIChatService extends BaseService {
 
         resMetadata.service_used = model.provider; // legacy field
         resMetadata.providerUsed = model.id;
-
-        // Add flag if we're using the usage-limited service
-        if ( model.provider === 'usage-limited-chat' ) {
-            resMetadata.usage_limited = true;
-        }
 
         const username = actor.type?.user?.username;
 
@@ -676,7 +703,7 @@ export class AIChatService extends BaseService {
             if ( targetModel.id.startsWith('openrouter:') || targetModel.id.startsWith('togetherai:') ) {
                 [aiProvider, modelToSearch] = targetModel.id.replace('openrouter:', '').replace('togetherai:', '').toLowerCase().split('/');
             } else {
-                [aiProvider, modelToSearch] = targetModel.provider!.toLowerCase().replace('gemini', 'google').replace('openai-completion', 'openai').replace('openai-responses', 'openai'), targetModel.id.toLowerCase();
+                [aiProvider, modelToSearch] = [targetModel.provider!.toLowerCase().replace('gemini', 'google').replace('openai-completion', 'openai').replace('openai-responses', 'openai'), targetModel.id.toLowerCase()];
             }
 
             const potentialMatches = models.filter(model => {
