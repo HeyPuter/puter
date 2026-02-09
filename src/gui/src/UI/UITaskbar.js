@@ -240,7 +240,7 @@ async function UITaskbar (options) {
                     html: i18n('add_to_desktop'),
                     onClick: async function () {
                         try {
-                            const fileName = `${e.currentTarget.dataset.appName}.app`;
+                            const fileName = `${e.currentTarget.dataset.appTitle}.app`;
                             const content = JSON.stringify({
                                 app: e.currentTarget.dataset.appName,
                                 title: e.currentTarget.dataset.appTitle,
