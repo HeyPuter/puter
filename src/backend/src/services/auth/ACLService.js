@@ -25,6 +25,7 @@ const { Context } = require('../../util/context');
 const { Endpoint } = require('../../util/expressutil');
 const BaseService = require('../BaseService');
 const { AppUnderUserActorType, UserActorType, Actor, SystemActorType, AccessTokenActorType } = require('./Actor');
+const { DB_READ } = require('../database/consts');
 const { MANAGE_PERM_PREFIX } = require('./permissionConts.mjs');
 const { PermissionUtil } = require('./permissionUtils.mjs');
 
@@ -422,11 +423,40 @@ class ACLService extends BaseService {
             if ( is_public ) return true;
         }
 
-        // Access tokens only work if the authorizer has permission
+        // Access tokens: allow if token has permission via DB and authorizer has permission
         if ( actor.type instanceof AccessTokenActorType ) {
-            const authorizer = actor.type.authorizer;
+            const { authorizer, token } = actor.type;
             const authorizer_perm = await this._check_fsNode(authorizer, fsNode, mode);
             if ( ! authorizer_perm ) return false;
+
+            // We check access token permissions manually here and skip PermissionService
+            const db = this.services.get('database').get(DB_READ, 'auth');
+            let perm_fsNode = fsNode;
+
+            // Iterate up the directory tree (towards root directory)
+            while ( !(await perm_fsNode.get('is-root')) ) {
+                const uid = await perm_fsNode.get('uid');
+                // DRY: second occurance of this code
+                const permission = mode === MANAGE_PERM_PREFIX
+                    ? PermissionUtil.join(MANAGE_PERM_PREFIX, 'fs', uid)
+                    : PermissionUtil.join('fs', uid, mode);
+                const rows = await db.read(
+                    'SELECT * FROM `access_token_permissions` WHERE `token_uid` = ? AND `permission` = ?',
+                    [token, permission],
+                );
+
+                // We already checked that the authorizer has the required permission,
+                // so if the access token has the required permission as well we can
+                // return true immediately.
+                if ( rows[0] ) return true;
+
+                // ...iterate
+                perm_fsNode = await perm_fsNode.getParent();
+            }
+
+            // If we reach here, the authorizer has permission to access the requested
+            // file/directory but the access token does not
+            return false;
         }
 
         // Hard rule: if app-under-user is accessing appdata directory, allow
