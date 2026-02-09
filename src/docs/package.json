@@ -15,6 +15,7 @@
   "license": "ISC",
   "dependencies": {
     "fs-extra": "^11.2.0",
+    "fuse.js": "^7.1.0",
     "html-entities": "^2.3.3",
     "js-yaml": "^4.1.0",
     "jsdom": "^26.1.0",
