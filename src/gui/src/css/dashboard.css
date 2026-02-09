@@ -1075,6 +1075,7 @@
 }
 
 .dashboard-section-files .files-tab .files.files-list-view .row .item-icon {
+    position: relative;
     width: 24px;
     height: 24px;
     padding: 0;
@@ -1102,6 +1103,40 @@
     padding: 16px;
     align-content: start;
     margin-bottom: 30px;
+}
+
+.dashboard-section-files .files-tab .files.files-list-view .row .item-badges {
+    width: 100%;
+    height: 100%;
+    top: 0;
+    left: 0;
+    right: 0;
+    bottom: 0;
+    justify-content: flex-end;
+    align-items: flex-start;
+}
+
+.dashboard-section-files .files-tab .files.files-list-view .row img.item-badge {
+    width: 12px !important;
+    height: 12px !important;
+    margin: 0 -2px;
+}
+
+.dashboard-section-files .files-tab .files.files-grid-view .row .item-badges {
+    width: 100%;
+    height: 100%;
+    top: 0;
+    left: 0;
+    right: 0;
+    bottom: 0;
+    justify-content: flex-end;
+    align-items: flex-start;
+}
+
+.dashboard-section-files .files-tab .files.files-grid-view .row img.item-badge {
+    width: 32px !important;
+    height: 32px !important;
+    margin: 5px;
 }
 
 .dashboard-section-files .files-tab .files.files-grid-view .row {

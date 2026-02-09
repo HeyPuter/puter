@@ -28,7 +28,7 @@ import generate_file_context_menu from '../../helpers/generate_file_context_menu
 import truncate_filename from '../../helpers/truncate_filename.js';
 import update_title_based_on_uploads from '../../helpers/update_title_based_on_uploads.js';
 import new_context_menu_item from '../../helpers/new_context_menu_item.js';
-import ContextMenuModal, { isTouchPrimaryDevice } from './ContextMenu/ContextMenu.js';
+import ContextMenuModal from './ContextMenu/ContextMenu.js';
 
 const icons = {
     document: `<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"></path><polyline points="14 2 14 8 20 8"></polyline></svg>`,
@@ -162,6 +162,7 @@ const TabFiles = {
         this.previewCurrentUid = null;
         this.selectModeActive = false;
         this.currentView = await puter.kv.get('view_mode') || 'list';
+        this.workers = await puter.workers.list();
 
         // Sorting state
         this.sortColumn = await puter.kv.get('sort_column') || 'name';
@@ -455,6 +456,13 @@ const TabFiles = {
 
         // Setup keyboard shortcuts
         this.setupKeyboardShortcuts();
+
+        // Refresh current directory when the user returns to this browser tab
+        document.addEventListener('visibilitychange', () => {
+            if ( document.visibilityState === 'visible' && this.selectedFolderUid ) {
+                this.renderDirectory(this.selectedFolderUid, { skipNavHistory: true, skipUrlUpdate: true });
+            }
+        });
     },
 
     /**
@@ -1742,34 +1750,79 @@ const TabFiles = {
      */
     renderItem (file) {
         // For trashed items, use original_name from metadata if available
+        const item_id = window.global_element_id++;
         const metadata = JSON.parse(file.metadata) || {};
         const displayName = metadata.original_name || file.name;
-
+        let website_url = window.determine_website_url(file.path);
+        const is_shared_with_me = (file.path !== `/${window.user.username}` && !file.path.startsWith(`/${window.user.username}/`));
+        const has_worker = this.workers.find(w => w.file_path.startsWith(file.path)) !== undefined;
         const icon = file.is_dir ? `<img src="${html_encode(window.icons['folder.svg'])}"/>` : ((file.thumbnail && this.currentView === 'grid') ? `<img src="${file.thumbnail}" alt="${displayName}" />` : this.determineIcon(file));
         const row = document.createElement("div");
         row.setAttribute('class', `row ${file.is_dir ? 'folder' : 'file'}`);
-        row.setAttribute("data-id", file.id);
+        row.setAttribute("data-id", item_id);
         row.setAttribute("data-name", displayName);
         row.setAttribute("data-uid", file.uid);
         row.setAttribute("data-is_dir", file.is_dir ? "1" : "0");
-        row.setAttribute("data-is_trash", 0);
-        row.setAttribute("data-has_website", 0);
-        row.setAttribute("data-website_url", "");
+        row.setAttribute("data-is_trash", file.is_trash ? "1" : "0");
+        row.setAttribute("data-has_website", file.has_website ? "1" : "0");
+        row.setAttribute("data-website_url", website_url ? html_encode(website_url) : '');
         row.setAttribute("data-immutable", file.immutable);
         row.setAttribute("data-is_shortcut", file.is_shortcut);
-        row.setAttribute("data-shortcut_to", "");
-        row.setAttribute("data-shortcut_to_path", "");
-        row.setAttribute("data-sortable", "1");
+        row.setAttribute("data-shortcut_to", html_encode(file.shortcut_to));
+        row.setAttribute("data-shortcut_to_path", html_encode(file.shortcut_to_path));
+        row.setAttribute("data-has_worker", has_worker ? "1" : "0");
+        row.setAttribute("data-sortable", file.sortable ?? 'true');
         row.setAttribute("data-metadata", JSON.stringify(metadata));
-        row.setAttribute("data-sort_by", "");
+        row.setAttribute("data-sort_by", html_encode(file.sort_by) ?? 'name');
         row.setAttribute("data-size", file.size);
-        row.setAttribute("data-type", "");
+        row.setAttribute("data-type", html_encode(file.type) ?? '');
         row.setAttribute("data-modified", file.modified);
-        row.setAttribute("data-associated_app_name", "");
-        row.setAttribute("data-path", file.path);
+        row.setAttribute("data-associated_app_name", html_encode(file.associated_app_name) ?? '');
+        row.setAttribute("data-path", html_encode(file.path));
         row.innerHTML = `
             <div class="item-checkbox"><span class="checkbox-icon"></span></div>
-            <div class="item-icon">${icon}</div>
+            <div class="item-icon">
+                ${icon}
+                <div class="item-badges">
+                <img class="item-badge item-has-website-badge long-hover" 
+                    style="${file.has_website ? 'display:block;' : ''}" 
+                    src="${html_encode(window.icons['world.svg'])}" 
+                    data-item-id="${item_id}"
+                />
+                <img  class="item-badge item-has-website-url-badge" 
+                    style="${website_url ? 'display:block;' : ''}" 
+                    src="${html_encode(window.icons['link.svg'])}" 
+                    data-item-id="${item_id}"
+                >
+                <img  class="item-badge item-badge-has-permission" 
+                    style="display: ${ is_shared_with_me ? 'block' : 'none'};
+                        background-color: #ffffff;
+                        padding: 2px;" src="${html_encode(window.icons['shared.svg'])}" 
+                    data-item-id="${item_id}"
+                    title="A user has shared this item with you."
+                />
+                <img  class="item-badge item-is-shared" 
+                    style="background-color: #ffffff; padding: 2px; ${!is_shared_with_me && file.is_shared ? 'display:block;' : ''}" 
+                    src="${html_encode(window.icons['owner-shared.svg'])}" 
+                    data-item-id="${item_id}"
+                    data-item-uid="${file.uid}"
+                    data-item-path="${html_encode(file.path)}"
+                    title="You have shared this item with at least one other user."
+                />
+                <img  class="item-badge item-shortcut" 
+                    style="background-color: #ffffff; padding: 2px; ${file.is_shortcut !== 0 ? 'display:block;' : ''}" 
+                    src="${html_encode(window.icons['shortcut.svg'])}" 
+                    data-item-id="${item_id}"
+                    title="Shortcut"
+                >
+                <img  class="item-badge item-worker" 
+                    style="background-color: #ffffff; padding: 2px; ${has_worker ? 'display:block;' : ''}" 
+                    src="${html_encode(window.icons['cog.svg'])}" 
+                    data-item-id="${item_id}"
+                    title="Worker"
+                >
+            </div>
+            </div>
             <div class="item-name-wrapper">
                 <pre class="item-name">${displayName}</pre>
                 <textarea class="item-name-editor hide-scrollbar" spellcheck="false" autocomplete="off" autocorrect="off" autocapitalize="off" data-gramm_editor="false">${displayName}</textarea>
