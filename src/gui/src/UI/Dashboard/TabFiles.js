@@ -162,7 +162,6 @@ const TabFiles = {
         this.previewCurrentUid = null;
         this.selectModeActive = false;
         this.currentView = await puter.kv.get('view_mode') || 'list';
-        this.workers = await puter.workers.list();
 
         // Sorting state
         this.sortColumn = await puter.kv.get('sort_column') || 'name';
@@ -1755,7 +1754,7 @@ const TabFiles = {
         const displayName = metadata.original_name || file.name;
         let website_url = window.determine_website_url(file.path);
         const is_shared_with_me = (file.path !== `/${window.user.username}` && !file.path.startsWith(`/${window.user.username}/`));
-        const has_worker = this.workers.find(w => w.file_path.startsWith(file.path)) !== undefined;
+        const has_worker = file.has_worker;
         const icon = file.is_dir ? `<img src="${html_encode(window.icons['folder.svg'])}"/>` : ((file.thumbnail && this.currentView === 'grid') ? `<img src="${file.thumbnail}" alt="${displayName}" />` : this.determineIcon(file));
         const row = document.createElement("div");
         row.setAttribute('class', `row ${file.is_dir ? 'folder' : 'file'}`);
