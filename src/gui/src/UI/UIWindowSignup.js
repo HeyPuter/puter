@@ -308,12 +308,17 @@ function UIWindowSignup (options) {
                     //send out the login event
                     if ( options.reload_on_success ) {
                         window.onbeforeunload = null;
-                        // Replace with a clean URL to prevent sensitive data leakage
-                        const cleanUrl = options.redirect_url || window.location.origin + window.location.pathname;
-                        window.location.replace(cleanUrl);
+                        // either options.redirect_url or the current page
+                        const redirectUrl = options.redirect_url || window.location.href;
+                        window.location.replace(redirectUrl);
                     } else if ( options.send_confirmation_code || data.user?.requires_email_confirmation ) {
                         $(el_window).close();
-                        let is_verified = await UIWindowEmailConfirmationRequired({ stay_on_top: true, has_head: true, window_options: options.window_options ?? {} });
+                        let is_verified = await UIWindowEmailConfirmationRequired({
+                            stay_on_top: true,
+                            has_head: true,
+                            reload_on_success: options.reload_on_success,
+                            window_options: options.window_options ?? {},
+                        });
                         resolve(is_verified);
                     } else {
                         resolve(true);
