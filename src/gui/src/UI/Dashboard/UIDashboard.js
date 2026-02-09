@@ -61,17 +61,17 @@ const builtinTabs = [
     TabSecurity,
 ];
 
+// Dynamically load dashboard CSS if not already loaded
+if ( ! document.querySelector('link[href*="dashboard.css"]') ) {
+    const link = document.createElement('link');
+    link.rel = 'stylesheet';
+    link.href = '/css/dashboard.css';
+    document.head.appendChild(link);
+}
+
 async function UIDashboard (options) {
     // eslint-disable-next-line no-unused-vars
     options = options ?? {};
-
-    // Dynamically load dashboard CSS if not already loaded
-    if ( ! document.querySelector('link[href*="dashboard.css"]') ) {
-        const link = document.createElement('link');
-        link.rel = 'stylesheet';
-        link.href = '/css/dashboard.css';
-        document.head.appendChild(link);
-    }
 
     // Create mutable tabs array from built-in tabs
     const tabs = [...builtinTabs];
@@ -263,6 +263,16 @@ async function UIDashboard (options) {
     $el_window.on('click', '.dashboard-sidebar-toggle', function () {
         $(this).toggleClass('open');
         $el_window.find('.dashboard-sidebar').toggleClass('open');
+    });
+
+    // Close sidebar when clicking outside
+    $el_window.on('mousedown touchstart', function (e) {
+        if ( !$(e.target).closest('.dashboard-sidebar').length
+            && !$(e.target).closest('.dashboard-sidebar-toggle').length
+            && $el_window.find('.dashboard-sidebar').hasClass('open') ) {
+            $el_window.find('.dashboard-sidebar').removeClass('open');
+            $el_window.find('.dashboard-sidebar-toggle').removeClass('open');
+        }
     });
 
     // User options button click handler

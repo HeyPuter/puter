@@ -196,6 +196,22 @@ const TabFiles = {
                 _this.selectFolder(folderElement);
             };
 
+            // Context menu for sidebar folders
+            $(folderElement).on('contextmenu taphold', async (e) => {
+                if ( e.type === 'taphold' && !window.isMobile.phone && !window.isMobile.tablet ) {
+                    return;
+                }
+                e.preventDefault();
+                e.stopPropagation();
+                $(folderElement).addClass('context-menu-active');
+                const folderPath = folderElement.getAttribute('data-path');
+                const items = _this.generateFolderContextMenu(folderPath);
+                const menu = UIContextMenu({ items: items, position: { left: e.pageX, top: e.pageY } });
+                menu.onClose = () => {
+                    $(folderElement).removeClass('context-menu-active');
+                };
+            });
+
             // Make sidebar folders droppable
             $(folderElement).droppable({
                 accept: '.row',
@@ -289,6 +305,7 @@ const TabFiles = {
 
                             // Refresh jQuery UI droppable detection for the active drag
                             if ( $.ui.ddmanager && $.ui.ddmanager.current ) {
+                                $.ui.ddmanager.current.helper.addClass('ui-draggable-dragging');
                                 $.ui.ddmanager.prepareOffsets($.ui.ddmanager.current);
                             }
                         }, 700);
@@ -1260,7 +1277,7 @@ const TabFiles = {
                     const fullName = $(this).attr('data-name');
                     if ( fullName ) {
                         const textWidth = measureTextWidth(fullName) + padding;
-                        maxWidth = Math.max(maxWidth, textWidth);
+                        maxWidth = Math.max(maxWidth + 10, textWidth);
                     }
                 });
             } else if ( column === 'size' ) {
@@ -1268,7 +1285,7 @@ const TabFiles = {
                     const text = $(this).text();
                     if ( text ) {
                         const textWidth = measureTextWidth(text) + padding;
-                        maxWidth = Math.max(maxWidth, textWidth);
+                        maxWidth = Math.max(maxWidth + 10, textWidth);
                     }
                 });
             } else if ( column === 'modified' ) {
@@ -1350,13 +1367,13 @@ const TabFiles = {
                 }
             });
         } else if ( this.currentView === 'grid' ) {
-            // Apply middle-truncation in grid view (fixed width items)
-            const gridItemWidth = 180 - 24; // Grid item width minus padding
+            // Apply middle-truncation in grid view
             $filesTab.find('.files.files-grid-view .row .item-name').each(function () {
                 const $name = $(this);
                 const fullName = $name.closest('.row').attr('data-name');
                 if ( fullName ) {
-                    $name.text(truncateFilenameToWidth(fullName, gridItemWidth));
+                    const itemWidth = $name.width() || 156;
+                    $name.text(truncateFilenameToWidth(fullName, itemWidth));
                 }
             });
         }
@@ -1613,8 +1630,12 @@ const TabFiles = {
                 }
                 e.preventDefault();
                 e.stopPropagation();
+                $(dirnameElement).addClass('context-menu-active');
                 const items = _this.generateFolderContextMenu(clickedPath);
-                UIContextMenu({ items: items, position: { left: e.pageX, top: e.pageY } });
+                const menu = UIContextMenu({ items: items, position: { left: e.pageX, top: e.pageY } });
+                menu.onClose = () => {
+                    $(dirnameElement).removeClass('context-menu-active');
+                };
             });
 
             // Make breadcrumb items droppable for file/folder moves
@@ -1690,7 +1711,8 @@ const TabFiles = {
                 top: 0;
                 left: 0;
                 right: 0;
-                bottom: 0;            
+                bottom: 0;
+                pointer-events: none;
             ">
                 No files in this directory.
             `);
@@ -2340,6 +2362,7 @@ const TabFiles = {
 
                             // Refresh jQuery UI droppable detection for the active drag
                             if ( $.ui.ddmanager && $.ui.ddmanager.current ) {
+                                $.ui.ddmanager.current.helper.addClass('ui-draggable-dragging');
                                 $.ui.ddmanager.prepareOffsets($.ui.ddmanager.current);
                             }
                         }, 700);

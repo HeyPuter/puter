@@ -442,6 +442,10 @@
     background: var(--dashboard-hover);
 }
 
+.dashboard-section-files .directories li.context-menu-active {
+    background: var(--dashboard-hover);
+}
+
 .dashboard-section-files .directories li.active {
     color: var(--select-color);
     font-weight: 500;
@@ -549,7 +553,6 @@
     display: flex;
     align-items: center;
     justify-content: center;
-    transition: background-color 0.3s ease-in-out;
 }
 
 .dashboard-section-files .header .path-action-btn:hover {
@@ -590,6 +593,12 @@
     color: var(--dashboard-text);
     background-color: rgba(59, 130, 246, 0.15);
     border: 1px dashed var(--select-color);
+}
+
+.dashboard-section-files .header .path .dirname.context-menu-active {
+    color: var(--dashboard-background);
+    background-color: var(--select-color);
+    border: 1px solid var(--select-color);
 }
 
 .dashboard-section-files .header .columns {
@@ -662,7 +671,7 @@
 
 .dashboard-section-files .row .item-name,
 .dashboard-section-files .header .columns .item-name {
-    text-overflow: ellipsis;
+    /* text-overflow: ellipsis; */
     white-space: nowrap;
     overflow: hidden;
     max-width: unset;
@@ -727,6 +736,11 @@
     align-items: center;
     padding: 0 10px;
     height: 32px;
+}
+
+.dashboard-section-files.ui-draggable-dragging.selected {
+    background-color: transparent !important;
+    opacity: 0.3 !important;
 }
 
 .row.ui-draggable-dragging .item-name-wrapper {
@@ -1083,8 +1097,8 @@
 
 .dashboard-section-files .files-tab .files.files-grid-view {
     display: grid;
-    grid-template-columns: repeat(auto-fill, minmax(180px, 1fr));
-    gap: 16px;
+    grid-template-columns: repeat(auto-fill, minmax(170px, 1fr));
+    gap: 10px;
     padding: 16px;
     align-content: start;
     margin-bottom: 30px;
@@ -1151,10 +1165,6 @@
     line-height: 1.4;
     max-height: 2.8em;
     overflow: hidden;
-    text-overflow: ellipsis;
-    display: -webkit-box;
-    -webkit-line-clamp: 2;
-    -webkit-box-orient: vertical;
     word-break: break-word;
 }
 
@@ -1550,6 +1560,7 @@
     .dashboard-section-files .files-tab .files.files-list-view .row .item-name-wrapper {
         grid-column: 2;
         grid-row: 1;
+        padding-right: 40px;
     }
 
     .dashboard-section-files .files-tab .files.files-list-view .row .item-name {
