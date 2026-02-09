@@ -48,7 +48,7 @@ class Auth {
         return new Promise((resolve, reject) => {
             let msg_id = this.#messageID++;
             let w = 600;
-            let h = 600;
+            let h = 700;
             let title = 'Puter';
             var left = (screen.width / 2) - (w / 2);
             var top = (screen.height / 2) - (h / 2);
