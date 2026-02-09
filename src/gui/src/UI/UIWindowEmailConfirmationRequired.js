@@ -74,6 +74,7 @@ function UIWindowEmailConfirmationRequired (options) {
             allow_native_ctxmenu: true,
             allow_user_select: true,
             backdrop: true,
+            close_on_backdrop_click: false,
             width: 390,
             dominant: true,
             ...options.window_options,
