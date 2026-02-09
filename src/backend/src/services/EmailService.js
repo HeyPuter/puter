@@ -50,7 +50,7 @@ The Puter Team
         html: `
 <p>Hi{{#if owner_username}} {{owner_username}}{{/if}},</p>
 <p>
-Thanks for submitting <strong>{{app_title}}</strong> for the Puter App Center. We reviewed your listing and need some changes before it can be approved.
+Thanks for submitting <a href="https://puter.com/app/{{app_name}}">{{app_title}}</a> for the Puter App Center. We reviewed your listing and need some changes before it can be approved.
 </p>
 <p><strong>Reason:</strong></p>
 <blockquote>{{reason}}</blockquote>
@@ -67,13 +67,10 @@ The Puter Team
         html: `
 <p>Hi{{#if owner_username}} {{owner_username}}{{/if}},</p>
 <p>
-We reviewed <strong>{{app_title}}</strong> and need some updates before it can move forward.
+Please update <a href="https://apps.puter.com/apps/{{app_name}}">{{app_title}}</a>.
 </p>
 <p><strong>Requested updates:</strong></p>
 <blockquote>{{message}}</blockquote>
-<p>
-Once you make the changes, please resubmit your listing request.
-</p>
 <p>Best,<br />
 The Puter Team
 </p>
