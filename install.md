@@ -34,6 +34,9 @@ curl -o- https://raw.githubusercontent.com/nvm-sh/nvm/v0.40.4/install.sh | bash
 export NVM_DIR="$HOME/.nvm"
 [ -s "$NVM_DIR/nvm.sh" ] && \. "$NVM_DIR/nvm.sh"
 
+# Reload shell
+source ~/.bashrc     # Or source ~/.zshrc if using Zsh
+
 # Install latest Node.js and npm
 nvm install node
 
@@ -53,9 +56,13 @@ sudo yum install -y curl
 # Install nvm
 curl -o- https://raw.githubusercontent.com/nvm-sh/nvm/v0.40.4/install.sh | bash
 
+
 # Load nvm
 export NVM_DIR="$HOME/.nvm"
 [ -s "$NVM_DIR/nvm.sh" ] && \. "$NVM_DIR/nvm.sh"
+
+# Reload shell
+source ~/.bashrc     # Or source ~/.zshrc if using Zsh
 
 # Install latest Node.js and npm
 nvm install node
@@ -112,6 +119,9 @@ curl -o- https://raw.githubusercontent.com/nvm-sh/nvm/v0.40.4/install.sh | bash
 # Load nvm
 export NVM_DIR="$HOME/.nvm"
 [ -s "$NVM_DIR/nvm.sh" ] && \. "$NVM_DIR/nvm.sh"
+
+# Reload shell
+source ~/.bashrc     # Or source ~/.zshrc if using Zsh
 
 # Install latest Node.js and npm
 nvm install node
