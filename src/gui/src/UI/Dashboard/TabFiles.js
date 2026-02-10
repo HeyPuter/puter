@@ -1734,6 +1734,8 @@ const TabFiles = {
             `);
             this.updateFooterStats();
             this.updateNavButtonStates();
+            this.hideSpinner();
+            this.renderingDirectory = false;
             return;
         }
 
@@ -3559,7 +3561,7 @@ const TabFiles = {
         `;
 
         overlay.appendChild(container);
-        document.querySelector('.directory-contents').appendChild(overlay);
+        document.querySelector('.directory-contents .files').appendChild(overlay);
         setTimeout(() => {
             overlay.style.opacity = 1;
         }, 100);
