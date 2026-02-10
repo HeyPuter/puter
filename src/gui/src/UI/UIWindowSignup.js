@@ -162,15 +162,13 @@ function UIWindowSignup (options) {
 
                 (async () => {
                     try {
-                        const origin = window.gui_origin || window.location.origin;
-                        const res = await fetch(`${origin}/auth/oidc/providers`);
+                        const res = await fetch(`${window.api_origin}/auth/oidc/providers`);
                         if ( ! res.ok ) return;
                         const data = await res.json();
                         if ( data.providers && data.providers.includes('google') ) {
                             $(el_window).find('.oidc-providers-wrapper').show();
                             $(el_window).find('.oidc-google-btn').on('click', function () {
-                                const redirectUri = encodeURIComponent(window.location.origin + (window.location.pathname || '/'));
-                                window.location.href = `${origin}/auth/oidc/google/start?redirect_uri=${redirectUri}`;
+                                window.location.href = `${window.gui_origin}/auth/oidc/google/start?flow=signup`;
                             });
                         }
                     } catch (_) {

@@ -30,6 +30,7 @@ const { NodeUIDSelector } = require('./filesystem/node/selectors');
 const { redisClient } = require('./clients/redis/redisSingleton');
 const { kv } = require('./util/kvSingleton');
 const { APP_ICONS_SUBDOMAIN } = require('./consts/app-icons.js');
+const { generate_identifier } = require('./util/identifier');
 
 const identifying_uuid = require('uuid').v4();
 
@@ -1479,6 +1480,14 @@ async function username_exists (username) {
     }
 }
 
+async function generate_random_username () {
+    let username;
+    do {
+        username = generate_identifier();
+    } while ( await username_exists(username) );
+    return username;
+}
+
 async function app_name_exists (name) {
     /** @type BaseDatabaseAccessService */
     const db = _servicesHolder.services.get('database').get(DB_READ, 'filesystem');
@@ -2070,6 +2079,7 @@ module.exports = {
     suggestedAppForFsEntry,
     df,
     username_exists,
+    generate_random_username,
     uuid2fsentry,
     validate_fsentry_name,
     validate_signature_auth,

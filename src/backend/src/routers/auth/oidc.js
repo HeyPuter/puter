@@ -20,32 +20,61 @@
 const express = require('express');
 const router = new express.Router();
 const config = require('../../config');
+const { get_user } = require('../../helpers');
 
-const complete_ = async ({ req, res, user }) => {
+/** If Accept includes text/html, set session cookie and redirect to app; otherwise send JSON. */
+const finishOidcSuccess_ = async (req, res, user, stateDecoded) => {
+    console.log('okay finishOidSuccess_ is happening');
     const svc_auth = req.services.get('auth');
-    const { token } = await svc_auth.create_session_token(user, { req });
-    res.cookie(config.cookie_name, token, {
+    const { session, token: session_token } = await svc_auth.create_session_token(user, { req });
+    res.cookie(config.cookie_name, session_token, {
         sameSite: 'none',
         secure: true,
         httpOnly: true,
     });
-    return res.send({
-        proceed: true,
-        next_step: 'complete',
-        token,
-        user: {
-            username: user.username,
-            uuid: user.uuid,
-            email: user.email,
-            email_confirmed: user.email_confirmed,
-            is_temp: (user.password === null && user.email === null),
-        },
+    console.log('what are these values?', {
+        stateDecoded,
     });
+    let target = stateDecoded.redirect_uri || config.origin || '/';
+    const origin = config.origin || '';
+    console.log('okay what\'s target though?', { target, origin });
+    if ( target && origin && !target.startsWith(origin) ) {
+        target = origin;
+    }
+    return res.redirect(302, target);
+};
+
+/** Exchange code for tokens, get userinfo; returns { provider, userinfo, stateDecoded } or sends error and returns null. */
+const oidcCallbackPreamble_ = async (req, res, callbackRedirectUri) => {
+    const svc_oidc = req.services.get('oidc');
+    const code = req.query.code;
+    const state = req.query.state;
+    if ( !code || !state ) {
+        res.status(400).send('Missing code or state.');
+        return null;
+    }
+    const stateDecoded = svc_oidc.verifyState(state);
+    if ( !stateDecoded || !stateDecoded.provider ) {
+        res.status(400).send('Invalid or expired state.');
+        return null;
+    }
+    const provider = stateDecoded.provider;
+    const tokens = await svc_oidc.exchangeCodeForTokens(provider, code, callbackRedirectUri);
+    if ( !tokens || !tokens.access_token ) {
+        res.status(401).send('Token exchange failed.');
+        return null;
+    }
+    const userinfo = await svc_oidc.getUserInfo(provider, tokens.access_token);
+    if ( !userinfo || !userinfo.sub ) {
+        res.status(401).send('Could not get user info.');
+        return null;
+    }
+    return { provider, userinfo, stateDecoded };
 };
 
 // GET /auth/oidc/providers - list enabled provider ids for frontend
 router.get('/auth/oidc/providers', async (req, res) => {
-    if ( require('../../helpers').subdomain(req) !== 'api' && require('../../helpers').subdomain(req) !== '' ) {
+    if ( require('../../helpers').subdomain(req) !== 'api' ) {
         return res.status(404).end();
     }
     const svc_oidc = req.services.get('oidc');
@@ -55,7 +84,7 @@ router.get('/auth/oidc/providers', async (req, res) => {
 
 // GET /auth/oidc/:provider/start - redirect to IdP authorization
 router.get('/auth/oidc/:provider/start', async (req, res) => {
-    if ( require('../../helpers').subdomain(req) !== 'api' && require('../../helpers').subdomain(req) !== '' ) {
+    if ( require('../../helpers').subdomain(req) !== '' ) {
         return res.status(404).end();
     }
     const svc_edgeRateLimit = req.services.get('edge-rate-limit');
@@ -68,74 +97,71 @@ router.get('/auth/oidc/:provider/start', async (req, res) => {
     if ( ! cfg ) {
         return res.status(404).send('Provider not configured.');
     }
-    const redirectUri = req.query.redirect_uri ? String(req.query.redirect_uri) : undefined;
-    const statePayload = { provider, redirect_uri: redirectUri };
+    const flow = req.query.flow ? String(req.query.flow) : undefined;
+    const flowRedirects = {
+        login: config.origin || '/',
+        signup: config.origin || '/',
+    };
+    const appRedirectUri = (flow && flowRedirects[flow]) ? flowRedirects[flow] : (config.origin || '/');
+    const statePayload = { provider, redirect_uri: appRedirectUri };
     const state = svc_oidc.signState(statePayload);
-    const url = await svc_oidc.getAuthorizationUrl(provider, state, redirectUri ? undefined : undefined);
+    const url = await svc_oidc.getAuthorizationUrl(provider, state, flow);
     if ( ! url ) {
         return res.status(502).send('Could not build authorization URL.');
     }
     return res.redirect(302, url);
 });
 
-// GET /auth/oidc/callback - handle IdP redirect (code + state)
-router.get('/auth/oidc/callback', async (req, res) => {
-    if ( require('../../helpers').subdomain(req) !== 'api' && require('../../helpers').subdomain(req) !== '' ) {
+// GET /auth/oidc/callback/login - login only: existing account or abort. Never creates a user.
+router.get('/auth/oidc/callback/login', async (req, res) => {
+    if ( require('../../helpers').subdomain(req) !== '' ) {
         return res.status(404).end();
     }
     const svc_edgeRateLimit = req.services.get('edge-rate-limit');
     if ( ! svc_edgeRateLimit.check('login') ) {
         return res.status(429).send('Too many requests.');
     }
-    const code = req.query.code;
-    const state = req.query.state;
-    if ( !code || !state ) {
-        return res.status(400).send('Missing code or state.');
+    const svc_oidc = req.services.get('oidc');
+    const callbackRedirectUri = svc_oidc.getCallbackUrlForFlow('login');
+    const preamble = await oidcCallbackPreamble_(req, res, callbackRedirectUri);
+    if ( ! preamble ) return;
+    const { provider, userinfo, stateDecoded } = preamble;
+    const user = await svc_oidc.findUserByProviderSub(provider, userinfo.sub);
+    if ( ! user ) {
+        return res.status(400).send('No account found. Sign up first.');
+    }
+    if ( user.suspended ) {
+        return res.status(401).send('This account is suspended.');
+    }
+    return await finishOidcSuccess_(req, res, user, stateDecoded);
+});
+
+// GET /auth/oidc/callback/signup - signup only: create new account or abort. Never logs in to existing account.
+router.get('/auth/oidc/callback/signup', async (req, res) => {
+    if ( require('../../helpers').subdomain(req) !== '' ) {
+        return res.status(404).end();
+    }
+    const svc_edgeRateLimit = req.services.get('edge-rate-limit');
+    if ( ! svc_edgeRateLimit.check('login') ) {
+        return res.status(429).send('Too many requests.');
     }
     const svc_oidc = req.services.get('oidc');
-    const stateDecoded = svc_oidc.verifyState(state);
-    if ( !stateDecoded || !stateDecoded.provider ) {
-        return res.status(400).send('Invalid or expired state.');
+    const callbackRedirectUri = svc_oidc.getCallbackUrlForFlow('signup');
+    const preamble = await oidcCallbackPreamble_(req, res, callbackRedirectUri);
+    if ( ! preamble ) return;
+    const { provider, userinfo, stateDecoded } = preamble;
+    const existingUser = await svc_oidc.findUserByProviderSub(provider, userinfo.sub);
+    if ( existingUser ) {
+        return res.status(400).send('Account already exists. Log in instead.');
     }
-    const provider = stateDecoded.provider;
-    const redirectUri = `${config.api_base_url}/auth/oidc/callback`;
-    const tokens = await svc_oidc.exchangeCodeForTokens(provider, code, redirectUri);
-    if ( !tokens || !tokens.access_token ) {
-        return res.status(401).send('Token exchange failed.');
+    const outcome = await svc_oidc.createUserFromOIDC(provider, userinfo);
+    if ( outcome.failed ) {
+        console.log('it looks like the outcome failed...');
+        return res.status(400).send(outcome.userMessage);
     }
-    const userinfo = await svc_oidc.getUserInfo(provider, tokens.access_token);
-    if ( !userinfo || !userinfo.sub ) {
-        return res.status(401).send('Could not get user info.');
-    }
-    let user = await svc_oidc.findUserByProviderSub(provider, userinfo.sub);
-    if ( user ) {
-        if ( user.suspended ) {
-            return res.status(401).send('This account is suspended.');
-        }
-        return await complete_({ req, res, user });
-    }
-    user = await svc_oidc.createUserFromOIDC(provider, userinfo);
-    if ( ! user ) {
-        return res.status(400).send('Email already registered. Please log in with your password and link your Google account, or use a different email.');
-    }
-    const accept = req.headers.accept || '';
-    const wantsRedirect = accept.includes('text/html');
-    if ( wantsRedirect ) {
-        const svc_auth = req.services.get('auth');
-        const { token } = await svc_auth.create_session_token(user, { req });
-        res.cookie(config.cookie_name, token, {
-            sameSite: 'none',
-            secure: true,
-            httpOnly: true,
-        });
-        let target = stateDecoded.redirect_uri || config.origin || '/';
-        const origin = config.origin || '';
-        if ( target && origin && !target.startsWith(origin) ) {
-            target = origin;
-        }
-        return res.redirect(302, target);
-    }
-    return await complete_({ req, res, user });
+    const user = await get_user({ id: outcome.infoObject.user_id });
+    console.log('got user????', user);
+    return await finishOidcSuccess_(req, res, user, stateDecoded);
 });
 
 module.exports = router;
