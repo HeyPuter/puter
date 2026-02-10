@@ -249,7 +249,7 @@ export class GeminiImageGenerationProvider implements IImageProvider {
     }
 
     #toMicroCents (cents: number): number {
-        if ( !Number.isFinite(cents) || cents <= 0 ) return 0;
+        if ( !Number.isFinite(cents) || cents <= 0 ) return 1;
         return Math.ceil(cents * 1_000_000);
     }
 
