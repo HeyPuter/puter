@@ -208,9 +208,10 @@ router.post('/save_account', auth, express.json(), async (req, res, next) => {
             }
         }
 
-        // create token for login
+        // create token for login: session token for cookie, GUI token for client
         const svc_auth = req.services.get('auth');
-        const { token } = await svc_auth.create_session_token(req.user, { req });
+        const { session, token: session_token } = await svc_auth.create_session_token(req.user, { req });
+        const gui_token = svc_auth.create_gui_token(req.user, session);
 
         // user id
         // todo if pseudo user, assign directly no need to do another DB lookup
@@ -220,8 +221,8 @@ router.post('/save_account', auth, express.json(), async (req, res, next) => {
 
         // todo send LINK-based verification email
 
-        //set cookie
-        res.cookie(config.cookie_name, token);
+        // HTTP-only cookie gets session token (cookie-based requests have hasHttpPowers)
+        res.cookie(config.cookie_name, session_token);
 
         {
             const svc_event = req.services.get('event');
@@ -230,7 +231,7 @@ router.post('/save_account', auth, express.json(), async (req, res, next) => {
 
         // return results
         return res.send({
-            token: token,
+            token: gui_token,
             user: {
                 username: user.username,
                 uuid: user.uuid,

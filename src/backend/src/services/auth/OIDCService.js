@@ -17,21 +17,33 @@
  * along with this program.  If not, see <https://www.gnu.org/licenses/>.
  */
 'use strict';
-const BaseService = require('../BaseService');
-const { DB_WRITE } = require('../database/consts');
-const { generate_identifier } = require('../../util/identifier');
+import jwt from 'jsonwebtoken';
+import { username_exists } from '../../helpers.js';
+import { generate_identifier } from '../../util/identifier.js';
+import BaseService from '../BaseService.js';
+import { DB_WRITE } from '../database/consts.js';
 
 const GOOGLE_DISCOVERY_URL = 'https://accounts.google.com/.well-known/openid-configuration';
 const GOOGLE_SCOPES = 'openid email profile';
 const STATE_EXPIRY_SEC = 600; // 10 minutes
 
+const VALID_OIDC_FLOWS = ['login', 'signup'];
+
+async function generate_random_username () {
+    let username;
+    do {
+        username = generate_identifier();
+    } while ( await username_exists(username) );
+    return username;
+}
+
 /**
  * OIDC/OAuth2 service for sign-in with Google (and extensible to other providers).
  * Uses config.oidc.providers only; no environment variables.
  */
-class OIDCService extends BaseService {
+export class OIDCService extends BaseService {
     static MODULES = {
-        jwt: require('jsonwebtoken'),
+        jwt,
     };
 
     async _init () {
@@ -86,12 +98,25 @@ class OIDCService extends BaseService {
     }
 
     /**
-     * Build authorization URL for the provider. redirect_uri is our callback URL.
+     * Return the OAuth callback URL for a given flow. Structure: /auth/oidc/callback/<flow>
+     * @param {string} flow - e.g. 'login' or 'signup'
+     * @returns {string|null} Full callback URL, or null if flow is invalid
      */
-    async getAuthorizationUrl (providerId, state, redirectUri) {
+    getCallbackUrlForFlow (flow) {
+        if ( !flow || !VALID_OIDC_FLOWS.includes(flow) ) return null;
+        const base = this.global_config.origin || '';
+        const callback_url = `${base.replace(/\/$/, '')}/auth/oidc/callback/${flow}`;
+        this.log.noticeme('CALLBACK URL???', { callback_url });
+        return callback_url;
+    }
+
+    /**
+     * Build authorization URL for the provider. Callback URL is /auth/oidc/callback/<flow> when flow is provided.
+     */
+    async getAuthorizationUrl (providerId, state, flow) {
         const config = await this.getProviderConfig(providerId);
         if ( ! config ) return null;
-        const base = redirectUri ?? `${this.global_config.api_base_url}/auth/oidc/callback`;
+        const base = this.getCallbackUrlForFlow(flow) ?? `${this.global_config.api_base_url}/auth/oidc/callback`;
         const params = new URLSearchParams({
             client_id: config.client_id,
             redirect_uri: base,
@@ -120,7 +145,7 @@ class OIDCService extends BaseService {
     }
 
     /**
-     * Exchange authorization code for tokens.
+     * Exchange authorization code for tokens. redirectUri must match the URL used in getAuthorizationUrl (e.g. /auth/oidc/callback/:flow).
      */
     async exchangeCodeForTokens (providerId, code, redirectUri) {
         const config = await this.getProviderConfig(providerId);
@@ -187,91 +212,23 @@ class OIDCService extends BaseService {
     }
 
     /**
-     * Create a new Puter user from OIDC claims and link the provider. Reuses signup patterns (groups, default fs).
+     * Create a new Puter user from OIDC claims and link the provider. Delegates to signup_create_new_user.
      */
     async createUserFromOIDC (providerId, claims) {
-        const db = this.db;
-        const svc_group = this.services.get('group');
-        const svc_user = this.services.get('user');
-        const { v4: uuidv4 } = require('uuid');
-
-        let username = (claims.name || claims.email || '').toString().trim();
-        if ( username ) {
-            username = username.replace(/\s+/g, '_').replace(/[^a-zA-Z0-9_-]/g, '');
-            if ( username.length > 45 ) username = username.slice(0, 45);
-        }
-        if ( !username || !/^\w+$/.test(username) ) {
-            let candidate;
-            do {
-                candidate = generate_identifier();
-                const [r] = await db.pread('SELECT 1 FROM user WHERE username = ? LIMIT 1', [candidate]);
-                if ( ! r ) username = candidate;
-            } while ( !username );
-        } else {
-            const [existing] = await db.pread('SELECT 1 FROM user WHERE username = ? LIMIT 1', [username]);
-            if ( existing ) {
-                let suffix = 1;
-                while ( true ) {
-                    const candidate = `${username}${suffix}`;
-                    const [r] = await db.pread('SELECT 1 FROM user WHERE username = ? LIMIT 1', [candidate]);
-                    if ( ! r ) {
-                        username = candidate; break;
-                    }
-                    suffix++;
-                }
-            }
-        }
-
-        const email = (claims.email || '').toString().trim() || null;
-        const clean_email = email ? email.toLowerCase().trim() : null;
-        if ( clean_email ) {
-            const [existingEmail] = await db.pread('SELECT 1 FROM user WHERE clean_email = ? LIMIT 1', [clean_email]);
-            if ( existingEmail ) {
-                return null; // email already registered; caller should return error
-            }
-        }
-        const user_uuid = uuidv4();
-        const email_confirm_code = String(Math.floor(100000 + Math.random() * 900000));
-        const email_confirm_token = uuidv4();
-
-        await db.write(`INSERT INTO user (
-                username, email, clean_email, password, uuid, referrer,
-                email_confirm_code, email_confirm_token, free_storage,
-                referred_by, email_confirmed, requires_email_confirmation
-            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-        [
-            username,
-            email,
-            clean_email,
-            null,
-            user_uuid,
-            null,
-            email_confirm_code,
-            email_confirm_token,
-            this.global_config.storage_capacity,
-            null,
-            1,
-            0,
-        ]);
-        const [inserted] = await db.pread('SELECT id FROM user WHERE uuid = ? LIMIT 1', [user_uuid]);
-        const user_id = inserted.id;
-
-        await this.linkProviderToUser(user_id, providerId, claims.sub, null);
-
-        await svc_group.add_users({
-            uid: this.global_config.default_user_group,
-            users: [username],
+        const svc_signup = this.services.get('signup');
+        const outcome = await svc_signup.create_new_user({
+            username: await generate_random_username(),
+            email: claims?.email ?? null,
+            password: null,
+            oidc_only: true,
         });
-
-        const [user] = await db.pread('SELECT * FROM user WHERE id = ? LIMIT 1', [user_id]);
-        if ( user && user.metadata && typeof user.metadata === 'string' ) {
-            user.metadata = JSON.parse(user.metadata);
-        } else if ( user && !user.metadata ) {
-            user.metadata = {};
+        const { user_id } = outcome.infoObject;
+        console.log('user_id?', user_id);
+        if ( outcome.success )
+        {
+            await this.linkProviderToUser(user_id, providerId, claims.sub, null);
         }
-        await svc_user.generate_default_fsentries({ user });
-
-        return user;
+        return outcome;
     }
 
     /**
@@ -287,5 +244,3 @@ class OIDCService extends BaseService {
         return ids;
     }
 }
-
-module.exports = { OIDCService };

@@ -1,9 +1,15 @@
-import type { ServerHealthService } from '../modules/core/ServerHealthService';
-import { SqliteDatabaseAccessService } from './database/SqliteDatabaseAccessService';
-import { MeteringServiceWrapper } from './MeteringService/MeteringServiceWrapper.mjs';
 import { DDBClient } from '../clients/dynamodb/DDBClient';
 import { DynamoKVStore } from '../clients/dynamodb/DynamoKVStore/DynamoKVStore';
+import type { ServerHealthService } from '../modules/core/ServerHealthService';
+import { GroupService } from './auth/GroupService';
+import SignupService from './auth/SignupService';
+import { CleanEmailService } from './CleanEmailService';
+import { SqliteDatabaseAccessService } from './database/SqliteDatabaseAccessService';
+import { EventService } from './EventService';
+import { FeatureFlagService } from './FeatureFlagService';
+import { MeteringServiceWrapper } from './MeteringService/MeteringServiceWrapper.mjs';
 import type { SUService } from './SUService';
+import { UserService } from './UserService';
 
 export interface ServiceResources {
     services: {
@@ -13,7 +19,13 @@ export interface ServiceResources {
         get (name: 'server-health'): ServerHealthService;
         get (name: 'su'): SUService;
         get (name: 'dynamo'): DDBClient;
-        get (name: string): any;
+        get (name: 'user'): UserService;
+        get (name: 'event'): EventService;
+        get (name: 'signup'): SignupService;
+        get (name: 'group'): GroupService;
+        get (name: 'feature-flag'): FeatureFlagService;
+        get (name: 'clean-email'): CleanEmailService;
+        get (name: string): unknown;
     };
     config: Record<string, any> & { services?: Record<string, any>; server_id?: string };
     name?: string;

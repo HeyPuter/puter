@@ -134,7 +134,8 @@ const configurable_auth = options => async (req, res, next) => {
                 throw APIError.create('forbidden');
             }
 
-            res.cookie(config.cookie_name, new_info.token, {
+            // Use session token in cookie so cookie-based requests have hasHttpPowers; client gets GUI token in response
+            res.cookie(config.cookie_name, new_info.session_token ?? new_info.token, {
                 sameSite: 'none',
                 secure: true,
                 httpOnly: true,

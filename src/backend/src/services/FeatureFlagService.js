@@ -70,10 +70,12 @@ class FeatureFlagService extends BaseService {
 
     /**
      * checks is a feature flag is enabled for the current user
-     * @return {boolean} - true if the feature flag is enabled, false otherwise
+     * @return {boolean} true if the feature flag is enabled, false otherwise
      *
-     * Usage:
-     *   check({ actor }, 'flag-name')
+     * @example <caption>with a specified actor</caption>
+     *   check({ actor }, 'flag-name');
+     * @example <caption>with actor in context</caption>
+     *   check('flag-name');
      */
     async check (...a) {
         // allows binding call with multiple options objects;

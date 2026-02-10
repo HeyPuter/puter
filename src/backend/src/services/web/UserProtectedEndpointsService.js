@@ -74,13 +74,16 @@ class UserProtectedEndpointsService extends BaseService {
         // Require authenticated session
         router.use(configurable_auth({ no_options_auth: true }));
 
-        // Only allow user sessions, not API tokens for apps
+        // Only allow user sessions with HTTP powers (session token), not GUI tokens or API tokens
         router.use((req, res, next) => {
             if ( req.method === 'OPTIONS' ) return next();
 
             const actor = Context.get('actor');
             if ( ! (actor.type instanceof UserActorType) ) {
                 return APIError.create('user_tokens_only').write(res);
+            }
+            if ( ! actor.type.hasHttpPowers ) {
+                return APIError.create('session_required').write(res);
             }
             next();
         });
@@ -97,7 +100,7 @@ class UserProtectedEndpointsService extends BaseService {
         router.use(async (req, res, next) => {
             if ( req.method === 'OPTIONS' ) return next();
 
-            if ( req.user.password === null ) {
+            if ( req.user.password === null && req.user.email === null ) {
                 return APIError.create('temporary_account').write(res);
             }
             next();

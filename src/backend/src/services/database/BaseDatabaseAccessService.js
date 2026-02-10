@@ -58,7 +58,7 @@ class BaseDatabaseAccessService extends BaseService {
     *
     * @returns {BaseDatabaseAccessService} The current instance of the service.
     */
-    get () {
+    get (_accessLevel, _scope) {
         return this;
     }
 
