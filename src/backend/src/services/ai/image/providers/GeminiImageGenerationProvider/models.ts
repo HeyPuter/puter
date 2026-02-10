@@ -66,18 +66,17 @@ export const GEMINI_IMAGE_GENERATION_MODELS: IImageModel[] = [
         ],
     },
     {
-        puterId: 'google:google/gemini-3-pro-image',
-        id: 'gemini-3-pro-image',
+        puterId: 'google:google/gemini-3-pro-image-preview',
+        id: 'gemini-3-pro-image-preview',
         name: 'Gemini 3 Pro Image',
         version: '1.0',
         costs_currency: 'usd-cents',
         index_cost_key: '1K:1x1',
         aliases: [
-            'gemini-3-pro-image-preview',
             'gemini-3-pro-image',
             'google/gemini-3-pro-image-preview',
             'google/gemini-3-pro-image',
-            'google:google/gemini-3-pro-image-preview',
+            'google:google/gemini-3-pro-image',
         ],
         allowedQualityLevels: ['1K', '2K', '4K'],
         allowedRatios: [
