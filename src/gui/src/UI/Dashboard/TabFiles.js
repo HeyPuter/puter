@@ -153,8 +153,10 @@ const TabFiles = {
      * @returns {Promise<void>}
      */
     async init ($el_window) {
+        this.showSpinner();
         const _this = this;
         window.dashboard_object = _this;
+        this.renderingDirectory = false;
         this.activeMenuFileUid = null;
         this.selectedFolderUid = null;
         this.currentPath = null;
@@ -1593,6 +1595,9 @@ const TabFiles = {
      * @returns {Promise<void>}
      */
     async renderDirectory (uid, options = {}) {
+        if ( this.renderingDirectory ) return;
+        this.renderingDirectory = true;
+        this.showSpinner();
         this.selectedFolderUid = uid;
         const _this = this;
 
@@ -1740,6 +1745,8 @@ const TabFiles = {
         this.applyColumnWidths();
         this.updateFooterStats();
         this.updateNavButtonStates();
+        this.hideSpinner();
+        this.renderingDirectory = false;
     },
 
     /**
@@ -3470,6 +3477,100 @@ const TabFiles = {
             str += `${path_seperator_html}<span class="dirname" data-path="${html_encode(dirpaths[k])}">${dirs[k] === 'Trash' ? i18n('trash') : html_encode(dirs[k])}</span>`;
         }
         return str;
+    },
+
+    showSpinner (html) {
+        if ( this.loading ) return;
+        this.loading = true;
+
+        // Create and add stylesheet for spinner if it doesn't exist
+        if ( ! document.getElementById('puter-spinner-styles') ) {
+            const styleSheet = document.createElement('style');
+            styleSheet.id = 'puter-spinner-styles';
+            styleSheet.textContent = `
+                .files-loading-spinner {
+                    width: 50px;
+                    height: 50px;
+                    border: 5px solid var(--dashboard-border);
+                    border-top: 5px solid var(--select-color);
+                    border-radius: 50%;
+                    animation: spin 1s linear infinite;
+                    margin-bottom: 10px;
+                }
+    
+                .files-loading-text {
+                    font-family: Arial, sans-serif;
+                    font-size: 16px;
+                    margin-top: 10px;
+                    text-align: center;
+                    width: 100%;
+                    color: var(--dashboard-text);
+                }
+    
+                @keyframes spin {
+                    0% { transform: rotate(0deg); }
+                    100% { transform: rotate(360deg); }
+                }
+    
+                .files-loading-container {
+                    display: flex;
+                    flex-direction: column;
+                    align-items: center;
+                    justify-content: center;
+                    min-height: 120px; 
+                    background: var(--dashboard-background); 
+                    border-radius: 10px;
+                    padding: 20px;
+                    min-width: 120px;
+                }
+            `;
+            document.head.appendChild(styleSheet);
+        }
+
+        const overlay = document.createElement('div');
+        overlay.classList.add('files-loading-overlay');
+
+        const styles = {
+            position: 'absolute',
+            top: '93px',
+            left: '0',
+            width: '100%',
+            height: '100%',
+            backgroundColor: 'var(--dashboard-background)',
+            zIndex: '2147483647',
+            display: 'flex',
+            justifyContent: 'center',
+            alignItems: 'center',
+            pointerEvents: 'all',
+            opacity: 0,
+            transition: 'opacity 2s ease-in',
+        };
+
+        Object.assign(overlay.style, styles);
+
+        // Create container for spinner and text
+        const container = document.createElement('div');
+        container.classList.add('files-loading-container');
+
+        // Add spinner and text
+        container.innerHTML = `
+            <div class="files-loading-spinner"></div>
+            <div class="files-loading-text">${html ?? 'Working...'}</div>
+        `;
+
+        overlay.appendChild(container);
+        document.querySelector('.directory-contents').appendChild(overlay);
+        setTimeout(() => {
+            overlay.style.opacity = 1;
+        }, 100);
+    },
+
+    hideSpinner () {
+        const overlay = document.querySelector('.files-loading-overlay');
+        if ( overlay ) {
+            overlay.parentNode?.removeChild(overlay);
+        }
+        this.loading = false;
     },
 };
 
