@@ -469,6 +469,10 @@ class APIError {
             status: 403,
             message: 'Password does not match.',
         },
+        'oidc_revalidation_required': {
+            status: 403,
+            message: 'Re-validate by signing in with your linked account (e.g. Google).',
+        },
 
         // Object Mapping
         'field_not_allowed_for_create': {

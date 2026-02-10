@@ -27,7 +27,7 @@ const GOOGLE_DISCOVERY_URL = 'https://accounts.google.com/.well-known/openid-con
 const GOOGLE_SCOPES = 'openid email profile';
 const STATE_EXPIRY_SEC = 600; // 10 minutes
 
-const VALID_OIDC_FLOWS = ['login', 'signup'];
+const VALID_OIDC_FLOWS = ['login', 'signup', 'revalidate'];
 
 async function generate_random_username () {
     let username;

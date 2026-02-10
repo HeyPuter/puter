@@ -24,6 +24,19 @@ const { UserActorType } = require('../auth/Actor');
 const { Endpoint } = require('../../util/expressutil');
 const APIError = require('../../api/APIError.js');
 const configurable_auth = require('../../middleware/configurable_auth.js');
+const config = require('../../config');
+const jwt = require('jsonwebtoken');
+
+const REVALIDATION_COOKIE_NAME = 'puter_revalidation';
+
+async function revalidateUrlFields_ (svc, req, user) {
+    const origin = (config.origin || '').replace(/\/$/, '');
+    const svc_oidc = req.services.get('oidc');
+    const providers = await svc_oidc.getEnabledProviderIds();
+    const provider = providers && providers[0];
+    if ( ! provider ) return {};
+    return { revalidate_url: `${origin}/auth/oidc/${provider}/start?flow=revalidate&user_id=${user.id}` };
+}
 
 /**
 * @class UserProtectedEndpointsService
@@ -107,38 +120,52 @@ class UserProtectedEndpointsService extends BaseService {
         });
 
         /**
-        * Middleware to validate the provided password against the stored user password.
-        *
-        * This method ensures that the user has entered their current password correctly before
-        * allowing changes to critical account settings. It uses bcrypt for password comparison.
-        *
-        * @param {Object} req - Express request object, containing user and password in body.
-        * @param {Object} res - Express response object for sending back the response.
-        * @param {Function} next - Callback to pass control to the next middleware or route handler.
+        * Middleware to validate identity: either password (bcrypt) or a valid OIDC revalidation cookie.
+        * OIDC-only accounts (user.password === null) must use revalidation; password accounts may use either.
         */
         router.use(async (req, res, next) => {
             if ( req.method === 'OPTIONS' ) return next();
 
-            if ( ! req.body.password ) {
-                return (APIError.create('password_required')).write(res);
-            }
-
-            const bcrypt = (() => {
-                const require = this.require;
-                return require('bcrypt');
-            })();
-
             const user = await get_user({ id: req.user.id, force: true });
-            const isMatch = await bcrypt.compare(req.body.password, user.password);
-            if ( ! isMatch ) {
-                return APIError.create('password_mismatch').write(res);
+            const revalidationCookie = req.cookies && req.cookies[REVALIDATION_COOKIE_NAME];
+
+            if ( req.body.password ) {
+                if ( user.password === null ) {
+                    return (APIError.create('oidc_revalidation_required', null, await revalidateUrlFields_(this, req, user))).write(res);
+                }
+                const bcrypt = (() => {
+                    const require = this.require;
+                    return require('bcrypt');
+                })();
+                const isMatch = await bcrypt.compare(req.body.password, user.password);
+                if ( ! isMatch ) {
+                    return APIError.create('password_mismatch').write(res);
+                }
+                return next();
             }
-            next();
+
+            if ( revalidationCookie ) {
+                try {
+                    const payload = jwt.verify(revalidationCookie, config.jwt_secret);
+                    if ( payload.purpose === 'revalidate' && payload.user_id === req.user.id ) {
+                        return next();
+                    }
+                } catch ( e ) {
+                    // invalid or expired
+                }
+            }
+
+            if ( user.password === null ) {
+                return (APIError.create('oidc_revalidation_required', null, await revalidateUrlFields_(this, req, user))).write(res);
+            }
+            return (APIError.create('password_required')).write(res);
         });
 
         Endpoint(require('../../routers/user-protected/change-password.js')).attach(router);
 
         Endpoint(require('../../routers/user-protected/change-email.js')).attach(router);
+
+        Endpoint(require('../../routers/user-protected/change-username.js')).attach(router);
 
         Endpoint(require('../../routers/user-protected/disable-2fa.js')).attach(router);
     }
