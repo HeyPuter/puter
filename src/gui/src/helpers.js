@@ -457,9 +457,14 @@ window.refresh_user_data = async (auth_token) => {
     }
 };
 
-window.update_auth_data = async (auth_token, user) => {
+window.update_auth_data = async (auth_token, user, api_origin) => {
     window.auth_token = auth_token;
     localStorage.setItem('auth_token', auth_token);
+
+    if ( api_origin ) {
+        window.api_origin = api_origin;
+        localStorage.setItem('api_origin', api_origin);
+    }
 
     // Has username changed?
     if ( window.user?.username !== user.username )
