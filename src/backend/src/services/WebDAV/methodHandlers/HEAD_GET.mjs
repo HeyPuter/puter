@@ -63,8 +63,6 @@ export const HEAD_GET = async (req, res, _filePath, fileNode, _headerLockToken) 
         // Set ETag
         headers['ETag'] = `"${fileStat.uid}-${Math.floor(fileStat.modified)}"`;
 
-        res.set(headers);
-
         // For HEAD requests, only send headers, no body
         if ( req.method === 'HEAD' ) {
             res.status(200).end();
@@ -107,7 +105,7 @@ export const HEAD_GET = async (req, res, _filePath, fileNode, _headerLockToken) 
                     const totalSize = fileSize !== null ? fileSize : '*';
                     const contentRange = `bytes ${start}-${actualEnd}/${totalSize}`;
                     res.set('Content-Range', contentRange);
-                    res.set('Content-Length', (actualEnd - start) + 1);
+                    headers['Content-Length'] = (actualEnd - start) + 1;
                 }
 
                 // If this was a multipart request, modify the range header to only include the first range
@@ -116,6 +114,7 @@ export const HEAD_GET = async (req, res, _filePath, fileNode, _headerLockToken) 
                 }
             }
         }
+        res.set(headers);
 
         const stream = await fsOperations.read(fileNode, options);
         stream.on('data', (data) => {
