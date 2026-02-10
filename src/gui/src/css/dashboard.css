@@ -624,6 +624,7 @@
 
 .dashboard-section-files .row {
     display: grid;
+    width: unset;
     height: 32px;
     padding: 0 10px;
     grid-template-columns: 24px auto 4px 100px 4px 120px 4px 20px;
@@ -631,6 +632,8 @@
     font-size: 13px;
     color: var(--dashboard-text);
     margin: 1px 2px;
+    pointer-events: auto;
+    float: unset;
 }
 
 .dashboard-section-files .row.folder {

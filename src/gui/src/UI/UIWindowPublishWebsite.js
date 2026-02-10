@@ -20,7 +20,7 @@
 import UIWindow from './UIWindow.js';
 import UIWindowMyWebsites from './UIWindowMyWebsites.js';
 
-async function UIWindowPublishWebsite (target_dir_uid, target_dir_name, target_dir_path) {
+async function UIWindowPublishWebsite (target_dir_uid, target_dir_name, target_dir_path, callback) {
     let h = '';
     h += '<div class="window-publishWebsite-content" style="padding: 20px; border-bottom: 1px solid #ced7e1;">';
     // success
@@ -234,7 +234,7 @@ async function UIWindowPublishWebsite (target_dir_uid, target_dir_name, target_d
                 });
 
                 window.update_sites_cache();
-
+                if ( callback ) callback();
             } else if ( publishingType === 'custom' ) {
                 // Handle custom domain publishing with Entri
                 let customDomain = $(el_window).find('.publish-website-custom-domain').val();
@@ -279,7 +279,7 @@ async function UIWindowPublishWebsite (target_dir_uid, target_dir_name, target_d
                 });
 
                 window.update_sites_cache();
-
+                if ( callback ) callback();
                 $(el_window).close();
             }
 

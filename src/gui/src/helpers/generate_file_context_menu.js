@@ -259,7 +259,7 @@ const generate_file_context_menu = async function (options) {
     if ( !is_trashed && !is_trash && fsentry.is_dir ) {
         menu_items.push({
             html: i18n('publish_as_website'),
-            disabled: !fsentry.is_dir,
+            disabled: !fsentry.is_dir || fsentry.has_website,
             onClick: async function () {
                 if ( window.require_email_verification_to_publish_website ) {
                     if ( window.user.is_temp &&
@@ -277,7 +277,9 @@ const generate_file_context_menu = async function (options) {
                         return;
                     }
                 }
-                UIWindowPublishWebsite(fsentry.uid, $(el_item).attr('data-name'), $(el_item).attr('data-path'));
+                UIWindowPublishWebsite(fsentry.uid, $(el_item).attr('data-name'), $(el_item).attr('data-path'), () => {
+                    window.dashboard_object.renderDirectory(window.dashboard_object.selectedFolderUid);
+                });
             },
         });
     }

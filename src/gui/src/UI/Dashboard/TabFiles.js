@@ -1762,7 +1762,7 @@ const TabFiles = {
         const worker_url = has_worker?.url;
         const icon = file.is_dir ? `<img src="${html_encode(window.icons['folder.svg'])}"/>` : ((file.thumbnail && this.currentView === 'grid') ? `<img src="${file.thumbnail}" alt="${displayName}" />` : this.determineIcon(file));
         const row = document.createElement("div");
-        row.setAttribute('class', `row ${file.is_dir ? 'folder' : 'file'}`);
+        row.setAttribute('class', `item row ${file.is_dir ? 'folder' : 'file'}`);
         row.setAttribute("data-id", item_id);
         row.setAttribute("data-name", displayName);
         row.setAttribute("data-uid", file.uid);
