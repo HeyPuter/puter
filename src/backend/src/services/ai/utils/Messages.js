@@ -27,7 +27,7 @@ export const normalize_single_message = (message, params = {}) => {
     if ( ! message.role ) {
         message.role = params.role;
     }
-    if ( ! message.content ) {
+    if ( !message.content && message.content !== '' ) {
         if ( message.tool_calls ) {
             message.content = [];
             for ( let i = 0 ; i < message.tool_calls.length ; i++ ) {
