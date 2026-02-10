@@ -20,7 +20,11 @@
 const express = require('express');
 const router = new express.Router();
 const config = require('../../config');
+const jwt = require('jsonwebtoken');
 const { get_user } = require('../../helpers');
+
+const REVALIDATION_COOKIE_NAME = 'puter_revalidation';
+const REVALIDATION_EXPIRY_SEC = 300; // 5 minutes
 
 /** If Accept includes text/html, set session cookie and redirect to app; otherwise send JSON. */
 const finishOidcSuccess_ = async (req, res, user, stateDecoded) => {
@@ -101,9 +105,18 @@ router.get('/auth/oidc/:provider/start', async (req, res) => {
     const flowRedirects = {
         login: config.origin || '/',
         signup: config.origin || '/',
+        revalidate: `${(config.origin || '').replace(/\/$/, '')}/auth/revalidate-done`,
     };
     const appRedirectUri = (flow && flowRedirects[flow]) ? flowRedirects[flow] : (config.origin || '/');
     const statePayload = { provider, redirect_uri: appRedirectUri };
+    if ( flow === 'revalidate' ) {
+        const user_id = req.query.user_id;
+        if ( ! user_id ) {
+            return res.status(400).send('user_id required for revalidate flow.');
+        }
+        statePayload.user_id = Number(user_id);
+        statePayload.flow = 'revalidate';
+    }
     const state = svc_oidc.signState(statePayload);
     const url = await svc_oidc.getAuthorizationUrl(provider, state, flow);
     if ( ! url ) {
@@ -162,6 +175,64 @@ router.get('/auth/oidc/callback/signup', async (req, res) => {
     const user = await get_user({ id: outcome.infoObject.user_id });
     console.log('got user????', user);
     return await finishOidcSuccess_(req, res, user, stateDecoded);
+});
+
+// GET /auth/oidc/callback/revalidate - re-validate identity for protected actions (e.g. change username). Sets short-lived cookie and redirects.
+router.get('/auth/oidc/callback/revalidate', async (req, res) => {
+    if ( require('../../helpers').subdomain(req) !== '' ) {
+        return res.status(404).end();
+    }
+    const svc_edgeRateLimit = req.services.get('edge-rate-limit');
+    if ( ! svc_edgeRateLimit.check('login') ) {
+        return res.status(429).send('Too many requests.');
+    }
+    const svc_oidc = req.services.get('oidc');
+    const callbackRedirectUri = svc_oidc.getCallbackUrlForFlow('revalidate');
+    const preamble = await oidcCallbackPreamble_(req, res, callbackRedirectUri);
+    if ( ! preamble ) return;
+    const { provider, userinfo, stateDecoded } = preamble;
+    if ( stateDecoded.flow !== 'revalidate' || stateDecoded.user_id == null ) {
+        return res.status(400).send('Invalid revalidate state.');
+    }
+    const user = await svc_oidc.findUserByProviderSub(provider, userinfo.sub);
+    if ( ! user ) {
+        return res.status(400).send('No account found.');
+    }
+    if ( user.id !== stateDecoded.user_id ) {
+        return res.status(403).send('Wrong account. Sign in with the account linked to this session.');
+    }
+    const token = jwt.sign({ user_id: user.id, purpose: 'revalidate' },
+                    config.jwt_secret,
+                    { expiresIn: REVALIDATION_EXPIRY_SEC });
+    res.cookie(REVALIDATION_COOKIE_NAME, token, {
+        sameSite: 'lax',
+        secure: true,
+        httpOnly: true,
+        maxAge: REVALIDATION_EXPIRY_SEC * 1000,
+        path: '/',
+    });
+    const target = stateDecoded.redirect_uri || `${(config.origin || '').replace(/\/$/, '')}/auth/revalidate-done`;
+    return res.redirect(302, target);
+});
+
+// GET /auth/revalidate-done - landing page after OIDC revalidate; posts to opener and closes (for popup flow).
+router.get('/auth/revalidate-done', (req, res) => {
+    if ( require('../../helpers').subdomain(req) !== '' ) {
+        return res.status(404).end();
+    }
+    const origin = config.origin || '';
+    res.set('Content-Type', 'text/html; charset=utf-8');
+    res.send(`<!DOCTYPE html><html><head><title>Re-validated</title></head><body><script>
+(function(){
+var origin = ${JSON.stringify(origin)};
+if (window.opener) {
+  try { window.opener.postMessage({ type: 'puter-revalidate-done' }, origin); } catch (e) {}
+  // window.close();
+} else {
+  document.body.innerHTML = '<p>Re-validated. You can close this tab.</p>';
+}
+})();
+</script><p>Re-validated. Closing&hellip;</p></body></html>`);
 });
 
 module.exports = router;
