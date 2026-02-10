@@ -30,6 +30,8 @@ import update_title_based_on_uploads from '../../helpers/update_title_based_on_u
 import new_context_menu_item from '../../helpers/new_context_menu_item.js';
 import ContextMenuModal from './ContextMenu/ContextMenu.js';
 
+const svgToBase64 = (svg) => `data:image/svg+xml;base64,${btoa(svg)}`;
+
 const icons = {
     document: `<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"></path><polyline points="14 2 14 8 20 8"></polyline></svg>`,
     files: `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"/></svg>`,
@@ -47,6 +49,7 @@ const icons = {
     sort: `<svg xmlns="http://www.w3.org/2000/svg" height="18" viewBox="0 -960 960 960" width="18" fill="currentcolor"><path d="M120-240v-80h240v80H120Zm0-200v-80h480v80H120Zm0-200v-80h720v80H120Z"/></svg>`,
     select: `<svg xmlns="http://www.w3.org/2000/svg" height="18" viewBox="0 -960 960 960" width="18" fill="currentcolor"><path d="m424-312 282-282-56-56-226 226-114-114-56 56 170 170ZM200-120q-33 0-56.5-23.5T120-200v-560q0-33 23.5-56.5T200-840h560q33 0 56.5 23.5T840-760v560q0 33-23.5 56.5T760-120H200Zm0-80h560v-560H200v560Zm0-560v560-560Z"/></svg>`,
     done: `<svg xmlns="http://www.w3.org/2000/svg" height="18" viewBox="0 -960 960 960" width="18" fill="currentcolor"><path d="M382-240 154-468l57-57 171 171 367-367 57 57-424 424Z"/></svg>`,
+    worker: `<svg xmlns="http://www.w3.org/2000/svg" color="#455a64" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentcolor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="lucide lucide-zap-icon lucide-zap"><path d="M4 14a1 1 0 0 1-.78-1.63l9.9-10.2a.5.5 0 0 1 .86.46l-1.92 6.02A1 1 0 0 0 13 10h7a1 1 0 0 1 .78 1.63l-9.9 10.2a.5.5 0 0 1-.86-.46l1.92-6.02A1 1 0 0 0 11 14z"/></svg>`,
 };
 
 const { html_encode, SelectionArea } = window;
@@ -162,6 +165,7 @@ const TabFiles = {
         this.previewCurrentUid = null;
         this.selectModeActive = false;
         this.currentView = await puter.kv.get('view_mode') || 'list';
+        this.workers = await puter.workers.list();
 
         // Sorting state
         this.sortColumn = await puter.kv.get('sort_column') || 'name';
@@ -1754,7 +1758,8 @@ const TabFiles = {
         const displayName = metadata.original_name || file.name;
         let website_url = window.determine_website_url(file.path);
         const is_shared_with_me = (file.path !== `/${window.user.username}` && !file.path.startsWith(`/${window.user.username}/`));
-        const has_worker = file.has_worker;
+        const has_worker = this.workers.find(w => w.file_path === file.path);
+        const worker_url = has_worker?.url;
         const icon = file.is_dir ? `<img src="${html_encode(window.icons['folder.svg'])}"/>` : ((file.thumbnail && this.currentView === 'grid') ? `<img src="${file.thumbnail}" alt="${displayName}" />` : this.determineIcon(file));
         const row = document.createElement("div");
         row.setAttribute('class', `row ${file.is_dir ? 'folder' : 'file'}`);
@@ -1788,19 +1793,19 @@ const TabFiles = {
                     src="${html_encode(window.icons['world.svg'])}" 
                     data-item-id="${item_id}"
                 />
-                <img  class="item-badge item-has-website-url-badge" 
+                <img class="item-badge item-has-website-url-badge" 
                     style="${website_url ? 'display:block;' : ''}" 
                     src="${html_encode(window.icons['link.svg'])}" 
                     data-item-id="${item_id}"
                 >
-                <img  class="item-badge item-badge-has-permission" 
+                <img class="item-badge item-badge-has-permission" 
                     style="display: ${ is_shared_with_me ? 'block' : 'none'};
                         background-color: #ffffff;
                         padding: 2px;" src="${html_encode(window.icons['shared.svg'])}" 
                     data-item-id="${item_id}"
                     title="A user has shared this item with you."
                 />
-                <img  class="item-badge item-is-shared" 
+                <img class="item-badge item-is-shared" 
                     style="background-color: #ffffff; padding: 2px; ${!is_shared_with_me && file.is_shared ? 'display:block;' : ''}" 
                     src="${html_encode(window.icons['owner-shared.svg'])}" 
                     data-item-id="${item_id}"
@@ -1808,18 +1813,18 @@ const TabFiles = {
                     data-item-path="${html_encode(file.path)}"
                     title="You have shared this item with at least one other user."
                 />
-                <img  class="item-badge item-shortcut" 
+                <img class="item-badge item-shortcut" 
                     style="background-color: #ffffff; padding: 2px; ${file.is_shortcut !== 0 ? 'display:block;' : ''}" 
                     src="${html_encode(window.icons['shortcut.svg'])}" 
                     data-item-id="${item_id}"
                     title="Shortcut"
                 >
-                <img  class="item-badge item-worker" 
+                <img class="item-badge item-worker" 
                     style="background-color: #ffffff; padding: 2px; ${has_worker ? 'display:block;' : ''}" 
-                    src="${html_encode(window.icons['cog.svg'])}" 
+                    src="${svgToBase64(icons.worker)}" 
                     data-item-id="${item_id}"
-                    title="Worker"
-                >
+                    title="Worker: ${worker_url}"
+                />
             </div>
             </div>
             <div class="item-name-wrapper">

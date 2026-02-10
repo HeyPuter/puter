@@ -1134,9 +1134,10 @@
 }
 
 .dashboard-section-files .files-tab .files.files-grid-view .row img.item-badge {
-    width: 32px !important;
-    height: 32px !important;
+    width: 20px !important;
+    height: 20px !important;
     margin: 5px;
+    border-radius: 50%;
 }
 
 .dashboard-section-files .files-tab .files.files-grid-view .row {
