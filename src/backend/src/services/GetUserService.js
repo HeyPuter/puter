@@ -16,7 +16,8 @@
  * You should have received a copy of the GNU Affero General Public License
  * along with this program.  If not, see <https://www.gnu.org/licenses/>.
  */
-const { Actor, UserActorType } = require('./auth/Actor');
+const { redisClient } = require('../clients/redis/redisSingleton');
+const { UserActorType } = require('./auth/Actor');
 const { PermissionImplicator } = require('./auth/permissionUtils.mjs');
 const BaseService = require('./BaseService');
 const { DB_READ } = require('./database/consts');
@@ -89,11 +90,47 @@ class GetUserService extends BaseService {
      * @returns {Promise<Object|null>} The user object if found, else null.
      */
     async get_user (options) {
-        const user = await this.get_user_(options);
+        const cached = options.cached ?? true;
+
+        let user;
+        if ( cached && !options.force ) {
+            for ( const prop of this.id_properties ) {
+                if ( Object.prototype.hasOwnProperty.call(options, prop) ) {
+                    const cached_user = await redisClient.get(`users:${prop}:${options[prop]}`);
+                    if ( cached_user ) {
+                        try {
+                            user = JSON.parse(cached_user);
+                        } catch (e) {
+                            console.warn(e);
+                            // no-op cache in invalid state
+                        }
+                    }
+                }
+            }
+        }
+        if ( ! user ) {
+            user = await this.get_user_(options);
+        }
         if ( ! user ) return null;
 
         const svc_whoami = this.services.get('whoami');
         await svc_whoami.get_details({ user }, user);
+
+        try {
+            const cached_user = JSON.stringify(user);
+            const cache_sets = [];
+            for ( const prop of this.id_properties ) {
+                if ( user[prop] ) {
+                    cache_sets.push(redisClient.set(`users:${prop}:${user[prop]}`, cached_user));
+                }
+            }
+            if ( cache_sets.length ) {
+                await Promise.all(cache_sets);
+            }
+        } catch ( e ) {
+            console.error(e);
+        }
+
         return user;
     }
 
@@ -113,22 +150,11 @@ class GetUserService extends BaseService {
         /** @type BaseDatabaseAccessService */
         const db = services.get('database').get(DB_READ, 'filesystem');
 
-        const cached = options.cached ?? true;
-
-        if ( cached && !options.force ) {
-            for ( const prop of this.id_properties ) {
-                if ( options.hasOwnProperty(prop) ) {
-                    const user = globalThis.kv?.get(`users:${prop}:${options[prop]}`);
-                    if ( user ) return user;
-                }
-            }
-        }
-
         let user;
 
         if ( ! options.force ) {
             for ( const prop of this.id_properties ) {
-                if ( options.hasOwnProperty(prop) ) {
+                if ( Object.prototype.hasOwnProperty.call(options, prop) ) {
                     [user] = await db.read(`SELECT * FROM \`user\` WHERE \`${prop}\` = ? LIMIT 1`, [options[prop]]);
                     if ( user ) break;
                 }
@@ -137,7 +163,7 @@ class GetUserService extends BaseService {
 
         if ( !user || !user[0] ) {
             for ( const prop of this.id_properties ) {
-                if ( options.hasOwnProperty(prop) ) {
+                if ( Object.prototype.hasOwnProperty.call(options, prop) ) {
                     [user] = await db.pread(`SELECT * FROM \`user\` WHERE \`${prop}\` = ? LIMIT 1`, [options[prop]]);
                     if ( user ) break;
                 }
@@ -146,15 +172,6 @@ class GetUserService extends BaseService {
 
         if ( ! user ) return null;
 
-        try {
-            for ( const prop of this.id_properties ) {
-                if ( user[prop] ) {
-                    globalThis.kv?.set(`users:${prop}:${user[prop]}`, user);
-                }
-            }
-        } catch ( e ) {
-            console.error(e);
-        }
         if ( user.metadata && typeof user.metadata === 'string' ) {
             user.metadata = JSON.parse(user.metadata);
         } else if ( ! user.metadata ) {

@@ -70,7 +70,7 @@ class AI {
 
         const tryFetchModels = async () => {
             const resp = await fetch(`${this.APIOrigin }/puterai/chat/models/details`, { headers });
-            if ( !resp.ok ) return null;
+            if ( ! resp.ok ) return null;
             const data = await resp.json();
             const models = Array.isArray(data?.models) ? data.models : [];
             return provider ? models.filter(model => model.provider === provider) : models;
@@ -298,13 +298,13 @@ class AI {
             if ( ! options.voice ) {
                 options.voice = '21m00Tcm4TlvDq8ikWAM';
             }
-            if ( ! options.model && typeof options.engine === 'string' ) {
+            if ( !options.model && typeof options.engine === 'string' ) {
                 options.model = options.engine;
             }
             if ( ! options.model ) {
                 options.model = 'eleven_multilingual_v2';
             }
-            if ( ! options.output_format && !options.response_format ) {
+            if ( !options.output_format && !options.response_format ) {
                 options.output_format = 'mp3_44100_128';
             }
             if ( options.response_format && !options.output_format ) {
@@ -736,6 +736,10 @@ class AI {
             requestParams.max_tokens = userParams.max_tokens;
         }
 
+        if ( userParams.provider ) {
+            requestParams.provider = userParams.provider;
+        }
+
         // convert undefined to empty string so that .startsWith works
         requestParams.model = requestParams.model ?? '';
 
@@ -745,11 +749,11 @@ class AI {
         }
 
         if ( userParams.driver ) {
-            driver = userParams.driver;
+            requestParams.provider = requestParams.provider || userParams.driver;
         }
 
         // Additional parameters to pass from userParams to requestParams
-        const PARAMS_TO_PASS = ['tools', 'response', 'reasoning', 'reasoning_effort', 'text', 'verbosity'];
+        const PARAMS_TO_PASS = ['tools', 'response', 'reasoning', 'reasoning_effort', 'text', 'verbosity', 'provider'];
         for ( const name of PARAMS_TO_PASS ) {
             if ( userParams[name] ) {
                 requestParams[name] = userParams[name];
@@ -835,8 +839,8 @@ class AI {
             options.model = 'gemini-2.5-flash-image-preview';
         }
 
-        if (options.model === "nano-banana-pro") {
-            options.model = "gemini-3-pro-image-preview";
+        if ( options.model === 'nano-banana-pro' ) {
+            options.model = 'gemini-3-pro-image-preview';
         }
 
         const driverHint = typeof options.driver === 'string' ? options.driver : undefined;
@@ -912,6 +916,7 @@ class AI {
             options.seconds = options.duration;
         }
 
+        // This sucks, should be backend's job like we do for chat models now
         let videoService = 'openai-video-generation';
         const driverHint = typeof options.driver === 'string' ? options.driver : undefined;
         const driverHintLower = driverHint ? driverHint.toLowerCase() : undefined;
@@ -922,7 +927,7 @@ class AI {
         const modelLower = typeof options.model === 'string' ? options.model.toLowerCase() : '';
 
         const looksLikeTogetherVideoModel = typeof options.model === 'string' &&
-            TOGETHER_VIDEO_MODEL_PREFIXES.some(prefix => modelLower.startsWith(prefix));
+            (TOGETHER_VIDEO_MODEL_PREFIXES.some(prefix => modelLower.startsWith(prefix)) || options.model.startsWith('togetherai:'));
 
         if ( driverHintLower === 'together' || driverHintLower === 'together-ai' ) {
             videoService = 'together-video-generation';
@@ -958,7 +963,8 @@ class AI {
                     return result;
                 }
 
-                const video = (globalThis.document?.createElement('video') || {setAttribute: ()=>{}});
+                const video = (globalThis.document?.createElement('video') || { setAttribute: () => {
+                } });
                 video.src = sourceUrl;
                 video.controls = true;
                 video.preload = 'metadata';

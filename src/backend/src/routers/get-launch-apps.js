@@ -17,8 +17,9 @@
  * along with this program.  If not, see <https://www.gnu.org/licenses/>.
  */
 'use strict';
-const { get_app } = require('../helpers.js');
-const { DB_READ } = require('../services/database/consts.js');
+import { redisClient } from '../clients/redis/redisSingleton.js';
+import { get_apps } from '../helpers.js';
+import { DB_READ } from '../services/database/consts.js';
 
 const iconify_apps = async (context, { apps, size }) => {
     return await Promise.all(apps.map(async app => {
@@ -37,7 +38,7 @@ const iconify_apps = async (context, { apps, size }) => {
 // -----------------------------------------------------------------------//
 // GET /get-launch-apps
 // -----------------------------------------------------------------------//
-module.exports = async (req, res) => {
+export default async (req, res) => {
     let result = {};
 
     // Verify query params
@@ -65,7 +66,14 @@ module.exports = async (req, res) => {
     const db = req.services.get('database').get(DB_READ, 'apps');
 
     // First try the cache to see if we have recent apps
-    apps = kv.get(`app_opens:user:${ req.user.id}`);
+    const cached_apps = await redisClient.get(`app_opens:user:${ req.user.id}`);
+    if ( cached_apps ) {
+        try {
+            apps = JSON.parse(cached_apps);
+        } catch (e) {
+            apps = [];
+        }
+    }
 
     // If cache is empty, query the db and update the cache
     if ( !apps || !Array.isArray(apps) || apps.length === 0 ) {
@@ -73,18 +81,17 @@ module.exports = async (req, res) => {
                         [req.user.id]);
         // Update cache with the results from the db (if any results were returned)
         if ( apps && Array.isArray(apps) && apps.length > 0 ) {
-            kv.set(`app_opens:user:${ req.user.id}`, apps);
+            await redisClient.set(`app_opens:user:${ req.user.id}`, JSON.stringify(apps));
         }
     }
 
     // prepare each app for returning to user by only returning the necessary fields
     // and adding them to the retobj array
-    result.recent = [];
-    for ( const { app_uid: uid } of apps ) {
-        const app = await get_app({ uid });
-        if ( ! app ) continue;
+    const recent_apps = await get_apps(apps.map(({ app_uid: uid }) => ({ uid })));
 
-        result.recent.push({
+    result.recent = recent_apps.map((app) => {
+        if ( ! app ) return null;
+        return {
             uuid: app.uid,
             name: app.name,
             title: app.title,
@@ -92,8 +99,8 @@ module.exports = async (req, res) => {
             godmode: app.godmode,
             maximize_on_start: app.maximize_on_start,
             index_url: app.index_url,
-        });
-    }
+        };
+    }).filter(Boolean);
 
     // Iconify apps
     if ( req.query.icon_size ) {

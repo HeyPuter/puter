@@ -23,6 +23,7 @@ import UIAlert from './UIAlert.js';
 function UIWindowEmailConfirmationRequired (options) {
     return new Promise(async (resolve) => {
         options = options ?? {};
+        options.window_options = options.window_options ?? {};
         let final_code = '';
         let is_checking_code = false;
 
@@ -30,7 +31,7 @@ function UIWindowEmailConfirmationRequired (options) {
 
         let h = '';
         h += '<div class="qr-code-window-close-btn generic-close-window-button"> &times; </div>';
-        h += '<div style="-webkit-font-smoothing: antialiased; -moz-osx-font-smoothing: grayscale; color: #3e5362;">';
+        h += '<div style="-webkit-font-smoothing: antialiased; -moz-osx-font-smoothing: grayscale; color: #3e5362; max-width: 350px; margin: 0 auto;">';
         h += `<img src="${html_encode(window.icons['mail.svg'])}" style="display:block; margin:10px auto 10px;">`;
         h += `<h3 style="text-align:center; font-weight: 500; font-size: 20px;">${i18n('confirm_your_email_address')}</h3>`;
         h += '<form>';
@@ -73,8 +74,10 @@ function UIWindowEmailConfirmationRequired (options) {
             allow_native_ctxmenu: true,
             allow_user_select: true,
             backdrop: true,
+            close_on_backdrop_click: false,
             width: 390,
             dominant: true,
+            ...options.window_options,
             onAppend: function (el_window) {
                 $(el_window).find('.digit-input').first().focus();
             },

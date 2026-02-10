@@ -18,9 +18,14 @@
  */
 
 import { describe, it, expect, beforeEach, vi } from 'vitest';
-import { kv } from '../util/kvSingleton';
-const uuid = require('uuid');
-const proxyquire = require('proxyquire');
+import * as uuid from 'uuid';
+
+vi.mock('../helpers.js', () => ({
+    get_apps: vi.fn(),
+}));
+
+import { get_apps } from '../helpers.js';
+import get_launch_apps from './get-launch-apps';
 
 const TEST_UUID_NAMESPACE = '5568ab95-229d-4d87-b98c-0b12680a9524';
 
@@ -83,6 +88,21 @@ const data_appopens = [
 ];
 
 const get_mock_context = () => {
+    get_apps.mockImplementation(async (specifiers) => {
+        return specifiers.map(({ uid, name, id }) => {
+            if ( uid ) {
+                return data_mockapps.find(app => app.uid === uid);
+            }
+            if ( name ) {
+                return data_mockapps.find(app => app.name === name);
+            }
+            if ( id ) {
+                return data_mockapps.find(app => app.id === id);
+            }
+            return null;
+        });
+    });
+
     const database_mock = {
         read: async (query) => {
             if ( query.includes('FROM app_opens') ) {
@@ -91,7 +111,7 @@ const get_mock_context = () => {
         },
     };
     const recommendedApps_mock = {
-        get_recommended_apps: async ({ icon_size }) => {
+        get_recommended_apps: async () => {
             return data_mockapps
                 .filter(app => apps_names_expected_to_exist.includes(app.name))
                 .map(app => ({
@@ -130,45 +150,33 @@ const get_mock_context = () => {
         send: vi.fn(),
     };
 
-    const get_app = vi.fn(async ({ uid, name }) => {
-        if ( uid ) {
-            return data_mockapps.find(app => app.uid === uid);
-        }
-        if ( name ) {
-            return data_mockapps.find(app => app.name === name);
-        }
-    });
-
-    const get_launch_apps = proxyquire('./get-launch-apps', {
-        '../helpers.js': {
-            get_app,
-        },
-    });
-
     return {
         get_launch_apps,
         req_mock,
         res_mock,
         spies: {
-            get_app,
+            get_apps,
         },
     };
 };
 
 describe('GET /launch-apps', () => {
-    globalThis.kv = kv;
+
+    beforeEach(() => {
+        vi.clearAllMocks();
+    });
 
     it('should return expected format', async () => {
         // First call
         {
-            const { get_launch_apps, req_mock, res_mock, spies } = get_mock_context();
+            const { get_launch_apps, req_mock, res_mock } = get_mock_context();
             req_mock.query = {};
             await get_launch_apps(req_mock, res_mock);
 
             // << HOW TO FIX >>
             // If you updated the list of recommended apps,
             // you can simply update this number to match the new length
-            // expect(spies.get_app).toHaveBeenCalledTimes(3);
+            // expect(spies.get_apps).toHaveBeenCalledTimes(1);
         }
 
         // Second call
@@ -216,8 +224,9 @@ describe('GET /launch-apps', () => {
                                     index_url: app.index_url,
                                 })));
 
-            expect(spies.get_app).toHaveBeenCalledTimes(
-                            data_appopens.length);
+            expect(spies.get_apps).toHaveBeenCalledTimes(2);
+            expect(spies.get_apps).toHaveBeenCalledWith(
+                            data_appopens.map(({ app_uid: uid }) => ({ uid })));
         }
     });
 });

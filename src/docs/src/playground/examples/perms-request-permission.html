@@ -1,0 +1,21 @@
+<html>
+<body>
+    <script src="https://js.puter.com/v2/"></script>
+    <button id="request-permission">Request Permission</button>
+    <script>
+        document.getElementById('request-permission').addEventListener('click', async () => {
+            // Get the current user's UUID
+            const user = await puter.auth.getUser();
+            const permission = `user:${user.uuid}:email:read`;
+            
+            const granted = await puter.perms.request(permission);
+            if (granted) {
+                puter.print('Permission granted');
+            } else {
+                puter.print('Permission denied');
+            }
+        });
+    </script>
+</body>
+</html>
+

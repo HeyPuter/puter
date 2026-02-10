@@ -17,19 +17,19 @@
  * along with this program.  If not, see <https://www.gnu.org/licenses/>.
  */
 
-import path from './lib/path.js';
+import get_html_element_from_options from './helpers/get_html_element_from_options.js';
+import globToRegExp from './helpers/globToRegExp.js';
+import item_icon from './helpers/item_icon.js';
+import truncate_filename from './helpers/truncate_filename.js';
+import update_title_based_on_uploads from './helpers/update_title_based_on_uploads.js';
+import update_username_in_gui from './helpers/update_username_in_gui.js';
 import mime from './lib/mime.js';
+import path from './lib/path.js';
 import UIAlert from './UI/UIAlert.js';
 import UIItem from './UI/UIItem.js';
 import UIWindowLogin from './UI/UIWindowLogin.js';
-import UIWindowSaveAccount from './UI/UIWindowSaveAccount.js';
-import update_username_in_gui from './helpers/update_username_in_gui.js';
-import update_title_based_on_uploads from './helpers/update_title_based_on_uploads.js';
-import truncate_filename from './helpers/truncate_filename.js';
 import UIWindowProgress from './UI/UIWindowProgress.js';
-import globToRegExp from './helpers/globToRegExp.js';
-import get_html_element_from_options from './helpers/get_html_element_from_options.js';
-import item_icon from './helpers/item_icon.js';
+import UIWindowSaveAccount from './UI/UIWindowSaveAccount.js';
 
 window.is_auth = () => {
     if ( localStorage.getItem('auth_token') === null || window.auth_token === null )
@@ -457,9 +457,14 @@ window.refresh_user_data = async (auth_token) => {
     }
 };
 
-window.update_auth_data = async (auth_token, user) => {
+window.update_auth_data = async (auth_token, user, api_origin) => {
     window.auth_token = auth_token;
     localStorage.setItem('auth_token', auth_token);
+
+    if ( api_origin ) {
+        window.api_origin = api_origin;
+        localStorage.setItem('api_origin', api_origin);
+    }
 
     // Has username changed?
     if ( window.user?.username !== user.username )
@@ -619,32 +624,111 @@ window.is_fullscreen = () => {
         (document.msFullscreenElement && document.msFullscreenElement !== null);
 };
 
+const GET_APPS_TTL_MS = 30 * 1000;
+const getAppsCache = new Map();
+const getAppsInflight = new Map();
+
 window.get_apps = async (app_names, callback) => {
-    if ( Array.isArray(app_names) )
-    {
-        app_names = app_names.join('|');
-    }
+    const names = Array.isArray(app_names)
+        ? app_names
+        : (typeof app_names === 'string' ? app_names.split('|') : []);
 
     // 'explorer' is a special app, no metadata should be returned
-    if ( app_names === 'explorer' )
+    if ( names.length === 1 && names[0] === 'explorer' )
     {
         return [];
     }
 
-    let res = await $.ajax({
-        url: `${window.api_origin }/apps/${app_names}`,
-        type: 'GET',
-        async: true,
-        contentType: 'application/json',
-        headers: {
-            'Authorization': `Bearer ${window.auth_token}`,
-        },
-        success: function (res) {
-        },
-    });
+    if ( names.length === 0 ) {
+        return [];
+    }
 
-    if ( res.length === 1 )
-    {
+    const now = Date.now();
+    const resultsByName = new Map();
+    const pendingPromises = [];
+    const missingNames = [];
+
+    for ( const name of names ) {
+        if ( ! name ) continue;
+        const cached = getAppsCache.get(name);
+        if ( cached && cached.expiresAt > now ) {
+            resultsByName.set(name, cached.value);
+            continue;
+        }
+        if ( cached ) {
+            getAppsCache.delete(name);
+        }
+
+        const inflight = getAppsInflight.get(name);
+        if ( inflight ) {
+            pendingPromises.push(inflight.then((app) => {
+                if ( app ) {
+                    resultsByName.set(name, app);
+                }
+            }));
+            continue;
+        }
+
+        missingNames.push(name);
+    }
+
+    if ( missingNames.length ) {
+        const uniqueMissing = Array.from(new Set(missingNames));
+        const fetchPromise = (async () => {
+            const res = await $.ajax({
+                url: `${window.api_origin }/apps/${uniqueMissing.join('|')}`,
+                type: 'GET',
+                async: true,
+                contentType: 'application/json',
+                headers: {
+                    'Authorization': `Bearer ${window.auth_token}`,
+                },
+                success: function () {
+                },
+            });
+
+            let apps = res;
+            if ( ! Array.isArray(apps) ) {
+                apps = apps ? [apps] : [];
+            }
+
+            const appMap = new Map();
+            for ( const app of apps ) {
+                if ( app?.name ) {
+                    appMap.set(app.name, app);
+                }
+            }
+
+            return appMap;
+        })();
+
+        for ( const name of uniqueMissing ) {
+            getAppsInflight.set(name,
+                            fetchPromise.then((appMap) => appMap.get(name) ?? null));
+        }
+
+        pendingPromises.push(fetchPromise.then((appMap) => {
+            const fetchedAt = Date.now();
+            for ( const [name, app] of appMap.entries() ) {
+                getAppsCache.set(name, {
+                    value: app,
+                    expiresAt: fetchedAt + GET_APPS_TTL_MS,
+                });
+                resultsByName.set(name, app);
+            }
+        }).finally(() => {
+            for ( const name of uniqueMissing ) {
+                getAppsInflight.delete(name);
+            }
+        }));
+    }
+
+    if ( pendingPromises.length ) {
+        await Promise.all(pendingPromises);
+    }
+
+    let res = names.map(name => resultsByName.get(name)).filter(Boolean);
+    if ( res.length === 1 ) {
         res = res[0];
     }
 
@@ -1342,21 +1426,6 @@ window.trigger_download = (paths) => {
         });
         return;
 
-        fetch(e.download, {
-            method: 'POST',
-            headers: {
-                'Content-Type': 'application/json',
-                'Authorization': `Bearer ${ puter.authToken}`,
-            },
-            body: JSON.stringify({
-                anti_csrf,
-            }),
-        })
-            .then(res => res.blob())
-            .then(blob => {
-                saveAs(blob, e.filename);
-            });
-
     });
 };
 
@@ -1785,6 +1854,104 @@ window.update_sites_cache = function () {
             window.sites = [];
         }
     });
+};
+
+/**
+ * Fetches subdomains for directories and updates UI items with subdomain data.
+ * This function can be called after readdir to update website badges asynchronously.
+ *
+ * @param {Array} fsentries - Array of filesystem entries (from readdir)
+ * @param {jQuery|HTMLElement} [container] - Optional container to limit search scope. If not provided, searches entire document.
+ * @returns {Promise<void>}
+ */
+window.updateSubdomainsForItems = async function (fsentries, container) {
+    if ( !fsentries || fsentries.length === 0 ) {
+        // Early return - no action is needed
+        return;
+    }
+
+    // Extract directory IDs and create a map of id -> fsentry
+    const directoryIds = [];
+    const fsentryById = new Map();
+
+    for ( const fsentry of fsentries ) {
+        if ( fsentry.is_dir && fsentry.id != null ) {
+            directoryIds.push(fsentry.id);
+            fsentryById.set(fsentry.id, fsentry);
+        }
+    }
+
+    // No directories means no subdomains
+    if ( directoryIds.length === 0 ) {
+        return;
+    }
+
+    try {
+        const subdomainResults = await puter.fs.readdirSubdomains({ directory_ids: directoryIds });
+
+        // Create a map of directory_id -> subdomain data
+        const subdomainMap = new Map();
+        for ( const result of subdomainResults ) {
+            subdomainMap.set(result.directory_id, {
+                subdomains: result.subdomains,
+                has_website: result.has_website,
+            });
+        }
+
+        // Update UI items with subdomain data
+        // Always search entire document first to ensure we find items regardless of DOM structure
+        for ( const fsentry of fsentries ) {
+            if ( !fsentry.is_dir || !fsentry.id ) continue;
+
+            const subdomainData = subdomainMap.get(fsentry.id);
+            const has_website = subdomainData ? subdomainData.has_website : false;
+            const subdomains = subdomainData ? subdomainData.subdomains : [];
+
+            // Find the item element - search entire document by uid first
+            let $item = $(document).find(`.item[data-uid="${fsentry.uid}"]`);
+
+            // If not found by uid, try path-based search
+            if ( $item.length === 0 && fsentry.path ) {
+                // Escape special characters in path for jQuery selector
+                const escapedPath = fsentry.path.replace(/[!"#$%&'()*+,.\/:;<=>?@[\\\]^`{|}~]/g, '\\$&');
+                $item = $(document).find(`.item[data-path="${escapedPath}"]`);
+            }
+
+            if ( $item.length > 0 ) {
+                // Update has_website attribute
+                $item.attr('data-has_website', has_website ? '1' : '0');
+
+                // Update website badge visibility
+                const $badge = $item.find('.item-has-website-badge');
+                if ( $badge.length > 0 ) {
+                    $badge.css('display', has_website ? 'block' : 'none');
+                } else {
+                }
+
+                // Update cache with subdomain data
+                if ( fsentry.path ) {
+                    const cachedItem = await puter._cache.get(`item:${fsentry.path}`);
+                    if ( cachedItem ) {
+                        cachedItem.subdomains = subdomains;
+                        cachedItem.has_website = has_website;
+                        puter._cache.set(`item:${fsentry.path}`, cachedItem);
+                    }
+                }
+            } else {
+                console.warn('[updateSubdomainsForItems] Item not found for directory:', {
+                    name: fsentry.name,
+                    uid: fsentry.uid,
+                    id: fsentry.id,
+                    path: fsentry.path,
+                });
+            }
+        }
+
+        console.log('[updateSubdomainsForItems] Update complete');
+    } catch ( error ) {
+        // Silently fail subdomain fetching - don't block the UI
+        console.error('[updateSubdomainsForItems] Failed to fetch subdomains:', error);
+    }
 };
 
 /**

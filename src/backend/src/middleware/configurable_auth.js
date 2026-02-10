@@ -110,7 +110,8 @@ const configurable_auth = options => async (req, res, next) => {
     const services = context.get('services');
     const svc_auth = services.get('auth');
 
-    let actor; try {
+    let actor;
+    try {
         actor = await svc_auth.authenticate_from_token(token);
     } catch ( e ) {
         if ( e instanceof APIError ) {

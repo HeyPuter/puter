@@ -1,0 +1,20 @@
+<html>
+<body>
+    <script src="https://js.puter.com/v2/"></script>
+    <button id="request-documents">Request Documents Write Access</button>
+    <script>
+        document.getElementById('request-documents').addEventListener('click', async () => {
+            const documentsPath = await puter.perms.requestWriteDocuments();
+            if (documentsPath) {
+                puter.print(`Documents path: ${documentsPath}`);
+                // Now you can write files to the Documents folder
+                await puter.fs.write(`${documentsPath}/my-document.txt`, 'Hello from Documents!');
+                puter.print('File written to Documents folder');
+            } else {
+                puter.print('Documents write access denied');
+            }
+        });
+    </script>
+</body>
+</html>
+

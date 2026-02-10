@@ -31,7 +31,6 @@ class LLCopy extends LLFilesystemOperation {
         const { source, parent, user, actor, target_name } = this.values;
         const svc = context.get('services');
 
-        const tracer = svc.get('traceService').tracer;
         const fs = svc.get('filesystem');
         const svc_event = svc.get('event');
 

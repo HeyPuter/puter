@@ -44,7 +44,7 @@ function UIWindowSignup (options) {
 
         // Form
         h += '<div style="padding: 15px;">';
-        
+
         // title
         h += `<h1 class="signup-form-title">${i18n('create_free_account')}</h1>`;
         // signup form
@@ -189,6 +189,7 @@ function UIWindowSignup (options) {
             const login = await UIWindowLogin({
                 referrer: options.referrer,
                 reload_on_success: options.reload_on_success,
+                redirect_url: options.redirect_url,
                 window_options: options.window_options,
                 show_close_button: options.show_close_button,
                 send_confirmation_code: options.send_confirmation_code,
@@ -307,12 +308,17 @@ function UIWindowSignup (options) {
                     //send out the login event
                     if ( options.reload_on_success ) {
                         window.onbeforeunload = null;
-                        // Replace with a clean URL to prevent sensitive data leakage
-                        const cleanUrl = window.location.origin + window.location.pathname;
-                        window.location.replace(cleanUrl);
-                    } else if ( options.send_confirmation_code ) {
+                        // either options.redirect_url or the current page
+                        const redirectUrl = options.redirect_url || window.location.href;
+                        window.location.replace(redirectUrl);
+                    } else if ( options.send_confirmation_code || data.user?.requires_email_confirmation ) {
                         $(el_window).close();
-                        let is_verified = await UIWindowEmailConfirmationRequired({ stay_on_top: true, has_head: true });
+                        let is_verified = await UIWindowEmailConfirmationRequired({
+                            stay_on_top: true,
+                            has_head: true,
+                            reload_on_success: options.reload_on_success,
+                            window_options: options.window_options ?? {},
+                        });
                         resolve(is_verified);
                     } else {
                         resolve(true);

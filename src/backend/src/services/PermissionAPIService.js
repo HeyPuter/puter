@@ -51,7 +51,7 @@ class PermissionAPIService extends BaseService {
         app.use(require('../routers/auth/revoke-user-user'));
         app.use(require('../routers/auth/grant-user-group'));
         app.use(require('../routers/auth/revoke-user-group'));
-        app.use(require('../routers/auth/list-permissions'));
+        app.use(require('../routers/auth/list-permissions').default);
         app.use(require('../routers/auth/check-permissions.js'));
 
         Endpoint(require('../routers/auth/check-app-acl.endpoint.js')).but({

@@ -21,11 +21,14 @@ const { hardcoded_user_group_permissions } = require('../../data/hardcoded-permi
 const { ECMAP } = require('../../filesystem/ECMAP');
 const { get_user, get_app } = require('../../helpers');
 const { reading_has_terminal } = require('../../unstructured/permission-scan-lib');
+const { trace } = require('@opentelemetry/api');
 const BaseService = require('../BaseService');
 const { DB_WRITE } = require('../database/consts');
 const { UserActorType, Actor, AppUnderUserActorType } = require('./Actor');
 const { PERM_KEY_PREFIX, MANAGE_PERM_PREFIX } = require('./permissionConts.mjs');
 const { PermissionUtil, PermissionExploder, PermissionImplicator, PermissionRewriter } = require('./permissionUtils.mjs');
+const { spanify } = require('../../util/otelutil');
+const { redisClient } = require('../../clients/redis/redisSingleton');
 
 /**
 * @class PermissionService
@@ -38,10 +41,6 @@ const { PermissionUtil, PermissionExploder, PermissionImplicator, PermissionRewr
 * This service interacts with the database to manage permissions and logs actions for auditing purposes.
 */
 class PermissionService extends BaseService {
-    static MODULES = {
-        memKVMap: globalThis.kv,
-    };
-
     static CONCERN = 'permissions';
     /**
     * Initializes the PermissionService by setting up internal arrays for permission handling.
@@ -128,14 +127,11 @@ class PermissionService extends BaseService {
     * Can be a single permission string or an array of permission strings.
     * @returns {Promise<boolean>} - True if the actor has at least one of the permissions, false otherwise.
     */
-    async check (actor, permission_options, scan_options = {}) {
-        const svc_trace = this.services.get('traceService');
-        return await svc_trace.spanify('permission:check', async () => {
-            const reading = await this.scan(actor, permission_options, undefined, undefined, scan_options);
-            const options = PermissionUtil.reading_to_options(reading);
-            return options.length > 0;
-        });
-    }
+    check = spanify('permission:check', async (actor, permission_options, scan_options = {}) => {
+        const reading = await this.scan(actor, permission_options, undefined, undefined, scan_options);
+        const options = PermissionUtil.reading_to_options(reading);
+        return options.length > 0;
+    });
     /**
     * Checks if the actor has grant access to any of the specified permissions.
     *
@@ -143,15 +139,12 @@ class PermissionService extends BaseService {
     * @param {string} permission - The permission to check against.
     * @returns {Promise<boolean>} - True if the actor has at least one of the permissions, false otherwise.
     */
-    async canManagePermission (actor, permission) {
-        const svc_trace = this.services.get('traceService');
-        return await svc_trace.spanify('permission:check', async () => {
-            const managePermission = PermissionUtil.join(MANAGE_PERM_PREFIX, ...PermissionUtil.split(permission));
-            const reading = await this.scan(actor, managePermission);
-            const options = PermissionUtil.reading_to_options(reading);
-            return options.length > 0;
-        });
-    }
+    canManagePermission = spanify('permission:check', async (actor, permission) => {
+        const managePermission = PermissionUtil.join(MANAGE_PERM_PREFIX, ...PermissionUtil.split(permission));
+        const reading = await this.scan(actor, managePermission);
+        const options = PermissionUtil.reading_to_options(reading);
+        return options.length > 0;
+    });
 
     /**
     * Scans the permissions for an actor against specified permission options.
@@ -168,14 +161,22 @@ class PermissionService extends BaseService {
     *
     * @returns {Promise<Array>} A promise that resolves to an array of permission readings.
     */
-    async scan (actor, permission_options, _reserved, state, scan_options = {}) {
-        const svc_trace = this.services.get('traceService');
-        return await svc_trace.spanify('permission:scan', async () => {
-            return await ECMAP.arun(async () => {
-                return await this.#scan(actor, permission_options, _reserved, state, scan_options);
-            });
-        }, { attributes: { permission_options }, actor: actor.uid });
-    }
+    scan = spanify('permission:scan', async (actor, permission_options, _reserved, state, scan_options = {}) => {
+        const activeSpan = trace.getActiveSpan();
+        if ( activeSpan ) {
+            const options = Array.isArray(permission_options)
+                ? permission_options
+                : [permission_options];
+            activeSpan.setAttribute('permission_options', options);
+            if ( actor?.uid != null ) {
+                activeSpan.setAttribute('actor', actor.uid);
+            }
+        }
+        return await ECMAP.arun(async () => {
+            return await this.#scan(actor, permission_options, _reserved, state, scan_options);
+        });
+    });
+
     async #scan (actor, permission_options, _reserved, state, scan_options = {}) {
         if ( ! state ) {
             this.log.debug('scan', {
@@ -200,9 +201,13 @@ class PermissionService extends BaseService {
                         'options-list',
                         ...permission_options);
 
-        const cached = this.modules.memKVMap.get(cache_str);
+        const cached = await redisClient.get(cache_str);
         if ( cached && !scan_options.no_cache ) {
-            return cached;
+            try {
+                return JSON.parse(cached);
+            } catch (e) {
+                // no op cache is in an invalid state
+            }
         }
 
         // TODO: command to enable these logs
@@ -227,9 +232,27 @@ class PermissionService extends BaseService {
             value: end_ts - start_ts,
         });
 
-        this.modules.memKVMap.set(cache_str, reading, { EX: 20 });
+        await redisClient.set(cache_str, JSON.stringify(reading), 'EX', 20);
 
         return reading;
+    }
+
+    /**
+     * Removes permission-scan cache entries for an access token.
+     * Used when revoking an access token so stale scan results are not served.
+     * Only keys for this token are removed (see PermissionUtil.permission_scan_cache_pattern_for_access_token).
+     *
+     * @param {string} token_uid - The access token UUID.
+     */
+    invalidate_permission_scan_cache_for_access_token (token_uid) {
+        const kv = this.modules.memKVMap;
+        if ( ! kv?.keys ) return;
+        const pattern = PermissionUtil.permission_scan_cache_pattern_for_access_token(token_uid);
+        const keys = kv.keys(pattern);
+        if ( ! Array.isArray(keys) ) return;
+        for ( const key of keys ) {
+            kv.del(key);
+        }
     }
 
     async validateUserPerms ({ actor, permissions }) {

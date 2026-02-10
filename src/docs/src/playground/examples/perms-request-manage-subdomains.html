@@ -1,0 +1,19 @@
+<html>
+<body>
+    <script src="https://js.puter.com/v2/"></script>
+    <button id="request-subdomains">Request Subdomains Manage Access</button>
+    <script>
+        document.getElementById('request-subdomains').addEventListener('click', async () => {
+            const granted = await puter.perms.requestManageSubdomains();
+            if (granted) {
+                puter.print('Subdomains manage access granted');
+                // Now you can create, update, or delete subdomains
+                // Note: This requires the Hosting API
+            } else {
+                puter.print('Subdomains manage access denied');
+            }
+        });
+    </script>
+</body>
+</html>
+

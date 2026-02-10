@@ -1,0 +1,16 @@
+<html>
+<body>
+    <script src="https://js.puter.com/v2/"></script>
+    <script>
+        (async () => {
+            // Get a worker's information
+            const workerInfo = await puter.workers.get('my-api');
+            if (workerInfo) {
+                puter.print(`Worker information: ${JSON.stringify(workerInfo, null, 2)}`);
+            } else {
+                puter.print('Worker not found!');
+            }
+        })();
+    </script>
+</body>
+</html>

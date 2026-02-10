@@ -1,0 +1,13 @@
+<html>
+<body>
+    <script src="https://js.puter.com/v2/"></script>
+    <script>
+        puter.ai.txt2vid(
+            "A sunrise drone shot flying over a calm ocean",
+            true // test mode avoids using credits
+        ).then((video) => {
+            document.body.appendChild(video);
+        }).catch(console.error);
+    </script>
+</body>
+</html>

@@ -336,12 +336,9 @@ class WSPushService extends BaseService {
             const key = `last_change_timestamp:${user_id}`;
 
             try {
-                const svc_driver = Context.get('services').get('driver');
-                await svc_driver.call({
-                    iface: 'puter-kvstore',
-                    method: 'set',
-                    args: { key, value: ts },
-                });
+                /** @type {import('../clients/dynamodb/DynamoKVStore/DynamoKVStore.js').DynamoKVStore} */
+                const kvStore = Context.get('services').get('puter-kvstore');
+                await kvStore.set({ key: key, value: ts });
             } catch ( error ) {
                 this.log.error('Failed to update user timestamp in kvstore', { user_id, error: error.message });
             }

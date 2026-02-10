@@ -67,7 +67,7 @@ export const MKCOL = async ( req, res, filePath, fileNode, headerLockToken ) => 
 
         // Set response headers
         res.set({
-            Location: `/dav${targetPath}${targetPath.endsWith('/') ? '' : '/'}`,
+            Location: `${targetPath}${targetPath.endsWith('/') ? '' : '/'}`,
             'Content-Length': '0',
         });
 

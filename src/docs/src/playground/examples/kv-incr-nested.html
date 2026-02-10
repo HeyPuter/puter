@@ -1,0 +1,17 @@
+<html>
+<body>
+    <script src="https://js.puter.com/v2/"></script>
+    <script>
+        (async () => {
+            // If 'stats' contains: { user: { score: 10 } }
+            await puter.kv.set('stats', {user: {score: 10}})
+
+            // This increments user.score by 2
+            const newValue = await puter.kv.incr('stats', {"user.score": 2});
+
+            // newValue will be: { user: { score: 12 } }
+            puter.print(`New value: ${JSON.stringify(newValue)}`);
+        })();
+    </script>
+</body>
+</html>

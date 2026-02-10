@@ -5,13 +5,8 @@ import Update from './Update.js';
 
 const { db } = extension.import('data');
 const svc_params = extension.import('service:params');
-const svc_info = extension.import('service:information');
 
 const { PuterPath } = extension.import('fs');
-
-const { Context } = extension.import('core');
-
-const { id2path } = extension.import('core').util.helpers;
 
 const {
     RootNodeSelector,
@@ -21,14 +16,14 @@ const {
     NodeInternalIDSelector,
 } = extension.import('core').fs.selectors;
 
-export default class {
+export default class FSEntryController {
     static CONCERN = 'filesystem';
 
     static STATUS_READY = {};
     static STATUS_RUNNING_JOB = {};
 
     constructor () {
-        this.status = this.constructor.STATUS_READY;
+        this.status = FSEntryController.STATUS_READY;
 
         this.currentState = {
             queue: [],
@@ -84,19 +79,6 @@ export default class {
             },
         ], this);
 
-        // Register information providers
-
-        // uuid -> path via mysql
-        svc_info.given('fs.fsentry:uuid').provide('fs.fsentry:path')
-            .addStrategy('mysql', async uuid => {
-                // TODO: move id2path here
-                try {
-                    return await id2path(uuid);
-                } catch (e) {
-                    console.error('DASH VOID ERROR !!', e);
-                    return `/-void/${ uuid}`;
-                }
-            });
     }
 
     mkPromiseForQueueSize_ () {
@@ -160,8 +142,8 @@ export default class {
         }
 
         const entry_already_enqueued =
-            this.currentState.updating_uuids.hasOwnProperty(selector.value) ||
-            this.deferredState.updating_uuids.hasOwnProperty(selector.value) ;
+            Object.prototype.hasOwnProperty.call(this.currentState.updating_uuids, selector.value) ||
+            Object.prototype.hasOwnProperty.call(this.deferredState.updating_uuids, selector.value) ;
 
         if ( entry_already_enqueued ) {
             callback();
@@ -169,7 +151,7 @@ export default class {
         }
 
         const k = `uid:${selector.value}`;
-        if ( ! this.entryListeners_.hasOwnProperty(k) ) {
+        if ( ! Object.prototype.hasOwnProperty.call(this.entryListeners_, k) ) {
             this.entryListeners_[k] = [];
         }
 
@@ -471,10 +453,10 @@ export default class {
             throw new Error('Invalid operation');
         }
 
-        const state = this.status === this.constructor.STATUS_READY ?
+        const state = this.status === FSEntryController.STATUS_READY ?
             this.currentState : this.deferredState;
 
-        if ( ! state.updating_uuids.hasOwnProperty(op.uuid) ) {
+        if ( ! Object.prototype.hasOwnProperty.call(state.updating_uuids, op.uuid) ) {
             state.updating_uuids[op.uuid] = [];
         }
         state.updating_uuids[op.uuid].push(state.queue.length);
@@ -483,7 +465,7 @@ export default class {
 
         // DRY: same pattern as FSOperationContext:provideValue
         // DRY: same pattern as FSOperationContext:rejectValue
-        if ( this.entryListeners_.hasOwnProperty(op.uuid) ) {
+        if ( Object.prototype.hasOwnProperty.call(this.entryListeners_, op.uuid) ) {
             const listeners = this.entryListeners_[op.uuid];
 
             delete this.entryListeners_[op.uuid];
@@ -495,19 +477,19 @@ export default class {
     }
 
     checkShouldExec_ () {
-        if ( this.status !== this.constructor.STATUS_READY ) return;
+        if ( this.status !== FSEntryController.STATUS_READY ) return;
         if ( this.currentState.queue.length === 0 ) return;
         this.exec_();
     }
 
     async exec_ () {
-        if ( this.status !== this.constructor.STATUS_READY ) {
+        if ( this.status !== FSEntryController.STATUS_READY ) {
             throw new Error('Duplicate exec_ call');
         }
 
         const queue = this.currentState.queue;
 
-        this.status = this.constructor.STATUS_RUNNING_JOB;
+        this.status = FSEntryController.STATUS_RUNNING_JOB;
 
         // const conn = await db_primary.promise().getConnection();
         // await conn.beginTransaction();
@@ -539,7 +521,7 @@ export default class {
         }
 
         this.flipState_();
-        this.status = this.constructor.STATUS_READY;
+        this.status = FSEntryController.STATUS_READY;
 
         for ( const op of queue ) {
             op.status = op.constructor.STATUS_DONE;

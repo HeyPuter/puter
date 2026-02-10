@@ -27,7 +27,6 @@ import { v4 as uuidv4 } from 'uuid';
 const { db } = extension.import('data');
 
 const svc_metering = extension.import('service:meteringService');
-const svc_trace = extension.import('service:traceService');
 const svc_fs = extension.import('service:filesystem');
 const { stuck_detector_stream, hashing_stream } = extension.import('core').util.streamutil;
 
@@ -63,6 +62,7 @@ const {
 
 const {
     ParallelTasks,
+    getTracer,
 } = extension.import('core').util.otelutil;
 
 const {
@@ -389,7 +389,7 @@ export default class PuterFSProvider {
         // explicitly requested.
 
         if ( options.tracer == null ) {
-            options.tracer = svc_trace.tracer;
+            options.tracer = getTracer();
         }
 
         if ( options.op ) {
@@ -468,7 +468,7 @@ export default class PuterFSProvider {
         const actor = (context ?? Context).get('actor');
         const user = actor.type.user;
 
-        const tracer = svc_trace.tracer;
+        const tracer = getTracer();
         const uuid = uuidv4();
         const timestamp = Math.round(Date.now() / 1000);
         await parent.fetchEntry();
@@ -1016,7 +1016,7 @@ export default class PuterFSProvider {
 
         svc_metering.incrementUsage(ownerActor, 'filesystem:delete:bytes', fileSize);
 
-        const tracer = svc_trace.tracer;
+        const tracer = getTracer();
         const tasks = new ParallelTasks({ tracer, max: 4 });
 
         tasks.add('remove-fsentry', async () => {

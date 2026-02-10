@@ -93,6 +93,8 @@ class WorkerService extends BaseService {
         svc_event.on('fs.write.file', async (_key, data, meta) => {
             // Code should only run on the same server as the write
             if ( meta.from_outside ) return;
+            // There seems to be some bug in file writes where uid is null. We will check for this
+            if ( !data.node.uid || data.node.uid === '' ) return;
 
             // Check if the file that was written correlates to a worker
             const results = await svc_su.sudo(async () => {
@@ -107,9 +109,14 @@ class WorkerService extends BaseService {
                 // Person who just wrote file (not necessarily file owner)
                 const actor = Context.get('actor');
 
+                const /** @type {string} */ workerFullName  = (await result.get('subdomain'));
+                if ( ! workerFullName.startsWith('workers.puter.') ) {
+                    continue;
+                }
+
                 // Worker data
                 const fileData = (await readPuterFile(Context.get('actor'), data.node.path)).toString();
-                const workerName = (await result.get('subdomain')).split('.').pop();
+                const workerName = workerFullName.split('.').pop();
 
                 // Get appropriate deploy time auth token to give to the worker
                 let authToken;
@@ -140,17 +147,15 @@ class WorkerService extends BaseService {
 
                     // Send user the appropriate notification
                     if ( cfData.success ) {
-                        // svc_notification.notify(
-                        //     UsernameNotifSelector(actor.type.user.username),
-                        //     {
-                        //         source: 'worker',
-                        //         title: `Succesfully deployed ${cfData.url}`,
-                        //         template: 'user-requesting-share',
-                        //         fields: {
-                        //             username: actor.type.user.username,
-                        //         },
-                        //     }
-                        // );
+                        svc_notification.notify(UsernameNotifSelector(actor.type.user.username),
+                                        {
+                                            source: 'worker',
+                                            title: `Succesfully deployed ${cfData.url}`,
+                                            template: 'user-requesting-share',
+                                            fields: {
+                                                username: actor.type.user.username,
+                                            },
+                                        });
                     } else {
                         svc_notification.notify(UsernameNotifSelector(actor.type.user.username),
                                         {

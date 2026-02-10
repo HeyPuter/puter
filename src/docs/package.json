@@ -1,0 +1,31 @@
+{
+  "name": "docs",
+  "version": "1.0.0",
+  "description": "",
+  "main": "gen.js",
+  "scripts": {
+    "test": "echo \"Error: no test specified\" && exit 1",
+    "build": "node build.js",
+    "serve": "http-server ./dist --cors -c-1",
+    "watch": "nodemon --watch src --watch build.js -e js,json,md,html,css --exec 'npm run build'",
+    "dev": "concurrently \"npm run watch\" \"npm run serve\""
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC",
+  "dependencies": {
+    "fs-extra": "^11.2.0",
+    "html-entities": "^2.3.3",
+    "js-yaml": "^4.1.0",
+    "jsdom": "^26.1.0",
+    "marked": "^11.1.1"
+  },
+  "devDependencies": {
+    "@types/highlight.js": "^9.12.4",
+    "@types/jquery": "^3.5.33",
+    "concurrently": "^8.2.2",
+    "esbuild": "0.25.11",
+    "http-server": "^14.1.1",
+    "nodemon": "^3.1.4"
+  }
+}

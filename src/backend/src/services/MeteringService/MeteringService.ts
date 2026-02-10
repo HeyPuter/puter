@@ -1,13 +1,14 @@
 import murmurhash from 'murmurhash';
 import type { AlarmService } from '../../modules/core/AlarmService.js';
 import { SystemActorType, type Actor } from '../auth/Actor.js';
+import type { DynamoKVStore } from '../DynamoKVStore/DynamoKVStore.js';
 import type { EventService } from '../EventService';
 import type { SUService } from '../SUService.js';
 import { DEFAULT_FREE_SUBSCRIPTION, DEFAULT_TEMP_SUBSCRIPTION, GLOBAL_APP_KEY, METRICS_PREFIX, PERIOD_ESCAPE, POLICY_PREFIX } from './consts.js';
 import { COST_MAPS } from './costMaps/index.js';
 import { SUB_POLICIES } from './subPolicies/index.js';
 import { AppTotals, MeteringServiceDeps, UsageAddons, UsageByType, UsageRecord } from './types.js';
-import { DynamoKVStore } from '../repositories/DynamoKVStore/DynamoKVStore.js';
+import { toMicroCents } from './utils.js';
 /**
  * Handles usage metering and supports stubbs for billing methods for current scoped actor
  */
@@ -15,6 +16,7 @@ export class MeteringService {
 
     static GLOBAL_SHARD_COUNT = 1000; // number of global usage shards to spread writes across
     static APP_SHARD_COUNT = 1000; // number of app usage shards to spread writes across
+    static MAX_GLOBAL_USAGE_PER_MINUTE = toMicroCents(.2); // 20 cents per minute max global usage to help detect abuse
     #kvStore: DynamoKVStore;
     #superUserService: SUService;
     #alarmService: AlarmService;
@@ -24,14 +26,20 @@ export class MeteringService {
         this.#kvStore = kvStore;
         this.#alarmService = alarmService;
         this.#eventService = eventService;
+        setInterval(() => {
+            this.#checkRateOfChange();
+        }, 1000 * 60 * 5); // check every 5 minutes
     }
 
     utilRecordUsageObject<T extends Record<string, number>>(trackedUsageObject: T, actor: Actor, modelPrefix: string, costsOverrides?: Partial<Record<keyof T, number>>) {
-        this.batchIncrementUsages(actor, Object.entries(trackedUsageObject).map(([usageKind, amount]) => ({
-            usageType: `${modelPrefix}:${usageKind}`,
-            usageAmount: amount,
-            costOverride: costsOverrides?.[usageKind as keyof T] || undefined,
-        })));
+        this.batchIncrementUsages(actor, Object.entries(trackedUsageObject).map(([usageKind, amount]) => {
+            const hasOverride = !!costsOverrides && Object.prototype.hasOwnProperty.call(costsOverrides, usageKind);
+            return {
+                usageType: `${modelPrefix}:${usageKind}`,
+                usageAmount: amount,
+                costOverride: hasOverride ? costsOverrides![usageKind as keyof T] : undefined,
+            };
+        }));
     }
 
     #getMonthYearString () {
@@ -78,10 +86,12 @@ export class MeteringService {
                 const mappedCost = COST_MAPS[usageType as keyof typeof COST_MAPS];
                 const totalCost = (((costOverride && costOverride < 0) ? 1 : costOverride) ?? ((mappedCost || 0) * usageAmount));
 
-                if ( totalCost === 0 && mappedCost !== 0 && costOverride !== 0 ) {
-                    // could be something is off, there are some models that cost nothing from openrouter, but then our overrides should not be undefined, so will flag
-                    this.#alarmService.create('metering-service-0-cost-warning', 'potential abuse vector', {
-                        actor,
+                if ( totalCost === 0 && (mappedCost !== 0 && costOverride !== 0) ) {
+                    // cost is zero but no explicit override to 0, so flag as potential abuse
+                    this.#alarmService.create(`metering unexpected 0 cost access to: ${usageType}`, '0 cost abuse vector', {
+                        userId: actor.type?.user?.uuid,
+                        username: actor.type?.user?.username,
+                        appId: actor.type?.app?.uid,
                         usageType,
                         usageAmount,
                         costOverride,
@@ -174,8 +184,10 @@ export class MeteringService {
                 const isChangeOverPastOverage = previousAllowedUsageMultiple < allowedUsageMultiple;
                 const hasNoAddonCredit = (actorAddons.purchasedCredits || 0) <= (actorAddons.consumedPurchaseCredits || 0);
                 if ( isOver2x && isChangeOverPastOverage && hasNoAddonCredit ) {
-                    this.#alarmService.create('metering-service-usage-limit-exceeded', `Actor ${userId} has exceeded their usage allowance significantly`, {
-                        actor,
+                    this.#alarmService.create(`metering usage exceeded by user: ${actor.type?.user?.username}`, `Actor ${userId} has exceeded their usage allowance significantly`, {
+                        userId: actor.type?.user?.uuid,
+                        username: actor.type?.user?.username,
+                        appId: actor.type?.app?.uid,
                         usageType,
                         usageAmount,
                         costOverride,
@@ -187,9 +199,11 @@ export class MeteringService {
             });
         } catch ( e ) {
             console.error('Metering: Failed to increment usage for actor', actor, 'usageType', usageType, 'usageAmount', usageAmount, e);
-            this.#alarmService.create('metering-service-error', (e as Error).message, {
+            this.#alarmService.create(`metering service error for user: ${ actor.type?.user?.username} app: ${ actor.type.app.uid}`, (e as Error).message, {
+                userId: actor.type?.user?.uuid,
+                username: actor.type?.user?.username,
+                appId: actor.type?.app?.uid,
                 error: e,
-                actor,
                 usageType,
                 usageAmount,
                 costOverride,
@@ -233,10 +247,12 @@ export class MeteringService {
                     totalBatchCost += totalCost;
 
                     // Check for zero cost warning (only flag once per batch)
-                    if ( !hasZeroCostWarning && totalCost === 0 && mappedCost !== 0 && costOverride !== 0 ) {
+                    if ( !hasZeroCostWarning && totalCost === 0 && (mappedCost !== 0 && costOverride !== 0 ) ) {
                         hasZeroCostWarning = true;
-                        this.#alarmService.create('metering-service-0-cost-warning', 'potential abuse vector', {
-                            actor,
+                        this.#alarmService.create(`metering unexpected 0 cost access to: ${usageType}`, '0 cost abuse vector', {
+                            userId: actor.type?.user?.uuid,
+                            username: actor.type?.user?.username,
+                            appId: actor.type?.app?.uid,
                             usageType,
                             usageAmount,
                             costOverride,
@@ -332,8 +348,10 @@ export class MeteringService {
                 const hasNoAddonCredit = (actorAddons.purchasedCredits || 0) <= (actorAddons.consumedPurchaseCredits || 0);
 
                 if ( isOver2x && isChangeOverPastOverage && hasNoAddonCredit ) {
-                    this.#alarmService.create('metering-service-usage-limit-exceeded', `Actor ${userId} has exceeded their usage allowance significantly`, {
-                        actor,
+                    this.#alarmService.create(`metering usage exceeded by user: ${actor.type?.user?.username}`, `Actor ${userId} has exceeded their usage allowance significantly`, {
+                        userId: actor.type?.user?.uuid,
+                        username: actor.type?.user?.username,
+                        appId: actor.type?.app?.uid,
                         batchUsages: usages,
                         totalBatchCost,
                         totalUsage: actorUsages.total,
@@ -345,7 +363,10 @@ export class MeteringService {
             });
         } catch (e) {
             console.error('Metering: Failed to batch increment usage for actor', actor, 'usages', usages, e);
-            this.#alarmService.create('metering-service-error', (e as Error).message, {
+            this.#alarmService.create(`metering service error for user: ${ actor.type?.user?.username} app: ${ actor.type.app.uid}`, (e as Error).message, {
+                userId: actor.type?.user?.uuid,
+                username: actor.type?.user?.username,
+                appId: actor.type?.app?.uid,
                 error: e,
                 actor,
                 batchUsages: usages,
@@ -545,7 +566,7 @@ export class MeteringService {
         ]);
 
         const defaultSubscriptionId = defaultSubscriptionEvent.defaultSubscriptionId as unknown as (typeof SUB_POLICIES)[number]['id'] || defaultUserSubscriptionId;
-        const availablePolicies = [ ...availablePoliciesEvent.availablePolicies, ...SUB_POLICIES ];
+        const availablePolicies = [...availablePoliciesEvent.availablePolicies, ...SUB_POLICIES];
         const userSubscriptionId = userSubscriptionEvent.userSubscriptionId as unknown as typeof SUB_POLICIES[number]['id'] || defaultSubscriptionId;
 
         return availablePolicies.find(({ id }) => id === userSubscriptionId) || availablePolicies.find(({ id }) => id === defaultSubscriptionId)!;
@@ -624,5 +645,38 @@ export class MeteringService {
                 },
             });
         });
+    }
+
+    async #checkRateOfChange () {
+        const globalUsage = await this.getGlobalUsage();
+        const now = Date.now();
+        const lastChange = await this.#superUserService.sudo(async () => {
+            return this.#kvStore.get({ key: `${METRICS_PREFIX}:lastGlobalUsageCheck` }) as Promise<{ total: number, timestamp: number } | null>;
+        });
+
+        const currTotal = globalUsage.total;
+
+        if ( lastChange ) {
+            const timeDelta = now - lastChange.timestamp;
+            const usageDelta = currTotal - lastChange.total;
+            const usagePerMinute = (usageDelta / (timeDelta / 60000));
+
+            if ( usagePerMinute > MeteringService.MAX_GLOBAL_USAGE_PER_MINUTE ) {
+                this.#alarmService.create('metering:excessiveGlobalUsageRate', `Global usage rate is excessive: ${usagePerMinute} micro-cents per minute`, {
+                    usagePerMinute,
+                    maxAllowedPerMinute: MeteringService.MAX_GLOBAL_USAGE_PER_MINUTE,
+                });
+            }
+        }
+        await this.#superUserService.sudo(async () => {
+            await this.#kvStore.set({
+                key: `${METRICS_PREFIX}:lastGlobalUsageCheck`,
+                value: {
+                    total: currTotal,
+                    timestamp: now,
+                },
+            });
+        });
+
     }
 }

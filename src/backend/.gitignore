@@ -144,6 +144,9 @@ keys
 # credentials
 creds*
 
+# test-webhook persisted key
+tools/.test-webhook-config.json
+
 # thumbnai-service
 thumbnail-service
 

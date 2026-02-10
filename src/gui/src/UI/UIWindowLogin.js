@@ -37,6 +37,11 @@ async function UIWindowLogin (options) {
         options.reload_on_success = true;
     }
 
+    if ( options.redirect_url === undefined )
+    {
+        options.redirect_url = window.location.href;
+    }
+
     return new Promise(async (resolve) => {
         const internal_id = window.uuidv4();
 
@@ -364,10 +369,9 @@ async function UIWindowLogin (options) {
                     window.update_auth_data(data.token, data.user);
 
                     if ( options.reload_on_success ) {
-                        sessionStorage.setItem('playChimeNextUpdate', 'yes');
                         window.onbeforeunload = null;
                         // Replace with a clean URL to prevent password leakage
-                        const cleanUrl = window.location.origin + window.location.pathname;
+                        const cleanUrl = options.redirect_url || window.location.origin + window.location.pathname;
                         window.location.replace(cleanUrl);
                     } else
                     {
@@ -471,6 +475,7 @@ async function UIWindowLogin (options) {
                 referrer: options.referrer,
                 show_close_button: options.show_close_button,
                 reload_on_success: options.reload_on_success,
+                redirect_url: options.redirect_url,
                 window_options: options.window_options,
                 send_confirmation_code: options.send_confirmation_code,
             });

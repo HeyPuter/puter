@@ -1,0 +1,20 @@
+<html>
+<body>
+    <script src="https://js.puter.com/v2/"></script>
+    <button id="request-documents">Request Documents Read Access</button>
+    <script>
+        document.getElementById('request-documents').addEventListener('click', async () => {
+            const documentsPath = await puter.perms.requestReadDocuments();
+            if (documentsPath) {
+                puter.print(`Documents path: ${documentsPath}`);
+                // Now you can read files from the Documents folder
+                const items = await puter.fs.readdir(documentsPath);
+                puter.print(`Documents contains ${items.length} items`);
+            } else {
+                puter.print('Documents read access denied');
+            }
+        });
+    </script>
+</body>
+</html>
+

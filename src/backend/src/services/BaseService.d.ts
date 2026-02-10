@@ -1,8 +1,8 @@
 import type { ServerHealthService } from '../modules/core/ServerHealthService';
 import { SqliteDatabaseAccessService } from './database/SqliteDatabaseAccessService';
 import { MeteringServiceWrapper } from './MeteringService/MeteringServiceWrapper.mjs';
-import { DDBClient } from './repositories/DDBClient';
-import { DynamoKVStore } from './repositories/DynamoKVStore/DynamoKVStore';
+import { DDBClient } from '../clients/dynamodb/DDBClient';
+import { DynamoKVStore } from '../clients/dynamodb/DynamoKVStore/DynamoKVStore';
 import type { SUService } from './SUService';
 
 export interface ServiceResources {

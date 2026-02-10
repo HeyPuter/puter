@@ -1,5 +1,6 @@
-import { FileReaderPoly } from "./polyfills/fileReaderPoly.js";
-import { showUsageLimitDialog } from "../modules/UsageLimitDialog.js";
+import { FileReaderPoly } from './polyfills/fileReaderPoly.js';
+import { showUsageLimitDialog } from '../modules/UsageLimitDialog.js';
+import { showEmailConfirmationDialog } from '../modules/EmailConfirmationDialog.js';
 
 /**
  * Parses a given response text into a JSON object. If the parsing fails due to invalid JSON format,
@@ -394,6 +395,10 @@ async function driverCall_ (
                                 showUsageLimitDialog('You have reached your usage limit for this account.<br>Please upgrade to continue.');
                             }
                         }
+                        // Check for email confirmation required (e.g. AI calls)
+                        if ( lineObject?.error?.code === 'email_must_be_confirmed' && puter.env === 'web' ) {
+                            showEmailConfirmationDialog(lineObject?.error?.message || 'Email confirmation required. Go to Puter.com to confirm your email address.');
+                        }
 
                         if ( typeof (lineObject.text) === 'string' ) {
                             Object.defineProperty(lineObject, 'toString', {
@@ -479,6 +484,11 @@ async function driverCall_ (
 
         if ( (isInsufficientFunds || isUsageLimited) && puter.env === 'web' ) {
             showUsageLimitDialog('Your account has not enough funding to complete this request.<br>Please upgrade to continue.');
+        }
+
+        // Check for email confirmation required (e.g. AI calls) - web only
+        if ( resp?.error?.code === 'email_must_be_confirmed' && puter.env === 'web' ) {
+            showEmailConfirmationDialog(resp?.error?.message || 'Email confirmation required. Go to Puter.com to confirm your email address.');
         }
 
         // HTTP Error - unauthorized
@@ -612,5 +622,5 @@ function arrayBufferToDataUri (arrayBuffer) {
 }
 
 export {
-    arrayBufferToDataUri, blob_to_url, blobToDataUri, driverCall, handle_error, handle_resp, initXhr, make_driver_method, parseResponse, setupXhrEventHandlers, uuidv4
+    arrayBufferToDataUri, blob_to_url, blobToDataUri, driverCall, handle_error, handle_resp, initXhr, make_driver_method, parseResponse, setupXhrEventHandlers, uuidv4,
 };

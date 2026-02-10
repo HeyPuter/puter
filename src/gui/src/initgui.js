@@ -30,6 +30,8 @@ import UIWindowRequestPermission from './UI/UIWindowRequestPermission.js';
 import UIWindowSaveAccount from './UI/UIWindowSaveAccount.js';
 import UIWindowSessionList from './UI/UIWindowSessionList.js';
 import UIWindowSignup from './UI/UIWindowSignup.js';
+import UIWindowCopyToken from './UI/UIWindowCopyToken.js';
+import UIWindowAuthMe from './UI/UIWindowAuthMe.js';
 import { PROCESS_RUNNING } from './definitions.js';
 import item_icon from './helpers/item_icon.js';
 import update_last_touch_coordinates from './helpers/update_last_touch_coordinates.js';
@@ -316,7 +318,7 @@ window.initgui = async function (options) {
     // update SDK if api_origin is different from the one in the SDK
     if ( window.api_origin && puter.APIOrigin !== window.api_origin )
     {
-        puter.setAPIOrigin(window.api_origin);
+        puter.setAPIOrigin(localStorage.getItem('api_origin') || window.api_origin);
     }
 
     // Print the version to the console
@@ -368,6 +370,8 @@ window.initgui = async function (options) {
     let action;
     if ( window.url_paths[0]?.toLocaleLowerCase() === 'action' && window.url_paths[1] ) {
         action = window.url_paths[1].toLowerCase();
+    } else if ( window.url_query_params.has('action') ) {
+        action = window.url_query_params.get('action').toLowerCase();
     }
 
     //--------------------------------------------------------------------------------------
@@ -524,7 +528,6 @@ window.initgui = async function (options) {
     else if ( action === 'signup' ) {
         await UIWindowSignup();
     }
-
     // -------------------------------------------------------------------------------------
     // If in embedded in a popup, it is important to check whether the opener app has a relationship with the user
     // if yes, we need to get the user app token and send it to the opener
@@ -548,6 +551,13 @@ window.initgui = async function (options) {
     // -------------------------------------------------------------------------------------
     else if ( window.url_query_params.has('auth_token') ) {
         let query_param_auth_token = window.url_query_params.get('auth_token');
+        let api_origin;
+
+        // check if we have api_origin in the URL query params
+        if ( window.url_query_params.has('api_origin') ) {
+            api_origin = window.url_query_params.get('api_origin');
+            puter.setAPIOrigin(api_origin);
+        }
 
         puter.setAuthToken(query_param_auth_token);
 
@@ -577,7 +587,7 @@ window.initgui = async function (options) {
             // show login progress window
             UIWindowLoginInProgress({ user_info: whoami });
             // update auth data
-            window.update_auth_data(query_param_auth_token, whoami);
+            window.update_auth_data(query_param_auth_token, whoami, api_origin);
         }
         // remove auth_token from URL
         window.history.pushState(null, document.title, '/');
@@ -630,11 +640,40 @@ window.initgui = async function (options) {
                     is_verified = await UIWindowEmailConfirmationRequired({
                         stay_on_top: true,
                         has_head: false,
+                        logout_in_footer: true,
+                        window_options: {
+                            cover_page: window.is_embedded,
+                        },
                     });
                 }
                 while ( !is_verified );
             }
             window.update_auth_data(whoami.token || window.auth_token, whoami);
+
+            // -------------------------------------------------------------------------------------
+            // Action: AuthMe — redirect to a third-party URL with the user's auth token
+            // -------------------------------------------------------------------------------------
+            if ( action === 'authme' ) {
+                const redirectURL = window.url_query_params.get('redirectURL');
+                if ( redirectURL ) {
+                    const approved = await UIWindowAuthMe({
+                        redirect_url: redirectURL,
+                    });
+                    if ( approved ) {
+                        const url = new URL(redirectURL);
+                        url.searchParams.set('token', window.auth_token);
+                        window.location.href = url.href;
+                        return;
+                    }
+                }
+            }
+
+            // -------------------------------------------------------------------------------------
+            // Action: CopyAuth — show dialog to copy auth token
+            // -------------------------------------------------------------------------------------
+            if ( action === 'copyauth' ) {
+                await UIWindowCopyToken({ show_header: true });
+            }
 
             // -------------------------------------------------------------------------------------
             // Load desktop, only if we're not embedded in a popup and not on the dashboard page
@@ -922,8 +961,9 @@ window.initgui = async function (options) {
             'method': 'POST',
         }).then(response => response.json())
             .then(async data => {
-            // Show register screen
+                // Show register screen
                 if ( data.email && data.email !== window.user?.email ) {
+                    // show signup window
                     await UIWindowSignup({
                         reload_on_success: true,
                         email: data.email,
@@ -935,10 +975,12 @@ window.initgui = async function (options) {
                 }
                 // Show email confirmation screen
                 else if ( data.email && data.email === window.user.email && !window.user.email_confirmed ) {
-                // todo show email confirmation window
                     await UIWindowEmailConfirmationRequired({
                         stay_on_top: true,
                         has_head: false,
+                        window_options: {
+                            cover_page: window.is_embedded,
+                        },
                     });
                 }
 
@@ -967,21 +1009,28 @@ window.initgui = async function (options) {
     // Un-authed but not first visit -> try to log in/sign up
     // -------------------------------------------------------------------------------------
     if ( !window.is_auth() && (!window.first_visit_ever || window.disable_temp_users) ) {
+        const needs_action = action === 'authme' || action === 'copyauth';
+        const reload_on_success = needs_action;
         if ( window.logged_in_users.length > 0 ) {
-            UIWindowSessionList();
+            await UIWindowSessionList({
+                redirect_url: needs_action ? window.location.href : undefined,
+            });
         }
         else {
             const resp = await fetch(`${window.gui_origin }/whoarewe`);
             const whoarewe = await resp.json();
             await UIWindowLogin({
-                // show_signup_button:
-                reload_on_success: true,
+                reload_on_success,
                 send_confirmation_code: false,
                 show_signup_button: ( !whoarewe.disable_user_signup ),
+                redirect_url: needs_action ? window.location.href : undefined,
                 window_options: {
                     has_head: false,
                 },
             });
+        }
+        if ( !reload_on_success && window.is_auth() ) {
+            document.dispatchEvent(new Event('login', { bubbles: true }));
         }
     }
 
@@ -1099,9 +1148,51 @@ window.initgui = async function (options) {
                     document.dispatchEvent(new Event('login', { bubbles: true }));
                 },
                 error: async (err) => {
-                    UIAlert({
-                        message: html_encode(err.responseText),
-                    });
+                    let err_obj = null;
+                    try {
+                        err_obj = JSON.parse(err.responseText);
+                    } catch (e) {
+                        err_obj = e;
+                    }
+                    if ( err_obj.code === 'must_login_or_signup' ) {
+                        // hide Turnstile challenge
+                        $('.captcha-modal').hide();
+
+                        await UIWindowSignup({
+                            reload_on_success: !window.embedded_in_popup,
+                            send_confirmation_code: false,
+                            window_options: {
+                                has_head: false,
+                                cover_page: window.is_embedded || window.is_fullpage_mode,
+                            },
+                        });
+
+                        (async () => {
+                            let msg_id = window.url_query_params.get('msg_id');
+                            let data = await window.getUserAppToken(new URL(window.openerOrigin).origin);
+                            // This is an implicit app and the app_uid is sent back from the server
+                            // we cache it here so that we can use it later
+                            window.host_app_uid = data.app_uid;
+                            // send token to parent
+                            window.opener.postMessage({
+                                msg: 'puter.token',
+                                success: true,
+                                msg_id: msg_id,
+                                token: data.token,
+                                username: window.user.username,
+                                app_uid: data.app_uid,
+                            }, window.openerOrigin);
+                            // close popup
+                            if ( !action || action === 'sign-in' ) {
+                                window.close();
+                                window.open('', '_self').close();
+                            }
+                        })();
+                    } else {
+                        UIAlert({
+                            message: err_obj.message ?? 'There was an error creating your account. Please try again.',
+                        });
+                    }
                 },
                 complete: function () {
 
@@ -1142,6 +1233,31 @@ window.initgui = async function (options) {
     $(document).on('login', async (e) => {
         // close all windows
         $('.window').close();
+
+        // -------------------------------------------------------------------------------------
+        // Action: AuthMe — redirect to a third-party URL with the user's auth token
+        // -------------------------------------------------------------------------------------
+        if ( action === 'authme' ) {
+            const redirectURL = window.url_query_params.get('redirectURL');
+            if ( redirectURL ) {
+                const approved = await UIWindowAuthMe({
+                    redirect_url: redirectURL,
+                });
+                if ( approved ) {
+                    const url = new URL(redirectURL);
+                    url.searchParams.set('token', window.auth_token);
+                    window.location.href = url.href;
+                    return;
+                }
+            }
+        }
+
+        // -------------------------------------------------------------------------------------
+        // Action: CopyAuth — show dialog to copy auth token
+        // -------------------------------------------------------------------------------------
+        if ( action === 'copyauth' ) {
+            await UIWindowCopyToken({ show_header: true });
+        }
 
         // -------------------------------------------------------------------------------------
         // Load desktop, if not embedded in a popup and not on the dashboard page

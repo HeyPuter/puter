@@ -4,6 +4,7 @@
     "module": "esnext",
     "moduleResolution": "bundler",
     "rootDir": "./src/backend",
+    "experimentalDecorators": true,
     "strict": true,
     "forceConsistentCasingInFileNames": true,
     "skipLibCheck": true,

@@ -1,0 +1,21 @@
+<html>
+<body>
+    <script src="https://js.puter.com/v2/"></script>
+    <button id="request-email">Request Email Access</button>
+    <script>
+        document.getElementById('request-email').addEventListener('click', async () => {
+            const email = await puter.perms.requestEmail();
+            if (email !== undefined) {
+                if (email === null) {
+                    puter.print('User does not have an email address');
+                } else {
+                    puter.print(`Email: ${email}`);
+                }
+            } else {
+                puter.print('Email access denied');
+            }
+        });
+    </script>
+</body>
+</html>
+

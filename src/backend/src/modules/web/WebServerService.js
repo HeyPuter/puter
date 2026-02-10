@@ -25,6 +25,8 @@ const config = require('../../config.js');
 var http = require('http');
 const auth = require('../../middleware/auth.js');
 const measure = require('../../middleware/measure.js');
+const yargs = require('yargs/yargs');
+const { hideBin } = require('yargs/helpers');
 
 const relative_require = require;
 
@@ -77,6 +79,13 @@ class WebServerService extends BaseService {
         // Register after other services registers theirs: Options for all requests (for CORS)
         app.options('/*', (_req, res) => {
             return res.sendStatus(200);
+        });
+
+        // Catch-all 404 for unmatched routes (e.g. api subdomain with unknown path)
+        // There seem to be some cases (ex: other subdomains) where this doesn't work
+        // as intended still, but this is an improvement over the previous behavior.
+        app.use((req, res) => {
+            res.status(404).send('Not Found');
         });
 
         this.log.debug('web server setup done');
@@ -195,6 +204,13 @@ class WebServerService extends BaseService {
 
         const url = config.origin;
 
+        const args = yargs(hideBin(process.argv)).argv;
+        if ( args['server'] ) {
+            (async () => {
+                (await import('./../../../../../tools/auth_gui.js')).default(args['puter-backend']);
+            })();
+            config.no_browser_launch = true;
+        }
         // Open the browser to the URL of Puter
         // (if we are in development mode only)
         if ( config.env === 'dev' && !config.no_browser_launch ) {
@@ -445,6 +461,10 @@ class WebServerService extends BaseService {
                 `at.${ config.static_hosting_domain.toLowerCase()}`,
             ];
 
+            if ( config.static_hosting_domain_alt ) {
+                allowedDomains.push(config.static_hosting_domain_alt.toLowerCase());
+            }
+
             if ( config.allow_nipio_domains ) {
                 allowedDomains.push('nip.io');
             }
@@ -463,7 +483,6 @@ class WebServerService extends BaseService {
 
             // Parse the Host header to isolate the hostname (strip out port if present)
             const hostName = hostHeader.split(':')[0].trim().toLowerCase();
-
             // Check if the hostname matches any of the allowed domains or is a subdomain of an allowed domain
             if ( allowedDomains.some(allowedDomain => hostName === allowedDomain || hostName.endsWith(`.${ allowedDomain}`)) ) {
                 next(); // Proceed if the host is valid
@@ -594,8 +613,9 @@ class WebServerService extends BaseService {
 
             const is_site =
                 req.hostname.endsWith(config.static_hosting_domain) ||
-                req.hostname === 'docs.puter.com'
-                ;
+                (config.static_hosting_domain_alt && req.hostname.endsWith(config.static_hosting_domain_alt));
+            req.hostname === 'docs.puter.com'
+            ;
             const is_popup = !!req.query.embedded_in_popup;
             const is_parent_co = !!req.query.cross_origin_isolated;
             const is_app = !!req.query['puter.app_instance_id'];
@@ -612,7 +632,8 @@ class WebServerService extends BaseService {
             // Website(s) to allow to connect
             if (
                 config.experimental_no_subdomain ||
-                req.subdomains[req.subdomains.length - 1] === 'api'
+                req.subdomains[req.subdomains.length - 1] === 'api' ||
+                req.subdomains[req.subdomains.length - 1] === 'dav'
             ) {
                 res.setHeader('Access-Control-Allow-Origin', origin ?? '*');
             }

@@ -133,8 +133,8 @@ class EdgeRateLimitService extends BaseService {
         asyncSafeSetInterval(() => this.cleanup(), 5 * MINUTE);
     }
 
-    check (scope) {
-        if ( ! this.scopes.hasOwnProperty(scope) ) {
+    check (scope, noIncrease = false) {
+        if ( ! Object.prototype.hasOwnProperty.call(this.scopes, scope) ) {
             throw new Error(`unrecognized rate-limit scope: ${quot(scope)}`);
         }
         const { window, limit } = this.scopes[scope];
@@ -162,9 +162,27 @@ class EdgeRateLimitService extends BaseService {
             return false;
         } else {
             // Add current timestamp and allow the request
-            timestamps.push(now);
+            if ( ! noIncrease ) {
+                timestamps.push(now);
+            }
             return true;
         }
+    }
+
+    incr (scope) {
+        if ( ! Object.prototype.hasOwnProperty.call(this.scopes, scope) ) {
+            throw new Error(`unrecognized rate-limit scope: ${quot(scope)}`);
+        }
+        const requester = Context.get('requester');
+        const rl_identifier = requester.rl_identifier;
+        const key = `${scope}:${rl_identifier}`;
+        const now = Date.now();
+
+        if ( ! this.requests.has(key) ) {
+            this.requests.set(key, []);
+        }
+        const timestamps = this.requests.get(key);
+        timestamps.push(now);
     }
 
     /**

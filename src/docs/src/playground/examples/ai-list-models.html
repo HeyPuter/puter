@@ -1,0 +1,12 @@
+<html>
+<body>
+    <script src="https://js.puter.com/v2/"></script>
+    <script>
+        (async () => {
+            // Fetch all models
+            const models = await puter.ai.listModels();
+            puter.print('First model:', JSON.stringify(models[0]));
+        })();
+    </script>
+</body>
+</html>

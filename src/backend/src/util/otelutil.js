@@ -21,9 +21,8 @@
 // to create spans correctly. The path of least resistance should
 // be the correct path, not a way to shoot yourself in the foot.
 
-const { context, trace, SpanStatusCode } = require('@opentelemetry/api');
-const { Context } = require('./context');
-const { TeePromise } = require('@heyputer/putility').libs.promise;
+import { context, trace, SpanStatusCode } from '@opentelemetry/api';
+import { TeePromise } from '@heyputer/putility/src/libs/promise.js';
 
 /*
 parallel span example from GPT-4:
@@ -42,32 +41,57 @@ promises.push(tracer.startActiveSpan(`job:${job.id}`, (span) => {
 }));
 */
 
-const spanify = (label, fn, tracer) => async (...args) => {
-    const context = Context.get();
-    if ( ! context ) {
-        // We don't use the proper logger here because we would normally
-        // be getting it from context
-        console.error('spanify failed', new Error('missing context'));
+export const DEFAULT_TRACER_NAME = 'puter-tracer';
+
+export const getTracer = (name = DEFAULT_TRACER_NAME) =>
+    trace.getTracer(name ?? DEFAULT_TRACER_NAME);
+
+const resolveTracer = (tracer, name) =>
+    tracer ?? getTracer(name ?? DEFAULT_TRACER_NAME);
+
+/** @type {<T extends Function>(label:string, fn:T, options?: object | unknown, tracer?: unknown)=> T} */
+export const spanify = (label, fn, options, tracer) => async function (...args) {
+    if ( options && typeof options.startActiveSpan === 'function' && !tracer ) {
+        tracer = options;
+        options = undefined;
     }
 
-    tracer = tracer ?? context.get('services').get('traceService').tracer;
+    const resolvedTracer = resolveTracer(tracer);
     let result;
-    await tracer.startActiveSpan(label, async span => {
-        result = await fn(...args);
-        span.end();
+    const spanArgs = [label];
+    if ( options !== null && typeof options === 'object' ) {
+        spanArgs.push(options);
+    }
+    spanArgs.push(async span => {
+        try {
+            // eslint-disable-next-line no-invalid-this
+            result = await fn.apply(this, args);
+            span.setStatus({ code: SpanStatusCode.OK });
+            return result;
+        } catch (e) {
+            span.recordException(e);
+            span.setStatus({ code: SpanStatusCode.ERROR, message: e.message });
+            throw e;
+        } finally {
+            span.end();
+        }
     });
-    return result;
+    return await resolvedTracer.startActiveSpan(...spanArgs);
 };
 
-const abtest = async (label, impls) => {
-    const context = Context.get();
-    if ( ! context ) {
-        // We don't use the proper logger here because we would normally
-        // be getting it from context
-        console.error('abtest failed', new Error('missing context'));
-    }
+/** @type {<T extends Function>(label:string, fn:T, options?: object | unknown, tracer?: unknown)=> ReturnType<T>} */
+export const span = async (label, fn, options, tracer) =>
+    await spanify(label, fn, options, tracer)();
 
-    const tracer = context.get('services').get('traceService').tracer;
+/** @type {(label: string, options?: object | unknown, tracer?: unknown) => MethodDecorator} */
+export const Span = (label, options, tracer) => (_target, _propertyKey, descriptor) => {
+    if ( !descriptor || typeof descriptor.value !== 'function' ) return descriptor;
+    descriptor.value = spanify(label, descriptor.value, options, tracer);
+    return descriptor;
+};
+
+export const abtest = async (label, impls) => {
+    const tracer = getTracer();
     let result;
     const impl_keys = Object.keys(impls);
     const impl_i = Math.floor(Math.random() * impl_keys.length);
@@ -82,9 +106,9 @@ const abtest = async (label, impls) => {
     return result;
 };
 
-class ParallelTasks {
+export class ParallelTasks {
     constructor ({ tracer, max } = {}) {
-        this.tracer = tracer;
+        this.tracer = tracer ?? getTracer();
         this.max = max ?? Infinity;
         this.promises = [];
 
@@ -146,9 +170,3 @@ class ParallelTasks {
         }
     }
 }
-
-module.exports = {
-    ParallelTasks,
-    spanify,
-    abtest,
-};

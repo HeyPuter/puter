@@ -1,0 +1,20 @@
+<html>
+<body>
+    <script src="https://js.puter.com/v2/"></script>
+    <script>
+    (async () => {
+        // Gemini 2.5 Flash
+        const flash_resp = await puter.ai.chat(
+            'Tell me something interesting about quantum mechanics.',
+            {model: 'gemini-2.5-flash', stream: true}
+        );
+        puter.print('<h2>Gemini 2.5 Flash Response:</h2>');
+        for await (const part of flash_resp) {
+            if (part?.text) {
+                puter.print(part.text.replaceAll('\n', '<br>'));
+            }
+        }
+    })();
+    </script>
+</body>
+</html>

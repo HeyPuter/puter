@@ -18,8 +18,7 @@
  */
 const APIError = require('../../api/APIError');
 const config = require('../../config');
-const { app_name_exists, refresh_apps_cache } = require('../../helpers');
-
+const { app_name_exists } = require('../../helpers');
 const { AppUnderUserActorType } = require('../../services/auth/Actor');
 const { DB_WRITE } = require('../../services/database/consts');
 const { Context } = require('../../util/context');
@@ -203,30 +202,6 @@ class AppES extends BaseES {
                 await this.db.write('UPDATE subdomains SET associated_app_id = ? WHERE id = ?',
                                 [insert_id, subdomain_id]);
             }
-
-            const owner = extra.old_entity
-                ? await extra.old_entity.get('owner')
-                : await entity.get('owner');
-
-            {
-                // Update app cache
-                const raw_app = {
-                    // These map to different names
-                    uuid: await full_entity.get('uid'),
-                    owner_user_id: owner.id,
-
-                    // These map to the same names
-                    name: await full_entity.get('name'),
-                    title: await full_entity.get('title'),
-                    description: await full_entity.get('description'),
-                    icon: await full_entity.get('icon'),
-                    index_url: await full_entity.get('index_url'),
-                    maximize_on_start: await full_entity.get('maximize_on_start'),
-                };
-
-                refresh_apps_cache({ uid: raw_app.uuid }, raw_app);
-            }
-
             if ( extra.old_entity ) {
                 const svc_event = this.context.get('services').get('event');
                 svc_event.emit('app.changed', {
@@ -391,10 +366,17 @@ class AppES extends BaseES {
             }
 
             const hosting_domain = config.static_hosting_domain?.toLowerCase();
+            const hosting_domain_alt = config.static_hosting_domain_alt?.toLowerCase();
             if ( ! hosting_domain ) return;
 
             const suffix = `.${hosting_domain}`;
-            if ( ! hostname.endsWith(suffix) ) return;
+            const suffix2 = `.${hosting_domain_alt}`;
+            if (
+                !hostname.endsWith(suffix) &&
+                !(hosting_domain_alt && hostname.endsWith(suffix2))
+            ) {
+                return;
+            }
 
             const subdomain = hostname.slice(0, hostname.length - suffix.length);
             if ( ! subdomain ) return;

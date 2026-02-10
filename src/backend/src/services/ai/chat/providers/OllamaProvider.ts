@@ -125,6 +125,7 @@ export class OllamaChatProvider implements IChatProvider {
         } as ChatCompletionCreateParams) ;
 
         const modelDetails =  (await this.models()).find(m => m.id === `ollama:${model}`);
+        const modelIdForMetering = modelDetails?.id ?? (model ? (model.startsWith('ollama/') ? `ollama:${model}` : `ollama:ollama/${model}`) : undefined);
         return OpenAIUtil.handle_completion_output({
             usage_calculator: ({ usage }) => {
 
@@ -136,7 +137,9 @@ export class OllamaChatProvider implements IChatProvider {
                 const costOverwrites = Object.fromEntries(Object.keys(trackedUsage).map((k) => {
                     return [k, 0]; // override to 0 since local is free
                 }));
-                this.#meteringService.utilRecordUsageObject(trackedUsage, actor, modelDetails!.id, costOverwrites);
+                if ( modelIdForMetering ) {
+                    this.#meteringService.utilRecordUsageObject(trackedUsage, actor, modelIdForMetering, costOverwrites);
+                }
                 return trackedUsage;
             },
             stream,

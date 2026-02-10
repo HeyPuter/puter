@@ -1,0 +1,19 @@
+<html>
+<body>
+    <script src="https://js.puter.com/v2/"></script>
+    <button id="request-subdomains">Request Subdomains Read Access</button>
+    <script>
+        document.getElementById('request-subdomains').addEventListener('click', async () => {
+            const granted = await puter.perms.requestReadSubdomains();
+            if (granted) {
+                puter.print('Subdomains read access granted');
+                // Now you can read the user's subdomains
+                // Note: This requires the Hosting API
+            } else {
+                puter.print('Subdomains read access denied');
+            }
+        });
+    </script>
+</body>
+</html>
+

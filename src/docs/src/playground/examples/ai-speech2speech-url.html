@@ -1,0 +1,13 @@
+<html>
+<body>
+    <script src="https://js.puter.com/v2/"></script>
+    <script>
+        (async () => {
+            const audio = await puter.ai.speech2speech('https://assets.puter.site/example.mp3', {
+                voice: '21m00Tcm4TlvDq8ikWAM',
+            });
+            audio.play();
+        })();
+    </script>
+</body>
+</html>

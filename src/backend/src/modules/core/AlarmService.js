@@ -16,11 +16,8 @@
  * You should have received a copy of the GNU Affero General Public License
  * along with this program.  If not, see <https://www.gnu.org/licenses/>.
  */
-const JSON5 = require('json5');
 const seedrandom = require('seedrandom');
-
 const util = require('util');
-const _path = require('path');
 const fs = require('fs');
 
 const BaseService = require('../../services/BaseService.js');
@@ -250,13 +247,14 @@ class AlarmService extends BaseService {
         }
 
         this.pager.alert({
-            id: `${alarm.id ?? 'something-bad' }-r_\${alarm.count}`,
+            id: alarm.id ?? 'something-bad',
             message: alarm.message ?? alarm.id ?? 'something bad happened',
             source: 'alarm-service',
             severity,
             custom: {
                 fields: fields_clean,
                 trace: alarm.error?.stack,
+                repeat_count: alarm.count,
             },
         });
     }
@@ -431,7 +429,7 @@ class AlarmService extends BaseService {
             {
                 id: 'clear-all',
                 description: 'clear all alarms',
-                handler: async (args, log) => {
+                handler: async (_args, _log) => {
                     const alarms = Object.values(this.alarms);
                     this.alarms = {};
                     for ( const alarm of alarms ) {
@@ -442,7 +440,7 @@ class AlarmService extends BaseService {
             {
                 id: 'sound',
                 description: 'sound an alarm',
-                handler: async (args, log) => {
+                handler: async (args, _log) => {
                     const [id, message] = args;
                     this.create(id ?? 'test', message, {});
                 },

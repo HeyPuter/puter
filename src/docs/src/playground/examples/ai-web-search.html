@@ -1,0 +1,14 @@
+<html>
+<body>
+    <script src="https://js.puter.com/v2/"></script>
+    <script>
+        puter.print(`Loading...`);
+        puter.ai
+            .chat("Summarize what the User-Pays Model is: https://docs.puter.com/user-pays-model/", {
+                model: "openai/gpt-5.2-chat",
+                tools: [{ type: "web_search" }],
+            })
+            .then(puter.print);
+    </script>
+</body>
+</html>

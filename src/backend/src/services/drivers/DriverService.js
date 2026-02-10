@@ -25,6 +25,7 @@ const { PermissionUtil } = require('../auth/permissionUtils.mjs');
 const { Invoker } = require('../../../../putility/src/libs/invoker');
 const { get_user } = require('../../helpers');
 const { AdvancedBase } = require('@heyputer/putility');
+const { span } = require('../../util/otelutil');
 
 const strutil = require('@heyputer/putility').libs.string;
 
@@ -231,7 +232,7 @@ class DriverService extends BaseService {
     get_default_implementation (interface_name) {
         // If there's a hardcoded implementation, use that
         // (^ temporary, until all are migrated)
-        if ( this.interface_to_implementation.hasOwnProperty(interface_name) ) {
+        if ( Object.prototype.hasOwnProperty.call(this.interface_to_implementation, interface_name) ) {
             return this.interface_to_implementation[interface_name];
         }
     }
@@ -250,7 +251,7 @@ class DriverService extends BaseService {
         try {
             return await this._call(o);
         } catch ( e ) {
-            this.log.error(`Driver error response: ${ e.toString()}`);
+            this.log.error(`Driver error response: ${ e.toString().slice(0, 100)}${e.toString().length > 100 ? '...' : ''}`);
             if ( ! (e instanceof APIError) ) {
                 this.errors.report('driver', {
                     source: e,
@@ -345,9 +346,7 @@ class DriverService extends BaseService {
 
         svc_event.emit('driver.create-call-context', event);
 
-        const svc_trace = this.services.get('traceService');
-
-        return await svc_trace.spanify(`driver:${driver}:${iface}:${method}`, async () => {
+        return await span(`driver:${driver}:${iface}:${method}`, async () => {
             return event.context.arun(async () => {
                 const result = await this.call_new_({
                     actor,
@@ -415,7 +414,7 @@ class DriverService extends BaseService {
         service,
         service_name,
         iface, method, args,
-        skip_usage,
+        _skip_usage,
     }) {
         if ( ! service ) {
             service = this.services.get(service_name);

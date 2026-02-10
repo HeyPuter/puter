@@ -1,0 +1,22 @@
+<html>
+<body>
+    <script src="https://js.puter.com/v2/"></script>
+    <input type="file" id="file" accept="audio/*" />
+    <button id="convert">Convert voice</button>
+    <audio id="player" controls style="display:block;margin-top:12px;"></audio>
+    <script>
+        const sample = 'https://puter-sample-data.puter.site/tts_example.mp3';
+        document.getElementById('convert').addEventListener('click', async ()=>{
+            const file = document.getElementById('file').files[0] || sample;
+            const audio = await puter.ai.speech2speech(file, {
+                voice: '21m00Tcm4TlvDq8ikWAM',
+                model: 'eleven_multilingual_sts_v2',
+                output_format: 'mp3_44100_128',
+                removeBackgroundNoise: true
+            });
+            document.getElementById('player').src = audio.toString();
+            audio.play();
+        });
+    </script>
+</body>
+</html>

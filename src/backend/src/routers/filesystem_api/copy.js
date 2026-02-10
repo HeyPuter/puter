@@ -21,6 +21,7 @@ const eggspress = require('../../api/eggspress.js');
 const FSNodeParam = require('../../api/filesystem/FSNodeParam.js');
 const { HLCopy } = require('../../filesystem/hl_operations/hl_copy.js');
 const { Context } = require('../../util/context.js');
+const { getTracer } = require('../../util/otelutil.js');
 
 // -----------------------------------------------------------------------//
 // POST /copy
@@ -58,7 +59,7 @@ module.exports = eggspress('/copy', {
         x.set(operationTraceSvc.ckey('frame'), frame);
     }
 
-    const tracer = req.services.get('traceService').tracer;
+    const tracer = getTracer();
     await tracer.startActiveSpan('filesystem_api.copy', async span => {
 
         // === upcoming copy behaviour ===

@@ -17,10 +17,29 @@
  * along with this program.  If not, see <https://www.gnu.org/licenses/>.
  */
 
+import UIWindowSystemInfo from '../UI/UIWindowSystemInfo.js';
+
+console.debug('[puter] modify-user-options-menu loaded');
+
 $(window).on('ctxmenu-will-open', (event) => {
     if ( event.detail.options?.id === 'user-options-menu' ) {
         // Define array of new menu items
         const newMenuItems = [
+            // System Information window
+            {
+                id: 'system_information',
+                html: 'System Information',
+                html_active: 'System Information',
+                action: async function () {
+                    try {
+                        console.debug('[puter] System Information click');
+                        await UIWindowSystemInfo();
+                        console.debug('[puter] System Information opened');
+                    } catch (e) {
+                        console.error('[puter] System Information failed', e);
+                    }
+                },
+            },
             // Separator
             '-',
             // 'Developer', opens developer site in new tab

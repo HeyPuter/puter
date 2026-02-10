@@ -1199,7 +1199,7 @@ span.header-sort-icon img {
 
 .window-body {
     width: 100%;
-    height: calc(100% - 77px);
+    height: 100%;
     background-color: white;
     overflow: auto;
 }
@@ -2962,6 +2962,89 @@ label {
         /* Firefox */
     }
 
+}
+
+/*****************************************************
+ * System Information
+ *****************************************************/
+
+.systeminfo-container {
+    padding: 20px;
+    display: flex;
+    flex-direction: column;
+    gap: 20px;
+    background-color: #f9f9f9;
+}
+
+.serverinfo-container,
+.clientinfo-container {
+    padding: 20px;
+    background-color: #ffffff;
+    border: 1px solid #cccccc8f;
+    border-radius: 4px;
+}
+
+.serverinfo-container h1,
+.clientinfo-container h1 {
+    font-size: 24px;
+    margin-bottom: 20px;
+    border-bottom: 1px solid #e0e0e0;
+    padding-bottom: 10px;
+    padding-left: 5px;
+    font-weight: 500;
+}
+
+.update-usage-details-icon {
+  transform-origin: center;
+  transform-box: fill-box;
+}
+
+/* For refresh button animation */
+.spin-once { animation: spin-once 1s linear; } 
+
+@keyframes spin-once {
+    from { transform: rotate(0deg); }
+    to { transform: rotate(360deg); }
+}
+
+.clientinfo-content,
+.serverinfo-content {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 16px;
+}
+
+.systeminfo-item {
+    flex: 1 1 45%; /* Grow, shrink, min width 45% */
+    min-width: 150px; /* Prevents items from getting too small */
+    box-sizing: border-box;
+    display: flex;
+    flex-direction: column;
+    gap: 5px
+}
+
+.systeminfo-value {
+    display: flex;
+    justify-content: flex-start;
+    align-items: center;
+    gap: 10px;
+}
+
+.systeminfo-title {
+    font-weight: 500;
+    font-size: 14px;
+    color: #3C4963;
+    margin: 0;
+}
+
+.systeminfo-value {
+    color: #3C4963;
+    font-size: 13px;
+}
+
+.systeminfo-icon {
+    width: 20px;
+    height: 20px;
 }
 
 /*****************************************************

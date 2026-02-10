@@ -20,6 +20,7 @@ const APIError = require('../../api/APIError');
 const BaseService = require('../BaseService');
 const { TypeSpec } = require('./meta/Construct');
 const { TypedValue } = require('./meta/Runtime');
+const { secureAxiosRequest } = require('../../util/securehttp');
 
 /**
 * CoercionService class is responsible for handling coercion operations
@@ -65,19 +66,11 @@ class CoercionService extends BaseService {
             coerce: async typed_value => {
                 console.debug('coercion is running!');
 
-                const response = await (async () => {
-                    try {
-                        return await CoercionService.MODULES.axios.get(typed_value.value, {
-                            responseType: 'stream',
-                        });
-                    } catch (e) {
-                        APIError.create('field_invalid', null, {
-                            key: 'url',
-                            expected: 'web URL',
-                            got: `error during request: ${ e.message}`,
-                        });
-                    }
-                })();
+                const response = await secureAxiosRequest(CoercionService.MODULES.axios,
+                                typed_value.value,
+                                {
+                                    responseType: 'stream',
+                                });
 
                 return new TypedValue({
                     $: 'stream',
@@ -96,19 +89,11 @@ class CoercionService extends BaseService {
                 content_type: 'video',
             },
             coerce: async typed_value => {
-                const response = await (async () => {
-                    try {
-                        return await CoercionService.MODULES.axios.get(typed_value.value, {
-                            responseType: 'stream',
-                        });
-                    } catch (e) {
-                        APIError.create('field_invalid', null, {
-                            key: 'url',
-                            expected: 'web URL',
-                            got: `error during request: ${ e.message}`,
-                        });
-                    }
-                })();
+                const response = await secureAxiosRequest(CoercionService.MODULES.axios,
+                                typed_value.value,
+                                {
+                                    responseType: 'stream',
+                                });
 
                 return new TypedValue({
                     $: 'stream',

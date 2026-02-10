@@ -471,11 +471,18 @@ class LogService extends BaseService {
 
         let logger;
 
-        if ( ! config.no_winston )
-        {
-            logger = new WinstonLogger(winston.createLogger({
-                levels: WINSTON_LEVELS,
-                transports: [
+        if ( ! config.no_winston ) {
+            const requested_level = config.logger?.level;
+            const winston_level = typeof requested_level === 'string'
+                ? requested_level.toLowerCase()
+                : undefined;
+            const transports = config.toConsole
+                ? [
+                    new winston.transports.Console({
+                        level: winston_level ?? 'http',
+                    }),
+                ]
+                : [
                     new winston.transports.DailyRotateFile({
                         level: 'http',
                         filename: `${this.log_directory}/%DATE%.log`,
@@ -497,7 +504,11 @@ class LogService extends BaseService {
                         maxSize: '20m',
                         maxFiles: '2d',
                     }),
-                ],
+                ];
+
+            logger = new WinstonLogger(winston.createLogger({
+                levels: WINSTON_LEVELS,
+                transports,
             }));
         }
 

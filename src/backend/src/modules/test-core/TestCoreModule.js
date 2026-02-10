@@ -1,3 +1,4 @@
+import { DDBClientWrapper } from '../../clients/dynamodb/DDBClientWrapper.js';
 import { FilesystemService } from '../../filesystem/FilesystemService.js';
 import { AnomalyService } from '../../services/AnomalyService.js';
 import { AuthService } from '../../services/auth/AuthService.js';
@@ -7,21 +8,18 @@ import { TokenService } from '../../services/auth/TokenService.js';
 import { CommandService } from '../../services/CommandService.js';
 import { SqliteDatabaseAccessService } from '../../services/database/SqliteDatabaseAccessService.js';
 import { DetailProviderService } from '../../services/DetailProviderService.js';
+import { DynamoKVStoreWrapper } from '../../services/DynamoKVStore/DynamoKVStoreWrapper.js';
 import { EventService } from '../../services/EventService.js';
 import { FeatureFlagService } from '../../services/FeatureFlagService.js';
 import { GetUserService } from '../../services/GetUserService.js';
-import { InformationService } from '../../services/information/InformationService.js';
 import { MeteringServiceWrapper } from '../../services/MeteringService/MeteringServiceWrapper.mjs';
 import { NotificationService } from '../../services/NotificationService';
 import { RegistrantService } from '../../services/RegistrantService';
 import { RegistryService } from '../../services/RegistryService';
-import { DDBClientWrapper } from '../../services/repositories/DDBClientWrapper.js';
-import { DynamoKVStoreWrapper } from '../../services/repositories/DynamoKVStore/DynamoKVStoreWrapper';
 import { ScriptService } from '../../services/ScriptService';
 import { SessionService } from '../../services/SessionService';
 import { SUService } from '../../services/SUService';
 import { SystemValidationService } from '../../services/SystemValidationService';
-import { TraceService } from '../../services/TraceService';
 import { AlarmService } from '../core/AlarmService';
 import APIErrorService from '../web/APIErrorService';
 
@@ -32,7 +30,6 @@ export class TestCoreModule {
         services.registerService('whoami', DetailProviderService);
         services.registerService('get-user', GetUserService);
         services.registerService('database', SqliteDatabaseAccessService);
-        services.registerService('traceService', TraceService);
         services.registerService('su', SUService);
         services.registerService('alarm', AlarmService);
         services.registerService('event', EventService);
@@ -48,7 +45,6 @@ export class TestCoreModule {
         services.registerService('__registrant', RegistrantService);
         services.registerService('feature-flag', FeatureFlagService);
         services.registerService('token', TokenService);
-        services.registerService('information', InformationService);
         services.registerService('auth', AuthService);
         services.registerService('session', SessionService);
         services.registerService('notification', NotificationService);

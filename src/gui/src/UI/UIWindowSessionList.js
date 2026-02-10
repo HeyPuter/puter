@@ -28,8 +28,24 @@ async function UIWindowSessionList (options) {
     return new Promise(async (resolve) => {
         let h = '';
         h += '<div style="margin:10px;">';
-        // loading indicator
-        h += `<div class="loading">${i18n('signing_in')}</div>`;
+        // loading indicator with spinner
+        h += `<div class="loading" style="z-index: 999999999;">
+            <div style="display: flex; flex-direction: column; align-items: center; gap: 15px;">
+                <div style="
+                    width: 40px;
+                    height: 40px;
+                    border: 3px solid #e0e0e0;
+                    border-top-color: #3b82f6;
+                    border-radius: 50%;
+                    animation: spin 0.8s linear infinite;
+                "></div>
+                <div style="
+                    font-size: 15px;
+                    color: #555;
+                    font-weight: 500;
+                ">${i18n('signing_in')}</div>
+            </div>
+        </div>`;
         // session list
         h += '<div class="hide-scrollbar" style="overflow-y: scroll; max-width: 400px; margin: 0 auto;">';
         h += `<h1 style="text-align: center; font-size: 18px; font-weight: normal; color: #757575; margin-bottom: 30px;"><img src="${window.icons['logo-white.svg']}" style="padding: 4px; background-color: blue; border-radius: 5px; width: 25px; box-sizing: border-box; margin-bottom: -6px; margin-right: 6px;">${i18n('sign_in_with_puter')}</h1>`;

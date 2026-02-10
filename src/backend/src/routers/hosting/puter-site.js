@@ -55,8 +55,8 @@ class PuterSiteMiddleware extends AdvancedBase {
 
         const is_subdomain =
             req.hostname.endsWith(config.static_hosting_domain)
-            ||
-            req.subdomains[0] === 'devtest'
+            || (config.static_hosting_domain_alt && req.hostname.endsWith(config.static_hosting_domain_alt))
+            || req.subdomains[0] === 'devtest'
             ;
 
         if ( !is_subdomain && !req.is_custom_domain ) return next();
@@ -73,6 +73,8 @@ class PuterSiteMiddleware extends AdvancedBase {
                 });
             } else await this.run_(req, res, next);
         } catch ( e ) {
+
+            console.error('fuck!', e);
             // TODO: html_error_handler
             api_error_handler(e, req, res, next);
         }
@@ -89,7 +91,7 @@ class PuterSiteMiddleware extends AdvancedBase {
         const subdomain =
             req.is_custom_domain ? req.hostname :
                 req.subdomains[0] === 'devtest' ? 'devtest' :
-                    req.hostname.slice(0, -1 * (config.static_hosting_domain.length + 1));
+                    req.hostname.split('.')[0];
 
         let path = (req.baseUrl + req.path) || 'index.html';
 
@@ -116,7 +118,8 @@ class PuterSiteMiddleware extends AdvancedBase {
             };
         });
 
-        if ( subdomain === '' || subdomain === 'www' ) {
+        if ( req.hostname === config.static_hosting_domain || req.hostname === config.static_hosting_domain_alt || subdomain === 'www' ) {
+
             // redirect to information page about static hosting
             return res.redirect(config.static_hosting_base_domain_redirect);
         }
@@ -383,6 +386,10 @@ class PuterSiteMiddleware extends AdvancedBase {
                         ? `bytes=${start}-${end}`
                         : `bytes=${start}-`;
                 }
+            }
+        } else {
+            if ( target_node.entry.size ) {
+                res.set('x-expected-entity-length', target_node.entry.size);
             }
         }
         res.set({ 'Accept-Ranges': 'bytes' });

@@ -481,8 +481,10 @@ router.all('*', async function (req, res, next) {
     // redirect to static hosting domain *.puter.site
     //------------------------------------------
     else {
-        // replace hostname with static hosting domain and redirect to the same path
-        return res.redirect(301, `${req.protocol }://${ req.get('host').replace(config.domain, config.static_hosting_domain) }${req.originalUrl}`);
+        if ( req.get('host').toLowerCase().endsWith(config.domain) ) {
+            return res.redirect(302, `${req.protocol }://${ req.get('host').replace(config.domain, config.static_hosting_domain) }${req.originalUrl}`);
+            // replace hostname with static hosting domain and redirect to the same path
+        }
     }
 });
 

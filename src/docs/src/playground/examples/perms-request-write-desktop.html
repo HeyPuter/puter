@@ -1,0 +1,20 @@
+<html>
+<body>
+    <script src="https://js.puter.com/v2/"></script>
+    <button id="request-desktop">Request Desktop Write Access</button>
+    <script>
+        document.getElementById('request-desktop').addEventListener('click', async () => {
+            const desktopPath = await puter.perms.requestWriteDesktop();
+            if (desktopPath) {
+                puter.print(`Desktop path: ${desktopPath}`);
+                // Now you can write files to the Desktop
+                await puter.fs.write(`${desktopPath}/my-file.txt`, 'Hello from Desktop!');
+                puter.print('File written to Desktop');
+            } else {
+                puter.print('Desktop write access denied');
+            }
+        });
+    </script>
+</body>
+</html>
+

@@ -1,7 +1,10 @@
 import { IImageModel } from '../types';
 
 export const OPEN_AI_IMAGE_GENERATION_MODELS: IImageModel[] = [
-    { id: 'gpt-image-1.5',
+    {
+        puterId: 'openai:openai/gpt-image-1.5',
+        id: 'gpt-image-1.5',
+        aliases: ['openai/gpt-image-1.5'],
         name: 'GPT Image 1.5',
         version: '1.5',
         costs_currency: 'usd-cents',
@@ -20,7 +23,10 @@ export const OPEN_AI_IMAGE_GENERATION_MODELS: IImageModel[] = [
         allowedQualityLevels: ['low', 'medium', 'high'],
         allowedRatios: [{ w: 1024, h: 1024 }, { w: 1024, h: 1536 }, { w: 1536, h: 1024 }],
     },
-    { id: 'gpt-image-1-mini',
+    {
+        puterId: 'openai:openai/gpt-image-1-mini',
+        id: 'gpt-image-1-mini',
+        aliases: ['openai/gpt-image-1-mini'],
         name: 'GPT Image 1 Mini',
         version: '1.0',
         costs_currency: 'usd-cents',
@@ -39,7 +45,10 @@ export const OPEN_AI_IMAGE_GENERATION_MODELS: IImageModel[] = [
         allowedQualityLevels: ['low', 'medium', 'high'],
         allowedRatios: [{ w: 1024, h: 1024 }, { w: 1024, h: 1536 }, { w: 1536, h: 1024 }],
     },
-    { id: 'gpt-image-1',
+    {
+        puterId: 'openai:openai/gpt-image-1',
+        id: 'gpt-image-1',
+        aliases: ['openai/gpt-image-1'],
         name: 'GPT Image 1',
         version: '1.0',
         costs_currency: 'usd-cents',
@@ -58,7 +67,10 @@ export const OPEN_AI_IMAGE_GENERATION_MODELS: IImageModel[] = [
         allowedQualityLevels: ['low', 'medium', 'high'],
         allowedRatios: [{ w: 1024, h: 1024 }, { w: 1024, h: 1536 }, { w: 1536, h: 1024 }],
     },
-    { id: 'dall-e-3',
+    {
+        puterId: 'openai:openai/dall-e-3',
+        id: 'dall-e-3',
+        aliases: ['openai/dall-e-3'],
         name: 'DALL·E 3',
         version: '1.0',
         costs_currency: 'usd-cents',
@@ -74,7 +86,10 @@ export const OPEN_AI_IMAGE_GENERATION_MODELS: IImageModel[] = [
         allowedQualityLevels: ['', 'hd'],
         allowedRatios: [{ w: 1024, h: 1024 }, { w: 1024, h: 1792 }, { w: 1792, h: 1024 }],
     },
-    { id: 'dall-e-2',
+    {
+        puterId: 'openai:openai/dall-e-2',
+        id: 'dall-e-2',
+        aliases: ['openai/dall-e-2'],
         name: 'DALL·E 2',
         version: '1.0',
         costs_currency: 'usd-cents',

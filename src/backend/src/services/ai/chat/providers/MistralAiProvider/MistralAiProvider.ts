@@ -107,9 +107,10 @@ export class MistralAIProvider implements IChatProvider {
             stream,
             usage_calculator: ({ usage }) => {
                 const trackedUsage = OpenAIUtil.extractMeteredUsage(usage);
-                this.#meteringService.utilRecordUsageObject(trackedUsage, actor, `mistral:${selectedModel.id}`);
-                // Still return legacy cost calculation for compatibility
-
+                const costsOverrideFromModel = Object.fromEntries(Object.entries(trackedUsage).map(([k, v]) => {
+                    return [k, v * (selectedModel.costs[k] || 0)];
+                }));
+                this.#meteringService.utilRecordUsageObject(trackedUsage, actor, `mistral:${selectedModel.id}`, costsOverrideFromModel);
                 return trackedUsage;
             },
         });

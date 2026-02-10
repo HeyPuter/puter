@@ -20,13 +20,14 @@ const _path = require('path');
 const micromatch = require('micromatch');
 const config = require('./config');
 const mime = require('mime-types');
+const { LRUCache } = require('lru-cache');
 const { ManagedError } = require('./util/errorutil.js');
 const { spanify } = require('./util/otelutil.js');
 const APIError = require('./api/APIError.js');
 const { DB_READ, DB_WRITE } = require('./services/database/consts.js');
 const { Context } = require('./util/context');
 const { NodeUIDSelector } = require('./filesystem/node/selectors');
-const { object_returned_by_get_app } = require('./annotatedobjects.js');
+const { redisClient } = require('./clients/redis/redisSingleton');
 const { kv } = require('./util/kvSingleton');
 
 const identifying_uuid = require('uuid').v4();
@@ -43,6 +44,39 @@ const tmp_provide_services = async ss => {
 
 // TTL for pending get_app queries (request coalescing)
 const PENDING_QUERY_TTL = 10; // seconds
+const SUGGESTED_APPS_CACHE_MAX = 10000;
+const suggestedAppsCache = new LRUCache({ max: SUGGESTED_APPS_CACHE_MAX });
+const DEFAULT_APP_ICON_SIZE = 256;
+
+const safe_json_parse = (value, fallback) => {
+    if ( value === null || value === undefined ) return fallback;
+    try {
+        return JSON.parse(value);
+    } catch ( error ) {
+        return fallback;
+    }
+};
+
+const buildAppIconUrl = (app_uid, size = DEFAULT_APP_ICON_SIZE) => {
+    if ( ! app_uid ) return null;
+    const uid_string = String(app_uid);
+    const normalized_uid = uid_string.startsWith('app-') ? uid_string : `app-${uid_string}`;
+    const origin = config.origin ?? (
+        config.protocol && config.domain
+            ? `${config.protocol }://${ config.domain }`
+            : 'https://puter.com'
+    );
+    if ( ! origin ) return null;
+    const host = origin.replace(/\/$/, '');
+    return `${host}/app-icon/${normalized_uid}/${size}`;
+};
+
+const withAppIconUrl = (app) => {
+    if ( ! app ) return app;
+    const icon_url = buildAppIconUrl(app.uid ?? app.uuid);
+    if ( ! icon_url ) return { ...app };
+    return { ...app, icon: icon_url };
+};
 
 async function is_empty (dir_uuid) {
     /** @type BaseDatabaseAccessService */
@@ -66,37 +100,6 @@ async function is_empty (dir_uuid) {
     }
 
     return !rows[0].not_empty;
-}
-
-/**
- * @deprecated - sharing will be implemented with user-to-user ACL
- */
-async function has_shared_with (user_id, recipient_user_id) {
-    return false;
-}
-
-/**
- * Checks to see if this file/directory is shared with the user identified by `recipient_user_id`
- *
- * @param {*} fsentry_id
- * @param {*} recipient_user_id
- *
- * @deprecated - sharing will be implemented with user-to-user ACL
- */
-async function is_shared_with (fsentry_id, recipient_user_id) {
-    return false;
-}
-
-/**
- * Checks to see if this file/directory is shared with at least one other user
- *
- * @param {*} fsentry_id
- * @param {*} recipient_user_id
- *
- * @deprecated - sharing will be implemented with user-to-user ACL
- */
-async function is_shared_with_anyone (fsentry_id) {
-    return false;
 }
 
 /**
@@ -133,12 +136,8 @@ const chkperm = spanify('chkperm', async (target_fsentry, requester_user_id, act
     if ( target_fsentry.user_id === requester_user_id ) {
         return true;
     }
-    // this entry was shared with the requester
-    else if ( await is_shared_with(target_fsentry.id, requester_user_id) ) {
-        return true;
-    }
     // special case: owner of entry has shared at least one entry with requester and requester is asking for the owner's root directory: /[owner_username]
-    else if ( target_fsentry.parent_uid === null && await has_shared_with(target_fsentry.user_id, requester_user_id) && action !== 'write' )
+    else if ( target_fsentry.parent_uid === null && action !== 'write' )
     {
         return true;
     }
@@ -246,32 +245,24 @@ async function get_user (options) {
  *
  * @param {User} userID - the user entry to invalidate
  */
-function invalidate_cached_user (user) {
-    kv.del(`users:username:${ user.username}`);
-    kv.del(`users:uuid:${ user.uuid}`);
-    kv.del(`users:email:${ user.email}`);
-    kv.del(`users:id:${ user.id}`);
-}
+const invalidate_cached_user = async (user) => {
+    await Promise.all([
+        redisClient.del(`users:username:${ user.username}`),
+        redisClient.del(`users:uuid:${ user.uuid}`),
+        redisClient.del(`users:email:${ user.email}`),
+        redisClient.del(`users:id:${ user.id}`),
+    ]);
+};
 
 /**
  * Invalidate the cached entries for the user specified by an id
  * @param {number} id - the id of the user to invalidate
  */
-function invalidate_cached_user_by_id (id) {
-    const user = kv.get(`users:id:${ id}`);
+const invalidate_cached_user_by_id = async (id) => {
+    const user = safe_json_parse(await redisClient.get(`users:id:${ id}`), null);
     if ( ! user ) return;
     invalidate_cached_user(user);
-}
-
-/**
- * Refresh apps cache
- *
- * @param {string} options - `options`
- * @returns {Promise}
- */
-async function refresh_apps_cache (options, override) {
-    return;
-}
+};
 
 async function refresh_associations_cache () {
     /** @type BaseDatabaseAccessService */
@@ -290,7 +281,7 @@ async function refresh_associations_cache () {
     }
 
     for ( const k in lists ) {
-        kv.set(`assocs:${k}:apps`, lists[k]);
+        await redisClient.set(`assocs:${k}:apps`, JSON.stringify(lists[k]));
     }
 }
 
@@ -302,15 +293,13 @@ async function refresh_associations_cache () {
  */
 async function get_app (options) {
 
-    const cacheApp = (app) => {
+    const cacheApp = async (app) => {
         if ( ! app ) return;
-        app = { ...app };
-        kv.set(`apps:uid:${app.uid}`, app, { EX: 30 });
-        kv.set(`apps:name:${app.name}`, app, { EX: 30 });
-        kv.set(`apps:id:${app.id}`, app, { EX: 30 });
+        app = JSON.stringify(app);
+        await redisClient.set(`apps:uid:${app.uid}`, app, 'EX', 30);
+        await redisClient.set(`apps:name:${app.name}`, app, 'EX', 30);
+        await redisClient.set(`apps:id:${app.id}`, app, 'EX', 30);
     };
-
-    const log = _servicesHolder.services.get('log-service').create('get_app');
 
     // This condition should be updated if the code below is re-ordered.
     if ( options.follow_old_names && !options.uid && options.name ) {
@@ -343,7 +332,7 @@ async function get_app (options) {
     }
 
     // Check cache first
-    let app = kv.get(cacheKey);
+    let app = safe_json_parse(await redisClient.get(cacheKey), null);
     if ( app ) {
         // shallow clone because we use the `delete` operator
         // and it corrupts the cache otherwise
@@ -368,7 +357,7 @@ async function get_app (options) {
         rejectQuery = reject;
     });
 
-    kv.set(pendingKey, queryPromise, { EX: PENDING_QUERY_TTL });
+    kv.set(pendingKey, queryPromise, { 'EX': PENDING_QUERY_TTL });
 
     try {
         /** @type BaseDatabaseAccessService */
@@ -399,6 +388,237 @@ async function get_app (options) {
 
     return app;
 }
+
+/**
+ * Get multiple apps by uid/name/id, aligned to the input order.
+ *
+ * @param {Array<{uid?: string, name?: string, id?: string|number}>} specifiers
+ * @param {Object} [options]
+ * @param {boolean} [options.rawIcon] - When true, include raw icon data.
+ * @returns {Promise<Array<object|null>>}
+ */
+const get_apps = spanify('get_apps', async (specifiers, options = {}) => {
+    if ( ! Array.isArray(specifiers) ) {
+        specifiers = [specifiers];
+    }
+
+    const rawIcon = Boolean(options.rawIcon);
+    const cacheNamespace = rawIcon ? 'apps' : 'apps:lite';
+    const pendingNamespace = rawIcon ? 'pending_app' : 'pending_app_lite';
+    const decorateApp = (app) => (rawIcon ? app : withAppIconUrl(app));
+    const cacheApp = async (app) => {
+        if ( ! app ) return;
+        const cached_app = JSON.stringify(app);
+        await redisClient.set(`${cacheNamespace}:uid:${cached_app.uid}`, cached_app, 'EX', 60);
+        await redisClient.set(`${cacheNamespace}:name:${cached_app.name}`, cached_app, 'EX', 60);
+        await redisClient.set(`${cacheNamespace}:id:${cached_app.id}`, cached_app, 'EX', 60);
+    };
+
+    const APP_COLUMNS_NO_ICON = [
+        'id',
+        'uid',
+        'owner_user_id',
+        'name',
+        'title',
+        'description',
+        'godmode',
+        'maximize_on_start',
+        'index_url',
+        'approved_for_listing',
+        'approved_for_opening_items',
+        'approved_for_incentive_program',
+        'timestamp',
+        'last_review',
+        'tags',
+        'app_owner',
+        'metadata',
+        'protected',
+        'background',
+    ].map(column => `\`${column}\``).join(', ');
+
+    const normalized = specifiers.map(spec => spec ? { ...spec } : {});
+
+    if ( options.follow_old_names ) {
+        const svc_oldAppName = _servicesHolder.services.get('old-app-name');
+        for ( const spec of normalized ) {
+            if ( spec.uid || !spec.name ) continue;
+            const old_name = await svc_oldAppName.check_app_name(spec.name);
+            if ( old_name ) {
+                spec.uid = old_name.app_uid;
+                delete spec.name;
+            }
+        }
+    }
+
+    const appByUid = new Map();
+    const appByName = new Map();
+    const appById = new Map();
+
+    const addApp = (app) => {
+        if ( ! app ) return;
+        appByUid.set(app.uid, app);
+        appByName.set(app.name, app);
+        appById.set(app.id, app);
+    };
+
+    const pendingLookups = new Map();
+    const pendingToResolve = new Map();
+    const queryUids = new Set();
+    const queryNames = new Set();
+    const queryIds = new Set();
+
+    const queueMissing = (type, value) => {
+        const queryKey = `${type}:${value}`;
+        if ( pendingToResolve.has(queryKey) || pendingLookups.has(queryKey) ) {
+            return;
+        }
+
+        const pendingKey = `${pendingNamespace}:${queryKey}`;
+        const pending = kv.get(pendingKey);
+        if ( pending ) {
+            pendingLookups.set(queryKey, pending);
+            return;
+        }
+
+        let resolveQuery;
+        let rejectQuery;
+        const queryPromise = new Promise((resolve, reject) => {
+            resolveQuery = resolve;
+            rejectQuery = reject;
+        });
+        kv.set(pendingKey, queryPromise, { 'EX': PENDING_QUERY_TTL });
+        pendingToResolve.set(queryKey, { resolveQuery, rejectQuery, pendingKey });
+
+        if ( type === 'uid' ) {
+            queryUids.add(value);
+        } else if ( type === 'name' ) {
+            queryNames.add(value);
+        } else if ( type === 'id' ) {
+            queryIds.add(value);
+        }
+    };
+
+    for ( const spec of normalized ) {
+        if ( spec.uid ) {
+            const cached = safe_json_parse(await redisClient.get(`${cacheNamespace}:uid:${spec.uid}`), null);
+            if ( cached ) {
+                addApp(decorateApp(cached));
+            } else {
+                queueMissing('uid', spec.uid);
+            }
+            continue;
+        }
+        if ( spec.name ) {
+            const cached = safe_json_parse(await redisClient.get(`${cacheNamespace}:name:${spec.name}`), null);
+            if ( cached ) {
+                addApp(decorateApp(cached));
+            } else {
+                queueMissing('name', spec.name);
+            }
+            continue;
+        }
+        if ( spec.id ) {
+            const cached = safe_json_parse(await redisClient.get(`${cacheNamespace}:id:${spec.id}`), null);
+            if ( cached ) {
+                addApp(decorateApp(cached));
+            } else {
+                queueMissing('id', spec.id);
+            }
+        }
+    }
+
+    const pendingResultsPromise = pendingLookups.size
+        ? Promise.all(Array.from(pendingLookups.values()))
+        : Promise.resolve([]);
+
+    if ( queryUids.size || queryNames.size || queryIds.size ) {
+        /** @type BaseDatabaseAccessService */
+        const db = _servicesHolder.services.get('database').get(DB_READ, 'apps');
+
+        const clauses = [];
+        const params = [];
+
+        if ( queryUids.size ) {
+            const uids = Array.from(queryUids);
+            clauses.push(`uid IN (${uids.map(() => '?').join(', ')})`);
+            params.push(...uids);
+        }
+        if ( queryNames.size ) {
+            const names = Array.from(queryNames);
+            clauses.push(`name IN (${names.map(() => '?').join(', ')})`);
+            params.push(...names);
+        }
+        if ( queryIds.size ) {
+            const ids = Array.from(queryIds);
+            clauses.push(`id IN (${ids.map(() => '?').join(', ')})`);
+            params.push(...ids);
+        }
+
+        let rows = [];
+        const resolvedKeys = new Set();
+        try {
+            const select_columns = rawIcon ? '*' : APP_COLUMNS_NO_ICON;
+            rows = await db.read(`SELECT ${select_columns} FROM \`apps\` WHERE ${clauses.join(' OR ')}`,
+                            params);
+            for ( const app of rows ) {
+                const decorated_app = decorateApp(app);
+                cacheApp(decorated_app);
+                addApp(decorated_app);
+
+                const uidKey = `uid:${decorated_app.uid}`;
+                const nameKey = `name:${decorated_app.name}`;
+                const idKey = `id:${decorated_app.id}`;
+
+                if ( pendingToResolve.has(uidKey) ) {
+                    pendingToResolve.get(uidKey).resolveQuery(decorated_app);
+                    resolvedKeys.add(uidKey);
+                }
+                if ( pendingToResolve.has(nameKey) ) {
+                    pendingToResolve.get(nameKey).resolveQuery(decorated_app);
+                    resolvedKeys.add(nameKey);
+                }
+                if ( pendingToResolve.has(idKey) ) {
+                    pendingToResolve.get(idKey).resolveQuery(decorated_app);
+                    resolvedKeys.add(idKey);
+                }
+            }
+
+            for ( const [key, { resolveQuery }] of pendingToResolve.entries() ) {
+                if ( ! resolvedKeys.has(key) ) {
+                    resolveQuery(null);
+                }
+            }
+        } catch ( err ) {
+            for ( const { rejectQuery } of pendingToResolve.values() ) {
+                rejectQuery(err);
+            }
+            throw err;
+        } finally {
+            for ( const { pendingKey } of pendingToResolve.values() ) {
+                await redisClient.del(pendingKey);
+            }
+        }
+
+    }
+
+    const pendingResults = await pendingResultsPromise;
+    for ( const app of pendingResults ) {
+        addApp(decorateApp(app));
+    }
+
+    return normalized.map(spec => {
+        let app;
+        if ( spec.uid ) {
+            app = appByUid.get(spec.uid);
+        } else if ( spec.name ) {
+            app = appByName.get(spec.name);
+        } else if ( spec.id ) {
+            app = appById.get(spec.id);
+        }
+        return app ? { ...app } : null;
+    });
+
+});
 
 /**
  * Checks to see if an app exists
@@ -640,6 +860,85 @@ function byte_format (bytes) {
     return `${Math.round(bytes / Math.pow(1024, i), 2) } ${ sizes[i]}`;
 };
 
+const get_descendants = spanify('get_descendants', async (...args) => {
+    return await getDescendantsHelper(...args);
+});
+
+/**
+ *
+ * @param {integer} entry_id
+ * @returns
+ */
+const id2path = spanify('helpers:id2path', async (entry_uid) => {
+    if ( entry_uid == null ) {
+        throw new Error('got null or undefined entry id');
+    }
+
+    /** @type BaseDatabaseAccessService */
+    const db = _servicesHolder.services.get('database').get(DB_READ, 'filesystem');
+
+    const log = _servicesHolder.services.get('log-service').create('helpers.id2path');
+    log.traceOn();
+    const errors = _servicesHolder.services.get('error-service').create(log);
+    log.called();
+
+    let result;
+
+    log.debug(`entry id: ${entry_uid}`);
+    if ( typeof entry_uid === 'number' ) {
+        const old = entry_uid;
+        entry_uid = await id2uuid(entry_uid);
+        log.debug(`entry id resolved: resolved ${old} ${entry_uid}`);
+    }
+
+    try {
+        result = await db.read(`
+                WITH RECURSIVE cte AS (
+                    SELECT uuid, parent_uid, name, name AS path
+                    FROM fsentries
+                    WHERE uuid = ?
+
+                    UNION ALL
+
+                    SELECT e.uuid, e.parent_uid, e.name, ${
+                        db.case({
+                            sqlite: 'e.name || \'/\' || cte.path',
+                            otherwise: 'CONCAT(e.name, \'/\', cte.path)',
+                        })
+                    }
+                    FROM fsentries e
+                    INNER JOIN cte ON cte.parent_uid = e.uuid
+                )
+                SELECT *
+                FROM cte
+                WHERE parent_uid IS NULL
+            `, [entry_uid]);
+    } catch (e) {
+        errors.report('id2path.select', {
+            alarm: true,
+            source: e,
+            message: `error while resolving path for ${entry_uid}: ${e.message}`,
+            extra: {
+                entry_uid,
+            },
+        });
+        throw new ManagedError(`cannot create path for ${entry_uid}`);
+    }
+
+    if ( !result || !result[0] ) {
+        errors.report('id2path.select', {
+            alarm: true,
+            message: `no result for ${entry_uid}`,
+            extra: {
+                entry_uid,
+            },
+        });
+        throw new ManagedError(`cannot create path for ${entry_uid}`);
+    }
+
+    return `/${ result[0].path}`;
+});
+
 /**
  * Recursively retrieve all files, directories, and subdirectories under `path`.
  * Optionally the `depth` can be set.
@@ -827,16 +1126,6 @@ async function getDescendantsHelper (path, user, depth, return_thumbnail = false
     return ret.flat();
 };
 
-async function get_descendants (...args) {
-    const tracer = _servicesHolder.services.get('traceService').tracer;
-    let ret;
-    await tracer.startActiveSpan('get_descendants', async span => {
-        ret = await getDescendantsHelper(...args);
-        span.end();
-    });
-    return ret;
-};
-
 const get_dir_size = async (path, user) => {
     let size = 0;
     const descendants = await get_descendants(path, user);
@@ -847,84 +1136,6 @@ const get_dir_size = async (path, user) => {
     }
 
     return size;
-};
-
-/**
- *
- * @param {integer} entry_id
- * @returns
- */
-async function id2path (entry_uid) {
-    if ( entry_uid == null ) {
-        throw new Error('got null or undefined entry id');
-    }
-
-    /** @type BaseDatabaseAccessService */
-    const db = _servicesHolder.services.get('database').get(DB_READ, 'filesystem');
-
-    const traces = _servicesHolder.services.get('traceService');
-    const log = _servicesHolder.services.get('log-service').create('helpers.id2path');
-    log.traceOn();
-    const errors = _servicesHolder.services.get('error-service').create(log);
-    log.called();
-
-    let result;
-
-    return await traces.spanify('helpers:id2path', async () => {
-        log.debug(`entry id: ${entry_uid}`);
-        if ( typeof entry_uid === 'number' ) {
-            const old = entry_uid;
-            entry_uid = await id2uuid(entry_uid);
-            log.debug(`entry id resolved: resolved ${old} ${entry_uid}`);
-        }
-
-        try {
-            result = await db.read(`
-                WITH RECURSIVE cte AS (
-                    SELECT uuid, parent_uid, name, name AS path
-                    FROM fsentries
-                    WHERE uuid = ?
-
-                    UNION ALL
-
-                    SELECT e.uuid, e.parent_uid, e.name, ${
-                        db.case({
-                            sqlite: 'e.name || \'/\' || cte.path',
-                            otherwise: 'CONCAT(e.name, \'/\', cte.path)',
-                        })
-                    }
-                    FROM fsentries e
-                    INNER JOIN cte ON cte.parent_uid = e.uuid
-                )
-                SELECT *
-                FROM cte
-                WHERE parent_uid IS NULL
-            `, [entry_uid]);
-        } catch (e) {
-            errors.report('id2path.select', {
-                alarm: true,
-                source: e,
-                message: `error while resolving path for ${entry_uid}: ${e.message}`,
-                extra: {
-                    entry_uid,
-                },
-            });
-            throw new ManagedError(`cannot create path for ${entry_uid}`);
-        }
-
-        if ( !result || !result[0] ) {
-            errors.report('id2path.select', {
-                alarm: true,
-                message: `no result for ${entry_uid}`,
-                extra: {
-                    entry_uid,
-                },
-            });
-            throw new ManagedError(`cannot create path for ${entry_uid}`);
-        }
-
-        return `/${ result[0].path}`;
-    });
 };
 
 /**
@@ -957,31 +1168,8 @@ async function resolve_glob (glob, user) {
     });
 }
 
-/**
- * Copies a FSEntry represented by `source_path` to `dest_path`.
- *
- * @param {string} source_path
- * @param {string} dest_path
- * @param {object} user
- * @returns
- */
-function cp (source_path, dest_path, user, overwrite, change_name, check_perms = true) {
-    throw new Error('legacy copy function called');
-}
-
 function isString (variable) {
     return typeof variable === 'string' || variable instanceof String;
-}
-
-/**
- * Recusrively deletes all files under `path`
- *
- * @param {string} source_path
- * @param {object} user
- * @returns
- */
-function rm (source_path, user, descendants_only = false) {
-    throw new Error('legacy remove function called');
 }
 
 const body_parser_error_handler = (err, req, res, next) => {
@@ -1100,7 +1288,7 @@ async function sign_file (fsentry, action) {
     };
 }
 
-async function gen_public_token (file_uuid, ttl = 24 * 60 * 60) {
+async function gen_public_token (file_uuid) {
     const { v4: uuidv4 } = require('uuid');
 
     // get fsentry
@@ -1149,6 +1337,7 @@ async function deleteUser (user_id) {
     const svc_fs = _servicesHolder.services.get('filesystem');
 
     // get a list of up to 5000 files owned by this user
+    // eslint-disable-next-line no-constant-condition
     for ( let offset = 0; true; offset += 5000 ) {
         let files = await db.read(`SELECT uuid, bucket, bucket_region FROM fsentries WHERE user_id = ? AND is_dir = 0 LIMIT 5000 OFFSET ${ offset}`,
                         [user_id]);
@@ -1352,8 +1541,68 @@ function seconds_to_string (seconds) {
  * @param {*} fsentry
  * @param {*} options
  */
-async function suggest_app_for_fsentry (fsentry, options) {
-    const suggested_apps_promises = [];
+const SUGGEST_APP_CODE_EXTS = [
+    '.asm',
+    '.asp',
+    '.aspx',
+    '.bash',
+    '.c',
+    '.cpp',
+    '.css',
+    '.csv',
+    '.dhtml',
+    '.f',
+    '.go',
+    '.h',
+    '.htm',
+    '.html',
+    '.html5',
+    '.java',
+    '.jl',
+    '.js',
+    '.jsa',
+    '.json',
+    '.jsonld',
+    '.jsf',
+    '.jsp',
+    '.kt',
+    '.log',
+    '.lock',
+    '.lua',
+    '.md',
+    '.perl',
+    '.phar',
+    '.php',
+    '.pl',
+    '.py',
+    '.r',
+    '.rb',
+    '.rdata',
+    '.rda',
+    '.rdf',
+    '.rds',
+    '.rs',
+    '.rlib',
+    '.rpy',
+    '.scala',
+    '.sc',
+    '.scm',
+    '.sh',
+    '.sol',
+    '.sql',
+    '.ss',
+    '.svg',
+    '.swift',
+    '.toml',
+    '.ts',
+    '.wasm',
+    '.xhtml',
+    '.xml',
+    '.yaml',
+];
+
+const buildSuggestedAppSpecifiers = async (fsentry) => {
+    const name_specifiers = [];
 
     let content_type = mime.contentType(fsentry.name);
     if ( ! content_type ) content_type = '';
@@ -1370,76 +1619,14 @@ async function suggest_app_for_fsentry (fsentry, options) {
     })();
     const file_extension = _path.extname(fsname).toLowerCase();
 
-    const any_of = (list, name) => {
-        return list.some(v => name.endsWith(v));
-    };
+    const any_of = (list, name) => list.some(v => name.endsWith(v));
 
     //---------------------------------------------
     // Code
     //---------------------------------------------
-    const exts_code = [
-        '.asm',
-        '.asp',
-        '.aspx',
-        '.bash',
-        '.c',
-        '.cpp',
-        '.css',
-        '.csv',
-        '.dhtml',
-        '.f',
-        '.go',
-        '.h',
-        '.htm',
-        '.html',
-        '.html5',
-        '.java',
-        '.jl',
-        '.js',
-        '.jsa',
-        '.json',
-        '.jsonld',
-        '.jsf',
-        '.jsp',
-        '.kt',
-        '.log',
-        '.lock',
-        '.lua',
-        '.md',
-        '.perl',
-        '.phar',
-        '.php',
-        '.pl',
-        '.py',
-        '.r',
-        '.rb',
-        '.rdata',
-        '.rda',
-        '.rdf',
-        '.rds',
-        '.rs',
-        '.rlib',
-        '.rpy',
-        '.scala',
-        '.sc',
-        '.scm',
-        '.sh',
-        '.sol',
-        '.sql',
-        '.ss',
-        '.svg',
-        '.swift',
-        '.toml',
-        '.ts',
-        '.wasm',
-        '.xhtml',
-        '.xml',
-        '.yaml',
-    ];
-
-    if ( any_of(exts_code, fsname) || !fsname.includes('.') ) {
-        suggested_apps_promises.push(get_app({ name: 'code' }));
-        suggested_apps_promises.push(get_app({ name: 'editor' }));
+    if ( any_of(SUGGEST_APP_CODE_EXTS, fsname) || !fsname.includes('.') ) {
+        name_specifiers.push({ name: 'code' });
+        name_specifiers.push({ name: 'editor' });
     }
 
     //---------------------------------------------
@@ -1450,14 +1637,14 @@ async function suggest_app_for_fsentry (fsentry, options) {
         // files with no extension
         !fsname.includes('.')
     ) {
-        suggested_apps_promises.push(get_app({ name: 'editor' }));
-        suggested_apps_promises.push(get_app({ name: 'code' }));
+        name_specifiers.push({ name: 'editor' });
+        name_specifiers.push({ name: 'code' });
     }
     //---------------------------------------------
     // Markus
     //---------------------------------------------
     if ( fsname.endsWith('.md') ) {
-        suggested_apps_promises.push(get_app({ name: 'markus' }));
+        name_specifiers.push({ name: 'markus' });
     }
     //---------------------------------------------
     // Viewer
@@ -1470,7 +1657,7 @@ async function suggest_app_for_fsentry (fsentry, options) {
         fsname.endsWith('.bmp') ||
         fsname.endsWith('.jpeg')
     ) {
-        suggested_apps_promises.push(get_app({ name: 'viewer' }));
+        name_specifiers.push({ name: 'viewer' });
     }
     //---------------------------------------------
     // Draw
@@ -1479,13 +1666,13 @@ async function suggest_app_for_fsentry (fsentry, options) {
         fsname.endsWith('.bmp') ||
         content_type.startsWith('image/')
     ) {
-        suggested_apps_promises.push(get_app({ name: 'draw' }));
+        name_specifiers.push({ name: 'draw' });
     }
     //---------------------------------------------
     // PDF
     //---------------------------------------------
     if ( fsname.endsWith('.pdf') ) {
-        suggested_apps_promises.push(get_app({ name: 'pdf' }));
+        name_specifiers.push({ name: 'pdf' });
     }
     //---------------------------------------------
     // Player
@@ -1499,44 +1686,166 @@ async function suggest_app_for_fsentry (fsentry, options) {
         fsname.endsWith('.m4a') ||
         fsname.endsWith('.ogg')
     ) {
-        suggested_apps_promises.push(get_app({ name: 'player' }));
+        name_specifiers.push({ name: 'player' });
     }
 
     //---------------------------------------------
     // 3rd-party apps
     //---------------------------------------------
-    const apps = kv.get(`assocs:${file_extension.slice(1)}:apps`) ?? [];
+    const apps = safe_json_parse(await redisClient.get(`assocs:${file_extension.slice(1)}:apps`), []);
+    /** @type {{id:string}[]} */
+    const id_specifiers = apps.map(app_id => ({ id: app_id }));
 
-    for ( const app_id of apps ) {
-        suggested_apps_promises.push((async () => {
-            // retrieve app from DB
-            const third_party_app = await get_app({ id: app_id });
-            if ( ! third_party_app ) return;
-            // only add if the app is approved for opening items or the app is owned by this user
-            if ( third_party_app.approved_for_opening_items ||
-                (options !== undefined && options.user !== undefined && options.user.id === third_party_app.owner_user_id) )
-            {
-                return third_party_app;
-            }
-        })());
+    return { name_specifiers, id_specifiers };
+};
+
+const buildSuggestedAppsFromResolved = (resolved, name_specifier_count, options) => {
+    const suggested_apps = [];
+
+    const name_apps = resolved.slice(0, name_specifier_count);
+    suggested_apps.push(...name_apps);
+
+    const third_party_apps = resolved.slice(name_specifier_count);
+    for ( const third_party_app of third_party_apps ) {
+        if ( ! third_party_app ) continue;
+        if ( third_party_app.approved_for_opening_items ||
+            (options?.user && options.user.id === third_party_app.owner_user_id) )
+        {
+            suggested_apps.push(third_party_app);
+        }
     }
 
-    // return list
-    const suggested_apps = await Promise.all(suggested_apps_promises);
-    if ( suggested_apps.some(app => app && app.name === 'editor') ) {
-        suggested_apps.push(await get_app({ name: 'codeapp' }));
-    }
-    return suggested_apps.filter((suggested_app, pos, self) => {
+    const needs_codeapp = suggested_apps.some(app => app && app.name === 'editor');
+    return { suggested_apps, needs_codeapp };
+};
+
+const normalizeSuggestedApps = (suggested_apps) => (
+    suggested_apps.filter((suggested_app, pos, self) => {
         // Remove any null values caused by calling `get_app()` for apps that don't exist.
         // This happens on self-host because we don't include `code`, among others.
-        if ( ! suggested_app )
-        {
+        if ( ! suggested_app ) {
             return false;
         }
 
         // Remove any duplicate entries
         return self.indexOf(suggested_app) === pos;
+    })
+);
+
+const buildSuggestedAppsCacheKey = (fsentry, options) => {
+    const user_id = options?.user?.id ?? '';
+    const entry_id = fsentry?.uuid ?? fsentry?.uid ?? fsentry?.id ?? fsentry?.path ?? '';
+    const entry_name = fsentry?.name ?? '';
+    const entry_type = fsentry?.is_dir ? 'd' : 'f';
+    return `${user_id}:${entry_id}:${entry_type}:${entry_name}`;
+};
+
+const cloneSuggestedApps = (suggested_apps) => (
+    Array.isArray(suggested_apps)
+        ? suggested_apps.map(app => (app ? { ...app } : app))
+        : suggested_apps
+);
+
+async function suggestedAppsForFsEntries (fsentries, options) {
+    if ( ! Array.isArray(fsentries) ) {
+        fsentries = [fsentries];
+    }
+
+    const batches = [];
+    const specifiers = [];
+    const results = new Array(fsentries.length);
+    const cacheKeysByIndex = new Map();
+
+    for ( let index = 0; index < fsentries.length; index++ ) {
+        const fsentry = fsentries[index];
+        if ( ! fsentry ) {
+            results[index] = [];
+            continue;
+        }
+
+        const cache_key = buildSuggestedAppsCacheKey(fsentry, options);
+        const cached = suggestedAppsCache.get(cache_key);
+        if ( cached !== undefined ) {
+            results[index] = cloneSuggestedApps(cached);
+            continue;
+        }
+
+        const { name_specifiers, id_specifiers } = await buildSuggestedAppSpecifiers(fsentry);
+        const entry_specifiers = [...name_specifiers, ...id_specifiers];
+
+        if ( entry_specifiers.length === 0 ) {
+            results[index] = [];
+            cacheKeysByIndex.set(index, cache_key);
+            continue;
+        }
+
+        const offset = specifiers.length;
+        specifiers.push(...entry_specifiers);
+        batches.push({
+            index,
+            offset,
+            count: entry_specifiers.length,
+            name_count: name_specifiers.length,
+            suggested_apps: [],
+            needs_codeapp: false,
+        });
+        cacheKeysByIndex.set(index, cache_key);
+    }
+
+    let resolved = [];
+    if ( specifiers.length > 0 ) {
+        resolved = await get_apps(specifiers);
+    }
+
+    let any_needs_codeapp = false;
+    for ( const batch of batches ) {
+        const slice = resolved.slice(batch.offset, batch.offset + batch.count);
+        const { suggested_apps, needs_codeapp } = buildSuggestedAppsFromResolved(slice,
+                        batch.name_count,
+                        options);
+        batch.suggested_apps = suggested_apps;
+        batch.needs_codeapp = needs_codeapp;
+        if ( needs_codeapp ) any_needs_codeapp = true;
+    }
+
+    let codeapp;
+    if ( any_needs_codeapp ) {
+        [codeapp] = await get_apps([{ name: 'codeapp' }]);
+    }
+
+    for ( const batch of batches ) {
+        let suggested_apps = batch.suggested_apps;
+        if ( batch.needs_codeapp && codeapp ) {
+            suggested_apps = [...suggested_apps, codeapp];
+        }
+        results[batch.index] = normalizeSuggestedApps(suggested_apps);
+    }
+
+    // Deduplicate results by ID
+    const deduplicatedResults = results.map(apps => {
+        if ( ! Array.isArray(apps) ) return apps;
+        const seen = new Set();
+        return apps.filter(app => {
+            if ( !app || !app.id ) return true;
+            if ( seen.has(app.id) ) return false;
+            seen.add(app.id);
+            return true;
+        });
     });
+
+    for ( const [index, cache_key] of cacheKeysByIndex ) {
+        const apps = deduplicatedResults[index];
+        if ( apps !== undefined ) {
+            suggestedAppsCache.set(cache_key, cloneSuggestedApps(apps));
+        }
+    }
+
+    return deduplicatedResults;
+}
+
+async function suggestedAppForFsEntry (fsentry, options) {
+    const [result] = await suggestedAppsForFsEntries([fsentry], options);
+    return result;
 }
 
 async function get_taskbar_items (user, { icon_size, no_icons } = {}) {
@@ -1571,6 +1880,23 @@ async function get_taskbar_items (user, { icon_size, no_icons } = {}) {
         }
     }
 
+    const app_specifiers = taskbar_items_from_db.map((taskbar_item_from_db) => {
+        if ( taskbar_item_from_db.type !== 'app' ) return {};
+        if ( taskbar_item_from_db.name === 'explorer' ) return {};
+        if ( taskbar_item_from_db.name ) {
+            return { name: taskbar_item_from_db.name };
+        }
+        if ( taskbar_item_from_db.id ) {
+            return { id: taskbar_item_from_db.id };
+        }
+        if ( taskbar_item_from_db.uid ) {
+            return { uid: taskbar_item_from_db.uid };
+        }
+        return {};
+    });
+
+    const taskbar_apps = await get_apps(app_specifiers, { rawIcon: !no_icons });
+
     // get apps that these taskbar items represent
     let taskbar_items = [];
     for ( let index = 0; index < taskbar_items_from_db.length; index++ ) {
@@ -1578,19 +1904,7 @@ async function get_taskbar_items (user, { icon_size, no_icons } = {}) {
         if ( taskbar_item_from_db.type !== 'app' ) continue;
         if ( taskbar_item_from_db.name === 'explorer' ) continue;
 
-        let item = {};
-        if ( taskbar_item_from_db.name )
-        {
-            item = await get_app({ name: taskbar_item_from_db.name });
-        }
-        else if ( taskbar_item_from_db.id )
-        {
-            item = await get_app({ id: taskbar_item_from_db.id });
-        }
-        else if ( taskbar_item_from_db.uid )
-        {
-            item = await get_app({ uid: taskbar_item_from_db.uid });
-        }
+        const item = taskbar_apps[index];
 
         // if item not found, skip it
         if ( ! item ) continue;
@@ -1682,10 +1996,6 @@ function get_url_from_req (req) {
     return `${req.protocol }://${ req.get('host') }${req.originalUrl}`;
 }
 
-async function mv (options) {
-    throw new Error('legacy mv function called');
-}
-
 /**
  * Formats a number with grouped thousands.
  *
@@ -1729,7 +2039,6 @@ module.exports = {
     change_username,
     chkperm,
     convert_path_to_fsentry,
-    cp,
     deleteUser,
     get_descendants,
     get_dir_size,
@@ -1738,34 +2047,30 @@ module.exports = {
     get_url_from_req,
     generate_random_str,
     get_app,
+    get_apps,
     get_user,
     invalidate_cached_user,
     invalidate_cached_user_by_id,
-    has_shared_with,
     hyphenize_confirm_code,
     id2fsentry,
     id2path,
     id2uuid,
     is_ancestor_of,
     is_empty,
-    is_shared_with,
-    is_shared_with_anyone,
     ...require('./validation'),
     is_temp_users_disabled,
     is_user_signup_disabled,
     jwt_auth,
-    mv,
     number_format,
-    refresh_apps_cache,
     refresh_associations_cache,
     resolve_glob,
-    rm,
     seconds_to_string,
     send_email_verification_code,
     send_email_verification_token,
     sign_file,
     subdomain,
-    suggest_app_for_fsentry,
+    suggestedAppsForFsEntries,
+    suggestedAppForFsEntry,
     df,
     username_exists,
     uuid2fsentry,

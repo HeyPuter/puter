@@ -24,6 +24,11 @@ import { MeteringService } from '../../../../MeteringService/MeteringService.js'
 import * as OpenAIUtil from '../../../utils/OpenAIUtil.js';
 import { IChatModel, IChatProvider, ICompleteArguments } from '../types.js';
 
+const TOGETHER_AI_CHAT_COST_MAP = {
+    prompt_tokens: 'input',
+    completion_tokens: 'output',
+};
+
 export class TogetherAIProvider implements IChatProvider {
     #together: Together;
 
@@ -57,8 +62,8 @@ export class TogetherAIProvider implements IChatProvider {
                     context: model.context_length,
                     description: model.display_name,
                     costs_currency: 'usd-cents',
-                    input_cost_key: 'prompt_tokens',
-                    output_cost_key: 'completion_tokens',
+                    input_cost_key: 'input',
+                    output_cost_key: 'output',
                     costs: {
                         tokens: 1_000_000,
                         ...model.pricing,
@@ -73,8 +78,8 @@ export class TogetherAIProvider implements IChatProvider {
             name: 'Model Fallback Test 1',
             context: 1000,
             costs_currency: 'usd-cents',
-            input_cost_key: 'prompt_tokens',
-            output_cost_key: 'completion_tokens',
+            input_cost_key: 'input',
+            output_cost_key: 'output',
             costs: {
                 tokens: 1_000_000,
                 prompt_tokens: 10,
@@ -115,7 +120,10 @@ export class TogetherAIProvider implements IChatProvider {
             messages,
             stream,
             ...(tools ? { tools } : {}),
-            ...(max_tokens ? { max_tokens } : {}),
+            // TODO: make this better but togetherai doesn't handle max tokens properly at all
+            ...(max_tokens ? { max_tokens: max_tokens - messages.reduce((acc, curr) => {
+                return acc + (curr.type === 'text' ? curr.text.length / 2 : 200);
+            }, 0) } : {}),
             ...(temperature ? { temperature } : {}),
             ...(stream ? { stream_options: { include_usage: true } } : {}),
         } as Together.Chat.Completions.CompletionCreateParamsNonStreaming);
@@ -124,8 +132,10 @@ export class TogetherAIProvider implements IChatProvider {
             usage_calculator: ({ usage }) => {
                 const trackedUsage = OpenAIUtil.extractMeteredUsage(usage);
                 const costsOverride = Object.fromEntries(Object.entries(trackedUsage).map(([k, v]) => {
-                    return [k, v * (modelUsed.costs[k] || 0)];
-                }));
+                    const mappedKey  = TOGETHER_AI_CHAT_COST_MAP[k] || k;
+                    return modelUsed.costs[mappedKey] ? [k, v * (modelUsed.costs[mappedKey] || 0)] : null;
+                }).filter(Boolean) as [string, number][]);
+
                 this.#meteringService.utilRecordUsageObject(trackedUsage, actor, `togetherai:${modelIdForParams}`, costsOverride);
                 return trackedUsage;
             },

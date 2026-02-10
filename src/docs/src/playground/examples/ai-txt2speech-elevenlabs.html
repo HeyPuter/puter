@@ -1,0 +1,20 @@
+<html>
+<body>
+    <script src="https://js.puter.com/v2/"></script>
+    <button id="play">Use ElevenLabs voice</button>
+    <script>
+        document.getElementById('play').addEventListener('click', async ()=>{
+            const audio = await puter.ai.txt2speech(
+                "Hello! This sample uses an ElevenLabs voice.",
+                {
+                    provider: "elevenlabs",
+                    model: "eleven_multilingual_v2",
+                    voice: "21m00Tcm4TlvDq8ikWAM",
+                    output_format: "mp3_44100_128"
+                }
+            );
+            audio.play();
+        });
+    </script>
+</body>
+</html>
