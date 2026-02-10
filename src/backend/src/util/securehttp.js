@@ -176,8 +176,6 @@ async function secureAxiosRequest (axios, url, options = {}) {
     // Validate URL doesn't contain IP addresses
     validateUrlNoIP(url);
 
-    console.log(`[securehttp] Making secure request to ${url}`);
-
     // Create secure agents
     const { httpAgent, httpsAgent } = createSecureAgents();
 
