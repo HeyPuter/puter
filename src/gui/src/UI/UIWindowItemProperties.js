@@ -42,6 +42,7 @@ async function UIWindowItemProperties (item_name, item_path, item_uid, left, top
     h += `<tr><td class="item-prop-label">${i18n('modified')}</td><td class="item-prop-val item-prop-val-modified"></td></tr>`;
     h += `<tr><td class="item-prop-label">${i18n('created')}</td><td class="item-prop-val item-prop-val-created"></td></tr>`;
     h += `<tr><td class="item-prop-label">${i18n('versions')}</td><td class="item-prop-val item-prop-val-versions"></td></tr>`;
+    h += `<tr><td class="item-prop-label">${i18n('worker')}</td><td class="item-prop-val item-prop-val-worker">`;
     h += `<tr><td class="item-prop-label">${i18n('associated_websites')}</td><td class="item-prop-val item-prop-val-websites">`;
     h += '</td></tr>';
     h += `<tr><td class="item-prop-label">${i18n('access_granted_to')}</td><td class="item-prop-val item-prop-val-permissions"></td></tr>`;
@@ -109,7 +110,7 @@ async function UIWindowItemProperties (item_name, item_path, item_uid, left, top
         returnVersions: true,
         returnSize: true,
         consistency: 'eventual',
-        success: function (fsentry) {
+        success: async function (fsentry) {
             // hide versions tab if item is a directory
             if ( fsentry.is_dir ) {
                 $(el_window).find('[data-tab="versions"]').hide();
@@ -149,6 +150,15 @@ async function UIWindowItemProperties (item_name, item_path, item_uid, left, top
             $(el_window).find('.item-prop-val-modified').html(fsentry.modified === 0 ? '-' : timeago.format(fsentry.modified * 1000));
             // created
             $(el_window).find('.item-prop-val-created').html(fsentry.created === 0 ? '-' : timeago.format(fsentry.created * 1000));
+            // worker
+            if ( fsentry.path.endsWith('.js') ) {
+                const workers = await puter.workers.list();
+                const has_worker = workers.find(w => w.file_path === fsentry.path);
+                const worker_url = has_worker?.url;
+                if ( has_worker && worker_url ) {
+                    $(el_window).find('.item-prop-val-worker').html(html_encode(worker_url));
+                }
+            }
             // subdomains
             if ( fsentry.subdomains && fsentry.subdomains.length > 0 ) {
                 fsentry.subdomains.forEach(subdomain => {
@@ -178,7 +188,7 @@ async function UIWindowItemProperties (item_name, item_path, item_uid, left, top
                         // remove the website badge from all instances of the dir
                         $(`.item[data-uid="${item_uid}"]`).find('.item-has-website-badge').fadeOut(200);
                     }
-                });
+                                });
             });
         },
     });

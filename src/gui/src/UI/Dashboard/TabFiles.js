@@ -114,11 +114,11 @@ const TabFiles = {
                         </div>
                         <div class="columns">
                             <div class="item-icon"></div>
-                            <div class="item-name sortable" data-sort="name">File name</div>
+                            <div class="item-name sortable" data-sort="name">${i18n('name')}</div>
                             <div class="col-resize-handle" data-resize="name"></div>
-                            <div class="item-size sortable" data-sort="size">Size</div>
+                            <div class="item-size sortable" data-sort="size">${i18n('size')}</div>
                             <div class="col-resize-handle" data-resize="size"></div>
-                            <div class="item-modified sortable" data-sort="modified">Modified</div>
+                            <div class="item-modified sortable" data-sort="modified">${i18n('modified')}</div>
                             <div class="col-resize-handle" data-resize="modified"></div>
                             <div class="item-more"></div>
                         </div>
@@ -2835,12 +2835,14 @@ const TabFiles = {
 
         const is_trash = $(el_item).attr('data-path') === window.trash_path || $(el_item).attr('data-shortcut_to_path') === window.trash_path;
         const is_trashed = ($(el_item).attr('data-path') || '').startsWith(`${window.trash_path }/`);
+        const has_worker = $(el_item).attr('data-has_worker') === "1";
 
         const menu_items = await generate_file_context_menu({
             element: el_item,
             fsentry: options,
-            is_trash: is_trash,
-            is_trashed: is_trashed,
+            is_trash,
+            is_trashed,
+            has_worker,
             suggested_apps: options.suggested_apps,
             associated_app_name: options.associated_app_name,
             onRestore: async (el) => {

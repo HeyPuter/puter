@@ -143,6 +143,7 @@ const generate_file_context_menu = async function (options) {
     const fsentry = options.fsentry || {};
     const is_trash = options.is_trash ?? false;
     const is_trashed = options.is_trashed ?? false;
+    const has_worker = options.has_worker ?? false;
     const onRefresh = options.onRefresh || (() => {
     });
     const onOpen = options.onOpen;
@@ -287,6 +288,7 @@ const generate_file_context_menu = async function (options) {
     if ( !is_trashed && !is_trash && !fsentry.is_dir && $(el_item).attr('data-name').toLowerCase().endsWith('.js') ) {
         menu_items.push({
             html: i18n('publish_as_serverless_worker'),
+            disabled: has_worker,
             onClick: async function () {
                 if ( window.user.is_temp &&
                     !await UIWindowSaveAccount({
@@ -364,7 +366,7 @@ const generate_file_context_menu = async function (options) {
     // Set as Wallpaper
     // -------------------------------------------
     const mime_type = mime.getType($(el_item).attr('data-name')) ?? 'application/octet-stream';
-    if ( !is_trashed && !is_trash && !fsentry.is_dir && mime_type.startsWith('image/') ) {
+    if ( !window.dashboard_object && !is_trashed && !is_trash && !fsentry.is_dir && mime_type.startsWith('image/') ) {
         menu_items.push({
             html: i18n('set_as_background'),
             onClick: async function () {

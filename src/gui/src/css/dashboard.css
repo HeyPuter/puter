@@ -2694,7 +2694,7 @@
 .context-menu-modal-dialog .context-menu-item {
     display: flex;
     align-items: center;
-    padding: 0.875rem 1rem;
+    padding: 0.5rem;
     background: transparent;
     border: none;
     cursor: pointer;
