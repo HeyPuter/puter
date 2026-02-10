@@ -73,10 +73,11 @@ export const GEMINI_IMAGE_GENERATION_MODELS: IImageModel[] = [
         costs_currency: 'usd-cents',
         index_cost_key: '1K:1x1',
         aliases: [
+            'gemini-3-pro-image-preview',
             'gemini-3-pro-image',
             'google/gemini-3-pro-image-preview',
             'google/gemini-3-pro-image',
-            'google:google/gemini-3-pro-image',
+            'google:google/gemini-3-pro-image-preview',
         ],
         allowedQualityLevels: ['1K', '2K', '4K'],
         allowedRatios: [

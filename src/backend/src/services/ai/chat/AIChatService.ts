@@ -111,7 +111,7 @@ export class AIChatService extends BaseService {
         const models = this.#modelIdMap[modelId];
 
         if ( ! models ) {
-            throw new Error(`Model not found, please try one of the following models: ${ Object.keys(this.#modelIdMap).join(', ')}`);
+            throw new Error('Model not found, please try one of the following models listed here: https://developer.puter.com/ai/models/');
         }
         if ( ! provider ) {
             return models[0];
