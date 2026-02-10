@@ -2782,3 +2782,59 @@
         background-color: transparent;
     }
 }
+
+/* ======================================
+   Files Loading Spinner
+   ====================================== */
+
+.files-loading-overlay {
+    position: absolute;
+    top: 93px;
+    left: 0;
+    width: 100%;
+    height: 100%;
+    background-color: var(--dashboard-background);
+    z-index: 2147483647;
+    display: flex;
+    justify-content: center;
+    align-items: center;
+    pointer-events: all;
+    opacity: 0;
+    transition: opacity 2s ease-in;
+}
+
+.files-loading-container {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    min-height: 120px;
+    background: var(--dashboard-background);
+    border-radius: 10px;
+    padding: 20px;
+    min-width: 120px;
+}
+
+.files-loading-spinner {
+    width: 50px;
+    height: 50px;
+    border: 5px solid var(--dashboard-border);
+    border-top: 5px solid var(--select-color);
+    border-radius: 50%;
+    animation: files-loading-spin 1s linear infinite;
+    margin-bottom: 10px;
+}
+
+.files-loading-text {
+    font-family: Arial, sans-serif;
+    font-size: 16px;
+    margin-top: 10px;
+    text-align: center;
+    width: 100%;
+    color: var(--dashboard-text);
+}
+
+@keyframes files-loading-spin {
+    0% { transform: rotate(0deg); }
+    100% { transform: rotate(360deg); }
+}
