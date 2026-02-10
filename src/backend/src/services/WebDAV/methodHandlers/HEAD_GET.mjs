@@ -1,6 +1,6 @@
 import { fsOperations, getProperMimeType } from '../utils.mjs';
 
-const parseRangeHeader = ( rangeHeader ) => {
+const parseRangeHeader = (rangeHeader) => {
     // Check if this is a multipart range request
     if ( rangeHeader.includes(',') ) {
         // For now, we'll only serve the first range in multipart requests
@@ -32,11 +32,11 @@ const parseRangeHeader = ( rangeHeader ) => {
 /**
  * @type {import('./method.mjs').HandlerFunction}
  */
-export const HEAD_GET = async ( req, res, _filePath, fileNode, _headerLockToken ) => {
+export const HEAD_GET = async (req, res, _filePath, fileNode, _headerLockToken) => {
     try {
         const exists = await fileNode?.exists();
         if ( ! exists ) {
-            res.status(404).end( 'File not found');
+            res.status(404).end('File not found');
             return;
         }
 
@@ -73,7 +73,7 @@ export const HEAD_GET = async ( req, res, _filePath, fileNode, _headerLockToken 
 
         // For GET requests, send the file content
         if ( fileStat.is_dir ) {
-            res.status(400).end( 'Cannot GET a directory');
+            res.status(400).end('Cannot GET a directory');
             return;
         }
 
@@ -107,6 +107,7 @@ export const HEAD_GET = async ( req, res, _filePath, fileNode, _headerLockToken 
                     const totalSize = fileSize !== null ? fileSize : '*';
                     const contentRange = `bytes ${start}-${actualEnd}/${totalSize}`;
                     res.set('Content-Range', contentRange);
+                    res.set('Content-Length', (actualEnd - start) + 1);
                 }
 
                 // If this was a multipart request, modify the range header to only include the first range
@@ -117,18 +118,18 @@ export const HEAD_GET = async ( req, res, _filePath, fileNode, _headerLockToken 
         }
 
         const stream = await fsOperations.read(fileNode, options);
-        stream.on('data', ( data ) => {
+        stream.on('data', (data) => {
             res.write(data);
         });
         stream.on('end', () => {
             res.end();
         });
-        stream.on('error', ( error ) => {
+        stream.on('error', (error) => {
             console.error('Stream error:', error);
-            res.status(500).end( 'Internal server error');
+            res.status(500).end('Internal server error');
         });
     } catch ( error ) {
         console.error('HEAD or GET error:', error);
-        res.status(500).end( 'Internal Server Error');
+        res.status(500).end('Internal Server Error');
     }
 };
