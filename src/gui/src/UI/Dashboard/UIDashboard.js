@@ -95,7 +95,8 @@ async function UIDashboard (options) {
             for ( let i = 0; i < tabs.length; i++ ) {
                 const tab = tabs[i];
                 const isActive = i === 0 ? ' active' : '';
-                h += `<div class="dashboard-sidebar-item${isActive}" data-section="${tab.id}">`;
+                const isBeta = tab.label === 'Files';
+                h += `<div class="dashboard-sidebar-item${isActive} ${isBeta ? 'beta' : ''}" data-section="${tab.id}">`;
                     h += tab.icon;
                     h += tab.label;
                 h += '</div>';

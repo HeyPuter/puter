@@ -184,6 +184,7 @@
 
 .dashboard-sidebar-item {
     display: flex;
+    position: relative;
     align-items: center;
     gap: 10px;
     padding: 10px 12px;
@@ -208,6 +209,17 @@
 .dashboard-sidebar-item.active {
     background: var(--dashboard-border);
     font-weight: 500;
+}
+
+.dashboard-sidebar-item.beta:after {
+    content: "Beta";
+    font-size: 12px;
+    color: var(--dashboard-background);
+    background: var(--dashboard-text-muted);
+    padding: 1px 4px;
+    border-radius: 4px;
+    position: absolute;
+    right: 4px;
 }
 
 /* User options button at bottom of sidebar */
