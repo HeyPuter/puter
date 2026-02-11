@@ -114,13 +114,12 @@ async function UIWindowChangePassword (options) {
 
         $(el_window).find('.form-error-msg').hide();
 
+        // Do not send Authorization: user-protected endpoints use session cookie (hasHttpPowers)
         $.ajax({
             url: `${window.api_origin }/user-protected/change-password`,
             type: 'POST',
             async: true,
-            headers: {
-                'Authorization': `Bearer ${window.auth_token}`,
-            },
+            xhrFields: { withCredentials: true },
             contentType: 'application/json',
             data: JSON.stringify({
                 password: current_password,

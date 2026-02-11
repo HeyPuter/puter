@@ -86,10 +86,11 @@ export default {
             const password_confirm_promise = new TeePromise();
             const try_password = async () => {
                 const value = password_entry.get('value');
+                // No Authorization header: user-protected endpoints use session cookie (hasHttpPowers)
                 const resp = await fetch(`${window.api_origin}/user-protected/disable-2fa`, {
                     method: 'POST',
+                    credentials: 'include',
                     headers: {
-                        Authorization: `Bearer ${puter.authToken}`,
                         'Content-Type': 'application/json',
                     },
                     body: JSON.stringify({
