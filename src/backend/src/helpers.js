@@ -29,7 +29,7 @@ const { Context } = require('./util/context');
 const { NodeUIDSelector } = require('./filesystem/node/selectors');
 const { redisClient } = require('./clients/redis/redisSingleton');
 const { kv } = require('./util/kvSingleton');
-const { APP_ICONS_SUBDOMAIN } = require('./consts/app-icons.js').default;
+const { APP_ICONS_SUBDOMAIN } = require('./consts/app-icons.js');
 
 const identifying_uuid = require('uuid').v4();
 

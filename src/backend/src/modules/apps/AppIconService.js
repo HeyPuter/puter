@@ -23,7 +23,7 @@ import { HLWrite } from '../../filesystem/hl_operations/hl_write.js';
 import { LLMkdir } from '../../filesystem/ll_operations/ll_mkdir.js';
 import { LLRead } from '../../filesystem/ll_operations/ll_read.js';
 import { NodePathSelector } from '../../filesystem/node/selectors.js';
-import appIconConsts from '../../consts/app-icons.js';
+import { APP_ICONS_SUBDOMAIN } from '../../consts/app-icons.js';
 import { get_app, get_user } from '../../helpers.js';
 import BaseService from '../../services/BaseService.js';
 import { DB_WRITE } from '../../services/database/consts.js';
@@ -40,7 +40,6 @@ const ORIGINAL_ICON_DIR = 'original';
 const ORIGINAL_ICON_FILENAME = ({ appUid }) => `${appUid}.png`;
 const REDIRECT_MAX_AGE_SIZE = 30 * 24 * 60 * 60; // 1 month
 const REDIRECT_MAX_AGE_ORIGINAL = 7 * 24 * 60 * 60; // 1 week
-const { APP_ICONS_SUBDOMAIN } = appIconConsts;
 
 /**
  * AppIconService handles icon generation and serving for apps.
