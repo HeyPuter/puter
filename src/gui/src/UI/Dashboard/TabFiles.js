@@ -1124,10 +1124,14 @@ const TabFiles = {
             for ( const row of selectedRows ) {
                 try {
                     await _this.restoreItem(row);
+                    $(row).fadeOut(150, function () {
+                        $(this).remove();
+                    });
                 } catch ( err ) {
                     console.error('Failed to restore item:', err);
                 }
             }
+            _this.updateFooterStats();
         });
 
         // Download button
@@ -2915,6 +2919,10 @@ const TabFiles = {
             associated_app_name: options.associated_app_name,
             onRestore: async (el) => {
                 await _this.restoreItem(el);
+                $(el).fadeOut(150, function () {
+                    $(this).remove();
+                });
+                _this.updateFooterStats();
             },
             onOpen: (el, fsentry) => {
                 // Custom open handler for Dashboard (avoids window_nav_history issues)
@@ -2955,10 +2963,14 @@ const TabFiles = {
                     for ( const row of selectedRows ) {
                         try {
                             await _this.restoreItem(row);
+                            $(row).fadeOut(150, function () {
+                                $(this).remove();
+                            });
                         } catch ( err ) {
                             console.error('Failed to restore item:', err);
                         }
                     }
+                    _this.updateFooterStats();
                 },
             });
             items.push('-');
