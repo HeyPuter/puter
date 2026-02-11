@@ -67,12 +67,6 @@ something like the following (updated 2025-02-26):
         "dynamo" :{"path":"./puter-ddb"},
         "thumbnails": {
             "engine": "http"
-        },
-        "file-cache": {
-            "disk_limit": 5368709120,
-            "disk_max_size": 204800,
-            "precache_size": 209715200,
-            "path": "./file-cache"
         }
     },
     "cookie_name": "...",

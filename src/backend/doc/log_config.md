@@ -6,18 +6,16 @@ The configuration file can define an array parameter called `logging`.
 This configures the visibility of specific logs in core areas based on
 which string flags are present.
 
-For example, the following configuration will cause FileCacheService to
-log information about cache hits and misses:
+For example, the following configuration enables HTTP request logs:
 ```json
 {
-    "logging": ['file-cache']
+    "logging": ['http']
 }
 ```
 
 Sometimes "enabling" a log means moving its log level from `debug` to `info`.
 
 #### Available logging flags:
-- `file-cache`: file cache hits and misses
 - `http`: http requests
 - `fsentries-not-found`: information about files that were stat'd but weren't there
 
