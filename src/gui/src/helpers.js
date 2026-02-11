@@ -2985,7 +2985,7 @@ window.undo_last_action = async () => {
     // Refresh callback for dashboard mode
     const onComplete = window.is_dashboard_mode ? () => {
         setTimeout(() => {
-            window.dashboard_object.renderDirectory(window.dashboard_object.selectedFolderUid);
+            window.dashboard_object.renderDirectory(window.dashboard_object.currentPath);
         }, 500);
     } : undefined;
 

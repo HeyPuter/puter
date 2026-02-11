@@ -278,7 +278,7 @@ const generate_file_context_menu = async function (options) {
                     }
                 }
                 UIWindowPublishWebsite(fsentry.uid, $(el_item).attr('data-name'), $(el_item).attr('data-path'), () => {
-                    window.dashboard_object.renderDirectory(window.dashboard_object.selectedFolderUid);
+                    window.dashboard_object.renderDirectory(window.dashboard_object.currentPath);
                 });
             },
         });

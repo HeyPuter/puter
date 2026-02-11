@@ -30,8 +30,6 @@ import update_title_based_on_uploads from '../../helpers/update_title_based_on_u
 import new_context_menu_item from '../../helpers/new_context_menu_item.js';
 import ContextMenuModal from './ContextMenu/ContextMenu.js';
 
-const svgToBase64 = (svg) => `data:image/svg+xml;base64,${btoa(svg)}`;
-
 const icons = {
     document: `<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"></path><polyline points="14 2 14 8 20 8"></polyline></svg>`,
     files: `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"/></svg>`,
@@ -158,7 +156,7 @@ const TabFiles = {
         window.dashboard_object = _this;
         this.renderingDirectory = false;
         this.activeMenuFileUid = null;
-        this.selectedFolderUid = null;
+        this.currentPath = null;
         this.currentPath = null;
         this.folderDwellTimer = null;
         this.folderDwellTarget = null;
@@ -191,14 +189,10 @@ const TabFiles = {
             const folderElement = this;
 
             folderElement.onclick = async () => {
-                const folderName = folderElement.getAttribute('data-folder');
-                const directories = await puter.fs.readdir(`/${window.user.username}`);
-                const folderPath = folderElement.getAttribute('data-path'); //directories.find(f => f.is_dir && f.name === folderName).path;
-                const folderUid = directories.find(f => f.is_dir && f.name === folderName).uid;
+                const folderPath = folderElement.getAttribute('data-path');
 
                 _this.pushNavHistory(folderPath);
-                _this.renderDirectory(folderUid);
-                _this.selectedFolderUid = folderUid;
+                _this.renderDirectory(folderPath);
                 _this.selectFolder(folderElement);
             };
 
@@ -276,7 +270,7 @@ const TabFiles = {
                         await window.move_items(itemsToMove, targetPath);
                     }
 
-                    setTimeout(() => _this.renderDirectory(_this.selectedFolderUid), 100);
+                    setTimeout(() => _this.renderDirectory(_this.currentPath), 100);
                 },
 
                 over: function (_event, ui) {
@@ -333,7 +327,7 @@ const TabFiles = {
                         const directories = Object.keys(window.user.directories);
                         const folderUid = window.user.directories[directories.find(f => f.endsWith(folderName))];
 
-                        if ( folderUid !== _this.selectedFolderUid ) {
+                        if ( folderUid !== _this.currentPath ) {
                             $(folderElement).removeClass('active');
                         }
                     }
@@ -464,8 +458,8 @@ const TabFiles = {
 
         // Refresh current directory when the user returns to this browser tab
         document.addEventListener('visibilitychange', () => {
-            if ( document.visibilityState === 'visible' && this.selectedFolderUid ) {
-                this.renderDirectory(this.selectedFolderUid, { skipNavHistory: true, skipUrlUpdate: true });
+            if ( document.visibilityState === 'visible' && this.currentPath ) {
+                this.renderDirectory(this.currentPath, { skipNavHistory: true, skipUrlUpdate: true });
             }
         });
     },
@@ -586,12 +580,12 @@ const TabFiles = {
                             for ( const row of trashedItems.toArray() ) {
                                 await window.delete_item(row);
                             }
-                            _this.renderDirectory(_this.selectedFolderUid);
+                            _this.renderDirectory(_this.currentPath);
                         }
                     } else {
                         // Move to trash
                         await window.move_items($selectedRows.toArray(), window.trash_path);
-                        _this.renderDirectory(_this.selectedFolderUid);
+                        _this.renderDirectory(_this.currentPath);
                     }
                 }
                 return false;
@@ -660,7 +654,7 @@ const TabFiles = {
                         window.copy_clipboard_items(_this.currentPath, null);
                     } else {
                         _this.moveClipboardItems(_this.currentPath).then(() => {
-                            _this.renderDirectory(_this.selectedFolderUid);
+                            _this.renderDirectory(_this.currentPath);
                         });
                     }
                 }
@@ -960,7 +954,7 @@ const TabFiles = {
                     rename: true,
                     overwrite: false,
                 });
-                await _this.renderDirectory(_this.selectedFolderUid);
+                await _this.renderDirectory(_this.currentPath);
                 // Find and select the new folder, then activate rename
                 const newFolderRow = this.$el_window.find(`.files-tab .row[data-name="${result.name}"]`);
                 if ( newFolderRow.length > 0 ) {
@@ -1036,7 +1030,7 @@ const TabFiles = {
                     // remove from active_uploads
                     delete window.active_uploads[opid];
                     // refresh
-                    _this.renderDirectory(_this.selectedFolderUid);
+                    _this.renderDirectory(_this.currentPath);
                     // Clear the input value to allow uploading the same file again
                     fileInput.value = '';
                     document.querySelector('form').reset();
@@ -1113,7 +1107,7 @@ const TabFiles = {
                 }
             }
             setTimeout(() => {
-                _this.renderDirectory(_this.selectedFolderUid);
+                _this.renderDirectory(_this.currentPath);
             }, 500);
         });
 
@@ -1121,7 +1115,7 @@ const TabFiles = {
         $actions.find('.download-btn').on('click', function () {
             const selectedRows = document.querySelectorAll('.files-tab .row.selected');
             if ( selectedRows.length >= 2 ) {
-                window.zipItems(Array.from(selectedRows), _this.selectedFolderUid, true);
+                window.zipItems(Array.from(selectedRows), _this.currentPath, true);
             }
         });
 
@@ -1171,13 +1165,13 @@ const TabFiles = {
                         await window.delete_item(row);
                     }
                     setTimeout(() => {
-                        _this.renderDirectory(_this.selectedFolderUid);
+                        _this.renderDirectory(_this.currentPath);
                     }, 500);
                 }
             } else {
                 window.move_items(Array.from(selectedRows), window.trash_path);
                 setTimeout(() => {
-                    _this.renderDirectory(_this.selectedFolderUid);
+                    _this.renderDirectory(_this.currentPath);
                 }, 500);
             }
         });
@@ -1446,7 +1440,7 @@ const TabFiles = {
                 $pathActions.append(emptyTrashBtn);
                 emptyTrashBtn.on('click', () => {
                     window.empty_trash(() => {
-                        this.renderDirectory(this.selectedFolderUid);
+                        this.renderDirectory(this.currentPath);
                     });
                 });
             }
@@ -1563,7 +1557,7 @@ const TabFiles = {
 
         this.updateSortIndicators();
 
-        this.renderDirectory(this.selectedFolderUid);
+        this.renderDirectory(this.currentPath);
     },
 
     /**
@@ -1594,30 +1588,41 @@ const TabFiles = {
      * @param {boolean} [options.skipNavHistory] - If true, don't add to navigation history
      * @returns {Promise<void>}
      */
-    async renderDirectory (uid, options = {}) {
+    async renderDirectory (target, options = {}) {
         if ( this.renderingDirectory ) return;
         this.renderingDirectory = true;
         this.showSpinner();
-        this.selectedFolderUid = uid;
         const _this = this;
 
         document.querySelectorAll('.files-tab .row.selected').forEach(r => {
             r.classList.remove('selected');
         });
 
-        const directoryContents = await window.puter.fs.readdir({ uid });
+        // Determine whether target is a path or uid
+        const isPath = typeof target === 'string' && target.startsWith('/');
+        const readdirArg = isPath
+            ? { path: target, consistency: options.consistency || 'eventual' }
+            : { uid: target, consistency: options.consistency || 'eventual' };
+        const directoryContents = await window.puter.fs.readdir(readdirArg);
         if ( ! directoryContents ) {
+            this.hideSpinner();
+            this.renderingDirectory = false;
             return;
         }
 
-        let path = null;
-        Object.entries(window.user.directories).forEach(o => {
-            if ( o[1] === uid ) {
-                path = o[0];
-            }
-        });
-
-        this.currentPath = path || uid;
+        // Resolve path: if target was a path we already know it,
+        // otherwise look it up from known user directories.
+        if ( isPath ) {
+            this.currentPath = target;
+        } else {
+            let path = null;
+            Object.entries(window.user.directories).forEach(o => {
+                if ( o[1] === target ) {
+                    path = o[0];
+                }
+            });
+            this.currentPath = path || target;
+        }
 
         // Update browser URL to reflect current file path (only when Files tab is active)
         if ( !options.skipUrlUpdate && window.is_dashboard_mode && this.isDashboardFilesActive() ) {
@@ -1699,7 +1704,7 @@ const TabFiles = {
                         await window.move_items(itemsToMove, targetPath);
                     }
 
-                    setTimeout(() => _this.renderDirectory(_this.selectedFolderUid), 100);
+                    setTimeout(() => _this.renderDirectory(_this.currentPath), 100);
                 },
 
                 over: function (_event, ui) {
@@ -2330,7 +2335,7 @@ const TabFiles = {
                         window.move_items(itemsToMove, _this.currentPath);
                     }
 
-                    setTimeout(() => _this.renderDirectory(_this.selectedFolderUid), 100);
+                    setTimeout(() => _this.renderDirectory(_this.currentPath), 100);
                 }
 
                 _this.springLoadedActive = false;
@@ -2392,7 +2397,7 @@ const TabFiles = {
                     }
 
                     // Refresh directory
-                    setTimeout(() => _this.renderDirectory(_this.selectedFolderUid), 100);
+                    setTimeout(() => _this.renderDirectory(_this.currentPath), 100);
                 },
 
                 over: function (_event, ui) {
@@ -2671,8 +2676,8 @@ const TabFiles = {
         puter.kv.set('view_mode', this.currentView);
 
         // Refresh content to update icons for the new view mode
-        if ( this.selectedFolderUid ) {
-            this.renderDirectory(this.selectedFolderUid);
+        if ( this.currentPath ) {
+            this.renderDirectory(this.currentPath);
         }
     },
 
@@ -2858,7 +2863,7 @@ const TabFiles = {
                 await _this.restoreItem(el);
             },
             onRefresh: () => {
-                _this.renderDirectory(_this.selectedFolderUid);
+                _this.renderDirectory(_this.currentPath);
             },
             onOpen: (el, fsentry) => {
                 // Custom open handler for Dashboard (avoids window_nav_history issues)
@@ -2903,7 +2908,7 @@ const TabFiles = {
                             console.error('Failed to restore item:', err);
                         }
                     }
-                    _this.renderDirectory(_this.selectedFolderUid);
+                    _this.renderDirectory(_this.currentPath);
                 },
             });
             items.push('-');
@@ -2913,7 +2918,7 @@ const TabFiles = {
             items.push({
                 html: `${i18n('download')}`,
                 onClick: function () {
-                    window.zipItems(Array.from(selectedRows), _this.selectedFolderUid, true);
+                    window.zipItems(Array.from(selectedRows), _this.currentPath, true);
                 },
             });
             items.push('-');
@@ -2967,7 +2972,7 @@ const TabFiles = {
                             await window.delete_item(row);
                         }
                         setTimeout(() => {
-                            _this.renderDirectory(_this.selectedFolderUid);
+                            _this.renderDirectory(_this.currentPath);
                         }, 500);
                     }
                 },
@@ -2979,7 +2984,7 @@ const TabFiles = {
                 onClick: function () {
                     window.move_items(Array.from(selectedRows), window.trash_path);
                     setTimeout(() => {
-                        _this.renderDirectory(_this.selectedFolderUid);
+                        _this.renderDirectory(_this.currentPath);
                     }, 500);
                 },
             });
@@ -3020,7 +3025,7 @@ const TabFiles = {
                             rename: true,
                             overwrite: false,
                         });
-                        await _this.renderDirectory(_this.selectedFolderUid);
+                        await _this.renderDirectory(_this.currentPath);
                         // Find and select the new folder, then activate rename
                         const newFolderRow = _this.$el_window.find(`.files-tab .row[data-name="${result.name}"]`);
                         if ( newFolderRow.length > 0 ) {
@@ -3040,7 +3045,7 @@ const TabFiles = {
                         item.onClick = async () => {
                             await originalItemOnClick();
                             setTimeout(() => {
-                                _this.renderDirectory(_this.selectedFolderUid);
+                                _this.renderDirectory(_this.currentPath);
                             }, 500);
                         };
                     }
@@ -3062,7 +3067,7 @@ const TabFiles = {
                         await _this.moveClipboardItems(targetPath);
                     }
                     setTimeout(() => {
-                        _this.renderDirectory(_this.selectedFolderUid);
+                        _this.renderDirectory(_this.currentPath);
                     }, 500);
                 },
             });
@@ -3100,7 +3105,7 @@ const TabFiles = {
         items.push({
             html: i18n('refresh'),
             onClick: function () {
-                _this.renderDirectory(_this.selectedFolderUid);
+                _this.renderDirectory(_this.currentPath, { consistency: 'strong' });
             },
         });
 
@@ -3111,7 +3116,7 @@ const TabFiles = {
                 html: i18n('empty_trash'),
                 onClick: function () {
                     window.empty_trash(() => {
-                        _this.renderDirectory(_this.selectedFolderUid);
+                        _this.renderDirectory(_this.currentPath);
                     });
                 },
             });
@@ -3436,7 +3441,7 @@ const TabFiles = {
                 window.show_save_account_notice_if_needed();
                 delete window.active_uploads[opid];
                 // Refresh directory to show uploaded files
-                _this.renderDirectory(_this.selectedFolderUid);
+                _this.renderDirectory(_this.currentPath);
             },
             error: async function (err) {
                 upload_progress_window.show_error(i18n('error_uploading_files'), err.message);
