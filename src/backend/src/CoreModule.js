@@ -388,8 +388,6 @@ const install = async ({ context, services, app, useapi, modapi }) => {
     const { PermissionShortcutService } = require('./services/auth/PermissionShortcutService');
     services.registerService('permission-shortcut', PermissionShortcutService);
 
-    const { FileCacheService } = require('./services/file-cache/FileCacheService');
-    services.registerService('file-cache', FileCacheService);
 };
 
 const install_legacy = async ({ services }) => {
