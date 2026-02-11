@@ -154,6 +154,22 @@ const TabFiles = {
         this.showSpinner();
         const _this = this;
         window.dashboard_object = _this;
+
+        // Dashboard-compatible item creator for use by helpers.js and socket handlers.
+        // Wraps renderItem() with a directory check so items are only added
+        // when the user is viewing the relevant directory.
+        window.UIDashboardFileItem = function (file) {
+            if ( ! _this.currentPath ) return;
+
+            const parentDir = path.dirname(file.path);
+            if ( _this.currentPath !== parentDir ) return;
+
+            // Don't add if item already exists in the view
+            if ( $(`.files-tab .files .item[data-uid='${file.uid}']`).length > 0 ) return;
+
+            _this.renderItem(file);
+        };
+
         this.renderingDirectory = false;
         this.activeMenuFileUid = null;
         this.currentPath = null;
@@ -267,8 +283,6 @@ const TabFiles = {
                         // Move
                         await window.move_items(itemsToMove, targetPath);
                     }
-
-                    setTimeout(() => _this.renderDirectory(_this.currentPath), 100);
                 },
 
                 over: function (_event, ui) {
@@ -577,12 +591,10 @@ const TabFiles = {
                             for ( const row of trashedItems.toArray() ) {
                                 await window.delete_item(row);
                             }
-                            _this.renderDirectory(_this.currentPath);
                         }
                     } else {
                         // Move to trash
                         await window.move_items($selectedRows.toArray(), window.trash_path);
-                        _this.renderDirectory(_this.currentPath);
                     }
                 }
                 return false;
@@ -1103,9 +1115,6 @@ const TabFiles = {
                     console.error('Failed to restore item:', err);
                 }
             }
-            setTimeout(() => {
-                _this.renderDirectory(_this.currentPath);
-            }, 500);
         });
 
         // Download button
@@ -1161,15 +1170,9 @@ const TabFiles = {
                     for ( const row of selectedRows ) {
                         await window.delete_item(row);
                     }
-                    setTimeout(() => {
-                        _this.renderDirectory(_this.currentPath);
-                    }, 500);
                 }
             } else {
                 window.move_items(Array.from(selectedRows), window.trash_path);
-                setTimeout(() => {
-                    _this.renderDirectory(_this.currentPath);
-                }, 500);
             }
         });
 
@@ -1420,9 +1423,7 @@ const TabFiles = {
                 const emptyTrashBtn = $(`<button class="path-action-btn empty-trash-btn" title="${i18n('empty_trash')}">${icons.trash}</button>`);
                 $pathActions.append(emptyTrashBtn);
                 emptyTrashBtn.on('click', () => {
-                    window.empty_trash(() => {
-                        this.renderDirectory(this.currentPath);
-                    });
+                    window.empty_trash();
                 });
             }
             $pathActions.find('.empty-trash-btn').show();
@@ -1537,7 +1538,6 @@ const TabFiles = {
         await puter.kv.set('sort_direction', this.sortDirection);
 
         this.updateSortIndicators();
-
         this.renderDirectory(this.currentPath);
     },
 
@@ -1684,8 +1684,6 @@ const TabFiles = {
                     } else {
                         await window.move_items(itemsToMove, targetPath);
                     }
-
-                    setTimeout(() => _this.renderDirectory(_this.currentPath), 100);
                 },
 
                 over: function (_event, ui) {
@@ -2289,6 +2287,12 @@ const TabFiles = {
             stop: function (event, ui) {
                 const _this = TabFiles;
 
+                // Clean up dwell state from any folder we were hovering over
+                clearTimeout(_this.folderDwellTimer);
+                _this.folderDwellTimer = null;
+                _this.folderDwellTarget = null;
+                $('.dwell-opening').removeClass('dwell-opening');
+
                 // If we spring-loaded into a folder and the item wasn't dropped
                 // on a specific target, move it to the current directory
                 if ( _this.springLoadedActive && !ui.helper.data('dropped') ) {
@@ -2315,8 +2319,6 @@ const TabFiles = {
                     else {
                         window.move_items(itemsToMove, _this.currentPath);
                     }
-
-                    setTimeout(() => _this.renderDirectory(_this.currentPath), 100);
                 }
 
                 _this.springLoadedActive = false;
@@ -2376,9 +2378,6 @@ const TabFiles = {
                     else {
                         await window.move_items(itemsToMove, targetPath);
                     }
-
-                    // Refresh directory
-                    setTimeout(() => _this.renderDirectory(_this.currentPath), 100);
                 },
 
                 over: function (_event, ui) {
@@ -2410,7 +2409,7 @@ const TabFiles = {
                             $(el_item).removeClass('dwell-opening selected');
 
                             _this.pushNavHistory(targetPath);
-                            await _this.renderDirectory(targetPath);
+                            _this.renderDirectory(targetPath);
 
                             // Refresh jQuery UI droppable detection for the active drag
                             if ( $.ui.ddmanager && $.ui.ddmanager.current ) {
@@ -2843,9 +2842,6 @@ const TabFiles = {
             onRestore: async (el) => {
                 await _this.restoreItem(el);
             },
-            onRefresh: () => {
-                _this.renderDirectory(_this.currentPath);
-            },
             onOpen: (el, fsentry) => {
                 // Custom open handler for Dashboard (avoids window_nav_history issues)
                 if ( fsentry.is_dir ) {
@@ -2889,7 +2885,6 @@ const TabFiles = {
                             console.error('Failed to restore item:', err);
                         }
                     }
-                    _this.renderDirectory(_this.currentPath);
                 },
             });
             items.push('-');
@@ -2952,9 +2947,6 @@ const TabFiles = {
                         for ( const row of selectedRows ) {
                             await window.delete_item(row);
                         }
-                        setTimeout(() => {
-                            _this.renderDirectory(_this.currentPath);
-                        }, 500);
                     }
                 },
             });
@@ -2964,9 +2956,6 @@ const TabFiles = {
                 html: `${i18n('delete')}`,
                 onClick: function () {
                     window.move_items(Array.from(selectedRows), window.trash_path);
-                    setTimeout(() => {
-                        _this.renderDirectory(_this.currentPath);
-                    }, 500);
                 },
             });
         }
@@ -3047,9 +3036,6 @@ const TabFiles = {
                     } else if ( window.clipboard_op === 'move' ) {
                         await _this.moveClipboardItems(targetPath);
                     }
-                    setTimeout(() => {
-                        _this.renderDirectory(_this.currentPath);
-                    }, 500);
                 },
             });
         }
@@ -3096,9 +3082,7 @@ const TabFiles = {
             items.push({
                 html: i18n('empty_trash'),
                 onClick: function () {
-                    window.empty_trash(() => {
-                        _this.renderDirectory(_this.currentPath);
-                    });
+                    window.empty_trash();
                 },
             });
         }

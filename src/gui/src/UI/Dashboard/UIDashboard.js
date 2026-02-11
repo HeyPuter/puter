@@ -160,6 +160,150 @@ async function UIDashboard (options) {
     // Dispatch 'dashboard-ready' event for extensions
     window.dispatchEvent(new CustomEvent('dashboard-ready', { detail: { window: $el_window } }));
 
+    // =========================================================================
+    // Socket initialization
+    // In dashboard mode, UIDesktop is never loaded, so we create the socket here.
+    // This runs inside the function (not at module level) to ensure window.gui_origin
+    // and window.auth_token are already set.
+    // =========================================================================
+    window.socket = io(`${window.gui_origin}/`, {
+        auth: {
+            auth_token: window.auth_token,
+        },
+    });
+
+    window.socket.on('error', (error) => {
+        console.error('Dashboard Socket Error:', error);
+    });
+
+    window.socket.on('connect', function () {
+        window.socket.emit('puter_is_actually_open');
+    });
+
+    window.socket.on('reconnect', function () {
+        console.log('Dashboard Socket: Reconnected', window.socket.id);
+    });
+
+    window.socket.on('disconnect', () => {
+        console.log('Dashboard Socket: Disconnected');
+    });
+
+    window.socket.on('reconnect_attempt', (attempt) => {
+        console.log('Dashboard Socket: Reconnection Attempt', attempt);
+    });
+
+    window.socket.on('reconnect_error', (error) => {
+        console.log('Dashboard Socket: Reconnection Error', error);
+    });
+
+    window.socket.on('reconnect_failed', () => {
+        console.log('Dashboard Socket: Reconnection Failed');
+    });
+
+    // Upload/download progress tracking
+    window.socket.on('upload.progress', (msg) => {
+        if ( window.progress_tracker[msg.operation_id] ) {
+            window.progress_tracker[msg.operation_id].cloud_uploaded += msg.loaded_diff;
+            if ( window.progress_tracker[msg.operation_id][msg.item_upload_id] ) {
+                window.progress_tracker[msg.operation_id][msg.item_upload_id].cloud_uploaded = msg.loaded;
+            }
+        }
+    });
+
+    window.socket.on('download.progress', (msg) => {
+        if ( window.progress_tracker[msg.operation_id] ) {
+            if ( window.progress_tracker[msg.operation_id][msg.item_upload_id] ) {
+                window.progress_tracker[msg.operation_id][msg.item_upload_id].downloaded = msg.loaded;
+                window.progress_tracker[msg.operation_id][msg.item_upload_id].total = msg.total;
+            }
+        }
+    });
+
+    // Trash status updates
+    window.socket.on('trash.is_empty', async (msg) => {
+        // Update sidebar Trash icon
+        const trashIcon = msg.is_empty ? window.icons['trash.svg'] : window.icons['trash-full.svg'];
+        $('.directories [data-folder=\'Trash\'] img').attr('src', trashIcon);
+
+        // If currently viewing trash and it's empty, clear the file list
+        const dashboard = window.dashboard_object;
+        if ( msg.is_empty && dashboard && dashboard.currentPath === window.trash_path ) {
+            $('.files-tab .files').empty();
+        }
+    });
+
+    // =========================================================================
+    // Item event handlers
+    // Incremental DOM updates using UIDashboardFileItem for item creation and
+    // direct jQuery manipulation for removals/updates. Mirrors UIDesktop's
+    // approach but adapted for Dashboard's list-view structure.
+    // =========================================================================
+
+    window.socket.on('item.moved', async (resp) => {
+        if ( resp.original_client_socket_id === window.socket.id ) return;
+
+        // Fade out old item from view
+        $(`.item[data-uid='${resp.uid}']`).fadeOut(150, function () {
+            $(this).remove();
+        });
+
+        // Create new item at destination if user is viewing that directory
+        if ( window.UIDashboardFileItem ) {
+            window.UIDashboardFileItem(resp);
+        }
+    });
+
+    window.socket.on('item.removed', async (item) => {
+        if ( item.original_client_socket_id === window.socket.id ) return;
+        if ( item.descendants_only ) return;
+
+        $(`.item[data-path='${html_encode(item.path)}']`).fadeOut(150, function () {
+            $(this).remove();
+        });
+    });
+
+    window.socket.on('item.renamed', async (item) => {
+        if ( item.original_client_socket_id === window.socket.id ) return;
+
+        const $el = $(`.item[data-uid='${item.uid}']`);
+        if ( $el.length === 0 ) return;
+
+        // Update data attributes
+        $el.attr('data-name', html_encode(item.name));
+        $el.attr('data-path', html_encode(item.path));
+
+        // Update displayed name
+        $el.find('.item-name').text(item.name);
+        $el.find('.item-name-editor').val(item.name);
+    });
+
+    window.socket.on('item.updated', async (item) => {
+        if ( item.original_client_socket_id === window.socket.id ) return;
+
+        const $el = $(`.item[data-uid='${item.uid}']`);
+        if ( $el.length === 0 ) return;
+
+        // Update data attributes
+        $el.attr('data-name', html_encode(item.name));
+        $el.attr('data-path', html_encode(item.path));
+        $el.attr('data-size', item.size);
+        $el.attr('data-modified', item.modified);
+        $el.attr('data-type', html_encode(item.type));
+
+        // Update displayed name
+        $el.find('.item-name').text(item.name);
+        $el.find('.item-name-editor').val(item.name);
+    });
+
+    window.socket.on('item.added', async (item) => {
+        if ( _.isEmpty(item) ) return;
+        if ( item.original_client_socket_id === window.socket.id ) return;
+
+        if ( window.UIDashboardFileItem ) {
+            window.UIDashboardFileItem(item);
+        }
+    });
+
     // Apply initial route from URL - activate the correct tab
     if ( window.dashboard_initial_route ) {
         const route = window.dashboard_initial_route;

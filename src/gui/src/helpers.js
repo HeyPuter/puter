@@ -1691,6 +1691,10 @@ window.move_items = async function (el_items, dest_path, is_undo = false) {
                     suggested_apps: fsentry.suggested_apps,
                 };
                 UIItem(options);
+                // In dashboard mode, also create item via dashboard's renderer
+                if ( window.is_dashboard_mode && window.UIDashboardFileItem ) {
+                    window.UIDashboardFileItem(fsentry);
+                }
                 moved_items.push({ 'options': options, 'original_path': $(el_item).attr('data-path') });
 
                 // this operation may have created some missing directories,
@@ -1715,6 +1719,10 @@ window.move_items = async function (el_items, dest_path, is_undo = false) {
                             has_website: false,
                             suggested_apps: dir.suggested_apps,
                         });
+                    }
+                    // In dashboard mode, also create parent dirs via dashboard's renderer
+                    if ( window.is_dashboard_mode && window.UIDashboardFileItem ) {
+                        window.UIDashboardFileItem(dir);
                     }
                     window.sort_items(item_container);
                 });
@@ -2077,7 +2085,7 @@ window.upload_items = async function (items, dest_path) {
                     });
 };
 
-window.empty_trash = async function (callback) {
+window.empty_trash = async function () {
     const alert_resp = await UIAlert({
         message: i18n('empty_trash_confirmation'),
         buttons: [
@@ -2129,7 +2137,6 @@ window.empty_trash = async function (callback) {
             setTimeout(() => {
                 progwin?.close();
             }, Math.max(0, window.copy_progress_hide_delay - (Date.now() - init_ts)));
-            if ( callback ) callback();
         },
         error: async function (err) {
             clearTimeout(progwin_timeout);
@@ -2459,7 +2466,7 @@ window.sleep = function (ms) {
     return new Promise(resolve => setTimeout(resolve, ms));
 };
 
-window.unzipItem = async function (itemPath, callback) {
+window.unzipItem = async function (itemPath) {
     const unzip_operation_id = window.operation_id++;
     window.operation_cancelled[unzip_operation_id] = false;
     let terminateOp = () => {
@@ -2538,7 +2545,6 @@ window.unzipItem = async function (itemPath, callback) {
                                     setTimeout(() => {
                                         progwin?.close();
                                     }, Math.max(0, window.unzip_progress_hide_delay - (Date.now() - start_ts)));
-                                    if ( callback ) callback(items);
                                 },
                             });
         }
@@ -2721,7 +2727,7 @@ function createTar (files) {
  * @param {string} itemPath - Path to the tar file to extract
  * @returns {Promise<void>}
  */
-window.untarItem = async function (itemPath, callback) {
+window.untarItem = async function (itemPath) {
     const untar_operation_id = window.operation_id++;
     window.operation_cancelled[untar_operation_id] = false;
 
@@ -2785,7 +2791,6 @@ window.untarItem = async function (itemPath, callback) {
                                 setTimeout(() => {
                                     progwin?.close();
                                 }, Math.max(0, window.unzip_progress_hide_delay - (Date.now() - start_ts)));
-                                if ( callback ) callback(items);
                             },
                         });
     } catch ( err ) {
@@ -2842,7 +2847,7 @@ function parseTar (data) {
     return files;
 }
 
-window.rename_file = async (options, new_name, old_name, old_path, el_item, el_item_name, el_item_icon, el_item_name_editor, website_url, is_undo = false, callback) => {
+window.rename_file = async (options, new_name, old_name, old_path, el_item, el_item_name, el_item_icon, el_item_name_editor, website_url, is_undo = false) => {
     puter.fs.rename({
         uid: options.uid === 'null' ? null : options.uid,
         new_name: new_name,
@@ -2938,8 +2943,6 @@ window.rename_file = async (options, new_name, old_name, old_path, el_item, el_i
             $(`.item[data-uid='${$(el_item).attr('data-uid')}']`).parent('.item-container').each(function () {
                 window.sort_items(this, $(el_item).closest('.item-container').attr('data-sort_by'), $(el_item).closest('.item-container').attr('data-sort_order'));
             });
-
-            callback(new_name);
         },
         error: function (err) {
             // reset to old name
@@ -2982,24 +2985,17 @@ window.undo_last_action = async () => {
     const last_action = window.actions_history.pop();
     const { operation, data } = last_action;
 
-    // Refresh callback for dashboard mode
-    const onComplete = window.is_dashboard_mode ? () => {
-        setTimeout(() => {
-            window.dashboard_object.renderDirectory(window.dashboard_object.currentPath);
-        }, 500);
-    } : undefined;
-
     // Map operations to their undo handlers
     const undoHandlers = {
-        create_file: () => window.undo_create_file_or_folder(data, onComplete),
-        create_folder: () => window.undo_create_file_or_folder(data, onComplete),
-        upload: () => window.undo_upload(data, onComplete),
-        copy: () => window.undo_copy(data, onComplete),
-        move: () => window.undo_move(data, onComplete),
-        delete: () => window.undo_delete(data, onComplete),
+        create_file: () => window.undo_create_file_or_folder(data),
+        create_folder: () => window.undo_create_file_or_folder(data),
+        upload: () => window.undo_upload(data),
+        copy: () => window.undo_copy(data),
+        move: () => window.undo_move(data),
+        delete: () => window.undo_delete(data),
         rename: () => {
             const { options, new_name, old_name, old_path, el_item, el_item_name, el_item_icon, el_item_name_editor, website_url } = data;
-            window.rename_file(options, old_name, new_name, old_path, el_item, el_item_name, el_item_icon, el_item_name_editor, website_url, true, onComplete);
+            window.rename_file(options, old_name, new_name, old_path, el_item, el_item_name, el_item_icon, el_item_name_editor, website_url, true);
         },
     };
 
@@ -3007,40 +3003,35 @@ window.undo_last_action = async () => {
     if ( handler ) handler();
 };
 
-window.undo_create_file_or_folder = async (item, callback) => {
+window.undo_create_file_or_folder = async (item) => {
     await window.delete_item(item);
-    if ( callback ) callback();
 };
 
-window.undo_upload = async (files, callback) => {
+window.undo_upload = async (files) => {
     for ( const file of files ) {
         await window.delete_item_with_path(file);
     }
-    if ( callback ) callback();
 };
 
-window.undo_copy = async (files, callback) => {
+window.undo_copy = async (files) => {
     for ( const file of files ) {
         await window.delete_item_with_path(file);
     }
-    if ( callback ) callback();
 };
 
-window.undo_move = async (items, callback) => {
+window.undo_move = async (items) => {
     for ( const item of items ) {
         const el = await get_html_element_from_options(item.options);
         window.move_items([el], path.dirname(item.original_path), true);
     }
-    if ( callback ) callback();
 };
 
-window.undo_delete = async (items, callback) => {
+window.undo_delete = async (items) => {
     for ( const item of items ) {
         const el = await get_html_element_from_options(item.options);
         let metadata = $(el).attr('data-metadata') === '' ? {} : JSON.parse($(el).attr('data-metadata'));
         window.move_items([el], path.dirname(metadata.original_path), true);
     }
-    if ( callback ) callback();
 };
 
 window.store_auto_arrange_preference = (preference) => {

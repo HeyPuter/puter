@@ -132,7 +132,6 @@ const sendSelectionToAIApp = async ($elements) => {
  * @param {boolean} options.is_trashed - Whether item is in trash
  * @param {Array} options.suggested_apps - Optional pre-loaded suggested apps
  * @param {string} options.associated_app_name - Optional associated app
- * @param {Function} options.onRefresh - Optional callback to refresh after operations
  * @param {Function} options.onOpen - Optional custom open handler (used by Dashboard)
  * @returns {Promise<Array>} Array of context menu items
  */
@@ -144,8 +143,6 @@ const generate_file_context_menu = async function (options) {
     const is_trash = options.is_trash ?? false;
     const is_trashed = options.is_trashed ?? false;
     const is_worker = options.is_worker ?? false;
-    const onRefresh = options.onRefresh || (() => {
-    });
     const onOpen = options.onOpen;
 
     const is_shared_with_me = (fsentry.path !== `/${window.user.username}` && !fsentry.path.startsWith(`/${window.user.username}/`));
@@ -277,9 +274,7 @@ const generate_file_context_menu = async function (options) {
                         return;
                     }
                 }
-                UIWindowPublishWebsite(fsentry.uid, $(el_item).attr('data-name'), $(el_item).attr('data-path'), () => {
-                    window.dashboard_object.renderDirectory(window.dashboard_object.currentPath);
-                });
+                UIWindowPublishWebsite(fsentry.uid, $(el_item).attr('data-name'), $(el_item).attr('data-path'));
             },
         });
     }
@@ -341,7 +336,7 @@ const generate_file_context_menu = async function (options) {
         menu_items.push({
             html: i18n('empty_trash'),
             onClick: async function () {
-                window.empty_trash(onRefresh);
+                window.empty_trash();
             },
         });
     }
@@ -424,11 +419,7 @@ const generate_file_context_menu = async function (options) {
             html: i18n('unzip'),
             onClick: async function () {
                 let filePath = $(el_item).attr('data-path');
-                window.unzipItem(filePath, () => {
-                    if ( typeof onRefresh === 'function' ) {
-                        onRefresh();
-                    }
-                });
+                window.unzipItem(filePath);
             },
         });
     }
@@ -453,11 +444,7 @@ const generate_file_context_menu = async function (options) {
             html: i18n('untar'),
             onClick: async function () {
                 let filePath = $(el_item).attr('data-path');
-                window.untarItem(filePath, () => {
-                    if ( typeof onRefresh === 'function' ) {
-                        onRefresh();
-                    }
-                });
+                window.untarItem(filePath);
             },
         });
     }
@@ -470,9 +457,6 @@ const generate_file_context_menu = async function (options) {
             html: i18n('restore'),
             onClick: async function () {
                 await options.onRestore(el_item);
-                if ( typeof onRefresh === 'function' ) {
-                    onRefresh();
-                }
             },
         });
     }
@@ -556,9 +540,6 @@ const generate_file_context_menu = async function (options) {
                                 null, // appendTo - will be determined by create_shortcut
                                 fsentry.shortcut_to === '' ? fsentry.uid : fsentry.shortcut_to,
                                 fsentry.shortcut_to_path === '' ? fsentry.path : fsentry.shortcut_to_path);
-                setTimeout(() => {
-                    onRefresh();
-                }, 100);
             },
         });
     }
@@ -571,9 +552,6 @@ const generate_file_context_menu = async function (options) {
             html: i18n('delete'),
             onClick: async function () {
                 await window.move_items([el_item], window.trash_path);
-                setTimeout(() => {
-                    onRefresh();
-                }, 100);
             },
         });
     }
@@ -611,9 +589,6 @@ const generate_file_context_menu = async function (options) {
                         $(`.item[data-path="${window.trash_path}" i], .item[data-shortcut_to_path="${window.trash_path}" i]`).find('.item-icon > img').attr('src', window.icons['trash.svg']);
                         $(`.window[data-path="${window.trash_path}"]`).find('.window-head-icon').attr('src', window.icons['trash.svg']);
                     }
-                    setTimeout(() => {
-                        onRefresh();
-                    }, 100);
                 }
             },
         });
