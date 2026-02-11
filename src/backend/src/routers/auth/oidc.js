@@ -227,7 +227,7 @@ router.get('/auth/revalidate-done', (req, res) => {
 var origin = ${JSON.stringify(origin)};
 if (window.opener) {
   try { window.opener.postMessage({ type: 'puter-revalidate-done' }, origin); } catch (e) {}
-  // window.close();
+  window.close();
 } else {
   document.body.innerHTML = '<p>Re-validated. You can close this tab.</p>';
 }
