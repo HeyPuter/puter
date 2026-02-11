@@ -133,8 +133,8 @@ export class TogetherAIProvider implements IChatProvider {
                 const trackedUsage = OpenAIUtil.extractMeteredUsage(usage);
                 const costsOverride = Object.fromEntries(Object.entries(trackedUsage).map(([k, v]) => {
                     const mappedKey  = TOGETHER_AI_CHAT_COST_MAP[k] || k;
-                    return modelUsed.costs[mappedKey] ? [k, v * (modelUsed.costs[mappedKey] || 0)] : null;
-                }).filter(Boolean) as [string, number][]);
+                    return [k, v * (modelUsed.costs[mappedKey])];
+                }));
 
                 this.#meteringService.utilRecordUsageObject(trackedUsage, actor, `togetherai:${modelIdForParams}`, costsOverride);
                 return trackedUsage;

@@ -84,7 +84,7 @@ export class XAIProvider implements IChatProvider {
             usage_calculator: ({ usage }) => {
                 const trackedUsage = OpenAIUtil.extractMeteredUsage(usage);
                 const costsOverride = Object.fromEntries(Object.entries(trackedUsage).map(([key, value]) => {
-                    return [key, value * (modelUsed.costs[key] || 0)];
+                    return [key, value * (modelUsed.costs[key])];
                 }));
                 this.#meteringService.utilRecordUsageObject(trackedUsage, actor, `xai:${modelUsed.id}`, costsOverride);
                 return trackedUsage;
