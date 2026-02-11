@@ -143,7 +143,7 @@ const generate_file_context_menu = async function (options) {
     const fsentry = options.fsentry || {};
     const is_trash = options.is_trash ?? false;
     const is_trashed = options.is_trashed ?? false;
-    const has_worker = options.has_worker ?? false;
+    const is_worker = options.is_worker ?? false;
     const onRefresh = options.onRefresh || (() => {
     });
     const onOpen = options.onOpen;
@@ -290,7 +290,7 @@ const generate_file_context_menu = async function (options) {
     if ( !is_trashed && !is_trash && !fsentry.is_dir && $(el_item).attr('data-name').toLowerCase().endsWith('.js') ) {
         menu_items.push({
             html: i18n('publish_as_serverless_worker'),
-            disabled: has_worker,
+            disabled: is_worker,
             onClick: async function () {
                 if ( window.user.is_temp &&
                     !await UIWindowSaveAccount({

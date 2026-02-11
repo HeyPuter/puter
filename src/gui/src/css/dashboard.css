@@ -1109,8 +1109,8 @@
 }
 
 .dashboard-section-files .files-tab .files.files-list-view .row .item-badges {
-    width: 100%;
-    height: 100%;
+    width: 36px;
+    height: 36px;
     top: 0;
     left: 0;
     right: 0;
@@ -2789,7 +2789,7 @@
 
 .files-loading-overlay {
     position: absolute;
-    top: 93px;
+    top: 0;
     left: 0;
     width: 100%;
     height: 100%;

@@ -35,12 +35,12 @@ import mime from '../lib/mime.js';
 const AI_APP_NAME = 'ai';
 
 const parseItemMetadataForAI = (metadata) => {
-    if (!metadata) {
+    if ( ! metadata ) {
         return undefined;
     }
     try {
         return JSON.parse(metadata);
-    } catch (error) {
+    } catch ( error ) {
         console.warn('Failed to parse item metadata for AI payload.', error);
         return undefined;
     }
@@ -67,17 +67,17 @@ const buildAIPayloadFromItems = ($elements) => {
 
 const ensureAIAppIframe = async () => {
     let $aiWindow = $(`.window[data-app="${AI_APP_NAME}"]`);
-    if ($aiWindow.length === 0) {
+    if ( $aiWindow.length === 0 ) {
         try {
             await launch_app({ name: AI_APP_NAME });
-        } catch (error) {
+        } catch ( error ) {
             console.error('Failed to launch AI app.', error);
             return null;
         }
         $aiWindow = $(`.window[data-app="${AI_APP_NAME}"]`);
     }
 
-    if ($aiWindow.length === 0) {
+    if ( $aiWindow.length === 0 ) {
         return null;
     }
 
@@ -88,12 +88,12 @@ const ensureAIAppIframe = async () => {
 
 const sendSelectionToAIApp = async ($elements) => {
     const items = buildAIPayloadFromItems($elements);
-    if (items.length === 0) {
+    if ( items.length === 0 ) {
         return;
     }
 
     const aiIframe = await ensureAIAppIframe();
-    if (!aiIframe || !aiIframe.contentWindow) {
+    if ( !aiIframe || !aiIframe.contentWindow ) {
         await UIAlert({
             message: i18n('ai_app_unavailable'),
         });
@@ -107,7 +107,7 @@ const sendSelectionToAIApp = async ($elements) => {
     }, '*');
 };
 
-function UIItem(options){
+function UIItem (options) {
     const matching_appendto_count = $(options.appendTo).length;
     if ( matching_appendto_count > 1 ) {
         $(options.appendTo).each(function () {
@@ -988,9 +988,9 @@ function UIItem(options){
                 // -------------------------------------------
                 menu_items.push({
                     html: i18n('open_in_ai'),
-                    onClick: async function(){
+                    onClick: async function () {
                         await sendSelectionToAIApp($selected_items);
-                    }
+                    },
                 });
                 // -------------------------------------------
                 // -
@@ -1332,9 +1332,9 @@ function UIItem(options){
                 // -------------------------------------------
                 menu_items.push({
                     html: i18n('open_in_ai'),
-                    onClick: async function(){
+                    onClick: async function () {
                         await sendSelectionToAIApp($(el_item));
-                    }
+                    },
                 });
             }
 
@@ -1876,6 +1876,52 @@ $(document).on('long-hover', '.item-has-website-badge', function (e) {
 });
 
 $(document).on('click', '.website-badge-popover-link', function (e) {
+    // remove the parent popover
+    $(e.target).closest('.popover').remove();
+});
+
+$(document).on('long-hover', '.item-is-worker', function (e) {
+    const worker_url = e.target.parentNode.parentNode.getAttribute('data-worker_url');
+    console.log(e.target.parentNode.parentNode);
+    console.log(worker_url);
+    var box = e.target.getBoundingClientRect();
+
+    var body = document.body;
+    var docEl = document.documentElement;
+
+    var scrollTop = window.pageYOffset || docEl.scrollTop || body.scrollTop;
+    var scrollLeft = window.pageXOffset || docEl.scrollLeft || body.scrollLeft;
+
+    var clientTop = docEl.clientTop || body.clientTop || 0;
+    var clientLeft = docEl.clientLeft || body.clientLeft || 0;
+
+    var top  = box.top + scrollTop - clientTop;
+    var left = box.left + scrollLeft - clientLeft;
+
+    if ( worker_url ) {
+        let h = '<div class="allow-user-select worker-badge-popover-content">';
+        h += `<div class="worker-badge-popover-title">${i18n('worker')}</div>`;
+        h += `
+            <a class="worker-badge-popover-link" href="${worker_url}" style="font-size:13px;" target="_blank">${worker_url.replace('https://', '')}</a>
+            <br>`;
+        h += '</div>';
+
+        // close other worker popovers
+        $('.worker-badge-popover-content').closest('.popover').remove();
+
+        // show a UIPopover with the worker URL
+        UIPopover({
+            target: e.target,
+            content: h,
+            snapToElement: e.target,
+            parent_element: e.target,
+            top: top - 30,
+            left: left + 20,
+        });
+    }
+});
+
+$(document).on('click', '.worker-badge-popover-link', function (e) {
     // remove the parent popover
     $(e.target).closest('.popover').remove();
 });

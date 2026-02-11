@@ -3916,6 +3916,33 @@ fieldset[name=number-code] {
     text-decoration: underline;
 }
 
+.worker-badge-popover-title {
+    font-size: 14px;
+    margin: -10px;
+    margin-bottom: 5px;
+    padding: 8px 10px;
+    background: #e5e5e5;
+    color: #4b5f6f;
+}
+
+.worker-badge-popover-content {
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    overflow: hidden;
+    width: 270px;
+    padding: 10px;
+}
+
+.worker-badge-popover-link, .worker-badge-popover-link:visited {
+    color: #0073ed;
+    text-decoration: none;
+    width: 179px;
+}
+
+.worker-badge-popover-link:hover {
+    text-decoration: underline;
+}
+
 /*!
  * animate.css - https://animate.style/
  * Version - 4.1.1

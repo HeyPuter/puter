@@ -1767,8 +1767,8 @@ const TabFiles = {
         const displayName = metadata.original_name || file.name;
         let website_url = window.determine_website_url(file.path);
         const is_shared_with_me = (file.path !== `/${window.user.username}` && !file.path.startsWith(`/${window.user.username}/`));
-        const has_worker = this.workers.find(w => w.file_path === file.path);
-        const worker_url = has_worker?.url;
+        const is_worker = this.workers.find(w => w.file_path === file.path);
+        const worker_url = is_worker?.url;
         const icon = file.is_dir ? `<img src="${html_encode(window.icons['folder.svg'])}"/>` : ((file.thumbnail && this.currentView === 'grid') ? `<img src="${file.thumbnail}" alt="${displayName}" />` : this.determineIcon(file));
         const row = document.createElement("div");
         row.setAttribute('class', `item row ${file.is_dir ? 'folder' : 'file'}`);
@@ -1783,7 +1783,8 @@ const TabFiles = {
         row.setAttribute("data-is_shortcut", file.is_shortcut);
         row.setAttribute("data-shortcut_to", html_encode(file.shortcut_to));
         row.setAttribute("data-shortcut_to_path", html_encode(file.shortcut_to_path));
-        row.setAttribute("data-has_worker", has_worker ? "1" : "0");
+        row.setAttribute("data-is_worker", is_worker !== undefined ? "1" : "0");
+        row.setAttribute("data-worker_url", is_worker !== undefined ? worker_url : "0");
         row.setAttribute("data-sortable", file.sortable ?? 'true');
         row.setAttribute("data-metadata", JSON.stringify(metadata));
         row.setAttribute("data-sort_by", html_encode(file.sort_by) ?? 'name');
@@ -1796,7 +1797,8 @@ const TabFiles = {
             <div class="item-checkbox"><span class="checkbox-icon"></span></div>
             <div class="item-icon">
                 ${icon}
-                <div class="item-badges">
+            </div>
+            <div class="item-badges">
                 <img class="item-badge item-has-website-badge long-hover" 
                     style="${file.has_website ? 'display:block;' : ''}" 
                     src="${html_encode(window.icons['world.svg'])}" 
@@ -1828,13 +1830,11 @@ const TabFiles = {
                     data-item-id="${item_id}"
                     title="Shortcut"
                 >
-                <img class="item-badge item-worker" 
-                    style="background-color: #ffffff; padding: 2px; ${has_worker ? 'display:block;' : ''}" 
-                    src="${svgToBase64(icons.worker)}" 
+                <img  class="item-badge item-is-worker long-hover" 
+                    style="background-color: #ffffff; padding: 2px; ${is_worker ? 'display:block;' : ''}" 
+                    src="${html_encode(window.icons['worker.svg'])}" 
                     data-item-id="${item_id}"
-                    title="Worker: ${worker_url}"
-                />
-            </div>
+                >
             </div>
             <div class="item-name-wrapper">
                 <pre class="item-name">${displayName}</pre>
@@ -2844,14 +2844,14 @@ const TabFiles = {
 
         const is_trash = $(el_item).attr('data-path') === window.trash_path || $(el_item).attr('data-shortcut_to_path') === window.trash_path;
         const is_trashed = ($(el_item).attr('data-path') || '').startsWith(`${window.trash_path }/`);
-        const has_worker = $(el_item).attr('data-has_worker') === "1";
+        const is_worker = $(el_item).attr('data-is_worker') === "1";
 
         const menu_items = await generate_file_context_menu({
             element: el_item,
             fsentry: options,
             is_trash,
             is_trashed,
-            has_worker,
+            is_worker,
             suggested_apps: options.suggested_apps,
             associated_app_name: options.associated_app_name,
             onRestore: async (el) => {
