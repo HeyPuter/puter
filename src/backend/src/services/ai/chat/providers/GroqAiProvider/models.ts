@@ -1,156 +1,299 @@
 import { IChatModel } from '../types.js';
 
-const makeModel = ({
-    id,
-    name,
-    context,
-    input,
-    output,
-    max_tokens,
-}: {
-    id: string;
-    name: string;
-    context?: number;
-    input: number;
-    output: number;
-    max_tokens?: number;
-}): IChatModel => ({
-    id,
-    name,
-    context,
-    costs_currency: 'usd-cents',
-    input_cost_key: 'prompt_tokens',
-    output_cost_key: 'completion_tokens',
-    costs: {
-        tokens: 1_000_000,
-        prompt_tokens: input,
-        completion_tokens: output,
-        cached_tokens: 0,
-    },
-    max_tokens: max_tokens ?? context ?? 8192,
-});
-
+// Hardcoded from https://models.dev/api.json
 export const GROQ_MODELS: IChatModel[] = [
-    makeModel({
+    {
         id: 'gemma2-9b-it',
+        modalities: { input: ['text'], output: ['text'] },
+        open_weights: true,
+        tool_call: true,
+        knowledge: '2024-06',
+        release_date: '2024-06-27',
         name: 'Gemma 2 9B 8k',
         context: 8192,
-        input: 20,
-        output: 20,
-    }),
-    makeModel({
+        costs_currency: 'usd-cents',
+        input_cost_key: 'prompt_tokens',
+        output_cost_key: 'completion_tokens',
+        costs: {
+            tokens: 1_000_000,
+            prompt_tokens: 20,
+            completion_tokens: 20,
+            cached_tokens: 0,
+        },
+        max_tokens: 8192,
+    },
+    {
         id: 'gemma-7b-it',
+        // Not present in models.dev/api.json (as of 2026-02-11)
         name: 'Gemma 7B 8k Instruct',
         context: 8192,
-        input: 7,
-        output: 7,
-    }),
-    makeModel({
+        costs_currency: 'usd-cents',
+        input_cost_key: 'prompt_tokens',
+        output_cost_key: 'completion_tokens',
+        costs: {
+            tokens: 1_000_000,
+            prompt_tokens: 7,
+            completion_tokens: 7,
+            cached_tokens: 0,
+        },
+        max_tokens: 8192,
+    },
+    {
         id: 'llama3-groq-70b-8192-tool-use-preview',
+        // Not present in models.dev/api.json (as of 2026-02-11)
         name: 'Llama 3 Groq 70B Tool Use Preview 8k',
         context: 8192,
-        input: 89,
-        output: 89,
-    }),
-    makeModel({
+        costs_currency: 'usd-cents',
+        input_cost_key: 'prompt_tokens',
+        output_cost_key: 'completion_tokens',
+        costs: {
+            tokens: 1_000_000,
+            prompt_tokens: 89,
+            completion_tokens: 89,
+            cached_tokens: 0,
+        },
+        max_tokens: 8192,
+    },
+    {
         id: 'llama3-groq-8b-8192-tool-use-preview',
+        // Not present in models.dev/api.json (as of 2026-02-11)
         name: 'Llama 3 Groq 8B Tool Use Preview 8k',
         context: 8192,
-        input: 19,
-        output: 19,
-    }),
-    makeModel({
+        costs_currency: 'usd-cents',
+        input_cost_key: 'prompt_tokens',
+        output_cost_key: 'completion_tokens',
+        costs: {
+            tokens: 1_000_000,
+            prompt_tokens: 19,
+            completion_tokens: 19,
+            cached_tokens: 0,
+        },
+        max_tokens: 8192,
+    },
+    {
         id: 'llama-3.1-70b-versatile',
+        // Not present in models.dev/api.json (as of 2026-02-11)
         name: 'Llama 3.1 70B Versatile 128k',
         context: 128000,
-        input: 59,
-        output: 79,
-    }),
-    makeModel({
+        costs_currency: 'usd-cents',
+        input_cost_key: 'prompt_tokens',
+        output_cost_key: 'completion_tokens',
+        costs: {
+            tokens: 1_000_000,
+            prompt_tokens: 59,
+            completion_tokens: 79,
+            cached_tokens: 0,
+        },
+        max_tokens: 128000,
+    },
+    {
         id: 'llama-3.1-70b-specdec',
+        // Not present in models.dev/api.json (as of 2026-02-11)
         name: 'Llama 3.1 8B Instant 128k',
         context: 128000,
-        input: 59,
-        output: 99,
-    }),
-    makeModel({
+        costs_currency: 'usd-cents',
+        input_cost_key: 'prompt_tokens',
+        output_cost_key: 'completion_tokens',
+        costs: {
+            tokens: 1_000_000,
+            prompt_tokens: 59,
+            completion_tokens: 99,
+            cached_tokens: 0,
+        },
+        max_tokens: 128000,
+    },
+    {
         id: 'llama-3.1-8b-instant',
+        modalities: { input: ['text'], output: ['text'] },
+        open_weights: true,
+        tool_call: true,
+        knowledge: '2023-12',
+        release_date: '2024-07-23',
         name: 'Llama 3.1 8B Instant 128k',
         context: 131072,
-        input: 5,
-        output: 8,
+        costs_currency: 'usd-cents',
+        input_cost_key: 'prompt_tokens',
+        output_cost_key: 'completion_tokens',
+        costs: {
+            tokens: 1_000_000,
+            prompt_tokens: 5,
+            completion_tokens: 8,
+            cached_tokens: 0,
+        },
         max_tokens: 131072,
-    }),
-    makeModel({
+    },
+    {
         id: 'meta-llama/llama-guard-4-12b',
+        modalities: { input: ['text', 'image'], output: ['text'] },
+        open_weights: true,
+        tool_call: false,
+        release_date: '2025-04-05',
         name: 'Llama Guard 4 12B',
         context: 131072,
-        input: 20,
-        output: 20,
+        costs_currency: 'usd-cents',
+        input_cost_key: 'prompt_tokens',
+        output_cost_key: 'completion_tokens',
+        costs: {
+            tokens: 1_000_000,
+            prompt_tokens: 20,
+            completion_tokens: 20,
+            cached_tokens: 0,
+        },
         max_tokens: 1024,
-    }),
-    makeModel({
+    },
+    {
         id: 'meta-llama/llama-prompt-guard-2-86m',
+        // Not present in models.dev/api.json (as of 2026-02-11)
         name: 'Prompt Guard 2 86M',
         context: 512,
-        input: 4,
-        output: 4,
+        costs_currency: 'usd-cents',
+        input_cost_key: 'prompt_tokens',
+        output_cost_key: 'completion_tokens',
+        costs: {
+            tokens: 1_000_000,
+            prompt_tokens: 4,
+            completion_tokens: 4,
+            cached_tokens: 0,
+        },
         max_tokens: 512,
-    }),
-    makeModel({
+    },
+    {
         id: 'llama-3.2-1b-preview',
+        // Not present in models.dev/api.json (as of 2026-02-11)
         name: 'Llama 3.2 1B (Preview) 8k',
         context: 128000,
-        input: 4,
-        output: 4,
-    }),
-    makeModel({
+        costs_currency: 'usd-cents',
+        input_cost_key: 'prompt_tokens',
+        output_cost_key: 'completion_tokens',
+        costs: {
+            tokens: 1_000_000,
+            prompt_tokens: 4,
+            completion_tokens: 4,
+            cached_tokens: 0,
+        },
+        max_tokens: 128000,
+    },
+    {
         id: 'llama-3.2-3b-preview',
+        // Not present in models.dev/api.json (as of 2026-02-11)
         name: 'Llama 3.2 3B (Preview) 8k',
         context: 128000,
-        input: 6,
-        output: 6,
-    }),
-    makeModel({
+        costs_currency: 'usd-cents',
+        input_cost_key: 'prompt_tokens',
+        output_cost_key: 'completion_tokens',
+        costs: {
+            tokens: 1_000_000,
+            prompt_tokens: 6,
+            completion_tokens: 6,
+            cached_tokens: 0,
+        },
+        max_tokens: 128000,
+    },
+    {
         id: 'llama-3.2-11b-vision-preview',
+        // Not present in models.dev/api.json (as of 2026-02-11)
         name: 'Llama 3.2 11B Vision 8k (Preview)',
         context: 8000,
-        input: 18,
-        output: 18,
-    }),
-    makeModel({
+        costs_currency: 'usd-cents',
+        input_cost_key: 'prompt_tokens',
+        output_cost_key: 'completion_tokens',
+        costs: {
+            tokens: 1_000_000,
+            prompt_tokens: 18,
+            completion_tokens: 18,
+            cached_tokens: 0,
+        },
+        max_tokens: 8000,
+    },
+    {
         id: 'llama-3.2-90b-vision-preview',
+        // Not present in models.dev/api.json (as of 2026-02-11)
         name: 'Llama 3.2 90B Vision 8k (Preview)',
         context: 8000,
-        input: 90,
-        output: 90,
-    }),
-    makeModel({
+        costs_currency: 'usd-cents',
+        input_cost_key: 'prompt_tokens',
+        output_cost_key: 'completion_tokens',
+        costs: {
+            tokens: 1_000_000,
+            prompt_tokens: 90,
+            completion_tokens: 90,
+            cached_tokens: 0,
+        },
+        max_tokens: 8000,
+    },
+    {
         id: 'llama3-70b-8192',
+        modalities: { input: ['text'], output: ['text'] },
+        open_weights: true,
+        tool_call: true,
+        knowledge: '2023-03',
+        release_date: '2024-04-18',
         name: 'Llama 3 70B 8k',
         context: 8192,
-        input: 59,
-        output: 79,
-    }),
-    makeModel({
+        costs_currency: 'usd-cents',
+        input_cost_key: 'prompt_tokens',
+        output_cost_key: 'completion_tokens',
+        costs: {
+            tokens: 1_000_000,
+            prompt_tokens: 59,
+            completion_tokens: 79,
+            cached_tokens: 0,
+        },
+        max_tokens: 8192,
+    },
+    {
         id: 'llama3-8b-8192',
+        modalities: { input: ['text'], output: ['text'] },
+        open_weights: true,
+        tool_call: true,
+        knowledge: '2023-03',
+        release_date: '2024-04-18',
         name: 'Llama 3 8B 8k',
         context: 8192,
-        input: 5,
-        output: 8,
-    }),
-    makeModel({
+        costs_currency: 'usd-cents',
+        input_cost_key: 'prompt_tokens',
+        output_cost_key: 'completion_tokens',
+        costs: {
+            tokens: 1_000_000,
+            prompt_tokens: 5,
+            completion_tokens: 8,
+            cached_tokens: 0,
+        },
+        max_tokens: 8192,
+    },
+    {
         id: 'mixtral-8x7b-32768',
+        // Not present in models.dev/api.json (as of 2026-02-11)
         name: 'Mixtral 8x7B Instruct 32k',
         context: 32768,
-        input: 24,
-        output: 24,
-    }),
-    makeModel({
+        costs_currency: 'usd-cents',
+        input_cost_key: 'prompt_tokens',
+        output_cost_key: 'completion_tokens',
+        costs: {
+            tokens: 1_000_000,
+            prompt_tokens: 24,
+            completion_tokens: 24,
+            cached_tokens: 0,
+        },
+        max_tokens: 32768,
+    },
+    {
         id: 'llama-guard-3-8b',
+        modalities: { input: ['text'], output: ['text'] },
+        open_weights: true,
+        tool_call: false,
+        release_date: '2024-07-23',
         name: 'Llama Guard 3 8B 8k',
         context: 8192,
-        input: 20,
-        output: 20,
-    }),
+        costs_currency: 'usd-cents',
+        input_cost_key: 'prompt_tokens',
+        output_cost_key: 'completion_tokens',
+        costs: {
+            tokens: 1_000_000,
+            prompt_tokens: 20,
+            completion_tokens: 20,
+            cached_tokens: 0,
+        },
+        max_tokens: 8192,
+    },
 ];

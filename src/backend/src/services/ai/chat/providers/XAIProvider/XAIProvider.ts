@@ -62,25 +62,29 @@ export class XAIProvider implements IChatProvider {
         const actor = Context.get('actor');
         const availableModels = this.models();
         const modelUsed = availableModels.find(m => [m.id, ...(m.aliases || [])].includes(model)) || availableModels.find(m => m.id === this.getDefaultModel())!;
-
         messages = await OpenAIUtil.process_input_messages(messages);
+        let completion;
+        try {
+            completion = await this.#openai.chat.completions.create({
+                messages,
+                model: modelUsed.id,
+                ...(tools ? { tools } : {}),
+                max_tokens: 1000,
+                stream,
+                ...(stream ? {
+                    stream_options: { include_usage: true },
+                } : {}),
+            } as ChatCompletionCreateParams);
 
-        const completion = await this.#openai.chat.completions.create({
-            messages,
-            model: modelUsed.id,
-            ...(tools ? { tools } : {}),
-            max_tokens: 1000,
-            stream,
-            ...(stream ? {
-                stream_options: { include_usage: true },
-            } : {}),
-        } as ChatCompletionCreateParams);
+        } catch (e) {
+            console.log('XAI AI process_input_messages error: ', e);
+        }
 
         return OpenAIUtil.handle_completion_output({
             usage_calculator: ({ usage }) => {
                 const trackedUsage = OpenAIUtil.extractMeteredUsage(usage);
-                const costsOverride = Object.fromEntries(Object.entries(trackedUsage).map(([k, v]) => {
-                    return [k, v * (modelUsed.costs[k] || 0)];
+                const costsOverride = Object.fromEntries(Object.entries(trackedUsage).map(([key, value]) => {
+                    return [key, value * (modelUsed.costs[key] || 0)];
                 }));
                 this.#meteringService.utilRecordUsageObject(trackedUsage, actor, `xai:${modelUsed.id}`, costsOverride);
                 return trackedUsage;
