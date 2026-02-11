@@ -38,17 +38,17 @@ describe('AppIconService', () => {
     describe('createAppIcons', () => {
         it('stores original and resized icons in /system/app_icons for data URLs', async () => {
             const sudo = vi.fn(async callback => await callback());
-            const dirAppIcons = {};
-            const originalIconsDir = {};
+            const dirAppIcons = {
+                exists: vi.fn().mockResolvedValue(true),
+            };
 
             const service = Object.create(AppIconService.prototype);
             service.services = {
                 get: vi.fn(name => (name === 'su' ? { sudo } : null)),
             };
             service.errors = { report: vi.fn() };
-            service.getAppIcons = vi.fn().mockResolvedValue(dirAppIcons);
-            service.getOriginalIconsDir = vi.fn().mockResolvedValue(originalIconsDir);
-            service.getOriginalIconUrl = vi.fn().mockReturnValue('https://puter-app-icons.site.puter.localhost/original/app-abc.png');
+            service.ensureAppIconsDirectory = vi.fn().mockResolvedValue(dirAppIcons);
+            service.getOriginalIconUrl = vi.fn().mockReturnValue('https://puter-app-icons.site.puter.localhost/app-abc.png');
             service.loadIconSource = vi.fn().mockResolvedValue({
                 metadata: 'data:image/png;base64',
                 input: Buffer.from([1, 2, 3]),
@@ -71,14 +71,14 @@ describe('AppIconService', () => {
 
             expect(service.writePngToDir).toHaveBeenCalledTimes(AppIconService.ICON_SIZES.length + 1);
             expect(service.writePngToDir).toHaveBeenCalledWith(expect.objectContaining({
-                destination_or_parent: originalIconsDir,
+                destination_or_parent: dirAppIcons,
                 filename: 'app-abc.png',
             }));
             expect(service.writePngToDir).toHaveBeenCalledWith(expect.objectContaining({
                 destination_or_parent: dirAppIcons,
                 filename: 'app-abc-64.png',
             }));
-            expect(data.url).toBe('https://puter-app-icons.site.puter.localhost/original/app-abc.png');
+            expect(data.url).toBe('https://puter-app-icons.site.puter.localhost/app-abc.png');
         });
     });
 
@@ -123,15 +123,15 @@ describe('AppIconService', () => {
             const originalNode = {
                 exists: vi.fn().mockResolvedValue(true),
             };
-            const originalDir = {
-                getChild: vi.fn().mockResolvedValue(originalNode),
-            };
 
             const service = createServiceInstance();
             service.errors = { report: vi.fn() };
             service.getAppIcons = vi.fn().mockResolvedValue(legacyRoot);
-            service.getOriginalIconsDir = vi.fn().mockResolvedValue(originalDir);
-            service.getOriginalIconUrl = vi.fn().mockReturnValue('https://puter-app-icons.site.puter.localhost/original/app-abc.png');
+            service.getOriginalIconLookup = vi.fn().mockResolvedValue({
+                node: originalNode,
+                isFlatOriginal: true,
+            });
+            service.getOriginalIconUrl = vi.fn().mockReturnValue('https://puter-app-icons.site.puter.localhost/app-abc.png');
             service.queueMissingSizeFromOriginal = vi.fn();
 
             const result = await service.getIconStream({
@@ -140,7 +140,7 @@ describe('AppIconService', () => {
                 allowRedirect: true,
             });
 
-            expect(result.redirectUrl).toBe('https://puter-app-icons.site.puter.localhost/original/app-abc.png');
+            expect(result.redirectUrl).toBe('https://puter-app-icons.site.puter.localhost/app-abc.png');
             expect(result.redirectCacheControl).toContain('max-age=604800');
             expect(service.queueMissingSizeFromOriginal).toHaveBeenCalledWith({
                 appUid: 'app-abc',
@@ -161,7 +161,10 @@ describe('AppIconService', () => {
             const service = createServiceInstance();
             service.errors = { report: vi.fn() };
             service.getAppIcons = vi.fn().mockResolvedValue(legacyRoot);
-            service.getOriginalIconsDir = vi.fn().mockResolvedValue(null);
+            service.getOriginalIconLookup = vi.fn().mockResolvedValue({
+                node: null,
+                isFlatOriginal: false,
+            });
 
             const result = await service.getIconStream({
                 appUid: 'app-abc',

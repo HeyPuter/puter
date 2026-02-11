@@ -36,7 +36,6 @@ const require = createRequire(import.meta.url);
 
 const ICON_SIZES = [16, 32, 64, 128, 256, 512];
 const LEGACY_ICON_FILENAME = ({ appUid, size }) => `${appUid}-${size}.png`;
-const ORIGINAL_ICON_DIR = 'original';
 const ORIGINAL_ICON_FILENAME = ({ appUid }) => `${appUid}.png`;
 const REDIRECT_MAX_AGE_SIZE = 30 * 24 * 60 * 60; // 1 month
 const REDIRECT_MAX_AGE_ORIGINAL = 7 * 24 * 60 * 60; // 1 week
@@ -249,41 +248,56 @@ export class AppIconService extends BaseService {
         if ( ! baseUrl ) return null;
 
         const normalizedAppUid = this.normalizeAppUid(appUid);
-        return `${baseUrl}/${ORIGINAL_ICON_DIR}/${ORIGINAL_ICON_FILENAME({
+        return `${baseUrl}/${ORIGINAL_ICON_FILENAME({
             appUid: normalizedAppUid,
         })}`;
     }
 
-    async getNestedDir ({ parent, pathParts, create = false }) {
+    async ensureAppIconsDirectory ({ dirSystem = null } = {}) {
+        const svcFs = this.services.get('filesystem');
         const svcSu = this.services.get('su');
-        const sysActor = await svcSu.get_system_actor();
-
-        let currentDir = parent;
-        for ( const dirName of pathParts ) {
-            const childDir = await currentDir.getChild(dirName);
-            if ( ! await childDir.exists() ) {
-                if ( ! create ) return null;
-
-                const llMkdir = new LLMkdir();
-                await llMkdir.run({
-                    parent: currentDir,
-                    name: dirName,
-                    actor: sysActor,
-                });
+        const svcUser = this.services.get('user');
+        return await svcSu.sudo(async () => {
+            const dirAppIcons = await svcFs.node(new NodePathSelector('/system/app_icons'));
+            if ( await dirAppIcons.exists() ) {
+                this.dir_app_icons = dirAppIcons;
+                return dirAppIcons;
             }
-            currentDir = childDir;
-        }
 
-        return currentDir;
+            dirSystem = dirSystem || await svcUser.get_system_dir();
+            if ( ! dirSystem ) {
+                dirSystem = await svcFs.node(new NodePathSelector('/system'));
+            }
+            if ( ! await dirSystem.exists() ) {
+                return dirAppIcons;
+            }
+
+            const llMkdir = new LLMkdir();
+            await llMkdir.run({
+                parent: dirSystem,
+                name: 'app_icons',
+                actor: await svcSu.get_system_actor(),
+            });
+
+            this.dir_app_icons = dirAppIcons;
+            return dirAppIcons;
+        });
     }
 
-    async getOriginalIconsDir ({ create = false }) {
-        const dirAppIcons = await this.getAppIcons();
-        return await this.getNestedDir({
-            parent: dirAppIcons,
-            pathParts: [ORIGINAL_ICON_DIR],
-            create,
-        });
+    async getOriginalIconLookup ({ dirAppIcons, appUid }) {
+        const normalizedAppUid = this.normalizeAppUid(appUid);
+        const originalFilename = ORIGINAL_ICON_FILENAME({ appUid: normalizedAppUid });
+        const flatOriginalNode = await dirAppIcons.getChild(originalFilename);
+        if ( await flatOriginalNode.exists() ) {
+            return {
+                node: flatOriginalNode,
+                isFlatOriginal: true,
+            };
+        }
+        return {
+            node: null,
+            isFlatOriginal: false,
+        };
     }
 
     async ensureAppIconsSubdomain ({ dirAppIcons }) {
@@ -359,15 +373,14 @@ export class AppIconService extends BaseService {
 
     async generateMissingSizeFromOriginal ({ appUid, size }) {
         const normalizedAppUid = this.normalizeAppUid(appUid);
-        const originalDir = await this.getOriginalIconsDir({ create: false });
-        if ( ! originalDir ) return;
-
-        const originalNode = await originalDir.getChild(ORIGINAL_ICON_FILENAME({
+        const dirAppIcons = await this.ensureAppIconsDirectory();
+        if ( ! await dirAppIcons.exists() ) return;
+        const { node: originalNode } = await this.getOriginalIconLookup({
+            dirAppIcons,
             appUid: normalizedAppUid,
-        }));
-        if ( ! await originalNode.exists() ) return;
+        });
+        if ( ! originalNode ) return;
 
-        const dirAppIcons = await this.getAppIcons();
         const sizedFilename = LEGACY_ICON_FILENAME({
             appUid: normalizedAppUid,
             size,
@@ -526,16 +539,16 @@ export class AppIconService extends BaseService {
             }
         }
 
-        const originalDir = await this.getOriginalIconsDir({ create: false });
-        const originalNode = originalDir
-            ? await originalDir.getChild(ORIGINAL_ICON_FILENAME({ appUid }))
-            : null;
-        const hasOriginal = originalNode && await originalNode.exists();
+        const {
+            node: originalNode,
+            isFlatOriginal,
+        } = await this.getOriginalIconLookup({ dirAppIcons, appUid });
+        const hasOriginal = !!originalNode;
 
         if ( hasOriginal ) {
             this.queueMissingSizeFromOriginal({ appUid, size });
 
-            if ( allowRedirect ) {
+            if ( allowRedirect && isFlatOriginal ) {
                 const redirectUrl = this.getOriginalIconUrl({ appUid });
                 if ( redirectUrl ) {
                     return {
@@ -631,24 +644,13 @@ export class AppIconService extends BaseService {
      */
     async ['__on_user.system-user-ready'] () {
         const svcSu = this.services.get('su');
-        const svcFs = this.services.get('filesystem');
         const svcUser = this.services.get('user');
 
         const dirSystem = await svcUser.get_system_dir();
 
         // Ensure app icons directory exists
         await svcSu.sudo(async () => {
-            const dirAppIcons = await svcFs.node(new NodePathSelector('/system/app_icons'));
-            if ( ! await dirAppIcons.exists() ) {
-                const llMkdir = new LLMkdir();
-                await llMkdir.run({
-                    parent: dirSystem,
-                    name: 'app_icons',
-                    actor: await svcSu.get_system_actor(),
-                });
-            }
-            this.dir_app_icons = dirAppIcons;
-            await this.getOriginalIconsDir({ create: true });
+            const dirAppIcons = await this.ensureAppIconsDirectory({ dirSystem });
             await this.ensureAppIconsSubdomain({ dirAppIcons });
         });
 
@@ -661,7 +663,6 @@ export class AppIconService extends BaseService {
 
     async createAppIcons ({ data }) {
         const svcSu = this.services.get('su');
-        const dirAppIcons = await this.getAppIcons();
         const dataUrl = data.dataUrl ?? data.data_url;
         const appUid = this.normalizeAppUid(data.appUid ?? data.app_uid);
         if ( !dataUrl || !appUid ) return;
@@ -673,15 +674,19 @@ export class AppIconService extends BaseService {
         const isInputDataUrl = this.isDataUrl(dataUrl);
 
         await svcSu.sudo(async () => {
+            const dirAppIcons = await this.ensureAppIconsDirectory();
+            if ( ! await dirAppIcons.exists() ) {
+                throw new Error('app icons directory is missing');
+            }
+
             const sharpInstance = this.getSharp({ metadata, input });
 
             if ( isInputDataUrl ) {
-                const originalIconsDir = await this.getOriginalIconsDir({ create: true });
                 const originalOutput = await sharpInstance.clone()
                     .png()
                     .toBuffer();
                 await this.writePngToDir({
-                    destination_or_parent: originalIconsDir,
+                    destination_or_parent: dirAppIcons,
                     filename: ORIGINAL_ICON_FILENAME({ appUid }),
                     output: originalOutput,
                 });
