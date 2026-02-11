@@ -17,19 +17,28 @@
  * along with this program.  If not, see <https://www.gnu.org/licenses/>.
  */
 
-const { HLWrite } = require('../../filesystem/hl_operations/hl_write');
-const { LLMkdir } = require('../../filesystem/ll_operations/ll_mkdir');
-const { LLRead } = require('../../filesystem/ll_operations/ll_read');
-const { NodePathSelector } = require('../../filesystem/node/selectors');
-const { get_app } = require('../../helpers');
-const { Endpoint } = require('../../util/expressutil');
-const { buffer_to_stream, stream_to_buffer } = require('../../util/streamutil');
-const BaseService = require('../../services/BaseService.js');
+import config from '../../config.js';
+import { createRequire } from 'node:module';
+import { HLWrite } from '../../filesystem/hl_operations/hl_write.js';
+import { LLMkdir } from '../../filesystem/ll_operations/ll_mkdir.js';
+import { LLRead } from '../../filesystem/ll_operations/ll_read.js';
+import { NodePathSelector } from '../../filesystem/node/selectors.js';
+import { APP_ICONS_SUBDOMAIN } from '../../consts/app-icons.js';
+import { get_app, get_user } from '../../helpers.js';
+import BaseService from '../../services/BaseService.js';
+import { DB_WRITE } from '../../services/database/consts.js';
+import { Endpoint } from '../../util/expressutil.js';
+import { buffer_to_stream, stream_to_buffer } from '../../util/streamutil.js';
+import DEFAULT_APP_ICON from './default-app-icon.js';
+import IconResult from './lib/IconResult.js';
+
+const require = createRequire(import.meta.url);
 
 const ICON_SIZES = [16, 32, 64, 128, 256, 512];
-
-const DEFAULT_APP_ICON = require('./default-app-icon.js');
-const IconResult = require('./lib/IconResult.js');
+const LEGACY_ICON_FILENAME = ({ appUid, size }) => `${appUid}-${size}.png`;
+const ORIGINAL_ICON_FILENAME = ({ appUid }) => `${appUid}.png`;
+const REDIRECT_MAX_AGE_SIZE = 30 * 24 * 60 * 60; // 1 month
+const REDIRECT_MAX_AGE_ORIGINAL = 7 * 24 * 60 * 60; // 1 week
 
 /**
  * AppIconService handles icon generation and serving for apps.
@@ -44,11 +53,12 @@ const IconResult = require('./lib/IconResult.js');
  * UserService emits the `user.system-user-ready` event on the
  * service container event bus.
  */
-class AppIconService extends BaseService {
+export class AppIconService extends BaseService {
     static MODULES = {
         sharp: require('sharp'),
         bmp: require('sharp-bmp'),
         ico: require('sharp-ico'),
+        uuidv4: require('uuid').v4,
     };
 
     static ICON_SIZES = ICON_SIZES;
@@ -64,19 +74,28 @@ class AppIconService extends BaseService {
             methods: ['GET'],
             handler: async (req, res) => {
                 // Validate parameters
-                let { app_uid, size } = req.params;
+                let { app_uid: appUid, size } = req.params;
                 if ( ! ICON_SIZES.includes(Number(size)) ) {
                     res.status(400).send('Invalid size');
                     return;
                 }
-                if ( ! app_uid.startsWith('app-') ) {
-                    app_uid = `app-${app_uid}`;
+                if ( ! appUid.startsWith('app-') ) {
+                    appUid = `app-${appUid}`;
                 }
 
                 const {
                     stream,
                     mime,
-                } = await this.get_icon_stream({ app_uid, size });
+                    redirectUrl,
+                    redirectCacheControl,
+                } = await this.getIconStream({ appUid, size, allowRedirect: true });
+
+                if ( redirectUrl ) {
+                    if ( redirectCacheControl ) {
+                        res.set('Cache-Control', redirectCacheControl);
+                    }
+                    return res.redirect(302, redirectUrl);
+                }
 
                 res.set('Content-Type', mime);
                 res.set('Cache-Control', 'public, max-age=3600');
@@ -85,28 +104,28 @@ class AppIconService extends BaseService {
         }).attach(app);
     }
 
-    get_sizes () {
+    getSizes () {
         return this.constructor.ICON_SIZES;
     }
 
-    async iconify_apps ({ apps, size }) {
+    async iconifyApps ({ apps, size }) {
         return await Promise.all(apps.map(async app => {
-            const icon_result = await this.get_icon_stream({
-                app_icon: app.icon,
-                app_uid: app.uid ?? app.uuid,
-                size: size,
+            const iconResult = await this.getIconStream({
+                appIcon: app.icon,
+                appUid: app.uid ?? app.uuid,
+                size,
             });
 
-            if ( icon_result.data_url ) {
-                app.icon = icon_result.data_url;
+            if ( iconResult.dataUrl ?? iconResult.data_url ) {
+                app.icon = iconResult.dataUrl ?? iconResult.data_url;
                 return app;
             }
 
             try {
-                const buffer = await stream_to_buffer(icon_result.stream);
-                const resp_data_url = `data:${icon_result.mime};base64,${buffer.toString('base64')}`;
+                const buffer = await stream_to_buffer(iconResult.stream);
+                const respDataUrl = `data:${iconResult.mime};base64,${buffer.toString('base64')}`;
 
-                app.icon = resp_data_url;
+                app.icon = respDataUrl;
             } catch (e) {
                 this.errors.report('get-launch-apps:icon-stream', {
                     source: e,
@@ -116,53 +135,339 @@ class AppIconService extends BaseService {
         }));
     }
 
-    async get_icon_stream (params) {
-        const result = await this.get_icon_stream_(params);
+    async getIconStream (params) {
+        const result = await this.#getIconStream(params);
         return new IconResult(result);
     }
 
-    async get_icon_stream_ ({ app_icon, app_uid, size, tries = 0 }) {
-        const is_data_url = value => (
+    normalizeAppUid (appUid) {
+        if ( typeof appUid !== 'string' ) return appUid;
+        return appUid.startsWith('app-') ? appUid : `app-${appUid}`;
+    }
+
+    isDataUrl (value) {
+        return (
             typeof value === 'string' &&
             value.startsWith('data:') &&
             value.includes(',')
         );
+    }
 
-        if ( app_icon && !is_data_url(app_icon) ) {
-            app_icon = null;
+    parseAppIconEndpointUrl (iconUrl) {
+        if ( typeof iconUrl !== 'string' || iconUrl.startsWith('data:') ) {
+            return null;
+        }
+
+        let pathname;
+        try {
+            pathname = new URL(iconUrl, 'http://localhost').pathname;
+        } catch {
+            return null;
+        }
+
+        const match = pathname.match(/^\/app-icon\/([^/]+)\/(\d+)\/?$/);
+        if ( ! match ) return null;
+
+        return {
+            appUid: this.normalizeAppUid(match[1]),
+            size: Number(match[2]),
+        };
+    }
+
+    isAppIconEndpointUrl (iconUrl) {
+        return !!this.parseAppIconEndpointUrl(iconUrl);
+    }
+
+    isSameAppIconEndpointUrl ({ iconUrl, appUid, size }) {
+        const parsed = this.parseAppIconEndpointUrl(iconUrl);
+        if ( ! parsed ) return false;
+        return (
+            parsed.appUid === this.normalizeAppUid(appUid) &&
+            Number(parsed.size) === Number(size)
+        );
+    }
+
+    extractPuterSubdomainFromUrl (url) {
+        if ( typeof url !== 'string' ) return null;
+
+        let hostname;
+        try {
+            hostname = (new URL(url)).hostname.toLowerCase();
+        } catch {
+            return null;
+        }
+
+        const hostingDomains = [
+            config.static_hosting_domain,
+            config.static_hosting_domain_alt,
+        ].filter(Boolean).map(v => v.toLowerCase());
+
+        for ( const domain of hostingDomains ) {
+            const suffix = `.${domain}`;
+            if ( hostname.endsWith(suffix) ) {
+                const subdomain = hostname.slice(0, hostname.length - suffix.length);
+                return subdomain || null;
+            }
+        }
+
+        return null;
+    }
+
+    isPuterSubdomainUrl (url) {
+        return !!this.extractPuterSubdomainFromUrl(url);
+    }
+
+    getAppIconsBaseUrl () {
+        if ( this.appIconsBaseUrl !== undefined ) {
+            return this.appIconsBaseUrl;
+        }
+
+        const host = config.static_hosting_domain || config.static_hosting_domain_alt;
+        if ( ! host ) {
+            this.appIconsBaseUrl = null;
+            return this.appIconsBaseUrl;
+        }
+
+        this.appIconsBaseUrl = `https://${APP_ICONS_SUBDOMAIN}.${host}`;
+        return this.appIconsBaseUrl;
+    }
+
+    getSizedIconUrl ({ appUid, size }) {
+        const baseUrl = this.getAppIconsBaseUrl();
+        if ( ! baseUrl ) return null;
+
+        const normalizedAppUid = this.normalizeAppUid(appUid);
+        return `${baseUrl}/${LEGACY_ICON_FILENAME({
+            appUid: normalizedAppUid,
+            size,
+        })}`;
+    }
+
+    getOriginalIconUrl ({ appUid }) {
+        const baseUrl = this.getAppIconsBaseUrl();
+        if ( ! baseUrl ) return null;
+
+        const normalizedAppUid = this.normalizeAppUid(appUid);
+        return `${baseUrl}/${ORIGINAL_ICON_FILENAME({
+            appUid: normalizedAppUid,
+        })}`;
+    }
+
+    async ensureAppIconsDirectory ({ dirSystem = null } = {}) {
+        const svcFs = this.services.get('filesystem');
+        const svcSu = this.services.get('su');
+        const svcUser = this.services.get('user');
+        return await svcSu.sudo(async () => {
+            const dirAppIcons = await svcFs.node(new NodePathSelector('/system/app_icons'));
+            if ( await dirAppIcons.exists() ) {
+                this.dir_app_icons = dirAppIcons;
+                return dirAppIcons;
+            }
+
+            dirSystem = dirSystem || await svcUser.get_system_dir();
+            if ( ! dirSystem ) {
+                dirSystem = await svcFs.node(new NodePathSelector('/system'));
+            }
+            if ( ! await dirSystem.exists() ) {
+                return dirAppIcons;
+            }
+
+            const llMkdir = new LLMkdir();
+            await llMkdir.run({
+                parent: dirSystem,
+                name: 'app_icons',
+                actor: await svcSu.get_system_actor(),
+            });
+
+            this.dir_app_icons = dirAppIcons;
+            return dirAppIcons;
+        });
+    }
+
+    async getOriginalIconLookup ({ dirAppIcons, appUid }) {
+        const normalizedAppUid = this.normalizeAppUid(appUid);
+        const originalFilename = ORIGINAL_ICON_FILENAME({ appUid: normalizedAppUid });
+        const flatOriginalNode = await dirAppIcons.getChild(originalFilename);
+        if ( await flatOriginalNode.exists() ) {
+            return {
+                node: flatOriginalNode,
+                isFlatOriginal: true,
+            };
+        }
+        return {
+            node: null,
+            isFlatOriginal: false,
+        };
+    }
+
+    async ensureAppIconsSubdomain ({ dirAppIcons }) {
+        const dbSites = this.services.get('database').get(DB_WRITE, 'sites');
+        const existing = await dbSites.read('SELECT * FROM subdomains WHERE subdomain = ? LIMIT 1',
+                        [APP_ICONS_SUBDOMAIN]);
+        if ( existing[0] ) return existing[0];
+
+        const systemUser = await get_user({ username: 'system' });
+        if ( ! systemUser?.id ) return null;
+
+        const rootDirId = await dirAppIcons.get('mysql-id');
+        await dbSites.write(`INSERT ${dbSites.case({
+            mysql: 'IGNORE',
+            sqlite: 'OR IGNORE',
+        })} INTO subdomains (subdomain, user_id, root_dir_id, uuid) VALUES (?, ?, ?, ?)`, [
+            APP_ICONS_SUBDOMAIN,
+            systemUser.id,
+            rootDirId,
+            `sd-${this.modules.uuidv4()}`,
+        ]);
+
+        const rows = await dbSites.read('SELECT * FROM subdomains WHERE subdomain = ? LIMIT 1',
+                        [APP_ICONS_SUBDOMAIN]);
+        return rows[0] ?? null;
+    }
+
+    async readIconNodeBuffer ({ node }) {
+        const svcSu = this.services.get('su');
+        const llRead = new LLRead();
+        const stream = await llRead.run({
+            fsNode: node,
+            actor: await svcSu.get_system_actor(),
+        });
+        return await stream_to_buffer(stream);
+    }
+
+    async writePngToDir ({ destination_or_parent, filename, output }) {
+        const svcSu = this.services.get('su');
+        const sysActor = await svcSu.get_system_actor();
+        const hlWrite = new HLWrite();
+        await hlWrite.run({
+            destination_or_parent,
+            specified_name: filename,
+            overwrite: true,
+            actor: sysActor,
+            user: sysActor.type.user,
+            no_thumbnail: true,
+            file: {
+                size: output.length,
+                name: filename,
+                mimetype: 'image/png',
+                type: 'image/png',
+                stream: buffer_to_stream(output),
+            },
+        });
+    }
+
+    shouldRedirectIconUrl ({ iconUrl, appUid, size }) {
+        if ( !iconUrl || this.isDataUrl(iconUrl) ) return false;
+
+        const canRedirect =
+            this.isPuterSubdomainUrl(iconUrl) ||
+            this.isAppIconEndpointUrl(iconUrl);
+        if ( ! canRedirect ) return false;
+
+        return !this.isSameAppIconEndpointUrl({
+            iconUrl,
+            appUid,
+            size,
+        });
+    }
+
+    async generateMissingSizeFromOriginal ({ appUid, size }) {
+        const normalizedAppUid = this.normalizeAppUid(appUid);
+        const dirAppIcons = await this.ensureAppIconsDirectory();
+        if ( ! await dirAppIcons.exists() ) return;
+        const { node: originalNode } = await this.getOriginalIconLookup({
+            dirAppIcons,
+            appUid: normalizedAppUid,
+        });
+        if ( ! originalNode ) return;
+
+        const sizedFilename = LEGACY_ICON_FILENAME({
+            appUid: normalizedAppUid,
+            size,
+        });
+        const sizedNode = await dirAppIcons.getChild(sizedFilename);
+        if ( await sizedNode.exists() ) return;
+
+        const originalBuffer = await this.readIconNodeBuffer({ node: originalNode });
+        const output = await this.modules.sharp(originalBuffer)
+            .resize(size)
+            .png()
+            .toBuffer();
+
+        await this.writePngToDir({
+            destination_or_parent: dirAppIcons,
+            filename: sizedFilename,
+            output,
+        });
+    }
+
+    queueMissingSizeFromOriginal ({ appUid, size }) {
+        if ( ! this.pendingIconSizeJobs ) {
+            this.pendingIconSizeJobs = new Set();
+        }
+
+        const key = `${this.normalizeAppUid(appUid)}:${size}`;
+        if ( this.pendingIconSizeJobs.has(key) ) return;
+
+        this.pendingIconSizeJobs.add(key);
+        Promise.resolve()
+            .then(async () => {
+                await this.generateMissingSizeFromOriginal({ appUid, size });
+            })
+            .catch(error => {
+                this.errors.report('AppIconService.queueMissingSizeFromOriginal', {
+                    source: error,
+                    appUid,
+                    size,
+                });
+            })
+            .finally(() => {
+                this.pendingIconSizeJobs.delete(key);
+            });
+    }
+
+    async #getIconStream ({ appIcon, appUid, size, tries = 0, allowRedirect = false }) {
+        appUid = this.normalizeAppUid(appUid);
+        const appIconOriginal = appIcon;
+
+        if ( appIcon && !this.isDataUrl(appIcon) ) {
+            appIcon = null;
         }
 
         // If there is an icon provided, and it's an SVG, we'll just return it
-        if ( app_icon ) {
-            const [metadata, data] = app_icon.split(',');
-            const input_mime = metadata.split(';')[0].split(':')[1];
+        if ( appIcon ) {
+            const [metadata, data] = appIcon.split(',');
+            const inputMime = metadata.split(';')[0].split(':')[1];
 
             // svg icons will be sent as-is
-            if ( input_mime === 'image/svg+xml' ) {
+            if ( inputMime === 'image/svg+xml' ) {
                 return {
                     mime: 'image/svg+xml',
                     get stream () {
                         return buffer_to_stream(Buffer.from(data, 'base64'));
                     },
-                    data_url: app_icon,
+                    dataUrl: appIcon,
+                    data_url: appIcon,
                 };
             }
         }
 
-        // Get icon file node
-        const dir_app_icons = await this.get_app_icons();
-        const node = await dir_app_icons.getChild(`${app_uid}-${size}.png`);
+        let app;
+        const getAppCached = async () => {
+            if ( app !== undefined ) return app;
+            app = await get_app({ uid: appUid });
+            return app;
+        };
 
-        const get_fallback_icon = async () => {
-            // Use database-stored icon as a fallback
-            app_icon = app_icon || await (async () => {
-                const app = await get_app({ uid: app_uid });
+        const getFallbackIcon = async () => {
+            let fallbackIcon = appIcon || await (async () => {
+                const app = await getAppCached();
                 return app?.icon || DEFAULT_APP_ICON;
             })();
-            if ( ! is_data_url(app_icon) ) {
-                app_icon = DEFAULT_APP_ICON;
+            if ( ! this.isDataUrl(fallbackIcon) ) {
+                fallbackIcon = DEFAULT_APP_ICON;
             }
-            const [metadata, base64] = app_icon.split(',');
+            const [metadata, base64] = fallbackIcon.split(',');
             const mime = metadata.split(';')[0].split(':')[1];
             const img = Buffer.from(base64, 'base64');
             return {
@@ -171,59 +476,120 @@ class AppIconService extends BaseService {
             };
         };
 
-        if ( ! await node.exists() ) {
-            return await get_fallback_icon();
+        const getExternalRedirect = async () => {
+            if ( ! allowRedirect ) return null;
+
+            const appIconUrl = this.shouldRedirectIconUrl({
+                iconUrl: appIconOriginal,
+                appUid,
+                size,
+            }) ? appIconOriginal : null;
+
+            let dbIcon;
+            if ( ! appIconUrl ) {
+                dbIcon = (await getAppCached())?.icon;
+            }
+
+            const redirectUrl = [appIconUrl, dbIcon].find(url => this.shouldRedirectIconUrl({
+                iconUrl: url,
+                appUid,
+                size,
+            }));
+
+            if ( ! redirectUrl ) return null;
+            return { redirectUrl };
+        };
+
+        const dirAppIcons = await this.getAppIcons();
+        const legacyFilename = LEGACY_ICON_FILENAME({ appUid, size });
+        const legacyNode = await dirAppIcons.getChild(legacyFilename);
+
+        if ( await legacyNode.exists() ) {
+            if ( allowRedirect ) {
+                const redirectUrl = this.getSizedIconUrl({ appUid, size });
+                if ( redirectUrl ) {
+                    return {
+                        redirectUrl,
+                        redirectCacheControl: `public, max-age=${REDIRECT_MAX_AGE_SIZE}`,
+                    };
+                }
+            }
+
+            try {
+                const output = await this.readIconNodeBuffer({ node: legacyNode });
+                return {
+                    mime: 'image/png',
+                    stream: buffer_to_stream(output),
+                };
+            } catch (e) {
+                this.errors.report('AppIconService.get_icon_stream', {
+                    source: e,
+                });
+                if ( tries < 1 ) {
+                    // Choose the next size up, or 256 if we're already at 512.
+                    const secondSize = size < 512 ? size * 2 : 256;
+                    return await this.#getIconStream({
+                        appUid,
+                        appIcon: appIconOriginal,
+                        size: secondSize,
+                        tries: tries + 1,
+                        allowRedirect,
+                    });
+                }
+            }
         }
 
-        try {
-            const svc_su = this.services.get('su');
-            const ll_read = new LLRead();
-            return {
-                mime: 'image/png',
-                stream: await ll_read.run({
-                    fsNode: node,
-                    actor: await svc_su.get_system_actor(),
-                }),
-            };
-        } catch (e) {
-            this.errors.report('AppIconService.get_icon_stream', {
-                source: e,
-            });
-            if ( tries < 1 ) {
-                // We can choose the fallback icon in these two ways:
+        const {
+            node: originalNode,
+            isFlatOriginal,
+        } = await this.getOriginalIconLookup({ dirAppIcons, appUid });
+        const hasOriginal = !!originalNode;
 
-                // Choose the next size up, or 256 if we're already at 512;
-                // this prioritizes icon quality over speed and bandwidth.
-                let second_size = size < 512 ? size * 2 : 256;
+        if ( hasOriginal ) {
+            this.queueMissingSizeFromOriginal({ appUid, size });
 
-                // Choose the next size down, or 32 if we're already at 16;
-                // this prioritizes speed and bandwidth over icon quality.
-                // let second_size = size > 16 ? size / 2 : 32;
+            if ( allowRedirect && isFlatOriginal ) {
+                const redirectUrl = this.getOriginalIconUrl({ appUid });
+                if ( redirectUrl ) {
+                    return {
+                        redirectUrl,
+                        redirectCacheControl: `public, max-age=${REDIRECT_MAX_AGE_ORIGINAL}`,
+                    };
+                }
+            }
 
-                return await this.get_icon_stream({
-                    app_uid, size: second_size, tries: tries + 1,
+            try {
+                const output = await this.readIconNodeBuffer({ node: originalNode });
+                return {
+                    mime: 'image/png',
+                    stream: buffer_to_stream(output),
+                };
+            } catch (e) {
+                this.errors.report('AppIconService.get_icon_stream:original-read', {
+                    source: e,
                 });
             }
-            return await get_fallback_icon();
         }
+
+        return await getExternalRedirect() || await getFallbackIcon();
     }
 
     /**
      * Returns an FSNodeContext instance for the app icons
      * directory.
      */
-    async get_app_icons () {
+    async getAppIcons () {
         if ( this.dir_app_icons ) {
             return this.dir_app_icons;
         }
 
-        const svc_fs = this.services.get('filesystem');
-        const dir_app_icons = await svc_fs.node(new NodePathSelector('/system/app_icons'));
+        const svcFs = this.services.get('filesystem');
+        const dirAppIcons = await svcFs.node(new NodePathSelector('/system/app_icons'));
 
-        return this.dir_app_icons = dir_app_icons;
+        return this.dir_app_icons = dirAppIcons;
     }
 
-    get_sharp ({ metadata, input }) {
+    getSharp ({ metadata, input }) {
         const type = metadata.split(';')[0].split(':')[1];
 
         if ( type === 'image/bmp' ) {
@@ -239,93 +605,113 @@ class AppIconService extends BaseService {
         return this.modules.sharp(input);
     }
 
+    async loadIconSource ({ iconUrl }) {
+        if ( typeof iconUrl !== 'string' || !iconUrl ) {
+            return null;
+        }
+
+        if ( iconUrl.startsWith('data:') ) {
+            const [metadata, base64] = iconUrl.split(',');
+            return {
+                metadata,
+                input: Buffer.from(base64, 'base64'),
+            };
+        }
+
+        try {
+            const response = await fetch(iconUrl);
+            if ( ! response.ok ) {
+                throw new Error(`HTTP error! status: ${response.status}`);
+            }
+
+            return {
+                input: Buffer.from(await response.arrayBuffer()),
+                metadata: `data:${response.headers.get('content-type') || 'image/png'};base64`,
+            };
+        } catch ( error ) {
+            this.errors.report('AppIconService.createAppIcons:fetchUrl', {
+                source: error,
+                iconUrl,
+            });
+            return null;
+        }
+    }
+
     /**
      * AppIconService listens to this event to create the
      * `/system/app_icons` directory if it does not exist,
      * and then to register the event listener for `app.new-icon`.
      */
     async ['__on_user.system-user-ready'] () {
-        const svc_su = this.services.get('su');
-        const svc_fs = this.services.get('filesystem');
-        const svc_user = this.services.get('user');
+        const svcSu = this.services.get('su');
+        const svcUser = this.services.get('user');
 
-        const dir_system = await svc_user.get_system_dir();
+        const dirSystem = await svcUser.get_system_dir();
 
         // Ensure app icons directory exists
-        await svc_su.sudo(async () => {
-            const dir_app_icons = await svc_fs.node(new NodePathSelector('/system/app_icons'));
-            if ( ! await dir_app_icons.exists() ) {
-                const ll_mkdir = new LLMkdir();
-                await ll_mkdir.run({
-                    parent: dir_system,
-                    name: 'app_icons',
-                    actor: await svc_su.get_system_actor(),
-                });
-            }
-            this.dir_app_icons = dir_app_icons;
+        await svcSu.sudo(async () => {
+            const dirAppIcons = await this.ensureAppIconsDirectory({ dirSystem });
+            await this.ensureAppIconsSubdomain({ dirAppIcons });
         });
 
         // Listen for new app icons
-        const svc_event = this.services.get('event');
-        svc_event.on('app.new-icon', async (_, data) => {
-            await this.create_app_icons({ data });
+        const svcEvent = this.services.get('event');
+        svcEvent.on('app.new-icon', async (_, data) => {
+            await this.createAppIcons({ data });
         });
     }
 
-    async create_app_icons ({ data }) {
-        const svc_su = this.services.get('su');
-        const dir_app_icons = await this.get_app_icons();
+    async createAppIcons ({ data }) {
+        const svcSu = this.services.get('su');
+        const dataUrl = data.dataUrl ?? data.data_url;
+        const appUid = this.normalizeAppUid(data.appUid ?? data.app_uid);
+        if ( !dataUrl || !appUid ) return;
 
-        // Writing icons as the system user
-        const icon_jobs = [];
-        for ( const size of ICON_SIZES ) {
-            icon_jobs.push((async () => {
-                await svc_su.sudo(async () => {
-                    const filename = `${data.app_uid}-${size}.png`;
-                    const data_url = data.data_url;
-                    const [metadata, base64] = data_url.split(',');
-                    const input = Buffer.from(base64, 'base64');
+        const source = await this.loadIconSource({ iconUrl: dataUrl });
+        if ( ! source ) return;
 
-                    const sharp_instance = this.get_sharp({
-                        metadata,
-                        input,
-                    });
+        const { input, metadata } = source;
+        const isInputDataUrl = this.isDataUrl(dataUrl);
 
-                    // NOTE: A stream would be more ideal than a buffer here
-                    //       but we have no way of knowing the output size
-                    //       before we finish processing the image.
-                    const output = await sharp_instance
-                        .resize(size)
-                        .png()
-                        .toBuffer();
+        await svcSu.sudo(async () => {
+            const dirAppIcons = await this.ensureAppIconsDirectory();
+            if ( ! await dirAppIcons.exists() ) {
+                throw new Error('app icons directory is missing');
+            }
 
-                    const sys_actor = await svc_su.get_system_actor();
-                    const hl_write = new HLWrite();
-                    await hl_write.run({
-                        destination_or_parent: dir_app_icons,
-                        specified_name: filename,
-                        overwrite: true,
-                        actor: sys_actor,
-                        user: sys_actor.type.user,
-                        no_thumbnail: true,
-                        file: {
-                            size: output.length,
-                            name: filename,
-                            mimetype: 'image/png',
-                            type: 'image/png',
-                            stream: buffer_to_stream(output),
-                        },
-                    });
+            const sharpInstance = this.getSharp({ metadata, input });
+
+            if ( isInputDataUrl ) {
+                const originalOutput = await sharpInstance.clone()
+                    .png()
+                    .toBuffer();
+                await this.writePngToDir({
+                    destination_or_parent: dirAppIcons,
+                    filename: ORIGINAL_ICON_FILENAME({ appUid }),
+                    output: originalOutput,
                 });
-            })());
-        }
-        await Promise.all(icon_jobs);
+
+                const originalUrl = this.getOriginalIconUrl({ appUid });
+                if ( originalUrl ) {
+                    data.url = originalUrl;
+                }
+            }
+
+            const iconJobs = ICON_SIZES.map(async size => {
+                const output = await sharpInstance.clone()
+                    .resize(size)
+                    .png()
+                    .toBuffer();
+                await this.writePngToDir({
+                    destination_or_parent: dirAppIcons,
+                    filename: LEGACY_ICON_FILENAME({ appUid, size }),
+                    output,
+                });
+            });
+            await Promise.all(iconJobs);
+        });
     }
 
     async _init () {
     }
 }
-
-module.exports = {
-    AppIconService,
-};
