@@ -34,8 +34,5 @@ module.exports = {
         dynamo: {
             path: './puter-ddb',
         },
-        thumbnails: {
-            engine: 'purejs',
-        },
     },
 };
