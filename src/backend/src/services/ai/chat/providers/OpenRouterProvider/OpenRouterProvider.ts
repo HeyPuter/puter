@@ -125,7 +125,7 @@ export class OpenRouterProvider implements IChatProvider {
                     request: (usage as unknown as Record<string, number>).request || 1,
                 };
                 const costOverwrites = Object.fromEntries(Object.keys(trackedUsage).map((k) => {
-                    return [k, (modelUsed.costs[k] || 0) * trackedUsage[k]];
+                    return ([k, (modelUsed.costs[k]) * trackedUsage[k]]);
                 }));
                 this.#meteringService.utilRecordUsageObject(trackedUsage, actor, modelUsed.id, costOverwrites);
                 return trackedUsage;

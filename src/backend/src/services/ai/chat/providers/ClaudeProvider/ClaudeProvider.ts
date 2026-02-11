@@ -341,7 +341,7 @@ export class ClaudeProvider implements IChatProvider {
                 }
                 chatStream.end(usageSum);
                 const costsOverrideFromModel = Object.fromEntries(Object.entries(usageSum).map(([k, v]) => {
-                    return [k, v * (modelUsed.costs[k] || 0)];
+                    return [k, v * (modelUsed.costs[k])];
                 }));
                 this.#meteringService.utilRecordUsageObject(usageSum, actor, `claude:${modelUsed.id}`, costsOverrideFromModel);
             };
@@ -364,7 +364,7 @@ export class ClaudeProvider implements IChatProvider {
 
         const usage = this.#usageFormatterUtil((msg as Message).usage as Usage | BetaUsage);
         const costsOverrideFromModel = Object.fromEntries(Object.entries(usage).map(([k, v]) => {
-            return [k, v * (modelUsed.costs[k] || 0)];
+            return [k, v * (modelUsed.costs[k])];
         }));
         this.#meteringService.utilRecordUsageObject(usage, actor, `claude:${modelUsed.id}`, costsOverrideFromModel);
 
