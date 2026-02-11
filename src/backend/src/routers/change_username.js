@@ -78,9 +78,9 @@ module.exports = eggspress('/change_username', {
                 mysql: '`created_at` > DATE_SUB(NOW(), INTERVAL 1 MONTH)',
                 sqlite: "`created_at` > datetime('now', '-1 month')",
             })}`,
-    [ req.user.id, 'change_username' ]);
+    [req.user.id, 'change_username']);
 
-    if ( rows[0].count >= 2 ) {
+    if ( rows[0].count >= (config.max_username_changes ?? 2) ) {
         throw APIError.create('too_many_username_changes');
     }
 
