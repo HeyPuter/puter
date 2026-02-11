@@ -663,6 +663,15 @@
     border-radius: 3px;
 }
 
+@keyframes item-added-highlight {
+    from { background-color: var(--select-color); }
+    to { background-color: transparent; }
+}
+
+.dashboard-section-files .row.item-newly-added {
+    animation: item-added-highlight 2s ease-out;
+}
+
 .dashboard-section-files .row img {
     width: 18px;
     height: 18px;

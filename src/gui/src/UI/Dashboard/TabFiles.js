@@ -168,6 +168,19 @@ const TabFiles = {
             if ( $(`.files-tab .files .item[data-uid='${file.uid}']`).length > 0 ) return;
 
             _this.renderItem(file);
+
+            // Get the newly appended row (it's always last after renderItem)
+            const $newRow = _this.$el_window.find(`.files-tab .files .item[data-uid='${file.uid}']`);
+            if ( $newRow.length === 0 ) return;
+
+            // Insert at correct sorted position
+            _this.insertAtSortedPosition($newRow, file);
+
+            // Apply column widths to match existing rows
+            _this.applyColumnWidths();
+
+            // Highlight animation to indicate newly added item
+            $newRow.addClass('item-newly-added');
         };
 
         this.renderingDirectory = false;
@@ -1515,6 +1528,67 @@ const TabFiles = {
         regularFiles.sort(sortFn);
 
         return [...folders, ...regularFiles];
+    },
+
+    /**
+     * Moves a newly appended row to its correct sorted position among
+     * existing items. Folders always come before files; within each group,
+     * items are ordered by the current sortColumn and sortDirection.
+     *
+     * @param {jQuery} $newRow - The jQuery-wrapped row element to reposition
+     * @param {Object} file - The file object with name, size, modified, is_dir
+     */
+    insertAtSortedPosition ($newRow, file) {
+        const $container = this.$el_window.find('.files-tab .files');
+        const $existingRows = $container.find('.item.row').not($newRow);
+
+        if ( $existingRows.length === 0 ) return;
+
+        const newIsDir = !!file.is_dir;
+        const newName = (file.name || '').toLowerCase();
+        const newSize = file.size || 0;
+        const newModified = file.modified || 0;
+        const sortColumn = this.sortColumn;
+        const sortDirection = this.sortDirection;
+
+        $existingRows.each(function () {
+            const $existing = $(this);
+            const existingIsDir = $existing.attr('data-is_dir') === '1';
+
+            // Folders always come before files
+            if ( newIsDir && !existingIsDir ) {
+                $newRow.insertBefore($existing);
+                return false;
+            }
+            if ( !newIsDir && existingIsDir ) {
+                return true;
+            }
+
+            // Same type — compare by sort column
+            let comparison = 0;
+            switch ( sortColumn ) {
+            case 'name':
+                comparison = newName.localeCompare(($existing.attr('data-name') || '').toLowerCase());
+                break;
+            case 'size':
+                comparison = newSize - (parseInt($existing.attr('data-size')) || 0);
+                break;
+            case 'modified':
+                comparison = newModified - (parseInt($existing.attr('data-modified')) || 0);
+                break;
+            default:
+                comparison = newName.localeCompare(($existing.attr('data-name') || '').toLowerCase());
+            }
+
+            if ( sortDirection !== 'asc' ) comparison = -comparison;
+
+            if ( comparison < 0 ) {
+                $newRow.insertBefore($existing);
+                return false;
+            }
+        });
+
+        // If not inserted, it belongs at the end (already there from append)
     },
 
     /**
@@ -2989,6 +3063,7 @@ const TabFiles = {
             if ( newMenuItems.items && newMenuItems.items.length > 0 ) {
                 const folderItem = newMenuItems.items[0]; // First item is "New Folder"
                 folderItem.onClick = async () => {
+                    $('.context-menu').remove();
                     try {
                         const result = await puter.fs.mkdir({
                             path: `${targetPath}/New Folder`,
@@ -3013,6 +3088,7 @@ const TabFiles = {
                     if ( item && item.onClick && typeof item !== 'string' ) {
                         const originalItemOnClick = item.onClick;
                         item.onClick = async () => {
+                            $('.context-menu').remove();
                             await originalItemOnClick();
                             setTimeout(() => {
                                 _this.renderDirectory(_this.currentPath);
