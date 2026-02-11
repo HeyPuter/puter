@@ -190,10 +190,8 @@ const TabFiles = {
 
             folderElement.onclick = async () => {
                 const folderPath = folderElement.getAttribute('data-path');
-
                 _this.pushNavHistory(folderPath);
                 _this.renderDirectory(folderPath);
-                _this.selectFolder(folderElement);
             };
 
             // Context menu for sidebar folders
@@ -301,7 +299,6 @@ const TabFiles = {
 
                             _this.pushNavHistory(folderPath);
                             await _this.renderDirectory(folderPath);
-                            _this.selectFolder(folderElement);
 
                             // Refresh jQuery UI droppable detection for the active drag
                             if ( $.ui.ddmanager && $.ui.ddmanager.current ) {
@@ -1387,19 +1384,6 @@ const TabFiles = {
     },
 
     /**
-     * Visually selects a folder in the sidebar directory list.
-     *
-     * @param {HTMLElement} $folderElement - The folder list item element to select
-     * @returns {void}
-     */
-    selectFolder ($folderElement) {
-        $folderElement.parentElement.querySelectorAll('li').forEach(li => {
-            li.classList.remove('active');
-        });
-        $folderElement.classList.add('active');
-    },
-
-    /**
      * Updates the sidebar folder selection to match the current path.
      *
      * @returns {void}
@@ -1410,11 +1394,8 @@ const TabFiles = {
         const currentPath = this.currentPath;
         if ( ! currentPath ) return;
 
-        this.$el_window.find('[data-folder]').each(function () {
-            const folderName = this.getAttribute('data-folder');
-            const directories = Object.keys(window.user.directories);
-            const folderPath = directories.find(f => f.endsWith(folderName));
-
+        this.$el_window.find('[data-path]').each(function () {
+            const folderPath = this.getAttribute('data-path');
             if ( folderPath === currentPath ) {
                 this.classList.add('active');
             }
