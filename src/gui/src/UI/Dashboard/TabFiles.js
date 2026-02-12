@@ -431,6 +431,7 @@ const TabFiles = {
                 e.target.classList.contains('files-list-view') ||
                 e.target.classList.contains('files-grid-view') ) {
                 e.preventDefault();
+                e.stopPropagation();
                 // Clear selection when right-clicking background
                 document.querySelectorAll('.files-tab .row.selected').forEach(r => {
                     r.classList.remove('selected');
