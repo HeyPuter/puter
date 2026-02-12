@@ -192,6 +192,8 @@ const TabFiles = {
         this.springLoadedActive = false;
         this.previewOpen = false;
         this.previewCurrentUid = null;
+        this.typeSearchTerm = '';
+        this.typeSearchTimeout = null;
         this.selectModeActive = false;
         this.currentView = await puter.kv.get('view_mode') || 'list';
 
@@ -530,6 +532,16 @@ const TabFiles = {
             // Skip if user is typing in an input/textarea (except for Escape)
             if ( $(focused_el).is('input, textarea') && e.which !== 27 ) return;
 
+            // When a context menu is open, yield control to keyboard.js
+            if ( $('.context-menu').length > 0 ) {
+                if ( (e.which >= 37 && e.which <= 40) || e.which === 13 || e.which === 27 ) {
+                    return;
+                }
+                if ( !e.ctrlKey && !e.metaKey && e.key.length === 1 ) {
+                    return;
+                }
+            }
+
             const $container = _this.$el_window.find('.files-tab .files');
             const $allRows = $container.find('.row');
             const $selectedRows = $container.find('.row.selected');
@@ -781,6 +793,67 @@ const TabFiles = {
                         _this.showImagePreview($row);
                     }
                 }
+                return false;
+            }
+
+            // Type-to-select: letter/number keys search items by name
+            if ( !e.ctrlKey && !e.metaKey && e.key.length === 1 ) {
+                e.preventDefault();
+                e.stopImmediatePropagation();
+
+                if ( _this.typeSearchTerm !== '' ) {
+                    clearTimeout(_this.typeSearchTimeout);
+                }
+
+                _this.typeSearchTimeout = setTimeout(() => {
+                    _this.typeSearchTerm = '';
+                }, 700);
+
+                _this.typeSearchTerm += e.key.toLocaleLowerCase();
+
+                let matches = [];
+                const $currentSelected = $selectedRows.first();
+
+                // If selected item already matches, keep it
+                if ( $currentSelected.length === 1 ) {
+                    const selectedName = ($currentSelected.attr('data-name') || '').toLowerCase();
+                    if ( selectedName.startsWith(_this.typeSearchTerm) ) {
+                        return false;
+                    }
+                }
+
+                // Search all rows for matches
+                for ( let j = 0; j < $allRows.length; j++ ) {
+                    const name = ($allRows.eq(j).attr('data-name') || '').toLowerCase();
+                    if ( name.startsWith(_this.typeSearchTerm) ) {
+                        matches.push($allRows.get(j));
+                    }
+                }
+
+                if ( matches.length > 0 ) {
+                    // If multiple matches and one is selected, cycle past it
+                    if ( $currentSelected.length > 0 && matches.length > 1 ) {
+                        let match_index;
+                        for ( let i = 0; i < matches.length - 1; i++ ) {
+                            if ( $(matches[i]).is($currentSelected) ) {
+                                match_index = i;
+                                break;
+                            }
+                        }
+                        if ( match_index !== undefined ) {
+                            matches.splice(0, match_index + 1);
+                        }
+                    }
+
+                    // Deselect all, select the match
+                    $allRows.removeClass('selected');
+                    $(matches[0]).addClass('selected');
+                    window.active_element = matches[0];
+                    window.latest_selected_item = matches[0];
+                    matches[0].scrollIntoView({ block: 'nearest' });
+                    _this.updateFooterStats();
+                }
+
                 return false;
             }
         });
