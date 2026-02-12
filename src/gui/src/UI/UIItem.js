@@ -35,12 +35,12 @@ import mime from '../lib/mime.js';
 const AI_APP_NAME = 'ai';
 
 const parseItemMetadataForAI = (metadata) => {
-    if (!metadata) {
+    if ( ! metadata ) {
         return undefined;
     }
     try {
         return JSON.parse(metadata);
-    } catch (error) {
+    } catch ( error ) {
         console.warn('Failed to parse item metadata for AI payload.', error);
         return undefined;
     }
@@ -67,17 +67,17 @@ const buildAIPayloadFromItems = ($elements) => {
 
 const ensureAIAppIframe = async () => {
     let $aiWindow = $(`.window[data-app="${AI_APP_NAME}"]`);
-    if ($aiWindow.length === 0) {
+    if ( $aiWindow.length === 0 ) {
         try {
             await launch_app({ name: AI_APP_NAME });
-        } catch (error) {
+        } catch ( error ) {
             console.error('Failed to launch AI app.', error);
             return null;
         }
         $aiWindow = $(`.window[data-app="${AI_APP_NAME}"]`);
     }
 
-    if ($aiWindow.length === 0) {
+    if ( $aiWindow.length === 0 ) {
         return null;
     }
 
@@ -88,12 +88,12 @@ const ensureAIAppIframe = async () => {
 
 const sendSelectionToAIApp = async ($elements) => {
     const items = buildAIPayloadFromItems($elements);
-    if (items.length === 0) {
+    if ( items.length === 0 ) {
         return;
     }
 
     const aiIframe = await ensureAIAppIframe();
-    if (!aiIframe || !aiIframe.contentWindow) {
+    if ( !aiIframe || !aiIframe.contentWindow ) {
         await UIAlert({
             message: i18n('ai_app_unavailable'),
         });
@@ -107,7 +107,7 @@ const sendSelectionToAIApp = async ($elements) => {
     }, '*');
 };
 
-function UIItem(options){
+function UIItem (options) {
     const matching_appendto_count = $(options.appendTo).length;
     if ( matching_appendto_count > 1 ) {
         $(options.appendTo).each(function () {
@@ -138,7 +138,7 @@ function UIItem(options){
     options.shortcut_to_path = options.shortcut_to_path ?? '';
     options.immutable = (options.immutable === false || options.immutable === 0 || options.immutable === undefined ? 0 : 1);
     options.sort_container_after_append = (options.sort_container_after_append !== undefined ? options.sort_container_after_append : false);
-    const is_shared_with_me = (options.path !== `/${window.user.username}` && !options.path.startsWith(`/${window.user.username}/`));
+    const is_shared_with_me = (options.path && options.path !== `/${window.user.username}` && !options.path.startsWith(`/${window.user.username}/`));
 
     let website_url = window.determine_website_url(options.path);
 
@@ -988,9 +988,9 @@ function UIItem(options){
                 // -------------------------------------------
                 menu_items.push({
                     html: i18n('open_in_ai'),
-                    onClick: async function(){
+                    onClick: async function () {
                         await sendSelectionToAIApp($selected_items);
-                    }
+                    },
                 });
                 // -------------------------------------------
                 // -
@@ -1332,9 +1332,9 @@ function UIItem(options){
                 // -------------------------------------------
                 menu_items.push({
                     html: i18n('open_in_ai'),
-                    onClick: async function(){
+                    onClick: async function () {
                         await sendSelectionToAIApp($(el_item));
-                    }
+                    },
                 });
             }
 
