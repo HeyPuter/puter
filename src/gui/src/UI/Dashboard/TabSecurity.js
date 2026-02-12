@@ -150,32 +150,79 @@ const TabSecurity = {
         $el_window.find('.dashboard-section-security .disable-2fa').on('click', async function (e) {
             let win;
             const password_confirm_promise = new TeePromise();
-            const try_password = async () => {
-                const value = $win.find('.password-entry').val();
-                // Do not send Authorization: user-protected endpoints use session cookie (hasHttpPowers)
-                const resp = await fetch(`${window.api_origin}/user-protected/disable-2fa`, {
-                    method: 'POST',
-                    credentials: 'include',
-                    headers: {
-                        'Content-Type': 'application/json',
-                    },
-                    body: JSON.stringify({
-                        password: value,
-                    }),
-                });
-                if ( resp.status !== 200 ) {
-                    /* eslint no-empty: ["error", { "allowEmptyCatch": true }] */
-                    let message; try {
-                        message = (await resp.json()).message;
-                    } catch (e) {
+
+            function openRevalidatePopup (revalidateUrl, onDone) {
+                const url = revalidateUrl || (window.user && window.user.oidc_revalidate_url);
+                if ( ! url ) {
+                    onDone && onDone(new Error('No revalidate URL'));
+                    return null;
+                }
+                let doneCalled = false;
+                const hint = $win.find('.disable-2fa-oidc-hint');
+                hint.text(i18n('revalidate_sign_in_popup') || 'Sign in with your linked account in the popup.').show();
+                const popup = window.open(url, 'puter-revalidate', 'width=500,height=600');
+                const onMessage = (ev) => {
+                    if ( (ev.origin !== window.gui_origin) && (ev.origin !== window.location.origin) ) return;
+                    if ( !ev.data || ev.data.type !== 'puter-revalidate-done' ) return;
+                    if ( doneCalled ) return;
+                    doneCalled = true;
+                    window.removeEventListener('message', onMessage);
+                    hint.hide();
+                    onDone && onDone();
+                };
+                window.addEventListener('message', onMessage);
+                const checkClosed = setInterval(() => {
+                    if ( popup && popup.closed ) {
+                        clearInterval(checkClosed);
+                        window.removeEventListener('message', onMessage);
+                        hint.hide();
+                        if ( ! doneCalled ) {
+                            doneCalled = true;
+                            onDone && onDone(new Error('Popup closed'));
+                        }
                     }
-                    message = message || i18n('error_unknown_cause');
-                    $win.find('.password-entry').addClass('error');
-                    $win.find('.error-message').text(message).show();
+                }, 300);
+                return popup;
+            }
+
+            const doRequest = () => fetch(`${window.api_origin}/user-protected/disable-2fa`, {
+                method: 'POST',
+                credentials: 'include',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ password: $win.find('.password-entry').val() }),
+            });
+
+            const try_password = async () => {
+                const resp = await doRequest();
+                if ( resp.status === 200 ) {
+                    password_confirm_promise.resolve(true);
+                    $(win).close();
                     return;
                 }
-                password_confirm_promise.resolve(true);
-                $(win).close();
+                const data = await resp.json().catch(() => ({}));
+                if ( data.code === 'oidc_revalidation_required' && data.revalidate_url ) {
+                    openRevalidatePopup(data.revalidate_url, async (err) => {
+                        if ( err ) {
+                            $win.find('.error-message').text(err.message || 'Re-validation required.').show();
+                            return;
+                        }
+                        const r2 = await doRequest();
+                        if ( r2.status === 200 ) {
+                            password_confirm_promise.resolve(true);
+                            $(win).close();
+                        } else {
+                            let message; try {
+                                message = (await r2.json()).message;
+                            } catch (e) {
+                            }
+                            $win.find('.error-message').text(message || i18n('error_unknown_cause')).show();
+                        }
+                    });
+                    return;
+                }
+                const message = data.message || i18n('error_unknown_cause');
+                $win.find('.password-entry').addClass('error');
+                $win.find('.error-message').text(message).show();
             };
 
             let h = '';
@@ -186,6 +233,7 @@ const TabSecurity = {
             h += '</div>';
             h += '<div style="display: flex; flex-direction: column; gap: 10pt;">';
             h += '<input type="password" class="password-entry" />';
+            h += '<p class="disable-2fa-oidc-hint" style="margin:0;font-size:12px;color:#666;display:none;"></p>';
             h += '<span class="error-message" style="color: var(--dashboard-error-text); display: none;"></span>';
             h += '</div>';
             h += '<div style="display: flex; gap: 5pt;">';
