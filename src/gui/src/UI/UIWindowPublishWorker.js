@@ -93,7 +93,7 @@ async function UIWindowPublishWorker (target_dir_uid, target_dir_name, target_di
 
         puter.workers.create(worker_name,
                         target_dir_path).then((res) => {
-            let url = `https://${ worker_name }.puter.work`;
+                            let url = `https://${ worker_name }.puter.work`;
             $(el_window).find('.window-publishWorker-form').hide(100, function () {
                 $(el_window).find('.publishWorker-published-link').attr('href', url);
                 $(el_window).find('.publishWorker-published-link').text(url);
@@ -108,17 +108,26 @@ async function UIWindowPublishWorker (target_dir_uid, target_dir_name, target_di
                 // update item's website_url attribute
                 $(this).attr('data-website_url', url + $(this).attr('data-path').substring(target_dir_path.length));
             });
-        }).catch((err) => {
-            err = err.error;
-            $(el_window).find('.publish-worker-error-msg').html(
-                            err.message + (
-                                err.code === 'subdomain_limit_reached' ?
-                                    ` <span class="manage-your-websites-link">${ i18n('manage_your_subdomains') }</span>` : ''
-                            ));
+                        }).catch((err) => {
+                            let errorHtml;
+            console.log(typeof err, Array.isArray(err));
+            // Handle worker service errors (result.success === false)
+            if ( ! (err instanceof Error) ) {
+                // Handle regular API errors
+                const error = err.error || err;
+                errorHtml = error.message + (
+                    error.code === 'subdomain_limit_reached' ?
+                        ` <span class="manage-your-websites-link">${ i18n('manage_your_subdomains') }</span>` : ''
+                );
+            } else {
+                errorHtml = `<pre style="white-space: pre-wrap; font-family: monospace; font-size: 12px; margin: 0; text-align: left; font-family: monospace;">${html_encode(err)}</pre>`;
+            }
+
+            $(el_window).find('.publish-worker-error-msg').html(errorHtml);
             $(el_window).find('.publish-worker-error-msg').fadeIn();
             // re-enable 'Publish' button and restore original text
             $(el_window).find('.publish-btn').prop('disabled', false).text(originalText);
-        });
+                        });
     });
 
     $(el_window).find('.publish-window-ok-btn').on('click', function () {
