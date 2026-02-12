@@ -20,10 +20,16 @@ import {
     validate_url,
 } from './lib/validation.js';
 
-const APP_ICON_ENDPOINT_PATH_REGEX = /^\/?app-icon\/[^/?#]+\/[^/?#]+\/?$/;
+const APP_ICON_ENDPOINT_PATH_REGEX = /^\/app-icon\/[^/?#]+\/\d+\/?$/;
 
 const isAppIconEndpointPath = (value) => {
-    return typeof value === 'string' && APP_ICON_ENDPOINT_PATH_REGEX.test(value);
+    if ( typeof value !== 'string' ) return false;
+    try {
+        const pathname = new URL(value, 'http://localhost').pathname;
+        return APP_ICON_ENDPOINT_PATH_REGEX.test(pathname);
+    } catch {
+        return false;
+    }
 };
 
 /**
