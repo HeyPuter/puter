@@ -2769,7 +2769,7 @@
     left: 0;
     width: 100%;
     height: 100%;
-    background-color: var(--dashboard-background);
+    /* background-color: var(--dashboard-background); */
     z-index: 2147483647;
     display: flex;
     justify-content: center;

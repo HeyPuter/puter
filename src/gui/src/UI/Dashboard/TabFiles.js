@@ -1650,6 +1650,7 @@ const TabFiles = {
     async renderDirectory (target, options = {}) {
         if ( this.renderingDirectory ) return;
         this.renderingDirectory = true;
+        this.$el_window.find('.files-tab .files').html('');
         this.showSpinner();
         const _this = this;
 
@@ -1778,8 +1779,6 @@ const TabFiles = {
             });
         });
 
-        this.$el_window.find('.files-tab .files').html('');
-
         if ( directoryContents.length === 0 ) {
             this.$el_window.find('.files-tab .files').append(`<div style="
                 display: flex;
@@ -1802,9 +1801,7 @@ const TabFiles = {
         }
 
         const sortedContents = this.sortFiles(directoryContents);
-        sortedContents.forEach(file => {
-            this.renderItem(file);
-        });
+        await Promise.all(sortedContents.map(file => this.renderItem(file)));
 
         this.applyColumnWidths();
         this.updateFooterStats();
@@ -2857,11 +2854,11 @@ const TabFiles = {
      * @returns {void}
      */
     updateDashboardUrl (filePath) {
-        // Use direct hash assignment - this fires hashchange event
-        // which enables proper back/forward navigation
+        // Use pushState to update URL without firing hashchange.
+        // The popstate listener in UIDashboard handles back/forward navigation.
         const newHash = `#files${filePath}`;
         if ( window.location.hash !== newHash ) {
-            window.location.hash = newHash;
+            history.pushState(null, '', newHash);
         }
     },
 
