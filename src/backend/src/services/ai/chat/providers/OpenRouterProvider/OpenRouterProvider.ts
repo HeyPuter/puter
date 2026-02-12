@@ -157,6 +157,9 @@ export class OpenRouterProvider implements IChatProvider {
             }
             const overridenModel = OPEN_ROUTER_MODEL_OVERRIDES.find(m => m.id === `openrouter:${model.id}`);
             const microcentCosts = Object.fromEntries(Object.entries(model.pricing).map(([k, v]) => [k, Math.round((v as number < 0 ? 1 : v as number) * 1_000_000 * 100)])) ;
+            if ( ! microcentCosts.request ) {
+                microcentCosts.request = 0;
+            }
             coerced_models.push({
                 id: `openrouter:${model.id}`,
                 name: `${model.name} (OpenRouter)`,
