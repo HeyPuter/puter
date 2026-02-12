@@ -158,8 +158,10 @@ const TabFiles = {
         // Dashboard-compatible item creator for use by helpers.js and socket handlers.
         // Wraps renderItem() with a directory check so items are only added
         // when the user is viewing the relevant directory.
-        window.UIDashboardFileItem = function (file) {
+        window.UIDashboardFileItem = async function (file) {
             if ( ! _this.currentPath ) return;
+            if ( _this.renderingDirectory ) return;
+            if ( _this._creatingItem ) return;
 
             const parentDir = path.dirname(file.path);
             if ( _this.currentPath !== parentDir ) return;
@@ -167,7 +169,7 @@ const TabFiles = {
             // Don't add if item already exists in the view
             if ( $(`.files-tab .files .item[data-uid='${file.uid}']`).length > 0 ) return;
 
-            _this.renderItem(file);
+            await _this.renderItem(file);
 
             // Get the newly appended row (it's always last after renderItem)
             const $newRow = _this.$el_window.find(`.files-tab .files .item[data-uid='${file.uid}']`);
@@ -184,6 +186,7 @@ const TabFiles = {
         };
 
         this.renderingDirectory = false;
+        this._creatingItem = false;
         this.activeMenuFileUid = null;
         this.currentPath = null;
         this.currentPath = null;
@@ -1264,6 +1267,7 @@ const TabFiles = {
             } else {
                 window.move_items(Array.from(selectedRows), window.trash_path);
             }
+            $actions.removeClass('visible');
         });
 
         // Done button (exits select mode on mobile)
@@ -1912,7 +1916,7 @@ const TabFiles = {
         row.setAttribute("data-is_trash", file.is_trash ? "1" : "0");
         row.setAttribute("data-has_website", file.has_website ? "1" : "0");
         row.setAttribute("data-website_url", website_url ? html_encode(website_url) : '');
-        row.setAttribute("data-immutable", file.immutable);
+        row.setAttribute("data-immutable", file.immutable ? "1" : "0");
         row.setAttribute("data-is_shortcut", file.is_shortcut);
         row.setAttribute("data-shortcut_to", html_encode(file.shortcut_to));
         row.setAttribute("data-shortcut_to_path", html_encode(file.shortcut_to_path));
@@ -3187,13 +3191,14 @@ const TabFiles = {
                 const folderItem = newMenuItems.items[0]; // First item is "New Folder"
                 folderItem.onClick = async () => {
                     $('.context-menu').remove();
+                    _this._creatingItem = true;
                     try {
                         const result = await puter.fs.mkdir({
                             path: `${targetPath}/New Folder`,
                             rename: true,
                             overwrite: false,
                         });
-                        await _this.renderDirectory(_this.currentPath);
+                        await _this.renderDirectory(_this.currentPath, { consistency: 'strong' });
                         // Find and select the new folder, then activate rename
                         const newFolderRow = _this.$el_window.find(`.files-tab .row[data-name="${result.name}"]`);
                         if ( newFolderRow.length > 0 ) {
@@ -3202,21 +3207,66 @@ const TabFiles = {
                         }
                     } catch ( err ) {
                         // Folder creation failed silently
+                    } finally {
+                        _this._creatingItem = false;
                     }
                 };
 
-                // Override other file creation items to also refresh the directory
+                // Override other file creation items to intercept create_file,
+                // refresh directory, and activate rename mode
+                const wrapWithDashboardRename = (originalOnClick) => {
+                    return async () => {
+                        $('.context-menu').remove();
+                        _this._creatingItem = true;
+
+                        // Temporarily intercept create_file to capture the upload promise
+                        let uploadPromise = null;
+                        const origCreateFile = window.create_file;
+                        window.create_file = (options) => {
+                            const content = options.content ? [options.content] : [];
+                            uploadPromise = puter.fs.upload(new File(content, options.name), options.dirname);
+                            return uploadPromise;
+                        };
+
+                        try {
+                            await originalOnClick();
+
+                            // For callback-based creation (e.g., canvas.toBlob), wait briefly
+                            if ( ! uploadPromise ) {
+                                await new Promise(resolve => setTimeout(resolve, 200));
+                            }
+
+                            if ( uploadPromise ) {
+                                const result = await uploadPromise;
+                                await _this.renderDirectory(_this.currentPath, { consistency: 'strong' });
+                                const newRow = _this.$el_window.find(`.files-tab .row[data-name="${result.name}"]`);
+                                if ( newRow.length > 0 ) {
+                                    newRow.addClass('selected');
+                                    window.activate_item_name_editor(newRow[0]);
+                                }
+                            }
+                        } catch ( err ) {
+                            // File creation failed silently
+                        } finally {
+                            window.create_file = origCreateFile;
+                            _this._creatingItem = false;
+                        }
+                    };
+                };
+
                 for ( let i = 2; i < newMenuItems.items.length; i++ ) {
                     const item = newMenuItems.items[i];
-                    if ( item && item.onClick && typeof item !== 'string' ) {
-                        const originalItemOnClick = item.onClick;
-                        item.onClick = async () => {
-                            $('.context-menu').remove();
-                            await originalItemOnClick();
-                            setTimeout(() => {
-                                _this.renderDirectory(_this.currentPath);
-                            }, 500);
-                        };
+                    if ( !item || typeof item === 'string' ) continue;
+                    if ( item.onClick ) {
+                        item.onClick = wrapWithDashboardRename(item.onClick);
+                    }
+                    // Handle nested submenu items (user templates)
+                    if ( item.items && Array.isArray(item.items) ) {
+                        for ( const subItem of item.items ) {
+                            if ( subItem && subItem.onClick ) {
+                                subItem.onClick = wrapWithDashboardRename(subItem.onClick);
+                            }
+                        }
                     }
                 }
             }
