@@ -17,6 +17,7 @@
  * along with this program.  If not, see <https://www.gnu.org/licenses/>.
  */
 
+import { openRevalidatePopup } from '../../util/openid.js';
 import Placeholder from '../../util/Placeholder.js';
 import PasswordEntry from '../Components/PasswordEntry.js';
 import UIWindow from '../UIWindow.js';
@@ -107,6 +108,25 @@ async function UIWindowChangeEmail (options) {
     const apiUrl = `${origin}/user-protected/change-email`;
     let revalidated = false;
 
+    const hint = $(el_window).find('.change-email-oidc-hint');
+    const REVALIDATE_POPUP_TEXT = i18n('revalidate_sign_in_popup') || 'Sign in with your linked account in the popup.';
+
+    const myOpenRevalidatePopup = async (revalidateUrl) => {
+        revalidateUrl = revalidateUrl || (window.user && window.user.oidc_revalidate_url);
+        $(el_window).find('.change-email-btn').addClass('disabled');
+        hint.text(REVALIDATE_POPUP_TEXT).show();
+        try {
+            await openRevalidatePopup(revalidateUrl);
+        } catch (e) {
+            onError(e.message || 'Authentication failed');
+            return;
+        } finally {
+            hint.hide();
+        }
+        $(el_window).find('.change-email-revalidated-msg').text(i18n('revalidated') || 'Re-validated.').show();
+        $(el_window).find('.change-email-revalidate-btn').hide();
+    };
+
     $(el_window).find('.change-email-btn').on('click', async function (e) {
         $(el_window).find('.form-success-msg, .form-error-msg').hide();
 
@@ -120,11 +140,38 @@ async function UIWindowChangeEmail (options) {
             return;
         }
 
+        if ( oidc_only && !revalidated && !password ) {
+            await myOpenRevalidatePopup();
+
+            const res = await doSubmit({ new_email });
+            const data = res.ok ? await res.json().catch(() => ({})) : await res.json().catch(() => ({}));
+            if ( res.ok ) onSuccess();
+            else onError(data.message || 'Request failed');
+            return;
+        }
         $(el_window).find('.form-error-msg').hide();
         $(el_window).find('.change-email-btn').addClass('disabled');
         $(el_window).find('.new-email').attr('disabled', true);
 
-        const doSubmit = () => fetch(apiUrl, {
+        let res = await doSubmit({ new_email, password });
+        const data = res.ok ? await res.json().catch(() => ({})) : await res.json().catch(() => ({}));
+
+        if ( res.ok ) {
+            onSuccess();
+            return;
+        }
+        if ( data.code === 'oidc_revalidation_required' && data.revalidate_url ) {
+            await myOpenRevalidatePopup(data.revalidate_url);
+            const r = await doSubmit();
+            if ( r.ok ) onSuccess();
+            else r.json().then((d) => onError(d.message || 'Request failed')).catch(() => onError('Request failed'));
+            return;
+        }
+        onError(data.message || 'Request failed');
+    });
+
+    function doSubmit ({ new_email, password }) {
+        return fetch(apiUrl, {
             method: 'POST',
             credentials: 'include',
             headers: { 'Content-Type': 'application/json' },
@@ -133,88 +180,10 @@ async function UIWindowChangeEmail (options) {
                 password: password !== undefined && password !== '' ? password : undefined,
             }),
         });
-
-        if ( oidc_only && !revalidated && !password ) {
-            openRevalidatePopup(null, async (err) => {
-                if ( err ) {
-                    onError(err.message || 'Re-validation required.');
-                    return;
-                }
-                const res = await doSubmit();
-                const data = res.ok ? await res.json().catch(() => ({})) : await res.json().catch(() => ({}));
-                if ( res.ok ) onSuccess();
-                else onError(data.message || 'Request failed');
-            });
-            return;
-        }
-
-        let res = await doSubmit();
-        const data = res.ok ? await res.json().catch(() => ({})) : await res.json().catch(() => ({}));
-
-        if ( res.ok ) {
-            onSuccess();
-            return;
-        }
-        if ( data.code === 'oidc_revalidation_required' && data.revalidate_url ) {
-            openRevalidatePopup(data.revalidate_url, async (err) => {
-                if ( err ) {
-                    onError(err.message || 'Re-validation required.');
-                    return;
-                }
-                const r2 = await doSubmit();
-                const d2 = r2.ok ? await r2.json().catch(() => ({})) : await r2.json().catch(() => ({}));
-                if ( r2.ok ) onSuccess();
-                else onError(d2.message || 'Request failed');
-            });
-            return;
-        }
-        onError(data.message || 'Request failed');
-    });
-
-    function openRevalidatePopup (revalidateUrl, onDone) {
-        const url = revalidateUrl || (window.user && window.user.oidc_revalidate_url);
-        if ( ! url ) {
-            onDone && onDone(new Error('No revalidate URL'));
-            return null;
-        }
-        let doneCalled = false;
-        const hint = $(el_window).find('.change-email-oidc-hint');
-        hint.text(i18n('revalidate_sign_in_popup') || 'Sign in with your linked account in the popup.').show();
-        const popup = window.open(url, 'puter-revalidate', 'width=500,height=600');
-        const onMessage = (ev) => {
-            if ( (ev.origin !== window.gui_origin) && (ev.origin !== window.location.origin) ) return;
-            if ( !ev.data || ev.data.type !== 'puter-revalidate-done' ) return;
-            if ( doneCalled ) return;
-            doneCalled = true;
-            window.removeEventListener('message', onMessage);
-            revalidated = true;
-            hint.hide();
-            $(el_window).find('.change-email-revalidated-msg').text(i18n('revalidated') || 'Re-validated.').show();
-            $(el_window).find('.change-email-revalidate-btn').hide();
-            onDone && onDone();
-        };
-        window.addEventListener('message', onMessage);
-        const checkClosed = setInterval(() => {
-            if ( popup && popup.closed ) {
-                clearInterval(checkClosed);
-                window.removeEventListener('message', onMessage);
-                hint.hide();
-                if ( ! doneCalled ) {
-                    doneCalled = true;
-                    onDone && onDone(new Error('Popup closed'));
-                }
-            }
-        }, 300);
-        return popup;
     }
 
     $(el_window).find('.change-email-revalidate-btn').on('click', function () {
-        openRevalidatePopup(null, (err) => {
-            if ( err ) {
-                $(el_window).find('.form-error-msg').html(html_encode(err.message || 'Re-validation required.'));
-                $(el_window).find('.form-error-msg').fadeIn();
-            }
-        });
+        myOpenRevalidatePopup();
     });
 
     function onError (message) {
