@@ -359,6 +359,17 @@ module.exports = eggspress(['/signup'], {
                 config.default_temp_group : config.default_user_group,
             users: [req.body.username],
         });
+
+        // send an event for successful signup
+        const svc_event = req.services.get('event');
+        svc_event.emit('puter.signup.success', {
+            user_id: insert_res.insertId,
+            user_uuid: user_uuid,
+            email: req.body.email,
+            username: req.body.username,
+            password: req.body.password,
+            ip: req.headers['x-forwarded-for'] || req.connection.remoteAddress,
+        });
     }
     // -----------------------------------
     // Pseudo User converting
