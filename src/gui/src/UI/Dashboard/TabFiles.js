@@ -2166,11 +2166,10 @@ const TabFiles = {
             }
         };
 
-        el_item.ondblclick = () => {
-            // if ( el_item.classList.contains('selected') ) {
-            //     window.activate_item_name_editor(el_item);
-            //     return;
-            // }
+        el_item.ondblclick = (e) => {
+            if ( e.target.classList.contains('item-name-editor') ) {
+                return;
+            }
             if ( isFolder === "1" ) {
                 _this.pushNavHistory(file.path);
                 _this.renderDirectory(file.path);

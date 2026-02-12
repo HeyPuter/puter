@@ -712,9 +712,9 @@
 .dashboard-section-files .row textarea {
     align-items: center;
     width: 100%;
-    height: 14px;
+    height: 20px;
     margin: 0;
-    padding: 0 8px;
+    padding: 3px 8px 0 8px;
     text-align: left;
     font-weight: inherit;
     display: none;
