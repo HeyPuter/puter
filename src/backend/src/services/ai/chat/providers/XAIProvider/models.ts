@@ -129,6 +129,8 @@ export const XAI_MODELS: IChatModel[] = [
             tokens: 1_000_000,
             prompt_tokens: 60,
             completion_tokens: 400,
+            // https://www.oracle.com/artificial-intelligence/generative-ai/generative-ai-service/pricing/ is the only place I could find this??
+            cached_tokens: 15,
         },
         max_tokens: 131072,
     },
