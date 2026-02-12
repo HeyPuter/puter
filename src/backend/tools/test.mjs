@@ -23,7 +23,6 @@ import { RuntimeModuleRegistry } from '../src/extension/RuntimeModuleRegistry.js
 import { Kernel } from '../src/Kernel.js';
 import { Core2Module } from '../src/modules/core/Core2Module.js';
 import { Container } from '../src/services/Container.js';
-import { HTTPThumbnailService } from '../src/services/thumbnails/HTTPThumbnailService.js';
 import { consoleLogManager } from '../src/util/consolelog.js';
 import { Context } from '../src/util/context.js';
 import { TestCoreModule } from '../src/modules/test-core/TestCoreModule.js';
@@ -193,12 +192,6 @@ const main = async () => {
     for ( const mod of EssentialModules ) {
         k.add_module(new mod());
     }
-    k.add_module({
-        install: async (context) => {
-            const services = context.get('services');
-            services.registerService('thumbs-http', HTTPThumbnailService);
-        },
-    });
     k.boot();
     console.log('awaiting services ready');
     await k.services.ready;
