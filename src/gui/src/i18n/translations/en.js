@@ -168,6 +168,7 @@ const en = {
         item: 'item',
         items_in_trash_cannot_be_renamed: 'This item can\'t be renamed because it\'s in the trash. To rename this item, first drag it out of the Trash.',
         jpeg_image: 'JPEG image',
+        add_to_desktop: 'Add to Desktop',
         keep_in_taskbar: 'Keep in Taskbar',
         language: 'Language',
         license: 'License',

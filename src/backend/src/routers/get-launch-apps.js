@@ -24,13 +24,13 @@ import { DB_READ } from '../services/database/consts.js';
 const iconify_apps = async (context, { apps, size }) => {
     return await Promise.all(apps.map(async app => {
         const svc_appIcon = context.services.get('app-icon');
-        const icon_result = await svc_appIcon.get_icon_stream({
-            app_icon: app.icon,
-            app_uid: app.uid ?? app.uuid,
-            size: size,
+        const iconResult = await svc_appIcon.getIconStream({
+            appIcon: app.icon,
+            appUid: app.uid ?? app.uuid,
+            size,
         });
 
-        app.icon = await icon_result.get_data_url();
+        app.icon = await iconResult.get_data_url();
         return app;
     }));
 };

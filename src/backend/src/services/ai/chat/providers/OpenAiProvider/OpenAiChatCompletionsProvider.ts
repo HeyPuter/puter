@@ -172,12 +172,12 @@ export class OpenAiChatProvider implements IChatProvider {
 
                 delete task.contentPart.puter_path;
                 if ( mimeType && mimeType.startsWith('image/') ) {
-                    task.contentPart.type = 'image_url',
+                    task.contentPart.type = 'image_url';
                     task.contentPart.image_url = {
                         url: `data:${mimeType};base64,${base64}`,
                     };
                 } else if ( mimeType && mimeType.startsWith('audio/') ) {
-                    task.contentPart.type = 'input_audio',
+                    task.contentPart.type = 'input_audio';
                     task.contentPart.input_audio = {
                         data: `data:${mimeType};base64,${base64}`,
                         format: mimeType.split('/')[1],
@@ -231,7 +231,7 @@ export class OpenAiChatProvider implements IChatProvider {
                 };
 
                 const costsOverrideFromModel = Object.fromEntries(Object.entries(trackedUsage).map(([k, v]) => {
-                    return [k, v * (modelUsed.costs[k] || 0)];
+                    return [k, v * (modelUsed.costs[k])];
                 }));
 
                 this.#meteringService.utilRecordUsageObject(trackedUsage, actor, `openai:${modelUsed?.id}`, costsOverrideFromModel);

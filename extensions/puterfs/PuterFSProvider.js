@@ -40,9 +40,6 @@ const svc_acl = extension.import('service:acl');
 const svc_size = extension.import('service:sizeService');
 const svc_resource = extension.import('service:resourceService');
 
-// Not sure where these really belong yet
-const svc_fileCache = extension.import('service:file-cache');
-
 // TODO: depending on mountpoint service will not be necessary
 //       once the storage provider is moved to this extension
 const svc_mountpoint = extension.import('service:mountpoint');
@@ -648,12 +645,12 @@ export default class PuterFSProvider {
 
     async directory_has_name ({ parent, name }) {
         const uid = await parent.get('uid');
-        /* eslint-disable */
+
         let check_dupe = await db.read(
             'SELECT `id` FROM `fsentries` WHERE `parent_uid` = ? AND name = ? LIMIT 1',
             [uid, name],
         );
-        /* eslint-enable */
+
         return !!check_dupe[0];
     }
 
@@ -847,12 +844,8 @@ export default class PuterFSProvider {
             svc_resource.free(uid);
         })();
 
-        const cachePromise = (async () => {
-            await svc_fileCache.invalidate(node);
-        })();
-
         (async () => {
-            await Promise.all([entryOpPromise, cachePromise]);
+            await entryOpPromise;
             svc_event.emit('fs.write.file', {
                 node,
                 context,
@@ -865,8 +858,6 @@ export default class PuterFSProvider {
         state_upload.post_insert({
             db, user: actor.type.user, node, uid, message, ts,
         });
-
-        await cachePromise;
 
         return node;
     }

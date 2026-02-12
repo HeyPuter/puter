@@ -18,12 +18,10 @@
  */
 const APIError = require('../../api/APIError');
 const { get_user } = require('../../helpers');
-const { MemoryFSProvider } = require('../../modules/puterfs/customfs/MemoryFSProvider');
 const { UserActorType } = require('../../services/auth/Actor');
 const { Actor } = require('../../services/auth/Actor');
 const { DB_WRITE } = require('../../services/database/consts');
 const { Context } = require('../../util/context');
-const { buffer_to_stream } = require('../../util/streamutil');
 const { TYPE_SYMLINK, TYPE_DIRECTORY } = require('../FSNodeContext');
 const { LLFilesystemOperation } = require('./definitions');
 
@@ -48,7 +46,6 @@ class LLRead extends LLFilesystemOperation {
         const aclService = Context.get('services').get('acl');
         const db = Context.get('services')
             .get('database').get(DB_WRITE, 'filesystem');
-        const fileCacheService = Context.get('services').get('file-cache');
 
         // validate input
         if ( ! await fsNode.exists() ) {
@@ -96,20 +93,6 @@ class LLRead extends LLFilesystemOperation {
 
         /** @type {import("../../services/MeteringService/MeteringService").MeteringService} */
         const meteringService = Context.get('services').get('meteringService').meteringService;
-        // check file cache
-        const maybe_buffer = await fileCacheService.try_get(fsNode); // TODO DS: do we need those cache hit logs?
-        if ( maybe_buffer ) {
-            // Meter cached egress
-            // return cached stream
-            if ( has_range && (length || offset) ) {
-                meteringService.incrementUsage(chargedActor, 'filesystem:cached-egress:bytes', length);
-                return buffer_to_stream(maybe_buffer.slice(offset, offset + length));
-            }
-            meteringService.incrementUsage(chargedActor, 'filesystem:cached-egress:bytes', await fsNode.get('size'));
-            return buffer_to_stream(maybe_buffer);
-        }
-
-        // if no cache attempt reading from storageProvider (s3)
         const svc_mountpoint = Context.get('services').get('mountpoint');
         const provider = await svc_mountpoint.get_provider(fsNode.selector);
         // const storage = svc_mountpoint.get_storage(provider.constructor.name);
@@ -156,17 +139,6 @@ class LLRead extends LLFilesystemOperation {
         })();
         meteringService.incrementUsage(chargedActor, 'filesystem:egress:bytes', size);
 
-        // cache if whole file read
-        if ( ! has_range ) {
-            // only cache for non-memoryfs providers
-            if ( ! (fsNode.provider instanceof MemoryFSProvider) ) {
-                const res = await fileCacheService.maybe_store(fsNode, stream);
-                if ( res.stream ) {
-                    // return with split cached stream
-                    return res.stream;
-                }
-            }
-        }
         return stream;
     }
 }

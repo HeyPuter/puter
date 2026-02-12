@@ -30,6 +30,12 @@ type GeminiGenerateParams = IGenerateParams & {
     input_image_mime_type?: string;
 };
 
+interface GeminiUsageMetadata {
+    promptTokenCount: number;
+    candidatesTokenCount: number;
+    thoughtsTokenCount: number;
+}
+
 export class GeminiImageGenerationProvider implements IImageProvider {
     #meteringService: MeteringService;
     #client: GoogleGenAI;
@@ -85,7 +91,8 @@ export class GeminiImageGenerationProvider implements IImageProvider {
         const priceKey = `${quality ? `${quality}:` : ''}${ratio.w}x${ratio.h}`;
         const priceInCents = selectedModel.costs[priceKey];
         if ( priceInCents === undefined ) {
-            const availableSizes = Object.keys(selectedModel.costs);
+            const availableSizes = Object.keys(selectedModel.costs)
+                .filter(key => key !== 'input' && key !== 'output');
             throw APIError.create('field_invalid', undefined, {
                 key: 'size/quality combination',
                 expected: `one of: ${ availableSizes.join(', ')}`,
@@ -103,8 +110,11 @@ export class GeminiImageGenerationProvider implements IImageProvider {
             });
         }
 
-        const costInMicroCents = priceInCents * 1_000_000;
-        const usageAllowed = await this.#meteringService.hasEnoughCredits(actor, costInMicroCents);
+        const estimatedPromptTokenCount = this.#estimatePromptTokenCount(prompt);
+        const estimatedInputCostInCents = this.#calculateTokenCostInCents(estimatedPromptTokenCount, selectedModel.costs.input);
+        const estimatedOutputCostInCents = priceInCents;
+        const estimatedTotalCostInMicroCents = this.#toMicroCents(estimatedInputCostInCents + estimatedOutputCostInCents);
+        const usageAllowed = await this.#meteringService.hasEnoughCredits(actor, estimatedTotalCostInMicroCents);
 
         if ( ! usageAllowed ) {
             throw APIError.create('insufficient_funds');
@@ -116,8 +126,37 @@ export class GeminiImageGenerationProvider implements IImageProvider {
             contents,
         });
 
-        const usageType = `gemini:${selectedModel.id}:${priceKey}`;
-        this.#meteringService.incrementUsage(actor, usageType, 1, costInMicroCents);
+        const usage = this.#extractUsageMetadata(response);
+        const inputTokenCount = usage.promptTokenCount || estimatedPromptTokenCount;
+        const outputTokenCount = usage.candidatesTokenCount + usage.thoughtsTokenCount;
+
+        const inputCostInCents = this.#calculateTokenCostInCents(inputTokenCount, selectedModel.costs.input);
+        const outputTextCostInCents = this.#calculateTokenCostInCents(outputTokenCount, selectedModel.costs.output);
+        const outputCostInCents = priceInCents + outputTextCostInCents;
+
+        const usagePrefix = `gemini:${selectedModel.id}:${priceKey}`;
+        this.#meteringService.batchIncrementUsages(actor, [
+            {
+                usageType: `${usagePrefix}:input`,
+                usageAmount: Math.max(inputTokenCount, 1),
+                costOverride: this.#toMicroCents(inputCostInCents),
+            },
+            {
+                usageType: `${usagePrefix}:output`,
+                usageAmount: Math.max(outputTokenCount, 1),
+                costOverride: this.#toMicroCents(outputCostInCents),
+            },
+        ]);
+
+        this.#setResponseCostMetadata({
+            model: selectedModel.id,
+            quality,
+            ratio,
+            inputCostInCents,
+            outputCostInCents,
+            inputTokenCount,
+            outputTokenCount,
+        });
 
         const url = this.#extractImageUrl(response);
 
@@ -142,6 +181,81 @@ export class GeminiImageGenerationProvider implements IImageProvider {
         }
 
         return `Generate a picture of dimensions ${parseInt(`${ratio.w}`)}x${parseInt(`${ratio.h}`)} with the prompt: ${prompt}`;
+    }
+
+    #setResponseCostMetadata ({
+        model,
+        quality,
+        ratio,
+        inputCostInCents,
+        outputCostInCents,
+        inputTokenCount,
+        outputTokenCount,
+    }: {
+        model: string;
+        quality?: string;
+        ratio: { w: number; h: number };
+        inputCostInCents: number;
+        outputCostInCents: number;
+        inputTokenCount: number;
+        outputTokenCount: number;
+    }) {
+        const clientDriverCall = Context.get('client_driver_call') as { response_metadata?: Record<string, unknown> } | undefined;
+        const responseMetadata = clientDriverCall?.response_metadata;
+        if ( ! responseMetadata ) return;
+
+        const totalCostInCents = inputCostInCents + outputCostInCents;
+        responseMetadata.cost = {
+            currency: 'usd-cents',
+            input: inputCostInCents,
+            output: outputCostInCents,
+            total: totalCostInCents,
+        };
+        responseMetadata.cost_components = {
+            provider: 'gemini-image-generation',
+            model,
+            quality,
+            ratio: `${ratio.w}x${ratio.h}`,
+            input_tokens: inputTokenCount,
+            output_tokens: outputTokenCount,
+            input_microcents: this.#toMicroCents(inputCostInCents),
+            output_microcents: this.#toMicroCents(outputCostInCents),
+            total_microcents: this.#toMicroCents(totalCostInCents),
+        };
+    }
+
+    #extractUsageMetadata (response: GenerateContentResponse): GeminiUsageMetadata {
+        const usage = (response as GenerateContentResponse & { usageMetadata?: Record<string, unknown> }).usageMetadata;
+        return {
+            promptTokenCount: this.#toSafeCount(usage?.promptTokenCount),
+            candidatesTokenCount: this.#toSafeCount(usage?.candidatesTokenCount),
+            thoughtsTokenCount: this.#toSafeCount(usage?.thoughtsTokenCount),
+        };
+    }
+
+    #estimatePromptTokenCount (prompt: string): number {
+        const text = prompt.trim();
+        if ( text.length === 0 ) return 0;
+
+        // Same approximation used by chat billing flow.
+        return Math.max(1, Math.floor(((text.length / 4) + (text.split(/\s+/).length * (4 / 3))) / 2));
+    }
+
+    #calculateTokenCostInCents (tokenCount: number, centsPerMillion?: number): number {
+        if ( !Number.isFinite(tokenCount) || tokenCount <= 0 ) return 0;
+        if ( !Number.isFinite(centsPerMillion) || (centsPerMillion ?? 0) <= 0 ) return 0;
+
+        return (tokenCount / 1_000_000) * (centsPerMillion as number);
+    }
+
+    #toMicroCents (cents: number): number {
+        if ( !Number.isFinite(cents) || cents <= 0 ) return 1;
+        return Math.ceil(cents * 1_000_000);
+    }
+
+    #toSafeCount (value: unknown): number {
+        if ( typeof value !== 'number' || !Number.isFinite(value) || value < 0 ) return 0;
+        return Math.floor(value);
     }
 
     #extractImageUrl (response: GenerateContentResponse): string | undefined {

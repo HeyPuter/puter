@@ -178,7 +178,9 @@ class AppES extends BaseES {
                 };
                 await svc_event.emit('app.new-icon', event);
                 if ( event.url ) {
-                    await entity.set('icon');
+                    await this.db.write('UPDATE apps SET icon = ? WHERE id = ? LIMIT 1',
+                                    [event.url, insert_id]);
+                    await entity.set('icon', event.url);
                 }
             }
 
@@ -238,6 +240,46 @@ class AppES extends BaseES {
             return await recurse(predicate);
         },
 
+        async queueIconMigration (entity) {
+            if ( ! this.pending_icon_migrations_ ) {
+                this.pending_icon_migrations_ = new Set();
+            }
+
+            const migration_key = entity.private_meta?.mysql_id ?? Symbol('app-icon-migration');
+            if ( this.pending_icon_migrations_.has(migration_key) ) {
+                return;
+            }
+            this.pending_icon_migrations_.add(migration_key);
+
+            Promise.resolve().then(async () => {
+                const icon = await entity.get('icon');
+                if ( typeof icon !== 'string' || !icon.startsWith('data:') ) {
+                    return;
+                }
+
+                const app_uid = await entity.get('uid');
+                if ( ! app_uid ) {
+                    return;
+                }
+
+                const svc_event = this.context.get('services').get('event');
+                const event = {
+                    app_uid,
+                    data_url: icon,
+                };
+                await svc_event.emit('app.new-icon', event);
+                if ( ! event.url ) return;
+
+                await this.db.write('UPDATE apps SET icon = ? WHERE uid = ? LIMIT 1',
+                                [event.url, app_uid]);
+            }).catch(e => {
+                const svc_error = this.context.get('services').get('error-service');
+                svc_error.report('AppES:queue_icon_migration', { source: e });
+            }).finally(() => {
+                this.pending_icon_migrations_.delete(migration_key);
+            });
+        },
+
         /**
          * Transforms app data before reading by adding associations and handling permissions
          * @param {Object} entity - App entity to transform
@@ -251,6 +293,9 @@ class AppES extends BaseES {
             const svc_appInformation = this.context.get('services').get('app-information');
             const stats = await svc_appInformation.get_stats(await entity.get('uid'), { period: Context.get('es_params')?.stats_period, grouping: Context.get('es_params')?.stats_grouping, created_at: await entity.get('created_at') });
             entity.set('stats', stats);
+
+            // Migrate b64 icons to the filesystem-backed icon flow without blocking reads.
+            this.queueIconMigration(entity);
 
             entity.set('created_from_origin', await (async () => {
                 const svc_auth = this.context.get('services').get('auth');
@@ -291,12 +336,12 @@ class AppES extends BaseES {
             if ( icon_size ) {
                 const svc_appIcon = this.context.get('services').get('app-icon');
                 try {
-                    const icon_result = await svc_appIcon.get_icon_stream({
-                        app_uid: await entity.get('uid'),
-                        app_icon: await entity.get('icon'),
+                    const iconResult = await svc_appIcon.getIconStream({
+                        appUid: await entity.get('uid'),
+                        appIcon: await entity.get('icon'),
                         size: icon_size,
                     });
-                    await entity.set('icon', await icon_result.get_data_url());
+                    await entity.set('icon', await iconResult.get_data_url());
                 } catch (e) {
                     const svc_error = this.context.get('services').get('error-service');
                     svc_error.report('AppES:read_transform', { source: e });

@@ -119,9 +119,6 @@ const install = async ({ context, services, app, useapi, modapi }) => {
     // TODO: move these to top level imports or await imports and esm this file
 
     const { CommandService } = require('./services/CommandService');
-    const { HTTPThumbnailService } = require('./services/thumbnails/HTTPThumbnailService');
-    const { PureJSThumbnailService } = require('./services/thumbnails/PureJSThumbnailService');
-    const { NAPIThumbnailService } = require('./services/thumbnails/NAPIThumbnailService');
     const { RateLimitService } = require('./services/sla/RateLimitService');
     const { AuthService } = require('./services/auth/AuthService');
     const { SLAService } = require('./services/sla/SLAService');
@@ -151,7 +148,6 @@ const install = async ({ context, services, app, useapi, modapi }) => {
     const { MakeProdDebuggingLessAwfulService } = require('./services/MakeProdDebuggingLessAwfulService');
     const { ConfigurableCountingService } = require('./services/ConfigurableCountingService');
     const { FSLockService } = require('./services/fs/FSLockService');
-    const { StrategizedService } = require('./services/StrategizedService');
     const FilesystemAPIService = require('./services/FilesystemAPIService');
     const ServeGUIService = require('./services/ServeGUIService');
     const PuterAPIService = require('./services/PuterAPIService');
@@ -247,15 +243,6 @@ const install = async ({ context, services, app, useapi, modapi }) => {
     services.registerService('identification', IdentificationService);
     services.registerService('auth-audit', AuthAuditService);
     services.registerService('counting', ConfigurableCountingService);
-    services.registerService('thumbnails', StrategizedService, {
-        strategy_key: 'engine',
-        default_strategy: 'purejs',
-        strategies: {
-            napi: [NAPIThumbnailService],
-            purejs: [PureJSThumbnailService],
-            http: [HTTPThumbnailService],
-        },
-    });
     services.registerService('__refresh-assocs', RefreshAssociationsService);
     services.registerService('__prod-debugging', MakeProdDebuggingLessAwfulService);
     const { EventService } = require('./services/EventService');
@@ -388,8 +375,6 @@ const install = async ({ context, services, app, useapi, modapi }) => {
     const { PermissionShortcutService } = require('./services/auth/PermissionShortcutService');
     services.registerService('permission-shortcut', PermissionShortcutService);
 
-    const { FileCacheService } = require('./services/file-cache/FileCacheService');
-    services.registerService('file-cache', FileCacheService);
 };
 
 const install_legacy = async ({ services }) => {

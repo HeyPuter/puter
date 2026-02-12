@@ -10,15 +10,24 @@ export const OPEN_AI_IMAGE_GENERATION_MODELS: IImageModel[] = [
         costs_currency: 'usd-cents',
         index_cost_key: 'low:1024x1024',
         costs: {
+            // Text tokens (per 1M tokens)
+            text_input: 500, // $5.00
+            text_cached_input: 125, // $1.25
+            text_output: 1000, // $10.00
+            // Image tokens (per 1M tokens)
+            image_input: 800, // $8.00
+            image_cached_input: 200, // $2.00
+            image_output: 3200, // $32.00
+            // Image generation (per image)
             'low:1024x1024': 0.9,
             'low:1024x1536': 1.3,
             'low:1536x1024': 1.3,
             'medium:1024x1024': 3.4,
-            'medium:1024x1536': 5.1,
+            'medium:1024x1536': 5,
             'medium:1536x1024': 5,
             'high:1024x1024': 13.3,
             'high:1024x1536': 20,
-            'high:1536x1024': 19.9,
+            'high:1536x1024': 20,
         },
         allowedQualityLevels: ['low', 'medium', 'high'],
         allowedRatios: [{ w: 1024, h: 1024 }, { w: 1024, h: 1536 }, { w: 1536, h: 1024 }],
@@ -32,6 +41,14 @@ export const OPEN_AI_IMAGE_GENERATION_MODELS: IImageModel[] = [
         costs_currency: 'usd-cents',
         index_cost_key: 'low:1024x1024',
         costs: {
+            // Text tokens (per 1M tokens)
+            text_input: 200, // $2.00
+            text_cached_input: 20, // $0.20
+            // Image tokens (per 1M tokens)
+            image_input: 250, // $2.50
+            image_cached_input: 25, // $0.25
+            image_output: 800, // $8.00
+            // Image generation (per image)
             'low:1024x1024': 0.5,
             'low:1024x1536': 0.6,
             'low:1536x1024': 0.6,
@@ -54,6 +71,14 @@ export const OPEN_AI_IMAGE_GENERATION_MODELS: IImageModel[] = [
         costs_currency: 'usd-cents',
         index_cost_key: 'low:1024x1024',
         costs: {
+            // Text tokens (per 1M tokens)
+            text_input: 500, // $5.00
+            text_cached_input: 125, // $1.25
+            // Image tokens (per 1M tokens)
+            image_input: 1000, // $10.00
+            image_cached_input: 250, // $2.50
+            image_output: 4000, // $40.00
+            // Image generation (per image)
             'low:1024x1024': 1.1,
             'low:1024x1536': 1.6,
             'low:1536x1024': 1.6,
@@ -99,6 +124,6 @@ export const OPEN_AI_IMAGE_GENERATION_MODELS: IImageModel[] = [
             '512x512': 1.8,
             '1024x1024': 2,
         },
-        allowedRatios: [ { w: 256, h: 256 }, { w: 512, h: 512 }, { w: 1024, h: 1024 }],
+        allowedRatios: [{ w: 256, h: 256 }, { w: 512, h: 512 }, { w: 1024, h: 1024 }],
     },
 ];

@@ -1,9 +1,15 @@
 import { IChatModel } from '../types';
 
+// Hardcoded from https://models.dev/api.json
 export const MISTRAL_MODELS: IChatModel[] = [
     {
         puterId: 'mistralai:mistralai/mistral-medium-2508',
         id: 'mistral-medium-2508',
+        modalities: { 'input': ['text', 'image'], 'output': ['text'] },
+        open_weights: false,
+        tool_call: true,
+        knowledge: '2025-05',
+        release_date: '2025-08-12',
         name: 'mistral-medium-2508',
         aliases: [
             'mistral-medium-latest',
@@ -25,6 +31,11 @@ export const MISTRAL_MODELS: IChatModel[] = [
     {
         puterId: 'mistralai:mistralai/open-mistral-7b',
         id: 'open-mistral-7b',
+        modalities: { 'input': ['text'], 'output': ['text'] },
+        open_weights: true,
+        tool_call: true,
+        knowledge: '2023-12',
+        release_date: '2023-09-27',
         name: 'open-mistral-7b',
         aliases: [
             'mistral-tiny',
@@ -46,6 +57,11 @@ export const MISTRAL_MODELS: IChatModel[] = [
     {
         puterId: 'mistralai:mistralai/open-mistral-nemo',
         id: 'open-mistral-nemo',
+        modalities: { 'input': ['text'], 'output': ['text'] },
+        open_weights: true,
+        tool_call: true,
+        knowledge: '2024-07',
+        release_date: '2024-07-01',
         name: 'open-mistral-nemo',
         aliases: [
             'open-mistral-nemo-2407',
@@ -68,6 +84,11 @@ export const MISTRAL_MODELS: IChatModel[] = [
     {
         puterId: 'mistralai:mistralai/pixtral-large-2411',
         id: 'pixtral-large-2411',
+        modalities: { 'input': ['text', 'image'], 'output': ['text'] },
+        open_weights: true,
+        tool_call: true,
+        knowledge: '2024-11',
+        release_date: '2024-11-01',
         name: 'pixtral-large-2411',
         aliases: [
             'pixtral-large-latest',
@@ -89,6 +110,11 @@ export const MISTRAL_MODELS: IChatModel[] = [
     {
         puterId: 'mistralai:mistralai/codestral-2508',
         id: 'codestral-2508',
+        modalities: { 'input': ['text'], 'output': ['text'] },
+        open_weights: true,
+        tool_call: true,
+        knowledge: '2024-10',
+        release_date: '2024-05-29',
         name: 'codestral-2508',
         aliases: [
             'codestral-latest',
@@ -109,6 +135,11 @@ export const MISTRAL_MODELS: IChatModel[] = [
     {
         puterId: 'mistralai:mistralai/devstral-small-2507',
         id: 'devstral-small-2507',
+        modalities: { 'input': ['text'], 'output': ['text'] },
+        open_weights: true,
+        tool_call: true,
+        knowledge: '2025-05',
+        release_date: '2025-07-10',
         name: 'devstral-small-2507',
         aliases: [
             'devstral-small-latest',
@@ -130,6 +161,11 @@ export const MISTRAL_MODELS: IChatModel[] = [
     {
         puterId: 'mistralai:mistralai/devstral-medium-2507',
         id: 'devstral-medium-2507',
+        modalities: { 'input': ['text'], 'output': ['text'] },
+        open_weights: true,
+        tool_call: true,
+        knowledge: '2025-05',
+        release_date: '2025-07-10',
         name: 'devstral-medium-2507',
         aliases: [
             'devstral-medium-latest',
@@ -151,6 +187,11 @@ export const MISTRAL_MODELS: IChatModel[] = [
     {
         puterId: 'mistralai:mistralai/mistral-small-2506',
         id: 'mistral-small-2506',
+        modalities: { 'input': ['text', 'image'], 'output': ['text'] },
+        open_weights: true,
+        tool_call: true,
+        knowledge: '2025-03',
+        release_date: '2025-06-20',
         name: 'mistral-small-2506',
         aliases: [
             'mistral-small-latest',
@@ -171,6 +212,11 @@ export const MISTRAL_MODELS: IChatModel[] = [
     {
         puterId: 'mistralai:mistralai/magistral-medium-2509',
         id: 'magistral-medium-2509',
+        modalities: { 'input': ['text'], 'output': ['text'] },
+        open_weights: true,
+        tool_call: true,
+        knowledge: '2025-06',
+        release_date: '2025-03-17',
         name: 'magistral-medium-2509',
         aliases: [
             'magistral-medium-latest',
@@ -191,6 +237,11 @@ export const MISTRAL_MODELS: IChatModel[] = [
     {
         puterId: 'mistralai:mistralai/magistral-small-2509',
         id: 'magistral-small-2509',
+        modalities: { 'input': ['text'], 'output': ['text'] },
+        open_weights: true,
+        tool_call: true,
+        knowledge: '2025-06',
+        release_date: '2025-03-17',
         name: 'magistral-small-2509',
         aliases: [
             'magistral-small-latest',
@@ -251,6 +302,11 @@ export const MISTRAL_MODELS: IChatModel[] = [
     {
         puterId: 'mistralai:mistralai/mistral-large-2512',
         id: 'mistral-large-latest',
+        modalities: { 'input': ['text', 'image'], 'output': ['text'] },
+        open_weights: true,
+        tool_call: true,
+        knowledge: '2024-11',
+        release_date: '2024-11-01',
         name: 'mistral-large-2512',
         aliases: [
             'mistral-large-2512',
@@ -271,6 +327,11 @@ export const MISTRAL_MODELS: IChatModel[] = [
     {
         puterId: 'mistralai:mistralai/ministral-3b-2512',
         id: 'ministral-3b-2512',
+        modalities: { 'input': ['text'], 'output': ['text'] },
+        open_weights: true,
+        tool_call: true,
+        knowledge: '2024-10',
+        release_date: '2024-10-01',
         name: 'ministral-3b-2512',
         aliases: [
             'ministral-3b-latest',
@@ -291,6 +352,11 @@ export const MISTRAL_MODELS: IChatModel[] = [
     {
         puterId: 'mistralai:mistralai/ministral-8b-2512',
         id: 'ministral-8b-2512',
+        modalities: { 'input': ['text'], 'output': ['text'] },
+        open_weights: true,
+        tool_call: true,
+        knowledge: '2024-10',
+        release_date: '2024-10-01',
         name: 'ministral-8b-2512',
         aliases: [
             'ministral-8b-latest',
