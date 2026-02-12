@@ -228,7 +228,9 @@ export class AppIconService extends BaseService {
             return this.appIconsBaseUrl;
         }
 
-        this.appIconsBaseUrl = `https://${APP_ICONS_SUBDOMAIN}.${host}`;
+        const protocol = config.protocol || 'https';
+
+        this.appIconsBaseUrl = `${protocol}://${APP_ICONS_SUBDOMAIN}.${host}`;
         return this.appIconsBaseUrl;
     }
 
