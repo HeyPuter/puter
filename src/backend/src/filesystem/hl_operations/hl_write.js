@@ -24,7 +24,7 @@ const UserParam = require('../../api/filesystem/UserParam');
 const config = require('../../config');
 const { chkperm, validate_fsentry_name } = require('../../helpers');
 const { TeePromise } = require('@heyputer/putility').libs.promise;
-const { pausing_tee, offset_write_stream, stream_to_the_void } = require('../../util/streamutil');
+const { offset_write_stream } = require('../../util/streamutil');
 const { TYPE_DIRECTORY } = require('../FSNodeContext');
 const { LLRead } = require('../ll_operations/ll_read');
 const { RootNodeSelector, NodePathSelector } = require('../node/selectors');
@@ -100,7 +100,7 @@ class HLWrite extends HLFilesystemOperation {
         - create missing parent directories
         - overwrite existing files
         - deduplicate files with the same name
-        // - create thumbnails; this will happen in low-level operation for now
+        - accept client-provided thumbnails
         - create shortcuts
     `;
 
@@ -136,7 +136,6 @@ class HLWrite extends HLFilesystemOperation {
 
     static MODULES = {
         _path: require('path'),
-        mime: require('mime-types'),
     };
 
     async _run () {
@@ -318,58 +317,13 @@ class HLWrite extends HLFilesystemOperation {
         this.checkpoint('before thumbnail');
 
         let thumbnail_promise = new TeePromise();
-        if ( await parent.isAppDataDirectory() || values.no_thumbnail ) {
+        if ( await parent.isAppDataDirectory() || values.no_thumbnail || !values.thumbnail ) {
             thumbnail_promise.resolve(undefined);
-        } else if ( values.thumbnail ) {
-            // Use the thumbnail provided by the client (base64 string)
-            thumbnail_promise.resolve(values.thumbnail);
         } else {
-            (async () => {
-                const reason = await (async () => {
-                    const { mime } = this.modules;
-                    const thumbnails = context.get('services').get('thumbnails');
-
-                    const content_type = mime.contentType(target_name);
-                    this.log.debug('CONTENT TYPE', content_type);
-                    if ( ! content_type ) return 'no content type';
-                    if ( ! thumbnails.is_supported_mimetype(content_type) ) return 'unsupported content type';
-                    if ( ! thumbnails.is_supported_size(values.file.size) ) return 'too large';
-
-                    // Create file object for thumbnail by either using an existing
-                    // buffer (ex: /download endpoint) or by forking a stream
-                    // (ex: /write and /batch endpoints).
-                    const thumb_file = (() => {
-                        if ( values.file.buffer ) return values.file;
-
-                        const [replace_stream, thumbnail_stream] =
-                            pausing_tee(values.file.stream, 2);
-
-                        values.file.stream = replace_stream;
-                        return { ...values.file, stream: thumbnail_stream };
-                    })();
-
-                    let thumbnail;
-                    try {
-                        thumbnail = await thumbnails.thumbify(thumb_file);
-                    } catch (e) {
-                        stream_to_the_void(thumb_file.stream);
-                        return `thumbnail error: ${ e.message}`;
-                    }
-
-                    const thumbnailData = { url: thumbnail };
-                    if ( thumbnailData.url ) {
-                        await svc_event.emit('thumbnail.created', thumbnailData); // An extension can modify where this thumbnail is stored
-                    }
-
-                    thumbnail_promise.resolve(thumbnailData.url);
-                })();
-                if ( reason ) {
-                    this.log.debug('REASON', reason);
-                    thumbnail_promise.resolve(undefined);
-
-                // values.file.stream = logging_stream(values.file.stream);
-                }
-            })();
+            // Allow extensions to transform client-provided thumbnails before DB write.
+            const thumbnailData = { url: values.thumbnail };
+            await svc_event.emit('thumbnail.created', thumbnailData);
+            thumbnail_promise.resolve(thumbnailData.url);
         }
 
         this.checkpoint('before delegate');
