@@ -2044,12 +2044,16 @@ const TabFiles = {
         let website_url = window.determine_website_url(file.path);
         let rename_cancelled = false;
         let shift_clicked = false;
+        let itemWasSelectedOnMousedown = false;
 
         el_item.onpointerdown = (e) => {
             if ( e.target.classList.contains('item-more') ) return;
             if ( el_item.classList.contains('header') ) return;
 
             shift_clicked = false;
+
+            // Track whether item was already selected before this mousedown
+            itemWasSelectedOnMousedown = el_item.classList.contains('selected');
 
             if ( e.which === 3 && el_item.classList.contains('selected') &&
                 el_item.parentElement.querySelectorAll('.row.selected').length > 1 ) {
@@ -2093,6 +2097,14 @@ const TabFiles = {
             // In select mode on mobile, treat taps like Ctrl+click (toggle selection)
             const isMobileSelectMode = (window.isMobile.phone || window.isMobile.tablet) && _this.selectModeActive;
 
+            // If item is NOT selected and no modifier keys: defer selection to click handler.
+            // This allows rubberband selection to start when dragging from unselected items.
+            if ( e.button === 0 && !e.ctrlKey && !e.metaKey && !e.shiftKey && !el_item.classList.contains('selected') && !isMobileSelectMode ) {
+                window.active_element = el_item;
+                window.active_item_container = el_item.closest('.files');
+                return;
+            }
+
             if ( !e.ctrlKey && !e.metaKey && !e.shiftKey && !el_item.classList.contains('selected') && !isMobileSelectMode ) {
                 el_item.parentElement.querySelectorAll('.row.selected').forEach(r => {
                     r.classList.remove('selected');
@@ -2131,6 +2143,12 @@ const TabFiles = {
                 return;
             }
 
+            // Skip if this click is the end of a rubber band selection
+            if ( _this.rubberBandSelectionJustEnded ) {
+                _this.rubberBandSelectionJustEnded = false;
+                return;
+            }
+
             // Skip if this was a shift-click (already handled in pointerdown)
             if ( shift_clicked ) {
                 shift_clicked = false;
@@ -2147,8 +2165,25 @@ const TabFiles = {
                 el_item.parentElement.querySelectorAll('.row.selected').forEach(r => {
                     if ( r !== el_item ) r.classList.remove('selected');
                 });
+                // Ensure clicked item is selected (handles deferred selection from pointerdown)
+                if ( ! el_item.classList.contains('selected') ) {
+                    el_item.classList.add('selected');
+                    window.latest_selected_item = el_item;
+                }
             }
             _this.updateFooterStats();
+
+            // If preview is open, switch to newly selected file
+            if ( _this.previewOpen ) {
+                const $container = $(el_item).closest('.files');
+                const $newSelected = $container.find('.row.selected');
+                if ( $newSelected.length === 1 ) {
+                    const newUid = $newSelected.attr('data-uid');
+                    if ( newUid !== _this.previewCurrentUid ) {
+                        _this.showImagePreview($newSelected);
+                    }
+                }
+            }
 
             // On mobile, single tap opens folders (no double-tap on touch devices)
             if ( window.isMobile.phone || window.isMobile.tablet ) {
@@ -2304,6 +2339,12 @@ const TabFiles = {
             revertDuration: 100,
 
             start: function (_event, ui) {
+                // Don't start drag if item wasn't already selected before mousedown;
+                // rubberband selection should handle this case instead.
+                if ( ! itemWasSelectedOnMousedown ) {
+                    return false;
+                }
+
                 if ( $(el_item).attr('data-immutable') !== '0' ) {
                     return false;
                 }
@@ -3225,7 +3266,7 @@ const TabFiles = {
                 touch: false,
                 range: true,
                 singleTap: {
-                    allow: true,
+                    allow: false,
                     intersect: 'native',
                 },
             },
@@ -3236,12 +3277,11 @@ const TabFiles = {
         selection.on('beforestart', ({ event }) => {
             selected_ctrl_items = [];
 
-            const target = event.target;
-            const isEmptySpace = $(target).hasClass('files') ||
-                $(target).hasClass('files-list-view') ||
-                $(target).hasClass('files-grid-view');
-
-            if ( ! isEmptySpace ) {
+            // Allow rubberband from unselected items and empty space.
+            // Only block rubberband when starting from an already-selected item
+            // (so that file dragging can take over instead).
+            const targetRow = $(event.target).closest('.row:not(.header)');
+            if ( targetRow.length && targetRow.hasClass('selected') ) {
                 return false;
             }
 
