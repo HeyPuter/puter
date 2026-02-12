@@ -110,18 +110,17 @@ async function UIWindowPublishWorker (target_dir_uid, target_dir_name, target_di
             });
                         }).catch((err) => {
                             let errorHtml;
-            console.log(typeof err, Array.isArray(err));
-            // Handle worker service errors (result.success === false)
-            if ( ! (err instanceof Error) ) {
-                // Handle regular API errors
-                const error = err.error || err;
-                errorHtml = error.message + (
-                    error.code === 'subdomain_limit_reached' ?
-                        ` <span class="manage-your-websites-link">${ i18n('manage_your_subdomains') }</span>` : ''
-                );
-            } else {
-                errorHtml = `<pre style="white-space: pre-wrap; font-family: monospace; font-size: 12px; margin: 0; text-align: left; font-family: monospace;">${html_encode(err)}</pre>`;
-            }
+                            // Handle worker service errors (result.success === false)
+                            if ( ! (err instanceof Error) ) {
+                                // Handle regular API errors
+                                const error = err.error || err;
+                                errorHtml = error.message + (
+                                    error.code === 'subdomain_limit_reached' ?
+                                        ` <span class="manage-your-websites-link">${ i18n('manage_your_subdomains') }</span>` : ''
+                                );
+                            } else {
+                                errorHtml = `<pre style="white-space: pre-wrap; font-family: monospace; font-size: 12px; margin: 0; text-align: left; font-family: monospace;">${html_encode(err)}</pre>`;
+                            }
 
             $(el_window).find('.publish-worker-error-msg').html(errorHtml);
             $(el_window).find('.publish-worker-error-msg').fadeIn();
