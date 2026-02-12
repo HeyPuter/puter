@@ -178,7 +178,14 @@ async function UIWindowItemProperties (item_name, item_path, item_uid, left, top
             else {
                 $(el_window).find('.item-props-version-list').append('-');
             }
-
+            // worker
+            if ( fsentry.path.endsWith('.js') ) {
+                const has_worker = (await puter.fs.stat({ path: fsentry.path, returnWorkers: true })).workers;
+                if ( has_worker && has_worker.length > 0 ) {
+                    const worker_url = has_worker[0].address;
+                    $(el_window).find('.item-prop-val-worker').html(`<a target="_blank" href="${html_encode(worker_url)}">${html_encode(worker_url)}</a>`);
+                }
+            }
             $(el_window).find('.disassociate-website-link').on('click', function (e) {
                 puter.hosting.update($(e.target).attr('data-subdomain'),
                                 null).then(() => {

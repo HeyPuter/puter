@@ -107,7 +107,7 @@ const sendSelectionToAIApp = async ($elements) => {
     }, '*');
 };
 
-function UIItem (options) {
+async function UIItem (options) {
     const matching_appendto_count = $(options.appendTo).length;
     if ( matching_appendto_count > 1 ) {
         $(options.appendTo).each(function () {
@@ -138,7 +138,16 @@ function UIItem (options) {
     options.shortcut_to_path = options.shortcut_to_path ?? '';
     options.immutable = (options.immutable === false || options.immutable === 0 || options.immutable === undefined ? 0 : 1);
     options.sort_container_after_append = (options.sort_container_after_append !== undefined ? options.sort_container_after_append : false);
-    const is_shared_with_me = (options.path && options.path !== `/${window.user.username}` && !options.path.startsWith(`/${window.user.username}/`));
+    const is_shared_with_me = (options.path !== `/${window.user.username}` && !options.path.startsWith(`/${window.user.username}/`));
+    let worker_url;
+    let is_worker;
+    if ( ! options.is_dir ) {
+        const stats = await puter.fs.stat({ path: options.path, returnWorkers: true });
+        is_worker = stats.workers !== undefined && stats.workers.length > 0;
+        if ( is_worker ) {
+            worker_url = stats.workers[0].address;
+        }
+    }
 
     let website_url = window.determine_website_url(options.path);
 
@@ -165,6 +174,8 @@ function UIItem (options) {
                 data-website_url = "${website_url ? html_encode(website_url) : ''}"
                 data-immutable="${options.immutable}" 
                 data-is_shortcut = "${options.is_shortcut}"
+                data-is_worker = "${is_worker !== undefined ? 1 : 0}"
+                data-worker_url = "${is_worker !== undefined ? worker_url : 0}"
                 data-shortcut_to = "${html_encode(options.shortcut_to)}"
                 data-shortcut_to_path = "${html_encode(options.shortcut_to_path)}"
                 data-sortable = "${options.sortable ?? 'true'}"
@@ -240,7 +251,12 @@ function UIItem (options) {
                         data-item-id="${item_id}"
                         title="${i18n('item_shortcut')}"
                     >`;
-
+    // worker badge
+    h += `<img  class="item-badge item-is-worker long-hover" 
+                        style="background-color: #ffffff; padding: 2px; ${is_worker ? 'display:block;' : ''}" 
+                        src="${html_encode(window.icons['worker.svg'])}" 
+                        data-item-id="${item_id}"
+                    >`;
     h += '</div>';
 
     // divider
@@ -1882,8 +1898,6 @@ $(document).on('click', '.website-badge-popover-link', function (e) {
 
 $(document).on('long-hover', '.item-is-worker', function (e) {
     const worker_url = e.target.parentNode.parentNode.getAttribute('data-worker_url');
-    console.log(e.target.parentNode.parentNode);
-    console.log(worker_url);
     var box = e.target.getBoundingClientRect();
 
     var body = document.body;
