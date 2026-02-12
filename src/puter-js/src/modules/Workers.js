@@ -18,6 +18,22 @@ export class WorkersHandler {
         }
 
         let appId;
+        if ( typeof (appName) === 'object' || typeof (appName) === 'undefined' ) {
+            const user = (puter.whoami || await puter.getUser());
+
+            if ( user.is_user_token && (appName === undefined || appName?.sandbox !== false) ) {
+                let sandboxApp;
+                try {
+                    sandboxApp = await puter.apps.get(`sandbox-${ workerName }`);
+                } catch ( e ) {
+                    sandboxApp = await puter.apps.create(`sandbox-${ workerName }`, 'https://worker-sandbox.puter.com/');
+                }
+                if ( sandboxApp.owner.uuid !== user.uuid ) {
+                    throw new Error(`Sandbox context is not owned by you! This worker's sandbox is currently owned by: ${ sandboxApp.owner.username }`);
+                }
+                appId = sandboxApp.uid;
+            }
+        }
         if ( typeof (appName) === 'string' ) {
             appId = ((await puter.apps.list()).find(el => el.name === appName)).uid;
         }
@@ -121,7 +137,7 @@ export class WorkersHandler {
         const loggingEndpoint = await utils.make_driver_method([], 'workers', 'worker-service', 'getLoggingUrl')(puter.authToken, workerName);
         const socket = new WebSocket(`${loggingEndpoint}/${puter.authToken}/${workerName}`);
         const logStreamObject = new EventTarget();
-        logStreamObject.onLog = (data) => {
+        logStreamObject.onLog = (_data) => {
 
         };
 
@@ -132,11 +148,11 @@ export class WorkersHandler {
                 socket.addEventListener('message', (event) => {
                     controller.enqueue(JSON.parse(event.data));
                 });
-                socket.addEventListener('close', (event) => {
+                socket.addEventListener('close', () => {
                     try {
                         controller.close();
                     } catch (e) {
-
+                        // no-op
                     }
                 });
             },

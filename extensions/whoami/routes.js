@@ -98,6 +98,7 @@ extension.get('/whoami', { subdomain: 'api' }, async (req, res, next) => {
         human_readable_age: timeago.format(new Date(req.user.timestamp)),
         hasDevAccountAccess: !!req.actor.type.user.metadata?.hasDevAccountAccess,
         ...(req.new_token ? { token: req.token } : {}),
+        is_user_token: true, // gets deleted if not a user token
     };
 
     // TODO: redundant? GetUserService already puts these values on 'user'
@@ -128,6 +129,7 @@ extension.get('/whoami', { subdomain: 'api' }, async (req, res, next) => {
         delete details.taskbar_items;
         delete details.token;
         delete details.human_readable_age;
+        delete details.is_user_token;
     }
 
     if ( actor.type instanceof AppUnderUserActorType ) {
