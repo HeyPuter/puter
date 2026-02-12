@@ -194,7 +194,6 @@ const TabFiles = {
         this.previewCurrentUid = null;
         this.selectModeActive = false;
         this.currentView = await puter.kv.get('view_mode') || 'list';
-        this.workers = await puter.workers.list();
 
         // Sorting state
         this.sortColumn = await puter.kv.get('sort_column') || 'name';
@@ -1822,15 +1821,16 @@ const TabFiles = {
      * @param {Object} file - The file/folder object from the filesystem API
      * @returns {void}
      */
-    renderItem (file) {
+    async renderItem (file) {
         // For trashed items, use original_name from metadata if available
         const item_id = window.global_element_id++;
         const metadata = JSON.parse(file.metadata) || {};
         const displayName = metadata.original_name || file.name;
         let website_url = window.determine_website_url(file.path);
         const is_shared_with_me = (file.path !== `/${window.user.username}` && !file.path.startsWith(`/${window.user.username}/`));
-        const is_worker = this.workers.find(w => w.file_path === file.path);
-        const worker_url = is_worker?.url;
+        const workers = (await puter.fs.stat({ path: file.path, returnWorkers: true })).workers;
+        const is_worker = workers.length > 0;
+        const worker_url = is_worker ? workers[0]?.address : '';
         const icon = file.is_dir ? `<img src="${html_encode(window.icons['folder.svg'])}"/>` : ((file.thumbnail && this.currentView === 'grid') ? `<img src="${file.thumbnail}" alt="${displayName}" />` : this.determineIcon(file));
         const row = document.createElement("div");
         row.setAttribute('class', `item row ${file.is_dir ? 'folder' : 'file'}`);

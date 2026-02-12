@@ -135,7 +135,6 @@ async function UIWindowItemProperties (item_name, item_path, item_uid, left, top
                     // Ignored
                 }
             }
-
             // shortcut to
             if ( fsentry.shortcut_to && fsentry.shortcut_to_path ) {
                 $(el_window).find('.item-prop-val-shortcut-to').text(fsentry.shortcut_to_path);
@@ -150,15 +149,6 @@ async function UIWindowItemProperties (item_name, item_path, item_uid, left, top
             $(el_window).find('.item-prop-val-modified').html(fsentry.modified === 0 ? '-' : timeago.format(fsentry.modified * 1000));
             // created
             $(el_window).find('.item-prop-val-created').html(fsentry.created === 0 ? '-' : timeago.format(fsentry.created * 1000));
-            // worker
-            if ( fsentry.path.endsWith('.js') ) {
-                const workers = await puter.workers.list();
-                const has_worker = workers.find(w => w.file_path === fsentry.path);
-                const worker_url = has_worker?.url;
-                if ( has_worker && worker_url ) {
-                    $(el_window).find('.item-prop-val-worker').html(`<a target="_blank" href="${html_encode(worker_url)}">${html_encode(worker_url)}</a>`);
-                }
-            }
             // subdomains
             if ( fsentry.subdomains && fsentry.subdomains.length > 0 ) {
                 fsentry.subdomains.forEach(subdomain => {
