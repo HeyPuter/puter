@@ -146,15 +146,15 @@ async function UIWindowChangeUsername (options) {
             onDone && onDone(new Error('No revalidate URL'));
             return null;
         }
+        let doneCalled = false;
         const hint = $(el_window).find('.change-username-oidc-hint');
         hint.text(i18n('revalidate_sign_in_popup') || 'Sign in with your linked account in the popup.').show();
         const popup = window.open(url, 'puter-revalidate', 'width=500,height=600');
         const onMessage = (ev) => {
             if ( (ev.origin !== window.gui_origin) && (ev.origin !== window.location.origin) ) return;
             if ( !ev.data || ev.data.type !== 'puter-revalidate-done' ) return;
-
-            console.log('is this condition working?', ev.origin !== (window.gui_origin || window.location.origin));
-            console.log('If TRUE something does not match:', ev.origin, window.gui_origin, window.location.origin);
+            if ( doneCalled ) return;
+            doneCalled = true;
             window.removeEventListener('message', onMessage);
             revalidated = true;
             hint.hide();
@@ -168,7 +168,10 @@ async function UIWindowChangeUsername (options) {
                 clearInterval(checkClosed);
                 window.removeEventListener('message', onMessage);
                 hint.hide();
-                onDone && onDone(new Error('Popup closed'));
+                if ( ! doneCalled ) {
+                    doneCalled = true;
+                    onDone && onDone(new Error('Popup closed'));
+                }
             }
         }, 300);
         return popup;
