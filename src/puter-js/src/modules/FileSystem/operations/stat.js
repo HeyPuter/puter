@@ -51,7 +51,7 @@ const stat = async function (...args) {
         const deduplicationKey = JSON.stringify({
             path: options.path,
             uid: options.uid,
-            returnSubdomains: options.returnSubdomains,
+            returnSubdomains: options.returnSubdomains || options.returnWorkers,
             returnPermissions: options.returnPermissions,
             returnVersions: options.returnVersions,
             returnSize: options.returnSize,
@@ -123,7 +123,7 @@ const stat = async function (...args) {
                 dataToSend.path = getAbsolutePathForApp(options.path);
             }
 
-            dataToSend.return_subdomains = options.returnSubdomains;
+            dataToSend.return_subdomains = options.returnSubdomains || options.returnWorkers;
             dataToSend.return_permissions = options.returnPermissions;
             dataToSend.return_versions = options.returnVersions;
             dataToSend.return_size = options.returnSize;

@@ -171,10 +171,9 @@ async function UIWindowItemProperties (item_name, item_path, item_uid, left, top
             }
             // worker
             if ( fsentry.path.endsWith('.js') ) {
-                const workers = await puter.workers.list();
-                const has_worker = workers.find(w => w.file_path === fsentry.path);
-                const worker_url = has_worker?.url;
-                if ( has_worker && worker_url ) {
+                const has_worker = (await puter.fs.stat({ path: fsentry.path, returnWorkers: true })).workers;
+                if ( has_worker && has_worker.length > 0 ) {
+                    const worker_url = has_worker[0].address;
                     $(el_window).find('.item-prop-val-worker').html(`<a target="_blank" href="${html_encode(worker_url)}">${html_encode(worker_url)}</a>`);
                 }
             }
