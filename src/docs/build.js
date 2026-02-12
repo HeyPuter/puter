@@ -315,9 +315,7 @@ function generateDocsHTML (filePath, rootDir, page, isIndex = false) {
         <meta name="theme-color" content="#ffffff">
         `;
     // CSS
-    html += '<link href="https://fonts.googleapis.com/css2?family=Inter:wght@100..900&display=swap" rel="stylesheet">';
     html += `<link rel="stylesheet" href="/${baseURL}/assets/css/bootstrap.min.css">`;
-    html += '<link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/styles/default.min.css">';
     html += `<link rel="stylesheet" href="/${baseURL}/assets/css/style.css">`;
     // JS
     html += `
@@ -326,12 +324,18 @@ function generateDocsHTML (filePath, rootDir, page, isIndex = false) {
                 "@context":"https://schema.org",
                 "@type":"WebSite",
                 "name":"Puter.js",
-                "url":"${site}"
+                "url":"${site}",
+                "potentialAction": {
+                  "@type": "SearchAction",
+                  "target": {
+                    "@type": "EntryPoint",
+                    "urlTemplate": "${site}/search?q={search_term_string}"
+                  },
+                  "query-input": "required name=search_term_string"
+                }
             }
         </script>
         `;
-    html += '<script src="https://code.jquery.com/jquery-3.7.1.min.js" integrity="sha256-/JqT3SQfawRcv/BIHPThkBvs0OEvtFFmqPF/lYI/Cxo=" crossorigin="anonymous"></script>';
-    html += '<script src="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/highlight.min.js"></script>';
     html += '<script defer data-domain="docs.puter.com" src="https://plausible.io/js/script.js"></script>';
     html += `
         <script type="text/javascript">
@@ -348,7 +352,6 @@ function generateDocsHTML (filePath, rootDir, page, isIndex = false) {
     html += '<div class="progress-bar-container" style="position: fixed; width: 100%; height: 5px; z-index: 99999999999;">';
     html += '<div id="progress-bar" style="width: 0%; height: 5px; background-color: #dbdbe3; transition: 0.2s all; z-index: 99999999999;"></div>';
     html += '</div>';
-    html += '<script>hljs.highlightAll();</script>';
     html += '<div style="max-width: 1400px; margin: 0 auto;">';
     html += '<div>';
     // sidebar toggle button
@@ -572,6 +575,13 @@ async function generateDocumentation (rootDir) {
             minify: true,
             sourcemap: true,
             allowOverwrite: true,
+            loader: {
+                '.woff': 'dataurl',
+                '.woff2': 'dataurl',
+                '.ttf': 'dataurl',
+                '.eot': 'dataurl',
+                '.svg': 'dataurl',
+            },
         });
     } catch ( error ) {
         console.error(error);
