@@ -143,6 +143,7 @@ class HLWrite extends HLFilesystemOperation {
         const { _path } = this.modules;
 
         const fs = context.get('services').get('filesystem');
+        const svc_event = context.get('services').get('event');
 
         let parent = values.destination_or_parent;
         let destination = null;
@@ -319,8 +320,10 @@ class HLWrite extends HLFilesystemOperation {
         if ( await parent.isAppDataDirectory() || values.no_thumbnail || !values.thumbnail ) {
             thumbnail_promise.resolve(undefined);
         } else {
-            // Use the thumbnail provided by the client (base64 string)
-            thumbnail_promise.resolve(values.thumbnail);
+            // Allow extensions to transform client-provided thumbnails before DB write.
+            const thumbnailData = { url: values.thumbnail };
+            await svc_event.emit('thumbnail.created', thumbnailData);
+            thumbnail_promise.resolve(thumbnailData.url);
         }
 
         this.checkpoint('before delegate');
