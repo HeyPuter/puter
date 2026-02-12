@@ -20,6 +20,12 @@ import {
     validate_url,
 } from './lib/validation.js';
 
+const APP_ICON_ENDPOINT_PATH_REGEX = /^\/?app-icon\/[^/?#]+\/[^/?#]+\/?$/;
+
+const isAppIconEndpointPath = (value) => {
+    return typeof value === 'string' && APP_ICON_ENDPOINT_PATH_REGEX.test(value);
+};
+
 /**
  * AppService contains an instance using the repository pattern
  */
@@ -385,6 +391,8 @@ export default class AppService extends BaseService {
             if ( object.icon !== undefined && object.icon !== null ) {
                 if ( typeof object.icon === 'string' && object.icon.startsWith('data:') ) {
                     validate_image_base64(object.icon, { key: 'icon' });
+                } else if ( isAppIconEndpointPath(object.icon) ) {
+                    // Allow existing relative app icon endpoint references.
                 } else {
                     validate_url(object.icon, { key: 'icon', maxlen: 3000 });
                 }
@@ -631,6 +639,8 @@ export default class AppService extends BaseService {
             if ( object.icon !== undefined && object.icon !== null ) {
                 if ( typeof object.icon === 'string' && object.icon.startsWith('data:') ) {
                     validate_image_base64(object.icon, { key: 'icon' });
+                } else if ( isAppIconEndpointPath(object.icon) ) {
+                    // Allow existing relative app icon endpoint references.
                 } else {
                     validate_url(object.icon, { key: 'icon', maxlen: 3000 });
                 }
