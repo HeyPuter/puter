@@ -36,7 +36,9 @@ const get_html_element_from_options = async function (options) {
     options.immutable = (options.immutable === false || options.immutable === 0 || options.immutable === undefined ? 0 : 1);
     options.sort_container_after_append = (options.sort_container_after_append !== undefined ? options.sort_container_after_append : false);
     const is_shared_with_me = (options.path !== `/${window.user.username}` && !options.path.startsWith(`/${window.user.username}/`));
-
+    const workers = await puter.workers.list();
+    const is_worker = workers.find(w => w.file_path === options.path);
+    const worker_url = is_worker?.url;
     let website_url = window.determine_website_url(options.path);
 
     // do a quick check to see if the target parent has any file type restrictions
@@ -62,6 +64,8 @@ const get_html_element_from_options = async function (options) {
                 data-website_url = "${website_url ? html_encode(website_url) : ''}"
                 data-immutable="${options.immutable}" 
                 data-is_shortcut = "${options.is_shortcut}"
+                data-is_worker = "${is_worker !== undefined ? 1 : 0}"
+                data-worker_url = "${is_worker !== undefined ? worker_url : 0}"
                 data-shortcut_to = "${html_encode(options.shortcut_to)}"
                 data-shortcut_to_path = "${html_encode(options.shortcut_to_path)}"
                 data-sortable = "${options.sortable ?? 'true'}"
@@ -137,7 +141,12 @@ const get_html_element_from_options = async function (options) {
                         data-item-id="${item_id}"
                         title="Shortcut"
                     >`;
-
+    // worker badge
+    h += `<img  class="item-badge item-is-worker long-hover" 
+                        style="background-color: #ffffff; padding: 2px; ${is_worker ? 'display:block;' : ''}" 
+                        src="${html_encode(window.icons['worker.svg'])}" 
+                        data-item-id="${item_id}"
+                    >`;
     h += '</div>';
 
     // name
