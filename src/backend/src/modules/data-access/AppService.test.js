@@ -806,6 +806,33 @@ describe('AppService', () => {
                             }));
         });
 
+        it('should allow relative app-icon endpoint path for icon', async () => {
+            setupContextForWrite(createMockUserActor(1));
+            mockDb.read.mockResolvedValue([createMockAppRow()]);
+            validate_url.mockImplementation((_value, { key }) => {
+                if ( key === 'icon' ) {
+                    throw new Error('icon should not be validated as a URL');
+                }
+            });
+
+            const crudQ = AppService.IMPLEMENTS['crud-q'];
+            await crudQ.create.call(appService, {
+                object: {
+                    name: 'test-app',
+                    title: 'Test',
+                    index_url: 'https://example.com',
+                    icon: '/app-icon/app-uid-123/64',
+                },
+            });
+
+            expect(mockEventService.emit).toHaveBeenCalledWith(
+                            'app.new-icon',
+                            expect.objectContaining({
+                                data_url: '/app-icon/app-uid-123/64',
+                            }));
+            expect(validate_url).toHaveBeenCalledWith('https://example.com', expect.objectContaining({ key: 'index_url' }));
+        });
+
         it('should handle filetype_associations', async () => {
             setupContextForWrite(createMockUserActor(1));
             mockDb.read.mockResolvedValue([createMockAppRow()]);
@@ -1057,6 +1084,30 @@ describe('AppService', () => {
                             expect.objectContaining({
                                 app_uid: 'app-uid-123',
                                 data_url: 'data:image/png;base64,newicon',
+                            }));
+        });
+
+        it('should allow relative app-icon endpoint path when updating icon', async () => {
+            setupContextForWrite(createMockUserActor(1));
+            validate_url.mockImplementation((_value, { key }) => {
+                if ( key === 'icon' ) {
+                    throw new Error('icon should not be validated as a URL');
+                }
+            });
+
+            const crudQ = AppService.IMPLEMENTS['crud-q'];
+            await crudQ.update.call(appService, {
+                object: {
+                    uid: 'app-uid-123',
+                    icon: '/app-icon/app-uid-123/64',
+                },
+            });
+
+            expect(mockEventService.emit).toHaveBeenCalledWith(
+                            'app.new-icon',
+                            expect.objectContaining({
+                                app_uid: 'app-uid-123',
+                                data_url: '/app-icon/app-uid-123/64',
                             }));
         });
 
