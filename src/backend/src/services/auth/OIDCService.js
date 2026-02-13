@@ -20,8 +20,10 @@
 import jwt from 'jsonwebtoken';
 import { username_exists } from '../../helpers.js';
 import { generate_identifier } from '../../util/identifier.js';
+import { OutcomeObject } from '../../util/outcomeutil.js';
 import BaseService from '../BaseService.js';
 import { DB_WRITE } from '../database/consts.js';
+import { CreatedUserOutcome } from './SignupService.js';
 
 const GOOGLE_DISCOVERY_URL = 'https://accounts.google.com/.well-known/openid-configuration';
 const GOOGLE_SCOPES = 'openid email profile';
@@ -215,17 +217,24 @@ export class OIDCService extends BaseService {
      * Create a new Puter user from OIDC claims and link the provider. Delegates to signup_create_new_user.
      */
     async createUserFromOIDC (providerId, claims) {
+        if ( claims.email_verified === false ) {
+            // This should never happen; Google always sends verified emails.
+            const outcome = new OutcomeObject(new CreatedUserOutcome());
+            return outcome.fail(
+                'Provider did not verify this email address.',
+                'oidc.email_not_verified',
+            );
+        }
         const svc_signup = this.services.get('signup');
         const outcome = await svc_signup.create_new_user({
             username: await generate_random_username(),
             email: claims?.email ?? null,
             password: null,
             oidc_only: true,
+            assume_email_ownership: true,
         });
         const { user_id } = outcome.infoObject;
-        console.log('user_id?', user_id);
-        if ( outcome.success )
-        {
+        if ( outcome.success ) {
             await this.linkProviderToUser(user_id, providerId, claims.sub, null);
         }
         return outcome;
