@@ -18,6 +18,7 @@
  */
 
 import check_password_strength from '../helpers/check_password_strength.js';
+import { openRevalidatePopup } from '../util/openid.js';
 import UIWindow from './UIWindow.js';
 
 async function UIWindowChangePassword (options) {
@@ -102,6 +103,26 @@ async function UIWindowChangePassword (options) {
 
     const origin = window.gui_origin || window.api_origin || '';
     const apiUrl = `${origin}/user-protected/change-password`;
+    let revalidated = false;
+
+    const hint = $(el_window).find('.change-password-oidc-hint');
+    const REVALIDATE_POPUP_TEXT = i18n('revalidate_sign_in_popup') || 'Sign in with your linked account in the popup.';
+
+    const myOpenRevalidatePopup = async (revalidateUrl) => {
+        revalidateUrl = revalidateUrl || (window.user && window.user.oidc_revalidate_url);
+        $(el_window).find('.change-password-btn').addClass('disabled');
+        hint.text(REVALIDATE_POPUP_TEXT).show();
+        try {
+            await openRevalidatePopup(revalidateUrl);
+        } catch (e) {
+            onError(e.message || 'Authentication failed');
+            return;
+        } finally {
+            hint.hide();
+        }
+        $(el_window).find('.change-password-revalidated-msg').text(i18n('revalidated') || 'Re-validated.').show();
+        $(el_window).find('.change-password-revalidate-btn').hide();
+    };
 
     $(el_window).find('.change-password-btn').on('click', async function (e) {
         const current_password = $(el_window).find('.current-password').val();
@@ -122,20 +143,6 @@ async function UIWindowChangePassword (options) {
             $(el_window).find('.form-error-msg').fadeIn();
             return;
         }
-        if ( oidc_only && !revalidated && !current_password ) {
-            $(el_window).find('.change-password-btn').addClass('disabled');
-            openRevalidatePopup(null, async (err) => {
-                if ( err ) {
-                    onError(err.message || 'Re-validation required.');
-                    return;
-                }
-                const res = await doSubmit('');
-                const data = res.ok ? await res.json().catch(() => ({})) : await res.json().catch(() => ({}));
-                if ( res.ok ) onSuccess();
-                else onError(data.message || 'Request failed');
-            });
-            return;
-        }
         if ( new_password !== confirm_new_password ) {
             $(el_window).find('.form-error-msg').html(i18n('passwords_do_not_match'));
             $(el_window).find('.form-error-msg').fadeIn();
@@ -148,19 +155,19 @@ async function UIWindowChangePassword (options) {
             return;
         }
 
+        if ( oidc_only && !revalidated && !current_password ) {
+            await myOpenRevalidatePopup();
+
+            const res = await doSubmit({ new_password });
+            const data = res.ok ? await res.json().catch(() => ({})) : await res.json().catch(() => ({}));
+            if ( res.ok ) onSuccess();
+            else onError(data.message || 'Request failed');
+            return;
+        }
+
         $(el_window).find('.form-error-msg').hide();
         $(el_window).find('.change-password-btn').addClass('disabled');
         $(el_window).find('.current-password, .new-password, .confirm-new-password').attr('disabled', true);
-
-        const doSubmit = (currentPass) => fetch(apiUrl, {
-            method: 'POST',
-            credentials: 'include',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({
-                password: currentPass !== undefined ? currentPass : current_password,
-                new_pass: new_password,
-            }),
-        });
 
         let res = await doSubmit(current_password);
         const data = res.ok ? await res.json().catch(() => ({})) : await res.json().catch(() => ({}));
@@ -170,57 +177,61 @@ async function UIWindowChangePassword (options) {
             return;
         }
         if ( data.code === 'oidc_revalidation_required' && data.revalidate_url ) {
-            openRevalidatePopup(data.revalidate_url, async (err) => {
-                if ( err ) {
-                    onError(err.message || 'Re-validation required.');
-                    return;
-                }
-                const r2 = await doSubmit('');
-                const d2 = r2.ok ? await r2.json().catch(() => ({})) : await r2.json().catch(() => ({}));
-                if ( r2.ok ) onSuccess();
-                else onError(d2.message || 'Request failed');
-            });
+            await myOpenRevalidatePopup(data.revalidate_url);
+            const r = await doSubmit();
+            if ( r.ok ) onSuccess();
+            else r.json().then((d) => onError(d.message || 'Request failed')).catch(() => onError('Request failed'));
             return;
         }
         onError(data.message || res.statusText || 'Request failed');
     });
-    let revalidated = false;
 
-    function openRevalidatePopup (revalidateUrl, onDone) {
-        const url = revalidateUrl || (window.user && window.user.oidc_revalidate_url);
-        if ( ! url ) {
-            onDone && onDone(new Error('No revalidate URL'));
-            return null;
-        }
-        let doneCalled = false;
-        const hint = $(el_window).find('.change-password-oidc-hint');
-        hint.text(i18n('revalidate_sign_in_popup') || 'Sign in with your linked account in the popup.').show();
-        const popup = window.open(url, 'puter-revalidate', 'width=500,height=600');
-        const onMessage = (ev) => {
-            if ( (ev.origin !== window.gui_origin) && (ev.origin !== window.location.origin) ) return;
-            if ( !ev.data || ev.data.type !== 'puter-revalidate-done' ) return;
-            if ( doneCalled ) return;
-            doneCalled = true;
-            window.removeEventListener('message', onMessage);
-            revalidated = true;
-            hint.hide();
-            $(el_window).find('.change-password-revalidated-msg').text(i18n('revalidated') || 'Re-validated.').show();
-            $(el_window).find('.change-password-revalidate-btn').hide();
-            onDone && onDone();
-        };
-        window.addEventListener('message', onMessage);
-        const checkClosed = setInterval(() => {
-            if ( popup && popup.closed ) {
-                clearInterval(checkClosed);
-                window.removeEventListener('message', onMessage);
-                hint.hide();
-                if ( ! doneCalled ) {
-                    doneCalled = true;
-                    onDone && onDone(new Error('Popup closed'));
-                }
-            }
-        }, 300);
-        return popup;
+    // function openRevalidatePopup (revalidateUrl, onDone) {
+    //     const url = revalidateUrl || (window.user && window.user.oidc_revalidate_url);
+    //     if ( ! url ) {
+    //         onDone && onDone(new Error('No revalidate URL'));
+    //         return null;
+    //     }
+    //     let doneCalled = false;
+    //     const hint = $(el_window).find('.change-password-oidc-hint');
+    //     hint.text(i18n('revalidate_sign_in_popup') || 'Sign in with your linked account in the popup.').show();
+    //     const popup = window.open(url, 'puter-revalidate', 'width=500,height=600');
+    //     const onMessage = (ev) => {
+    //         if ( (ev.origin !== window.gui_origin) && (ev.origin !== window.location.origin) ) return;
+    //         if ( !ev.data || ev.data.type !== 'puter-revalidate-done' ) return;
+    //         if ( doneCalled ) return;
+    //         doneCalled = true;
+    //         window.removeEventListener('message', onMessage);
+    //         revalidated = true;
+    //         hint.hide();
+    //         $(el_window).find('.change-password-revalidated-msg').text(i18n('revalidated') || 'Re-validated.').show();
+    //         $(el_window).find('.change-password-revalidate-btn').hide();
+    //         onDone && onDone();
+    //     };
+    //     window.addEventListener('message', onMessage);
+    //     const checkClosed = setInterval(() => {
+    //         if ( popup && popup.closed ) {
+    //             clearInterval(checkClosed);
+    //             window.removeEventListener('message', onMessage);
+    //             hint.hide();
+    //             if ( ! doneCalled ) {
+    //                 doneCalled = true;
+    //                 onDone && onDone(new Error('Popup closed'));
+    //             }
+    //         }
+    //     }, 300);
+    //     return popup;
+    // }
+    function doSubmit ({ new_password, current_password }) {
+        return fetch(apiUrl, {
+            method: 'POST',
+            credentials: 'include',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+                password: current_password,
+                new_pass: new_password,
+            }),
+        });
     }
 
     $(el_window).find('.change-password-revalidate-btn').on('click', function () {
