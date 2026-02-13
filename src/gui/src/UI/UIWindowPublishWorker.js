@@ -41,6 +41,15 @@ async function UIWindowPublishWorker (target_dir_uid, target_dir_name, target_di
     h += '</div>';
     // uid
     h += `<input class="publishWebsiteTargetDirUID" type="hidden" value="${html_encode(target_dir_uid)}"/>`;
+    // Advanced (collapsed by default)
+    h += '<details class="publish-worker-advanced" style="margin: 16px 0;">';
+    h += '<summary style="cursor: pointer; font-size: 13px; color: #5c6b7a; user-select: none;">Advanced</summary>';
+    h += '<div style="margin-top: 12px; padding-left: 2px;">';
+    h += '<label style="display: flex; align-items: center; gap: 8px; cursor: pointer; font-size: 13px;">';
+    h += '<input type="checkbox" class="publish-worker-sandboxed" checked>';
+    h += 'Sandboxed</label>';
+    h += '</div>';
+    h += '</details>';
     // Publish
     h += `<button class="publish-btn button button-action button-block button-normal">${i18n('publish')}</button>`;
     h += '</form>';
@@ -91,34 +100,46 @@ async function UIWindowPublishWorker (target_dir_uid, target_dir_name, target_di
             <div style="display: inline-block; margin-top: 10px; width: 16px; height: 16px; border: 2px solid #ffffff; border-radius: 50%; border-top: 2px solid transparent; animation: spin 1s linear infinite;"></div>
         `);
 
+        const sandboxed = $(el_window).find('.publish-worker-sandboxed').is(':checked');
+        const createOptions = sandboxed ? { sandbox: true } : { sandbox: false };
+
         puter.workers.create(worker_name,
-                        target_dir_path).then((res) => {
-            let url = `https://${ worker_name }.puter.work`;
+                        target_dir_path,
+                        createOptions).then((res) => {
+                            let url = `https://${ worker_name }.puter.work`;
             $(el_window).find('.window-publishWorker-form').hide(100, function () {
                 $(el_window).find('.publishWorker-published-link').attr('href', url);
                 $(el_window).find('.publishWorker-published-link').text(url);
                 $(el_window).find('.window-publishWorker-success').show(100);
-                $(`.item[data-uid="${target_dir_uid}"] .item-has-website-badge`).show();
+                // $(`.item[data-uid="${target_dir_uid}"] .item-has-website-badge`).show();
             });
 
             // find all items whose path starts with target_dir_path
             $(`.item[data-path^="${target_dir_path}/"]`).each(function () {
                 // show the link badge
-                $(this).find('.item-has-website-url-badge').show();
+                // $(this).find('.item-has-website-url-badge').show();
                 // update item's website_url attribute
-                $(this).attr('data-website_url', url + $(this).attr('data-path').substring(target_dir_path.length));
+                // $(this).attr('data-website_url', url + $(this).attr('data-path').substring(target_dir_path.length));
             });
-        }).catch((err) => {
-            err = err.error;
-            $(el_window).find('.publish-worker-error-msg').html(
-                            err.message + (
-                                err.code === 'subdomain_limit_reached' ?
-                                    ` <span class="manage-your-websites-link">${ i18n('manage_your_subdomains') }</span>` : ''
-                            ));
+                        }).catch((err) => {
+                            let errorHtml;
+                            // Handle worker service errors (result.success === false)
+                            if ( ! (err instanceof Error) ) {
+                                // Handle regular API errors
+                                const error = err.error || err;
+                                errorHtml = error.message + (
+                                    error.code === 'subdomain_limit_reached' ?
+                                        ` <span class="manage-your-websites-link">${ i18n('manage_your_subdomains') }</span>` : ''
+                                );
+                            } else {
+                                errorHtml = `<pre style="white-space: pre-wrap; font-family: monospace; font-size: 12px; margin: 0; text-align: left; font-family: monospace;">${html_encode(err)}</pre>`;
+                            }
+
+            $(el_window).find('.publish-worker-error-msg').html(errorHtml);
             $(el_window).find('.publish-worker-error-msg').fadeIn();
             // re-enable 'Publish' button and restore original text
             $(el_window).find('.publish-btn').prop('disabled', false).text(originalText);
-        });
+                        });
     });
 
     $(el_window).find('.publish-window-ok-btn').on('click', function () {

@@ -65,7 +65,8 @@ const buildAppIconUrl = (app_uid, size = DEFAULT_APP_ICON_SIZE) => {
     const icon_size = Number.isFinite(Number(size)) ? Number(size) : DEFAULT_APP_ICON_SIZE;
     const static_hosting_domain = config.static_hosting_domain || config.static_hosting_domain_alt;
     if ( ! static_hosting_domain ) return null;
-    return `https://${APP_ICONS_SUBDOMAIN}.${static_hosting_domain}/${normalized_uid}-${icon_size}.png`;
+    const protocol = config.protocol || 'https';
+    return `${protocol}://${APP_ICONS_SUBDOMAIN}.${static_hosting_domain}/${normalized_uid}-${icon_size}.png`;
 };
 
 const withAppIconUrl = (app) => {

@@ -176,9 +176,18 @@ export class AIImageGenerationService extends BaseService {
     }
 
     models () {
+        const seen = new Set<string>();
         return Object.entries(this.#modelIdMap)
             .map(([_, models]) => models)
             .flat()
+            .filter(model => {
+                const identity = `${model.provider}:${model.puterId || model.id}`;
+                if ( seen.has(identity) ) {
+                    return false;
+                }
+                seen.add(identity);
+                return true;
+            })
             .sort((a, b) => {
                 if ( a.provider === b.provider ) {
                     return a.id.localeCompare(b.id);

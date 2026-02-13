@@ -46,16 +46,15 @@ The Puter Team
         `,
     },
     'listing-rejected': {
-        subject: 'Update needed for your app listing',
+        subject: 'App Center Listing Request Rejected',
         html: `
 <p>Hi{{#if owner_username}} {{owner_username}}{{/if}},</p>
 <p>
-Thanks for submitting <a href="https://puter.com/app/{{app_name}}">{{app_title}}</a> for the Puter App Center. We reviewed your listing and need some changes before it can be approved.
+Thanks for submitting <a href="https://puter.com/app/{{app_name}}">{{app_title}}</a> for the Puter App Center. We reviewed your listing and have rejected it for the following reason:
 </p>
-<p><strong>Reason:</strong></p>
 <blockquote>{{reason}}</blockquote>
 <p>
-Please update your listing and resubmit when ready. If you have questions, just reply to this email.
+Please update your app listing and resubmit when ready. If you have questions, just reply to this email.
 </p>
 <p>Best,<br />
 The Puter Team
