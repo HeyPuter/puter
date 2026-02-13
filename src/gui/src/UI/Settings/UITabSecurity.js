@@ -161,11 +161,15 @@ export default {
                 $win.find('.error-message').text(data.message || i18n('error_unknown_cause')).show();
             };
 
+            const oidc_only = !!(window.user && window.user.oidc_only);
             let h = '';
             h += '<div style="display: flex; flex-direction: column; gap: 20pt; justify-content: center;">';
             h += '<div>';
             h += `<h3 style="text-align:center; font-weight: 500; font-size: 20px;">${i18n('disable_2fa_confirm')}</h3>`;
             h += `<p style="text-align:center; padding: 0 20px;">${i18n('disable_2fa_instructions')}</p>`;
+            if ( oidc_only ) {
+                h += `<p class="disable-2fa-oidc-flow-notice" style="text-align:center; padding: 0 20px; margin: 8px 0 0; font-size: 12px; color: #666;">${i18n('revalidate_flow_notice')}</p>`;
+            }
             h += '</div>';
             h += '<div style="display: flex; flex-direction: column; gap: 10pt;">';
             h += '<input type="password" class="password-entry" />';

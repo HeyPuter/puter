@@ -49,7 +49,7 @@ async function UIWindowChangeEmail (options) {
     h += `${place_password_entry.html}`;
     h += '</div>';
     h += '<div class="change-email-oidc-wrap" style="display:none;">';
-    h += '<button type="button" class="button change-email-revalidate-btn"></button>';
+    h += '<p class="change-email-oidc-flow-notice" style="margin:0;font-size:12px;color:#666;"></p>';
     h += '<span class="change-email-revalidated-msg" style="display:none;"></span>';
     h += '</div>';
     h += '<p class="change-email-oidc-hint" style="margin-top:6px;font-size:12px;color:#666;display:none;"></p>';
@@ -87,7 +87,10 @@ async function UIWindowChangeEmail (options) {
             if ( oidc_only ) {
                 authRow.find('.change-email-password-wrap').hide();
                 const oidcWrap = authRow.find('.change-email-oidc-wrap').show();
-                oidcWrap.find('.change-email-revalidate-btn').text(i18n('revalidate_with_google') || 'Re-validate with Google');
+                oidcWrap.find('.change-email-oidc-flow-notice').text(
+                    i18n('revalidate_flow_notice') ||
+                    'You will be asked to sign in with your linked account when you continue.',
+                );
             } else {
                 authRow.find('.change-email-oidc-wrap').hide();
             }
@@ -124,7 +127,6 @@ async function UIWindowChangeEmail (options) {
             hint.hide();
         }
         $(el_window).find('.change-email-revalidated-msg').text(i18n('revalidated') || 'Re-validated.').show();
-        $(el_window).find('.change-email-revalidate-btn').hide();
     };
 
     $(el_window).find('.change-email-btn').on('click', async function (e) {
@@ -181,10 +183,6 @@ async function UIWindowChangeEmail (options) {
             }),
         });
     }
-
-    $(el_window).find('.change-email-revalidate-btn').on('click', function () {
-        myOpenRevalidatePopup();
-    });
 
     function onError (message) {
         $(el_window).find('.form-error-msg').html(html_encode(message));

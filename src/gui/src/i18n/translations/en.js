@@ -52,6 +52,7 @@ const en = {
         revalidate_with_google: 'Re-validate with Google',
         revalidated: 'Re-validated.',
         revalidate_sign_in_popup: 'Sign in with your linked account in the popup.',
+        revalidate_flow_notice: 'You will be asked to sign in with your linked account when you continue.',
         color_depth: 'Color Depth',
         clock_visibility: 'Clock Visibility',
         close: 'Close',
