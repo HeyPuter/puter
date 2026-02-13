@@ -167,7 +167,7 @@ async function UIItem (options) {
                 data-immutable="${options.immutable}" 
                 data-is_shortcut = "${options.is_shortcut}"
                 data-is_worker = "${is_worker ? 1 : 0}"
-                data-worker_url = "${is_worker ? worker_url : 0}"
+                data-worker_url = "${is_worker ? worker_url : ''}"
                 data-shortcut_to = "${html_encode(options.shortcut_to)}"
                 data-shortcut_to_path = "${html_encode(options.shortcut_to_path)}"
                 data-sortable = "${options.sortable ?? 'true'}"
