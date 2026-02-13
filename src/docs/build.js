@@ -326,7 +326,7 @@ function generateDocsHTML (filePath, rootDir, page, isIndex = false) {
                 "@context":"https://schema.org",
                 "@type":"WebSite",
                 "name":"Puter.js",
-                "url":"${site}",
+                "url":"${site}"
             }
         </script>
         `;
