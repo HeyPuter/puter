@@ -1741,6 +1741,7 @@ const TabFiles = {
             ? { path: target, consistency: options.consistency || 'eventual' }
             : { uid: target, consistency: options.consistency || 'eventual' };
         const directoryContents = await window.puter.fs.readdir(readdirArg);
+        console.log(directoryContents);
         if ( ! directoryContents ) {
             this.hideSpinner();
             this.renderingDirectory = false;
@@ -1903,9 +1904,8 @@ const TabFiles = {
         const displayName = metadata.original_name || file.name;
         let website_url = window.determine_website_url(file.path);
         const is_shared_with_me = (file.path !== `/${window.user.username}` && !file.path.startsWith(`/${window.user.username}/`));
-        const workers = (await puter.fs.stat({ path: file.path, returnWorkers: true })).workers;
-        const is_worker = workers.length > 0;
-        const worker_url = is_worker ? workers[0]?.address : '';
+        const is_worker = file.workers?.length > 0;
+        const worker_url = is_worker ? file.workers[0]?.address : '';
         const icon = file.is_dir ? `<img src="${html_encode(window.icons['folder.svg'])}"/>` : ((file.thumbnail && this.currentView === 'grid') ? `<img src="${file.thumbnail}" alt="${displayName}" />` : this.determineIcon(file));
         const row = document.createElement("div");
         row.setAttribute('class', `item row ${file.is_dir ? 'folder' : 'file'}`);
@@ -1937,7 +1937,7 @@ const TabFiles = {
             </div>
             <div class="item-badges">
                 <img class="item-badge item-has-website-badge long-hover" 
-                    style="${file.has_website ? 'display:block;' : ''}" 
+                    style="${file.has_website && file.workers.length === 0 ? 'display:block;' : ''}" 
                     src="${html_encode(window.icons['world.svg'])}" 
                     data-item-id="${item_id}"
                 />
@@ -2174,6 +2174,21 @@ const TabFiles = {
             // In select mode on mobile, treat taps like Ctrl+click (toggle selection)
             const isMobileSelectMode = (window.isMobile.phone || window.isMobile.tablet) && _this.selectModeActive;
 
+            // If clicking on .item-name, .item-icon, or .item-badges, select immediately so item drag works
+            const isDragHandle = e.target.closest('.item-name, .item-icon, .item-badges');
+            if ( e.button === 0 && !e.ctrlKey && !e.metaKey && !e.shiftKey && !el_item.classList.contains('selected') && !isMobileSelectMode && isDragHandle ) {
+                el_item.parentElement.querySelectorAll('.row.selected').forEach(r => {
+                    r.classList.remove('selected');
+                });
+                el_item.classList.add('selected');
+                window.latest_selected_item = el_item;
+                window.active_element = el_item;
+                window.active_item_container = el_item.closest('.files');
+                itemWasSelectedOnMousedown = true;
+                _this.updateFooterStats();
+                return;
+            }
+
             // If item is NOT selected and no modifier keys: defer selection to click handler.
             // This allows rubberband selection to start when dragging from unselected items.
             if ( e.button === 0 && !e.ctrlKey && !e.metaKey && !e.shiftKey && !el_item.classList.contains('selected') && !isMobileSelectMode ) {
@@ -2407,6 +2422,14 @@ const TabFiles = {
                 const viewClass = _this.currentView === 'grid' ? 'files-grid-view' : 'files-list-view';
                 const $wrapper = $(`<div class="dashboard-section-files"><div class="files-tab"><div class="files ${viewClass}"></div></div></div>`);
                 $wrapper.find('.files').append($clone);
+
+                // In grid view, set fixed width since the grid auto-fill
+                // doesn't work without a proper parent width context
+                if ( _this.currentView === 'grid' ) {
+                    $clone.css('width', $(el_item).outerWidth());
+                    $wrapper.find('.files').css('display', 'block');
+                }
+
                 return $wrapper;
             },
             revert: 'invalid',
@@ -3400,11 +3423,15 @@ const TabFiles = {
         selection.on('beforestart', ({ event }) => {
             selected_ctrl_items = [];
 
-            // Allow rubberband from unselected items and empty space.
-            // Only block rubberband when starting from an already-selected item
+            // Block rubberband when starting from an already-selected item
             // (so that file dragging can take over instead).
             const targetRow = $(event.target).closest('.row:not(.header)');
             if ( targetRow.length && targetRow.hasClass('selected') ) {
+                return false;
+            }
+
+            // Block rubberband when starting from item drag handles so item drag takes over
+            if ( $(event.target).closest('.item-name, .item-icon, .item-badges').length ) {
                 return false;
             }
 

@@ -752,35 +752,36 @@
     opacity: 1 !important;
 }
 
-.dashboard-section-files.ui-draggable-dragging .row,
-.dashboard-section-files.item-selected-clone .row {
+/* --- List view drag ghost --- */
+
+.dashboard-section-files.ui-draggable-dragging .files-list-view .row,
+.dashboard-section-files.item-selected-clone .files-list-view .row {
     background-color: var(--select-color) !important;
     color: var(--dashboard-background) !important;
     border-radius: 3px;
     cursor: move;
-    width: 250px !important;
+    width: auto !important;
     display: grid !important;
     grid-template-columns: 24px auto !important;
     align-items: center;
-    padding: 0 10px;
     height: 32px;
 }
 
-.dashboard-section-files.item-selected-clone .row {
+.dashboard-section-files.item-selected-clone .files-list-view .row {
     opacity: 0.6;
     pointer-events: none;
 }
 
-.dashboard-section-files.ui-draggable-dragging .row .item-name-wrapper,
-.dashboard-section-files.item-selected-clone .row .item-name-wrapper {
+.dashboard-section-files.ui-draggable-dragging .files-list-view .row .item-name-wrapper,
+.dashboard-section-files.item-selected-clone .files-list-view .row .item-name-wrapper {
     display: flex;
     align-items: center;
     overflow: hidden;
     min-width: 0;
 }
 
-.dashboard-section-files.ui-draggable-dragging .row .item-icon,
-.dashboard-section-files.item-selected-clone .row .item-icon {
+.dashboard-section-files.ui-draggable-dragging .files-list-view .row .item-icon,
+.dashboard-section-files.item-selected-clone .files-list-view .row .item-icon {
     width: 24px;
     height: 24px;
     padding: 0;
@@ -788,15 +789,15 @@
     border-radius: 2px;
 }
 
-.dashboard-section-files.ui-draggable-dragging .row .item-icon img,
-.dashboard-section-files.item-selected-clone .row .item-icon img {
+.dashboard-section-files.ui-draggable-dragging .files-list-view .row .item-icon img,
+.dashboard-section-files.item-selected-clone .files-list-view .row .item-icon img {
     width: 18px;
     height: 18px;
     object-fit: cover;
 }
 
-.dashboard-section-files.ui-draggable-dragging .row .item-name,
-.dashboard-section-files.item-selected-clone .row .item-name {
+.dashboard-section-files.ui-draggable-dragging .files-list-view .row .item-name,
+.dashboard-section-files.item-selected-clone .files-list-view .row .item-name {
     text-overflow: ellipsis;
     white-space: nowrap;
     overflow: hidden;
@@ -811,14 +812,44 @@
     line-height: 32px;
 }
 
-.dashboard-section-files.ui-draggable-dragging .row .item-metadata,
-.dashboard-section-files.ui-draggable-dragging .row .col-spacer,
-.dashboard-section-files.ui-draggable-dragging .row .item-more,
-.dashboard-section-files.ui-draggable-dragging .row .item-name-editor,
-.dashboard-section-files.item-selected-clone .row .item-metadata,
-.dashboard-section-files.item-selected-clone .row .col-spacer,
-.dashboard-section-files.item-selected-clone .row .item-more,
-.dashboard-section-files.item-selected-clone .row .item-name-editor {
+.dashboard-section-files.ui-draggable-dragging .files-list-view .row .item-metadata,
+.dashboard-section-files.ui-draggable-dragging .files-list-view .row .col-spacer,
+.dashboard-section-files.ui-draggable-dragging .files-list-view .row .item-more,
+.dashboard-section-files.ui-draggable-dragging .files-list-view .row .item-name-editor,
+.dashboard-section-files.item-selected-clone .files-list-view .row .item-metadata,
+.dashboard-section-files.item-selected-clone .files-list-view .row .col-spacer,
+.dashboard-section-files.item-selected-clone .files-list-view .row .item-more,
+.dashboard-section-files.item-selected-clone .files-list-view .row .item-name-editor {
+    display: none !important;
+}
+
+/* --- Grid view drag ghost --- */
+
+.dashboard-section-files.ui-draggable-dragging .files-grid-view .row,
+.dashboard-section-files.item-selected-clone .files-grid-view .row {
+    background-color: var(--select-color) !important;
+    color: var(--dashboard-background) !important;
+    cursor: move;
+}
+
+.dashboard-section-files.item-selected-clone .files-grid-view .row {
+    opacity: 0.6;
+    pointer-events: none;
+}
+
+.dashboard-section-files.ui-draggable-dragging .files-grid-view .row .item-name-wrapper,
+.dashboard-section-files.item-selected-clone .files-grid-view .row .item-name-wrapper {
+    /* display: none !important; */
+}
+
+.dashboard-section-files.ui-draggable-dragging .files-grid-view .row .item-metadata,
+.dashboard-section-files.ui-draggable-dragging .files-grid-view .row .col-spacer,
+.dashboard-section-files.ui-draggable-dragging .files-grid-view .row .item-more,
+.dashboard-section-files.ui-draggable-dragging .files-grid-view .row .item-name-editor,
+.dashboard-section-files.item-selected-clone .files-grid-view .row .item-metadata,
+.dashboard-section-files.item-selected-clone .files-grid-view .row .col-spacer,
+.dashboard-section-files.item-selected-clone .files-grid-view .row .item-more,
+.dashboard-section-files.item-selected-clone .files-grid-view .row .item-name-editor {
     display: none !important;
 }
 
