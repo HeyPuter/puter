@@ -725,6 +725,7 @@
     white-space: nowrap;
     overflow: hidden;
     line-height: 32px;
+    text-align: left;
 }
 
 .dashboard-section-files .row .item-modified {
@@ -732,6 +733,7 @@
     white-space: nowrap;
     overflow: hidden;
     line-height: 32px;
+    text-align: left;
 }
 
 .dashboard-section-files .row .item-more {
@@ -891,6 +893,29 @@
     font-weight: bold;
     pointer-events: none;
     z-index: 10001;
+}
+
+/* Drag cancel zone — shown after spring-loaded folder navigation */
+.drag-cancel-zone {
+    position: absolute;
+    bottom: 32px;
+    right: 32px;
+    background: #ef4444;
+    color: white;
+    padding: 16px 32px;
+    border-radius: 6px;
+    font-size: 13px;
+    font-weight: 600;
+    box-shadow: 0 2px 8px rgba(0, 0, 0, 0.15);
+    z-index: 10001;
+    user-select: none;
+    cursor: default;
+    transition: background 0.15s, transform 0.15s;
+}
+
+.drag-cancel-zone.drag-cancel-hover {
+    background: #dc2626;
+    transform: scale(1.05);
 }
 
 .dashboard-section-files .directories li.ui-droppable-hover.active {

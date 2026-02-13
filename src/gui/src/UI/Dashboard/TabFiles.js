@@ -193,6 +193,7 @@ const TabFiles = {
         this.folderDwellTimer = null;
         this.folderDwellTarget = null;
         this.springLoadedActive = false;
+        this.springLoadedOriginalPath = null;
         this.previewOpen = false;
         this.previewCurrentUid = null;
         this.typeSearchTerm = '';
@@ -325,7 +326,11 @@ const TabFiles = {
                         _this.folderDwellTimer = setTimeout(async () => {
                             _this.folderDwellTimer = null;
                             _this.folderDwellTarget = null;
+                            if ( ! _this.springLoadedActive ) {
+                                _this.springLoadedOriginalPath = _this.currentPath;
+                            }
                             _this.springLoadedActive = true;
+                            $('.drag-cancel-zone').show();
                             $(folderElement).removeClass('dwell-opening active');
 
                             _this.pushNavHistory(folderPath);
@@ -584,8 +589,31 @@ const TabFiles = {
                 return false;
             }
 
-            // Escape - Clear selection or cancel rename
+            // Escape - Cancel drag, clear selection, or cancel rename
             if ( e.which === 27 ) {
+                // Cancel active drag operation
+                if ( window.an_item_is_being_dragged ) {
+                    e.preventDefault();
+                    e.stopPropagation();
+
+                    if ( _this.springLoadedActive ) {
+                        _this.navigateBackFromSpringLoad();
+                    }
+                    _this.springLoadedActive = false;
+                    _this.springLoadedOriginalPath = null;
+
+                    // Force jQuery UI to end the drag
+                    $(document).trigger('mouseup');
+
+                    // Cleanup
+                    $('.drag-cancel-zone').remove();
+                    $('.item-selected-clone').remove();
+                    $('.draggable-count-badge').remove();
+                    window.an_item_is_being_dragged = false;
+                    $('.window-app-iframe').css('pointer-events', 'auto');
+                    return false;
+                }
+
                 if ( $(focused_el).hasClass('item-name-editor') ) {
                     // Cancel rename - handled by item's own keyup handler
                     return;
@@ -1741,7 +1769,6 @@ const TabFiles = {
             ? { path: target, consistency: options.consistency || 'eventual' }
             : { uid: target, consistency: options.consistency || 'eventual' };
         const directoryContents = await window.puter.fs.readdir(readdirArg);
-        console.log(directoryContents);
         if ( ! directoryContents ) {
             this.hideSpinner();
             this.renderingDirectory = false;
@@ -2474,6 +2501,24 @@ const TabFiles = {
 
                 window.an_item_is_being_dragged = true;
                 $('.window-app-iframe').css('pointer-events', 'none');
+
+                // Create hidden cancel zone (shown when spring-load activates)
+                const $cancelZone = $(`<div class="drag-cancel-zone" style="display:none;">\u2715 ${i18n('cancel')}</div>`);
+                _this.$el_window.find('.dashboard-section-files').append($cancelZone);
+                $cancelZone.droppable({
+                    accept: '.row',
+                    tolerance: 'pointer',
+                    over: function () {
+                        $(this).addClass('drag-cancel-hover');
+                    },
+                    out: function () {
+                        $(this).removeClass('drag-cancel-hover');
+                    },
+                    drop: function (_event, ui) {
+                        ui.helper.data('dropped', true);
+                        ui.helper.data('cancelled', true);
+                    },
+                });
             },
 
             drag: function (event, ui) {
@@ -2509,35 +2554,53 @@ const TabFiles = {
                 _this.folderDwellTarget = null;
                 $('.dwell-opening').removeClass('dwell-opening');
 
-                // If we spring-loaded into a folder and the item wasn't dropped
-                // on a specific target, move it to the current directory
-                if ( _this.springLoadedActive && !ui.helper.data('dropped') ) {
-                    const itemsToMove = [el_item];
+                // Handle spring-loaded folder drag resolution
+                if ( _this.springLoadedActive ) {
+                    if ( ui.helper.data('cancelled') ) {
+                        // Dropped on cancel zone → navigate back, no move
+                        _this.navigateBackFromSpringLoad();
+                    } else if ( ! ui.helper.data('dropped') ) {
+                        // Not dropped on a specific target — check if within .files area
+                        const filesEl = _this.$el_window.find('.files')[0];
+                        const rect = filesEl.getBoundingClientRect();
+                        const inFiles = event.clientX >= rect.left && event.clientX <= rect.right &&
+                            event.clientY >= rect.top && event.clientY <= rect.bottom;
 
-                    // Collect additional selected items from body-level clones
-                    $('.item-selected-clone').find('.row').each(function () {
-                        itemsToMove.push(this);
-                    });
+                        if ( inFiles ) {
+                            // Dropped in file list but not on a folder → move to current dir
+                            const itemsToMove = [el_item];
+                            $('.item-selected-clone').find('.row').each(function () {
+                                itemsToMove.push(this);
+                            });
 
-                    if ( event.ctrlKey ) {
-                        window.copy_items(itemsToMove, _this.currentPath);
-                    }
-                    else if ( event.altKey && window.feature_flags?.create_shortcut ) {
-                        for ( const item of itemsToMove ) {
-                            const itemPath = $(item).attr('data-path');
-                            const itemName = itemPath.split('/').pop();
-                            const isDir = $(item).attr('data-is_dir') === '1';
-                            const shortcutTo = $(item).attr('data-shortcut_to') || $(item).attr('data-uid');
-                            const shortcutToPath = $(item).attr('data-shortcut_to_path') || itemPath;
-                            window.create_shortcut(itemName, isDir, _this.currentPath, null, shortcutTo, shortcutToPath);
+                            if ( event.ctrlKey ) {
+                                window.copy_items(itemsToMove, _this.currentPath);
+                            }
+                            else if ( event.altKey && window.feature_flags?.create_shortcut ) {
+                                for ( const item of itemsToMove ) {
+                                    const itemPath = $(item).attr('data-path');
+                                    const itemName = itemPath.split('/').pop();
+                                    const isDir = $(item).attr('data-is_dir') === '1';
+                                    const shortcutTo = $(item).attr('data-shortcut_to') || $(item).attr('data-uid');
+                                    const shortcutToPath = $(item).attr('data-shortcut_to_path') || itemPath;
+                                    window.create_shortcut(itemName, isDir, _this.currentPath, null, shortcutTo, shortcutToPath);
+                                }
+                            }
+                            else {
+                                window.move_items(itemsToMove, _this.currentPath);
+                            }
+                        } else {
+                            // Dropped outside file list → cancel, navigate back
+                            _this.navigateBackFromSpringLoad();
                         }
                     }
-                    else {
-                        window.move_items(itemsToMove, _this.currentPath);
-                    }
+                    // If dropped on a specific folder/breadcrumb target, the drop
+                    // handler already processed it — nothing to do here.
                 }
 
                 _this.springLoadedActive = false;
+                _this.springLoadedOriginalPath = null;
+                $('.drag-cancel-zone').remove();
                 $('.item-selected-clone').remove();
                 $('.draggable-count-badge').remove();
                 window.an_item_is_being_dragged = false;
@@ -2621,7 +2684,11 @@ const TabFiles = {
                         _this.folderDwellTimer = setTimeout(async () => {
                             _this.folderDwellTimer = null;
                             _this.folderDwellTarget = null;
+                            if ( ! _this.springLoadedActive ) {
+                                _this.springLoadedOriginalPath = _this.currentPath;
+                            }
                             _this.springLoadedActive = true;
+                            $('.drag-cancel-zone').show();
                             $(el_item).removeClass('dwell-opening selected');
 
                             _this.pushNavHistory(targetPath);
@@ -2918,6 +2985,27 @@ const TabFiles = {
             this.$el_window.find('.files .row.selected').removeClass('selected');
             this.updateFooterStats();
         }
+    },
+
+    /**
+     * Navigates back to the original folder after cancelling a spring-loaded drag.
+     * Walks back through nav history to find the original path position.
+     *
+     * @returns {void}
+     */
+    navigateBackFromSpringLoad () {
+        if ( ! this.springLoadedOriginalPath ) return;
+
+        // Walk back through nav history to find the original path
+        for ( let i = window.dashboard_nav_history_current_position - 1; i >= 0; i-- ) {
+            if ( window.dashboard_nav_history[i] === this.springLoadedOriginalPath ) {
+                window.dashboard_nav_history_current_position = i;
+                this.renderDirectory(this.springLoadedOriginalPath);
+                return;
+            }
+        }
+        // Fallback: render the original path directly
+        this.renderDirectory(this.springLoadedOriginalPath);
     },
 
     /**
