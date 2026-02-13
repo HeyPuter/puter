@@ -393,6 +393,8 @@ async function driverCall_ (
                         if ( lineObject?.error?.code === 'insufficient_funds' || lineObject?.metadata?.usage_limited === true ) {
                             if ( puter.env === 'web' ) {
                                 showUsageLimitDialog('You have reached your usage limit for this account.<br>Please upgrade to continue.');
+                            } else if ( puter.env === 'app' ) {
+                                await puter.ui.requestUpgrade();
                             }
                         }
                         // Check for email confirmation required (e.g. AI calls)
@@ -484,6 +486,8 @@ async function driverCall_ (
 
         if ( (isInsufficientFunds || isUsageLimited) && puter.env === 'web' ) {
             showUsageLimitDialog('Your account has not enough funding to complete this request.<br>Please upgrade to continue.');
+        } else if ( (isInsufficientFunds || isUsageLimited) && puter.env === 'app' ) {
+            await puter.ui.requestUpgrade();
         }
 
         // Check for email confirmation required (e.g. AI calls) - web only

@@ -8,6 +8,7 @@ export interface IImageModel {
     version?: string;
     costs_currency: string;
     index_cost_key?: string;
+    index_input_cost_key?: string;
     costs: Record<string, number>;
     allowedQualityLevels?: string[];
     allowedRatios?: { w: number, h: number }[];

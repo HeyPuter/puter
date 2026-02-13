@@ -295,7 +295,7 @@ window.initgui = async function (options) {
     // update SDK if api_origin is different from the one in the SDK
     if ( window.api_origin && puter.APIOrigin !== window.api_origin )
     {
-        puter.setAPIOrigin(window.api_origin);
+        puter.setAPIOrigin(localStorage.getItem('api_origin') || window.api_origin);
     }
 
     // Print the version to the console
@@ -528,6 +528,13 @@ window.initgui = async function (options) {
     // -------------------------------------------------------------------------------------
     else if ( window.url_query_params.has('auth_token') ) {
         let query_param_auth_token = window.url_query_params.get('auth_token');
+        let api_origin;
+
+        // check if we have api_origin in the URL query params
+        if ( window.url_query_params.has('api_origin') ) {
+            api_origin = window.url_query_params.get('api_origin');
+            puter.setAPIOrigin(api_origin);
+        }
 
         puter.setAuthToken(query_param_auth_token);
 
@@ -557,7 +564,7 @@ window.initgui = async function (options) {
             // show login progress window
             UIWindowLoginInProgress({ user_info: whoami });
             // update auth data
-            window.update_auth_data(query_param_auth_token, whoami);
+            window.update_auth_data(query_param_auth_token, whoami, api_origin);
         }
         // remove auth_token from URL
         window.history.pushState(null, document.title, '/');

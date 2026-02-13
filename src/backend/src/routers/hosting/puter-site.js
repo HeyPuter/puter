@@ -24,12 +24,19 @@ const { Context } = require('../../util/context');
 const { NodeInternalIDSelector, NodePathSelector } = require('../../filesystem/node/selectors');
 const { TYPE_DIRECTORY } = require('../../filesystem/FSNodeContext');
 const { LLRead } = require('../../filesystem/ll_operations/ll_read');
+const { stream_to_buffer: streamToBuffer } = require('../../util/streamutil');
 const { Actor, UserActorType, SiteActorType } = require('../../services/auth/Actor');
 const APIError = require('../../api/APIError');
 const { PermissionUtil } = require('../../services/auth/permissionUtils.mjs');
 const { default: dedent } = require('dedent');
+const {
+    parseSiteErrorConfig,
+    getSiteErrorRule,
+} = require('./puter-site-config');
 
 const AT_DIRECTORY_NAMESPACE = '4aa6dc52-34c1-4b8a-b63c-a62b27f727cf';
+const puterSiteConfigFilename = '.puter_site_config';
+const puterSiteConfigMaxSize = 256 * 1024;
 
 class PuterSiteMiddleware extends AdvancedBase {
     static MODULES = {
@@ -73,9 +80,21 @@ class PuterSiteMiddleware extends AdvancedBase {
                 });
             } else await this.run_(req, res, next);
         } catch ( e ) {
-
-            console.error('fuck!', e);
-            // TODO: html_error_handler
+            console.error('puter-site middleware error', e);
+            if ( !res.headersSent && req.__puterSiteRootPath ) {
+                try {
+                    const handled = await this.respondSiteError({
+                        path: req.path,
+                        req,
+                        res,
+                        next,
+                        subdomainRootPath: req.__puterSiteRootPath,
+                    });
+                    if ( handled ) return;
+                } catch ( site_error ) {
+                    console.error('failed handling site error response', site_error);
+                }
+            }
             api_error_handler(e, req, res, next);
         }
     }
@@ -165,14 +184,14 @@ class PuterSiteMiddleware extends AdvancedBase {
 
         const svc_fs = services.get('filesystem');
 
-        let subdomain_root_path = '';
+        let subdomainRootPath = '';
         if ( site.root_dir_id !== null && site.root_dir_id !== undefined ) {
             const node = await svc_fs.node(new NodeInternalIDSelector('mysql', site.root_dir_id));
             if ( ! await node.exists() ) {
-                res.status(502).send('subdomain is pointing to deleted directory');
+                return res.status(502).send('subdomain is pointing to deleted directory');
             }
             if ( await node.get('type') !== TYPE_DIRECTORY ) {
-                res.status(502).send('subdomain is pointing to non-directory');
+                return res.status(502).send('subdomain is pointing to non-directory');
             }
 
             // Verify subdomain owner permission
@@ -183,10 +202,10 @@ class PuterSiteMiddleware extends AdvancedBase {
                 return;
             }
 
-            subdomain_root_path = await node.get('path');
+            subdomainRootPath = await node.get('path');
         }
 
-        if ( ! subdomain_root_path ) {
+        if ( ! subdomainRootPath ) {
             return this.respond_html_error_({
                 html: dedent(`
                     Subdomain or site is not pointing to a directory.
@@ -194,17 +213,19 @@ class PuterSiteMiddleware extends AdvancedBase {
             }, req, res, next);
         }
 
-        if ( !subdomain_root_path || subdomain_root_path === '/' ) {
+        if ( !subdomainRootPath || subdomainRootPath === '/' ) {
             throw APIError.create('forbidden');
         }
 
-        const filepath = subdomain_root_path + decodeURIComponent(resolved_url_path);
+        req.__puterSiteRootPath = subdomainRootPath;
+
+        const filepath = subdomainRootPath + decodeURIComponent(resolved_url_path);
 
         const target_node = await svc_fs.node(new NodePathSelector(filepath));
         await target_node.fetchEntry();
 
         if ( ! await target_node.exists() ) {
-            return await this.respond_404_({ path }, req, res, next, subdomain_root_path);
+            return await this.respond_404_({ path }, req, res, next, subdomainRootPath);
         }
 
         const target_is_dir = await target_node.get('type') === TYPE_DIRECTORY;
@@ -214,7 +235,7 @@ class PuterSiteMiddleware extends AdvancedBase {
         }
 
         if ( target_is_dir ) {
-            return await this.respond_404_({ path }, req, res, next, subdomain_root_path);
+            return await this.respond_404_({ path }, req, res, next, subdomainRootPath);
         }
 
         const contentType = this.modules.mime.contentType(await target_node.get('name'));
@@ -411,55 +432,183 @@ class PuterSiteMiddleware extends AdvancedBase {
         try {
             return stream.pipe(res);
         } catch (e) {
+            const handled = await this.respondSiteError({
+                path,
+                req,
+                res,
+                next,
+                subdomainRootPath,
+            });
+            if ( handled ) return;
             return res.status(500).send(`Error reading file: ${ e.message}`);
         }
     }
 
-    async respond_404_ ({ path, html }, req, res, next, subdomain_root_path) {
-        // Check for custom 404.html file in site root
-        if ( subdomain_root_path ) {
+    async respondSiteError ({ path, html, req, res, next, subdomainRootPath }) {
+        const handled = await this.maybeRespondWithSiteConfig({
+            path,
+            html,
+            req,
+            res,
+            next,
+            subdomainRootPath,
+            errorStatus: 500,
+        });
+        return handled;
+    }
+
+    async getSiteErrorConfig (req, subdomainRootPath) {
+        if ( ! subdomainRootPath ) return null;
+        req.__puterSiteErrorConfigCache ??= Object.create(null);
+
+        if ( req.__puterSiteErrorConfigCache[subdomainRootPath] !== undefined ) {
+            return req.__puterSiteErrorConfigCache[subdomainRootPath];
+        }
+
+        try {
             const context = Context.get();
             const services = context.get('services');
             const svc_fs = services.get('filesystem');
 
-            const custom_404_filepath = `${subdomain_root_path }/404.html`;
-            const custom_404_node = await svc_fs.node(new NodePathSelector(custom_404_filepath));
-            await custom_404_node.fetchEntry();
+            const configPath = `${subdomainRootPath}/${puterSiteConfigFilename}`;
+            const configNode = await svc_fs.node(new NodePathSelector(configPath));
+            await configNode.fetchEntry();
 
-            if ( await custom_404_node.exists() ) {
-                // Serve the custom 404.html file
-                res.status(404);
+            if ( ! await configNode.exists() ) {
+                req.__puterSiteErrorConfigCache[subdomainRootPath] = null;
+                return null;
+            }
+            if ( await configNode.get('type') === TYPE_DIRECTORY ) {
+                req.__puterSiteErrorConfigCache[subdomainRootPath] = null;
+                return null;
+            }
 
-                const contentType = this.modules.mime.contentType('404.html');
-                res.set('Content-Type', contentType);
+            const size = Number(await configNode.get('size') ?? 0);
+            if ( Number.isFinite(size) && size > puterSiteConfigMaxSize ) {
+                req.__puterSiteErrorConfigCache[subdomainRootPath] = null;
+                return null;
+            }
 
-                const ll_read = new LLRead();
-                const stream = await ll_read.run({
-                    no_acl: true,
-                    actor: null,
-                    fsNode: custom_404_node,
+            const ll_read = new LLRead();
+            const stream = await ll_read.run({
+                no_acl: true,
+                actor: null,
+                fsNode: configNode,
+            });
+            const buffer = await streamToBuffer(stream);
+            const text = buffer.toString('utf8');
+            const parsed = parseSiteErrorConfig(text);
+
+            req.__puterSiteErrorConfigCache[subdomainRootPath] = parsed;
+            return parsed;
+        } catch {
+            req.__puterSiteErrorConfigCache[subdomainRootPath] = null;
+            return null;
+        }
+    }
+
+    async getSiteFileNode (subdomainRootPath, sitePath) {
+        const context = Context.get();
+        const services = context.get('services');
+        const svc_fs = services.get('filesystem');
+
+        const fullPath = `${subdomainRootPath}${sitePath}`;
+        const node = await svc_fs.node(new NodePathSelector(fullPath));
+        await node.fetchEntry();
+        if ( ! await node.exists() ) return null;
+        if ( await node.get('type') === TYPE_DIRECTORY ) return null;
+        return node;
+    }
+
+    async maybeRespondWithSiteConfig ({
+        path,
+        html,
+        req,
+        res,
+        next,
+        subdomainRootPath,
+        errorStatus,
+    }) {
+        if ( ! subdomainRootPath ) return false;
+
+        const parsedConfig = await this.getSiteErrorConfig(req, subdomainRootPath);
+        if ( ! parsedConfig ) return false;
+
+        const rule = getSiteErrorRule(parsedConfig, errorStatus);
+        if ( ! rule ) return false;
+
+        const responseStatus = rule.status ?? errorStatus;
+        if ( rule.file ) {
+            const node = await this.getSiteFileNode(subdomainRootPath, rule.file);
+            if ( node ) {
+                await this.streamSiteFile({
+                    req,
+                    res,
+                    fsNode: node,
+                    status: responseStatus,
                 });
-
-                // Destroy the stream if the client disconnects
-                req.on('close', () => {
-                    stream.destroy();
-                });
-
-                try {
-                    return stream.pipe(res);
-                } catch (e) {
-                    // If there's an error reading the custom 404 file, fall back to default
-                    return this.respond_html_error_({ path, html }, req, res, next);
-                }
+                return true;
             }
         }
 
-        // Fall back to default error if no custom 404.html found
-        return this.respond_html_error_({ path, html }, req, res, next);
+        if ( rule.status !== null && rule.status !== undefined ) {
+            this.respond_html_error_({ path, html, status: responseStatus }, req, res, next);
+            return true;
+        }
+
+        return false;
     }
 
-    respond_html_error_ ({ path, html }, req, res, next) {
-        res.status(404);
+    async streamSiteFile ({ req, res, fsNode, status }) {
+        res.status(status);
+        const contentType =
+            this.modules.mime.contentType(await fsNode.get('name')) ||
+            'application/octet-stream';
+        res.set('Content-Type', contentType);
+
+        const ll_read = new LLRead();
+        const stream = await ll_read.run({
+            no_acl: true,
+            actor: null,
+            fsNode,
+        });
+
+        req.on('close', () => {
+            stream.destroy();
+        });
+
+        return stream.pipe(res);
+    }
+
+    async respond_404_ ({ path, html }, req, res, next, subdomainRootPath) {
+        const handled = await this.maybeRespondWithSiteConfig({
+            path,
+            html,
+            req,
+            res,
+            next,
+            subdomainRootPath,
+            errorStatus: 404,
+        });
+        if ( handled ) return;
+
+        if ( subdomainRootPath ) {
+            const custom404Node = await this.getSiteFileNode(subdomainRootPath, '/404.html');
+            if ( custom404Node ) {
+                return this.streamSiteFile({
+                    req,
+                    res,
+                    fsNode: custom404Node,
+                    status: 404,
+                });
+            }
+        }
+
+        return this.respond_html_error_({ path, html, status: 404 }, req, res, next);
+    }
+
+    respond_html_error_ ({ path, html, status = 404 }, req, res, _next) {
+        res.status(status);
         res.set('Content-Type', 'text/html; charset=UTF-8');
         res.write(`<div style="font-size: 20px;
         text-align: center;
@@ -467,16 +616,16 @@ class PuterSiteMiddleware extends AdvancedBase {
         display: flex;
         justify-content: center;
         flex-direction: column;">`);
-        res.write('<h1 style="margin:0; color:#727272;">404</h1>');
+        res.write(`<h1 style="margin:0; color:#727272;">${status}</h1>`);
         res.write('<p style="margin-top:10px;">');
-        if ( path ) {
+        if ( status === 404 && path ) {
             if ( path === '/index.html' ) {
                 res.write('<code>index.html</code> Not Found');
             } else {
                 res.write('Not Found');
             }
         } else {
-            res.write(html);
+            res.write(html || 'Request failed');
         }
         res.write('</p>');
 

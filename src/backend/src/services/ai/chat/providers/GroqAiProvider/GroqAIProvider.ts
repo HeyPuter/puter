@@ -88,7 +88,7 @@ export class GroqAIProvider implements IChatProvider {
             usage_calculator: ({ usage }) => {
                 const trackedUsage = OpenAIUtil.extractMeteredUsage(usage);
                 const costsOverride = Object.fromEntries(Object.entries(trackedUsage).map(([k, v]) => {
-                    return [k, v * (modelUsed.costs[k] || 0)];
+                    return [k, v * (modelUsed.costs[k])];
                 }));
                 this.#meteringService.utilRecordUsageObject(trackedUsage, actor, `groq:${modelUsed.id}`, costsOverride);
                 return trackedUsage;

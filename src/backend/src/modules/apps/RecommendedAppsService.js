@@ -73,7 +73,7 @@ export default class RecommendedAppsService extends BaseService {
         const svc_appIcon = this.services.get('app-icon');
         const svc_event = this.services.get('event');
         svc_event.on('apps.invalidate', async (_, { app }) => {
-            const sizes = svc_appIcon.get_sizes();
+            const sizes = svc_appIcon.getSizes();
 
             // If it's a single-app invalidation, only invalidate if the
             // app is in the list of recommended apps
@@ -122,7 +122,7 @@ export default class RecommendedAppsService extends BaseService {
 
         // Iconify apps
         if ( icon_size ) {
-            recommended = await svc_appIcon.iconify_apps({
+            recommended = await svc_appIcon.iconifyApps({
                 apps: recommended,
                 size: icon_size,
             });

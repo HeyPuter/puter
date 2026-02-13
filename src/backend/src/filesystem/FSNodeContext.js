@@ -397,20 +397,29 @@ module.exports = class FSNodeContext {
      * @param fs:decouple-subdomains
      */
     async fetchSubdomains (user, _force) {
-        if ( ! this.entry.is_dir ) return;
-
         const db = this.services.get('database').get(DB_READ, 'filesystem');
 
         this.entry.subdomains = [];
+        this.entry.workers = [];
         let subdomains = await db.read('SELECT * FROM subdomains WHERE root_dir_id = ? AND user_id = ?',
                         [this.entry.id, user.id]);
         if ( subdomains.length > 0 ) {
             subdomains.forEach((sd) => {
-                this.entry.subdomains.push({
-                    subdomain: sd.subdomain,
-                    address: `${config.protocol }://${ sd.subdomain }.` + 'puter.site',
-                    uuid: sd.uuid,
-                });
+                if ( this.entry.is_dir ) {
+                    this.entry.subdomains.push({
+                        subdomain: sd.subdomain,
+                        address: `${config.protocol }://${ sd.subdomain }.` + 'puter.site',
+                        uuid: sd.uuid,
+                    });
+                } else {
+                    const workerName = sd.subdomain.split('.').pop();
+                    this.entry.workers.push({
+                        subdomain: workerName,
+                        address: `https://${ workerName }.` + 'puter.work',
+                        uuid: sd.uuid,
+                    });
+                }
+
             });
             this.entry.has_website = true;
         }

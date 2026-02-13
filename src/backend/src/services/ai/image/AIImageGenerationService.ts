@@ -22,7 +22,6 @@ import { ErrorService } from '../../../modules/core/ErrorService.js';
 import { Context } from '../../../util/context.js';
 import BaseService from '../../BaseService.js';
 import { BaseDatabaseAccessService } from '../../database/BaseDatabaseAccessService.js';
-import { DB_WRITE } from '../../database/consts.js';
 import { DriverService } from '../../drivers/DriverService.js';
 import { TypedValue } from '../../drivers/meta/Runtime.js';
 import { EventService } from '../../EventService.js';
@@ -30,8 +29,8 @@ import { MeteringService } from '../../MeteringService/MeteringService.js';
 import { GeminiImageGenerationProvider } from './providers/GeminiImageGenerationProvider/GeminiImageGenerationProvider.js';
 import { OpenAiImageGenerationProvider } from './providers/OpenAiImageGenerationProvider/OpenAiImageGenerationProvider.js';
 import { TogetherImageGenerationProvider } from './providers/TogetherImageGenerationProvider/TogetherImageGenerationProvider.js';
-import { XAIImageGenerationProvider } from './providers/XAIImageGenerationProvider/XAIImageGenerationProvider.js';
 import { IGenerateParams, IImageModel, IImageProvider } from './providers/types.js';
+import { XAIImageGenerationProvider } from './providers/XAIImageGenerationProvider/XAIImageGenerationProvider.js';
 
 export class AIImageGenerationService extends BaseService {
 
@@ -44,7 +43,7 @@ export class AIImageGenerationService extends BaseService {
     }
 
     get db (): BaseDatabaseAccessService {
-        return this.services.get('database').get(DB_WRITE, 'ai-service');
+        return this.services.get('database').get();
     }
 
     get errorService (): ErrorService {
@@ -177,9 +176,18 @@ export class AIImageGenerationService extends BaseService {
     }
 
     models () {
+        const seen = new Set<string>();
         return Object.entries(this.#modelIdMap)
             .map(([_, models]) => models)
             .flat()
+            .filter(model => {
+                const identity = `${model.provider}:${model.puterId || model.id}`;
+                if ( seen.has(identity) ) {
+                    return false;
+                }
+                seen.add(identity);
+                return true;
+            })
             .sort((a, b) => {
                 if ( a.provider === b.provider ) {
                     return a.id.localeCompare(b.id);

@@ -93,6 +93,22 @@ const item_icon = async (fsentry) => {
         return { image: trash_img, type: 'icon' };
     }
     // --------------------------------------------------
+    // .app files
+    // --------------------------------------------------
+    else if ( fsentry.name && fsentry.name.toLowerCase().endsWith('.app') ) {
+        try {
+            const content = await puter.fs.read({ path: fsentry.path });
+            const text = typeof content === 'string' ? content : await content.text();
+            const data = JSON.parse(text);
+            if ( data.icon ) {
+                return { image: data.icon, type: 'icon' };
+            }
+        } catch (e) {
+            // ignore
+        }
+        return { image: window.icons['app.svg'], type: 'icon' };
+    }
+    // --------------------------------------------------
     // Directories
     // --------------------------------------------------
     else if ( fsentry.is_dir ) {

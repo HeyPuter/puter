@@ -26,8 +26,10 @@ export const GEMINI_IMAGE_GENERATION_MODELS: IImageModel[] = [
         puterId: 'google:google/gemini-2.5-flash-image',
         id: 'gemini-2.5-flash-image',
         aliases: [
-            'gemini-2.5-flash-image-preview', 'gemini-2.5-flash-image',
-            'google/gemini-2.5-flash-image-preview', 'google/gemini-2.5-flash-image',
+            'gemini-2.5-flash-image-preview',
+            'gemini-2.5-flash-image',
+            'google/gemini-2.5-flash-image-preview',
+            'google/gemini-2.5-flash-image',
             'google:google/gemini-2.5-flash-image-preview',
         ],
 
@@ -35,18 +37,20 @@ export const GEMINI_IMAGE_GENERATION_MODELS: IImageModel[] = [
         version: '1.0',
         costs_currency: 'usd-cents',
         index_cost_key: '1x1',
+        index_input_cost_key: 'prompt_tokens',
         allowedQualityLevels: [''],
         costs: {
-            '1x1': 3.9, // $0.039 per image
-            '2x3': 3.9, // $0.039 per image
-            '3x2': 3.9, // $0.039 per image
-            '3x4': 3.9, // $0.039 per image
-            '4x3': 3.9, // $0.039 per image
-            '4x5': 3.9, // $0.039 per image
-            '5x4': 3.9, // $0.039 per image
-            '9x16': 3.9, // $0.039 per image
-            '16x9': 3.9, // $0.039 per image
-            '21x9': 3.9, // $0.039 per image
+            input: 30, // $0.30 per 1M prompt tokens, however google counts them
+            '1x1': 3.9, // $0.039 per image, just used for extiamte input allowed usage
+            '2x3': 3.9, // $0.039 per image, just used for extiamte input allowed usage
+            '3x2': 3.9, // $0.039 per image, just used for extiamte input allowed usage
+            '3x4': 3.9, // $0.039 per image, just used for extiamte input allowed usage
+            '4x3': 3.9, // $0.039 per image, just used for extiamte input allowed usage
+            '4x5': 3.9, // $0.039 per image, just used for extiamte input allowed usage
+            '5x4': 3.9, // $0.039 per image, just used for extiamte input allowed usage
+            '9x16': 3.9, // $0.039 per image, just used for extiamte input allowed usage
+            '16x9': 3.9, // $0.039 per image, just used for extiamte input allowed usage
+            '21x9': 3.9, // $0.039 per image, just used for extiamte input allowed usage
         },
         allowedRatios: [
             { w: 1, h: 1 },
@@ -62,16 +66,18 @@ export const GEMINI_IMAGE_GENERATION_MODELS: IImageModel[] = [
         ],
     },
     {
-        puterId: 'google:google/gemini-3-pro-image',
-        id: 'gemini-3-pro-image',
+        puterId: 'google:google/gemini-3-pro-image-preview',
+        id: 'gemini-3-pro-image-preview',
         name: 'Gemini 3 Pro Image',
         version: '1.0',
         costs_currency: 'usd-cents',
         index_cost_key: '1K:1x1',
         aliases: [
-            'gemini-3-flash-image-preview', 'gemini-3-flash-image',
-            'google/gemini-3-flash-image-preview', 'google/gemini-3-flash-image',
-            'google:google/gemini-3-flash-image-preview',
+            'gemini-3-pro-image-preview',
+            'gemini-3-pro-image',
+            'google/gemini-3-pro-image-preview',
+            'google/gemini-3-pro-image',
+            'google:google/gemini-3-pro-image-preview',
         ],
         allowedQualityLevels: ['1K', '2K', '4K'],
         allowedRatios: [
@@ -87,36 +93,38 @@ export const GEMINI_IMAGE_GENERATION_MODELS: IImageModel[] = [
             { w: 21, h: 9 },
         ],
         costs: {
-            '1K:1x1': 13.51, // $0.1351 per image
-            '1K:2x3': 13.51, // $0.1351 per image
-            '1K:3x2': 13.51, // $0.1351 per image
-            '1K:3x4': 13.51, // $0.1351 per image
-            '1K:4x3': 13.51, // $0.1351 per image
-            '1K:4x5': 13.51, // $0.1351 per image
-            '1K:5x4': 13.51, // $0.1351 per image
-            '1K:9x16': 13.51, // $0.1351 per image
-            '1K:16x9': 13.51, // $0.1351 per image
-            '1K:21x9': 13.51, // $0.1351 per image
-            '2K:1x1': 13.51, // $0.1351 per image
-            '2K:2x3': 13.51, // $0.1351 per image
-            '2K:3x2': 13.51, // $0.1351 per image
-            '2K:3x4': 13.51, // $0.1351 per image
-            '2K:4x3': 13.51, // $0.1351 per image
-            '2K:4x5': 13.51, // $0.1351 per image
-            '2K:5x4': 13.51, // $0.1351 per image
-            '2K:9x16': 13.51, // $0.1351 per image
-            '2K:16x9': 13.51, // $0.1351 per image
-            '2K:21x9': 13.51, // $0.1351 per image
-            '4K:1x1': 24.1, // $0.24 per image
-            '4K:2x3': 24.1, // $0.24 per image
-            '4K:3x2': 24.1, // $0.24 per image
-            '4K:3x4': 24.1, // $0.24 per image
-            '4K:4x3': 24.1, // $0.24 per image
-            '4K:4x5': 24.1, // $0.24 per image
-            '4K:5x4': 24.1, // $0.24 per image
-            '4K:9x16': 24.1, // $0.24 per image
-            '4K:16x9': 24.1, // $0.24 per image
-            '4K:21x9': 24.1, // $0.24 per image
+            input: 200, // $2.00 per 1M input tokens, however google counts them
+            output: 1200, // $12.00 per 1M output tokens, however google counts them
+            '1K:1x1': 13.4, // $0.134 per image
+            '1K:2x3': 13.4, // $0.134 per image
+            '1K:3x2': 13.4, // $0.134 per image
+            '1K:3x4': 13.4, // $0.134 per image
+            '1K:4x3': 13.4, // $0.134 per image
+            '1K:4x5': 13.4, // $0.134 per image
+            '1K:5x4': 13.4, // $0.134 per image
+            '1K:9x16': 13.4, // $0.134 per image
+            '1K:16x9': 13.4, // $0.134 per image
+            '1K:21x9': 13.4, // $0.134 per image
+            '2K:1x1': 13.4, // $0.134 per image
+            '2K:2x3': 13.4, // $0.134 per image
+            '2K:3x2': 13.4, // $0.134 per image
+            '2K:3x4': 13.4, // $0.134 per image
+            '2K:4x3': 13.4, // $0.134 per image
+            '2K:4x5': 13.4, // $0.134 per image
+            '2K:5x4': 13.4, // $0.134 per image
+            '2K:9x16': 13.4, // $0.134 per image
+            '2K:16x9': 13.4, // $0.134 per image
+            '2K:21x9': 13.4, // $0.134 per image
+            '4K:1x1': 24, // $0.24 per image
+            '4K:2x3': 24, // $0.24 per image
+            '4K:3x2': 24, // $0.24 per image
+            '4K:3x4': 24, // $0.24 per image
+            '4K:4x3': 24, // $0.24 per image
+            '4K:4x5': 24, // $0.24 per image
+            '4K:5x4': 24, // $0.24 per image
+            '4K:9x16': 24, // $0.24 per image
+            '4K:16x9': 24, // $0.24 per image
+            '4K:21x9': 24, // $0.24 per image
         },
     },
 ];

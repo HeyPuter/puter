@@ -25,6 +25,8 @@ const config = require('../../config.js');
 var http = require('http');
 const auth = require('../../middleware/auth.js');
 const measure = require('../../middleware/measure.js');
+const yargs = require('yargs/yargs');
+const { hideBin } = require('yargs/helpers');
 
 const relative_require = require;
 
@@ -202,6 +204,13 @@ class WebServerService extends BaseService {
 
         const url = config.origin;
 
+        const args = yargs(hideBin(process.argv)).argv;
+        if ( args['server'] ) {
+            (async () => {
+                (await import('./../../../../../tools/auth_gui.js')).default(args['puter-backend']);
+            })();
+            config.no_browser_launch = true;
+        }
         // Open the browser to the URL of Puter
         // (if we are in development mode only)
         if ( config.env === 'dev' && !config.no_browser_launch ) {

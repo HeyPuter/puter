@@ -131,19 +131,19 @@ class HLReadDir extends HLFilesystemOperation {
             const entry = await child.getSafeEntry();
             if ( !no_thumbs && entry.associated_app ) {
                 const svc_appIcon = this.context.get('services').get('app-icon');
-                const icon_result = await svc_appIcon.get_icon_stream({
-                    app_icon: entry.associated_app.icon,
-                    app_uid: entry.associated_app.uid ?? entry.associated_app.uuid,
+                const iconResult = await svc_appIcon.getIconStream({
+                    appIcon: entry.associated_app.icon,
+                    appUid: entry.associated_app.uid ?? entry.associated_app.uuid,
                     size: 64,
                 });
 
-                if ( icon_result.data_url ) {
-                    entry.associated_app.icon = icon_result.data_url;
+                if ( iconResult.dataUrl ?? iconResult.data_url ) {
+                    entry.associated_app.icon = iconResult.dataUrl ?? iconResult.data_url;
                 } else {
                     try {
-                        const buffer = await stream_to_buffer(icon_result.stream);
-                        const resp_data_url = `data:${icon_result.mime};base64,${buffer.toString('base64')}`;
-                        entry.associated_app.icon = resp_data_url;
+                        const buffer = await stream_to_buffer(iconResult.stream);
+                        const respDataUrl = `data:${iconResult.mime};base64,${buffer.toString('base64')}`;
+                        entry.associated_app.icon = respDataUrl;
                     } catch (e) {
                         const svc_error = this.context.get('services').get('error-service');
                         svc_error.report('hl_readdir:icon-stream', {
@@ -157,35 +157,47 @@ class HLReadDir extends HLFilesystemOperation {
     }
 
     async #batchFetchSubdomains (children, user) {
-        const dirChildren = [];
+        const childIds = [];
         const childById = new Map();
 
         for ( const child of children ) {
             const entry = child.entry;
-            if ( ! entry?.is_dir ) continue;
+            if ( ! entry ) continue;
             entry.subdomains = [];
+            entry.workers = [];
             if ( entry.id == null ) continue;
-            dirChildren.push(entry.id);
+            childIds.push(entry.id);
             childById.set(entry.id, child);
         }
 
-        if ( dirChildren.length === 0 ) return;
+        if ( childIds.length === 0 ) return;
 
-        const placeholders = dirChildren.map(() => '?').join(',');
+        const placeholders = childIds.map(() => '?').join(',');
         const db = this.context.get('services').get('database').get(DB_READ, 'filesystem');
         const rows = await db.read(`SELECT root_dir_id, subdomain, uuid
              FROM subdomains
              WHERE root_dir_id IN (${placeholders}) AND user_id = ?`,
-        [...dirChildren, user.id]);
+        [...childIds, user.id]);
 
         for ( const row of rows ) {
             const child = childById.get(row.root_dir_id);
             if ( ! child ) continue;
-            child.entry.subdomains.push({
-                subdomain: row.subdomain,
-                address: `${config.protocol }://${ row.subdomain }.puter.site`,
-                uuid: row.uuid,
-            });
+
+            if ( child.entry.is_dir ) {
+                child.entry.subdomains.push({
+                    subdomain: row.subdomain,
+                    address: `${config.protocol }://${ row.subdomain }.puter.site`,
+                    uuid: row.uuid,
+                });
+            } else {
+                const workerName = row.subdomain.split('.').pop();
+                child.entry.workers.push({
+                    subdomain: workerName,
+                    address: `https://${ workerName }.puter.work`,
+                    uuid: row.uuid,
+                });
+            }
+
             child.entry.has_website = true;
         }
     }

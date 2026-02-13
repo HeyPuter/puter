@@ -20,6 +20,18 @@ import {
     validate_url,
 } from './lib/validation.js';
 
+const APP_ICON_ENDPOINT_PATH_REGEX = /^\/app-icon\/[^/?#]+\/\d+\/?$/;
+
+const isAppIconEndpointPath = (value) => {
+    if ( typeof value !== 'string' ) return false;
+    try {
+        const pathname = new URL(value, 'http://localhost').pathname;
+        return APP_ICON_ENDPOINT_PATH_REGEX.test(pathname);
+    } catch {
+        return false;
+    }
+};
+
 /**
  * AppService contains an instance using the repository pattern
  */
@@ -178,13 +190,13 @@ export default class AppService extends BaseService {
                 const icon_size = params.icon_size;
                 const svc_appIcon = this.context.get('services').get('app-icon');
                 try {
-                    const icon_result = await svc_appIcon.get_icon_stream({
-                        app_uid: row.uid,
-                        app_icon: row.icon,
+                    const iconResult = await svc_appIcon.getIconStream({
+                        appUid: row.uid,
+                        appIcon: row.icon,
                         size: icon_size,
                     });
                     console.log('this is working it looks like');
-                    app.icon = await icon_result.get_data_url();
+                    app.icon = await iconResult.get_data_url();
                 } catch (e) {
                     const svc_error = this.context.get('services').get('error-service');
                     svc_error.report('AppES:read_transform', { source: e });
@@ -306,12 +318,12 @@ export default class AppService extends BaseService {
             const icon_size = params.icon_size;
             const svc_appIcon = this.context.get('services').get('app-icon');
             try {
-                const icon_result = await svc_appIcon.get_icon_stream({
-                    app_uid: row.uid,
-                    app_icon: row.icon,
+                const iconResult = await svc_appIcon.getIconStream({
+                    appUid: row.uid,
+                    appIcon: row.icon,
                     size: icon_size,
                 });
-                app.icon = await icon_result.get_data_url();
+                app.icon = await iconResult.get_data_url();
             } catch (e) {
                 const svc_error = this.context.get('services').get('error-service');
                 svc_error.report('AppES:read_transform', { source: e });
@@ -383,7 +395,13 @@ export default class AppService extends BaseService {
             }
 
             if ( object.icon !== undefined && object.icon !== null ) {
-                validate_image_base64(object.icon, { key: 'icon' });
+                if ( typeof object.icon === 'string' && object.icon.startsWith('data:') ) {
+                    validate_image_base64(object.icon, { key: 'icon' });
+                } else if ( isAppIconEndpointPath(object.icon) ) {
+                    // Allow existing relative app icon endpoint references.
+                } else {
+                    validate_url(object.icon, { key: 'icon', maxlen: 3000 });
+                }
             }
 
             validate_url(object.index_url, {
@@ -453,6 +471,10 @@ export default class AppService extends BaseService {
                 data_url: object.icon,
             };
             await svc_event.emit('app.new-icon', event);
+            if ( event.url ) {
+                await this.db_write.write('UPDATE apps SET icon = ? WHERE uid = ? LIMIT 1',
+                                [event.url, uid]);
+            }
         }
 
         // Return the created app
@@ -621,7 +643,13 @@ export default class AppService extends BaseService {
             }
 
             if ( object.icon !== undefined && object.icon !== null ) {
-                validate_image_base64(object.icon, { key: 'icon' });
+                if ( typeof object.icon === 'string' && object.icon.startsWith('data:') ) {
+                    validate_image_base64(object.icon, { key: 'icon' });
+                } else if ( isAppIconEndpointPath(object.icon) ) {
+                    // Allow existing relative app icon endpoint references.
+                } else {
+                    validate_url(object.icon, { key: 'icon', maxlen: 3000 });
+                }
             }
 
             if ( object.index_url !== undefined ) {
@@ -691,12 +719,10 @@ export default class AppService extends BaseService {
 
         // Check if user has system-wide write permission
         {
-            /* eslint-disable */ // We need to fix eslint rule for multi-line calls
-            const has_permission_to_write_all = await svc_permission.check(
-                actor,
-                this.constructor.WRITE_ALL_OWNER_PERMISSION,
-            );
-            /* eslint-enable */
+            // We need to fix eslint rule for multi-line calls
+            const has_permission_to_write_all = await svc_permission.check(actor,
+                            this.constructor.WRITE_ALL_OWNER_PERMISSION);
+
             if ( has_permission_to_write_all ) {
                 return;
             }
@@ -849,6 +875,10 @@ export default class AppService extends BaseService {
                 data_url: object.icon,
             };
             await svc_event.emit('app.new-icon', event);
+            if ( event.url ) {
+                await this.db_write.write('UPDATE apps SET icon = ? WHERE uid = ? LIMIT 1',
+                                [event.url, old_app.uid]);
+            }
         }
 
         // Emit name change event

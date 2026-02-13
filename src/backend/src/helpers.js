@@ -29,6 +29,7 @@ const { Context } = require('./util/context');
 const { NodeUIDSelector } = require('./filesystem/node/selectors');
 const { redisClient } = require('./clients/redis/redisSingleton');
 const { kv } = require('./util/kvSingleton');
+const { APP_ICONS_SUBDOMAIN } = require('./consts/app-icons.js');
 
 const identifying_uuid = require('uuid').v4();
 
@@ -61,14 +62,11 @@ const buildAppIconUrl = (app_uid, size = DEFAULT_APP_ICON_SIZE) => {
     if ( ! app_uid ) return null;
     const uid_string = String(app_uid);
     const normalized_uid = uid_string.startsWith('app-') ? uid_string : `app-${uid_string}`;
-    const origin = config.origin ?? (
-        config.protocol && config.domain
-            ? `${config.protocol }://${ config.domain }`
-            : 'https://puter.com'
-    );
-    if ( ! origin ) return null;
-    const host = origin.replace(/\/$/, '');
-    return `${host}/app-icon/${normalized_uid}/${size}`;
+    const icon_size = Number.isFinite(Number(size)) ? Number(size) : DEFAULT_APP_ICON_SIZE;
+    const static_hosting_domain = config.static_hosting_domain || config.static_hosting_domain_alt;
+    if ( ! static_hosting_domain ) return null;
+    const protocol = config.protocol || 'https';
+    return `${protocol}://${APP_ICONS_SUBDOMAIN}.${static_hosting_domain}/${normalized_uid}-${icon_size}.png`;
 };
 
 const withAppIconUrl = (app) => {
@@ -1921,13 +1919,13 @@ async function get_taskbar_items (user, { icon_size, no_icons } = {}) {
             delete item.icon;
         } else {
             const svc_appIcon = _servicesHolder.services.get('app-icon');
-            const icon_result = await svc_appIcon.get_icon_stream({
-                app_icon: item.icon,
-                app_uid: item.uid,
+            const iconResult = await svc_appIcon.getIconStream({
+                appIcon: item.icon,
+                appUid: item.uid,
                 size: icon_size,
             });
 
-            item.icon = await icon_result.get_data_url();
+            item.icon = await iconResult.get_data_url();
         }
 
         // add to final object

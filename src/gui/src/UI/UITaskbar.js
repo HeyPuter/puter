@@ -236,6 +236,26 @@ async function UITaskbar (options) {
                 const $existingTaskbarItem = $(`.taskbar-item[data-app="${e.currentTarget.dataset.appName}"]`);
                 const isPinned = $existingTaskbarItem.length > 0 && $existingTaskbarItem.attr('data-keep-in-taskbar') === 'true';
 
+                items.push({
+                    html: i18n('add_to_desktop'),
+                    onClick: async function () {
+                        try {
+                            const fileName = `${e.currentTarget.dataset.appTitle}.app`;
+                            const content = JSON.stringify({
+                                app: e.currentTarget.dataset.appName,
+                                title: e.currentTarget.dataset.appTitle,
+                                icon: e.currentTarget.dataset.appIcon,
+                            });
+                            await puter.fs.upload(new File([content], fileName), window.desktop_path, {
+                                generateThumbnails: true,
+                            });
+                        } catch ( err ) {
+                            console.error('Failed to add shortcut to desktop:', err);
+                            // Consider showing a user-facing error notification
+                        }
+                    },
+                });
+
                 if ( ! isPinned ) {
                     items.push({
                         html: i18n('keep_in_taskbar'),
