@@ -489,6 +489,7 @@ async function UIDesktop (options) {
             shortcut_to: fsentry.shortcut_to,
             shortcut_to_path: fsentry.shortcut_to_path,
             // has_website: $(el_item).attr('data-has_website') === '1',
+            workers: fsentry.workers.length > 0 ? fsentry.workers : [],
             metadata: JSON.stringify(fsentry.metadata) ?? '',
         });
 
@@ -674,6 +675,7 @@ async function UIDesktop (options) {
                 is_shortcut: item.is_shortcut,
                 shortcut_to: item.shortcut_to,
                 shortcut_to_path: item.shortcut_to_path,
+                workers: item.workers.length > 0 ? item.workers : [],
             });
 
             //sort each window

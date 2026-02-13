@@ -139,7 +139,6 @@ async function UIItem (options) {
     options.immutable = (options.immutable === false || options.immutable === 0 || options.immutable === undefined ? 0 : 1);
     options.sort_container_after_append = (options.sort_container_after_append !== undefined ? options.sort_container_after_append : false);
     const is_shared_with_me = (options.path !== `/${window.user.username}` && !options.path.startsWith(`/${window.user.username}/`));
-    console.log(options);
     const is_worker = options.workers?.length > 0;
     const worker_url = is_worker ? options.workers[0].address : '';
     let website_url = window.determine_website_url(options.path);
