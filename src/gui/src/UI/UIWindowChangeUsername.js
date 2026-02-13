@@ -39,7 +39,7 @@ async function UIWindowChangeUsername (options) {
     h += `<input id="change-username-password-${internal_id}" type="password" name="password" class="change-username-password" autocomplete="current-password" placeholder="" />`;
     h += '</div>';
     h += '<div class="change-username-oidc-wrap" style="display:none;">';
-    h += '<button type="button" class="button change-username-revalidate-btn"></button>';
+    h += '<p class="change-username-oidc-flow-notice" style="margin:0;font-size:12px;color:#666;"></p>';
     h += '<span class="change-username-revalidated-msg" style="display:none;"></span>';
     h += '</div>';
     h += '<p class="change-username-oidc-hint" style="margin-top:6px;font-size:12px;color:#666;display:none;"></p>';
@@ -75,7 +75,10 @@ async function UIWindowChangeUsername (options) {
             if ( oidc_only ) {
                 authRow.find('.change-username-password-wrap').hide();
                 const oidcWrap = authRow.find('.change-username-oidc-wrap').show();
-                oidcWrap.find('.change-username-revalidate-btn').text(i18n('revalidate_with_google') || 'Re-validate with Google');
+                oidcWrap.find('.change-username-oidc-flow-notice').text(
+                    i18n('revalidate_flow_notice') ||
+                    'You will be asked to sign in with your linked account when you continue.',
+                );
             } else {
                 authRow.find('.change-username-oidc-wrap').hide();
             }
@@ -110,7 +113,6 @@ async function UIWindowChangeUsername (options) {
             hint.hide();
         }
         $(el_window).find('.change-username-revalidated-msg').text(i18n('revalidated') || 'Re-validated.').show();
-        $(el_window).find('.change-username-revalidate-btn').hide();
     };
 
     $(el_window).find('.change-username-btn').on('click', async function (e) {
@@ -153,10 +155,6 @@ async function UIWindowChangeUsername (options) {
             return;
         }
         onError(data.message || 'Request failed');
-    });
-
-    $(el_window).find('.change-username-revalidate-btn').on('click', function () {
-        myOpenRevalidatePopup();
     });
 
     function doSubmit (password) {

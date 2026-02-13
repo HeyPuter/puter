@@ -38,7 +38,7 @@ async function UIWindowChangePassword (options) {
     h += `<input id="current-password-${internal_id}" class="current-password" type="password" name="current-password" autocomplete="current-password" />`;
     h += '</div>';
     h += '<div class="change-password-oidc-wrap" style="display:none;">';
-    h += '<button type="button" class="button change-password-revalidate-btn"></button>';
+    h += '<p class="change-password-oidc-flow-notice" style="margin:0;font-size:12px;color:#666;"></p>';
     h += '<span class="change-password-revalidated-msg" style="display:none;"></span>';
     h += '</div>';
     h += '</div>';
@@ -86,7 +86,10 @@ async function UIWindowChangePassword (options) {
             if ( oidc_only ) {
                 authRow.find('.change-password-current-wrap').hide();
                 const oidcWrap = authRow.find('.change-password-oidc-wrap').show();
-                oidcWrap.find('.change-password-revalidate-btn').text(i18n('revalidate_with_google') || 'Re-validate with Google');
+                oidcWrap.find('.change-password-oidc-flow-notice').text(
+                    i18n('revalidate_flow_notice') ||
+                    'You will be asked to sign in with your linked account when you continue.',
+                );
             } else {
                 authRow.find('.change-password-oidc-wrap').hide();
             }
@@ -121,7 +124,6 @@ async function UIWindowChangePassword (options) {
             hint.hide();
         }
         $(el_window).find('.change-password-revalidated-msg').text(i18n('revalidated') || 'Re-validated.').show();
-        $(el_window).find('.change-password-revalidate-btn').hide();
     };
 
     $(el_window).find('.change-password-btn').on('click', async function (e) {
@@ -233,14 +235,6 @@ async function UIWindowChangePassword (options) {
             }),
         });
     }
-
-    $(el_window).find('.change-password-revalidate-btn').on('click', function () {
-        openRevalidatePopup(null, (err) => {
-            if ( err ) {
-                onError(err.message || 'Re-validation required.');
-            }
-        });
-    });
 
     function onError (message) {
         $(el_window).find('.form-error-msg').html(html_encode(message));
