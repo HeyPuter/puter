@@ -337,6 +337,34 @@ class WebServerService extends BaseService {
             next();
         });
 
+        // When the user visits the main origin (not api/dav subdomain) with ?auth_token=<GUI token>
+        // (e.g. QR login), set the HTTP-only session cookie so user-protected endpoints work.
+        app.use(async (req, res, next) => {
+            const has_subdomain = req.hostname.slice(0, -1 * (config.domain.length + 1)) !== '';
+            if ( has_subdomain ) return next();
+
+            const token = req.query?.auth_token;
+            if ( !token || typeof token !== 'string' ) return next();
+
+            try {
+                const svc_auth = req.services.get('auth');
+                const cleanToken = token.replace('Bearer ', '').trim();
+                const actor = await svc_auth.authenticate_from_token(cleanToken);
+                const session_token = svc_auth.create_session_token_for_session(
+                    actor.type.user,
+                    actor.type.session,
+                );
+                res.cookie(config.cookie_name, session_token, {
+                    sameSite: 'none',
+                    secure: true,
+                    httpOnly: true,
+                });
+            } catch ( _e ) {
+                // Invalid or expired token; do not set cookie
+            }
+            next();
+        });
+
         // Measure data transfer amounts
         app.use(measure());
 

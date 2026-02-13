@@ -25,7 +25,7 @@ const { Context } = require('../../util/context');
 module.exports = {
     route: '/change-username',
     methods: ['POST'],
-    handler: async (req, res, next) => {
+    handler: async (req, res, _next) => {
         const user = req.user;
         const new_username = req.body.new_username;
 

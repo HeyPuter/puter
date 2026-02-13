@@ -356,6 +356,25 @@ class AuthService extends BaseService {
     }
 
     /**
+     * Creates a session token (hasHttpPowers) for an existing session.
+     * Used when the client authenticated with a GUI token (e.g. QR login via
+     * ?auth_token=) so we can set the HTTP-only cookie and allow user-protected
+     * endpoints (change password, email, username, etc.) to work.
+     *
+     * @param {*} user - User object (must have .uuid).
+     * @param {string} session_uuid - Existing session UUID.
+     * @returns {string} JWT session token.
+     */
+    create_session_token_for_session (user, session_uuid) {
+        return this.modules.jwt.sign({
+            type: 'session',
+            version: '0.0.0',
+            uuid: session_uuid,
+            user_uid: user.uuid,
+        }, this.global_config.jwt_secret);
+    }
+
+    /**
     * This method checks if the provided session token is valid and returns the associated user and token.
     * If the token is not a valid session token or it does not exist in the database, it returns an empty object.
     *
