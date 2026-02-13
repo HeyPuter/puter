@@ -1,4 +1,6 @@
-jQuery(document).ready(function () {
+import $ from 'jquery';
+
+$(document).ready(function () {
     //when doc is loaded scroll side nav to active section
     $('#sidebar').scrollTop($('#sidebar').scrollTop() + $('#sidebar a.active').position()?.top
         - $('#sidebar').height() / 2 + $('#sidebar a.active').height() / 2);

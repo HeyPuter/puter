@@ -1,3 +1,5 @@
+import $ from 'jquery';
+
 // Global search index
 let searchIndex = [];
 let searchTimeout = null;
@@ -5,7 +7,7 @@ let selectedSearchResult = -1;
 
 const commandIcon = '<svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" class="lucide lucide-command-icon lucide-command"><path d="M15 6v12a3 3 0 1 0 3-3H6a3 3 0 1 0 3 3V6a3 3 0 1 0-3 3h12a3 3 0 1 0-3-3"/></svg>';
 
-jQuery(document).ready(function () {
+$(document).ready(function () {
     const isMac = navigator.platform.toUpperCase().indexOf('MAC') >= 0;
     const shortcut = isMac ? `${commandIcon}&nbsp;<span>K</span>` : 'Ctrl K';
 

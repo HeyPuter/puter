@@ -1,4 +1,6 @@
-jQuery(document).ready(function () {
+import $ from 'jquery';
+
+$(document).ready(function () {
     // Dropdown toggle functionality
     $(document).on('click', '.dropdown-button', function (e) {
         e.preventDefault();

@@ -1,4 +1,3 @@
-import 'jquery';
 import hljs from 'highlight.js';
 import 'highlight.js/styles/default.css';
 import '@fontsource/inter';
@@ -9,5 +8,4 @@ import './context-menu.js';
 import './example.js';
 import './sidebar.js';
 
-// Initialize syntax highlighting
-hljs.highlightAll();
+window.hljs = hljs;

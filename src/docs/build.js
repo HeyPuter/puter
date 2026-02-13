@@ -315,9 +315,11 @@ function generateDocsHTML (filePath, rootDir, page, isIndex = false) {
         <meta name="theme-color" content="#ffffff">
         `;
     // CSS
+    html += `<link rel="stylesheet" href="/${baseURL}/assets/js/bundle.css">`;
     html += `<link rel="stylesheet" href="/${baseURL}/assets/css/bootstrap.min.css">`;
     html += `<link rel="stylesheet" href="/${baseURL}/assets/css/style.css">`;
     // JS
+    html += `<script src="/${baseURL}/assets/js/bundle.js"></script>`;
     html += `
         <script type="application/ld+json">
             {
@@ -325,14 +327,6 @@ function generateDocsHTML (filePath, rootDir, page, isIndex = false) {
                 "@type":"WebSite",
                 "name":"Puter.js",
                 "url":"${site}",
-                "potentialAction": {
-                  "@type": "SearchAction",
-                  "target": {
-                    "@type": "EntryPoint",
-                    "urlTemplate": "${site}/search?q={search_term_string}"
-                  },
-                  "query-input": "required name=search_term_string"
-                }
             }
         </script>
         `;
@@ -352,6 +346,7 @@ function generateDocsHTML (filePath, rootDir, page, isIndex = false) {
     html += '<div class="progress-bar-container" style="position: fixed; width: 100%; height: 5px; z-index: 99999999999;">';
     html += '<div id="progress-bar" style="width: 0%; height: 5px; background-color: #dbdbe3; transition: 0.2s all; z-index: 99999999999;"></div>';
     html += '</div>';
+    html += '<script>hljs.highlightAll();</script>';
     html += '<div style="max-width: 1400px; margin: 0 auto;">';
     html += '<div>';
     // sidebar toggle button
@@ -494,7 +489,6 @@ function generateDocsHTML (filePath, rootDir, page, isIndex = false) {
 
     html += generateSearchUIHTML();
 
-    html += `<script src="/${baseURL}/assets/js/bundle.js"></script>`;
     html += '</body>';
     const relativeDir = path.relative(rootDir, path.dirname(filePath));
     const newDir = path.join(rootDir, '..', 'dist', relativeDir, path.basename(filePath, '.md'));
