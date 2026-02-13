@@ -1862,7 +1862,7 @@ async function get_taskbar_items (user, { icon_size, no_icons } = {}) {
             { name: 'camera', type: 'app' },
             { name: 'recorder', type: 'app' },
         ];
-        await db.write('UPDATE user SET taskbar_items = ? WHERE id = ?',
+        db.write('UPDATE user SET taskbar_items = ? WHERE id = ?',
                         [
                             JSON.stringify(taskbar_items_from_db),
                             user.id,
