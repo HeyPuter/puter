@@ -83,6 +83,10 @@
     --dashboard-legacy-bar-mid: #c2ccdc;
 }
 
+body {
+    min-height: 100vh;
+}
+
 @media (prefers-color-scheme: dark) {
     :root {
         --primary-color: var(--dashboard-border);
