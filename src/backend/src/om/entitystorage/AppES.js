@@ -175,10 +175,11 @@ class AppES extends BaseES {
                 const event = {
                     app_uid: await entity.get('uid'),
                     data_url: await entity.get('icon'),
+                    url: '',
                 };
                 await svc_event.emit('app.new-icon', event);
                 if ( event.url ) {
-                    await this.db.write('UPDATE apps SET icon = ? WHERE id = ? LIMIT 1',
+                    this.db.write('UPDATE apps SET icon = ? WHERE id = ? LIMIT 1',
                                     [event.url, insert_id]);
                     await entity.set('icon', event.url);
                 }

@@ -469,10 +469,11 @@ export default class AppService extends BaseService {
             const event = {
                 app_uid: uid,
                 data_url: object.icon,
+                url: '',
             };
             await svc_event.emit('app.new-icon', event);
             if ( event.url ) {
-                await this.db_write.write('UPDATE apps SET icon = ? WHERE uid = ? LIMIT 1',
+                this.db_write.write('UPDATE apps SET icon = ? WHERE uid = ? LIMIT 1',
                                 [event.url, uid]);
             }
         }

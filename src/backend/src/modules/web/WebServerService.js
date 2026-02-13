@@ -225,6 +225,7 @@ class WebServerService extends BaseService {
         const link = `\x1B[34;1m${url}\x1B[0m`;
         const lines = [
             `Puter is now live at: ${link}`,
+            `listening on port: ${config.http_port}`,
         ];
         const realConsole = globalThis.original_console_object ?? console;
         lines.forEach(line => realConsole.log(line));
