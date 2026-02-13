@@ -30,7 +30,6 @@ import { DB_WRITE } from '../../services/database/consts.js';
 import { Endpoint } from '../../util/expressutil.js';
 import { buffer_to_stream, stream_to_buffer } from '../../util/streamutil.js';
 import DEFAULT_APP_ICON from './default-app-icon.js';
-import IconResult from './lib/IconResult.js';
 
 const require = createRequire(import.meta.url);
 
@@ -88,7 +87,7 @@ export class AppIconService extends BaseService {
                     mime,
                     redirectUrl,
                     redirectCacheControl,
-                } = await this.getIconStream({ appUid, size, allowRedirect: true });
+                } = await this.#getIconStream({ appUid, size, allowRedirect: true });
 
                 if ( redirectUrl ) {
                     if ( redirectCacheControl ) {
@@ -109,35 +108,30 @@ export class AppIconService extends BaseService {
     }
 
     async iconifyApps ({ apps, size }) {
-        return await Promise.all(apps.map(async app => {
-            const iconResult = await this.getIconStream({
-                appIcon: app.icon,
+        return apps.map(app => {
+            const iconPath = this.getAppIconPath({
                 appUid: app.uid ?? app.uuid,
                 size,
             });
-
-            if ( iconResult.dataUrl ?? iconResult.data_url ) {
-                app.icon = iconResult.dataUrl ?? iconResult.data_url;
-                return app;
-            }
-
-            try {
-                const buffer = await stream_to_buffer(iconResult.stream);
-                const respDataUrl = `data:${iconResult.mime};base64,${buffer.toString('base64')}`;
-
-                app.icon = respDataUrl;
-            } catch (e) {
-                this.errors.report('get-launch-apps:icon-stream', {
-                    source: e,
-                });
+            if ( iconPath ) {
+                app.icon = iconPath;
             }
             return app;
-        }));
+        });
     }
 
-    async getIconStream (params) {
-        const result = await this.#getIconStream(params);
-        return new IconResult(result);
+    getAppIconPath ({ appUid, size }) {
+        const normalizedAppUid = this.normalizeAppUid(appUid);
+        if ( typeof normalizedAppUid !== 'string' || !normalizedAppUid ) {
+            return null;
+        }
+
+        const apiBaseUrl = String(config.api_base_url || '').replace(/\/+$/, '');
+        if ( ! apiBaseUrl ) {
+            return null;
+        }
+
+        return `${apiBaseUrl}/app-icon/${normalizedAppUid}/${size}`;
     }
 
     normalizeAppUid (appUid) {

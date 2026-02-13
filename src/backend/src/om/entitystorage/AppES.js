@@ -337,12 +337,13 @@ class AppES extends BaseES {
             if ( icon_size ) {
                 const svc_appIcon = this.context.get('services').get('app-icon');
                 try {
-                    const iconResult = await svc_appIcon.getIconStream({
+                    const iconPath = svc_appIcon.getAppIconPath({
                         appUid: await entity.get('uid'),
-                        appIcon: await entity.get('icon'),
                         size: icon_size,
                     });
-                    await entity.set('icon', await iconResult.get_data_url());
+                    if ( iconPath ) {
+                        await entity.set('icon', iconPath);
+                    }
                 } catch (e) {
                     const svc_error = this.context.get('services').get('error-service');
                     svc_error.report('AppES:read_transform', { source: e });

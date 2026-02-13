@@ -18,7 +18,6 @@
  */
 const APIError = require('../../api/APIError');
 const { Context } = require('../../util/context');
-const { stream_to_buffer } = require('../../util/streamutil');
 const { get_apps, suggestedAppsForFsEntries } = require('../../helpers');
 const { ECMAP } = require('../ECMAP');
 const { TYPE_DIRECTORY, TYPE_SYMLINK } = require('../FSNodeContext');
@@ -131,25 +130,12 @@ class HLReadDir extends HLFilesystemOperation {
             const entry = await child.getSafeEntry();
             if ( !no_thumbs && entry.associated_app ) {
                 const svc_appIcon = this.context.get('services').get('app-icon');
-                const iconResult = await svc_appIcon.getIconStream({
-                    appIcon: entry.associated_app.icon,
+                const iconPath = svc_appIcon.getAppIconPath({
                     appUid: entry.associated_app.uid ?? entry.associated_app.uuid,
                     size: 64,
                 });
-
-                if ( iconResult.dataUrl ?? iconResult.data_url ) {
-                    entry.associated_app.icon = iconResult.dataUrl ?? iconResult.data_url;
-                } else {
-                    try {
-                        const buffer = await stream_to_buffer(iconResult.stream);
-                        const respDataUrl = `data:${iconResult.mime};base64,${buffer.toString('base64')}`;
-                        entry.associated_app.icon = respDataUrl;
-                    } catch (e) {
-                        const svc_error = this.context.get('services').get('error-service');
-                        svc_error.report('hl_readdir:icon-stream', {
-                            source: e,
-                        });
-                    }
+                if ( iconPath ) {
+                    entry.associated_app.icon = iconPath;
                 }
             }
             return entry;
