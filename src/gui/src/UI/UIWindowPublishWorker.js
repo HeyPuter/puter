@@ -41,6 +41,15 @@ async function UIWindowPublishWorker (target_dir_uid, target_dir_name, target_di
     h += '</div>';
     // uid
     h += `<input class="publishWebsiteTargetDirUID" type="hidden" value="${html_encode(target_dir_uid)}"/>`;
+    // Advanced (collapsed by default)
+    h += '<details class="publish-worker-advanced" style="margin: 16px 0;">';
+    h += '<summary style="cursor: pointer; font-size: 13px; color: #5c6b7a; user-select: none;">Advanced</summary>';
+    h += '<div style="margin-top: 12px; padding-left: 2px;">';
+    h += '<label style="display: flex; align-items: center; gap: 8px; cursor: pointer; font-size: 13px;">';
+    h += '<input type="checkbox" class="publish-worker-sandboxed" checked>';
+    h += 'Sandboxed</label>';
+    h += '</div>';
+    h += '</details>';
     // Publish
     h += `<button class="publish-btn button button-action button-block button-normal">${i18n('publish')}</button>`;
     h += '</form>';
@@ -91,8 +100,12 @@ async function UIWindowPublishWorker (target_dir_uid, target_dir_name, target_di
             <div style="display: inline-block; margin-top: 10px; width: 16px; height: 16px; border: 2px solid #ffffff; border-radius: 50%; border-top: 2px solid transparent; animation: spin 1s linear infinite;"></div>
         `);
 
+        const sandboxed = $(el_window).find('.publish-worker-sandboxed').is(':checked');
+        const createOptions = sandboxed ? { sandbox: true } : { sandbox: false };
+
         puter.workers.create(worker_name,
-                        target_dir_path).then((res) => {
+                        target_dir_path,
+                        createOptions).then((res) => {
                             let url = `https://${ worker_name }.puter.work`;
             $(el_window).find('.window-publishWorker-form').hide(100, function () {
                 $(el_window).find('.publishWorker-published-link').attr('href', url);
