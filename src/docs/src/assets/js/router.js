@@ -1,4 +1,6 @@
-jQuery(document).ready(function () {
+import $ from 'jquery';
+
+$(document).ready(function () {
     //History API
     if ( window.history && window.history.pushState ) {
         // Initialize state for the first page
