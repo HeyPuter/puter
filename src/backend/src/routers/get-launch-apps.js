@@ -22,17 +22,8 @@ import { get_apps } from '../helpers.js';
 import { DB_READ } from '../services/database/consts.js';
 
 const iconify_apps = async (context, { apps, size }) => {
-    return await Promise.all(apps.map(async app => {
-        const svc_appIcon = context.services.get('app-icon');
-        const iconResult = await svc_appIcon.getIconStream({
-            appIcon: app.icon,
-            appUid: app.uid ?? app.uuid,
-            size,
-        });
-
-        app.icon = await iconResult.get_data_url();
-        return app;
-    }));
+    const svc_appIcon = context.services.get('app-icon');
+    return await svc_appIcon.iconifyApps({ apps, size });
 };
 
 // -----------------------------------------------------------------------//

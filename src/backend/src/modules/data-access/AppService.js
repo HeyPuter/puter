@@ -190,13 +190,13 @@ export default class AppService extends BaseService {
                 const icon_size = params.icon_size;
                 const svc_appIcon = this.context.get('services').get('app-icon');
                 try {
-                    const iconResult = await svc_appIcon.getIconStream({
+                    const iconPath = svc_appIcon.getAppIconPath({
                         appUid: row.uid,
-                        appIcon: row.icon,
                         size: icon_size,
                     });
-                    console.log('this is working it looks like');
-                    app.icon = await iconResult.get_data_url();
+                    if ( iconPath ) {
+                        app.icon = iconPath;
+                    }
                 } catch (e) {
                     const svc_error = this.context.get('services').get('error-service');
                     svc_error.report('AppES:read_transform', { source: e });
@@ -318,12 +318,13 @@ export default class AppService extends BaseService {
             const icon_size = params.icon_size;
             const svc_appIcon = this.context.get('services').get('app-icon');
             try {
-                const iconResult = await svc_appIcon.getIconStream({
+                const iconPath = svc_appIcon.getAppIconPath({
                     appUid: row.uid,
-                    appIcon: row.icon,
                     size: icon_size,
                 });
-                app.icon = await iconResult.get_data_url();
+                if ( iconPath ) {
+                    app.icon = iconPath;
+                }
             } catch (e) {
                 const svc_error = this.context.get('services').get('error-service');
                 svc_error.report('AppES:read_transform', { source: e });

@@ -316,9 +316,7 @@ describe('AppService', () => {
             mockDb.read.mockResolvedValue([mockRow]);
 
             const mockIconService = {
-                getIconStream: vi.fn().mockResolvedValue({
-                    get_data_url: vi.fn().mockResolvedValue('data:image/png;base64,abc123'),
-                }),
+                getAppIconPath: vi.fn().mockReturnValue('/app-icon/app-uid-123/64'),
             };
 
             appService.context = {
@@ -341,12 +339,11 @@ describe('AppService', () => {
                 params: { icon_size: 64 },
             });
 
-            expect(mockIconService.getIconStream).toHaveBeenCalledWith({
+            expect(mockIconService.getAppIconPath).toHaveBeenCalledWith({
                 appUid: 'app-uid-123',
-                appIcon: 'icon.png',
                 size: 64,
             });
-            expect(result.icon).toBe('data:image/png;base64,abc123');
+            expect(result.icon).toBe('/app-icon/app-uid-123/64');
         });
 
         it('should keep original icon when icon service throws', async () => {
@@ -358,7 +355,9 @@ describe('AppService', () => {
             };
 
             const mockIconService = {
-                getIconStream: vi.fn().mockRejectedValue(new Error('Icon fetch failed')),
+                getAppIconPath: vi.fn().mockImplementation(() => {
+                    throw new Error('Icon fetch failed');
+                }),
             };
 
             appService.context = {
@@ -480,9 +479,7 @@ describe('AppService', () => {
             mockDb.read.mockResolvedValue(mockRows);
 
             const mockIconService = {
-                getIconStream: vi.fn().mockImplementation(({ appUid }) => ({
-                    get_data_url: vi.fn().mockResolvedValue(`data:image/png;base64,${appUid}`),
-                })),
+                getAppIconPath: vi.fn().mockImplementation(({ appUid, size }) => `/app-icon/${appUid}/${size}`),
             };
 
             appService.context = {
@@ -504,9 +501,9 @@ describe('AppService', () => {
                 params: { icon_size: 32 },
             });
 
-            expect(mockIconService.getIconStream).toHaveBeenCalledTimes(2);
-            expect(result[0].icon).toBe('data:image/png;base64,app-1');
-            expect(result[1].icon).toBe('data:image/png;base64,app-2');
+            expect(mockIconService.getAppIconPath).toHaveBeenCalledTimes(2);
+            expect(result[0].icon).toBe('/app-icon/app-1/32');
+            expect(result[1].icon).toBe('/app-icon/app-2/32');
         });
 
         it('should return empty array when no apps exist', async () => {
