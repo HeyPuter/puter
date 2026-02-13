@@ -28,3 +28,25 @@ extension.on('init', async () => {
         console.log('kv key should no longer have the value', await kv.get('example-kv-key'));
     })();
 });
+
+// "kv" is always loaded by the time request handlers are active
+extension.get('/example-kv', { noauth: true }, async (req, res) => {
+    // if ( ! req.actor ) {
+    //     res.status(403).send('You need to be logged in to use kv!');
+    //     return;
+    // }
+
+    // Puter has a convenient service called `su` that lets us change the user.
+    // We need to specify "sudo" (running as system user) because this is a
+    // request handler and we disabled authentication to make this example page
+    // a little easier to access.
+    //
+    // If we did not use "sudo" here, you could still `fetch` this URL from
+    // inside an authenticated Puter session, but it wouldn't work otherwise.
+    //
+    const su = extension.import('service:su');
+    await su.sudo(async () => {
+        res.set('Content-Type', 'text/plain'); // don't treat output as HTML
+        res.send(`kv value is: ${await kv.get('example-kv-key')}`);
+    });
+});
