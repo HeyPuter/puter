@@ -23,6 +23,7 @@ export class SignupService extends BaseService {
      * @param {boolean} [params.temporary] - Whether the user is a temporary user.
      * @param {boolean} [params.oidc_only] - Whether the user created with OIDC
      * @param {boolean} [params.send_confirmation_code] - Whether to send a confirmation code instead of a token by email
+     * @param {boolean} [params.assume_email_ownership] - If true, set email_confirmed=1 without sending verification (e.g. OIDC provider already verified).
      * @param {string|null} params.username - The username of the user.
      * @param {string|null} params.email - The email of the user.
      * @param {string|null} params.password - The password of the user.
@@ -33,6 +34,7 @@ export class SignupService extends BaseService {
         temporary = false,
         oidc_only = false,
         send_confirmation_code = false,
+        assume_email_ownership = false,
         username = null,
         email = null,
         password = null,
@@ -171,12 +173,12 @@ export class SignupService extends BaseService {
             const insert_res = await db.write(`INSERT INTO user
                 (
                     username, email, clean_email, password, uuid, referrer, 
-                    email_confirm_code, email_confirm_token, free_storage, 
+                    email_confirm_code, email_confirm_token, email_confirmed, free_storage, 
                     referred_by, audit_metadata, signup_ip, signup_ip_forwarded, 
                     signup_user_agent, signup_origin, signup_server
                 ) 
                 VALUES 
-                (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+                (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
             [
                 // username
                 username,
@@ -194,6 +196,8 @@ export class SignupService extends BaseService {
                 email_confirm_code,
                 // email_confirm_token
                 email_confirm_token,
+                // email_confirmed (1 when assume_email_ownership, else 0)
+                assume_email_ownership ? 1 : 0,
                 // free_storage
                 this.global_config.storage_capacity,
                 // referred_by
@@ -244,10 +248,12 @@ export class SignupService extends BaseService {
                 // });
             }
 
-            if ( send_confirmation_code ) {
-                send_email_verification_code(email_confirm_code, email);
-            } else {
-                send_email_verification_token(email_confirm_token, email, user_uuid);
+            if ( ! assume_email_ownership ) {
+                if ( send_confirmation_code ) {
+                    send_email_verification_code(email_confirm_code, email);
+                } else {
+                    send_email_verification_token(email_confirm_token, email, user_uuid);
+                }
             }
 
             // TODO: This is where sending the referral code would
