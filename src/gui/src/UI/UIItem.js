@@ -139,9 +139,9 @@ async function UIItem (options) {
     options.immutable = (options.immutable === false || options.immutable === 0 || options.immutable === undefined ? 0 : 1);
     options.sort_container_after_append = (options.sort_container_after_append !== undefined ? options.sort_container_after_append : false);
     const is_shared_with_me = (options.path !== `/${window.user.username}` && !options.path.startsWith(`/${window.user.username}/`));
-    const workers = await puter.workers.list();
-    const is_worker = workers.find(w => w.file_path === options.path);
-    const worker_url = is_worker?.url;
+    console.log(options);
+    const is_worker = options.workers?.length > 0;
+    const worker_url = is_worker ? options.workers[0].address : '';
     let website_url = window.determine_website_url(options.path);
 
     // do a quick check to see if the target parent has any file type restrictions
@@ -167,8 +167,8 @@ async function UIItem (options) {
                 data-website_url = "${website_url ? html_encode(website_url) : ''}"
                 data-immutable="${options.immutable}" 
                 data-is_shortcut = "${options.is_shortcut}"
-                data-is_worker = "${is_worker !== undefined ? 1 : 0}"
-                data-worker_url = "${is_worker !== undefined ? worker_url : 0}"
+                data-is_worker = "${is_worker ? 1 : 0}"
+                data-worker_url = "${is_worker ? worker_url : 0}"
                 data-shortcut_to = "${html_encode(options.shortcut_to)}"
                 data-shortcut_to_path = "${html_encode(options.shortcut_to_path)}"
                 data-sortable = "${options.sortable ?? 'true'}"
@@ -210,7 +210,7 @@ async function UIItem (options) {
     h += '<div class="item-badges">';
     // website badge
     h += `<img  class="item-badge item-has-website-badge long-hover" 
-                        style="${options.has_website ? 'display:block;' : ''}" 
+                        style="${options.has_website && options.workers?.length === 0 ? 'display:block;' : ''}" 
                         src="${html_encode(window.icons['world.svg'])}" 
                         data-item-id="${item_id}"
                     >`;

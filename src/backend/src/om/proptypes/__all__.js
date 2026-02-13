@@ -25,6 +25,17 @@ const { is_valid_path } = require('../../filesystem/validation');
 const FSNodeContext = require('../../filesystem/FSNodeContext');
 const { Entity } = require('../entitystorage/Entity');
 const NULL = Symbol('NULL');
+const APP_ICON_ENDPOINT_PATH_REGEX = /^\/app-icon\/[^/?#]+\/\d+\/?$/;
+
+const isAppIconEndpointPath = value => {
+    if ( typeof value !== 'string' ) return false;
+    try {
+        const pathname = new URL(value, 'http://localhost').pathname;
+        return APP_ICON_ENDPOINT_PATH_REGEX.test(pathname);
+    } catch {
+        return false;
+    }
+};
 
 class OMTypeError extends Error {
     constructor ({ expected, got }) {
@@ -134,14 +145,28 @@ module.exports = {
     ['image-base64']: {
         from: 'string',
         validate (value) {
-            if ( ! value.startsWith('data:image/') ) {
-                return new Error('image must be base64 encoded');
+            if ( value.startsWith('data:image/') ) {
+                // XSS characters
+                const chars = ['<', '>', '&', '"', "'", '`'];
+                if ( chars.some(char => value.includes(char)) ) {
+                    return new Error('icon is not an image');
+                }
+                return true;
             }
-            // XSS characters
-            const chars = ['<', '>', '&', '"', "'", '`'];
-            if ( chars.some(char => value.includes(char)) ) {
-                return new Error('icon is not an image');
+
+            let valid = validator.isURL(value);
+            if ( ! valid ) {
+                valid = validator.isURL(value, { host_whitelist: ['localhost'] });
             }
+            if ( valid ) {
+                return true;
+            }
+
+            if ( isAppIconEndpointPath(value) ) {
+                return true;
+            }
+
+            return new Error('icon must be base64 encoded or a valid URL');
         },
     },
     url: {

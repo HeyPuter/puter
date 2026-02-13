@@ -1959,6 +1959,10 @@ label {
     font-size: 13px;
 }
 
+.publish-worker-error-msg{
+    text-align: left;
+}
+
 .error {
     display: none;
     color: red;

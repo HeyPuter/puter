@@ -33,7 +33,7 @@ export class MeteringService {
 
     utilRecordUsageObject<T extends Record<string, number>>(trackedUsageObject: T, actor: Actor, modelPrefix: string, costsOverrides?: Partial<Record<keyof T, number>>) {
         this.batchIncrementUsages(actor, Object.entries(trackedUsageObject).map(([usageKind, amount]) => {
-            const hasOverride = !!costsOverrides && Object.prototype.hasOwnProperty.call(costsOverrides, usageKind);
+            const hasOverride = !!costsOverrides && Number.isFinite(costsOverrides[usageKind]);
             return {
                 usageType: `${modelPrefix}:${usageKind}`,
                 usageAmount: amount,
@@ -68,6 +68,24 @@ export class MeteringService {
     // TODO DS: track daily and hourly usage as well
     async incrementUsage (actor: Actor, usageType: (keyof typeof COST_MAPS) | (string & {}), usageAmount: number, costOverride?: number) {
         usageAmount = usageAmount < 0 ? 1 : usageAmount;
+
+        const costOverrideRaw = costOverride;
+        costOverride = !Number.isFinite(costOverride)
+            ? undefined
+            : (costOverride as number) < 0
+                ? 1
+                : costOverride;
+
+        if ( costOverrideRaw && costOverrideRaw < 0 ) {
+            this.#alarmService.create(`metering unexpected negative cost access to: ${usageType}`, 'negative cost abuse vector!', {
+                userId: actor.type?.user?.uuid,
+                username: actor.type?.user?.username,
+                appId: actor.type?.app?.uid,
+                usageType,
+                usageAmount,
+                costOverride,
+            });
+        }
         try {
             if ( !usageAmount || !usageType || !actor ) {
                 // silent fail for now;
@@ -235,11 +253,27 @@ export class MeteringService {
                 // Process each usage and aggregate the pathAndAmountMap
                 for ( const usage of usages ) {
                     const { usageType, usageAmount: usageAmountRaw, costOverride: costOverrideRaw } = usage;
-                    const usageAmount =  usageAmountRaw < 0 ? 1 : usageAmountRaw;
-                    const costOverride = costOverrideRaw && costOverrideRaw < 0 ? 1 : costOverrideRaw;
+                    const usageAmount =  (!Number.isFinite(usageAmountRaw) || usageAmountRaw < 0) ? 1 : usageAmountRaw;
+                    const costOverride = !Number.isFinite(costOverrideRaw)
+                        ? undefined
+                        : (costOverrideRaw as number) < 0
+                            ? 1
+                            : costOverrideRaw;
 
                     if ( !usageAmount || !usageType ) {
                         continue; // skip invalid entries
+                    }
+
+                    if ( costOverrideRaw && costOverrideRaw < 0 ) {
+                        this.#alarmService.create(`metering unexpected negative cost access to: ${usageType}`, 'negative cost abuse vector!', {
+                            userId: actor.type?.user?.uuid,
+                            username: actor.type?.user?.username,
+                            appId: actor.type?.app?.uid,
+                            usageType,
+                            usageAmount,
+                            costOverride,
+                            costOverrideRaw,
+                        });
                     }
 
                     const mappedCost = COST_MAPS[usageType as keyof typeof COST_MAPS];
@@ -256,6 +290,7 @@ export class MeteringService {
                             usageType,
                             usageAmount,
                             costOverride,
+                            costOverrideRaw,
                         });
                     }
 

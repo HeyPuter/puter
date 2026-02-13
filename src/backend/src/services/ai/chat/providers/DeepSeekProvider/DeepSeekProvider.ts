@@ -115,7 +115,7 @@ export class DeepSeekProvider implements IChatProvider {
             usage_calculator: ({ usage }) => {
                 const trackedUsage = OpenAIUtil.extractMeteredUsage(usage);
                 const costsOverrideFromModel = Object.fromEntries(Object.entries(trackedUsage).map(([k, v]) => {
-                    return [k, v * (modelUsed.costs[k] || 0)];
+                    return [k, v * (modelUsed.costs[k])];
                 }));
                 this.#meteringService.utilRecordUsageObject(trackedUsage, actor, `deepseek:${modelUsed.id}`, costsOverrideFromModel);
                 return trackedUsage;

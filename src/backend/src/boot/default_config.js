@@ -34,15 +34,5 @@ module.exports = {
         dynamo: {
             path: './puter-ddb',
         },
-        thumbnails: {
-            engine: 'purejs',
-        },
-        'file-cache': {
-            disk_limit: 16384,
-            disk_max_size: 16384,
-            precache_size: 16384,
-            path: './file-cache',
-
-        },
     },
 };

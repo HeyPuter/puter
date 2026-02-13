@@ -4,6 +4,11 @@ import { AIChatStream } from '../../utils/Streaming';
 
 type ModelCost = Record<string, number>;
 
+export interface ModelModalities {
+    input: string[];
+    output: string[];
+}
+
 export interface IChatModel<T extends ModelCost = ModelCost> extends Record<string, unknown> {
     id: string,
     provider?: string,
@@ -17,6 +22,12 @@ export interface IChatModel<T extends ModelCost = ModelCost> extends Record<stri
     max_tokens: number,
     subscriberOnly?: boolean,
     minimumCredits?: number,
+    // Models.dev metadata (https://models.dev/api.json)
+    modalities?: ModelModalities,
+    open_weights?: boolean,
+    tool_call?: boolean,
+    knowledge?: string,
+    release_date?: string,
 }
 
 export type PuterMessage = Message | any; // TODO DS: type this more strictly

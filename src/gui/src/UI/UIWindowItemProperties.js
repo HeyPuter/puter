@@ -135,7 +135,6 @@ async function UIWindowItemProperties (item_name, item_path, item_uid, left, top
                     // Ignored
                 }
             }
-
             // shortcut to
             if ( fsentry.shortcut_to && fsentry.shortcut_to_path ) {
                 $(el_window).find('.item-prop-val-shortcut-to').text(fsentry.shortcut_to_path);
@@ -171,10 +170,9 @@ async function UIWindowItemProperties (item_name, item_path, item_uid, left, top
             }
             // worker
             if ( fsentry.path.endsWith('.js') ) {
-                const workers = await puter.workers.list();
-                const has_worker = workers.find(w => w.file_path === fsentry.path);
-                const worker_url = has_worker?.url;
-                if ( has_worker && worker_url ) {
+                const has_worker = fsentry.workers.length > 0;
+                if ( has_worker ) {
+                    const worker_url = fsentry.workers[0].address;
                     $(el_window).find('.item-prop-val-worker').html(`<a target="_blank" href="${html_encode(worker_url)}">${html_encode(worker_url)}</a>`);
                 }
             }

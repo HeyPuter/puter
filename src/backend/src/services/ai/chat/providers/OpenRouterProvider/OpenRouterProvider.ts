@@ -125,7 +125,7 @@ export class OpenRouterProvider implements IChatProvider {
                     request: (usage as unknown as Record<string, number>).request || 1,
                 };
                 const costOverwrites = Object.fromEntries(Object.keys(trackedUsage).map((k) => {
-                    return [k, (modelUsed.costs[k] || 0) * trackedUsage[k]];
+                    return ([k, (modelUsed.costs[k]) * trackedUsage[k]]);
                 }));
                 this.#meteringService.utilRecordUsageObject(trackedUsage, actor, modelUsed.id, costOverwrites);
                 return trackedUsage;
@@ -157,6 +157,9 @@ export class OpenRouterProvider implements IChatProvider {
             }
             const overridenModel = OPEN_ROUTER_MODEL_OVERRIDES.find(m => m.id === `openrouter:${model.id}`);
             const microcentCosts = Object.fromEntries(Object.entries(model.pricing).map(([k, v]) => [k, Math.round((v as number < 0 ? 1 : v as number) * 1_000_000 * 100)])) ;
+            if ( ! microcentCosts.request ) {
+                microcentCosts.request = 0;
+            }
             coerced_models.push({
                 id: `openrouter:${model.id}`,
                 name: `${model.name} (OpenRouter)`,
