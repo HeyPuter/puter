@@ -111,15 +111,15 @@ async function UIWindowPublishWorker (target_dir_uid, target_dir_name, target_di
                 $(el_window).find('.publishWorker-published-link').attr('href', url);
                 $(el_window).find('.publishWorker-published-link').text(url);
                 $(el_window).find('.window-publishWorker-success').show(100);
-                $(`.item[data-uid="${target_dir_uid}"] .item-has-website-badge`).show();
+                // $(`.item[data-uid="${target_dir_uid}"] .item-has-website-badge`).show();
             });
 
             // find all items whose path starts with target_dir_path
             $(`.item[data-path^="${target_dir_path}/"]`).each(function () {
                 // show the link badge
-                $(this).find('.item-has-website-url-badge').show();
+                // $(this).find('.item-has-website-url-badge').show();
                 // update item's website_url attribute
-                $(this).attr('data-website_url', url + $(this).attr('data-path').substring(target_dir_path.length));
+                // $(this).attr('data-website_url', url + $(this).attr('data-path').substring(target_dir_path.length));
             });
                         }).catch((err) => {
                             let errorHtml;
