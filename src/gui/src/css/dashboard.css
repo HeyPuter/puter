@@ -2870,3 +2870,13 @@
     0% { transform: rotate(0deg); }
     100% { transform: rotate(360deg); }
 }
+
+
+.context-menu .context-menu-item:not(.context-menu-divider) {
+    display: flex;
+    align-items: center;
+}
+
+.submenu-arrow {
+    margin-left: auto;
+}
