@@ -36,10 +36,10 @@ export type CloudflareImageModel = IImageModel & {
 // Pricing values are in USD microcents for billing units.
 export const CLOUDFLARE_IMAGE_GENERATION_MODELS: CloudflareImageModel[] = [
     {
-        puterId: 'workers-ai:black-forest-labs/flux-1-schnell',
+        puterId: 'workers-ai:black-forest-labs/flux.1-schnell',
         id: '@cf/black-forest-labs/flux-1-schnell',
         aliases: [
-            'black-forest-labs/flux-1-schnell',
+            'black-forest-labs/flux.1-schnell',
         ],
         name: 'FLUX.1 Schnell',
         costs_currency: 'usd-microcents',
@@ -84,10 +84,10 @@ export const CLOUDFLARE_IMAGE_GENERATION_MODELS: CloudflareImageModel[] = [
         defaultSteps: 25,
     },
     {
-        puterId: 'workers-ai:black-forest-labs/flux-2-dev',
+        puterId: 'workers-ai:black-forest-labs/flux.2-dev',
         id: '@cf/black-forest-labs/flux-2-dev',
         aliases: [
-            'black-forest-labs/flux-2-dev',
+            'black-forest-labs/flux.2-dev',
         ],
         name: 'FLUX.2 Dev',
         costs_currency: 'usd-microcents',
@@ -101,10 +101,10 @@ export const CLOUDFLARE_IMAGE_GENERATION_MODELS: CloudflareImageModel[] = [
         requiresMultipart: true,
     },
     {
-        puterId: 'workers-ai:black-forest-labs/flux-2-klein-4b',
+        puterId: 'workers-ai:black-forest-labs/flux.2-klein-4b',
         id: '@cf/black-forest-labs/flux-2-klein-4b',
         aliases: [
-            'black-forest-labs/flux-2-klein-4b',
+            'black-forest-labs/flux.2-klein-4b',
         ],
         name: 'FLUX.2 Klein 4B',
         costs_currency: 'usd-microcents',
@@ -117,10 +117,10 @@ export const CLOUDFLARE_IMAGE_GENERATION_MODELS: CloudflareImageModel[] = [
         requiresMultipart: true,
     },
     {
-        puterId: 'workers-ai:black-forest-labs/flux-2-klein-9b',
+        puterId: 'workers-ai:black-forest-labs/flux.2-klein-9b',
         id: '@cf/black-forest-labs/flux-2-klein-9b',
         aliases: [
-            'black-forest-labs/flux-2-klein-9b',
+            'black-forest-labs/flux.2-klein-9b',
         ],
         name: 'FLUX.2 Klein 9B',
         costs_currency: 'usd-microcents',
