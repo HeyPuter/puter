@@ -18,17 +18,20 @@
  */
 import UIWindow from './UIWindow.js';
 import Placeholder from '../util/Placeholder.js';
+import JustHTML from './Components/JustHTML.js';
 
 /**
  * @typedef {Object} UIComponentWindowOptions
- * @property {Component} A component to render in the window
+ * @property {Component} [component] A component to render in the window
+ * @property {string} [html] HTML string to render in the window (uses JustHTML component)
  */
 
 /**
- * Render a UIWindow that contains an instance of Component
+ * Render a UIWindow that contains an instance of Component or HTML string
  * @param {UIComponentWindowOptions} options
  */
 export default async function UIComponentWindow (options) {
+    const component = options.component ?? new JustHTML({ html: options.html ?? '' });
     const placeholder = Placeholder();
 
     const win = await UIWindow({
@@ -37,8 +40,8 @@ export default async function UIComponentWindow (options) {
         body_content: placeholder.html,
     });
 
-    options.component.attach(placeholder);
-    options.component.focus();
+    component.attach(placeholder);
+    component.focus();
 
     return win;
 }

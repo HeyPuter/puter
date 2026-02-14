@@ -49,6 +49,10 @@ const en = {
         change_password: 'Change Password',
         change_ui_colors: 'Change UI Colors',
         change_username: 'Change Username',
+        revalidate_with_google: 'Re-validate with Google',
+        revalidated: 'Re-validated.',
+        revalidate_sign_in_popup: 'Sign in with your linked account in the popup.',
+        revalidate_flow_notice: 'You will be asked to sign in with your linked account when you continue.',
         color_depth: 'Color Depth',
         clock_visibility: 'Clock Visibility',
         close: 'Close',
@@ -203,6 +207,7 @@ const en = {
         no_dir_associated_with_site: 'No directory associated with this address.',
         no_websites_published: 'You have not published any websites yet. Right click on a folder to get started.',
         ok: 'OK',
+        or: 'or',
         open: 'Open',
         new_window: 'New Window',
         open_in_ai: 'Open in AI',
@@ -482,6 +487,8 @@ const en = {
 
         // Signup Window
         'signup_confirm_password': 'Confirm Password',
+        sign_in_with_google: 'Sign in with Google',
+        sign_up_with_google: 'Sign up with Google',
 
         // Login Window
         'login_email_username_required': 'Email or username is required',

@@ -170,6 +170,9 @@ class SqliteDatabaseAccessService extends BaseDatabaseAccessService {
             [40, [
                 '0044_dev-center-godmode.sql',
             ]],
+            [41, [
+                '0045_user_oidc_providers.sql',
+            ]],
         ];
 
         // Database upgrade logic

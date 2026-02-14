@@ -59,6 +59,12 @@ config.captcha = {
     difficulty: 'medium', // Default difficulty level
 };
 
+// OIDC/OAuth2 providers (e.g. Google). Keys in config only, not env vars.
+// Example: config.oidc.providers.google = { client_id, client_secret }
+config.oidc = {
+    providers: {},
+};
+
 config.monitor = {
     metricsInterval: 60000,
     windowSize: 30,

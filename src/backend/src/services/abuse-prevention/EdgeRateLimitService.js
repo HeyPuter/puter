@@ -104,6 +104,10 @@ class EdgeRateLimitService extends BaseService {
                 limit: 10,
                 window: HOUR,
             },
+            ['/user-protected/change-username']: {
+                limit: 10,
+                window: HOUR,
+            },
             ['/user-protected/disable-2fa']: {
                 limit: 10,
                 window: HOUR,

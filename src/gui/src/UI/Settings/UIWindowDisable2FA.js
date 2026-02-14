@@ -1,5 +1,5 @@
 /**
- * Copyright (C) 2024-present Puter Technologies Inc.
+ * Copyright (C) 2026-present Puter Technologies Inc.
  *
  * This file is part of Puter.
  *
@@ -19,49 +19,44 @@
 
 import { openRevalidatePopup } from '../../util/openid.js';
 import Placeholder from '../../util/Placeholder.js';
+import TeePromise from '../../util/TeePromise.js';
 import PasswordEntry from '../Components/PasswordEntry.js';
 import UIWindow from '../UIWindow.js';
 
-// TODO: DRY: We could specify a validator and endpoint instead of writing
-// a DOM tree and event handlers for each of these. (low priority)
-async function UIWindowChangeEmail (options) {
+async function UIWindowDisable2FA (options) {
     options = options ?? {};
+
+    const promise = new TeePromise();
+    let disabled_successfully = false;
 
     const password_entry = new PasswordEntry({});
     const place_password_entry = Placeholder();
 
     const internal_id = window.uuidv4();
     let h = '';
-    h += '<div class="change-email" style="padding: 20px; border-bottom: 1px solid #ced7e1;">';
-    // error msg
+    h += '<div class="disable-2fa" style="padding: 20px; border-bottom: 1px solid #ced7e1;">';
     h += '<div class="form-error-msg"></div>';
-    // success msg
     h += '<div class="form-success-msg"></div>';
-    // new email
-    h += '<div style="overflow: hidden; margin-top: 10px; margin-bottom: 30px;">';
-    h += `<label for="confirm-new-email-${internal_id}">${i18n('new_email')}</label>`;
-    h += `<input id="confirm-new-email-${internal_id}" type="text" name="new-email" class="new-email" autocomplete="off" />`;
+    h += '<div style="overflow: hidden; margin-top: 10px; margin-bottom: 20px;">';
+    h += `<p style="margin:0;font-size:14px;color:#333;">${i18n('disable_2fa_instructions')}</p>`;
     h += '</div>';
-    // password / OIDC revalidate
-    h += '<div class="change-email-auth-row" style="overflow: hidden; margin-top: 10px; margin-bottom: 30px;">';
-    h += '<div class="change-email-password-wrap">';
+    h += '<div class="disable-2fa-auth-row" style="overflow: hidden; margin-top: 10px; margin-bottom: 30px;">';
+    h += '<div class="disable-2fa-password-wrap">';
     h += `<label>${i18n('account_password')}</label>`;
     h += `${place_password_entry.html}`;
     h += '</div>';
-    h += '<div class="change-email-oidc-wrap" style="display:none;">';
-    h += '<p class="change-email-oidc-flow-notice" style="margin:0;font-size:12px;color:#666;"></p>';
-    h += '<span class="change-email-revalidated-msg" style="display:none;"></span>';
+    h += '<div class="disable-2fa-oidc-wrap" style="display:none;">';
+    h += '<p class="disable-2fa-oidc-flow-notice" style="margin:0;font-size:12px;color:#666;"></p>';
+    h += '<span class="disable-2fa-revalidated-msg" style="display:none;"></span>';
     h += '</div>';
-    h += '<p class="change-email-oidc-hint" style="margin-top:6px;font-size:12px;color:#666;display:none;"></p>';
+    h += '<p class="disable-2fa-oidc-hint" style="margin-top:6px;font-size:12px;color:#666;display:none;"></p>';
     h += '</div>';
-
-    // Change Email
-    h += `<button class="change-email-btn button button-primary button-block button-normal">${i18n('change_email')}</button>`;
+    h += `<button class="disable-2fa-btn button button-primary button-block button-normal">${i18n('disable_2fa')}</button>`;
     h += '</div>';
 
     const el_window = await UIWindow({
-        title: i18n('change_email'),
-        app: 'change-email',
+        title: i18n('disable_2fa'),
+        app: 'disable-2fa',
         single_instance: true,
         icon: null,
         uid: null,
@@ -80,19 +75,25 @@ async function UIWindowChangeEmail (options) {
         height: 'auto',
         dominant: true,
         show_in_taskbar: false,
+        on_before_exit: async () => {
+            if ( ! disabled_successfully ) {
+                promise.resolve(false);
+            }
+            return true;
+        },
         onAppend: function (this_window) {
-            $(this_window).find('.new-email').get(0)?.focus({ preventScroll: true });
+            $(this_window).find('.disable-2fa-password-wrap input').get(0)?.focus({ preventScroll: true });
             const oidc_only = !!(window.user && window.user.oidc_only);
-            const authRow = $(this_window).find('.change-email-auth-row');
+            const authRow = $(this_window).find('.disable-2fa-auth-row');
             if ( oidc_only ) {
-                authRow.find('.change-email-password-wrap').hide();
-                const oidcWrap = authRow.find('.change-email-oidc-wrap').show();
-                oidcWrap.find('.change-email-oidc-flow-notice').text(
+                authRow.find('.disable-2fa-password-wrap').hide();
+                const oidcWrap = authRow.find('.disable-2fa-oidc-wrap').show();
+                oidcWrap.find('.disable-2fa-oidc-flow-notice').text(
                     i18n('revalidate_flow_notice') ||
                     'You will be asked to sign in with your linked account when you continue.',
                 );
             } else {
-                authRow.find('.change-email-oidc-wrap').hide();
+                authRow.find('.disable-2fa-oidc-wrap').hide();
             }
         },
         window_class: 'window-publishWebsite',
@@ -108,15 +109,15 @@ async function UIWindowChangeEmail (options) {
     password_entry.attach(place_password_entry);
 
     const origin = window.gui_origin || window.api_origin || '';
-    const apiUrl = `${origin}/user-protected/change-email`;
+    const apiUrl = `${origin}/user-protected/disable-2fa`;
     let revalidated = false;
 
-    const hint = $(el_window).find('.change-email-oidc-hint');
+    const hint = $(el_window).find('.disable-2fa-oidc-hint');
     const REVALIDATE_POPUP_TEXT = i18n('revalidate_sign_in_popup') || 'Sign in with your linked account in the popup.';
 
     const myOpenRevalidatePopup = async (revalidateUrl) => {
         revalidateUrl = revalidateUrl || (window.user && window.user.oidc_revalidate_url);
-        $(el_window).find('.change-email-btn').addClass('disabled');
+        $(el_window).find('.disable-2fa-btn').addClass('disabled');
         hint.text(REVALIDATE_POPUP_TEXT).show();
         try {
             await openRevalidatePopup(revalidateUrl);
@@ -126,17 +127,16 @@ async function UIWindowChangeEmail (options) {
         } finally {
             hint.hide();
         }
-        $(el_window).find('.change-email-revalidated-msg').text(i18n('revalidated') || 'Re-validated.').show();
+        $(el_window).find('.disable-2fa-revalidated-msg').text(i18n('revalidated') || 'Re-validated.').show();
     };
 
-    $(el_window).find('.change-email-btn').on('click', async function (e) {
+    $(el_window).find('.disable-2fa-btn').on('click', async function (e) {
         $(el_window).find('.form-success-msg, .form-error-msg').hide();
 
-        const new_email = $(el_window).find('.new-email').val();
         const password = password_entry.get('value');
         const oidc_only = !!(window.user && window.user.oidc_only);
 
-        if ( ! new_email ) {
+        if ( !oidc_only && !password ) {
             $(el_window).find('.form-error-msg').html(i18n('all_fields_required'));
             $(el_window).find('.form-error-msg').fadeIn();
             return;
@@ -145,17 +145,17 @@ async function UIWindowChangeEmail (options) {
         if ( oidc_only && !revalidated && !password ) {
             await myOpenRevalidatePopup();
 
-            const res = await doSubmit({ new_email });
+            const res = await doSubmit({ password: undefined });
             const data = res.ok ? await res.json().catch(() => ({})) : await res.json().catch(() => ({}));
             if ( res.ok ) onSuccess();
             else onError(data.message || 'Request failed');
             return;
         }
         $(el_window).find('.form-error-msg').hide();
-        $(el_window).find('.change-email-btn').addClass('disabled');
-        $(el_window).find('.new-email').attr('disabled', true);
+        $(el_window).find('.disable-2fa-btn').addClass('disabled');
+        $(el_window).find('.disable-2fa-password-wrap input').attr('disabled', true);
 
-        let res = await doSubmit({ new_email, password });
+        let res = await doSubmit({ password });
         const data = res.ok ? await res.json().catch(() => ({})) : await res.json().catch(() => ({}));
 
         if ( res.ok ) {
@@ -164,7 +164,7 @@ async function UIWindowChangeEmail (options) {
         }
         if ( data.code === 'oidc_revalidation_required' && data.revalidate_url ) {
             await myOpenRevalidatePopup(data.revalidate_url);
-            const r = await doSubmit();
+            const r = await doSubmit({ password: undefined });
             if ( r.ok ) onSuccess();
             else r.json().then((d) => onError(d.message || 'Request failed')).catch(() => onError('Request failed'));
             return;
@@ -172,13 +172,12 @@ async function UIWindowChangeEmail (options) {
         onError(data.message || 'Request failed');
     });
 
-    function doSubmit ({ new_email, password }) {
+    function doSubmit ({ password }) {
         return fetch(apiUrl, {
             method: 'POST',
             credentials: 'include',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({
-                new_email,
                 password: password !== undefined && password !== '' ? password : undefined,
             }),
         });
@@ -187,19 +186,22 @@ async function UIWindowChangeEmail (options) {
     function onError (message) {
         $(el_window).find('.form-error-msg').html(html_encode(message));
         $(el_window).find('.form-error-msg').fadeIn();
-        $(el_window).find('.change-email-btn').removeClass('disabled');
-        $(el_window).find('.new-email').attr('disabled', false);
+        $(el_window).find('.disable-2fa-btn').removeClass('disabled');
+        $(el_window).find('.disable-2fa-password-wrap input').attr('disabled', false);
     }
 
     function onSuccess () {
-        const new_email = $(el_window).find('.new-email').val();
-        $(el_window).find('.form-success-msg').html(i18n('email_change_confirmation_sent'));
+        disabled_successfully = true;
+        $(el_window).find('.form-success-msg').html(i18n('two_factor_disabled'));
         $(el_window).find('.form-success-msg').fadeIn();
-        $(el_window).find('input').val('');
-        window.user.email = new_email;
-        $(el_window).find('.change-email-btn').removeClass('disabled');
-        $(el_window).find('.new-email').attr('disabled', false);
+        if ( window.user ) window.user.otp = false;
+        $(el_window).find('.disable-2fa-btn').removeClass('disabled');
+        $(el_window).find('.disable-2fa-password-wrap input').attr('disabled', false);
+        promise.resolve(true);
+        $(el_window).close();
     }
+
+    return { promise };
 }
 
-export default UIWindowChangeEmail;
+export default UIWindowDisable2FA;
