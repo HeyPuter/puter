@@ -116,6 +116,7 @@ const en = {
         desktop_background_fit: 'Fit',
         developers: 'Developers',
         dir_published_as_website: '%strong% has been published to:',
+        directory_depth_limit_exceeded: 'Cannot create folder. The maximum directory depth has been reached. Please create the folder in a higher-level directory.',
         disable_2fa: 'Disable 2FA',
         disable_2fa_confirm: 'Are you sure you want to disable 2FA?',
         disable_2fa_instructions: 'Enter your password to disable 2FA.',
