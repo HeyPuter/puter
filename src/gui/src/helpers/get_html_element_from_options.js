@@ -36,11 +36,16 @@ const get_html_element_from_options = async function (options) {
     options.immutable = (options.immutable === false || options.immutable === 0 || options.immutable === undefined ? 0 : 1);
     options.sort_container_after_append = (options.sort_container_after_append !== undefined ? options.sort_container_after_append : false);
     const is_shared_with_me = (options.path !== `/${window.user.username}` && !options.path.startsWith(`/${window.user.username}/`));
-    const workers = await puter.workers.list();
-    const is_worker = workers.find(w => w.file_path === options.path);
-    const worker_url = is_worker?.url;
+    let worker_url;
+    let is_worker;
+    if ( ! options.is_dir ) {
+        const stats = await puter.fs.stat({ path: options.path, returnWorkers: true });
+        is_worker = stats.workers !== undefined && stats.workers.length > 0;;
+        if ( is_worker ) {
+            worker_url = stats.workers[0].address;
+        }
+    }
     let website_url = window.determine_website_url(options.path);
-
     // do a quick check to see if the target parent has any file type restrictions
     const appendto_allowed_file_types = $(options.appendTo).attr('data-allowed_file_types');
     if ( ! window.check_fsentry_against_allowed_file_types_string({ is_dir: options.is_dir, name: options.name, type: options.type }, appendto_allowed_file_types) )
