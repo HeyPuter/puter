@@ -42,6 +42,7 @@ async function UIWindowItemProperties (item_name, item_path, item_uid, left, top
     h += `<tr><td class="item-prop-label">${i18n('modified')}</td><td class="item-prop-val item-prop-val-modified"></td></tr>`;
     h += `<tr><td class="item-prop-label">${i18n('created')}</td><td class="item-prop-val item-prop-val-created"></td></tr>`;
     h += `<tr><td class="item-prop-label">${i18n('versions')}</td><td class="item-prop-val item-prop-val-versions"></td></tr>`;
+    h += `<tr><td class="item-prop-label">${i18n('worker')}</td><td class="item-prop-val item-prop-val-worker">`;
     h += `<tr><td class="item-prop-label">${i18n('associated_websites')}</td><td class="item-prop-val item-prop-val-websites">`;
     h += '</td></tr>';
     h += `<tr><td class="item-prop-label">${i18n('access_granted_to')}</td><td class="item-prop-val item-prop-val-permissions"></td></tr>`;
@@ -109,7 +110,7 @@ async function UIWindowItemProperties (item_name, item_path, item_uid, left, top
         returnVersions: true,
         returnSize: true,
         consistency: 'eventual',
-        success: function (fsentry) {
+        success: async function (fsentry) {
             // hide versions tab if item is a directory
             if ( fsentry.is_dir ) {
                 $(el_window).find('[data-tab="versions"]').hide();
@@ -134,7 +135,6 @@ async function UIWindowItemProperties (item_name, item_path, item_uid, left, top
                     // Ignored
                 }
             }
-
             // shortcut to
             if ( fsentry.shortcut_to && fsentry.shortcut_to_path ) {
                 $(el_window).find('.item-prop-val-shortcut-to').text(fsentry.shortcut_to_path);
@@ -168,7 +168,14 @@ async function UIWindowItemProperties (item_name, item_path, item_uid, left, top
             else {
                 $(el_window).find('.item-props-version-list').append('-');
             }
-
+            // worker
+            if ( fsentry.path.endsWith('.js') ) {
+                const has_worker = fsentry.workers.length > 0;
+                if ( has_worker ) {
+                    const worker_url = fsentry.workers[0].address;
+                    $(el_window).find('.item-prop-val-worker').html(`<a target="_blank" href="${html_encode(worker_url)}">${html_encode(worker_url)}</a>`);
+                }
+            }
             $(el_window).find('.disassociate-website-link').on('click', function (e) {
                 puter.hosting.update($(e.target).attr('data-subdomain'),
                                 null).then(() => {
@@ -178,7 +185,7 @@ async function UIWindowItemProperties (item_name, item_path, item_uid, left, top
                         // remove the website badge from all instances of the dir
                         $(`.item[data-uid="${item_uid}"]`).find('.item-has-website-badge').fadeOut(200);
                     }
-                });
+                                });
             });
         },
     });

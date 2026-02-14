@@ -156,7 +156,30 @@ if ( jQuery ) {
 // are we in dashboard mode?
 if ( window.location.pathname === '/dashboard' || window.location.pathname === '/dashboard/' ) {
     window.is_dashboard_mode = true;
+    window.dashboard_initial_route = parseDashboardRoute();
 }
+
+/**
+ * Parses the dashboard URL hash into a route object.
+ * Hash format: #files/username/Documents or #usage or #account etc.
+ * @returns {{ tab: string, path: string|null }} Route object with tab name and optional file path
+ */
+function parseDashboardRoute () {
+    const hash = decodeURIComponent(window.location.hash.slice(1)); // Remove '#' and decode URL encoding
+    if ( ! hash ) return { tab: 'home', path: null };
+
+    const parts = hash.split('/').filter(Boolean); // ['files', 'username', 'Documents']
+    const tab = parts[0]; // 'files', 'usage', 'account', 'security'
+
+    if ( tab === 'files' && parts.length > 1 ) {
+        const filePath = `/${parts.slice(1).join('/')}`; // /username/Documents
+        return { tab: 'files', path: filePath };
+    }
+    return { tab: tab || 'home', path: null };
+}
+
+// Make parseDashboardRoute available globally for hashchange handler
+window.parseDashboardRoute = parseDashboardRoute;
 
 /**
  * Shows a Turnstile challenge modal for first-time temp user creation
