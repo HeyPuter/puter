@@ -39,7 +39,9 @@ class PuterAPIService extends BaseService {
     * It does not return a value as it configures the server directly.
     */
     async ['__on_install.routes'] () {
-        const { app } = this.services.get('web-server');
+        const svc_web = this.services.get('web-server');
+        const { app } = svc_web;
+        svc_web.allow_undefined_origin('/healthcheck');
 
         app.use(require('../routers/apps'));
         app.use(require('../routers/query/app'));
