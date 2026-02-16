@@ -848,9 +848,30 @@ describe('AppService', () => {
             expect(mockEventService.emit).toHaveBeenCalledWith(
                             'app.new-icon',
                             expect.objectContaining({
-                                data_url: 'https://api.puter.localhost/app-icon/app-uid-123/64',
+                                data_url: 'https://api.puter.localhost/app-icon/app-uid-123',
                             }));
             expect(validate_url).toHaveBeenCalledWith('https://example.com', expect.objectContaining({ key: 'index_url' }));
+        });
+
+        it('should migrate legacy app-icons host URL to app-icon endpoint URL on create', async () => {
+            setupContextForWrite(createMockUserActor(1));
+            mockDb.read.mockResolvedValue([createMockAppRow()]);
+
+            const crudQ = AppService.IMPLEMENTS['crud-q'];
+            await crudQ.create.call(appService, {
+                object: {
+                    name: 'test-app',
+                    title: 'Test',
+                    index_url: 'https://example.com',
+                    icon: 'https://puter-app-icons.puter.site/app-uid-123-64.png',
+                },
+            });
+
+            expect(mockEventService.emit).toHaveBeenCalledWith(
+                            'app.new-icon',
+                            expect.objectContaining({
+                                data_url: 'https://api.puter.localhost/app-icon/app-uid-123',
+                            }));
         });
 
         it('should allow absolute app-icon endpoint URL on API origin', async () => {
@@ -870,7 +891,7 @@ describe('AppService', () => {
             expect(mockEventService.emit).toHaveBeenCalledWith(
                             'app.new-icon',
                             expect.objectContaining({
-                                data_url: 'https://api.puter.localhost/app-icon/app-uid-123/64',
+                                data_url: 'https://api.puter.localhost/app-icon/app-uid-123',
                             }));
         });
 
@@ -1180,7 +1201,26 @@ describe('AppService', () => {
                             'app.new-icon',
                             expect.objectContaining({
                                 app_uid: 'app-uid-123',
-                                data_url: 'https://api.puter.localhost/app-icon/app-uid-123/64',
+                                data_url: 'https://api.puter.localhost/app-icon/app-uid-123',
+                            }));
+        });
+
+        it('should migrate legacy app-icons host URL to app-icon endpoint URL on update', async () => {
+            setupContextForWrite(createMockUserActor(1));
+
+            const crudQ = AppService.IMPLEMENTS['crud-q'];
+            await crudQ.update.call(appService, {
+                object: {
+                    uid: 'app-uid-123',
+                    icon: 'https://puter-app-icons.puter.site/app-uid-123-64.png',
+                },
+            });
+
+            expect(mockEventService.emit).toHaveBeenCalledWith(
+                            'app.new-icon',
+                            expect.objectContaining({
+                                app_uid: 'app-uid-123',
+                                data_url: 'https://api.puter.localhost/app-icon/app-uid-123',
                             }));
         });
 
@@ -1199,7 +1239,7 @@ describe('AppService', () => {
                             'app.new-icon',
                             expect.objectContaining({
                                 app_uid: 'app-uid-123',
-                                data_url: 'https://api.puter.localhost/app-icon/app-uid-123/64',
+                                data_url: 'https://api.puter.localhost/app-icon/app-uid-123',
                             }));
         });
 

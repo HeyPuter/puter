@@ -20,8 +20,11 @@ import {
     validate_url,
 } from './lib/validation.js';
 
-const APP_ICON_ENDPOINT_PATH_REGEX = /^\/app-icon\/[^/?#]+\/\d+\/?$/;
+const APP_ICON_ENDPOINT_PATH_REGEX = /^\/app-icon\/([^/?#]+)(?:\/(\d+))?\/?$/;
+const LEGACY_APP_ICON_FILE_PATH_REGEX = /^\/(app-[^/?#]+?)(?:-(\d+))?\.png$/;
+const APP_ICONS_SUBDOMAIN = 'puter-app-icons';
 const ABSOLUTE_URL_REGEX = /^[a-zA-Z][a-zA-Z\d+\-.]*:/;
+const isAbsoluteUrl = value => ABSOLUTE_URL_REGEX.test(value) || value.startsWith('//');
 
 const getCanonicalAppIconBaseUrl = () => {
     const candidate = [config.api_base_url, config.origin]
@@ -47,26 +50,47 @@ const getAllowedAppIconOrigins = () => {
     return origins;
 };
 
-const isAppIconEndpointPath = (value) => {
-    if ( typeof value !== 'string' ) return false;
+const getAllowedLegacyAppIconHostnames = () => {
+    const hostnames = new Set();
+    const domains = [config.static_hosting_domain, config.static_hosting_domain_alt];
+    for ( const domain of domains ) {
+        if ( typeof domain !== 'string' || !domain.trim() ) continue;
+        hostnames.add(`${APP_ICONS_SUBDOMAIN}.${domain.trim().toLowerCase()}`);
+    }
+    return hostnames;
+};
+
+const normalizeAppUid = appUid => (
+    typeof appUid === 'string' && appUid.startsWith('app-')
+        ? appUid
+        : `app-${appUid}`
+);
+
+const parseAppIconEndpointPath = (value) => {
+    if ( typeof value !== 'string' ) return null;
     const trimmed = value.trim();
-    if ( ! trimmed ) return false;
+    if ( ! trimmed ) return null;
 
     try {
         const parsed = new URL(trimmed, 'http://localhost');
-        const pathname = parsed.pathname;
-        return APP_ICON_ENDPOINT_PATH_REGEX.test(pathname);
+        const match = parsed.pathname.match(APP_ICON_ENDPOINT_PATH_REGEX);
+        if ( ! match ) return null;
+
+        return {
+            appUid: normalizeAppUid(match[1]),
+        };
     } catch {
-        return false;
+        return null;
     }
 };
+
+const isAppIconEndpointPath = value => !!parseAppIconEndpointPath(value);
 
 const isAllowedAppIconEndpointUrl = value => {
     if ( ! isAppIconEndpointPath(value) ) return false;
 
     const trimmed = value.trim();
-    const isAbsoluteUrl = ABSOLUTE_URL_REGEX.test(trimmed) || trimmed.startsWith('//');
-    if ( ! isAbsoluteUrl ) {
+    if ( ! isAbsoluteUrl(trimmed) ) {
         return true;
     }
 
@@ -78,21 +102,65 @@ const isAllowedAppIconEndpointUrl = value => {
     }
 };
 
+const parseLegacyHostedAppIconToEndpointPath = value => {
+    if ( typeof value !== 'string' ) return null;
+    const trimmed = value.trim();
+    if ( !trimmed || trimmed.startsWith('data:') ) return null;
+
+    let parsed;
+    try {
+        parsed = new URL(trimmed, 'http://localhost');
+    } catch {
+        return null;
+    }
+
+    const isAbsoluteUrl = ABSOLUTE_URL_REGEX.test(trimmed) || trimmed.startsWith('//');
+    if ( isAbsoluteUrl ) {
+        const allowedHostnames = getAllowedLegacyAppIconHostnames();
+        const hostname = parsed.hostname.toLowerCase();
+        if ( ! allowedHostnames.has(hostname) ) {
+            return null;
+        }
+    }
+
+    const match = parsed.pathname.match(LEGACY_APP_ICON_FILE_PATH_REGEX);
+    if ( ! match ) return null;
+
+    const appUid = normalizeAppUid(match[1]);
+    return `/app-icon/${appUid}`;
+};
+
 const migrateRelativeAppIconEndpointUrl = value => {
     if ( typeof value !== 'string' ) return value;
     const trimmed = value.trim();
-    if ( ! isAppIconEndpointPath(trimmed) ) return value;
+    if ( ! trimmed ) return value;
 
-    const isAbsoluteUrl = ABSOLUTE_URL_REGEX.test(trimmed) || trimmed.startsWith('//');
-    if ( isAbsoluteUrl ) return trimmed;
+    let canonicalEndpointPath = null;
+    const endpointPath = parseAppIconEndpointPath(trimmed);
+    if ( endpointPath ) {
+        if ( isAbsoluteUrl(trimmed) ) {
+            try {
+                const parsed = new URL(trimmed, 'http://localhost');
+                if ( ! getAllowedAppIconOrigins().has(parsed.origin) ) {
+                    return value;
+                }
+            } catch {
+                return value;
+            }
+        }
+        canonicalEndpointPath = `/app-icon/${endpointPath.appUid}`;
+    } else {
+        canonicalEndpointPath = parseLegacyHostedAppIconToEndpointPath(trimmed);
+    }
+    if ( ! canonicalEndpointPath ) return value;
 
     const baseUrl = getCanonicalAppIconBaseUrl();
-    if ( ! baseUrl ) return trimmed;
+    if ( ! baseUrl ) return canonicalEndpointPath;
 
     try {
-        return new URL(trimmed, `${baseUrl}/`).toString();
+        return new URL(canonicalEndpointPath, `${baseUrl}/`).toString();
     } catch {
-        return trimmed;
+        return canonicalEndpointPath;
     }
 };
 
