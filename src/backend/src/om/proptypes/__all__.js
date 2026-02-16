@@ -17,6 +17,7 @@
  * along with this program.  If not, see <https://www.gnu.org/licenses/>.
  */
 const APIError = require('../../api/APIError');
+const config = require('../../config');
 const { NodeUIDSelector, NodeInternalIDSelector, NodePathSelector } = require('../../filesystem/node/selectors');
 const { is_valid_uuid4, is_valid_uuid } = require('../../helpers');
 const validator = require('validator');
@@ -25,15 +26,144 @@ const { is_valid_path } = require('../../filesystem/validation');
 const FSNodeContext = require('../../filesystem/FSNodeContext');
 const { Entity } = require('../entitystorage/Entity');
 const NULL = Symbol('NULL');
-const APP_ICON_ENDPOINT_PATH_REGEX = /^\/app-icon\/[^/?#]+\/\d+\/?$/;
+const APP_ICON_ENDPOINT_PATH_REGEX = /^\/app-icon\/([^/?#]+)(?:\/(\d+))?\/?$/;
+const LEGACY_APP_ICON_FILE_PATH_REGEX = /^\/(app-[^/?#]+?)(?:-(\d+))?\.png$/;
+const APP_ICONS_SUBDOMAIN = 'puter-app-icons';
+const ABSOLUTE_URL_REGEX = /^[a-zA-Z][a-zA-Z\d+\-.]*:/;
+const isAbsoluteUrl = value => ABSOLUTE_URL_REGEX.test(value) || value.startsWith('//');
 
-const isAppIconEndpointPath = value => {
-    if ( typeof value !== 'string' ) return false;
+const getCanonicalAppIconBaseUrl = () => {
+    const candidate = [config.api_base_url, config.origin]
+        .find(value => typeof value === 'string' && value.trim());
+    if ( ! candidate ) return null;
     try {
-        const pathname = new URL(value, 'http://localhost').pathname;
-        return APP_ICON_ENDPOINT_PATH_REGEX.test(pathname);
+        return (new URL(candidate)).origin;
+    } catch {
+        return null;
+    }
+};
+
+const normalizeAppUid = appUid => (
+    typeof appUid === 'string' && appUid.startsWith('app-')
+        ? appUid
+        : `app-${appUid}`
+);
+
+const parseAppIconEndpointPath = value => {
+    if ( typeof value !== 'string' ) return null;
+    const trimmed = value.trim();
+    if ( ! trimmed ) return null;
+    try {
+        const match = new URL(trimmed, 'http://localhost').pathname.match(APP_ICON_ENDPOINT_PATH_REGEX);
+        if ( ! match ) return null;
+        return {
+            appUid: normalizeAppUid(match[1]),
+        };
+    } catch {
+        return null;
+    }
+};
+
+const isAppIconEndpointPath = value => !!parseAppIconEndpointPath(value);
+
+const getAllowedAppIconOrigins = () => {
+    const origins = new Set();
+    for ( const candidate of [config.api_base_url, config.origin] ) {
+        if ( typeof candidate !== 'string' || !candidate ) continue;
+        try {
+            origins.add((new URL(candidate)).origin);
+        } catch {
+            // Ignore invalid config values.
+        }
+    }
+    return origins;
+};
+
+const getAllowedLegacyAppIconHostnames = () => {
+    const hostnames = new Set();
+    const domains = [config.static_hosting_domain, config.static_hosting_domain_alt];
+    for ( const domain of domains ) {
+        if ( typeof domain !== 'string' || !domain.trim() ) continue;
+        hostnames.add(`${APP_ICONS_SUBDOMAIN}.${domain.trim().toLowerCase()}`);
+    }
+    return hostnames;
+};
+
+const isAllowedAppIconEndpointUrl = value => {
+    if ( ! isAppIconEndpointPath(value) ) return false;
+
+    const trimmed = value.trim();
+    if ( ! isAbsoluteUrl(trimmed) ) {
+        return true;
+    }
+
+    try {
+        const parsed = new URL(trimmed, 'http://localhost');
+        return getAllowedAppIconOrigins().has(parsed.origin);
     } catch {
         return false;
+    }
+};
+
+const parseLegacyHostedAppIconToEndpointPath = value => {
+    if ( typeof value !== 'string' ) return null;
+    const trimmed = value.trim();
+    if ( !trimmed || trimmed.startsWith('data:') ) return null;
+
+    let parsed;
+    try {
+        parsed = new URL(trimmed, 'http://localhost');
+    } catch {
+        return null;
+    }
+
+    const isAbsoluteUrl = ABSOLUTE_URL_REGEX.test(trimmed) || trimmed.startsWith('//');
+    if ( isAbsoluteUrl ) {
+        const allowedHostnames = getAllowedLegacyAppIconHostnames();
+        const hostname = parsed.hostname.toLowerCase();
+        if ( ! allowedHostnames.has(hostname) ) {
+            return null;
+        }
+    }
+
+    const match = parsed.pathname.match(LEGACY_APP_ICON_FILE_PATH_REGEX);
+    if ( ! match ) return null;
+
+    const appUid = normalizeAppUid(match[1]);
+    return `/app-icon/${appUid}`;
+};
+
+const migrateRelativeAppIconEndpointUrl = value => {
+    if ( typeof value !== 'string' ) return value;
+    const trimmed = value.trim();
+    if ( ! trimmed ) return value;
+
+    let canonicalEndpointPath = null;
+    const endpointPath = parseAppIconEndpointPath(trimmed);
+    if ( endpointPath ) {
+        if ( isAbsoluteUrl(trimmed) ) {
+            try {
+                const parsed = new URL(trimmed, 'http://localhost');
+                if ( ! getAllowedAppIconOrigins().has(parsed.origin) ) {
+                    return value;
+                }
+            } catch {
+                return value;
+            }
+        }
+        canonicalEndpointPath = `/app-icon/${endpointPath.appUid}`;
+    } else {
+        canonicalEndpointPath = parseLegacyHostedAppIconToEndpointPath(trimmed);
+    }
+    if ( ! canonicalEndpointPath ) return value;
+
+    const baseUrl = getCanonicalAppIconBaseUrl();
+    if ( ! baseUrl ) return canonicalEndpointPath;
+
+    try {
+        return new URL(canonicalEndpointPath, `${baseUrl}/`).toString();
+    } catch {
+        return canonicalEndpointPath;
     }
 };
 
@@ -78,13 +208,13 @@ module.exports = {
             if ( typeof value !== 'string' ) {
                 return new OMTypeError({ expected: 'string', got: typeof value });
             }
-            if ( descriptor.hasOwnProperty('maxlen') && value.length > descriptor.maxlen ) {
+            if ( Object.prototype.hasOwnProperty.call(descriptor, 'maxlen') && value.length > descriptor.maxlen ) {
                 throw APIError.create('field_too_long', null, { key: name, max_length: descriptor.maxlen });
             }
-            if ( descriptor.hasOwnProperty('minlen') && value.length > descriptor.minlen ) {
+            if ( Object.prototype.hasOwnProperty.call(descriptor, 'minlen') && value.length > descriptor.minlen ) {
                 throw APIError.create('field_too_short', null, { key: name, min_length: descriptor.maxlen });
             }
-            if ( descriptor.hasOwnProperty('regex') && !value.match(descriptor.regex) ) {
+            if ( Object.prototype.hasOwnProperty.call(descriptor, 'regex') && !value.match(descriptor.regex) ) {
                 return new Error(`string does not match regex ${descriptor.regex}`);
             }
             return true;
@@ -96,13 +226,13 @@ module.exports = {
             if ( ! Array.isArray(value) ) {
                 return new OMTypeError({ expected: 'array', got: typeof value });
             }
-            if ( descriptor.hasOwnProperty('maxlen') && value.length > descriptor.maxlen ) {
+            if ( Object.prototype.hasOwnProperty.call(descriptor, 'maxlen') && value.length > descriptor.maxlen ) {
                 throw APIError.create('field_too_long', null, { key: name, max_length: descriptor.maxlen });
             }
-            if ( descriptor.hasOwnProperty('minlen') && value.length > descriptor.minlen ) {
+            if ( Object.prototype.hasOwnProperty.call(descriptor, 'minlen') && value.length > descriptor.minlen ) {
                 throw APIError.create('field_too_short', null, { key: name, min_length: descriptor.maxlen });
             }
-            if ( descriptor.hasOwnProperty('mod') && value.length % descriptor.mod !== 0 ) {
+            if ( Object.prototype.hasOwnProperty.call(descriptor, 'mod') && value.length % descriptor.mod !== 0 ) {
                 throw APIError.create('field_invalid', null, { key: name, mod: descriptor.mod });
             }
             return true;
@@ -144,29 +274,41 @@ module.exports = {
     },
     ['image-base64']: {
         from: 'string',
+        is_set (value) {
+            return typeof value === 'string' && value.trim().length > 0;
+        },
+        adapt (value) {
+            if ( value === NULL ) return null;
+            if ( value === undefined || value === null ) return '';
+            if ( typeof value !== 'string' ) {
+                throw new OMTypeError({ expected: 'string', got: typeof value });
+            }
+            return migrateRelativeAppIconEndpointUrl(value);
+        },
         validate (value) {
-            if ( value.startsWith('data:image/') ) {
+            if ( typeof value !== 'string' ) {
+                return new OMTypeError({ expected: 'string', got: typeof value });
+            }
+
+            const trimmed = value.trim();
+            if ( ! trimmed ) {
+                return true;
+            }
+
+            if ( trimmed.startsWith('data:image/') ) {
                 // XSS characters
                 const chars = ['<', '>', '&', '"', "'", '`'];
-                if ( chars.some(char => value.includes(char)) ) {
+                if ( chars.some(char => trimmed.includes(char)) ) {
                     return new Error('icon is not an image');
                 }
                 return true;
             }
 
-            let valid = validator.isURL(value);
-            if ( ! valid ) {
-                valid = validator.isURL(value, { host_whitelist: ['localhost'] });
-            }
-            if ( valid ) {
+            if ( isAllowedAppIconEndpointUrl(trimmed) ) {
                 return true;
             }
 
-            if ( isAppIconEndpointPath(value) ) {
-                return true;
-            }
-
-            return new Error('icon must be base64 encoded or a valid URL');
+            return new Error('icon must be base64 encoded or an app-icon endpoint URL');
         },
     },
     url: {
@@ -271,7 +413,7 @@ module.exports = {
             const node = await svc_fs.node(selector);
             return node;
         },
-        async validate (value, { name, descriptor }) {
+        async validate (value, { descriptor }) {
             if ( value === null ) return;
             const actor = Context.get('actor');
             const permission = descriptor.fs_permission ?? 'see';

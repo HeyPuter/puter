@@ -33,6 +33,17 @@ describe('AppIconService', () => {
 
             expect(shouldRedirect).toBe(false);
         });
+
+        it('parses app-icon endpoint URLs without size as default size 128', () => {
+            const service = Object.create(AppIconService.prototype);
+
+            const parsed = service.parseAppIconEndpointUrl('https://api.puter.localhost/app-icon/app-123');
+
+            expect(parsed).toEqual({
+                appUid: 'app-123',
+                size: 128,
+            });
+        });
     });
 
     describe('createAppIcons', () => {
@@ -92,6 +103,16 @@ describe('AppIconService', () => {
             });
 
             expect(result).toBe(`${config.api_base_url}/app-icon/app-abc/64`);
+        });
+
+        it('defaults to size 128 when size is not provided', () => {
+            const service = Object.create(AppIconService.prototype);
+
+            const result = service.getAppIconPath({
+                appUid: 'abc',
+            });
+
+            expect(result).toBe(`${config.api_base_url}/app-icon/app-abc/128`);
         });
 
         it('iconifyApps rewrites icons to the legacy app-icon endpoint path', async () => {

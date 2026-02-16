@@ -34,6 +34,7 @@ import DEFAULT_APP_ICON from './default-app-icon.js';
 const require = createRequire(import.meta.url);
 
 const ICON_SIZES = [16, 32, 64, 128, 256, 512];
+const DEFAULT_ICON_SIZE = 128;
 const LEGACY_ICON_FILENAME = ({ appUid, size }) => `${appUid}-${size}.png`;
 const ORIGINAL_ICON_FILENAME = ({ appUid }) => `${appUid}.png`;
 const REDIRECT_MAX_AGE_SIZE = 30 * 24 * 60 * 60; // 1 month
@@ -64,42 +65,54 @@ export class AppIconService extends BaseService {
 
     /**
      * AppIconService listens to this event to register the
-     * endpoint /app-icon/:app_uid/:size which serves the
-     * app icon at the requested size.
+     * endpoints /app-icon/:app_uid and /app-icon/:app_uid/:size
+     * which serve the app icon at the requested size.
      */
     async ['__on_install.routes'] (_, { app }) {
+        const handler = async (req, res) => {
+            // Validate parameters
+            let { app_uid: appUid, size } = req.params;
+            const resolvedSize = Number(size ?? DEFAULT_ICON_SIZE);
+            if ( ! ICON_SIZES.includes(resolvedSize) ) {
+                res.status(400).send('Invalid size');
+                return;
+            }
+            if ( ! appUid.startsWith('app-') ) {
+                appUid = `app-${appUid}`;
+            }
+
+            const {
+                stream,
+                mime,
+                redirectUrl,
+                redirectCacheControl,
+            } = await this.#getIconStream({
+                appUid,
+                size: resolvedSize,
+                allowRedirect: true,
+            });
+
+            if ( redirectUrl ) {
+                if ( redirectCacheControl ) {
+                    res.set('Cache-Control', redirectCacheControl);
+                }
+                return res.redirect(302, redirectUrl);
+            }
+
+            res.set('Content-Type', mime);
+            res.set('Cache-Control', 'public, max-age=3600');
+            stream.pipe(res);
+        };
+
+        Endpoint({
+            route: '/app-icon/:app_uid',
+            methods: ['GET'],
+            handler,
+        }).attach(app);
         Endpoint({
             route: '/app-icon/:app_uid/:size',
             methods: ['GET'],
-            handler: async (req, res) => {
-                // Validate parameters
-                let { app_uid: appUid, size } = req.params;
-                if ( ! ICON_SIZES.includes(Number(size)) ) {
-                    res.status(400).send('Invalid size');
-                    return;
-                }
-                if ( ! appUid.startsWith('app-') ) {
-                    appUid = `app-${appUid}`;
-                }
-
-                const {
-                    stream,
-                    mime,
-                    redirectUrl,
-                    redirectCacheControl,
-                } = await this.#getIconStream({ appUid, size, allowRedirect: true });
-
-                if ( redirectUrl ) {
-                    if ( redirectCacheControl ) {
-                        res.set('Cache-Control', redirectCacheControl);
-                    }
-                    return res.redirect(302, redirectUrl);
-                }
-
-                res.set('Content-Type', mime);
-                res.set('Cache-Control', 'public, max-age=3600');
-                stream.pipe(res);
-            },
+            handler,
         }).attach(app);
     }
 
@@ -131,7 +144,12 @@ export class AppIconService extends BaseService {
             return null;
         }
 
-        return `${apiBaseUrl}/app-icon/${normalizedAppUid}/${size}`;
+        const resolvedSize = Number(size ?? DEFAULT_ICON_SIZE);
+        if ( ! ICON_SIZES.includes(resolvedSize) ) {
+            return null;
+        }
+
+        return `${apiBaseUrl}/app-icon/${normalizedAppUid}/${resolvedSize}`;
     }
 
     normalizeAppUid (appUid) {
@@ -159,12 +177,14 @@ export class AppIconService extends BaseService {
             return null;
         }
 
-        const match = pathname.match(/^\/app-icon\/([^/]+)\/(\d+)\/?$/);
+        const match = pathname.match(/^\/app-icon\/([^/]+)(?:\/(\d+))?\/?$/);
         if ( ! match ) return null;
+
+        const size = Number(match[2] ?? DEFAULT_ICON_SIZE);
 
         return {
             appUid: this.normalizeAppUid(match[1]),
-            size: Number(match[2]),
+            size,
         };
     }
 
