@@ -3601,7 +3601,10 @@ fieldset[name=number-code] {
 }
 
 .perm-title {
-    text-align: center;
+    display: flex;
+    justify-content: center;
+    align-items: center;
+    gap: 10px;
     margin-top: 0;
     padding-bottom: 15px;
     font-size: 20px;
