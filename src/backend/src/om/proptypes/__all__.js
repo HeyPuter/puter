@@ -17,6 +17,7 @@
  * along with this program.  If not, see <https://www.gnu.org/licenses/>.
  */
 const APIError = require('../../api/APIError');
+const config = require('../../config');
 const { NodeUIDSelector, NodeInternalIDSelector, NodePathSelector } = require('../../filesystem/node/selectors');
 const { is_valid_uuid4, is_valid_uuid } = require('../../helpers');
 const validator = require('validator');
@@ -26,14 +27,76 @@ const FSNodeContext = require('../../filesystem/FSNodeContext');
 const { Entity } = require('../entitystorage/Entity');
 const NULL = Symbol('NULL');
 const APP_ICON_ENDPOINT_PATH_REGEX = /^\/app-icon\/[^/?#]+\/\d+\/?$/;
+const ABSOLUTE_URL_REGEX = /^[a-zA-Z][a-zA-Z\d+\-.]*:/;
+
+const getCanonicalAppIconBaseUrl = () => {
+    const candidate = [config.api_base_url, config.origin]
+        .find(value => typeof value === 'string' && value.trim());
+    if ( ! candidate ) return null;
+    try {
+        return (new URL(candidate)).origin;
+    } catch {
+        return null;
+    }
+};
 
 const isAppIconEndpointPath = value => {
     if ( typeof value !== 'string' ) return false;
+    const trimmed = value.trim();
+    if ( ! trimmed ) return false;
     try {
-        const pathname = new URL(value, 'http://localhost').pathname;
+        const pathname = new URL(trimmed, 'http://localhost').pathname;
         return APP_ICON_ENDPOINT_PATH_REGEX.test(pathname);
     } catch {
         return false;
+    }
+};
+
+const getAllowedAppIconOrigins = () => {
+    const origins = new Set();
+    for ( const candidate of [config.api_base_url, config.origin] ) {
+        if ( typeof candidate !== 'string' || !candidate ) continue;
+        try {
+            origins.add((new URL(candidate)).origin);
+        } catch {
+            // Ignore invalid config values.
+        }
+    }
+    return origins;
+};
+
+const isAllowedAppIconEndpointUrl = value => {
+    if ( ! isAppIconEndpointPath(value) ) return false;
+
+    const trimmed = value.trim();
+    const isAbsoluteUrl = ABSOLUTE_URL_REGEX.test(trimmed) || trimmed.startsWith('//');
+    if ( ! isAbsoluteUrl ) {
+        return true;
+    }
+
+    try {
+        const parsed = new URL(trimmed, 'http://localhost');
+        return getAllowedAppIconOrigins().has(parsed.origin);
+    } catch {
+        return false;
+    }
+};
+
+const migrateRelativeAppIconEndpointUrl = value => {
+    if ( typeof value !== 'string' ) return value;
+    const trimmed = value.trim();
+    if ( ! isAppIconEndpointPath(trimmed) ) return value;
+
+    const isAbsoluteUrl = ABSOLUTE_URL_REGEX.test(trimmed) || trimmed.startsWith('//');
+    if ( isAbsoluteUrl ) return trimmed;
+
+    const baseUrl = getCanonicalAppIconBaseUrl();
+    if ( ! baseUrl ) return trimmed;
+
+    try {
+        return new URL(trimmed, `${baseUrl}/`).toString();
+    } catch {
+        return trimmed;
     }
 };
 
@@ -144,6 +207,9 @@ module.exports = {
     },
     ['image-base64']: {
         from: 'string',
+        adapt (value) {
+            return migrateRelativeAppIconEndpointUrl(value);
+        },
         validate (value) {
             if ( value.startsWith('data:image/') ) {
                 // XSS characters
@@ -154,19 +220,11 @@ module.exports = {
                 return true;
             }
 
-            let valid = validator.isURL(value);
-            if ( ! valid ) {
-                valid = validator.isURL(value, { host_whitelist: ['localhost'] });
-            }
-            if ( valid ) {
+            if ( isAllowedAppIconEndpointUrl(value) ) {
                 return true;
             }
 
-            if ( isAppIconEndpointPath(value) ) {
-                return true;
-            }
-
-            return new Error('icon must be base64 encoded or a valid URL');
+            return new Error('icon must be base64 encoded or an app-icon endpoint URL');
         },
     },
     url: {

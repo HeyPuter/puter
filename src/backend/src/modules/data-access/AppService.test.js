@@ -37,6 +37,8 @@ vi.mock('../../config.js', () => ({
         app_name_regex: /^[a-z0-9-]+$/,
         app_title_max_length: 200,
         static_hosting_domain: 'puter.site',
+        origin: 'https://puter.localhost',
+        api_base_url: 'https://api.puter.localhost',
     },
 }));
 
@@ -824,7 +826,7 @@ describe('AppService', () => {
                             }));
         });
 
-        it('should allow relative app-icon endpoint path for icon', async () => {
+        it('should migrate relative app-icon endpoint path to absolute URL on create', async () => {
             setupContextForWrite(createMockUserActor(1));
             mockDb.read.mockResolvedValue([createMockAppRow()]);
             validate_url.mockImplementation((_value, { key }) => {
@@ -846,9 +848,62 @@ describe('AppService', () => {
             expect(mockEventService.emit).toHaveBeenCalledWith(
                             'app.new-icon',
                             expect.objectContaining({
-                                data_url: '/app-icon/app-uid-123/64',
+                                data_url: 'https://api.puter.localhost/app-icon/app-uid-123/64',
                             }));
             expect(validate_url).toHaveBeenCalledWith('https://example.com', expect.objectContaining({ key: 'index_url' }));
+        });
+
+        it('should allow absolute app-icon endpoint URL on API origin', async () => {
+            setupContextForWrite(createMockUserActor(1));
+            mockDb.read.mockResolvedValue([createMockAppRow()]);
+
+            const crudQ = AppService.IMPLEMENTS['crud-q'];
+            await crudQ.create.call(appService, {
+                object: {
+                    name: 'test-app',
+                    title: 'Test',
+                    index_url: 'https://example.com',
+                    icon: 'https://api.puter.localhost/app-icon/app-uid-123/64',
+                },
+            });
+
+            expect(mockEventService.emit).toHaveBeenCalledWith(
+                            'app.new-icon',
+                            expect.objectContaining({
+                                data_url: 'https://api.puter.localhost/app-icon/app-uid-123/64',
+                            }));
+        });
+
+        it('should reject foreign absolute app-icon endpoint URL on create', async () => {
+            setupContextForWrite(createMockUserActor(1));
+
+            const crudQ = AppService.IMPLEMENTS['crud-q'];
+            await expect(crudQ.create.call(appService, {
+                object: {
+                    name: 'test-app',
+                    title: 'Test',
+                    index_url: 'https://example.com',
+                    icon: 'https://evil.example/app-icon/app-uid-123/64',
+                },
+            })).rejects.toMatchObject({
+                fields: { code: 'field_invalid', key: 'icon' },
+            });
+        });
+
+        it('should reject non app-icon URL icon on create', async () => {
+            setupContextForWrite(createMockUserActor(1));
+
+            const crudQ = AppService.IMPLEMENTS['crud-q'];
+            await expect(crudQ.create.call(appService, {
+                object: {
+                    name: 'test-app',
+                    title: 'Test',
+                    index_url: 'https://example.com',
+                    icon: 'https://example.com/webhook',
+                },
+            })).rejects.toMatchObject({
+                fields: { code: 'field_invalid', key: 'icon' },
+            });
         });
 
         it('should handle filetype_associations', async () => {
@@ -1105,7 +1160,7 @@ describe('AppService', () => {
                             }));
         });
 
-        it('should allow relative app-icon endpoint path when updating icon', async () => {
+        it('should migrate relative app-icon endpoint path to absolute URL on update', async () => {
             setupContextForWrite(createMockUserActor(1));
             validate_url.mockImplementation((_value, { key }) => {
                 if ( key === 'icon' ) {
@@ -1125,8 +1180,55 @@ describe('AppService', () => {
                             'app.new-icon',
                             expect.objectContaining({
                                 app_uid: 'app-uid-123',
-                                data_url: '/app-icon/app-uid-123/64',
+                                data_url: 'https://api.puter.localhost/app-icon/app-uid-123/64',
                             }));
+        });
+
+        it('should allow absolute app-icon endpoint URL on API origin when updating icon', async () => {
+            setupContextForWrite(createMockUserActor(1));
+
+            const crudQ = AppService.IMPLEMENTS['crud-q'];
+            await crudQ.update.call(appService, {
+                object: {
+                    uid: 'app-uid-123',
+                    icon: 'https://api.puter.localhost/app-icon/app-uid-123/64',
+                },
+            });
+
+            expect(mockEventService.emit).toHaveBeenCalledWith(
+                            'app.new-icon',
+                            expect.objectContaining({
+                                app_uid: 'app-uid-123',
+                                data_url: 'https://api.puter.localhost/app-icon/app-uid-123/64',
+                            }));
+        });
+
+        it('should reject foreign absolute app-icon endpoint URL on update', async () => {
+            setupContextForWrite(createMockUserActor(1));
+
+            const crudQ = AppService.IMPLEMENTS['crud-q'];
+            await expect(crudQ.update.call(appService, {
+                object: {
+                    uid: 'app-uid-123',
+                    icon: 'https://evil.example/app-icon/app-uid-123/64',
+                },
+            })).rejects.toMatchObject({
+                fields: { code: 'field_invalid', key: 'icon' },
+            });
+        });
+
+        it('should reject non app-icon URL icon on update', async () => {
+            setupContextForWrite(createMockUserActor(1));
+
+            const crudQ = AppService.IMPLEMENTS['crud-q'];
+            await expect(crudQ.update.call(appService, {
+                object: {
+                    uid: 'app-uid-123',
+                    icon: 'https://example.com/webhook',
+                },
+            })).rejects.toMatchObject({
+                fields: { code: 'field_invalid', key: 'icon' },
+            });
         });
 
         it('should emit app.rename event when name changes', async () => {

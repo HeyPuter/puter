@@ -21,14 +21,78 @@ import {
 } from './lib/validation.js';
 
 const APP_ICON_ENDPOINT_PATH_REGEX = /^\/app-icon\/[^/?#]+\/\d+\/?$/;
+const ABSOLUTE_URL_REGEX = /^[a-zA-Z][a-zA-Z\d+\-.]*:/;
+
+const getCanonicalAppIconBaseUrl = () => {
+    const candidate = [config.api_base_url, config.origin]
+        .find(value => typeof value === 'string' && value.trim());
+    if ( ! candidate ) return null;
+    try {
+        return (new URL(candidate)).origin;
+    } catch {
+        return null;
+    }
+};
+
+const getAllowedAppIconOrigins = () => {
+    const origins = new Set();
+    for ( const candidate of [config.api_base_url, config.origin] ) {
+        if ( typeof candidate !== 'string' || !candidate ) continue;
+        try {
+            origins.add((new URL(candidate)).origin);
+        } catch {
+            // Ignore invalid config values.
+        }
+    }
+    return origins;
+};
 
 const isAppIconEndpointPath = (value) => {
     if ( typeof value !== 'string' ) return false;
+    const trimmed = value.trim();
+    if ( ! trimmed ) return false;
+
     try {
-        const pathname = new URL(value, 'http://localhost').pathname;
+        const parsed = new URL(trimmed, 'http://localhost');
+        const pathname = parsed.pathname;
         return APP_ICON_ENDPOINT_PATH_REGEX.test(pathname);
     } catch {
         return false;
+    }
+};
+
+const isAllowedAppIconEndpointUrl = value => {
+    if ( ! isAppIconEndpointPath(value) ) return false;
+
+    const trimmed = value.trim();
+    const isAbsoluteUrl = ABSOLUTE_URL_REGEX.test(trimmed) || trimmed.startsWith('//');
+    if ( ! isAbsoluteUrl ) {
+        return true;
+    }
+
+    try {
+        const parsed = new URL(trimmed, 'http://localhost');
+        return getAllowedAppIconOrigins().has(parsed.origin);
+    } catch {
+        return false;
+    }
+};
+
+const migrateRelativeAppIconEndpointUrl = value => {
+    if ( typeof value !== 'string' ) return value;
+    const trimmed = value.trim();
+    if ( ! isAppIconEndpointPath(trimmed) ) return value;
+
+    const isAbsoluteUrl = ABSOLUTE_URL_REGEX.test(trimmed) || trimmed.startsWith('//');
+    if ( isAbsoluteUrl ) return trimmed;
+
+    const baseUrl = getCanonicalAppIconBaseUrl();
+    if ( ! baseUrl ) return trimmed;
+
+    try {
+        return new URL(trimmed, `${baseUrl}/`).toString();
+    } catch {
+        return trimmed;
     }
 };
 
@@ -442,12 +506,15 @@ export default class AppService extends BaseService {
             }
 
             if ( object.icon !== undefined && object.icon !== null ) {
+                if ( typeof object.icon === 'string' ) {
+                    object.icon = migrateRelativeAppIconEndpointUrl(object.icon);
+                }
                 if ( typeof object.icon === 'string' && object.icon.startsWith('data:') ) {
                     validate_image_base64(object.icon, { key: 'icon' });
-                } else if ( isAppIconEndpointPath(object.icon) ) {
+                } else if ( isAllowedAppIconEndpointUrl(object.icon) ) {
                     // Allow existing relative app icon endpoint references.
                 } else {
-                    validate_url(object.icon, { key: 'icon', maxlen: 3000 });
+                    throw APIError.create('field_invalid', null, { key: 'icon' });
                 }
             }
 
@@ -691,12 +758,15 @@ export default class AppService extends BaseService {
             }
 
             if ( object.icon !== undefined && object.icon !== null ) {
+                if ( typeof object.icon === 'string' ) {
+                    object.icon = migrateRelativeAppIconEndpointUrl(object.icon);
+                }
                 if ( typeof object.icon === 'string' && object.icon.startsWith('data:') ) {
                     validate_image_base64(object.icon, { key: 'icon' });
-                } else if ( isAppIconEndpointPath(object.icon) ) {
+                } else if ( isAllowedAppIconEndpointUrl(object.icon) ) {
                     // Allow existing relative app icon endpoint references.
                 } else {
-                    validate_url(object.icon, { key: 'icon', maxlen: 3000 });
+                    throw APIError.create('field_invalid', null, { key: 'icon' });
                 }
             }
 
