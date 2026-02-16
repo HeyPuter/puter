@@ -133,6 +133,7 @@ describe('AppService', () => {
         // Mock permission service
         mockPermissionService = {
             check: vi.fn().mockResolvedValue(false),
+            scan: vi.fn().mockResolvedValue([]),
         };
 
         // Mock puter-site service
@@ -185,13 +186,13 @@ describe('AppService', () => {
     describe('#read', () => {
         it('should read an app by uid', async () => {
             const mockRow = createMockAppRow();
-            mockDb.read.mockResolvedValue([mockRow]);
+            mockDb.read.mockResolvedValueOnce([mockRow]);
 
             const crudQ = AppService.IMPLEMENTS['crud-q'];
             const result = await crudQ.read.call(appService, { uid: 'app-uid-123' });
 
             expect(mockDb.read).toHaveBeenCalledTimes(1);
-            expect(mockDb.read).toHaveBeenCalledWith(
+            expect(mockDb.read).toHaveBeenNthCalledWith(1,
                             expect.stringContaining('WHERE apps.uid = ?'),
                             ['app-uid-123']);
             expect(result).toBeDefined();
@@ -202,13 +203,13 @@ describe('AppService', () => {
 
         it('should read an app by complex id (name)', async () => {
             const mockRow = createMockAppRow();
-            mockDb.read.mockResolvedValue([mockRow]);
+            mockDb.read.mockResolvedValueOnce([mockRow]);
 
             const crudQ = AppService.IMPLEMENTS['crud-q'];
             const result = await crudQ.read.call(appService, { id: { name: 'test-app' } });
 
             expect(mockDb.read).toHaveBeenCalledTimes(1);
-            expect(mockDb.read).toHaveBeenCalledWith(
+            expect(mockDb.read).toHaveBeenNthCalledWith(1,
                             expect.stringContaining('WHERE apps.name = ?'),
                             ['test-app']);
             expect(result).toBeDefined();
@@ -266,24 +267,47 @@ describe('AppService', () => {
             const mockRow = createMockAppRow({
                 filetypes: '[".txt", ".doc", "pdf"]',
             });
-            mockDb.read.mockResolvedValue([mockRow]);
+            mockDb.read.mockResolvedValueOnce([mockRow]);
 
             const crudQ = AppService.IMPLEMENTS['crud-q'];
             const result = await crudQ.read.call(appService, { uid: 'app-uid-123' });
 
             expect(result.filetype_associations).toEqual(['txt', 'doc', 'pdf']);
+            expect(mockDb.read).toHaveBeenCalledTimes(1);
         });
 
         it('should filter out null values in filetypes array', async () => {
             const mockRow = createMockAppRow({
                 filetypes: '[".txt", null, "pdf"]',
             });
-            mockDb.read.mockResolvedValue([mockRow]);
+            mockDb.read.mockResolvedValueOnce([mockRow]);
 
             const crudQ = AppService.IMPLEMENTS['crud-q'];
             const result = await crudQ.read.call(appService, { uid: 'app-uid-123' });
 
             expect(result.filetype_associations).toEqual(['txt', 'pdf']);
+            expect(mockDb.read).toHaveBeenCalledTimes(1);
+        });
+
+        it('should query filetype associations table when filetypes JSON is missing', async () => {
+            const mockRow = createMockAppRow({ filetypes: null });
+            mockDb.read
+                .mockResolvedValueOnce([mockRow])
+                .mockResolvedValueOnce([
+                    { type: '.txt' },
+                    { type: null },
+                    { type: 'pdf' },
+                ]);
+
+            const crudQ = AppService.IMPLEMENTS['crud-q'];
+            const result = await crudQ.read.call(appService, { uid: 'app-uid-123' });
+
+            expect(result.filetype_associations).toEqual(['txt', 'pdf']);
+            expect(mockDb.read).toHaveBeenCalledTimes(2);
+            expect(mockDb.read).toHaveBeenNthCalledWith(
+                            2,
+                            'SELECT type FROM app_filetype_association WHERE app_id = ?',
+                            [mockRow.id]);
         });
 
         it('should have owner parameter', async () => {
@@ -567,16 +591,13 @@ describe('AppService', () => {
                             'failed to get app filetype associations');
         });
 
-        it('should use database case for SQL dialect differences', async () => {
+        it('should not require dialect-specific JSON aggregation for app selection', async () => {
             mockDb.read.mockResolvedValue([]);
 
             const crudQ = AppService.IMPLEMENTS['crud-q'];
             await crudQ.select.call(appService, {});
 
-            expect(mockDb.case).toHaveBeenCalledWith({
-                mysql: expect.stringContaining('JSON_ARRAYAGG'),
-                sqlite: expect.stringContaining('json_group_array'),
-            });
+            expect(mockDb.case).not.toHaveBeenCalled();
         });
     });
 
@@ -612,7 +633,7 @@ describe('AppService', () => {
             })]);
 
             const crudQ = AppService.IMPLEMENTS['crud-q'];
-            const result = await crudQ.create.call(appService, {
+            await crudQ.create.call(appService, {
                 object: {
                     name: 'new-app',
                     title: 'New App',
@@ -920,7 +941,7 @@ describe('AppService', () => {
             setupContextForWrite(createMockUserActor(1));
 
             const crudQ = AppService.IMPLEMENTS['crud-q'];
-            const result = await crudQ.update.call(appService, {
+            await crudQ.update.call(appService, {
                 object: { uid: 'app-uid-123', title: 'Updated Title' },
             });
 
