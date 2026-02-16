@@ -49,6 +49,19 @@ const CONDITION_IMAGE_MODELS = [
     'togetherai:black-forest-labs/flux.1-kontext-max',
 ];
 
+const GEMINI_3_IMAGE_RESOLUTION_MAP: Record<string, Record<string, { w: number; h: number }>> = {
+    '1:1':   { '1K': { w: 1024, h: 1024 }, '2K': { w: 2048, h: 2048 }, '4K': { w: 4096, h: 4096 } },
+    '2:3':   { '1K': { w: 848,  h: 1264 }, '2K': { w: 1696, h: 2528 }, '4K': { w: 3392, h: 5096 } },
+    '3:2':   { '1K': { w: 1264, h: 848  }, '2K': { w: 2528, h: 1696 }, '4K': { w: 5096, h: 3392 } },
+    '3:4':   { '1K': { w: 896,  h: 1200 }, '2K': { w: 1792, h: 2400 }, '4K': { w: 3584, h: 4800 } },
+    '4:3':   { '1K': { w: 1200, h: 896  }, '2K': { w: 2400, h: 1792 }, '4K': { w: 4800, h: 3584 } },
+    '4:5':   { '1K': { w: 928,  h: 1152 }, '2K': { w: 1856, h: 2304 }, '4K': { w: 3712, h: 4608 } },
+    '5:4':   { '1K': { w: 1152, h: 928  }, '2K': { w: 2304, h: 1856 }, '4K': { w: 4608, h: 3712 } },
+    '9:16':  { '1K': { w: 768,  h: 1376 }, '2K': { w: 1536, h: 2752 }, '4K': { w: 3072, h: 5504 } },
+    '16:9':  { '1K': { w: 1376, h: 768  }, '2K': { w: 2752, h: 1536 }, '4K': { w: 5504, h: 3072 } },
+    '21:9':  { '1K': { w: 1584, h: 672  }, '2K': { w: 3168, h: 1344 }, '4K': { w: 6336, h: 2688 } },
+};
+
 export class TogetherImageGenerationProvider implements IImageProvider {
     #client: Together;
     #meteringService: MeteringService;
@@ -101,21 +114,23 @@ export class TogetherImageGenerationProvider implements IImageProvider {
             throw new Error('actor not found in context');
         }
 
-        const priceKey = '1MP';
-        const centsPerMP = selectedModel.costs[priceKey]; // hardcoded for now since all together ai models use this type of pricing
-        if ( centsPerMP === undefined ) {
-            throw new Error(`No pricing configured for model ${selectedModel.id}`);
+        let costInMicroCents: number;
+        const qualityCostKey = quality && selectedModel.costs[quality] !== undefined ? quality : undefined;
+
+        if ( qualityCostKey ) {
+            const centsPerImage = selectedModel.costs[qualityCostKey];
+            costInMicroCents = centsPerImage * 1_000_000;
+        } else {
+            const priceKey = '1MP';
+            const centsPerMP = selectedModel.costs[priceKey];
+            if ( centsPerMP === undefined ) {
+                throw new Error(`No pricing configured for model ${selectedModel.id}`);
+            }
+            const MP = (ratio.h * ratio.w) / 1_000_000;
+            costInMicroCents = centsPerMP * MP * 1_000_000;
         }
 
-        const usageType = `${selectedModel.id}:${priceKey}`;
-
-        let MP = (ratio.h * ratio.w) / 1_000_000;
-        if ( quality ) {
-            // if quality its gemini 3 image, so price based on those K sizes as MP
-            MP = parseInt(quality[0]) ; // convert to microcents
-        }
-
-        const costInMicroCents = centsPerMP * MP * 1_000_000; // cost in microcents
+        const usageType = `${selectedModel.id}:${quality || '1MP'}`;
 
         const usageAllowed = await this.#meteringService.hasEnoughCredits(actor, costInMicroCents);
 
@@ -123,7 +138,17 @@ export class TogetherImageGenerationProvider implements IImageProvider {
             throw APIError.create('insufficient_funds');
         }
 
-        const request = this.#buildRequest(prompt, { ...options, ratio, model: selectedModel.id.replace('togetherai:', '') }) as unknown as Together.Images.ImageGenerateParams;
+        // Resolve abstract aspect ratios to actual pixel dimensions for models that need it
+        let resolvedRatio = ratio;
+        if ( quality && ratio ) {
+            const ratioKey = `${ratio.w}:${ratio.h}`;
+            const resolutionEntry = GEMINI_3_IMAGE_RESOLUTION_MAP[ratioKey]?.[quality];
+            if ( resolutionEntry ) {
+                resolvedRatio = resolutionEntry;
+            }
+        }
+
+        const request = this.#buildRequest(prompt, { ...options, ratio: resolvedRatio, model: selectedModel.id.replace('togetherai:', '') }) as unknown as Together.Images.ImageGenerateParams;
 
         try {
             const response = await this.#client.images.generate(request);
@@ -131,7 +156,7 @@ export class TogetherImageGenerationProvider implements IImageProvider {
                 throw new Error('Together AI response did not include image data');
             }
 
-            this.#meteringService.incrementUsage(actor, usageType, MP, costInMicroCents);
+            this.#meteringService.incrementUsage(actor, usageType, 1, costInMicroCents);
 
             const first = response.data[0] as { url?: string; b64_json?: string };
             const url = first.url || (first.b64_json ? `data:image/png;base64,${ first.b64_json}` : undefined);

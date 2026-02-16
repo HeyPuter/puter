@@ -237,7 +237,7 @@ export const TOGETHER_IMAGE_GENERATION_MODELS: IImageModel[] = [
         aliases: ['gemini-3-pro-image', 'google/gemini-3-pro-image'],
         name: 'gemini-3-pro-image (Together AI)',
         costs_currency: 'usd-cents',
-        index_cost_key: '1MP',
+        index_cost_key: '1K',
         allowedQualityLevels: ['1K', '2K', '4K'],
         allowedRatios: [
             { w: 1, h: 1 },
@@ -251,7 +251,7 @@ export const TOGETHER_IMAGE_GENERATION_MODELS: IImageModel[] = [
             { w: 16, h: 9 },
             { w: 21, h: 9 },
         ],
-        costs: { '1MP': 13.51 },
+        costs: { '1K': 13.4, '2K': 13.4, '4K': 24 },
     },
     {
         id: 'togetherai:google/imagen-4.0-fast',
