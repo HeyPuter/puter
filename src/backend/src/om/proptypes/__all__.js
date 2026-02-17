@@ -30,7 +30,33 @@ const APP_ICON_ENDPOINT_PATH_REGEX = /^\/app-icon\/([^/?#]+)(?:\/(\d+))?\/?$/;
 const LEGACY_APP_ICON_FILE_PATH_REGEX = /^\/(app-[^/?#]+?)(?:-(\d+))?\.png$/;
 const APP_ICONS_SUBDOMAIN = 'puter-app-icons';
 const ABSOLUTE_URL_REGEX = /^[a-zA-Z][a-zA-Z\d+\-.]*:/;
+const RAW_BASE64_REGEX = /^[A-Za-z0-9+/]+={0,2}$/;
 const isAbsoluteUrl = value => ABSOLUTE_URL_REGEX.test(value) || value.startsWith('//');
+
+const isRawBase64ImageString = value => {
+    if ( typeof value !== 'string' ) return false;
+    const trimmed = value.trim();
+    if ( !trimmed || trimmed.length < 16 ) return false;
+    if ( ! RAW_BASE64_REGEX.test(trimmed) ) return false;
+    if ( trimmed.length % 4 !== 0 ) return false;
+
+    try {
+        const decoded = Buffer.from(trimmed, 'base64');
+        if ( decoded.length === 0 ) return false;
+        const normalizedInput = trimmed.replace(/=+$/, '');
+        const reencoded = decoded.toString('base64').replace(/=+$/, '');
+        return normalizedInput === reencoded;
+    } catch {
+        return false;
+    }
+};
+
+const normalizeRawBase64ImageString = value => {
+    if ( typeof value !== 'string' ) return value;
+    const trimmed = value.trim();
+    if ( ! isRawBase64ImageString(trimmed) ) return value;
+    return `data:image/png;base64,${trimmed}`;
+};
 
 const getCanonicalAppIconBaseUrl = () => {
     const candidate = [config.api_base_url, config.origin]
@@ -117,8 +143,7 @@ const parseLegacyHostedAppIconToEndpointPath = value => {
         return null;
     }
 
-    const isAbsoluteUrl = ABSOLUTE_URL_REGEX.test(trimmed) || trimmed.startsWith('//');
-    if ( isAbsoluteUrl ) {
+    if ( isAbsoluteUrl(trimmed) ) {
         const allowedHostnames = getAllowedLegacyAppIconHostnames();
         const hostname = parsed.hostname.toLowerCase();
         if ( ! allowedHostnames.has(hostname) ) {
@@ -283,7 +308,7 @@ module.exports = {
             if ( typeof value !== 'string' ) {
                 throw new OMTypeError({ expected: 'string', got: typeof value });
             }
-            return migrateRelativeAppIconEndpointUrl(value);
+            return migrateRelativeAppIconEndpointUrl(normalizeRawBase64ImageString(value));
         },
         validate (value) {
             if ( typeof value !== 'string' ) {
@@ -301,6 +326,10 @@ module.exports = {
                 if ( chars.some(char => trimmed.includes(char)) ) {
                     return new Error('icon is not an image');
                 }
+                return true;
+            }
+
+            if ( isRawBase64ImageString(trimmed) ) {
                 return true;
             }
 

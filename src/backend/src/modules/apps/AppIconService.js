@@ -35,6 +35,7 @@ const require = createRequire(import.meta.url);
 
 const ICON_SIZES = [16, 32, 64, 128, 256, 512];
 const DEFAULT_ICON_SIZE = 128;
+const RAW_BASE64_REGEX = /^[A-Za-z0-9+/]+={0,2}$/;
 const LEGACY_ICON_FILENAME = ({ appUid, size }) => `${appUid}-${size}.png`;
 const ORIGINAL_ICON_FILENAME = ({ appUid }) => `${appUid}.png`;
 const REDIRECT_MAX_AGE_SIZE = 30 * 24 * 60 * 60; // 1 month
@@ -163,6 +164,31 @@ export class AppIconService extends BaseService {
             value.startsWith('data:') &&
             value.includes(',')
         );
+    }
+
+    isRawBase64ImageString (value) {
+        if ( typeof value !== 'string' ) return false;
+        const trimmed = value.trim();
+        if ( !trimmed || trimmed.length < 16 ) return false;
+        if ( ! RAW_BASE64_REGEX.test(trimmed) ) return false;
+        if ( trimmed.length % 4 !== 0 ) return false;
+
+        try {
+            const decoded = Buffer.from(trimmed, 'base64');
+            if ( decoded.length === 0 ) return false;
+            const normalizedInput = trimmed.replace(/=+$/, '');
+            const reencoded = decoded.toString('base64').replace(/=+$/, '');
+            return normalizedInput === reencoded;
+        } catch {
+            return false;
+        }
+    }
+
+    normalizeRawBase64ImageString (value) {
+        if ( typeof value !== 'string' ) return value;
+        const trimmed = value.trim();
+        if ( ! this.isRawBase64ImageString(trimmed) ) return value;
+        return `data:image/png;base64,${trimmed}`;
     }
 
     parseAppIconEndpointUrl (iconUrl) {
@@ -625,6 +651,8 @@ export class AppIconService extends BaseService {
         if ( typeof iconUrl !== 'string' || !iconUrl ) {
             return null;
         }
+
+        iconUrl = this.normalizeRawBase64ImageString(iconUrl);
 
         if ( iconUrl.startsWith('data:') ) {
             const [metadata, base64] = iconUrl.split(',');

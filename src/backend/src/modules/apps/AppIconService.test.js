@@ -44,6 +44,15 @@ describe('AppIconService', () => {
                 size: 128,
             });
         });
+
+        it('normalizes raw base64 icon strings to png data URLs', () => {
+            const service = Object.create(AppIconService.prototype);
+            const rawBase64 = 'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJ';
+
+            const result = service.normalizeRawBase64ImageString(rawBase64);
+
+            expect(result).toBe(`data:image/png;base64,${rawBase64}`);
+        });
     });
 
     describe('createAppIcons', () => {

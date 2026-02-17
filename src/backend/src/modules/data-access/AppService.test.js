@@ -826,6 +826,28 @@ describe('AppService', () => {
                             }));
         });
 
+        it('should accept raw base64 icon and normalize to data URL on create', async () => {
+            setupContextForWrite(createMockUserActor(1));
+            mockDb.read.mockResolvedValue([createMockAppRow()]);
+
+            const rawBase64 = 'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJ';
+            const crudQ = AppService.IMPLEMENTS['crud-q'];
+            await crudQ.create.call(appService, {
+                object: {
+                    name: 'test-app',
+                    title: 'Test',
+                    index_url: 'https://example.com',
+                    icon: rawBase64,
+                },
+            });
+
+            expect(mockEventService.emit).toHaveBeenCalledWith(
+                            'app.new-icon',
+                            expect.objectContaining({
+                                data_url: `data:image/png;base64,${rawBase64}`,
+                            }));
+        });
+
         it('should migrate relative app-icon endpoint path to absolute URL on create', async () => {
             setupContextForWrite(createMockUserActor(1));
             mockDb.read.mockResolvedValue([createMockAppRow()]);
@@ -1178,6 +1200,26 @@ describe('AppService', () => {
                             expect.objectContaining({
                                 app_uid: 'app-uid-123',
                                 data_url: 'data:image/png;base64,newicon',
+                            }));
+        });
+
+        it('should accept raw base64 icon and normalize to data URL on update', async () => {
+            setupContextForWrite(createMockUserActor(1));
+
+            const rawBase64 = 'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJ';
+            const crudQ = AppService.IMPLEMENTS['crud-q'];
+            await crudQ.update.call(appService, {
+                object: {
+                    uid: 'app-uid-123',
+                    icon: rawBase64,
+                },
+            });
+
+            expect(mockEventService.emit).toHaveBeenCalledWith(
+                            'app.new-icon',
+                            expect.objectContaining({
+                                app_uid: 'app-uid-123',
+                                data_url: `data:image/png;base64,${rawBase64}`,
                             }));
         });
 

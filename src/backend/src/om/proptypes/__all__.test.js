@@ -17,6 +17,10 @@ describe('OM image-base64 proptype', () => {
         expect(validateIcon('data:image/png;base64,abc123')).toBe(true);
     });
 
+    it('accepts raw base64 icon strings', () => {
+        expect(validateIcon('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJ')).toBe(true);
+    });
+
     it('accepts absolute app-icon endpoint URLs', () => {
         expect(validateIcon('https://api.puter.localhost/app-icon/app-uid-123/64')).toBe(true);
     });
@@ -35,6 +39,11 @@ describe('OM image-base64 proptype', () => {
 
     it('migrates relative app-icon endpoint paths to absolute URLs', () => {
         expect(adaptIcon('/app-icon/app-uid-123/64')).toBe('https://api.puter.localhost/app-icon/app-uid-123');
+    });
+
+    it('normalizes raw base64 icon strings to png data URLs', () => {
+        expect(adaptIcon('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJ'))
+            .toBe('data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJ');
     });
 
     it('migrates legacy app-icons host URLs to absolute app-icon endpoint URLs', () => {
