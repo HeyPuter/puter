@@ -104,8 +104,8 @@ const TabFiles = {
                             <div class="path-breadcrumbs"></div>
                             <div class="path-actions">
                                 <button class="path-action-btn select-mode-btn" title="${i18n('select')}">${icons.select}</button>
-                                <button class="path-action-btn sort-btn" title="Sort by">${icons.sort}</button>
-                                <button class="path-action-btn view-toggle-btn" title="Toggle view">${icons.grid}</button>
+                                <button class="path-action-btn sort-btn" title="${i18n('sort_by')}">${icons.sort}</button>
+                                <button class="path-action-btn view-toggle-btn" title="${i18n('toggle_view')}">${icons.grid}</button>
                                 <button class="path-action-btn new-folder-btn" title="${i18n('new_folder')}">${icons.newFolder}</button>
                                 <button class="path-action-btn upload-btn" title="${i18n('upload')}">${icons.upload}</button>
                             </div>
@@ -3309,12 +3309,17 @@ const TabFiles = {
                             rename: true,
                             overwrite: false,
                         });
-                        await _this.renderDirectory(_this.currentPath, { consistency: 'strong' });
-                        // Find and select the new folder, then activate rename
-                        const newFolderRow = _this.$el_window.find(`.files-tab .row[data-name="${result.name}"]`);
-                        if ( newFolderRow.length > 0 ) {
-                            newFolderRow.addClass('selected');
-                            window.activate_item_name_editor(newFolderRow[0]);
+                        // Remove empty-directory placeholder if present
+                        _this.$el_window.find('.files-tab .files > div:not(.item)').remove();
+                        // Add the new folder incrementally
+                        await _this.renderItem(result);
+                        const $newRow = _this.$el_window.find(`.files-tab .files .item[data-uid='${result.uid}']`);
+                        if ( $newRow.length > 0 ) {
+                            _this.insertAtSortedPosition($newRow, result);
+                            _this.applyColumnWidths();
+                            _this.updateFooterStats();
+                            $newRow.addClass('selected');
+                            window.activate_item_name_editor($newRow[0]);
                         }
                     } catch ( err ) {
                         // Folder creation failed silently
@@ -3349,11 +3354,17 @@ const TabFiles = {
 
                             if ( uploadPromise ) {
                                 const result = await uploadPromise;
-                                await _this.renderDirectory(_this.currentPath, { consistency: 'strong' });
-                                const newRow = _this.$el_window.find(`.files-tab .row[data-name="${result.name}"]`);
-                                if ( newRow.length > 0 ) {
-                                    newRow.addClass('selected');
-                                    window.activate_item_name_editor(newRow[0]);
+                                // Remove empty-directory placeholder if present
+                                _this.$el_window.find('.files-tab .files > div:not(.item)').remove();
+                                // Add the new file incrementally
+                                await _this.renderItem(result);
+                                const $newRow = _this.$el_window.find(`.files-tab .files .item[data-uid='${result.uid}']`);
+                                if ( $newRow.length > 0 ) {
+                                    _this.insertAtSortedPosition($newRow, result);
+                                    _this.applyColumnWidths();
+                                    _this.updateFooterStats();
+                                    $newRow.addClass('selected');
+                                    window.activate_item_name_editor($newRow[0]);
                                 }
                             }
                         } catch ( err ) {
