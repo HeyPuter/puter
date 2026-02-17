@@ -46,8 +46,8 @@ export const fsOperations = {
             // user: Context.get("actor").type.user,
             actor: Context.get('actor'),
             recursive: false,
-            no_thumbs: false,
-            no_assocs: false,
+            no_thumbs: true,
+            no_assocs: true,
         });
     },
     read: ( node, options ) => {
