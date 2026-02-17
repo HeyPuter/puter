@@ -1,6 +1,5 @@
 import { describe, expect, it, test } from 'vitest';
 import { createTestKernel } from '../../../../../../tools/test.mjs';
-import { COST_MAPS } from '../../../../MeteringService/costMaps/index.js';
 import { SUService } from '../../../../SUService.js';
 import { ClaudeProvider } from './ClaudeProvider.js';
 
@@ -21,12 +20,14 @@ describe('ClaudeProvider ', async () => {
     const target = new ClaudeProvider(testKernel.services!.get('meteringService'), { apiKey: process.env.PUTER_CLAUDE_API_KEY || '' }, testKernel.services?.get('error-service'));
     const su = testKernel.services!.get('su') as SUService;
 
-    it('should have all models mapped in cost maps', async () => {
+    it('should have all models have cost in models json', async () => {
         const models = target.models();
 
         for ( const model of models ) {
-            const entry = Object.entries(COST_MAPS).find(([key, _value]) => key.startsWith('claude') && key.includes(model.id));
-            expect(entry, `Model ${model.id} is missing in cost maps`).toBeDefined();
+            expect(model.input_cost_key).toBeTruthy();
+            expect(model.costs[model.input_cost_key!]).not.toBeNullable();
+            expect(model.output_cost_key).toBeTruthy();
+            expect(model.costs[model.output_cost_key!]).not.toBeNullable();
         }
     });
 
