@@ -1,7 +1,8 @@
 const { Eq } = extension.import('query');
 const { db } = extension.import('data');
-const { APIError } = extension.import('core');
+const { APIError, Context } = extension.import('core');
 const app_es = extension.import('service:es:app') as any;
+const svc_permission = extension.import('service:permission') as any;
 
 const DEFAULT_LIMIT = 100;
 const MAX_LIMIT = 1000;
@@ -96,6 +97,9 @@ extension.on('create.drivers', event => {
             // first lets make sure executor owns this app
             const [result] = (await app_es.select({ predicate: new Eq({ key: 'uid', value: app_uuid }) }));
             if ( ! result ) {
+                throw APIError.create('permission_denied');
+            }
+            if ( ! (await svc_permission.check(Context.get('actor'), `apps-of-user:${result.values_.owner.uuid}:write`, { no_cache: true })) ) {
                 throw APIError.create('permission_denied');
             }
 
