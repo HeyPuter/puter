@@ -19,7 +19,7 @@ const stat = async function (...args) {
         // Otherwise, we assume separate arguments are provided
         options = {
             path: args[0],
-            options: typeof args[1] === 'object' ? args[1] : {},
+            ...(typeof args[1] === 'object' ? args[1] : {}),
             success: typeof args[1] === 'object' ? args[2] : args[1],
             error: typeof args[1] === 'object' ? args[3] : args[2],
             // Add more if needed...

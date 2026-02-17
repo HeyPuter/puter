@@ -20,6 +20,9 @@
 const STUCK_STATUS_TIMEOUT = 10 * 1000;
 const STUCK_ALARM_TIMEOUT = 20 * 1000;
 
+// Temporary limit
+const MAX_DIRECTORY_DEPTH = 35;
+
 import crypto from 'node:crypto';
 import path_ from 'node:path';
 import { v4 as uuidv4 } from 'uuid';
@@ -101,6 +104,53 @@ export default class PuterFSProvider {
         this.storageController = storageController;
         this.name = 'puterfs';
     }
+
+    // #region depth limit helpers
+    /**
+     * Number of path segments (directory depth). Root or empty path = 0.
+     * @param {string} path
+     * @returns {number}
+     */
+    #pathDepth (path) {
+        if ( !path || typeof path !== 'string' ) return 0;
+        return path_.normalize(path).split(path_.sep).filter(Boolean).length;
+    }
+
+    /**
+     * Max relative depth of the source tree (0 for a file, 1+ for directory tree).
+     * Used to enforce MAX_DIRECTORY_DEPTH when moving or copying.
+     * @param {FSNode} node
+     * @returns {Promise<number>}
+     */
+    async #getSourceTreeMaxRelativeDepth (node) {
+        await node.fetchEntry();
+        if ( ! node.entry.is_dir ) return 0;
+        const child_uuids = await this.fsEntryController.fast_get_direct_descendants(await node.get('uid'));
+        let max = 0;
+        for ( const child_uuid of child_uuids ) {
+            const child_node = await svc_fs.node(new NodeUIDSelector(child_uuid));
+            const child_relative = 1 + await this.#getSourceTreeMaxRelativeDepth(child_node);
+            max = Math.max(max, child_relative);
+        }
+        return max;
+    }
+
+    /**
+     * Throws if destination depth plus source tree depth would exceed MAX_DIRECTORY_DEPTH.
+     * @param {number} destinationPathDepth
+     * @param {FSNode} sourceNode
+     */
+    async #assertDepthLimitForTreeOp (destinationPathDepth, sourceNode) {
+        const source_relative = await this.#getSourceTreeMaxRelativeDepth(sourceNode);
+        const max_depth = destinationPathDepth + source_relative;
+        if ( max_depth > MAX_DIRECTORY_DEPTH ) {
+            throw APIError.create('directory_depth_limit_exceeded', null, {
+                limit: MAX_DIRECTORY_DEPTH,
+                would_be: max_depth,
+            });
+        }
+    }
+    // #endregion
 
     // TODO: should this be a static member instead?
     get_capabilities () {
@@ -322,6 +372,14 @@ export default class PuterFSProvider {
             throw APIError.create('subject_does_not_exist');
         }
 
+        const new_path = path_.join(await parent.get('path'), name);
+        if ( this.#pathDepth(new_path) > MAX_DIRECTORY_DEPTH ) {
+            throw APIError.create('directory_depth_limit_exceeded', null, {
+                limit: MAX_DIRECTORY_DEPTH,
+                would_be: this.#pathDepth(new_path),
+            });
+        }
+
         svc_resource.register({
             uid,
             status: RESOURCE_STATUS_PENDING_CREATE,
@@ -471,6 +529,9 @@ export default class PuterFSProvider {
         await parent.fetchEntry();
         await source.fetchEntry({ thumbnail: true });
 
+        const destination_path = path_.join(await parent.get('path'), target_name);
+        await this.#assertDepthLimitForTreeOp(this.#pathDepth(destination_path), source);
+
         // New filesystem entry
         const raw_fsentry = {
             uuid,
@@ -599,6 +660,8 @@ export default class PuterFSProvider {
     async move ({ context, node, new_parent, new_name, metadata }) {
         const old_path = await node.get('path');
         const new_path = path_.join(await new_parent.get('path'), new_name);
+
+        await this.#assertDepthLimitForTreeOp(this.#pathDepth(new_path), node);
 
         const op_update = await this.fsEntryController.update(node.uid, {
             ...(

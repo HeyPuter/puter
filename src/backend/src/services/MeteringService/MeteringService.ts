@@ -683,35 +683,37 @@ export class MeteringService {
     }
 
     async #checkRateOfChange () {
-        const globalUsage = await this.getGlobalUsage();
         const now = Date.now();
         const lastChange = await this.#superUserService.sudo(async () => {
             return this.#kvStore.get({ key: `${METRICS_PREFIX}:lastGlobalUsageCheck` }) as Promise<{ total: number, timestamp: number } | null>;
         });
 
-        const currTotal = globalUsage.total;
+        if ( !lastChange || (now - lastChange.timestamp) > 4 * 60 * 1000 ) {
+            // only checked if more than 4 minutes from last check
+            const globalUsage = await this.getGlobalUsage();
+            const currTotal = globalUsage.total;
 
-        if ( lastChange ) {
-            const timeDelta = now - lastChange.timestamp;
-            const usageDelta = currTotal - lastChange.total;
-            const usagePerMinute = (usageDelta / (timeDelta / 60000));
+            if ( lastChange ) {
+                const timeDelta = now - lastChange.timestamp;
+                const usageDelta = currTotal - lastChange.total;
+                const usagePerMinute = (usageDelta / (timeDelta / 60000));
 
-            if ( usagePerMinute > MeteringService.MAX_GLOBAL_USAGE_PER_MINUTE ) {
-                this.#alarmService.create('metering:excessiveGlobalUsageRate', `Global usage rate is excessive: ${usagePerMinute} micro-cents per minute`, {
-                    usagePerMinute,
-                    maxAllowedPerMinute: MeteringService.MAX_GLOBAL_USAGE_PER_MINUTE,
-                });
+                if ( usagePerMinute > MeteringService.MAX_GLOBAL_USAGE_PER_MINUTE ) {
+                    this.#alarmService.create('metering:excessiveGlobalUsageRate', `Global usage rate is excessive: ${usagePerMinute} micro-cents per minute`, {
+                        usagePerMinute,
+                        maxAllowedPerMinute: MeteringService.MAX_GLOBAL_USAGE_PER_MINUTE,
+                    });
+                }
             }
-        }
-        await this.#superUserService.sudo(async () => {
-            await this.#kvStore.set({
-                key: `${METRICS_PREFIX}:lastGlobalUsageCheck`,
-                value: {
-                    total: currTotal,
-                    timestamp: now,
-                },
+            await this.#superUserService.sudo(async () => {
+                await this.#kvStore.set({
+                    key: `${METRICS_PREFIX}:lastGlobalUsageCheck`,
+                    value: {
+                        total: currTotal,
+                        timestamp: now,
+                    },
+                });
             });
-        });
-
+        }
     }
 }

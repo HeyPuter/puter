@@ -30,11 +30,12 @@ import { DB_WRITE } from '../../services/database/consts.js';
 import { Endpoint } from '../../util/expressutil.js';
 import { buffer_to_stream, stream_to_buffer } from '../../util/streamutil.js';
 import DEFAULT_APP_ICON from './default-app-icon.js';
-import IconResult from './lib/IconResult.js';
 
 const require = createRequire(import.meta.url);
 
 const ICON_SIZES = [16, 32, 64, 128, 256, 512];
+const DEFAULT_ICON_SIZE = 128;
+const RAW_BASE64_REGEX = /^[A-Za-z0-9+/]+={0,2}$/;
 const LEGACY_ICON_FILENAME = ({ appUid, size }) => `${appUid}-${size}.png`;
 const ORIGINAL_ICON_FILENAME = ({ appUid }) => `${appUid}.png`;
 const REDIRECT_MAX_AGE_SIZE = 30 * 24 * 60 * 60; // 1 month
@@ -65,42 +66,54 @@ export class AppIconService extends BaseService {
 
     /**
      * AppIconService listens to this event to register the
-     * endpoint /app-icon/:app_uid/:size which serves the
-     * app icon at the requested size.
+     * endpoints /app-icon/:app_uid and /app-icon/:app_uid/:size
+     * which serve the app icon at the requested size.
      */
     async ['__on_install.routes'] (_, { app }) {
+        const handler = async (req, res) => {
+            // Validate parameters
+            let { app_uid: appUid, size } = req.params;
+            const resolvedSize = Number(size ?? DEFAULT_ICON_SIZE);
+            if ( ! ICON_SIZES.includes(resolvedSize) ) {
+                res.status(400).send('Invalid size');
+                return;
+            }
+            if ( ! appUid.startsWith('app-') ) {
+                appUid = `app-${appUid}`;
+            }
+
+            const {
+                stream,
+                mime,
+                redirectUrl,
+                redirectCacheControl,
+            } = await this.#getIconStream({
+                appUid,
+                size: resolvedSize,
+                allowRedirect: true,
+            });
+
+            if ( redirectUrl ) {
+                if ( redirectCacheControl ) {
+                    res.set('Cache-Control', redirectCacheControl);
+                }
+                return res.redirect(302, redirectUrl);
+            }
+
+            res.set('Content-Type', mime);
+            res.set('Cache-Control', 'public, max-age=3600');
+            stream.pipe(res);
+        };
+
+        Endpoint({
+            route: '/app-icon/:app_uid',
+            methods: ['GET'],
+            handler,
+        }).attach(app);
         Endpoint({
             route: '/app-icon/:app_uid/:size',
             methods: ['GET'],
-            handler: async (req, res) => {
-                // Validate parameters
-                let { app_uid: appUid, size } = req.params;
-                if ( ! ICON_SIZES.includes(Number(size)) ) {
-                    res.status(400).send('Invalid size');
-                    return;
-                }
-                if ( ! appUid.startsWith('app-') ) {
-                    appUid = `app-${appUid}`;
-                }
-
-                const {
-                    stream,
-                    mime,
-                    redirectUrl,
-                    redirectCacheControl,
-                } = await this.getIconStream({ appUid, size, allowRedirect: true });
-
-                if ( redirectUrl ) {
-                    if ( redirectCacheControl ) {
-                        res.set('Cache-Control', redirectCacheControl);
-                    }
-                    return res.redirect(302, redirectUrl);
-                }
-
-                res.set('Content-Type', mime);
-                res.set('Cache-Control', 'public, max-age=3600');
-                stream.pipe(res);
-            },
+            handler,
         }).attach(app);
     }
 
@@ -109,35 +122,35 @@ export class AppIconService extends BaseService {
     }
 
     async iconifyApps ({ apps, size }) {
-        return await Promise.all(apps.map(async app => {
-            const iconResult = await this.getIconStream({
-                appIcon: app.icon,
+        return apps.map(app => {
+            const iconPath = this.getAppIconPath({
                 appUid: app.uid ?? app.uuid,
                 size,
             });
-
-            if ( iconResult.dataUrl ?? iconResult.data_url ) {
-                app.icon = iconResult.dataUrl ?? iconResult.data_url;
-                return app;
-            }
-
-            try {
-                const buffer = await stream_to_buffer(iconResult.stream);
-                const respDataUrl = `data:${iconResult.mime};base64,${buffer.toString('base64')}`;
-
-                app.icon = respDataUrl;
-            } catch (e) {
-                this.errors.report('get-launch-apps:icon-stream', {
-                    source: e,
-                });
+            if ( iconPath ) {
+                app.icon = iconPath;
             }
             return app;
-        }));
+        });
     }
 
-    async getIconStream (params) {
-        const result = await this.#getIconStream(params);
-        return new IconResult(result);
+    getAppIconPath ({ appUid, size }) {
+        const normalizedAppUid = this.normalizeAppUid(appUid);
+        if ( typeof normalizedAppUid !== 'string' || !normalizedAppUid ) {
+            return null;
+        }
+
+        const apiBaseUrl = String(config.api_base_url || '').replace(/\/+$/, '');
+        if ( ! apiBaseUrl ) {
+            return null;
+        }
+
+        const resolvedSize = Number(size ?? DEFAULT_ICON_SIZE);
+        if ( ! ICON_SIZES.includes(resolvedSize) ) {
+            return null;
+        }
+
+        return `${apiBaseUrl}/app-icon/${normalizedAppUid}/${resolvedSize}`;
     }
 
     normalizeAppUid (appUid) {
@@ -153,6 +166,31 @@ export class AppIconService extends BaseService {
         );
     }
 
+    isRawBase64ImageString (value) {
+        if ( typeof value !== 'string' ) return false;
+        const trimmed = value.trim();
+        if ( !trimmed || trimmed.length < 16 ) return false;
+        if ( ! RAW_BASE64_REGEX.test(trimmed) ) return false;
+        if ( trimmed.length % 4 !== 0 ) return false;
+
+        try {
+            const decoded = Buffer.from(trimmed, 'base64');
+            if ( decoded.length === 0 ) return false;
+            const normalizedInput = trimmed.replace(/=+$/, '');
+            const reencoded = decoded.toString('base64').replace(/=+$/, '');
+            return normalizedInput === reencoded;
+        } catch {
+            return false;
+        }
+    }
+
+    normalizeRawBase64ImageString (value) {
+        if ( typeof value !== 'string' ) return value;
+        const trimmed = value.trim();
+        if ( ! this.isRawBase64ImageString(trimmed) ) return value;
+        return `data:image/png;base64,${trimmed}`;
+    }
+
     parseAppIconEndpointUrl (iconUrl) {
         if ( typeof iconUrl !== 'string' || iconUrl.startsWith('data:') ) {
             return null;
@@ -165,12 +203,14 @@ export class AppIconService extends BaseService {
             return null;
         }
 
-        const match = pathname.match(/^\/app-icon\/([^/]+)\/(\d+)\/?$/);
+        const match = pathname.match(/^\/app-icon\/([^/]+)(?:\/(\d+))?\/?$/);
         if ( ! match ) return null;
+
+        const size = Number(match[2] ?? DEFAULT_ICON_SIZE);
 
         return {
             appUid: this.normalizeAppUid(match[1]),
-            size: Number(match[2]),
+            size,
         };
     }
 
@@ -611,6 +651,8 @@ export class AppIconService extends BaseService {
         if ( typeof iconUrl !== 'string' || !iconUrl ) {
             return null;
         }
+
+        iconUrl = this.normalizeRawBase64ImageString(iconUrl);
 
         if ( iconUrl.startsWith('data:') ) {
             const [metadata, base64] = iconUrl.split(',');

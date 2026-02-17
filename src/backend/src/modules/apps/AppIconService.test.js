@@ -33,6 +33,26 @@ describe('AppIconService', () => {
 
             expect(shouldRedirect).toBe(false);
         });
+
+        it('parses app-icon endpoint URLs without size as default size 128', () => {
+            const service = Object.create(AppIconService.prototype);
+
+            const parsed = service.parseAppIconEndpointUrl('https://api.puter.localhost/app-icon/app-123');
+
+            expect(parsed).toEqual({
+                appUid: 'app-123',
+                size: 128,
+            });
+        });
+
+        it('normalizes raw base64 icon strings to png data URLs', () => {
+            const service = Object.create(AppIconService.prototype);
+            const rawBase64 = 'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJ';
+
+            const result = service.normalizeRawBase64ImageString(rawBase64);
+
+            expect(result).toBe(`data:image/png;base64,${rawBase64}`);
+        });
     });
 
     describe('createAppIcons', () => {
@@ -82,98 +102,54 @@ describe('AppIconService', () => {
         });
     });
 
-    describe('getIconStream', () => {
-        const createServiceInstance = () => new AppIconService({
-            services: { get: vi.fn() },
-            config: {},
-            name: 'app-icon',
-            args: {},
-        });
+    describe('icon URL mapping', () => {
+        it('builds a legacy app-icon path with normalized app uid', () => {
+            const service = Object.create(AppIconService.prototype);
 
-        it('redirects to puter-app-icons subsite sized file when requested size exists', async () => {
-            const legacyNode = {
-                exists: vi.fn().mockResolvedValue(true),
-            };
-            const legacyRoot = {
-                getChild: vi.fn().mockResolvedValue(legacyNode),
-            };
-
-            const service = createServiceInstance();
-            service.errors = { report: vi.fn() };
-            service.getAppIcons = vi.fn().mockResolvedValue(legacyRoot);
-            service.getSizedIconUrl = vi.fn().mockReturnValue('https://puter-app-icons.site.puter.localhost/app-abc-64.png');
-
-            const result = await service.getIconStream({
-                appUid: 'app-abc',
+            const result = service.getAppIconPath({
+                appUid: 'abc',
                 size: 64,
-                allowRedirect: true,
             });
 
-            expect(result.redirectUrl).toBe('https://puter-app-icons.site.puter.localhost/app-abc-64.png');
-            expect(result.redirectCacheControl).toContain('max-age=2592000');
+            expect(result).toBe(`${config.api_base_url}/app-icon/app-abc/64`);
         });
 
-        it('redirects to original and queues resize when requested size is missing', async () => {
-            const legacyNode = {
-                exists: vi.fn().mockResolvedValue(false),
-            };
-            const legacyRoot = {
-                getChild: vi.fn().mockResolvedValue(legacyNode),
-            };
-            const originalNode = {
-                exists: vi.fn().mockResolvedValue(true),
-            };
+        it('defaults to size 128 when size is not provided', () => {
+            const service = Object.create(AppIconService.prototype);
 
-            const service = createServiceInstance();
-            service.errors = { report: vi.fn() };
-            service.getAppIcons = vi.fn().mockResolvedValue(legacyRoot);
-            service.getOriginalIconLookup = vi.fn().mockResolvedValue({
-                node: originalNode,
-                isFlatOriginal: true,
-            });
-            service.getOriginalIconUrl = vi.fn().mockReturnValue('https://puter-app-icons.site.puter.localhost/app-abc.png');
-            service.queueMissingSizeFromOriginal = vi.fn();
-
-            const result = await service.getIconStream({
-                appUid: 'app-abc',
-                size: 128,
-                allowRedirect: true,
+            const result = service.getAppIconPath({
+                appUid: 'abc',
             });
 
-            expect(result.redirectUrl).toBe('https://puter-app-icons.site.puter.localhost/app-abc.png');
-            expect(result.redirectCacheControl).toContain('max-age=604800');
-            expect(service.queueMissingSizeFromOriginal).toHaveBeenCalledWith({
-                appUid: 'app-abc',
-                size: 128,
-            });
+            expect(result).toBe(`${config.api_base_url}/app-icon/app-abc/128`);
         });
 
-        it('redirects to app icon URL when no cached icon exists and URL is eligible', async () => {
-            const redirectUrl = `https://dev-center-app-id.${config.static_hosting_domain}/raw-icon.png`;
+        it('iconifyApps rewrites icons to the legacy app-icon endpoint path', async () => {
+            const service = Object.create(AppIconService.prototype);
+            const apps = [
+                { uid: 'app-abc', icon: 'data:image/png;base64,AA==' },
+                { uuid: 'def', icon: 'https://example.com/icon.png' },
+            ];
 
-            const legacyNode = {
-                exists: vi.fn().mockResolvedValue(false),
-            };
-            const legacyRoot = {
-                getChild: vi.fn().mockResolvedValue(legacyNode),
-            };
-
-            const service = createServiceInstance();
-            service.errors = { report: vi.fn() };
-            service.getAppIcons = vi.fn().mockResolvedValue(legacyRoot);
-            service.getOriginalIconLookup = vi.fn().mockResolvedValue({
-                node: null,
-                isFlatOriginal: false,
+            const result = await service.iconifyApps({
+                apps,
+                size: 128,
             });
 
-            const result = await service.getIconStream({
-                appUid: 'app-abc',
-                appIcon: redirectUrl,
-                size: 256,
-                allowRedirect: true,
+            expect(result[0].icon).toBe(`${config.api_base_url}/app-icon/app-abc/128`);
+            expect(result[1].icon).toBe(`${config.api_base_url}/app-icon/app-def/128`);
+        });
+
+        it('iconifyApps leaves icon unchanged when app uid is missing', async () => {
+            const service = Object.create(AppIconService.prototype);
+            const apps = [{ icon: 'existing-icon' }];
+
+            const result = await service.iconifyApps({
+                apps,
+                size: 128,
             });
 
-            expect(result.redirectUrl).toBe(redirectUrl);
+            expect(result[0].icon).toBe('existing-icon');
         });
     });
 });

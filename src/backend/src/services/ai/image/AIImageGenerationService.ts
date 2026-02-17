@@ -26,6 +26,7 @@ import { DriverService } from '../../drivers/DriverService.js';
 import { TypedValue } from '../../drivers/meta/Runtime.js';
 import { EventService } from '../../EventService.js';
 import { MeteringService } from '../../MeteringService/MeteringService.js';
+import { CloudflareImageGenerationProvider } from './providers/CloudflareImageGenerationProvider/CloudflareImageGenerationProvider.js';
 import { GeminiImageGenerationProvider } from './providers/GeminiImageGenerationProvider/GeminiImageGenerationProvider.js';
 import { OpenAiImageGenerationProvider } from './providers/OpenAiImageGenerationProvider/OpenAiImageGenerationProvider.js';
 import { TogetherImageGenerationProvider } from './providers/TogetherImageGenerationProvider/TogetherImageGenerationProvider.js';
@@ -83,6 +84,9 @@ export class AIImageGenerationService extends BaseService {
 
     getModel ({ modelId, provider }: { modelId: string, provider?: string }) {
         const models = this.#modelIdMap[modelId];
+        if ( ! models ) {
+            return undefined;
+        }
 
         if ( ! provider ) {
             return models[0];
@@ -111,6 +115,19 @@ export class AIImageGenerationService extends BaseService {
         const xaiConfig = this.config.providers?.['xai-image-generation'] || this.config.providers?.['xai'] || this.global_config?.services?.['xai'];
         if ( xaiConfig && (xaiConfig.apiKey || xaiConfig.secret_key) ) {
             this.#providers['xai-image-generation'] = new XAIImageGenerationProvider({ apiKey: xaiConfig.apiKey || xaiConfig.secret_key }, this.meteringService, this.errorService);
+        }
+
+        const cloudflareImageConfig = this.config.providers?.['cloudflare-image-generation'] ||
+            this.config.providers?.['cloudflare-workers-ai-image'] ||
+            this.global_config?.services?.['cloudflare-image-generation'] ||
+            this.global_config?.services?.['cloudflare-workers-ai-image'] ||
+            this.global_config?.services?.['cloudflare-workers-ai'];
+        if ( cloudflareImageConfig && (cloudflareImageConfig.apiToken || cloudflareImageConfig.apiKey || cloudflareImageConfig.secret_key) && (cloudflareImageConfig.accountId || cloudflareImageConfig.account_id) ) {
+            this.#providers['cloudflare-image-generation'] = new CloudflareImageGenerationProvider({
+                apiToken: cloudflareImageConfig.apiToken || cloudflareImageConfig.apiKey || cloudflareImageConfig.secret_key,
+                accountId: cloudflareImageConfig.accountId || cloudflareImageConfig.account_id,
+                apiBaseUrl: cloudflareImageConfig.apiBaseUrl,
+            }, this.meteringService, this.errorService, this.eventService);
         }
 
         // emit event for extensions to add providers

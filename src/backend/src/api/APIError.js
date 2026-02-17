@@ -91,6 +91,10 @@ class APIError {
             status: 422,
             message: 'Cannot copy an item into itself.',
         },
+        'directory_depth_limit_exceeded': {
+            status: 422,
+            message: ({ limit, would_be }) => `Directory depth limit exceeded. Limit is ${limit}, would be ${would_be}.`,
+        },
         'cannot_move_to_root': {
             status: 422,
             message: 'Cannot move an item to the root directory.',

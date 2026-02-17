@@ -37,6 +37,8 @@ vi.mock('../../config.js', () => ({
         app_name_regex: /^[a-z0-9-]+$/,
         app_title_max_length: 200,
         static_hosting_domain: 'puter.site',
+        origin: 'https://puter.localhost',
+        api_base_url: 'https://api.puter.localhost',
     },
 }));
 
@@ -133,6 +135,7 @@ describe('AppService', () => {
         // Mock permission service
         mockPermissionService = {
             check: vi.fn().mockResolvedValue(false),
+            scan: vi.fn().mockResolvedValue([]),
         };
 
         // Mock puter-site service
@@ -185,13 +188,13 @@ describe('AppService', () => {
     describe('#read', () => {
         it('should read an app by uid', async () => {
             const mockRow = createMockAppRow();
-            mockDb.read.mockResolvedValue([mockRow]);
+            mockDb.read.mockResolvedValueOnce([mockRow]);
 
             const crudQ = AppService.IMPLEMENTS['crud-q'];
             const result = await crudQ.read.call(appService, { uid: 'app-uid-123' });
 
             expect(mockDb.read).toHaveBeenCalledTimes(1);
-            expect(mockDb.read).toHaveBeenCalledWith(
+            expect(mockDb.read).toHaveBeenNthCalledWith(1,
                             expect.stringContaining('WHERE apps.uid = ?'),
                             ['app-uid-123']);
             expect(result).toBeDefined();
@@ -202,13 +205,13 @@ describe('AppService', () => {
 
         it('should read an app by complex id (name)', async () => {
             const mockRow = createMockAppRow();
-            mockDb.read.mockResolvedValue([mockRow]);
+            mockDb.read.mockResolvedValueOnce([mockRow]);
 
             const crudQ = AppService.IMPLEMENTS['crud-q'];
             const result = await crudQ.read.call(appService, { id: { name: 'test-app' } });
 
             expect(mockDb.read).toHaveBeenCalledTimes(1);
-            expect(mockDb.read).toHaveBeenCalledWith(
+            expect(mockDb.read).toHaveBeenNthCalledWith(1,
                             expect.stringContaining('WHERE apps.name = ?'),
                             ['test-app']);
             expect(result).toBeDefined();
@@ -266,24 +269,47 @@ describe('AppService', () => {
             const mockRow = createMockAppRow({
                 filetypes: '[".txt", ".doc", "pdf"]',
             });
-            mockDb.read.mockResolvedValue([mockRow]);
+            mockDb.read.mockResolvedValueOnce([mockRow]);
 
             const crudQ = AppService.IMPLEMENTS['crud-q'];
             const result = await crudQ.read.call(appService, { uid: 'app-uid-123' });
 
             expect(result.filetype_associations).toEqual(['txt', 'doc', 'pdf']);
+            expect(mockDb.read).toHaveBeenCalledTimes(1);
         });
 
         it('should filter out null values in filetypes array', async () => {
             const mockRow = createMockAppRow({
                 filetypes: '[".txt", null, "pdf"]',
             });
-            mockDb.read.mockResolvedValue([mockRow]);
+            mockDb.read.mockResolvedValueOnce([mockRow]);
 
             const crudQ = AppService.IMPLEMENTS['crud-q'];
             const result = await crudQ.read.call(appService, { uid: 'app-uid-123' });
 
             expect(result.filetype_associations).toEqual(['txt', 'pdf']);
+            expect(mockDb.read).toHaveBeenCalledTimes(1);
+        });
+
+        it('should query filetype associations table when filetypes JSON is missing', async () => {
+            const mockRow = createMockAppRow({ filetypes: null });
+            mockDb.read
+                .mockResolvedValueOnce([mockRow])
+                .mockResolvedValueOnce([
+                    { type: '.txt' },
+                    { type: null },
+                    { type: 'pdf' },
+                ]);
+
+            const crudQ = AppService.IMPLEMENTS['crud-q'];
+            const result = await crudQ.read.call(appService, { uid: 'app-uid-123' });
+
+            expect(result.filetype_associations).toEqual(['txt', 'pdf']);
+            expect(mockDb.read).toHaveBeenCalledTimes(2);
+            expect(mockDb.read).toHaveBeenNthCalledWith(
+                            2,
+                            'SELECT type FROM app_filetype_association WHERE app_id = ?',
+                            [mockRow.id]);
         });
 
         it('should have owner parameter', async () => {
@@ -316,9 +342,7 @@ describe('AppService', () => {
             mockDb.read.mockResolvedValue([mockRow]);
 
             const mockIconService = {
-                getIconStream: vi.fn().mockResolvedValue({
-                    get_data_url: vi.fn().mockResolvedValue('data:image/png;base64,abc123'),
-                }),
+                getAppIconPath: vi.fn().mockReturnValue('/app-icon/app-uid-123/64'),
             };
 
             appService.context = {
@@ -341,12 +365,11 @@ describe('AppService', () => {
                 params: { icon_size: 64 },
             });
 
-            expect(mockIconService.getIconStream).toHaveBeenCalledWith({
+            expect(mockIconService.getAppIconPath).toHaveBeenCalledWith({
                 appUid: 'app-uid-123',
-                appIcon: 'icon.png',
                 size: 64,
             });
-            expect(result.icon).toBe('data:image/png;base64,abc123');
+            expect(result.icon).toBe('/app-icon/app-uid-123/64');
         });
 
         it('should keep original icon when icon service throws', async () => {
@@ -358,7 +381,9 @@ describe('AppService', () => {
             };
 
             const mockIconService = {
-                getIconStream: vi.fn().mockRejectedValue(new Error('Icon fetch failed')),
+                getAppIconPath: vi.fn().mockImplementation(() => {
+                    throw new Error('Icon fetch failed');
+                }),
             };
 
             appService.context = {
@@ -480,9 +505,7 @@ describe('AppService', () => {
             mockDb.read.mockResolvedValue(mockRows);
 
             const mockIconService = {
-                getIconStream: vi.fn().mockImplementation(({ appUid }) => ({
-                    get_data_url: vi.fn().mockResolvedValue(`data:image/png;base64,${appUid}`),
-                })),
+                getAppIconPath: vi.fn().mockImplementation(({ appUid, size }) => `/app-icon/${appUid}/${size}`),
             };
 
             appService.context = {
@@ -504,9 +527,9 @@ describe('AppService', () => {
                 params: { icon_size: 32 },
             });
 
-            expect(mockIconService.getIconStream).toHaveBeenCalledTimes(2);
-            expect(result[0].icon).toBe('data:image/png;base64,app-1');
-            expect(result[1].icon).toBe('data:image/png;base64,app-2');
+            expect(mockIconService.getAppIconPath).toHaveBeenCalledTimes(2);
+            expect(result[0].icon).toBe('/app-icon/app-1/32');
+            expect(result[1].icon).toBe('/app-icon/app-2/32');
         });
 
         it('should return empty array when no apps exist', async () => {
@@ -570,16 +593,13 @@ describe('AppService', () => {
                             'failed to get app filetype associations');
         });
 
-        it('should use database case for SQL dialect differences', async () => {
+        it('should not require dialect-specific JSON aggregation for app selection', async () => {
             mockDb.read.mockResolvedValue([]);
 
             const crudQ = AppService.IMPLEMENTS['crud-q'];
             await crudQ.select.call(appService, {});
 
-            expect(mockDb.case).toHaveBeenCalledWith({
-                mysql: expect.stringContaining('JSON_ARRAYAGG'),
-                sqlite: expect.stringContaining('json_group_array'),
-            });
+            expect(mockDb.case).not.toHaveBeenCalled();
         });
     });
 
@@ -615,7 +635,7 @@ describe('AppService', () => {
             })]);
 
             const crudQ = AppService.IMPLEMENTS['crud-q'];
-            const result = await crudQ.create.call(appService, {
+            await crudQ.create.call(appService, {
                 object: {
                     name: 'new-app',
                     title: 'New App',
@@ -806,7 +826,29 @@ describe('AppService', () => {
                             }));
         });
 
-        it('should allow relative app-icon endpoint path for icon', async () => {
+        it('should accept raw base64 icon and normalize to data URL on create', async () => {
+            setupContextForWrite(createMockUserActor(1));
+            mockDb.read.mockResolvedValue([createMockAppRow()]);
+
+            const rawBase64 = 'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJ';
+            const crudQ = AppService.IMPLEMENTS['crud-q'];
+            await crudQ.create.call(appService, {
+                object: {
+                    name: 'test-app',
+                    title: 'Test',
+                    index_url: 'https://example.com',
+                    icon: rawBase64,
+                },
+            });
+
+            expect(mockEventService.emit).toHaveBeenCalledWith(
+                            'app.new-icon',
+                            expect.objectContaining({
+                                data_url: `data:image/png;base64,${rawBase64}`,
+                            }));
+        });
+
+        it('should migrate relative app-icon endpoint path to absolute URL on create', async () => {
             setupContextForWrite(createMockUserActor(1));
             mockDb.read.mockResolvedValue([createMockAppRow()]);
             validate_url.mockImplementation((_value, { key }) => {
@@ -828,9 +870,83 @@ describe('AppService', () => {
             expect(mockEventService.emit).toHaveBeenCalledWith(
                             'app.new-icon',
                             expect.objectContaining({
-                                data_url: '/app-icon/app-uid-123/64',
+                                data_url: 'https://api.puter.localhost/app-icon/app-uid-123',
                             }));
             expect(validate_url).toHaveBeenCalledWith('https://example.com', expect.objectContaining({ key: 'index_url' }));
+        });
+
+        it('should migrate legacy app-icons host URL to app-icon endpoint URL on create', async () => {
+            setupContextForWrite(createMockUserActor(1));
+            mockDb.read.mockResolvedValue([createMockAppRow()]);
+
+            const crudQ = AppService.IMPLEMENTS['crud-q'];
+            await crudQ.create.call(appService, {
+                object: {
+                    name: 'test-app',
+                    title: 'Test',
+                    index_url: 'https://example.com',
+                    icon: 'https://puter-app-icons.puter.site/app-uid-123-64.png',
+                },
+            });
+
+            expect(mockEventService.emit).toHaveBeenCalledWith(
+                            'app.new-icon',
+                            expect.objectContaining({
+                                data_url: 'https://api.puter.localhost/app-icon/app-uid-123',
+                            }));
+        });
+
+        it('should allow absolute app-icon endpoint URL on API origin', async () => {
+            setupContextForWrite(createMockUserActor(1));
+            mockDb.read.mockResolvedValue([createMockAppRow()]);
+
+            const crudQ = AppService.IMPLEMENTS['crud-q'];
+            await crudQ.create.call(appService, {
+                object: {
+                    name: 'test-app',
+                    title: 'Test',
+                    index_url: 'https://example.com',
+                    icon: 'https://api.puter.localhost/app-icon/app-uid-123/64',
+                },
+            });
+
+            expect(mockEventService.emit).toHaveBeenCalledWith(
+                            'app.new-icon',
+                            expect.objectContaining({
+                                data_url: 'https://api.puter.localhost/app-icon/app-uid-123',
+                            }));
+        });
+
+        it('should reject foreign absolute app-icon endpoint URL on create', async () => {
+            setupContextForWrite(createMockUserActor(1));
+
+            const crudQ = AppService.IMPLEMENTS['crud-q'];
+            await expect(crudQ.create.call(appService, {
+                object: {
+                    name: 'test-app',
+                    title: 'Test',
+                    index_url: 'https://example.com',
+                    icon: 'https://evil.example/app-icon/app-uid-123/64',
+                },
+            })).rejects.toMatchObject({
+                fields: { code: 'field_invalid', key: 'icon' },
+            });
+        });
+
+        it('should reject non app-icon URL icon on create', async () => {
+            setupContextForWrite(createMockUserActor(1));
+
+            const crudQ = AppService.IMPLEMENTS['crud-q'];
+            await expect(crudQ.create.call(appService, {
+                object: {
+                    name: 'test-app',
+                    title: 'Test',
+                    index_url: 'https://example.com',
+                    icon: 'https://example.com/webhook',
+                },
+            })).rejects.toMatchObject({
+                fields: { code: 'field_invalid', key: 'icon' },
+            });
         });
 
         it('should handle filetype_associations', async () => {
@@ -923,7 +1039,7 @@ describe('AppService', () => {
             setupContextForWrite(createMockUserActor(1));
 
             const crudQ = AppService.IMPLEMENTS['crud-q'];
-            const result = await crudQ.update.call(appService, {
+            await crudQ.update.call(appService, {
                 object: { uid: 'app-uid-123', title: 'Updated Title' },
             });
 
@@ -1087,7 +1203,27 @@ describe('AppService', () => {
                             }));
         });
 
-        it('should allow relative app-icon endpoint path when updating icon', async () => {
+        it('should accept raw base64 icon and normalize to data URL on update', async () => {
+            setupContextForWrite(createMockUserActor(1));
+
+            const rawBase64 = 'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJ';
+            const crudQ = AppService.IMPLEMENTS['crud-q'];
+            await crudQ.update.call(appService, {
+                object: {
+                    uid: 'app-uid-123',
+                    icon: rawBase64,
+                },
+            });
+
+            expect(mockEventService.emit).toHaveBeenCalledWith(
+                            'app.new-icon',
+                            expect.objectContaining({
+                                app_uid: 'app-uid-123',
+                                data_url: `data:image/png;base64,${rawBase64}`,
+                            }));
+        });
+
+        it('should migrate relative app-icon endpoint path to absolute URL on update', async () => {
             setupContextForWrite(createMockUserActor(1));
             validate_url.mockImplementation((_value, { key }) => {
                 if ( key === 'icon' ) {
@@ -1107,8 +1243,74 @@ describe('AppService', () => {
                             'app.new-icon',
                             expect.objectContaining({
                                 app_uid: 'app-uid-123',
-                                data_url: '/app-icon/app-uid-123/64',
+                                data_url: 'https://api.puter.localhost/app-icon/app-uid-123',
                             }));
+        });
+
+        it('should migrate legacy app-icons host URL to app-icon endpoint URL on update', async () => {
+            setupContextForWrite(createMockUserActor(1));
+
+            const crudQ = AppService.IMPLEMENTS['crud-q'];
+            await crudQ.update.call(appService, {
+                object: {
+                    uid: 'app-uid-123',
+                    icon: 'https://puter-app-icons.puter.site/app-uid-123-64.png',
+                },
+            });
+
+            expect(mockEventService.emit).toHaveBeenCalledWith(
+                            'app.new-icon',
+                            expect.objectContaining({
+                                app_uid: 'app-uid-123',
+                                data_url: 'https://api.puter.localhost/app-icon/app-uid-123',
+                            }));
+        });
+
+        it('should allow absolute app-icon endpoint URL on API origin when updating icon', async () => {
+            setupContextForWrite(createMockUserActor(1));
+
+            const crudQ = AppService.IMPLEMENTS['crud-q'];
+            await crudQ.update.call(appService, {
+                object: {
+                    uid: 'app-uid-123',
+                    icon: 'https://api.puter.localhost/app-icon/app-uid-123/64',
+                },
+            });
+
+            expect(mockEventService.emit).toHaveBeenCalledWith(
+                            'app.new-icon',
+                            expect.objectContaining({
+                                app_uid: 'app-uid-123',
+                                data_url: 'https://api.puter.localhost/app-icon/app-uid-123',
+                            }));
+        });
+
+        it('should reject foreign absolute app-icon endpoint URL on update', async () => {
+            setupContextForWrite(createMockUserActor(1));
+
+            const crudQ = AppService.IMPLEMENTS['crud-q'];
+            await expect(crudQ.update.call(appService, {
+                object: {
+                    uid: 'app-uid-123',
+                    icon: 'https://evil.example/app-icon/app-uid-123/64',
+                },
+            })).rejects.toMatchObject({
+                fields: { code: 'field_invalid', key: 'icon' },
+            });
+        });
+
+        it('should reject non app-icon URL icon on update', async () => {
+            setupContextForWrite(createMockUserActor(1));
+
+            const crudQ = AppService.IMPLEMENTS['crud-q'];
+            await expect(crudQ.update.call(appService, {
+                object: {
+                    uid: 'app-uid-123',
+                    icon: 'https://example.com/webhook',
+                },
+            })).rejects.toMatchObject({
+                fields: { code: 'field_invalid', key: 'icon' },
+            });
         });
 
         it('should emit app.rename event when name changes', async () => {

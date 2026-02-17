@@ -315,11 +315,11 @@ function generateDocsHTML (filePath, rootDir, page, isIndex = false) {
         <meta name="theme-color" content="#ffffff">
         `;
     // CSS
-    html += '<link href="https://fonts.googleapis.com/css2?family=Inter:wght@100..900&display=swap" rel="stylesheet">';
+    html += `<link rel="stylesheet" href="/${baseURL}/assets/js/bundle.css">`;
     html += `<link rel="stylesheet" href="/${baseURL}/assets/css/bootstrap.min.css">`;
-    html += '<link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/styles/default.min.css">';
     html += `<link rel="stylesheet" href="/${baseURL}/assets/css/style.css">`;
     // JS
+    html += `<script src="/${baseURL}/assets/js/bundle.js"></script>`;
     html += `
         <script type="application/ld+json">
             {
@@ -330,8 +330,6 @@ function generateDocsHTML (filePath, rootDir, page, isIndex = false) {
             }
         </script>
         `;
-    html += '<script src="https://code.jquery.com/jquery-3.7.1.min.js" integrity="sha256-/JqT3SQfawRcv/BIHPThkBvs0OEvtFFmqPF/lYI/Cxo=" crossorigin="anonymous"></script>';
-    html += '<script src="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/highlight.min.js"></script>';
     html += '<script defer data-domain="docs.puter.com" src="https://plausible.io/js/script.js"></script>';
     html += `
         <script type="text/javascript">
@@ -491,7 +489,6 @@ function generateDocsHTML (filePath, rootDir, page, isIndex = false) {
 
     html += generateSearchUIHTML();
 
-    html += `<script src="/${baseURL}/assets/js/bundle.js"></script>`;
     html += '</body>';
     const relativeDir = path.relative(rootDir, path.dirname(filePath));
     const newDir = path.join(rootDir, '..', 'dist', relativeDir, path.basename(filePath, '.md'));
@@ -572,6 +569,13 @@ async function generateDocumentation (rootDir) {
             minify: true,
             sourcemap: true,
             allowOverwrite: true,
+            loader: {
+                '.woff': 'dataurl',
+                '.woff2': 'dataurl',
+                '.ttf': 'dataurl',
+                '.eot': 'dataurl',
+                '.svg': 'dataurl',
+            },
         });
     } catch ( error ) {
         console.error(error);

@@ -20,15 +20,172 @@ import {
     validate_url,
 } from './lib/validation.js';
 
-const APP_ICON_ENDPOINT_PATH_REGEX = /^\/app-icon\/[^/?#]+\/\d+\/?$/;
+const APP_ICON_ENDPOINT_PATH_REGEX = /^\/app-icon\/([^/?#]+)(?:\/(\d+))?\/?$/;
+const LEGACY_APP_ICON_FILE_PATH_REGEX = /^\/(app-[^/?#]+?)(?:-(\d+))?\.png$/;
+const APP_ICONS_SUBDOMAIN = 'puter-app-icons';
+const ABSOLUTE_URL_REGEX = /^[a-zA-Z][a-zA-Z\d+\-.]*:/;
+const RAW_BASE64_REGEX = /^[A-Za-z0-9+/]+={0,2}$/;
+const isAbsoluteUrl = value => ABSOLUTE_URL_REGEX.test(value) || value.startsWith('//');
 
-const isAppIconEndpointPath = (value) => {
+const isRawBase64ImageString = value => {
     if ( typeof value !== 'string' ) return false;
+    const trimmed = value.trim();
+    if ( !trimmed || trimmed.length < 16 ) return false;
+    if ( ! RAW_BASE64_REGEX.test(trimmed) ) return false;
+    if ( trimmed.length % 4 !== 0 ) return false;
+
     try {
-        const pathname = new URL(value, 'http://localhost').pathname;
-        return APP_ICON_ENDPOINT_PATH_REGEX.test(pathname);
+        const decoded = Buffer.from(trimmed, 'base64');
+        if ( decoded.length === 0 ) return false;
+        const normalizedInput = trimmed.replace(/=+$/, '');
+        const reencoded = decoded.toString('base64').replace(/=+$/, '');
+        return normalizedInput === reencoded;
     } catch {
         return false;
+    }
+};
+
+const normalizeRawBase64ImageString = value => {
+    if ( typeof value !== 'string' ) return value;
+    const trimmed = value.trim();
+    if ( ! isRawBase64ImageString(trimmed) ) return value;
+    return `data:image/png;base64,${trimmed}`;
+};
+
+const getCanonicalAppIconBaseUrl = () => {
+    const candidate = [config.api_base_url, config.origin]
+        .find(value => typeof value === 'string' && value.trim());
+    if ( ! candidate ) return null;
+    try {
+        return (new URL(candidate)).origin;
+    } catch {
+        return null;
+    }
+};
+
+const getAllowedAppIconOrigins = () => {
+    const origins = new Set();
+    for ( const candidate of [config.api_base_url, config.origin] ) {
+        if ( typeof candidate !== 'string' || !candidate ) continue;
+        try {
+            origins.add((new URL(candidate)).origin);
+        } catch {
+            // Ignore invalid config values.
+        }
+    }
+    return origins;
+};
+
+const getAllowedLegacyAppIconHostnames = () => {
+    const hostnames = new Set();
+    const domains = [config.static_hosting_domain, config.static_hosting_domain_alt];
+    for ( const domain of domains ) {
+        if ( typeof domain !== 'string' || !domain.trim() ) continue;
+        hostnames.add(`${APP_ICONS_SUBDOMAIN}.${domain.trim().toLowerCase()}`);
+    }
+    return hostnames;
+};
+
+const normalizeAppUid = appUid => (
+    typeof appUid === 'string' && appUid.startsWith('app-')
+        ? appUid
+        : `app-${appUid}`
+);
+
+const parseAppIconEndpointPath = (value) => {
+    if ( typeof value !== 'string' ) return null;
+    const trimmed = value.trim();
+    if ( ! trimmed ) return null;
+
+    try {
+        const parsed = new URL(trimmed, 'http://localhost');
+        const match = parsed.pathname.match(APP_ICON_ENDPOINT_PATH_REGEX);
+        if ( ! match ) return null;
+
+        return {
+            appUid: normalizeAppUid(match[1]),
+        };
+    } catch {
+        return null;
+    }
+};
+
+const isAppIconEndpointPath = value => !!parseAppIconEndpointPath(value);
+
+const isAllowedAppIconEndpointUrl = value => {
+    if ( ! isAppIconEndpointPath(value) ) return false;
+
+    const trimmed = value.trim();
+    if ( ! isAbsoluteUrl(trimmed) ) {
+        return true;
+    }
+
+    try {
+        const parsed = new URL(trimmed, 'http://localhost');
+        return getAllowedAppIconOrigins().has(parsed.origin);
+    } catch {
+        return false;
+    }
+};
+
+const parseLegacyHostedAppIconToEndpointPath = value => {
+    if ( typeof value !== 'string' ) return null;
+    const trimmed = value.trim();
+    if ( !trimmed || trimmed.startsWith('data:') ) return null;
+
+    let parsed;
+    try {
+        parsed = new URL(trimmed, 'http://localhost');
+    } catch {
+        return null;
+    }
+
+    if ( isAbsoluteUrl(trimmed) ) {
+        const allowedHostnames = getAllowedLegacyAppIconHostnames();
+        const hostname = parsed.hostname.toLowerCase();
+        if ( ! allowedHostnames.has(hostname) ) {
+            return null;
+        }
+    }
+
+    const match = parsed.pathname.match(LEGACY_APP_ICON_FILE_PATH_REGEX);
+    if ( ! match ) return null;
+
+    const appUid = normalizeAppUid(match[1]);
+    return `/app-icon/${appUid}`;
+};
+
+const migrateRelativeAppIconEndpointUrl = value => {
+    if ( typeof value !== 'string' ) return value;
+    const trimmed = value.trim();
+    if ( ! trimmed ) return value;
+
+    let canonicalEndpointPath = null;
+    const endpointPath = parseAppIconEndpointPath(trimmed);
+    if ( endpointPath ) {
+        if ( isAbsoluteUrl(trimmed) ) {
+            try {
+                const parsed = new URL(trimmed, 'http://localhost');
+                if ( ! getAllowedAppIconOrigins().has(parsed.origin) ) {
+                    return value;
+                }
+            } catch {
+                return value;
+            }
+        }
+        canonicalEndpointPath = `/app-icon/${endpointPath.appUid}`;
+    } else {
+        canonicalEndpointPath = parseLegacyHostedAppIconToEndpointPath(trimmed);
+    }
+    if ( ! canonicalEndpointPath ) return value;
+
+    const baseUrl = getCanonicalAppIconBaseUrl();
+    if ( ! baseUrl ) return canonicalEndpointPath;
+
+    try {
+        return new URL(canonicalEndpointPath, `${baseUrl}/`).toString();
+    } catch {
+        return canonicalEndpointPath;
     }
 };
 
@@ -109,27 +266,31 @@ export default class AppService extends BaseService {
 
         const userCanEditOnly = Array.prototype.includes.call(predicate, 'user-can-edit');
 
-        const sql_associatedFiletypes = this.db.case({
-            mysql: 'COALESCE(JSON_ARRAYAGG(afa.type), JSON_ARRAY())',
-            sqlite: "COALESCE(json_group_array(afa.type), json('[]'))",
-        });
-
         const stmt = 'SELECT apps.*, ' +
             'owner_user.username AS owner_user_username, ' +
             'owner_user.uuid AS owner_user_uuid, ' +
-            'app_owner.uid AS app_owner_uid, ' +
-            `${sql_associatedFiletypes} AS filetypes ` +
+            'app_owner.uid AS app_owner_uid ' +
             'FROM apps ' +
             'LEFT JOIN user owner_user ON apps.owner_user_id = owner_user.id ' +
             'LEFT JOIN apps app_owner ON apps.app_owner = app_owner.id ' +
-            'LEFT JOIN app_filetype_association afa ON apps.id = afa.app_id ' +
             `${userCanEditOnly ? 'WHERE apps.owner_user_id=?' : ''} ` +
-            'GROUP BY apps.id ' +
             'LIMIT 5000';
         const values = userCanEditOnly ? [Context.get('user').id] : [];
         const rows = await db.read(stmt, values);
 
-        const client_safe_apps = [];
+        const shouldFetchFiletypes = rows.some(row => typeof row.filetypes !== 'string');
+        const filetypesByAppId = shouldFetchFiletypes
+            ? await this.#getFiletypeAssociationsByAppIds(rows.map(row => row.id))
+            : new Map();
+
+        const svc_appIcon = params.icon_size
+            ? this.context.get('services').get('app-icon')
+            : null;
+        const svc_error = params.icon_size
+            ? this.context.get('services').get('error-service')
+            : null;
+
+        const appAndOwnerIds = [];
         for ( const row of rows ) {
             const app = {};
 
@@ -166,53 +327,48 @@ export default class AppService extends BaseService {
                 app.owner = user_to_client(owner_user);
             }
 
-            if ( typeof row.filetypes === 'string' ) {
-                try {
-                    let filetypesAsJSON = JSON.parse(row.filetypes);
-                    filetypesAsJSON = filetypesAsJSON.filter(ft => ft !== null);
-                    for ( let i = 0 ; i < filetypesAsJSON.length ; i++ ) {
-                        if ( typeof filetypesAsJSON[i] !== 'string' ) {
-                            throw new Error(`expected filetypesAsJSON[${i}] to be a string, got: ${filetypesAsJSON[i]}`);
-                        }
-                        if ( String.prototype.startsWith.call(filetypesAsJSON[i], '.') ) {
-                            filetypesAsJSON[i] = filetypesAsJSON[i].slice(1);
-                        }
-                    }
-                    app.filetype_associations = filetypesAsJSON;
-                } catch (e) {
-                    throw new Error(`failed to get app filetype associations: ${e.message}`, { cause: e });
+            try {
+                if ( typeof row.filetypes === 'string' ) {
+                    app.filetype_associations = this.#parseFiletypeAssociationsJson(row.filetypes);
+                } else {
+                    app.filetype_associations = this.#normalizeFiletypeAssociations(filetypesByAppId.get(row.id) ?? []);
                 }
+            } catch (e) {
+                throw new Error(`failed to get app filetype associations: ${e.message}`, { cause: e });
             }
 
             // REFINED BY OTHER DATA
             // app.icon;
-            if ( params.icon_size ) {
+            if ( params.icon_size && svc_appIcon ) {
                 const icon_size = params.icon_size;
-                const svc_appIcon = this.context.get('services').get('app-icon');
                 try {
-                    const iconResult = await svc_appIcon.getIconStream({
+                    const iconPath = svc_appIcon.getAppIconPath({
                         appUid: row.uid,
-                        appIcon: row.icon,
                         size: icon_size,
                     });
-                    console.log('this is working it looks like');
-                    app.icon = await iconResult.get_data_url();
+                    if ( iconPath ) {
+                        app.icon = iconPath;
+                    }
                 } catch (e) {
-                    const svc_error = this.context.get('services').get('error-service');
-                    svc_error.report('AppES:read_transform', { source: e });
+                    svc_error?.report('AppES:read_transform', { source: e });
                 }
             }
 
-            // Check protected app access before adding to results
-            if ( await this.#check_protected_app_access(app, row.owner_user_id) ) {
-                // App should be filtered out (not accessible)
-                continue;
-            }
-
-            client_safe_apps.push(app);
+            appAndOwnerIds.push({
+                app,
+                ownerUserId: row.owner_user_id,
+            });
         }
 
-        return client_safe_apps;
+        // Check protected app access in parallel for faster large selections.
+        const allowed_apps = await Promise.all(appAndOwnerIds.map(async ({ app, ownerUserId }) => {
+            if ( await this.#check_protected_app_access(app, ownerUserId) ) {
+                return null;
+            }
+            return app;
+        }));
+
+        return allowed_apps.filter(Boolean);
     }
 
     async #read ({ uid, id, params = {}, backend_only_options = {} }) {
@@ -221,11 +377,6 @@ export default class AppService extends BaseService {
         if ( uid === undefined && id === undefined ) {
             throw new Error('read requires either uid or id');
         }
-
-        const sql_associatedFiletypes = this.db.case({
-            mysql: 'COALESCE(JSON_ARRAYAGG(afa.type), JSON_ARRAY())',
-            sqlite: "COALESCE(json_group_array(afa.type), json('[]'))",
-        });
 
         // Build WHERE clause based on identifier type
         let whereClause;
@@ -247,14 +398,11 @@ export default class AppService extends BaseService {
         const stmt = 'SELECT apps.*, ' +
             'owner_user.username AS owner_user_username, ' +
             'owner_user.uuid AS owner_user_uuid, ' +
-            'app_owner.uid AS app_owner_uid, ' +
-            `${sql_associatedFiletypes} AS filetypes ` +
+            'app_owner.uid AS app_owner_uid ' +
             'FROM apps ' +
             'LEFT JOIN user owner_user ON apps.owner_user_id = owner_user.id ' +
             'LEFT JOIN apps app_owner ON apps.app_owner = app_owner.id ' +
-            'LEFT JOIN app_filetype_association afa ON apps.id = afa.app_id ' +
             `WHERE ${whereClause} ` +
-            'GROUP BY apps.id ' +
             'LIMIT 1';
 
         const rows = await db.read(stmt, whereValues);
@@ -296,49 +444,105 @@ export default class AppService extends BaseService {
             else app.owner = user_to_client(owner_user);
         }
 
-        if ( typeof row.filetypes === 'string' ) {
-            try {
-                let filetypesAsJSON = JSON.parse(row.filetypes);
-                filetypesAsJSON = filetypesAsJSON.filter(ft => ft !== null);
-                for ( let i = 0 ; i < filetypesAsJSON.length ; i++ ) {
-                    if ( typeof filetypesAsJSON[i] !== 'string' ) {
-                        throw new Error(`expected filetypesAsJSON[${i}] to be a string, got: ${filetypesAsJSON[i]}`);
-                    }
-                    if ( String.prototype.startsWith.call(filetypesAsJSON[i], '.') ) {
-                        filetypesAsJSON[i] = filetypesAsJSON[i].slice(1);
-                    }
-                }
-                app.filetype_associations = filetypesAsJSON;
-            } catch (e) {
-                throw new Error(`failed to get app filetype associations: ${e.message}`, { cause: e });
+        let protectedAccessPromise;
+        try {
+            if ( typeof row.filetypes === 'string' ) {
+                app.filetype_associations = this.#parseFiletypeAssociationsJson(row.filetypes);
+            } else {
+                protectedAccessPromise = this.#check_protected_app_access(app, row.owner_user_id);
+                const filetypeAssociations = await this.#getFiletypeAssociationsByAppId(row.id);
+                app.filetype_associations = this.#normalizeFiletypeAssociations(filetypeAssociations);
             }
+        } catch (e) {
+            throw new Error(`failed to get app filetype associations: ${e.message}`, { cause: e });
         }
 
-        if ( params.icon_size ) {
-            const icon_size = params.icon_size;
-            const svc_appIcon = this.context.get('services').get('app-icon');
-            try {
-                const iconResult = await svc_appIcon.getIconStream({
-                    appUid: row.uid,
-                    appIcon: row.icon,
-                    size: icon_size,
-                });
-                app.icon = await iconResult.get_data_url();
-            } catch (e) {
-                const svc_error = this.context.get('services').get('error-service');
-                svc_error.report('AppES:read_transform', { source: e });
-            }
+        // Check protected app access as soon as dependent fields are resolved.
+        if ( ! protectedAccessPromise ) {
+            protectedAccessPromise = this.#check_protected_app_access(app, row.owner_user_id);
         }
-
-        // Check protected app access
-        if ( await this.#check_protected_app_access(app, row.owner_user_id) ) {
+        if ( await protectedAccessPromise ) {
             // App should not be accessible
             throw APIError.create('entity_not_found', null, {
                 identifier: uid || JSON.stringify(id),
             });
         }
 
+        if ( params.icon_size ) {
+            const icon_size = params.icon_size;
+            const svc_appIcon = this.context.get('services').get('app-icon');
+            try {
+                const iconPath = svc_appIcon.getAppIconPath({
+                    appUid: row.uid,
+                    size: icon_size,
+                });
+                if ( iconPath ) {
+                    app.icon = iconPath;
+                }
+            } catch (e) {
+                const svc_error = this.context.get('services').get('error-service');
+                svc_error.report('AppES:read_transform', { source: e });
+            }
+        }
+
         return app;
+    }
+
+    #parseFiletypeAssociationsJson (filetypes) {
+        return this.#normalizeFiletypeAssociations(JSON.parse(filetypes));
+    }
+
+    async #getFiletypeAssociationsByAppId (appId) {
+        if ( appId === undefined || appId === null ) return [];
+
+        const rows = await this.db.read('SELECT type FROM app_filetype_association WHERE app_id = ?',
+                        [appId]);
+        return rows
+            .map(row => row.type)
+            .filter(type => typeof type === 'string' || type === null);
+    }
+
+    #normalizeFiletypeAssociations (filetypesAsJSON) {
+        filetypesAsJSON = Array.isArray(filetypesAsJSON)
+            ? filetypesAsJSON
+            : [];
+        filetypesAsJSON = filetypesAsJSON.filter(ft => ft !== null);
+        for ( let i = 0 ; i < filetypesAsJSON.length ; i++ ) {
+            if ( typeof filetypesAsJSON[i] !== 'string' ) {
+                throw new Error(`expected filetypesAsJSON[${i}] to be a string, got: ${filetypesAsJSON[i]}`);
+            }
+            if ( String.prototype.startsWith.call(filetypesAsJSON[i], '.') ) {
+                filetypesAsJSON[i] = filetypesAsJSON[i].slice(1);
+            }
+        }
+        return filetypesAsJSON;
+    }
+
+    async #getFiletypeAssociationsByAppIds (appIds) {
+        appIds = [...new Set(appIds.filter(appId => appId !== undefined && appId !== null))];
+        if ( appIds.length === 0 ) return new Map();
+
+        const filetypesByAppId = new Map();
+        for ( const appId of appIds ) {
+            filetypesByAppId.set(appId, []);
+        }
+
+        // SQLite has a low bind-parameter limit; chunk to avoid oversized IN lists.
+        const chunkSize = 500;
+        for ( let i = 0 ; i < appIds.length ; i += chunkSize ) {
+            const chunk = appIds.slice(i, i + chunkSize);
+            const placeholders = chunk.map(() => '?').join(', ');
+            const rows = await this.db.read(`SELECT app_id, type FROM app_filetype_association WHERE app_id IN (${placeholders})`,
+                            chunk);
+            for ( const row of rows ) {
+                if ( ! filetypesByAppId.has(row.app_id) ) {
+                    filetypesByAppId.set(row.app_id, []);
+                }
+                filetypesByAppId.get(row.app_id).push(row.type);
+            }
+        }
+
+        return filetypesByAppId;
     }
 
     async #create ({ object, options }) {
@@ -395,12 +599,16 @@ export default class AppService extends BaseService {
             }
 
             if ( object.icon !== undefined && object.icon !== null ) {
+                if ( typeof object.icon === 'string' ) {
+                    object.icon = normalizeRawBase64ImageString(object.icon);
+                    object.icon = migrateRelativeAppIconEndpointUrl(object.icon);
+                }
                 if ( typeof object.icon === 'string' && object.icon.startsWith('data:') ) {
                     validate_image_base64(object.icon, { key: 'icon' });
-                } else if ( isAppIconEndpointPath(object.icon) ) {
+                } else if ( isAllowedAppIconEndpointUrl(object.icon) ) {
                     // Allow existing relative app icon endpoint references.
                 } else {
-                    validate_url(object.icon, { key: 'icon', maxlen: 3000 });
+                    throw APIError.create('field_invalid', null, { key: 'icon' });
                 }
             }
 
@@ -644,12 +852,16 @@ export default class AppService extends BaseService {
             }
 
             if ( object.icon !== undefined && object.icon !== null ) {
+                if ( typeof object.icon === 'string' ) {
+                    object.icon = normalizeRawBase64ImageString(object.icon);
+                    object.icon = migrateRelativeAppIconEndpointUrl(object.icon);
+                }
                 if ( typeof object.icon === 'string' && object.icon.startsWith('data:') ) {
                     validate_image_base64(object.icon, { key: 'icon' });
-                } else if ( isAppIconEndpointPath(object.icon) ) {
+                } else if ( isAllowedAppIconEndpointUrl(object.icon) ) {
                     // Allow existing relative app icon endpoint references.
                 } else {
-                    validate_url(object.icon, { key: 'icon', maxlen: 3000 });
+                    throw APIError.create('field_invalid', null, { key: 'icon' });
                 }
             }
 

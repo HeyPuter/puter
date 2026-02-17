@@ -1862,7 +1862,7 @@ async function get_taskbar_items (user, { icon_size, no_icons } = {}) {
             { name: 'camera', type: 'app' },
             { name: 'recorder', type: 'app' },
         ];
-        await db.write('UPDATE user SET taskbar_items = ? WHERE id = ?',
+        db.write('UPDATE user SET taskbar_items = ? WHERE id = ?',
                         [
                             JSON.stringify(taskbar_items_from_db),
                             user.id,
@@ -1919,13 +1919,12 @@ async function get_taskbar_items (user, { icon_size, no_icons } = {}) {
             delete item.icon;
         } else {
             const svc_appIcon = _servicesHolder.services.get('app-icon');
-            const iconResult = await svc_appIcon.getIconStream({
-                appIcon: item.icon,
+            const iconUrl = svc_appIcon.getSizedIconUrl({
                 appUid: item.uid,
                 size: icon_size,
             });
 
-            item.icon = await iconResult.get_data_url();
+            item.icon = iconUrl;;
         }
 
         // add to final object

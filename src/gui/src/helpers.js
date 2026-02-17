@@ -948,6 +948,9 @@ window.create_folder = async (basedir, appendto_element) => {
             },
         });
     } catch ( err ) {
+        if ( err.code === 'directory_depth_limit_exceeded' ) {
+            await UIAlert({ message: i18n('directory_depth_limit_exceeded') });
+        }
     }
 };
 

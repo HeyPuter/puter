@@ -18,7 +18,6 @@
  */
 const { AdvancedBase } = require('@heyputer/putility');
 const { BaseES } = require('./BaseES');
-
 const APIError = require('../../api/APIError');
 const { Entity } = require('./Entity');
 const { WeakConstructorFeature } = require('../../traits/WeakConstructorFeature');
@@ -62,7 +61,7 @@ class SQLES extends BaseES {
                     return [` WHERE ${id_col} = ?`, [uid]];
                 }
 
-                if ( ! uid.hasOwnProperty('predicate') ) {
+                if ( ! Object.prototype.hasOwnProperty.call(uid, 'predicate') ) {
                     throw new Error('SQLES.read does not understand this input: ' +
                         'object with no predicate property');
                 }
@@ -164,7 +163,7 @@ class SQLES extends BaseES {
             }
         },
 
-        async delete (uid, extra) {
+        async delete (uid) {
             const id_prop = this.om.properties[this.om.primary_identifier];
             let id_col =
                 id_prop.descriptor.sql?.column_name ?? id_prop.name;
@@ -304,7 +303,7 @@ class SQLES extends BaseES {
                 }
 
                 if ( value && options.use_id ) {
-                    if ( value.hasOwnProperty('id') ) {
+                    if ( Object.prototype.hasOwnProperty.call(value, 'id') ) {
                         value = value.id;
                     }
                 }
