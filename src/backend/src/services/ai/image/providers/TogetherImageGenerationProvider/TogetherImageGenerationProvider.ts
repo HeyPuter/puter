@@ -101,8 +101,10 @@ export class TogetherImageGenerationProvider implements IImageProvider {
             throw new Error('actor not found in context');
         }
 
+        const isGemini3 = selectedModel.id === 'togetherai:google/gemini-3-pro-image';
+
         let costInMicroCents: number;
-        const qualityCostKey = quality && selectedModel.costs[quality] !== undefined ? quality : undefined;
+        const qualityCostKey = isGemini3 && quality && selectedModel.costs[quality] !== undefined ? quality : undefined;
 
         if ( qualityCostKey ) {
             const centsPerImage = selectedModel.costs[qualityCostKey];
@@ -125,9 +127,9 @@ export class TogetherImageGenerationProvider implements IImageProvider {
             throw APIError.create('insufficient_funds');
         }
 
-        // Resolve abstract aspect ratios to actual pixel dimensions for models that need it
+        // Resolve abstract aspect ratios to actual pixel dimensions for Gemini 3 Pro
         let resolvedRatio = ratio;
-        if ( quality && ratio ) {
+        if ( isGemini3 && quality ) {
             const ratioKey = `${ratio.w}:${ratio.h}`;
             const resolutionEntry = GEMINI_3_IMAGE_RESOLUTION_MAP[ratioKey]?.[quality];
             if ( resolutionEntry ) {
