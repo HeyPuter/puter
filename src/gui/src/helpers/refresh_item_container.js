@@ -204,6 +204,7 @@ const refresh_item_container = function (el_item_container, options) {
                         is_shortcut: fsentry.is_shortcut,
                         shortcut_to: fsentry.shortcut_to,
                         shortcut_to_path: fsentry.shortcut_to_path,
+                        workers: fsentry.workers.length > 0 ? fsentry.workers : [],
                         size: fsentry.size,
                         type: fsentry.type,
                         modified: fsentry.modified,

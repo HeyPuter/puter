@@ -665,6 +665,12 @@ span.header-sort-icon img {
     filter: drop-shadow(0px 0px 1px rgba(0, 0, 0, 1));
 }
 
+.item-badge.item-is-worker {
+    border-radius: 50%;
+    background: white;
+    cursor: pointer;
+}
+
 .item-name, .item-name-editor, .item-name-shadow {
     font-size: 12px;
     color: white;
@@ -3905,6 +3911,33 @@ fieldset[name=number-code] {
 }
 
 .website-badge-popover-link:hover {
+    text-decoration: underline;
+}
+
+.worker-badge-popover-title {
+    font-size: 14px;
+    margin: -10px;
+    margin-bottom: 5px;
+    padding: 8px 10px;
+    background: #e5e5e5;
+    color: #4b5f6f;
+}
+
+.worker-badge-popover-content {
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    overflow: hidden;
+    width: 270px;
+    padding: 10px;
+}
+
+.worker-badge-popover-link, .worker-badge-popover-link:visited {
+    color: #0073ed;
+    text-decoration: none;
+    width: 179px;
+}
+
+.worker-badge-popover-link:hover {
     text-decoration: underline;
 }
 
