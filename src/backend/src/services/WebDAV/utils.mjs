@@ -31,7 +31,7 @@ export const fsOperations = {
         return hl_stat.run({
             subject: node,
             user: Context.get('actor'),
-            return_subdomains: true,
+            return_subdomains: false,
             return_permissions: true,
             return_shares: false,
             return_versions: false,
@@ -42,6 +42,7 @@ export const fsOperations = {
         const hl_readdir = new HLReadDir();
         return hl_readdir.run({
             subject: node,
+            no_subdomains: true,
             // user: Context.get("actor").type.user,
             actor: Context.get('actor'),
             recursive: false,
