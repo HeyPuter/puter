@@ -3551,6 +3551,9 @@ const TabFiles = {
                 selection.clearSelection();
             }
 
+            // Disable pointer events on selection actions bar during drag
+            _this.$el_window.find('.files-selection-actions').addClass('rubberband-active');
+
             // Create selection area element only when drag actually starts (after threshold)
             selection_area = document.createElement('div');
             $(filesContainer).append(selection_area);
@@ -3615,6 +3618,8 @@ const TabFiles = {
                 // Flag to prevent the click handler from clearing selection
                 _this.rubberBandSelectionJustEnded = true;
             }
+            // Re-enable pointer events on selection actions bar
+            _this.$el_window.find('.files-selection-actions').removeClass('rubberband-active');
             _this.updateFooterStats();
         });
     },

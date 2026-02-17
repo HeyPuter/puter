@@ -1011,6 +1011,11 @@ body {
     transform: translateX(-50%) translateY(0);
     opacity: 1;
     visibility: visible;
+    z-index: 99999999999999999;
+}
+
+.dashboard-section-files .files-selection-actions.rubberband-active {
+    pointer-events: none;
 }
 
 .dashboard-section-files .selection-action-btn {
