@@ -1694,6 +1694,10 @@ window.move_items = async function (el_items, dest_path, is_undo = false) {
                     suggested_apps: fsentry.suggested_apps,
                 };
                 UIItem(options);
+                // In dashboard mode, also create item via dashboard's renderer
+                if ( window.is_dashboard_mode && window.UIDashboardFileItem ) {
+                    window.UIDashboardFileItem(fsentry);
+                }
                 moved_items.push({ 'options': options, 'original_path': $(el_item).attr('data-path') });
 
                 // this operation may have created some missing directories,
@@ -1718,6 +1722,10 @@ window.move_items = async function (el_items, dest_path, is_undo = false) {
                             has_website: false,
                             suggested_apps: dir.suggested_apps,
                         });
+                    }
+                    // In dashboard mode, also create parent dirs via dashboard's renderer
+                    if ( window.is_dashboard_mode && window.UIDashboardFileItem ) {
+                        window.UIDashboardFileItem(dir);
                     }
                     window.sort_items(item_container);
                 });
@@ -2846,7 +2854,7 @@ window.rename_file = async (options, new_name, old_name, old_path, el_item, el_i
     puter.fs.rename({
         uid: options.uid === 'null' ? null : options.uid,
         new_name: new_name,
-        excludeSocketID: window.socket.id,
+        excludeSocketID: window.socket?.id,
         success: async (fsentry) => {
             // Add action to actions_history for undo ability
             if ( ! is_undo )
@@ -2975,30 +2983,27 @@ window.delete_item_with_path = async function (path) {
 };
 
 window.undo_last_action = async () => {
-    if ( window.actions_history.length > 0 ) {
-        const last_action = window.actions_history.pop();
+    if ( window.actions_history.length === 0 ) return;
 
-        // Undo the create file action
-        if ( last_action.operation === 'create_file' || last_action.operation === 'create_folder' ) {
-            const lastCreatedItem = last_action.data;
-            window.undo_create_file_or_folder(lastCreatedItem);
-        } else if ( last_action.operation === 'rename' ) {
-            const { options, new_name, old_name, old_path, el_item, el_item_name, el_item_icon, el_item_name_editor, website_url }  = last_action.data;
+    const last_action = window.actions_history.pop();
+    const { operation, data } = last_action;
+
+    // Map operations to their undo handlers
+    const undoHandlers = {
+        create_file: () => window.undo_create_file_or_folder(data),
+        create_folder: () => window.undo_create_file_or_folder(data),
+        upload: () => window.undo_upload(data),
+        copy: () => window.undo_copy(data),
+        move: () => window.undo_move(data),
+        delete: () => window.undo_delete(data),
+        rename: () => {
+            const { options, new_name, old_name, old_path, el_item, el_item_name, el_item_icon, el_item_name_editor, website_url } = data;
             window.rename_file(options, old_name, new_name, old_path, el_item, el_item_name, el_item_icon, el_item_name_editor, website_url, true);
-        } else if ( last_action.operation === 'upload' ) {
-            const files = last_action.data;
-            window.undo_upload(files);
-        } else if ( last_action.operation === 'copy' ) {
-            const files = last_action.data;
-            window.undo_copy(files);
-        } else if ( last_action.operation === 'move' ) {
-            const items = last_action.data;
-            window.undo_move(items);
-        } else if ( last_action.operation === 'delete' ) {
-            const items = last_action.data;
-            window.undo_delete(items);
-        }
-    }
+        },
+    };
+
+    const handler = undoHandlers[operation];
+    if ( handler ) handler();
 };
 
 window.undo_create_file_or_folder = async (item) => {

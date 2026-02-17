@@ -321,6 +321,7 @@ const en = {
         taskmgr_header_type: 'Type',
         terms: 'Terms',
         text_document: 'Text document',
+        toggle_view: 'Toggle view',
         'toolbar.enter_fullscreen': 'Enter Full Screen',
         'toolbar.github': 'GitHub',
         'toolbar.refer': 'Refer',
