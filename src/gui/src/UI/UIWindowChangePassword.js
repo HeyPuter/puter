@@ -188,42 +188,6 @@ async function UIWindowChangePassword (options) {
         onError(data.message || res.statusText || 'Request failed');
     });
 
-    // function openRevalidatePopup (revalidateUrl, onDone) {
-    //     const url = revalidateUrl || (window.user && window.user.oidc_revalidate_url);
-    //     if ( ! url ) {
-    //         onDone && onDone(new Error('No revalidate URL'));
-    //         return null;
-    //     }
-    //     let doneCalled = false;
-    //     const hint = $(el_window).find('.change-password-oidc-hint');
-    //     hint.text(i18n('revalidate_sign_in_popup') || 'Sign in with your linked account in the popup.').show();
-    //     const popup = window.open(url, 'puter-revalidate', 'width=500,height=600');
-    //     const onMessage = (ev) => {
-    //         if ( (ev.origin !== window.gui_origin) && (ev.origin !== window.location.origin) ) return;
-    //         if ( !ev.data || ev.data.type !== 'puter-revalidate-done' ) return;
-    //         if ( doneCalled ) return;
-    //         doneCalled = true;
-    //         window.removeEventListener('message', onMessage);
-    //         revalidated = true;
-    //         hint.hide();
-    //         $(el_window).find('.change-password-revalidated-msg').text(i18n('revalidated') || 'Re-validated.').show();
-    //         $(el_window).find('.change-password-revalidate-btn').hide();
-    //         onDone && onDone();
-    //     };
-    //     window.addEventListener('message', onMessage);
-    //     const checkClosed = setInterval(() => {
-    //         if ( popup && popup.closed ) {
-    //             clearInterval(checkClosed);
-    //             window.removeEventListener('message', onMessage);
-    //             hint.hide();
-    //             if ( ! doneCalled ) {
-    //                 doneCalled = true;
-    //                 onDone && onDone(new Error('Popup closed'));
-    //             }
-    //         }
-    //     }, 300);
-    //     return popup;
-    // }
     function doSubmit ({ new_password, current_password }) {
         return fetch(apiUrl, {
             method: 'POST',
