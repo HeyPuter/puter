@@ -359,8 +359,9 @@ class WebServerService extends BaseService {
                     secure: true,
                     httpOnly: true,
                 });
-            } catch ( _e ) {
-                // Invalid or expired token; do not set cookie
+            } catch ( e ) {
+                console.log('query auth token (QR Code login probably) failed');
+                console.error(e);
             }
             next();
         });
