@@ -104,11 +104,13 @@ export class TogetherImageGenerationProvider implements IImageProvider {
         const isGemini3 = selectedModel.id === 'togetherai:google/gemini-3-pro-image';
 
         let costInMicroCents: number;
+        let usageAmount: number;
         const qualityCostKey = isGemini3 && quality && selectedModel.costs[quality] !== undefined ? quality : undefined;
 
         if ( qualityCostKey ) {
             const centsPerImage = selectedModel.costs[qualityCostKey];
             costInMicroCents = centsPerImage * 1_000_000;
+            usageAmount = 1;
         } else {
             const priceKey = '1MP';
             const centsPerMP = selectedModel.costs[priceKey];
@@ -117,6 +119,7 @@ export class TogetherImageGenerationProvider implements IImageProvider {
             }
             const MP = (ratio.h * ratio.w) / 1_000_000;
             costInMicroCents = centsPerMP * MP * 1_000_000;
+            usageAmount = MP;
         }
 
         const usageType = `${selectedModel.id}:${quality || '1MP'}`;
@@ -145,7 +148,7 @@ export class TogetherImageGenerationProvider implements IImageProvider {
                 throw new Error('Together AI response did not include image data');
             }
 
-            this.#meteringService.incrementUsage(actor, usageType, 1, costInMicroCents);
+            this.#meteringService.incrementUsage(actor, usageType, usageAmount, costInMicroCents);
 
             const first = response.data[0] as { url?: string; b64_json?: string };
             const url = first.url || (first.b64_json ? `data:image/png;base64,${ first.b64_json}` : undefined);
