@@ -51,9 +51,7 @@ router.post('/logout', auth, express.json(), async (req, res, next) => {
     //---------------------------------------------------------
     // DANGER ZONE: delete temp user and all its data
     //---------------------------------------------------------
-    console.log('wait... what are these?', req.user.password, req.user.email);
     if ( req.user.password === null && req.user.email === null ) {
-        console.log('ACTUALLY DELETING A USER');
         const { deleteUser } = require('../helpers');
         deleteUser(req.user.id);
     }

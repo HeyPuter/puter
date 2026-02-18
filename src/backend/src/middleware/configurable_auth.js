@@ -128,7 +128,6 @@ const configurable_auth = options => async (req, res, next) => {
         const tokenPreview = typeof token === 'string' && token.length > 20
             ? `${token.slice(0, 12)}...${token.slice(-8)}`
             : '(short)';
-        console.log(`[configurable_auth] token used for Actor: [${req.url}] source=${tokenSource}, decoded.type=${tokenType}, preview=${tokenPreview}`);
     }
 
     let actor;

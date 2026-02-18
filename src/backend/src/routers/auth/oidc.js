@@ -28,7 +28,6 @@ const REVALIDATION_EXPIRY_SEC = 300; // 5 minutes
 
 /** If Accept includes text/html, set session cookie and redirect to app; otherwise send JSON. */
 const finishOidcSuccess_ = async (req, res, user, stateDecoded) => {
-    console.log('okay finishOidSuccess_ is happening');
     const svc_auth = req.services.get('auth');
     const { session, token: session_token } = await svc_auth.create_session_token(user, { req });
     res.cookie(config.cookie_name, session_token, {
@@ -36,12 +35,8 @@ const finishOidcSuccess_ = async (req, res, user, stateDecoded) => {
         secure: true,
         httpOnly: true,
     });
-    console.log('what are these values?', {
-        stateDecoded,
-    });
     let target = stateDecoded.redirect_uri || config.origin || '/';
     const origin = config.origin || '';
-    console.log('okay what\'s target though?', { target, origin });
     if ( target && origin && !target.startsWith(origin) ) {
         target = origin;
     }
@@ -169,11 +164,9 @@ router.get('/auth/oidc/callback/signup', async (req, res) => {
     }
     const outcome = await svc_oidc.createUserFromOIDC(provider, userinfo);
     if ( outcome.failed ) {
-        console.log('it looks like the outcome failed...');
         return res.status(400).send(outcome.userMessage);
     }
     const user = await get_user({ id: outcome.infoObject.user_id });
-    console.log('got user????', user);
     return await finishOidcSuccess_(req, res, user, stateDecoded);
 });
 
