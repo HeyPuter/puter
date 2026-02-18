@@ -159,6 +159,12 @@ export class AIImageGenerationService extends BaseService {
             // build model id map
             for ( const model of await provider.models() ) {
                 model.id = model.id.trim().toLowerCase();
+                if ( model.puterId ) {
+                    model.puterId = model.puterId.trim().toLowerCase();
+                }
+                if ( model.aliases ) {
+                    model.aliases = model.aliases.map(alias => alias.trim().toLowerCase());
+                }
                 if ( ! this.#modelIdMap[model.id] ) {
                     this.#modelIdMap[model.id] = [];
                 }
@@ -220,6 +226,10 @@ export class AIImageGenerationService extends BaseService {
     async generate (parameters: IGenerateParams) {
         const clientDriverCall = Context.get('client_driver_call');
         let { test_mode: testMode, intended_service: legacyProviderName } = clientDriverCall as { test_mode?: boolean; response_metadata: Record<string, unknown>; intended_service?: string };
+
+        if ( parameters.model ) {
+            parameters.model = parameters.model.trim().toLowerCase();
+        }
 
         const configuredProviders = Object.keys(this.#providers);
         if ( configuredProviders.length === 0 ) {
