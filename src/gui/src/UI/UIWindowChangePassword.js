@@ -171,7 +171,7 @@ async function UIWindowChangePassword (options) {
         $(el_window).find('.change-password-btn').addClass('disabled');
         $(el_window).find('.current-password, .new-password, .confirm-new-password').attr('disabled', true);
 
-        let res = await doSubmit(current_password);
+        let res = await doSubmit({ current_password, new_password });
         const data = res.ok ? await res.json().catch(() => ({})) : await res.json().catch(() => ({}));
 
         if ( res.ok ) {
