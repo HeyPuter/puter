@@ -238,10 +238,18 @@ const TabFiles = {
                 $(folderElement).addClass('context-menu-active');
                 const folderPath = folderElement.getAttribute('data-path');
                 const items = _this.generateFolderContextMenu(folderPath);
-                const menu = UIContextMenu({ items: items, position: { left: e.pageX, top: e.pageY } });
-                menu.onClose = () => {
-                    $(folderElement).removeClass('context-menu-active');
-                };
+
+                if ( window.isMobile.phone || window.isMobile.tablet ) {
+                    const modal = new ContextMenuModal({
+                        onClose: () => $(folderElement).removeClass('context-menu-active'),
+                    });
+                    modal.show(items, folderElement.getBoundingClientRect());
+                } else {
+                    const menu = UIContextMenu({ items: items, position: { left: e.pageX, top: e.pageY } });
+                    menu.onClose = () => {
+                        $(folderElement).removeClass('context-menu-active');
+                    };
+                }
             });
 
             // Make sidebar folders droppable
@@ -448,7 +456,12 @@ const TabFiles = {
                 });
                 _this.updateFooterStats();
                 const items = await _this.generateFolderContextMenu();
-                UIContextMenu({ items: items, position: { left: e.pageX, top: e.pageY } });
+                if ( window.isMobile.phone || window.isMobile.tablet ) {
+                    const modal = new ContextMenuModal();
+                    modal.show(items, e.target.getBoundingClientRect());
+                } else {
+                    UIContextMenu({ items: items, position: { left: e.pageX, top: e.pageY } });
+                }
             }
         });
 
@@ -1768,7 +1781,7 @@ const TabFiles = {
         const readdirArg = isPath
             ? { path: target, consistency: options.consistency || 'eventual' }
             : { uid: target, consistency: options.consistency || 'eventual' };
-        const directoryContents = await window.puter.fs.readdir(readdirArg);
+        let directoryContents = await window.puter.fs.readdir(readdirArg);
         if ( ! directoryContents ) {
             this.hideSpinner();
             this.renderingDirectory = false;
@@ -1795,6 +1808,13 @@ const TabFiles = {
         }
 
         this.updateSidebarSelection();
+
+        // Filter out hidden files/folders and AppData in home directory
+        directoryContents = directoryContents.filter(file => {
+            if ( file.name.startsWith('.') ) return false;
+            if ( file.name === 'AppData' && this.currentPath === window.home_path ) return false;
+            return true;
+        });
 
         const isTrashFolder = this.currentPath === window.trash_path;
         this.updateActionButtons(isTrashFolder);
@@ -2427,11 +2447,17 @@ const TabFiles = {
             e.stopPropagation();
 
             const selectedRows = document.querySelectorAll('.files-tab .row.selected');
+            let items;
             if ( selectedRows.length > 1 && el_item.classList.contains('selected') ) {
-                const items = await _this.generateMultiSelectContextMenu(selectedRows);
-                UIContextMenu({ items: items, position: { left: e.pageX, top: e.pageY } });
+                items = await _this.generateMultiSelectContextMenu(selectedRows);
             } else {
-                const items = await _this.generateContextMenuItems(el_item, file);
+                items = await _this.generateContextMenuItems(el_item, file);
+            }
+
+            if ( window.isMobile.phone || window.isMobile.tablet ) {
+                const modal = new ContextMenuModal();
+                modal.show(items, el_item.getBoundingClientRect());
+            } else {
                 UIContextMenu({ items: items, position: { left: e.pageX, top: e.pageY } });
             }
         });
