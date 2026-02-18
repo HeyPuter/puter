@@ -26,21 +26,16 @@ const { get_user } = require('../../helpers');
 const REVALIDATION_COOKIE_NAME = 'puter_revalidation';
 const REVALIDATION_EXPIRY_SEC = 300; // 5 minutes
 
-/** If Accept includes text/html, set session cookie and redirect to app; otherwise send JSON. */
+/** Returns { session_token, target } for the caller to set cookie and redirect. */
 const finishOidcSuccess_ = async (req, res, user, stateDecoded) => {
     const svc_auth = req.services.get('auth');
-    const { session, token: session_token } = await svc_auth.create_session_token(user, { req });
-    res.cookie(config.cookie_name, session_token, {
-        sameSite: 'none',
-        secure: true,
-        httpOnly: true,
-    });
+    const { token: session_token } = await svc_auth.create_session_token(user, { req });
     let target = stateDecoded.redirect_uri || config.origin || '/';
     const origin = config.origin || '';
     if ( target && origin && !target.startsWith(origin) ) {
         target = origin;
     }
-    return res.redirect(302, target);
+    return { session_token, target };
 };
 
 /** Exchange code for tokens, get userinfo; returns { provider, userinfo, stateDecoded } or sends error and returns null. */
@@ -141,7 +136,13 @@ router.get('/auth/oidc/callback/login', async (req, res) => {
     if ( user.suspended ) {
         return res.status(401).send('This account is suspended.');
     }
-    return await finishOidcSuccess_(req, res, user, stateDecoded);
+    const { session_token, target } = await finishOidcSuccess_(req, res, user, stateDecoded);
+    res.cookie(config.cookie_name, session_token, {
+        sameSite: 'none',
+        secure: true,
+        httpOnly: true,
+    });
+    return res.redirect(302, target);
 });
 
 // GET /auth/oidc/callback/signup - signup only: create new account or abort. Never logs in to existing account.
@@ -167,7 +168,13 @@ router.get('/auth/oidc/callback/signup', async (req, res) => {
         return res.status(400).send(outcome.userMessage);
     }
     const user = await get_user({ id: outcome.infoObject.user_id });
-    return await finishOidcSuccess_(req, res, user, stateDecoded);
+    const { session_token, target } = await finishOidcSuccess_(req, res, user, stateDecoded);
+    res.cookie(config.cookie_name, session_token, {
+        sameSite: 'none',
+        secure: true,
+        httpOnly: true,
+    });
+    return res.redirect(302, target);
 });
 
 // GET /auth/oidc/callback/revalidate - re-validate identity for protected actions (e.g. change username). Sets short-lived cookie and redirects.
