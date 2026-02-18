@@ -517,13 +517,12 @@ body {
 }
 
 .dashboard .path-btn {
-    opacity: 0.4;
+    opacity: 0.6;
     width: 28px;
     cursor: pointer;
     border-radius: 5px;
     padding: 4px;
     background-color: transparent;
-    transition: background-color 0.3s ease-in-out;
 }
 
 .dashboard .path-btn:hover {
@@ -705,7 +704,7 @@ body {
     white-space: nowrap;
     overflow: hidden;
     max-width: unset;
-    color: currentColor;
+    color: currentColor !important;
     text-shadow: none;
     padding: 0 8px;
     margin: 0;

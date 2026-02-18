@@ -1781,7 +1781,7 @@ const TabFiles = {
         const readdirArg = isPath
             ? { path: target, consistency: options.consistency || 'eventual' }
             : { uid: target, consistency: options.consistency || 'eventual' };
-        const directoryContents = await window.puter.fs.readdir(readdirArg);
+        let directoryContents = await window.puter.fs.readdir(readdirArg);
         if ( ! directoryContents ) {
             this.hideSpinner();
             this.renderingDirectory = false;
@@ -1808,6 +1808,13 @@ const TabFiles = {
         }
 
         this.updateSidebarSelection();
+
+        // Filter out hidden files/folders and AppData in home directory
+        directoryContents = directoryContents.filter(file => {
+            if ( file.name.startsWith('.') ) return false;
+            if ( file.name === 'AppData' && this.currentPath === window.home_path ) return false;
+            return true;
+        });
 
         const isTrashFolder = this.currentPath === window.trash_path;
         this.updateActionButtons(isTrashFolder);
