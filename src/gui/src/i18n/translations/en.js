@@ -116,7 +116,6 @@ const en = {
         desktop_background_fit: 'Fit',
         developers: 'Developers',
         dir_published_as_website: '%strong% has been published to:',
-        directory_depth_limit_exceeded: 'Cannot create folder. The maximum directory depth has been reached. Please create the folder in a higher-level directory.',
         disable_2fa: 'Disable 2FA',
         disable_2fa_confirm: 'Are you sure you want to disable 2FA?',
         disable_2fa_instructions: 'Enter your password to disable 2FA.',
@@ -169,7 +168,6 @@ const en = {
         item: 'item',
         items_in_trash_cannot_be_renamed: 'This item can\'t be renamed because it\'s in the trash. To rename this item, first drag it out of the Trash.',
         jpeg_image: 'JPEG image',
-        add_to_desktop: 'Add to Desktop',
         keep_in_taskbar: 'Keep in Taskbar',
         language: 'Language',
         license: 'License',
@@ -203,6 +201,7 @@ const en = {
         no_dir_associated_with_site: 'No directory associated with this address.',
         no_websites_published: 'You have not published any websites yet. Right click on a folder to get started.',
         ok: 'OK',
+        or: 'or',
         open: 'Open',
         new_window: 'New Window',
         open_in_ai: 'Open in AI',
@@ -482,6 +481,8 @@ const en = {
 
         // Signup Window
         'signup_confirm_password': 'Confirm Password',
+        sign_in_with_google: 'Sign in with Google',
+        sign_up_with_google: 'Sign up with Google',
 
         // Login Window
         'login_email_username_required': 'Email or username is required',
@@ -549,6 +550,8 @@ const en = {
         'perm_apps_write': 'manage your apps',
         'perm_subdomains_read': 'see your subdomains',
         'perm_subdomains_write': 'manage your subdomains',
+        'perm_app_root_dir_read': 'read the root directory of one of your apps',
+        'perm_app_root_dir_write': 'read and write to the root directory of one of your apps',
 
         'error_user_or_path_not_found': 'User or path not found.',
         'error_invalid_username': 'Invalid username.',
