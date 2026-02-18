@@ -2,9 +2,10 @@ import { v4 as uuidv4 } from 'uuid';
 
 import APIError from '../../api/APIError.js';
 import config from '../../config.js';
-import { app_name_exists } from '../../helpers.js';
+import { NodeInternalIDSelector } from '../../filesystem/node/selectors.js';
+import { app_name_exists, get_app } from '../../helpers.js';
 import { AppUnderUserActorType, UserActorType } from '../../services/auth/Actor.js';
-import { PermissionUtil } from '../../services/auth/permissionUtils.mjs';
+import { PERMISSION_FOR_NOTHING_IN_PARTICULAR, PermissionRewriter, PermissionUtil } from '../../services/auth/permissionUtils.mjs';
 import BaseService from '../../services/BaseService.js';
 import { DB_READ, DB_WRITE } from '../../services/database/consts.js';
 import { Context } from '../../util/context.js';
@@ -197,6 +198,59 @@ export default class AppService extends BaseService {
         this.repository = new AppRepository();
         this.db = this.services.get('database').get(DB_READ, 'apps');
         this.db_write = this.services.get('database').get(DB_WRITE, 'apps');
+
+        const svc_permission = this.services.get('permission');
+        const svc_app = this;
+
+        // Rewrite app-root-dir:<app-uid>:<access> to fs:<uuid>:<access>
+        svc_permission.register_rewriter(PermissionRewriter.create({
+            matcher: permission => permission.startsWith('app-root-dir:'),
+            rewriter: async permission => {
+                const context = Context.get();
+
+                // Only "AppUnderUser" scope is allowed to have this permission rewritten to
+                // an actual filesystem permission - this is because apps will still be limited
+                // baesd on a user's own access.
+                const actor = context.get('actor');
+                if ( ! Context.get('is_grant_user_app_permission') ) {
+                    return PERMISSION_FOR_NOTHING_IN_PARTICULAR;
+                }
+
+                const parts = PermissionUtil.split(permission);
+                if ( parts.length < 3 ) {
+                    throw APIError.create('field_invalid', null, { key: 'permission', got: permission });
+                }
+
+                // <>:<app-uid>:<access>
+                const target_app_uid = parts[1];
+                const access = parts[2];
+                if ( ! target_app_uid ) {
+                    throw APIError.create('field_invalid', null, { key: 'target_app_uid', got: target_app_uid });
+                }
+
+                if ( ! (actor.type instanceof UserActorType) ) {
+                    throw APIError.create('forbidden');
+                }
+
+                const target_app = await get_app({ uid: target_app_uid });
+                if ( ! target_app ) {
+                    throw APIError.create('entity_not_found', null, { identifier: `app:${target_app_uid}` });
+                }
+                if ( target_app.owner_user_id !== actor.type.user.id ) {
+                    throw APIError.create('forbidden');
+                }
+
+                const root_dir_id = await svc_app.getAppRootDirId(target_app);
+                const svc_fs = context.get('services').get('filesystem');
+                const node = await svc_fs.node(new NodeInternalIDSelector('mysql', root_dir_id));
+                await node.fetchEntry();
+                if ( ! node.found ) throw APIError.create('subject_does_not_exist');
+
+                const node_uid = await node.get('uid');
+                return PermissionUtil.join('fs', node_uid, access);
+            },
+        }));
+
     }
 
     static PROTECTED_FIELDS = ['last_review'];
@@ -951,6 +1005,41 @@ export default class AppService extends BaseService {
                 throw APIError.create('forbidden');
             }
         }
+    }
+
+    /**
+     * Resolves an app's subdomain to its puter.site root_dir_id.
+     * Tries associated_app_id first, then falls back to index_url-based lookup.
+     * @param {Object} app - App object with id, index_url, uid
+     * @returns {Promise<number>} root_dir_id
+     * @throws {APIError} entity_not_found if the app has no subdomain / root directory
+     */
+    async getAppRootDirId (app) {
+        const db_sites = this.services.get('database').get(DB_READ, 'sites');
+        const rows = await db_sites.read(
+            'SELECT root_dir_id FROM subdomains WHERE associated_app_id = ? AND root_dir_id IS NOT NULL LIMIT 1',
+            [app.id],
+        );
+        if ( rows?.[0]?.root_dir_id != null ) {
+            return rows[0].root_dir_id;
+        }
+
+        let hostname;
+        try {
+            hostname = (new URL(app.index_url)).hostname.toLowerCase();
+        } catch {
+            throw APIError.create('entity_not_found', null, { identifier: `app ${app.uid} root directory` });
+        }
+        const hosting_domain = config.static_hosting_domain?.toLowerCase();
+        if ( !hosting_domain || !hostname.endsWith(`.${hosting_domain}`) ) {
+            throw APIError.create('entity_not_found', null, { identifier: `app ${app.uid} root directory` });
+        }
+        const subdomain = hostname.slice(0, hostname.length - hosting_domain.length - 1);
+        const site = await this.services.get('puter-site').get_subdomain(subdomain, { is_custom_domain: false });
+        if ( ! site?.root_dir_id ) {
+            throw APIError.create('entity_not_found', null, { identifier: `app ${app.uid} root directory` });
+        }
+        return site.root_dir_id;
     }
 
     async #ensure_puter_site_subdomain_is_owned (index_url, user) {
