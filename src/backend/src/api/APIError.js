@@ -155,7 +155,9 @@ class APIError {
         },
         'forbidden': {
             status: 403,
-            message: 'Permission denied.',
+            message: ({ debug_reason }) => (process.env.DEBUG && debug_reason)
+                ? `Permission denied: ${debug_reason}`
+                : 'Permission denied.',
         },
         'immutable': {
             status: 403,
