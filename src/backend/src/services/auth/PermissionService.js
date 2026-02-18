@@ -1191,7 +1191,10 @@ class PermissionService extends BaseService {
      * @param {PermissionRewriter} rewriter - The permission rewriter to register
      */
     register_rewriter (rewriter) {
-        if ( ! (rewriter instanceof PermissionRewriter) ) {
+        const is_permission_rewriter = rewriter instanceof PermissionRewriter
+            // Hack for ESM/CJS interop issue in unit tests.
+            || rewriter?.constructor?.name === 'PermissionRewriter';
+        if ( ! is_permission_rewriter ) {
             throw new Error('rewriter must be a PermissionRewriter');
         }
 
