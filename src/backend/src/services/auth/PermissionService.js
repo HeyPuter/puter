@@ -29,6 +29,7 @@ const { PERM_KEY_PREFIX, MANAGE_PERM_PREFIX } = require('./permissionConts.mjs')
 const { PermissionUtil, PermissionExploder, PermissionImplicator, PermissionRewriter } = require('./permissionUtils.mjs');
 const { spanify } = require('../../util/otelutil');
 const { redisClient } = require('../../clients/redis/redisSingleton');
+const { Context } = require('../../util/context');
 
 /**
 * @class PermissionService
@@ -255,6 +256,28 @@ class PermissionService extends BaseService {
         }
     }
 
+    /**
+     * Removes permission-scan cache entries for a single app-under-user actor.
+     * Used after grant_user_app_permission so the next check sees the new permission
+     * without waiting for cache TTL. Only keys for this (user, app) are removed.
+     *
+     * @param {string} user_uuid - The user's UUID.
+     * @param {string} app_uid - The app UID.
+     * @returns {Promise<void>}
+     */
+    async invalidate_permission_scan_cache_for_app_under_user (user_uuid, app_uid) {
+        const prefix = PermissionUtil.permission_scan_cache_prefix_for_app_under_user(user_uuid, app_uid);
+        const pattern = `${prefix}*`;
+        let cursor = '0';
+        const toDelete = [];
+        do {
+            const [next_cursor, keys] = await redisClient.scan(cursor, 'MATCH', pattern, 'COUNT', 100);
+            cursor = next_cursor;
+            if ( keys?.length ) toDelete.push(...keys);
+        } while ( cursor !== '0' );
+        if ( toDelete.length ) await redisClient.del(...toDelete);
+    }
+
     async validateUserPerms ({ actor, permissions }) {
 
         const flatPermsReading = await this.#flat_validateUserPerms({ actor, permissions });
@@ -395,7 +418,11 @@ class PermissionService extends BaseService {
     * @returns {Promise<void>}
     */
     async grant_user_app_permission (actor, app_uid, permission, extra = {}, meta) {
-        permission = await this._rewrite_permission(permission);
+        // We add 'is_grant_user_app_permission' to guard against any logic
+        // error that might cause unintended access being granted to users.
+        permission = await Context.sub({
+            is_grant_user_app_permission: true,
+        }).arun(async () => await this._rewrite_permission(permission));
 
         let app = await get_app({ uid: app_uid });
         if ( ! app ) app = await get_app({ name: app_uid });
@@ -440,6 +467,9 @@ class PermissionService extends BaseService {
         this.db.write(`INSERT INTO \`audit_user_to_app_permissions\` (${sql_cols}) ` +
             `VALUES (${sql_vals})`,
         Object.values(audit_values));
+
+        // Invalidate permission-scan cache for this app-under-user so the next check sees the grant.
+        await this.invalidate_permission_scan_cache_for_app_under_user(actor.type.user.uuid, app.uid);
     }
 
     /**
@@ -1018,7 +1048,7 @@ class PermissionService extends BaseService {
     async list_user_permission_issuers (user) {
         const rows = await this.db.read('SELECT DISTINCT issuer_user_id FROM `user_to_user_permissions` ' +
             'WHERE `holder_user_id` = ?',
-        [ user.id ]);
+        [user.id]);
 
         const users = [];
         for ( const row of rows ) {
@@ -1201,7 +1231,7 @@ class PermissionService extends BaseService {
             {
                 id: 'grant-user-app',
                 handler: async (args, _log) => {
-                    const [ username, app_uid, permission, extra ] = args;
+                    const [username, app_uid, permission, extra] = args;
 
                     // actor from username
                     const actor = new Actor({
@@ -1216,7 +1246,7 @@ class PermissionService extends BaseService {
             {
                 id: 'scan',
                 handler: async (args, ctx) => {
-                    const [ username, permission ] = args;
+                    const [username, permission] = args;
 
                     // actor from username
                     const actor = new Actor({
@@ -1233,7 +1263,7 @@ class PermissionService extends BaseService {
             {
                 id: 'scan-app',
                 handler: async (args, ctx) => {
-                    const [ username, app_name, permission ] = args;
+                    const [username, app_name, permission] = args;
                     const app = await get_app({ name: app_name });
 
                     // actor from username
