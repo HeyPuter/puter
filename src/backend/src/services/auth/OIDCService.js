@@ -234,7 +234,7 @@ export class OIDCService extends BaseService {
             assume_email_ownership: true,
         });
         const { user_id } = outcome.infoObject;
-        if ( outcome.success ) {
+        if ( outcome.succeeded ) {
             await this.linkProviderToUser(user_id, providerId, claims.sub, null);
         }
         return outcome;

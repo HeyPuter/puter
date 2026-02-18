@@ -7,6 +7,9 @@ export class OutcomeObject {
     fields = {};
     ended = false;
     infoObject;
+    get succeeded () {
+        return this.ended && !this.failed;
+    }
     constructor (infoObject) {
         this.failed = true;
         this.userMessageFields = {};
