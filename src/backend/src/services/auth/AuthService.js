@@ -714,6 +714,34 @@ class AuthService extends BaseService {
                 return res.json({ token: gui_token });
             },
         }).attach(app);
+
+        // Sync HTTP-only session cookie to the user implied by the request's auth token.
+        // Used when switching users in the UI: client sends Authorization with the new user's
+        // GUI token; we set the session cookie so cookie-based (e.g. user-protected) requests match.
+        Endpoint({
+            route: '/session/sync-cookie',
+            methods: ['GET'],
+            mw: [configurable_auth()],
+            handler: async (req, res) => {
+                if ( ! req.user ) {
+                    return res.status(401).end();
+                }
+                const actor = Context.get('actor');
+                if ( !(actor.type instanceof UserActorType) || !actor.type.session ) {
+                    return res.status(400).end();
+                }
+                const session_token = svc_auth.create_session_token_for_session(
+                    actor.type.user,
+                    actor.type.session,
+                );
+                res.cookie(config.cookie_name, session_token, {
+                    sameSite: 'none',
+                    secure: true,
+                    httpOnly: true,
+                });
+                return res.status(204).end();
+            },
+        }).attach(app);
     }
 }
 

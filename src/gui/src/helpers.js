@@ -461,6 +461,27 @@ window.update_auth_data = async (auth_token, user, api_origin) => {
     window.auth_token = auth_token;
     localStorage.setItem('auth_token', auth_token);
 
+    // Set http-only session cookie when user is changing.
+    // This ensures user-protected endpoints, which only refer to the http-only cookie,
+    // act on the intended user.
+    // Only the server can set this cookie, so we call the `/session/sync-cookie` endpoint.
+    const userChanging = !window.user || window.user.uuid !== user.uuid;
+    if ( userChanging && auth_token && (window.gui_origin || window.location?.origin) ) {
+        try {
+            const origin = window.gui_origin || window.location.origin;
+            await fetch(`${origin}/session/sync-cookie`, {
+                method: 'GET',
+                credentials: 'include',
+                headers: { Authorization: `Bearer ${auth_token}` },
+            });
+        } catch (e) {
+            console.error('Failed to sync session cookie:', e);
+            await UIAlert({
+                message: `Failed to sync session cookie: ${ e.message}`,
+            });
+        }
+    }
+
     if ( api_origin ) {
         window.api_origin = api_origin;
         localStorage.setItem('api_origin', api_origin);
