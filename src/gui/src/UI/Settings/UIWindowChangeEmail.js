@@ -164,7 +164,7 @@ async function UIWindowChangeEmail (options) {
         }
         if ( data.code === 'oidc_revalidation_required' && data.revalidate_url ) {
             await myOpenRevalidatePopup(data.revalidate_url);
-            const r = await doSubmit();
+            const r = await doSubmit({ new_email });
             if ( r.ok ) onSuccess();
             else r.json().then((d) => onError(d.message || 'Request failed')).catch(() => onError('Request failed'));
             return;
