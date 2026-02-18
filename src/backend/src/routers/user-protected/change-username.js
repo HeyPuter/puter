@@ -46,7 +46,7 @@ module.exports = {
         }
 
         const svc_edgeRateLimit = req.services.get('edge-rate-limit');
-        if ( ! svc_edgeRateLimit.check('change-email-start') ) {
+        if ( ! svc_edgeRateLimit.check('change-username-start') ) {
             return res.status(429).send('Too many requests.');
         }
 
