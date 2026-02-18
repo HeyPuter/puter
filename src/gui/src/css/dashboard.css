@@ -636,6 +636,7 @@ body {
     flex-direction: column;
     padding-bottom: 30px;
     overflow-y: auto;
+    touch-action: pan-y;
 }
 
 .dashboard-section-files .row {
@@ -647,6 +648,7 @@ body {
     align-items: center;
     font-size: 13px;
     color: var(--dashboard-text);
+    touch-action: pan-y;
     margin: 1px 2px;
     pointer-events: auto;
     float: unset;
@@ -2701,6 +2703,8 @@ body {
     opacity: 0;
     z-index: 9999999;
     transition: opacity 200ms ease-in-out;
+    -webkit-user-select: none;
+    user-select: none;
 }
 
 .context-menu-modal-backdrop.show {

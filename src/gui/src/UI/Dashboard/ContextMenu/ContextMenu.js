@@ -182,6 +182,14 @@ export default class ContextMenuModal {
         };
         this.backdrop.addEventListener('click', this.backdropClickHandler);
 
+        // Prevent text selection and close on backdrop touch
+        this.backdrop.addEventListener('touchstart', (e) => {
+            if ( e.target === this.backdrop ) {
+                e.preventDefault();
+                this.close();
+            }
+        }, { passive: false });
+
         // Handle menu item clicks
         this.itemClickHandler = (e) => {
             if ( this.ignoreInteractions ) return;
