@@ -128,7 +128,7 @@ async function UIWindowChangeUsername (options) {
         }
         if ( oidc_only && !revalidated && !password ) {
             $(el_window).find('.change-username-btn').addClass('disabled');
-            myOpenRevalidatePopup();
+            await myOpenRevalidatePopup();
 
             const res = await doSubmit();
             const data = res.ok ? await res.json().catch(() => ({})) : await res.json().catch(() => ({}));
@@ -148,7 +148,7 @@ async function UIWindowChangeUsername (options) {
             return;
         }
         if ( data.code === 'oidc_revalidation_required' && data.revalidate_url ) {
-            myOpenRevalidatePopup(data.revalidate_url);
+            await myOpenRevalidatePopup(data.revalidate_url);
             const r = await doSubmit();
             if ( r.ok ) onSuccess();
             else r.json().then((d) => onError(d.message || 'Request failed')).catch(() => onError('Request failed'));
