@@ -117,19 +117,6 @@ const configurable_auth = options => async (req, res, next) => {
     const services = context.get('services');
     const svc_auth = services.get('auth');
 
-    // Debug: log token source and decoded type before creating Actor (for session_required / hasHttpOnlyCookie debugging)
-    if ( process.env.DEBUG ) {
-        let decodedForLog;
-        try {
-            decodedForLog = jwt.decode(token);
-        } catch ( _ ) { /* ignore */ }
-        console.log('decodedForLog?', decodedForLog);
-        const tokenType = decodedForLog && decodedForLog.t != null ? decodedForLog.t : '(no type or invalid jwt)';
-        const tokenPreview = typeof token === 'string' && token.length > 20
-            ? `${token.slice(0, 12)}...${token.slice(-8)}`
-            : '(short)';
-    }
-
     let actor;
     try {
         actor = await svc_auth.authenticate_from_token(token);
