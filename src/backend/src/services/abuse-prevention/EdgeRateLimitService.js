@@ -44,83 +44,83 @@ class EdgeRateLimitService extends BaseService {
     */
     _construct () {
         this.scopes = {
-            ['login']: {
+            'login': {
                 limit: 10,
                 window: 15 * MINUTE,
             },
-            ['signup']: {
+            'signup': {
                 limit: 10,
                 window: 15 * MINUTE,
             },
-            ['contact-us']: {
+            'contact-us': {
                 limit: 10,
                 window: 15 * MINUTE,
             },
-            ['share']: {
+            'share': {
                 limit: 30,
                 window: 1 * MINUTE,
             },
-            ['send-confirm-email']: {
+            'send-confirm-email': {
                 limit: 10,
                 window: HOUR,
             },
-            ['confirm-email']: {
+            'confirm-email': {
                 limit: 10,
                 window: HOUR,
             },
-            ['send-pass-recovery-email']: {
+            'send-pass-recovery-email': {
                 limit: 10,
                 window: HOUR,
             },
-            ['verify-pass-recovery-token']: {
+            'verify-pass-recovery-token': {
                 limit: 10,
                 window: 15 * MINUTE,
             },
-            ['set-pass-using-token']: {
+            'set-pass-using-token': {
                 limit: 10,
                 window: HOUR,
             },
-            ['save-account']: {
+            'save-account': {
                 limit: 10,
                 window: HOUR,
             },
-            ['change-email-start']: {
+            'change-email-start': {
                 limit: 10,
                 window: HOUR,
             },
-            ['change-email-confirm']: {
+            'change-email-confirm': {
                 limit: 10,
                 window: HOUR,
             },
-            ['passwd']: {
+            'passwd': {
                 limit: 10,
                 window: HOUR,
             },
-            ['/user-protected/change-password']: {
+            '/user-protected/change-password': {
                 limit: 10,
                 window: HOUR,
             },
-            ['/user-protected/change-email']: {
+            '/user-protected/change-email': {
                 limit: 10,
                 window: HOUR,
             },
-            ['/user-protected/change-username']: {
+            '/user-protected/change-username': {
                 limit: 10,
                 window: HOUR,
             },
-            ['/user-protected/disable-2fa']: {
+            '/user-protected/disable-2fa': {
                 limit: 10,
                 window: HOUR,
             },
-            ['login-otp']: {
+            'login-otp': {
                 limit: 15,
                 window: 30 * MINUTE,
             },
-            ['login-recovery']: {
+            'login-recovery': {
                 limit: 10,
                 window: HOUR,
             },
-            ['enable-2fa']: {
+            'enable-2fa': {
                 limit: 10,
                 window: HOUR,
             },

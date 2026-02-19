@@ -129,7 +129,7 @@ class Kernel extends AdvancedBase {
             extensionInfo: this.extensionInfo,
             registry: this.registry,
             args,
-            ['runtime-modules']: this.runtimeModuleRegistry,
+            'runtime-modules': this.runtimeModuleRegistry,
         }, 'app');
         globalThis.root_context = root_context;
 
@@ -149,7 +149,7 @@ class Kernel extends AdvancedBase {
             services.registerModule(module_.constructor.name, module_);
             const mod_context = this._create_mod_context(Context.get(), {
                 name: module_.constructor.name,
-                ['module']: module_,
+                'module': module_,
                 external: false,
             });
             await module_.install(mod_context);
@@ -437,7 +437,7 @@ class Kernel extends AdvancedBase {
 
         const mod_context = this._create_mod_context(mod_install_root_context, {
             name: mod_name,
-            ['module']: mod,
+            'module': mod,
             external: true,
             mod_path,
         });

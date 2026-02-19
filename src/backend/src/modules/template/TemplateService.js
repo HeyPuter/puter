@@ -45,7 +45,7 @@ class TemplateService extends BaseService {
     /**
      * TemplateService listens to this event to provide an example endpoint
      */
-    ['__on_install.routes'] (_, { app }) {
+    '__on_install.routes' (_, { app }) {
         this.log.info('TemplateService get the event for installing endpoint.');
         Endpoint({
             route: '/example-endpoint',
@@ -61,7 +61,7 @@ class TemplateService extends BaseService {
     /**
      * TemplateService listens to this event to provide an example event
      */
-    ['__on_boot.consolidation'] () {
+    '__on_boot.consolidation' () {
         // At this stage, all services have been initialized and it is
         // safe to start emitting events.
         this.log.info('TemplateService sees consolidation boot phase.');
@@ -81,14 +81,14 @@ class TemplateService extends BaseService {
     /**
      * TemplateService listens to this event to show you that it's here
      */
-    ['__on_boot.activation'] () {
+    '__on_boot.activation' () {
         this.log.info('TemplateService sees activation boot phase.');
     }
 
     /**
      * TemplateService listens to this event to show you that it's here
      */
-    ['__on_start.webserver'] () {
+    '__on_start.webserver' () {
         this.log.info("TemplateService sees it's time to start web servers.");
     }
 }

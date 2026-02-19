@@ -107,7 +107,7 @@ export class TestKernel extends AdvancedBase {
         const root_context = Context.create({
             services,
             useapi: this.useapi,
-            ['runtime-modules']: this.runtimeModuleRegistry,
+            'runtime-modules': this.runtimeModuleRegistry,
             args: {},
         }, 'app');
         this.root_context = root_context;
@@ -135,7 +135,7 @@ export class TestKernel extends AdvancedBase {
                 const mod_context = this._create_mod_context(mod_install_root_context,
                                 {
                                     name: module.constructor.name,
-                                    ['module']: module,
+                                    'module': module,
                                     external: false,
                                 });
                 await this.root_context.arun(async () => {

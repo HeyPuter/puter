@@ -99,7 +99,7 @@ class CommandService extends BaseService {
         }));
     }
 
-    async ['__on_boot.consolidation'] () {
+    async '__on_boot.consolidation' () {
         const svc_event = this.services.get('event');
         const svc_command = this;
         const event = {

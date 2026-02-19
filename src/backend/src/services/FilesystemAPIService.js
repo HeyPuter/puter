@@ -38,7 +38,7 @@ class FilesystemAPIService extends BaseService {
      * @function __on_install.routes
      * @returns {Promise<void>} A promise that resolves when the routes are set up.
      */
-    async ['__on_install.routes'] () {
+    async '__on_install.routes' () {
         const { app } = this.services.get('web-server');
 
         // batch

@@ -38,7 +38,7 @@ class PuterAPIService extends BaseService {
     * This method registers various API endpoints with the web server.
     * It does not return a value as it configures the server directly.
     */
-    async ['__on_install.routes'] () {
+    async '__on_install.routes' () {
         const svc_web = this.services.get('web-server');
         const { app } = svc_web;
         svc_web.allow_undefined_origin('/healthcheck');

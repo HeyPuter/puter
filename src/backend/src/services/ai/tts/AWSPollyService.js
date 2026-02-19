@@ -60,12 +60,12 @@ class AWSPollyService extends BaseService {
     }
 
     static IMPLEMENTS = {
-        ['driver-capabilities']: {
+        'driver-capabilities': {
             supports_test_mode (iface, method_name) {
                 return iface === 'puter-tts' && method_name === 'synthesize';
             },
         },
-        ['puter-tts']: {
+        'puter-tts': {
             /**
             * Implements the driver interface methods for text-to-speech functionality
             * Contains methods for listing available voices and synthesizing speech

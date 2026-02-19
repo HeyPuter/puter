@@ -41,7 +41,7 @@ class BootScriptService extends BaseService {
     * @function
     * @returns {Promise<void>}
     */
-    async ['__on_boot.ready'] () {
+    async '__on_boot.ready' () {
         const args = Context.get('args');
         if ( ! args['boot-script'] ) return;
         const script_name = args['boot-script'];
@@ -66,7 +66,7 @@ class BootScriptService extends BaseService {
     async run_script (boot_json) {
         const scope = {
             runner: 'boot-script',
-            ['end-puter-process']: ({ args }) => {
+            'end-puter-process': ({ args }) => {
                 const svc_shutdown = this.services.get('shutdown');
                 svc_shutdown.shutdown(args[0]);
             },

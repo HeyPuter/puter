@@ -101,7 +101,7 @@ class ACLService extends BaseService {
     * @returns {Promise<boolean>} True if actor has permission, false otherwise
     * @private
     */
-    async ['__on_install.routes'] (_, { app }) {
+    async '__on_install.routes' (_, { app }) {
         /**
         * Handles route installation for ACL service endpoints.
         * Sets up routes for user-to-user permission management including:

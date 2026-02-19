@@ -63,7 +63,7 @@ class UserProtectedEndpointsService extends BaseService {
     * @instance
     * @method __on_install.routes
     */
-    ['__on_install.routes'] () {
+    '__on_install.routes' () {
         const router = (() => {
             const require = this.require;
             const express = require('express');

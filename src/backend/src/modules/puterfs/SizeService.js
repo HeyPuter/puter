@@ -41,7 +41,7 @@ class SizeService extends BaseService {
 
     }
 
-    ['__on_boot.consolidate'] () {
+    '__on_boot.consolidate' () {
         const svc_commands = this.services.get('commands');
         svc_commands.registerCommands('size', [
             {

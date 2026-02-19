@@ -193,7 +193,7 @@ class IdentificationService extends BaseService {
     /**
     * We need to listen to this event to install a context-aware middleware
     */
-    async ['__on_install.middlewares.context-aware'] (_, { app }) {
+    async '__on_install.middlewares.context-aware' (_, { app }) {
         this.mw.install(app);
     }
 }

@@ -40,7 +40,7 @@ class ChatAPIService extends BaseService {
     * @param {Express} options.app Express application instance to install routes on
     * @returns {Promise<void>}
     */
-    async ['__on_install.routes'] (_, { app }) {
+    async '__on_install.routes' (_, { app }) {
         // Create a router for chat API endpoints
         const router = (() => {
             const require = this.require;

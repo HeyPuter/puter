@@ -98,7 +98,7 @@ class BroadcastService extends BaseService {
         }
     }
 
-    async ['__on_install.routes'] (_, { app }) {
+    async '__on_install.routes' (_, { app }) {
         const svc_web = this.services.get('web-server');
         svc_web.allow_undefined_origin('/broadcast/webhook');
 
@@ -253,7 +253,7 @@ class BroadcastService extends BaseService {
         }
     }
 
-    async ['__on_install.websockets'] () {
+    async '__on_install.websockets' () {
         const svc_event = this.services.get('event');
         const svc_webServer = this.services.get('web-server');
 

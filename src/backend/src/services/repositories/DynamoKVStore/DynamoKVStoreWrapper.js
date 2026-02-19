@@ -41,7 +41,7 @@ class DynamoKVStoreServiceWrapper extends BaseService {
         });
     }
     static IMPLEMENTS = {
-        ['puter-kvstore']: Object.getOwnPropertyNames(DynamoKVStore.prototype)
+        'puter-kvstore': Object.getOwnPropertyNames(DynamoKVStore.prototype)
             .filter(n => n !== 'constructor')
             .reduce((acc, fn) => ({
                 ...acc,

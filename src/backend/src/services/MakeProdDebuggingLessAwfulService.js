@@ -110,7 +110,7 @@ class MakeProdDebuggingLessAwfulService extends BaseService {
     * @param {Express} options.app Express application instance
     * @returns {Promise<void>}
     */
-    async ['__on_install.middlewares.context-aware'] (_, { app }) {
+    async '__on_install.middlewares.context-aware' (_, { app }) {
         // Add express middleware
         this.mw.install(app);
     }

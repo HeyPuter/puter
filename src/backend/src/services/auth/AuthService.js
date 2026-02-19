@@ -685,7 +685,7 @@ class AuthService extends BaseService {
      * Registers GET /get-gui-token. Must be called from the GUI origin (no api. subdomain)
      * so the HTTP-only session cookie is sent. Returns the GUI token for use in Authorization headers.
      */
-    ['__on_install.routes'] () {
+    '__on_install.routes' () {
         const { app } = this.services.get('web-server');
         const config = require('../../config');
         const { subdomain } = require('../../helpers');

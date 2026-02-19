@@ -43,7 +43,7 @@ class LocalDiskStorageService extends BaseService {
     *
     * @returns {Promise<void>} A promise that resolves when the context is initialized.
     */
-    async ['__on_install.context-initializers'] () {
+    async '__on_install.context-initializers' () {
         const svc_contextInit = this.services.get('context-init');
         const storage = new LocalDiskStorageStrategy({ services: this.services });
         svc_contextInit.register_value('storage', storage);

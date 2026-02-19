@@ -41,7 +41,7 @@ class PermissionAPIService extends BaseService {
     * @param {Express} options.app Express application instance to install routes on
     * @returns {Promise<void>}
     */
-    async ['__on_install.routes'] (_, { app }) {
+    async '__on_install.routes' (_, { app }) {
         app.use(require('../routers/auth/get-user-app-token'));
         app.use(require('../routers/auth/grant-user-app'));
         app.use(require('../routers/auth/revoke-user-app'));

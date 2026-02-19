@@ -46,7 +46,7 @@ class WebServerService extends BaseService {
         helmet: require('helmet'),
         cookieParser: require('cookie-parser'),
         compression: require('compression'),
-        ['on-finished']: require('on-finished'),
+        'on-finished': require('on-finished'),
         morgan: require('morgan'),
     };
 
@@ -64,7 +64,7 @@ class WebServerService extends BaseService {
     * @private
     */
     // comment above line 44 in WebServerService.js
-    async ['__on_boot.consolidation'] () {
+    async '__on_boot.consolidation' () {
         const app = this.app;
         const services = this.services;
         await services.emit('install.middlewares.early', { app });
@@ -115,7 +115,7 @@ class WebServerService extends BaseService {
     *
     * @returns {Promise<void>} A promise that resolves once the server is started.
     */
-    async ['__on_boot.activation'] () {
+    async '__on_boot.activation' () {
         const services = this.services;
         await services.emit('start.webserver');
         await services.emit('ready.webserver');
@@ -130,7 +130,7 @@ class WebServerService extends BaseService {
     *
     * @return {Promise} A promise that resolves when the server is up and running.
     */
-    async ['__on_start.webserver'] () {
+    async '__on_start.webserver' () {
         // error handling middleware goes last, as per the
         // expressjs documentation:
         // https://expressjs.com/en/guide/error-handling.html

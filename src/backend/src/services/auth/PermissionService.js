@@ -72,7 +72,7 @@ class PermissionService extends BaseService {
         this.dbAvgTimes = { count: 0, avg: 0, max: 0 };
     }
 
-    async ['__on_boot.consolidation'] () {
+    async '__on_boot.consolidation' () {
         const svc_event = this.services.get('event');
         // Event to allow extensions to add permissions
         {
