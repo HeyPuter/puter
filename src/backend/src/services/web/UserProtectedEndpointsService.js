@@ -29,15 +29,6 @@ const jwt = require('jsonwebtoken');
 
 const REVALIDATION_COOKIE_NAME = 'puter_revalidation';
 
-async function revalidateUrlFields_ (svc, req, user) {
-    const origin = (config.origin || '').replace(/\/$/, '');
-    const svc_oidc = req.services.get('oidc');
-    const providers = await svc_oidc.getEnabledProviderIds();
-    const provider = providers && providers[0];
-    if ( ! provider ) return {};
-    return { revalidate_url: `${origin}/auth/oidc/${provider}/start?flow=revalidate&user_id=${user.id}` };
-}
-
 /**
 * @class UserProtectedEndpointsService
 * @extends BaseService
@@ -53,6 +44,15 @@ class UserProtectedEndpointsService extends BaseService {
     static MODULES = {
         express: require('express'),
     };
+
+    async #revalidateUrlFields (req, user) {
+        const origin = (config.origin || '').replace(/\/$/, '');
+        const svc_oidc = req.services.get('oidc');
+        const providers = await svc_oidc.getEnabledProviderIds();
+        const provider = providers && providers[0];
+        if ( ! provider ) return {};
+        return { revalidate_url: `${origin}/auth/oidc/${provider}/start?flow=revalidate&user_id=${user.id}` };
+    }
 
     /**
     * Sets up and configures routes for user-protected endpoints.
@@ -131,7 +131,7 @@ class UserProtectedEndpointsService extends BaseService {
 
             if ( req.body.password ) {
                 if ( user.password === null ) {
-                    return (APIError.create('oidc_revalidation_required', null, await revalidateUrlFields_(this, req, user))).write(res);
+                    return (APIError.create('oidc_revalidation_required', null, await this.#revalidateUrlFields(req, user))).write(res);
                 }
                 const bcrypt = (() => {
                     const require = this.require;
@@ -156,7 +156,7 @@ class UserProtectedEndpointsService extends BaseService {
             }
 
             if ( user.password === null ) {
-                return (APIError.create('oidc_revalidation_required', null, await revalidateUrlFields_(this, req, user))).write(res);
+                return (APIError.create('oidc_revalidation_required', null, await this.#revalidateUrlFields(req, user))).write(res);
             }
             return (APIError.create('password_required')).write(res);
         });
