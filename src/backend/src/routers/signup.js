@@ -458,7 +458,7 @@ module.exports = eggspress(['/signup'], {
     const svc_user = Context.get('services').get('user');
     await svc_user.generate_default_fsentries({ user });
 
-    // HTTP-only cookie gets session token (cookie-based requests have hasHttpPowers)
+    // HTTP-only cookie gets session token (cookie-based requests have hasHttpOnlyCookie)
     res.cookie(config.cookie_name, session_token, {
         sameSite: 'none',
         secure: true,

@@ -12,10 +12,10 @@ export class SystemActorType {
 }
 
 export class UserActorType {
-    constructor (params: { user: IUser; session?: { uuid: string }; hasHttpPowers?: boolean });
+    constructor (params: { user: IUser; session?: { uuid: string }; hasHttpOnlyCookie?: boolean });
     user: IUser;
     /** When true, this actor can access user-protected HTTP endpoints (e.g. change password). GUI tokens set this false. */
-    hasHttpPowers: boolean;
+    hasHttpOnlyCookie: boolean;
     get uid (): string;
     get_related_type (type_class: unknown): UserActorType;
 }

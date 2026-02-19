@@ -221,7 +221,7 @@ router.post('/save_account', auth, express.json(), async (req, res, next) => {
 
         // todo send LINK-based verification email
 
-        // HTTP-only cookie gets session token (cookie-based requests have hasHttpPowers)
+        // HTTP-only cookie gets session token (cookie-based requests have hasHttpOnlyCookie)
         res.cookie(config.cookie_name, session_token);
 
         {

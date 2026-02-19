@@ -224,8 +224,8 @@ export class Actor extends AdvancedBase {
 export class UserActorType extends ActorType {
     constructor (o) {
         super(o);
-        if ( this.hasHttpPowers === undefined ) {
-            this.hasHttpPowers = false;
+        if ( this.hasHttpOnlyCookie === undefined ) {
+            this.hasHttpOnlyCookie = false;
         }
     }
 

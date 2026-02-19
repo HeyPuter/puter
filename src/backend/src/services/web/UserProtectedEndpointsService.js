@@ -95,7 +95,7 @@ class UserProtectedEndpointsService extends BaseService {
             if ( ! (actor.type instanceof UserActorType) ) {
                 return APIError.create('user_tokens_only').write(res);
             }
-            if ( ! actor.type.hasHttpPowers ) {
+            if ( ! actor.type.hasHttpOnlyCookie ) {
                 return APIError.create('session_required').write(res);
             }
             next();

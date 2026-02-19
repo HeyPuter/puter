@@ -161,7 +161,7 @@ async function UIWindowChangeUsername (options) {
         const new_username = $(el_window).find('.new-username').val();
         const body = { new_username };
         if ( password !== undefined && password !== '' ) body.password = password;
-        // Do not send Authorization: user-protected endpoints use session cookie (hasHttpPowers)
+        // Do not send Authorization: user-protected endpoints use session cookie (hasHttpOnlyCookie)
         return fetch(apiUrl, {
             method: 'POST',
             credentials: 'include',

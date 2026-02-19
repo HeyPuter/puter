@@ -117,7 +117,7 @@ const configurable_auth = options => async (req, res, next) => {
     const services = context.get('services');
     const svc_auth = services.get('auth');
 
-    // Debug: log token source and decoded type before creating Actor (for session_required / hasHttpPowers debugging)
+    // Debug: log token source and decoded type before creating Actor (for session_required / hasHttpOnlyCookie debugging)
     if ( process.env.DEBUG ) {
         let decodedForLog;
         try {
@@ -154,7 +154,7 @@ const configurable_auth = options => async (req, res, next) => {
                 throw APIError.create('forbidden');
             }
 
-            // Use session token in cookie so cookie-based requests have hasHttpPowers; client gets GUI token in response
+            // Use session token in cookie so cookie-based requests have hasHttpOnlyCookie; client gets GUI token in response
             res.cookie(config.cookie_name, new_info.session_token ?? new_info.token, {
                 sameSite: 'none',
                 secure: true,

@@ -107,7 +107,7 @@ class AuthService extends BaseService {
             const actor_type = new UserActorType({
                 user,
                 session: session.uuid,
-                hasHttpPowers: true,
+                hasHttpOnlyCookie: true,
             });
 
             return new Actor({
@@ -132,7 +132,7 @@ class AuthService extends BaseService {
             const actor_type = new UserActorType({
                 user,
                 session: session.uuid,
-                hasHttpPowers: false,
+                hasHttpOnlyCookie: false,
             });
 
             return new Actor({
@@ -338,7 +338,7 @@ class AuthService extends BaseService {
 
     /**
      * Creates a GUI token bound to the same session as the given session object.
-     * GUI tokens create a UserActorType with hasHttpPowers false, so they cannot
+     * GUI tokens create a UserActorType with hasHttpOnlyCookie false, so they cannot
      * access user-protected HTTP endpoints (e.g. change password). The GUI receives
      * only this token, not the full session token.
      *
@@ -356,7 +356,7 @@ class AuthService extends BaseService {
     }
 
     /**
-     * Creates a session token (hasHttpPowers) for an existing session.
+     * Creates a session token (hasHttpOnlyCookie) for an existing session.
      * Used when the client authenticated with a GUI token (e.g. QR login via
      * ?auth_token=) so we can set the HTTP-only cookie and allow user-protected
      * endpoints (change password, email, username, etc.) to work.
@@ -424,7 +424,7 @@ class AuthService extends BaseService {
         const actor_type = new UserActorType({
             user,
             session,
-            hasHttpPowers: true,
+            hasHttpOnlyCookie: true,
         });
 
         const actor = new Actor({
