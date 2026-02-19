@@ -18,7 +18,7 @@
  */
 
 const { RootNodeSelector, NodeChildSelector } = require('../filesystem/node/selectors');
-const { invalidate_cached_user } = require('../helpers');
+const { invalidate_cached_user, invalidate_cached_user_by_id } = require('../helpers');
 const BaseService = require('./BaseService');
 const { DB_WRITE } = require('./database/consts');
 
@@ -136,7 +136,7 @@ class UserService extends BaseService {
             trash_id, appdata_id, desktop_id, documents_id, pictures_id, videos_id, public_id,
             user.id,
         ]);
-        invalidate_cached_user(user);
+        await invalidate_cached_user(user);
     }
 
     async updateUserMetadata (userId, updatedMetadata) {
@@ -164,6 +164,13 @@ class UserService extends BaseService {
 
         // Save back to DB - always stringify for compatibility with both databases
         await this.db.write('UPDATE `user` SET metadata=? WHERE uuid=?', [JSON.stringify(metadata), userId]);
+        const refreshed_user = await this.services.get('get-user').get_user({
+            uuid: userId,
+            force: true,
+        });
+        if ( refreshed_user?.id ) {
+            await invalidate_cached_user_by_id(refreshed_user.id);
+        }
     }
 }
 

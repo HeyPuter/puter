@@ -47,7 +47,6 @@ router.post('/save_account', auth, express.json(), async (req, res, next) => {
     const db = req.services.get('database').get(DB_WRITE, 'auth');
     const validator = require('validator');
     const bcrypt = require('bcrypt');
-    const jwt = require('jsonwebtoken');
     const { v4: uuidv4 } = require('uuid');
 
     // validation
@@ -184,7 +183,7 @@ router.post('/save_account', auth, express.json(), async (req, res, next) => {
                 // id
                 req.user.id,
             ]);
-            invalidate_cached_user(req.user);
+            await invalidate_cached_user(req.user);
 
             // Update root directory name
             await db.write('UPDATE fsentries SET name = ?, path = ? WHERE user_id = ? and parent_uid IS NULL',

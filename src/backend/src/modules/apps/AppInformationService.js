@@ -20,6 +20,7 @@ const { origin_from_url } = require('../../util/urlutil');
 const { DB_READ } = require('../../services/database/consts');
 const BaseService = require('../../services/BaseService');
 const { redisClient } = require('../../clients/redis/redisSingleton');
+const { AppRedisCacheSpace } = require('./AppRedisCacheSpace.js');
 
 // Currently leaks memory (not sure why yet, but icons are a factor)
 const ENABLE_REFRESH_APP_CACHE = false;
@@ -63,6 +64,22 @@ class AppInformationService extends BaseService {
     }
 
     '__on_boot.consolidation' () {
+        const svc_event = this.services.get('event');
+        svc_event.on('app.rename', async (_, { app_uid: appUid, old_name: oldName }) => {
+            try {
+                await this.invalidateAppCache({ appUid, oldName });
+            } catch (e) {
+                this.log.error('failed invalidating app cache after app.rename', { appUid, oldName, error: e });
+            }
+        });
+        svc_event.on('app.changed', async (_, { app_uid: appUid, app }) => {
+            try {
+                await this.invalidateAppCache({ appUid, app });
+            } catch (e) {
+                this.log.error('failed invalidating app cache after app.changed', { appUid, error: e });
+            }
+        });
+
         (async () => {
             try {
                 ENABLE_REFRESH_APP_CACHE && await this._refresh_app_cache();
@@ -95,6 +112,53 @@ class AppInformationService extends BaseService {
         })();
     }
 
+    async invalidateAppCache ({ appUid, oldName, app }) {
+        let resolvedApp = app ?? null;
+        if ( !resolvedApp && appUid ) {
+            resolvedApp = await AppRedisCacheSpace.getCachedApp({
+                lookup: 'uid',
+                value: appUid,
+                rawIcon: true,
+            });
+        }
+        if ( !resolvedApp && appUid ) {
+            const db = this.services.get('database').get(DB_READ, 'apps');
+            resolvedApp = (await db.read(
+                'SELECT id, uid, name FROM apps WHERE uid = ? LIMIT 1',
+                [appUid],
+            ))[0] ?? null;
+        }
+
+        if ( resolvedApp ) {
+            await AppRedisCacheSpace.invalidateCachedApp(resolvedApp, {
+                includeStats: true,
+            });
+        } else if ( appUid ) {
+            await Promise.all([
+                redisClient.del(AppRedisCacheSpace.key({
+                    lookup: 'uid',
+                    value: appUid,
+                    rawIcon: true,
+                })),
+                redisClient.del(AppRedisCacheSpace.key({
+                    lookup: 'uid',
+                    value: appUid,
+                    rawIcon: false,
+                })),
+                AppRedisCacheSpace.invalidateAppStats(appUid),
+            ]);
+        }
+
+        if ( oldName ) {
+            await AppRedisCacheSpace.invalidateCachedAppName(oldName);
+        }
+
+        const svc_event = this.services.get('event');
+        await svc_event.emit('apps.invalidate', {
+            app: resolvedApp ?? app ?? { uid: appUid, name: oldName },
+        });
+    }
+
     /**
     * Retrieves and returns statistical data for a specific application over different time periods.
     *
@@ -123,9 +187,9 @@ class AppInformationService extends BaseService {
 
         // Check cache first if period is 'all' and no grouping is requested
         if ( period === 'all' && !stats_grouping ) {
-            const key_open_count = `apps:open_count:uid:${app_uid}`;
-            const key_user_count = `apps:user_count:uid:${app_uid}`;
-            const key_referral_count = `apps:referral_count:uid:${app_uid}`;
+            const key_open_count = AppRedisCacheSpace.openCountKey(app_uid);
+            const key_user_count = AppRedisCacheSpace.userCountKey(app_uid);
+            const key_referral_count = AppRedisCacheSpace.referralCountKey(app_uid);
 
             const [cached_open_count, cached_user_count, cached_referral_count] = await Promise.all([
                 redisClient.get(key_open_count),
@@ -327,7 +391,7 @@ class AppInformationService extends BaseService {
                         user_count: completeUserStats,
                     },
                     referral_count: period === 'all'
-                        ? parse_cached_int(await redisClient.get(`apps:referral_count:uid:${app_uid}`))
+                        ? parse_cached_int(await redisClient.get(AppRedisCacheSpace.referralCountKey(app_uid)))
                         : null,
                 };
             }
@@ -395,7 +459,7 @@ class AppInformationService extends BaseService {
                         user_count: completeUserStats,
                     },
                     referral_count: period === 'all'
-                        ? parse_cached_int(await redisClient.get(`apps:referral_count:uid:${app_uid}`))
+                        ? parse_cached_int(await redisClient.get(AppRedisCacheSpace.referralCountKey(app_uid)))
                         : null,
                 };
             }
@@ -437,14 +501,14 @@ class AppInformationService extends BaseService {
                 open_count: parseInt(openRows[0].open_count),
                 user_count: parseInt(userRows[0].uniqueUsers),
                 referral_count: period === 'all'
-                    ? parse_cached_int(await redisClient.get(`apps:referral_count:uid:${app_uid}`))
+                    ? parse_cached_int(await redisClient.get(AppRedisCacheSpace.referralCountKey(app_uid)))
                     : null,
             };
 
             // Cache the results if period is 'all'
             if ( period === 'all' ) {
-                const key_open_count = `apps:open_count:uid:${app_uid}`;
-                const key_user_count = `apps:user_count:uid:${app_uid}`;
+                const key_open_count = AppRedisCacheSpace.openCountKey(app_uid);
+                const key_user_count = AppRedisCacheSpace.userCountKey(app_uid);
                 await Promise.all([
                     redisClient.set(key_open_count, results.open_count),
                     redisClient.set(key_user_count, results.user_count),
@@ -475,14 +539,14 @@ class AppInformationService extends BaseService {
                 open_count: parseInt(openResult[0].open_count),
                 user_count: parseInt(userResult[0].user_count),
                 referral_count: period === 'all'
-                    ? parse_cached_int(await redisClient.get(`apps:referral_count:uid:${app_uid}`))
+                    ? parse_cached_int(await redisClient.get(AppRedisCacheSpace.referralCountKey(app_uid)))
                     : null,
             };
 
             // Cache the results if period is 'all'
             if ( period === 'all' ) {
-                const key_open_count = `apps:open_count:uid:${app_uid}`;
-                const key_user_count = `apps:user_count:uid:${app_uid}`;
+                const key_open_count = AppRedisCacheSpace.openCountKey(app_uid);
+                const key_user_count = AppRedisCacheSpace.userCountKey(app_uid);
                 await Promise.all([
                     redisClient.set(key_open_count, results.open_count),
                     redisClient.set(key_user_count, results.user_count),
@@ -504,11 +568,9 @@ class AppInformationService extends BaseService {
 
         let apps = await db.read('SELECT * FROM apps');
         for ( const app of apps ) {
-            const cached_app = JSON.stringify(app);
             await Promise.all([
-                redisClient.set(`apps:name:${ app.name}`, cached_app),
-                redisClient.set(`apps:id:${ app.id}`, cached_app),
-                redisClient.set(`apps:uid:${ app.uid}`, cached_app),
+                AppRedisCacheSpace.setCachedApp(app, { rawIcon: true }),
+                AppRedisCacheSpace.setCachedApp(app, { rawIcon: false }),
             ]);
         }
     }
@@ -549,8 +611,8 @@ class AppInformationService extends BaseService {
         const apps = await db.read('SELECT uid FROM apps');
 
         for ( const app of apps ) {
-            const key_open_count = `apps:open_count:uid:${app.uid}`;
-            const key_user_count = `apps:user_count:uid:${app.uid}`;
+            const key_open_count = AppRedisCacheSpace.openCountKey(app.uid);
+            const key_user_count = AppRedisCacheSpace.userCountKey(app.uid);
 
             await Promise.all([
                 redisClient.set(key_open_count, openCountMap.get(app.uid) ?? 0),
@@ -633,7 +695,7 @@ class AppInformationService extends BaseService {
 
         // Update cache with results
         for ( const app of validApps ) {
-            const key_referral_count = `apps:referral_count:uid:${app.uid}`;
+            const key_referral_count = AppRedisCacheSpace.referralCountKey(app.uid);
             const count = referralMap.get(app.uid) || 0;
             await redisClient.set(key_referral_count, count);
         }
@@ -658,7 +720,7 @@ class AppInformationService extends BaseService {
             // Use SCAN to avoid KEYS, which is often disabled on managed/serverless Redis.
             const [next_cursor, keys] = await redisClient.scan(cursor,
                             'MATCH',
-                            'apps:uid:*',
+                            AppRedisCacheSpace.uidScanPattern({ rawIcon: true }),
                             'COUNT',
                             1000);
             cursor = next_cursor;
@@ -702,15 +764,11 @@ class AppInformationService extends BaseService {
         const db = this.services.get('database').get(DB_READ, 'apps');
 
         if ( ! app ) {
-            const cached_app = await redisClient.get(`apps:uid:${ app_uid}`);
-            if ( cached_app ) {
-                try {
-                    app = JSON.parse(cached_app);
-                } catch (e) {
-                    console.warn(e);
-                    // no-op cache in invalid state
-                }
-            }
+            app = await AppRedisCacheSpace.getCachedApp({
+                lookup: 'uid',
+                value: app_uid,
+                rawIcon: true,
+            });
         }
         if ( ! app ) {
             app = (await db.read('SELECT * FROM apps WHERE uid = ?',
@@ -721,15 +779,25 @@ class AppInformationService extends BaseService {
             throw new Error('app not found');
         }
 
+        const associationRows = await db.read(
+            'SELECT type FROM app_filetype_association WHERE app_id = ?',
+            [app.id],
+        );
+
         await db.write('DELETE FROM apps WHERE uid = ? LIMIT 1',
                         [app_uid]);
 
         // remove from caches
-        await Promise.all([
-            redisClient.del(`apps:name:${ app.name}`),
-            redisClient.del(`apps:id:${ app.id}`),
-            redisClient.del(`apps:uid:${ app.uid}`),
-        ]);
+        await AppRedisCacheSpace.invalidateCachedApp(app, {
+            includeStats: true,
+        });
+        const associationKeys = associationRows
+            .map(row => String(row.type ?? '').trim().toLowerCase().replace(/^\./, ''))
+            .filter(Boolean)
+            .map(ext => AppRedisCacheSpace.associationAppsKey(ext));
+        if ( associationKeys.length ) {
+            await redisClient.del(...associationKeys);
+        }
 
         // remove from recent
         const index = this.collections.recent.indexOf(app_uid);
@@ -750,9 +818,10 @@ class AppInformationService extends BaseService {
         }
 
         const svc_event = this.services.get('event');
-        svc_event.emit('app.changed', {
+        await svc_event.emit('app.changed', {
             app_uid: app.uid,
             action: 'deleted',
+            app,
         });
     }
 

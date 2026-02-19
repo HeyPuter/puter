@@ -28,7 +28,7 @@ const { invalidate_cached_user_by_id } = require('../helpers.js');
 
 const CHANGE_EMAIL_CONFIRM = eggspress('/change_email/confirm', {
     allowedMethods: ['GET'],
-}, async (req, res, next) => {
+}, async (req, res ) => {
     const jwt_token = req.query.token;
 
     if ( ! jwt_token ) {
@@ -74,7 +74,7 @@ const CHANGE_EMAIL_CONFIRM = eggspress('/change_email/confirm', {
         new_email,
     });
 
-    invalidate_cached_user_by_id(user_id);
+    await invalidate_cached_user_by_id(user_id);
     const svc_socketio = req.services.get('socketio');
     svc_socketio.send({ room: user_id }, 'user.email_changed', {});
 

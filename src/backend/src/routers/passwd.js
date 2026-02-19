@@ -77,7 +77,7 @@ router.post('/passwd', auth, express.json(), async (req, res, next) => {
         else {
             await db.write('UPDATE user SET password=?, `pass_recovery_token` = NULL, `change_email_confirm_token` = NULL WHERE `id` = ?',
                             [await bcrypt.hash(req.body.new_pass, 8), req.user.id]);
-            invalidate_cached_user(req.user);
+            await invalidate_cached_user(req.user);
 
             const svc_email = req.services.get('email');
             svc_email.send_email({ email: user.email }, 'password_change_notification');
