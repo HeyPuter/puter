@@ -25,6 +25,18 @@ import { get_user, subdomain } from '../../helpers.js';
 const REVALIDATION_COOKIE_NAME = 'puter_revalidation';
 const REVALIDATION_EXPIRY_SEC = 300; // 5 minutes
 
+const MISSING_CODE_OR_STATE = Symbol('MISSING_CODE_OR_STATE');
+const INVALID_OR_EXPIRED_STATE = Symbol('INVALID_OR_EXPIRED_STATE');
+const TOKEN_EXCHANGE_FAILED = Symbol('TOKEN_EXCHANGE_FAILED');
+const COULD_NOT_GET_USER_INFO = Symbol('COULD_NOT_GET_USER_INFO');
+
+const OIDC_CALLBACK_ERROR_RESPONSES = {
+    [MISSING_CODE_OR_STATE]: { status: 400, message: 'Missing code or state.' },
+    [INVALID_OR_EXPIRED_STATE]: { status: 400, message: 'Invalid or expired state.' },
+    [TOKEN_EXCHANGE_FAILED]: { status: 401, message: 'Token exchange failed.' },
+    [COULD_NOT_GET_USER_INFO]: { status: 401, message: 'Could not get user info.' },
+};
+
 /** Returns { session_token, target } for the caller to set cookie and redirect. */
 const finishOidcSuccess_ = async (req, res, user, stateDecoded) => {
     const svc_auth = req.services.get('auth');
@@ -37,30 +49,26 @@ const finishOidcSuccess_ = async (req, res, user, stateDecoded) => {
     return { session_token, target };
 };
 
-/** Exchange code for tokens, get userinfo; returns { provider, userinfo, stateDecoded } or sends error and returns null. */
-const oidcCallbackPreamble_ = async (req, res, callbackRedirectUri) => {
+/** Exchange code for tokens, get userinfo. Returns { provider, userinfo, stateDecoded } or { error } (symbol). */
+const processOIDCCallbackRequest_ = async (req, callbackRedirectUri) => {
     const svc_oidc = req.services.get('oidc');
     const code = req.query.code;
     const state = req.query.state;
     if ( !code || !state ) {
-        res.status(400).send('Missing code or state.');
-        return null;
+        return { error: MISSING_CODE_OR_STATE };
     }
     const stateDecoded = svc_oidc.verifyState(state);
     if ( !stateDecoded || !stateDecoded.provider ) {
-        res.status(400).send('Invalid or expired state.');
-        return null;
+        return { error: INVALID_OR_EXPIRED_STATE };
     }
     const provider = stateDecoded.provider;
     const tokens = await svc_oidc.exchangeCodeForTokens(provider, code, callbackRedirectUri);
     if ( !tokens || !tokens.access_token ) {
-        res.status(401).send('Token exchange failed.');
-        return null;
+        return { error: TOKEN_EXCHANGE_FAILED };
     }
     const userinfo = await svc_oidc.getUserInfo(provider, tokens.access_token);
     if ( !userinfo || !userinfo.sub ) {
-        res.status(401).send('Could not get user info.');
-        return null;
+        return { error: COULD_NOT_GET_USER_INFO };
     }
     return { provider, userinfo, stateDecoded };
 };
@@ -125,9 +133,12 @@ router.get('/auth/oidc/callback/login', async (req, res) => {
     }
     const svc_oidc = req.services.get('oidc');
     const callbackRedirectUri = svc_oidc.getCallbackUrlForFlow('login');
-    const preamble = await oidcCallbackPreamble_(req, res, callbackRedirectUri);
-    if ( ! preamble ) return;
-    const { provider, userinfo, stateDecoded } = preamble;
+    const result = await processOIDCCallbackRequest_(req, callbackRedirectUri);
+    if ( result.error ) {
+        const { status, message } = OIDC_CALLBACK_ERROR_RESPONSES[result.error];
+        return res.status(status).send(message);
+    }
+    const { provider, userinfo, stateDecoded } = result;
     const user = await svc_oidc.findUserByProviderSub(provider, userinfo.sub);
     if ( ! user ) {
         return res.status(400).send('No account found. Sign up first.');
@@ -155,9 +166,12 @@ router.get('/auth/oidc/callback/signup', async (req, res) => {
     }
     const svc_oidc = req.services.get('oidc');
     const callbackRedirectUri = svc_oidc.getCallbackUrlForFlow('signup');
-    const preamble = await oidcCallbackPreamble_(req, res, callbackRedirectUri);
-    if ( ! preamble ) return;
-    const { provider, userinfo, stateDecoded } = preamble;
+    const result = await processOIDCCallbackRequest_(req, callbackRedirectUri);
+    if ( result.error ) {
+        const { status, message } = OIDC_CALLBACK_ERROR_RESPONSES[result.error];
+        return res.status(status).send(message);
+    }
+    const { provider, userinfo, stateDecoded } = result;
     const existingUser = await svc_oidc.findUserByProviderSub(provider, userinfo.sub);
     if ( existingUser ) {
         return res.status(400).send('Account already exists. Log in instead.');
@@ -187,9 +201,12 @@ router.get('/auth/oidc/callback/revalidate', async (req, res) => {
     }
     const svc_oidc = req.services.get('oidc');
     const callbackRedirectUri = svc_oidc.getCallbackUrlForFlow('revalidate');
-    const preamble = await oidcCallbackPreamble_(req, res, callbackRedirectUri);
-    if ( ! preamble ) return;
-    const { provider, userinfo, stateDecoded } = preamble;
+    const result = await processOIDCCallbackRequest_(req, callbackRedirectUri);
+    if ( result.error ) {
+        const { status, message } = OIDC_CALLBACK_ERROR_RESPONSES[result.error];
+        return res.status(status).send(message);
+    }
+    const { provider, userinfo, stateDecoded } = result;
     if ( stateDecoded.flow !== 'revalidate' || stateDecoded.user_id == null ) {
         return res.status(400).send('Invalid revalidate state.');
     }
