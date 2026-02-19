@@ -16,11 +16,10 @@
  * You should have received a copy of the GNU Affero General Public License
  * along with this program.  If not, see <https://www.gnu.org/licenses/>.
  */
-'use strict';
-const config = require('../config');
-const { DB_WRITE } = require('../services/database/consts');
-const { generate_identifier } = require('../util/identifier');
-const { v4: uuidv4 } = require('uuid');
+import config from '../config.js';
+import { DB_WRITE } from '../services/database/consts.js';
+import { generate_identifier } from '../util/identifier.js';
+import { v4 as uuidv4 } from 'uuid';
 
 /**
  * Create a new user for signup. Common behavior shared by POST /signup and OIDC signup.
@@ -124,4 +123,4 @@ async function signup_create_new_user (services, options) {
     return user;
 }
 
-module.exports = signup_create_new_user;
+export default signup_create_new_user;

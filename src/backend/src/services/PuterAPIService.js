@@ -70,7 +70,7 @@ class PuterAPIService extends BaseService {
         // app.use(require('../routers/get-launch-apps'))
         app.use(require('../routers/itemMetadata'));
         app.use(require('../routers/login'));
-        app.use(require('../routers/auth/oidc'));
+        app.use(require('../routers/auth/oidc').default);
         app.use(require('../routers/logout'));
         app.use(require('../routers/open_item'));
         app.use(require('../routers/passwd'));

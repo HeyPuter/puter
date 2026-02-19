@@ -16,12 +16,11 @@
  * You should have received a copy of the GNU Affero General Public License
  * along with this program.  If not, see <https://www.gnu.org/licenses/>.
  */
-'use strict';
-const express = require('express');
-const router = new express.Router();
-const config = require('../../config');
-const jwt = require('jsonwebtoken');
-const { get_user } = require('../../helpers');
+import express from 'express';
+const router = express.Router();
+import config from '../../config.js';
+import jwt from 'jsonwebtoken';
+import { get_user, subdomain } from '../../helpers.js';
 
 const REVALIDATION_COOKIE_NAME = 'puter_revalidation';
 const REVALIDATION_EXPIRY_SEC = 300; // 5 minutes
@@ -68,7 +67,7 @@ const oidcCallbackPreamble_ = async (req, res, callbackRedirectUri) => {
 
 // GET /auth/oidc/providers - list enabled provider ids for frontend
 router.get('/auth/oidc/providers', async (req, res) => {
-    if ( require('../../helpers').subdomain(req) !== 'api' ) {
+    if ( subdomain(req) !== 'api' ) {
         return res.status(404).end();
     }
     const svc_oidc = req.services.get('oidc');
@@ -78,7 +77,7 @@ router.get('/auth/oidc/providers', async (req, res) => {
 
 // GET /auth/oidc/:provider/start - redirect to IdP authorization
 router.get('/auth/oidc/:provider/start', async (req, res) => {
-    if ( require('../../helpers').subdomain(req) !== '' ) {
+    if ( subdomain(req) !== '' ) {
         return res.status(404).end();
     }
     const svc_edgeRateLimit = req.services.get('edge-rate-limit');
@@ -117,7 +116,7 @@ router.get('/auth/oidc/:provider/start', async (req, res) => {
 
 // GET /auth/oidc/callback/login - login only: existing account or abort. Never creates a user.
 router.get('/auth/oidc/callback/login', async (req, res) => {
-    if ( require('../../helpers').subdomain(req) !== '' ) {
+    if ( subdomain(req) !== '' ) {
         return res.status(404).end();
     }
     const svc_edgeRateLimit = req.services.get('edge-rate-limit');
@@ -147,7 +146,7 @@ router.get('/auth/oidc/callback/login', async (req, res) => {
 
 // GET /auth/oidc/callback/signup - signup only: create new account or abort. Never logs in to existing account.
 router.get('/auth/oidc/callback/signup', async (req, res) => {
-    if ( require('../../helpers').subdomain(req) !== '' ) {
+    if ( subdomain(req) !== '' ) {
         return res.status(404).end();
     }
     const svc_edgeRateLimit = req.services.get('edge-rate-limit');
@@ -179,7 +178,7 @@ router.get('/auth/oidc/callback/signup', async (req, res) => {
 
 // GET /auth/oidc/callback/revalidate - re-validate identity for protected actions (e.g. change username). Sets short-lived cookie and redirects.
 router.get('/auth/oidc/callback/revalidate', async (req, res) => {
-    if ( require('../../helpers').subdomain(req) !== '' ) {
+    if ( subdomain(req) !== '' ) {
         return res.status(404).end();
     }
     const svc_edgeRateLimit = req.services.get('edge-rate-limit');
@@ -217,7 +216,7 @@ router.get('/auth/oidc/callback/revalidate', async (req, res) => {
 
 // GET /auth/revalidate-done - landing page after OIDC revalidate; posts to opener and closes (for popup flow).
 router.get('/auth/revalidate-done', (req, res) => {
-    if ( require('../../helpers').subdomain(req) !== '' ) {
+    if ( subdomain(req) !== '' ) {
         return res.status(404).end();
     }
     const origin = config.origin || '';
@@ -235,4 +234,4 @@ if (window.opener) {
 </script><p>Re-validated. Closing&hellip;</p></body></html>`);
 });
 
-module.exports = router;
+export default router;
