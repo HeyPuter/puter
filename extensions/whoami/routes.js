@@ -96,9 +96,12 @@ extension.get('/whoami', { subdomain: 'api' }, async (req, res, next) => {
                 const providers = await svc_oidc.getEnabledProviderIds();
                 const origin = (svc_oidc.global_config?.origin || '').replace(/\/$/, '');
                 const provider = providers && providers[0];
-                return provider
-                    ? { oidc_revalidate_url: `${origin}/auth/oidc/${provider}/start?flow=revalidate&user_id=${req.user.id}` }
-                    : {};
+                if ( provider ) {
+                    return {
+                        oidc_revalidate_url: `${origin}/auth/oidc/${provider}/start?flow=revalidate&user_id=${req.user.id}`,
+                    };
+                }
+                return {};
             } catch ( _e ) {
                 return {};
             }
