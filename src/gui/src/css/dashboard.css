@@ -319,7 +319,38 @@ body {
 }
 
 .dashboard #storage-used-percent {
-  color: var(--dashboard-text-tertiary);
+  
+}
+
+@media (prefers-color-scheme: dark) {
+    .usage-table-fade-overlay {
+        background: linear-gradient(to bottom, rgba(30, 30, 30, 0) 0%, rgba(30, 30, 30, 0.85) 40%, rgba(30, 30, 30, 1) 100%);
+    }
+
+    #storage-bar-wrapper, .usage-progbar-wrapper {
+        background-color: var(--dashboard-input-background);
+    }
+
+    #storage-bar-host, .usage-progbar {
+        background: linear-gradient(#64748b, #8494ab, #64748b);
+    }
+
+
+    .dashboard-section-billing .billing-card {
+        background: var(--dashboard-card-background);
+    }
+
+    .dashboard-section-billing .billing-card h1 {
+        color: var(--dashboard-text);
+    }
+
+    .dashboard-section-billing .billing-card p {
+        color: var(--dashboard-text-secondary);
+    }
+
+    .dashboard-section-billing .billing-empty, .dashboard-section-billing .billing-error, .dashboard-section-billing .billing-loading {
+        color: var(--dashboard-text-muted);
+    }
 }
 
 /* Dashboard Apps */

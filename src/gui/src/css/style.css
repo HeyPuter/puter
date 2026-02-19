@@ -5661,7 +5661,7 @@ html.dark-mode .usage-table-show-less:hover {
     top: 5px;
     right: 5px;
     border-radius: 5px;
-    background: linear-gradient(to bottom, #f8f8f8, var(--dashboard-border));
+    background: linear-gradient(to bottom, #f8f8f8, #e0e0e0);
     cursor: pointer;
 }
 .btn-show-ai svg{
