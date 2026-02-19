@@ -16,8 +16,9 @@
  * You should have received a copy of the GNU Affero General Public License
  * along with this program.  If not, see <https://www.gnu.org/licenses/>.
  */
-const { redisClient } = require('../../clients/redis/redisSingleton');
-const BaseService = require('../../services/BaseService');
+const { redisClient } = require('../../../clients/redis/redisSingleton');
+const { ServerHealthRedisCacheKeys } = require('./ServerHealthRedisCacheKeys.js');
+const BaseService = require('../../../services/BaseService');
 const { promise } = require('@heyputer/putility').libs;
 const SECOND = 1000;
 
@@ -221,10 +222,10 @@ class ServerHealthService extends BaseService {
     * - `failed` {Array<string>}: An array of names of failed health checks, if any.
     */
     async get_status () {
-        const cache_key = 'server-health:status';
+        const cacheKey = ServerHealthRedisCacheKeys.status;
 
         // Check cache first
-        const cached = await redisClient.get(cache_key);
+        const cached = await redisClient.get(cacheKey);
         if ( cached ) {
             try {
                 return JSON.parse(cached);
@@ -241,7 +242,7 @@ class ServerHealthService extends BaseService {
         };
 
         // Cache with 5 second TTL
-        await redisClient.set(cache_key, JSON.stringify(status), 'EX', 5);
+        await redisClient.set(cacheKey, JSON.stringify(status), 'EX', 5);
 
         return status;
     }

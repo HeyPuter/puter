@@ -108,11 +108,10 @@ router.post('/send-pass-recovery-email', express.json(), body_parser_error_handl
 
         // set pass_recovery_token
         const { v4: uuidv4 } = require('uuid');
-        const nodemailer = require('nodemailer');
         const token = uuidv4();
         await db.write('UPDATE user SET pass_recovery_token=? WHERE `id` = ?',
                         [token, user.id]);
-        invalidate_cached_user(user);
+        await invalidate_cached_user(user);
 
         // create jwt
         const jwt_token = jwt.sign({

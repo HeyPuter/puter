@@ -66,7 +66,6 @@ module.exports = eggspress(['/signup'], {
     const db = req.services.get('database').get(DB_WRITE, 'auth');
     const bcrypt = require('bcrypt');
     const { v4: uuidv4 } = require('uuid');
-    const jwt = require('jsonwebtoken');
     const validator = require('validator');
     let uuid_user;
 
@@ -411,7 +410,7 @@ module.exports = eggspress(['/signup'], {
 
         // record activity
         db.write('UPDATE `user` SET `last_activity_ts` = now() WHERE id=? LIMIT 1', [pseudo_user.id]);
-        invalidate_cached_user_by_id(pseudo_user.id);
+        await invalidate_cached_user_by_id(pseudo_user.id);
     }
 
     // user id

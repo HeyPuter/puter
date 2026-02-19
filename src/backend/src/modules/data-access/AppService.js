@@ -1,7 +1,9 @@
 import { v4 as uuidv4 } from 'uuid';
 
 import APIError from '../../api/APIError.js';
+import { redisClient } from '../../clients/redis/redisSingleton.js';
 import config from '../../config.js';
+import { AppRedisCacheSpace } from '../apps/AppRedisCacheSpace.js';
 import { NodeInternalIDSelector } from '../../filesystem/node/selectors.js';
 import { app_name_exists, get_app } from '../../helpers.js';
 import { AppUnderUserActorType, UserActorType } from '../../services/auth/Actor.js';
@@ -394,11 +396,11 @@ export default class AppService extends BaseService {
             // REFINED BY OTHER DATA
             // app.icon;
             if ( params.icon_size && svc_appIcon ) {
-                const icon_size = params.icon_size;
+                const iconSize = params.icon_size;
                 try {
                     const iconPath = svc_appIcon.getAppIconPath({
                         appUid: row.uid,
-                        size: icon_size,
+                        size: iconSize,
                     });
                     if ( iconPath ) {
                         app.icon = iconPath;
@@ -523,12 +525,12 @@ export default class AppService extends BaseService {
         }
 
         if ( params.icon_size ) {
-            const icon_size = params.icon_size;
+            const iconSize = params.icon_size;
             const svc_appIcon = this.context.get('services').get('app-icon');
             try {
                 const iconPath = svc_appIcon.getAppIconPath({
                     appUid: row.uid,
-                    size: icon_size,
+                    size: iconSize,
                 });
                 if ( iconPath ) {
                     app.icon = iconPath;
@@ -966,14 +968,8 @@ export default class AppService extends BaseService {
             await this.#update_filetype_associations(insert_id, object.filetype_associations);
         }
 
-        // Emit events for icon/name changes
+        // Emit events for icon/name or app changes
         await this.#emit_change_events(object, old_app);
-
-        const svc_event = this.services.get('event');
-        svc_event.emit('app.changed', {
-            app_uid: old_app.uid,
-            action: 'updated',
-        });
 
         // Return the updated app (re-fetch for client-safe output)
         // TODO: optimize this
@@ -1151,24 +1147,51 @@ export default class AppService extends BaseService {
     }
 
     async #update_filetype_associations (app_id, filetype_associations) {
+        const oldAssociations = await this.db.read(
+            'SELECT type FROM app_filetype_association WHERE app_id = ?',
+            [app_id],
+        );
+        const normalizedOld = oldAssociations
+            .map(row => String(row.type ?? '').trim().toLowerCase().replace(/^\./, ''))
+            .filter(Boolean);
+        const normalizedNew = (filetype_associations ?? [])
+            .map(ft => String(ft).trim().toLowerCase().replace(/^\./, ''))
+            .filter(Boolean);
+
         // Remove old file associations
         await this.db_write.write('DELETE FROM app_filetype_association WHERE app_id = ?',
                         [app_id]);
 
         // Add new file associations
-        if ( !filetype_associations || !(filetype_associations.length > 0) ) {
+        if ( ! normalizedNew.length ) {
+            const affectedExtensions = new Set(normalizedOld);
+            if ( affectedExtensions.size ) {
+                await redisClient.del(...Array.from(affectedExtensions)
+                    .map(ext => AppRedisCacheSpace.associationAppsKey(ext)));
+            }
             return;
         }
 
         const stmt =
             `INSERT INTO app_filetype_association (app_id, type) VALUES ${
-                filetype_associations.map(() => '(?, ?)').join(', ')}`;
-        const values = filetype_associations.flatMap(ft => [app_id, ft.toLowerCase()]);
+                normalizedNew.map(() => '(?, ?)').join(', ')}`;
+        const values = normalizedNew.flatMap(ft => [app_id, ft]);
         await this.db_write.write(stmt, values);
+
+        const affectedExtensions = new Set([...normalizedOld, ...normalizedNew]);
+        if ( affectedExtensions.size ) {
+            await redisClient.del(...Array.from(affectedExtensions)
+                .map(ext => AppRedisCacheSpace.associationAppsKey(ext)));
+        }
     }
 
     async #emit_change_events (object, old_app) {
         const svc_event = this.services.get('event');
+
+        await svc_event.emit('app.changed', {
+            app_uid: old_app.uid,
+            action: 'updated',
+        });
 
         // Emit icon change event
         if ( object.icon !== undefined && object.icon !== old_app.icon ) {

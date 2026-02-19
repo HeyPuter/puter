@@ -58,7 +58,7 @@ class PuterAPIService extends BaseService {
         app.use(require('../routers/drivers/call'));
         app.use(require('../routers/drivers/list-interfaces'));
         app.use(require('../routers/drivers/usage'));
-        app.use(require('../routers/confirm-email'));
+        app.use(require('../routers/confirmEmail/confirm-email'));
         app.use(require('../routers/down'));
         app.use(require('../routers/contactUs'));
         app.use(require('../routers/delete-site'));
@@ -74,7 +74,7 @@ class PuterAPIService extends BaseService {
         app.use(require('../routers/logout'));
         app.use(require('../routers/open_item'));
         app.use(require('../routers/passwd'));
-        app.use(require('../routers/rao'));
+        app.use(require('../routers/recentAppOpens/rao'));
         app.use(require('../routers/remove-site-dir'));
         app.use(require('../routers/removeItem'));
         app.use(require('../routers/save_account'));

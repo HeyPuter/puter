@@ -24,11 +24,12 @@ const crypto = require('crypto');
 const config = require('../../config');
 const { Context } = require('../../util/context');
 const { v4: uuidv4 } = require('uuid');
+const { invalidate_cached_user_by_id } = require('../../helpers');
 
 module.exports = {
     route: '/change-email',
     methods: ['POST'],
-    handler: async (req, res, next) => {
+    handler: async (req, res) => {
         const user = req.user;
         const new_email = req.body.new_email;
 
@@ -71,6 +72,7 @@ module.exports = {
             const email_confirm_token = uuidv4();
             await db.write('UPDATE `user` SET `email` = ?, `email_confirm_token` = ? WHERE `id` = ?',
                             [new_email, email_confirm_token, user.id]);
+            await invalidate_cached_user_by_id(user.id);
 
             const svc_email = Context.get('services').get('email');
             const link = `${config.origin}/confirm-email-by-token?user_uuid=${user.uuid}&token=${email_confirm_token}`;
@@ -102,6 +104,7 @@ module.exports = {
         // update user
         await db.write('UPDATE `user` SET `unconfirmed_change_email` = ?, `change_email_confirm_token` = ? WHERE `id` = ?',
                         [new_email, token, user.id]);
+        await invalidate_cached_user_by_id(user.id);
 
         // Update email change audit table
         await db.write('INSERT INTO `user_update_audit` ' +

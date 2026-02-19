@@ -184,7 +184,7 @@ class SizeService extends BaseService {
                     alarm: true,
                 });
             }
-            invalidate_cached_user_by_id(user.id);
+            await invalidate_cached_user_by_id(user.id);
         }
     }
 }

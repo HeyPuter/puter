@@ -51,7 +51,7 @@ router.post('/set-desktop-bg', auth, express.json(), async (req, res, next) => {
                         req.body.fit ?? null,
                         req.user.id,
                     ]);
-    invalidate_cached_user(req.user);
+    await invalidate_cached_user(req.user);
 
     // send results to client
     return res.send({});

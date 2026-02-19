@@ -130,7 +130,7 @@ class DefaultUserService extends BaseService {
 
         await this.#createDefaultUserFiles(actor);
 
-        invalidate_cached_user(user);
+        await invalidate_cached_user(user);
         await new Promise(rslv => setTimeout(rslv, 2000));
         return user;
     }

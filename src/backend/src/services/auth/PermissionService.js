@@ -29,6 +29,7 @@ const { PERM_KEY_PREFIX, MANAGE_PERM_PREFIX } = require('./permissionConts.mjs')
 const { PermissionUtil, PermissionExploder, PermissionImplicator, PermissionRewriter } = require('./permissionUtils.mjs');
 const { spanify } = require('../../util/otelutil');
 const { redisClient } = require('../../clients/redis/redisSingleton');
+const { PermissionScanRedisCacheSpace } = require('./PermissionScanRedisCacheSpace.js');
 const { Context } = require('../../util/context');
 
 /**
@@ -197,12 +198,13 @@ class PermissionService extends BaseService {
             permission_options = [permission_options];
         }
 
-        const cache_str = PermissionUtil.join('permission-scan',
-                        actor.uid,
-                        'options-list',
-                        ...permission_options);
+        const cacheKey = PermissionScanRedisCacheSpace.key({
+            actorUid: actor.uid,
+            permissionOptions: permission_options,
+            joinPermissionParts: PermissionUtil.join,
+        });
 
-        const cached = await redisClient.get(cache_str);
+        const cached = await redisClient.get(cacheKey);
         if ( cached && !scan_options.no_cache ) {
             try {
                 return JSON.parse(cached);
@@ -233,7 +235,7 @@ class PermissionService extends BaseService {
             value: end_ts - start_ts,
         });
 
-        await redisClient.set(cache_str, JSON.stringify(reading), 'EX', 20);
+        await redisClient.set(cacheKey, JSON.stringify(reading), 'EX', 20);
 
         return reading;
     }

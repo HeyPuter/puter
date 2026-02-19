@@ -1,6 +1,6 @@
 import { DDBClient } from '../clients/dynamodb/DDBClient';
 import { DynamoKVStore } from '../clients/dynamodb/DynamoKVStore/DynamoKVStore';
-import type { ServerHealthService } from '../modules/core/ServerHealthService';
+import type { ServerHealthService } from '../modules/core/ServerHealthService/ServerHealthService';
 import { GroupService } from './auth/GroupService';
 import SignupService from './auth/SignupService';
 import { CleanEmailService } from './CleanEmailService';

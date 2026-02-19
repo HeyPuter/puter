@@ -214,7 +214,7 @@ router.all('*', async function (req, res, next) {
                     await db.write('UPDATE `user` SET `unsubscribed` = 1 WHERE id = ?',
                                     [user.id]);
 
-                    invalidate_cached_user(user);
+                    await invalidate_cached_user(user);
 
                     // return results
                     h += '<p style="text-align:center; color:green;">Your have successfully unsubscribed from all emails.</p>';
@@ -283,7 +283,7 @@ router.all('*', async function (req, res, next) {
                         // update user
                         await db.write('UPDATE `user` SET `email_confirmed` = 1, `requires_email_confirmation` = 0 WHERE id = ?',
                                         [user.id]);
-                        invalidate_cached_user(user);
+                        await invalidate_cached_user(user);
 
                         // send realtime success msg to client
                         const svc_socketio = req.services.get('socketio');

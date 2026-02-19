@@ -17,6 +17,8 @@
  * along with this program.  If not, see <https://www.gnu.org/licenses/>.
  */
 const APIError = require('../../api/APIError');
+const { AppRedisCacheSpace } = require('../../modules/apps/AppRedisCacheSpace.js');
+const { redisClient } = require('../../clients/redis/redisSingleton');
 const config = require('../../config');
 const { app_name_exists } = require('../../helpers');
 const { AppUnderUserActorType } = require('../../services/auth/Actor');
@@ -147,6 +149,13 @@ class AppES extends BaseES {
             const subdomain_id = await this.maybe_insert_subdomain_(entity);
             const result = await this.upstream.upsert(entity, extra);
             const { insert_id } = result;
+            const oldAssociations = await this.db.read(
+                'SELECT type FROM app_filetype_association WHERE app_id = ?',
+                [insert_id],
+            );
+            const normalizedOldAssociations = oldAssociations
+                .map(row => String(row.type ?? '').trim().toLowerCase().replace(/^\./, ''))
+                .filter(Boolean);
 
             // Remove old file associations (if applicable)
             if ( extra.old_entity ) {
@@ -156,13 +165,24 @@ class AppES extends BaseES {
 
             // Add file associations (if applicable)
             const filetype_associations = await entity.get('filetype_associations');
+            const normalizedNewAssociations = (filetype_associations ?? [])
+                .map(association => String(association).trim().toLowerCase().replace(/^\./, ''))
+                .filter(Boolean);
             if ( (a => a && a.length > 0)(filetype_associations) ) {
                 const stmt =
                     'INSERT INTO app_filetype_association ' +
                     `(app_id, type) VALUES ${
-                        filetype_associations.map(() => '(?, ?)').join(', ')}`;
-                const rows = filetype_associations.map(a => [insert_id, a.toLowerCase()]);
+                        normalizedNewAssociations.map(() => '(?, ?)').join(', ')}`;
+                const rows = normalizedNewAssociations.map(a => [insert_id, a]);
                 await this.db.write(stmt, rows.flat());
+            }
+            const affectedAssociationExtensions = new Set([
+                ...normalizedOldAssociations,
+                ...normalizedNewAssociations,
+            ]);
+            if ( affectedAssociationExtensions.size ) {
+                await redisClient.del(...Array.from(affectedAssociationExtensions)
+                    .map(ext => AppRedisCacheSpace.associationAppsKey(ext)));
             }
 
             const has_new_icon =
@@ -207,7 +227,7 @@ class AppES extends BaseES {
             }
             if ( extra.old_entity ) {
                 const svc_event = this.context.get('services').get('event');
-                svc_event.emit('app.changed', {
+                await svc_event.emit('app.changed', {
                     app_uid: await full_entity.get('uid'),
                     action: 'updated',
                 });
@@ -333,13 +353,13 @@ class AppES extends BaseES {
             }
 
             // Replace icon if an icon size is specified
-            const icon_size = Context.get('es_params')?.icon_size;
-            if ( icon_size ) {
+            const iconSize = Context.get('es_params')?.icon_size;
+            if ( iconSize ) {
                 const svc_appIcon = this.context.get('services').get('app-icon');
                 try {
                     const iconPath = svc_appIcon.getAppIconPath({
                         appUid: await entity.get('uid'),
-                        size: icon_size,
+                        size: iconSize,
                     });
                     if ( iconPath ) {
                         await entity.set('icon', iconPath);

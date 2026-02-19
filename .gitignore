@@ -40,12 +40,6 @@ src/emulator/release/
 jsconfig.json
 
 # ======================================================================
-# node js
-# ======================================================================
-# the exact tree installed in the node_modules folder
-package-lock.json
-
-# ======================================================================
 # playwright test (currently only test the file-system)
 # ======================================================================
 tests/client-config.yaml

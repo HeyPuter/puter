@@ -1,5 +1,5 @@
 import { createTestKernel } from '../../../tools/test.mjs';
-import helpers from '../../helpers.js';
+import { tmp_provide_services } from '../../helpers.js';
 import AppES from '../../om/entitystorage/AppES';
 import { AppLimitedES } from '../../om/entitystorage/AppLimitedES';
 import { ESBuilder } from '../../om/entitystorage/ESBuilder';
@@ -68,7 +68,7 @@ const testWithEachService = async (fnToRunOnBoth, {
 } = {}) => {
     return await fixContextInitialization(async () => {
         const setupUserAndRunWithContext = async (params, fn) => {
-            const { kernel, key } = params;
+            const { kernel } = params;
             const db = kernel.services.get('database').get('write', 'test');
             const userId = 1;
             const username = 'testuser';
@@ -124,7 +124,7 @@ const testWithEachService = async (fnToRunOnBoth, {
                 'es:app': ES_APP_ARGS,
             },
         });
-        await helpers.tmp_provide_services(esAppTestKernel.services);
+        await tmp_provide_services(esAppTestKernel.services);
 
         const appTestKernel = await createTestKernel({
             testCore: true,
@@ -137,11 +137,11 @@ const testWithEachService = async (fnToRunOnBoth, {
                 'app': AppService,
             },
         });
-        await helpers.tmp_provide_services(appTestKernel.services);
+        await tmp_provide_services(appTestKernel.services);
 
-        helpers.tmp_provide_services(appTestKernel.services);
+        tmp_provide_services(appTestKernel.services);
         await setupUserAndRunWithContext({ kernel: appTestKernel, key: 'app' }, fnToRunOnBoth);
-        helpers.tmp_provide_services(esAppTestKernel.services);
+        tmp_provide_services(esAppTestKernel.services);
         if ( fnToRunOnTheOther ) {
             await setupUserAndRunWithContext({ kernel: esAppTestKernel, key: 'es:app' }, fnToRunOnTheOther);
         } else {

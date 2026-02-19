@@ -25,7 +25,7 @@ module.exports = eggspress('/delete-own-user', {
     subdomain: 'api',
     auth: true,
     allowedMethods: ['POST'],
-}, async (req, res, next) => {
+}, async (req, res) => {
     const bcrypt = require('bcrypt');
 
     const validate_request = async () => {
@@ -55,7 +55,7 @@ module.exports = eggspress('/delete-own-user', {
     res.clearCookie(config.cookie_name);
 
     await deleteUser(req.user.id);
-    invalidate_cached_user(req.user);
+    await invalidate_cached_user(req.user);
 
     return res.send({ success: true });
 });
