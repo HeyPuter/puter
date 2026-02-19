@@ -19,6 +19,7 @@
 'use strict';
 import { redisClient } from '../clients/redis/redisSingleton.js';
 import { get_apps } from '../helpers.js';
+import { RecentAppOpensRedisCacheSpace } from './recentAppOpens/RecentAppOpensRedisCacheSpace.js';
 import { DB_READ } from '../services/database/consts.js';
 
 const iconify_apps = async (context, { apps, size }) => {
@@ -31,12 +32,13 @@ const iconify_apps = async (context, { apps, size }) => {
 // -----------------------------------------------------------------------//
 export default async (req, res) => {
     let result = {};
+    const iconSize = req.query.icon_size;
 
     // Verify query params
-    if ( req.query.icon_size ) {
+    if ( iconSize ) {
         const ALLOWED_SIZES = ['16', '32', '64', '128', '256', '512'];
 
-        if ( ! ALLOWED_SIZES.includes(req.query.icon_size) ) {
+        if ( ! ALLOWED_SIZES.includes(iconSize) ) {
             res.status(400).send({ error: 'Invalid icon_size' });
         }
     }
@@ -46,7 +48,7 @@ export default async (req, res) => {
     // -----------------------------------------------------------------------//
     const svc_recommendedApps = req.services.get('recommended-apps');
     result.recommended = await svc_recommendedApps.get_recommended_apps({
-        icon_size: req.query.icon_size,
+        icon_size: iconSize,
     });
 
     // -----------------------------------------------------------------------//
@@ -57,7 +59,7 @@ export default async (req, res) => {
     const db = req.services.get('database').get(DB_READ, 'apps');
 
     // First try the cache to see if we have recent apps
-    const cached_apps = await redisClient.get(`app_opens:user:${ req.user.id}`);
+    const cached_apps = await redisClient.get(RecentAppOpensRedisCacheSpace.key(req.user.id));
     if ( cached_apps ) {
         try {
             apps = JSON.parse(cached_apps);
@@ -72,7 +74,7 @@ export default async (req, res) => {
                         [req.user.id]);
         // Update cache with the results from the db (if any results were returned)
         if ( apps && Array.isArray(apps) && apps.length > 0 ) {
-            await redisClient.set(`app_opens:user:${ req.user.id}`, JSON.stringify(apps));
+            await redisClient.set(RecentAppOpensRedisCacheSpace.key(req.user.id), JSON.stringify(apps));
         }
     }
 
@@ -94,10 +96,10 @@ export default async (req, res) => {
     }).filter(Boolean);
 
     // Iconify apps
-    if ( req.query.icon_size ) {
+    if ( iconSize ) {
         result.recent = await iconify_apps({ services: req.services }, {
             apps: result.recent,
-            size: req.query.icon_size,
+            size: iconSize,
         });
     }
 

@@ -130,7 +130,7 @@ class DefaultUserService extends BaseService {
 
         await this.#createDefaultUserFiles(actor);
 
-        invalidate_cached_user(user);
+        await invalidate_cached_user(user);
         await new Promise(rslv => setTimeout(rslv, 2000));
         return user;
     }
@@ -251,7 +251,7 @@ class DefaultUserService extends BaseService {
             {
                 id: 'reset-password',
                 handler: async (args, ctx) => {
-                    const [ username ] = args;
+                    const [username] = args;
                     const user = await get_user({ username });
                     const tmp_pwd = await this.force_tmp_password_(user);
                     ctx.log(`New password for ${quot(username)} is: ${tmp_pwd}`);

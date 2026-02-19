@@ -61,7 +61,7 @@ router.post('/update-taskbar-items', auth, express.json(), async (req, res, next
                         req.user.id,
                     ]);
 
-    invalidate_cached_user(req.user);
+    await invalidate_cached_user(req.user);
 
     // send results to client
     return res.send({});

@@ -46,6 +46,7 @@ import { OpenRouterProvider } from './providers/OpenRouterProvider/OpenRouterPro
 import { TogetherAIProvider } from './providers/TogetherAiProvider/TogetherAIProvider.js';
 import { IChatModel, IChatProvider, ICompleteArguments } from './providers/types.js';
 import { XAIProvider } from './providers/XAIProvider/XAIProvider.js';
+import { fallbackModelsKey } from './AIChatRedisCacheSpace.js';
 
 // Maximum number of fallback attempts when a model fails, including the first attempt
 const MAX_FALLBACKS = 3 + 1; // includes first attempt
@@ -686,7 +687,7 @@ export class AIChatService extends BaseService {
 
         // First check KV for the sorted list
         let potentialFallbacks;
-        const cached_fallbacks = await redisClient.get(`aichat:fallbacks:${targetModel.id}`);
+        const cached_fallbacks = await redisClient.get(fallbackModelsKey(targetModel.id));
         if ( cached_fallbacks ) {
             try {
                 potentialFallbacks = JSON.parse(cached_fallbacks);
@@ -714,7 +715,7 @@ export class AIChatService extends BaseService {
                 return !!possibleModelNames.find(possibleName => model.id.toLowerCase() === possibleName);
             }).slice(0, MAX_FALLBACKS);
 
-            await redisClient.set(`aichat:fallbacks:${modelId}`, JSON.stringify(potentialMatches));
+            await redisClient.set(fallbackModelsKey(modelId), JSON.stringify(potentialMatches));
             potentialFallbacks = potentialMatches;
         }
 

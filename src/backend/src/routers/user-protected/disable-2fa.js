@@ -17,14 +17,16 @@
  * along with this program.  If not, see <https://www.gnu.org/licenses/>.
  */
 const { DB_WRITE } = require('../../services/database/consts');
+const { invalidate_cached_user_by_id } = require('../../helpers');
 
 module.exports = {
     route: '/disable-2fa',
     methods: ['POST'],
-    handler: async (req, res, next) => {
+    handler: async (req, res) => {
         const db = req.services.get('database').get(DB_WRITE, '2fa.disable');
         await db.write('UPDATE user SET otp_enabled = 0, otp_recovery_codes = NULL, otp_secret = NULL WHERE uuid = ?',
                         [req.user.uuid]);
+        await invalidate_cached_user_by_id(req.user.id);
         // update cached user
         req.user.otp_enabled = 0;
 

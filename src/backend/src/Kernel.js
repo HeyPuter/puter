@@ -25,11 +25,10 @@ const { hideBin } = require('yargs/helpers');
 const { Extension } = require('./Extension');
 const { ExtensionModule } = require('./ExtensionModule');
 const { spawn } = require('node:child_process');
-
 const fs = require('fs');
 const path_ = require('path');
 const { prependToJSFiles } = require('./kernel/modutil');
-
+const { tmp_provide_services } = require('./helpers');
 const uuid = require('uuid');
 const readline = require('node:readline/promises');
 const { RuntimeModuleRegistry } = require('./extension/RuntimeModuleRegistry');
@@ -196,7 +195,6 @@ class Kernel extends AdvancedBase {
         services.ready.resolve();
         // provide services to helpers
 
-        const { tmp_provide_services } = require('./helpers');
         tmp_provide_services(services);
     }
 

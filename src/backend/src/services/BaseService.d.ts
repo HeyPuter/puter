@@ -1,4 +1,4 @@
-import type { ServerHealthService } from '../modules/core/ServerHealthService';
+import type { ServerHealthService } from '../modules/core/ServerHealthService/ServerHealthService';
 import { SqliteDatabaseAccessService } from './database/SqliteDatabaseAccessService';
 import { MeteringServiceWrapper } from './MeteringService/MeteringServiceWrapper.mjs';
 import { DDBClient } from '../clients/dynamodb/DDBClient';

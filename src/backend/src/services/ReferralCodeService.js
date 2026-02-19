@@ -19,7 +19,7 @@
 const seedrandom = require('seedrandom');
 const { generate_random_code } = require('../util/identifier');
 const { Context } = require('../util/context');
-const { get_user } = require('../helpers');
+const { get_user, invalidate_cached_user_by_id } = require('../helpers');
 const { DB_WRITE } = require('./database/consts');
 const BaseService = require('./BaseService');
 const { UserIDNotifSelector } = require('./NotificationService');
@@ -95,9 +95,10 @@ class ReferralCodeService extends BaseService {
                 referral_code = generate_random_code(8, { rng });
             }
             try {
-                db.write(`
+                await db.write(`
                     UPDATE user SET referral_code=? WHERE id=?
                 `, [referral_code, user.id]);
+                await invalidate_cached_user_by_id(user.id);
                 return referral_code;
             } catch (e) {
                 last_error = e;

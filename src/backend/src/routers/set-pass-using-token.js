@@ -84,7 +84,7 @@ router.post('/set-pass-using-token', express.json(), async (req, res, next) => {
             return res.status(400).send(SAFE_NEGATIVE_RESPONSE);
         }
 
-        invalidate_cached_user_by_id(req.body.user_id);
+        await invalidate_cached_user_by_id(user.id);
 
         return res.send('Password successfully updated.');
     } catch (e) {

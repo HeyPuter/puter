@@ -17,6 +17,7 @@
  * along with this program.  If not, see <https://www.gnu.org/licenses/>.
  */
 const { redisClient } = require('../clients/redis/redisSingleton');
+const { UserRedisCacheSpace } = require('./UserRedisCacheSpace.js');
 const { get_user } = require('../helpers');
 const { asyncSafeSetInterval } = require('@heyputer/putility').libs.promise;
 const SECOND = 1000;
@@ -234,12 +235,12 @@ class SessionService extends BaseService {
                 'SET `last_activity_ts` = ? ' +
                 'WHERE `id` = ? LIMIT 1',
             [sql_ts, user_id]);
-            const cached_user = await redisClient.get(`users:id:${ user_id}`);
-            if ( cached_user ) {
+            const cachedUser = await redisClient.get(UserRedisCacheSpace.key('id', user_id));
+            if ( cachedUser ) {
                 try {
-                    const user = JSON.parse(cached_user);
+                    const user = JSON.parse(cachedUser);
                     user.last_activity_ts = sql_ts;
-                    await redisClient.set(`users:id:${user_id}`, JSON.stringify(user));
+                    await UserRedisCacheSpace.setUser(user);
                 } catch ( e ) {
                     console.warn(e);
                     // ignore malformed cache entries
