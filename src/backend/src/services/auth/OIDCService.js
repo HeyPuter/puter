@@ -44,10 +44,6 @@ async function generate_random_username () {
  * Uses config.oidc.providers only; no environment variables.
  */
 export class OIDCService extends BaseService {
-    static MODULES = {
-        jwt,
-    };
-
     #googleDiscovery;
 
     async _init () {
@@ -135,14 +131,14 @@ export class OIDCService extends BaseService {
      * Sign state payload for CSRF protection (short-lived JWT).
      */
     signState (payload) {
-        return this.modules.jwt.sign(payload,
+        return jwt.sign(payload,
                         this.global_config.jwt_secret,
                         { expiresIn: STATE_EXPIRY_SEC });
     }
 
     verifyState (token) {
         try {
-            return this.modules.jwt.verify(token, this.global_config.jwt_secret);
+            return jwt.verify(token, this.global_config.jwt_secret);
         } catch ( e ) {
             return null;
         }
