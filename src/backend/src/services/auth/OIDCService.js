@@ -48,10 +48,12 @@ export class OIDCService extends BaseService {
         jwt,
     };
 
+    #googleDiscovery;
+
     async _init () {
         this.db = await this.services.get('database').get(DB_WRITE, 'auth');
         this.providers = this.config.providers ?? {};
-        this._googleDiscovery = null;
+        this.#googleDiscovery = null;
     }
 
     /**
@@ -66,7 +68,7 @@ export class OIDCService extends BaseService {
             return null;
         }
         if ( providerId === 'google' ) {
-            const discovery = await this._getGoogleDiscovery_();
+            const discovery = await this.#getGoogleDiscovery();
             if ( ! discovery ) return null;
             return {
                 client_id: raw.client_id,
@@ -86,13 +88,13 @@ export class OIDCService extends BaseService {
         return null;
     }
 
-    async _getGoogleDiscovery_ () {
-        if ( this._googleDiscovery ) return this._googleDiscovery;
+    async #getGoogleDiscovery () {
+        if ( this.#googleDiscovery ) return this.#googleDiscovery;
         try {
             const res = await fetch(GOOGLE_DISCOVERY_URL);
             if ( ! res.ok ) return null;
-            this._googleDiscovery = await res.json();
-            return this._googleDiscovery;
+            this.#googleDiscovery = await res.json();
+            return this.#googleDiscovery;
         } catch ( e ) {
             this.log?.warn?.('OIDC: Google discovery fetch failed', e);
             return null;
