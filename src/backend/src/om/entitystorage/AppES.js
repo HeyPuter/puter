@@ -18,7 +18,7 @@
  */
 const APIError = require('../../api/APIError');
 const { AppRedisCacheSpace } = require('../../modules/apps/AppRedisCacheSpace.js');
-const { redisClient } = require('../../clients/redis/redisSingleton');
+const { deleteRedisKeys } = require('../../clients/redis/deleteRedisKeys.js');
 const config = require('../../config');
 const { app_name_exists } = require('../../helpers');
 const { AppUnderUserActorType } = require('../../services/auth/Actor');
@@ -181,7 +181,7 @@ class AppES extends BaseES {
                 ...normalizedNewAssociations,
             ]);
             if ( affectedAssociationExtensions.size ) {
-                await redisClient.del(...Array.from(affectedAssociationExtensions)
+                await deleteRedisKeys(Array.from(affectedAssociationExtensions)
                     .map(ext => AppRedisCacheSpace.associationAppsKey(ext)));
             }
 

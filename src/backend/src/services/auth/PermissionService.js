@@ -28,6 +28,7 @@ const { UserActorType, Actor, AppUnderUserActorType } = require('./Actor');
 const { PERM_KEY_PREFIX, MANAGE_PERM_PREFIX } = require('./permissionConts.mjs');
 const { PermissionUtil, PermissionExploder, PermissionImplicator, PermissionRewriter } = require('./permissionUtils.mjs');
 const { spanify } = require('../../util/otelutil');
+const { deleteRedisKeys } = require('../../clients/redis/deleteRedisKeys.js');
 const { redisClient } = require('../../clients/redis/redisSingleton');
 const { PermissionScanRedisCacheSpace } = require('./PermissionScanRedisCacheSpace.js');
 const { Context } = require('../../util/context');
@@ -277,7 +278,7 @@ class PermissionService extends BaseService {
             cursor = next_cursor;
             if ( keys?.length ) toDelete.push(...keys);
         } while ( cursor !== '0' );
-        if ( toDelete.length ) await redisClient.del(...toDelete);
+        if ( toDelete.length ) await deleteRedisKeys(toDelete);
     }
 
     async validateUserPerms ({ actor, permissions }) {

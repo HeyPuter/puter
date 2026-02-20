@@ -20,6 +20,7 @@ const { origin_from_url } = require('../../util/urlutil');
 const { DB_READ } = require('../../services/database/consts');
 const BaseService = require('../../services/BaseService');
 const { redisClient } = require('../../clients/redis/redisSingleton');
+const { deleteRedisKeys } = require('../../clients/redis/deleteRedisKeys.js');
 const { AppRedisCacheSpace } = require('./AppRedisCacheSpace.js');
 
 // Currently leaks memory (not sure why yet, but icons are a factor)
@@ -796,7 +797,7 @@ class AppInformationService extends BaseService {
             .filter(Boolean)
             .map(ext => AppRedisCacheSpace.associationAppsKey(ext));
         if ( associationKeys.length ) {
-            await redisClient.del(...associationKeys);
+            await deleteRedisKeys(associationKeys);
         }
 
         // remove from recent
