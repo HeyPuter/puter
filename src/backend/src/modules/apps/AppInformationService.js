@@ -20,6 +20,7 @@ const { origin_from_url } = require('../../util/urlutil');
 const { DB_READ } = require('../../services/database/consts');
 const BaseService = require('../../services/BaseService');
 const { redisClient } = require('../../clients/redis/redisSingleton');
+const { deleteRedisKeys } = require('../../clients/redis/deleteRedisKeys.js');
 const { AppRedisCacheSpace } = require('./AppRedisCacheSpace.js');
 
 // Currently leaks memory (not sure why yet, but icons are a factor)
@@ -215,97 +216,97 @@ class AppInformationService extends BaseService {
             const today = new Date(now.getFullYear(), now.getMonth(), now.getDate());
 
             switch ( period ) {
-            case 'today':
-                return {
-                    start: today.getTime(),
-                    end: now.getTime(),
-                };
-            case 'yesterday': {
-                const yesterday = new Date(today);
+                case 'today':
+                    return {
+                        start: today.getTime(),
+                        end: now.getTime(),
+                    };
+                case 'yesterday': {
+                    const yesterday = new Date(today);
                 yesterday.setDate(yesterday.getDate() - 1);
                 return {
                     start: yesterday.getTime(),
                     end: today.getTime() - 1,
                 };
-            }
-            case '7d': {
-                const weekAgo = new Date(now);
+                }
+                case '7d': {
+                    const weekAgo = new Date(now);
                 weekAgo.setDate(weekAgo.getDate() - 7);
                 return {
                     start: weekAgo.getTime(),
                     end: now.getTime(),
                 };
-            }
-            case '30d': {
-                const monthAgo = new Date(now);
+                }
+                case '30d': {
+                    const monthAgo = new Date(now);
                 monthAgo.setDate(monthAgo.getDate() - 30);
                 return {
                     start: monthAgo.getTime(),
                     end: now.getTime(),
                 };
-            }
-            case 'this_week': {
-                const firstDayOfWeek = new Date(now.getFullYear(), now.getMonth(), now.getDate() - now.getDay());
-                return {
-                    start: firstDayOfWeek.getTime(),
-                    end: now.getTime(),
-                };
-            }
-            case 'last_week': {
-                const firstDayOfLastWeek = new Date(now.getFullYear(), now.getMonth(), now.getDate() - now.getDay() - 7);
-                const firstDayOfThisWeek = new Date(now.getFullYear(), now.getMonth(), now.getDate() - now.getDay());
-                return {
-                    start: firstDayOfLastWeek.getTime(),
-                    end: firstDayOfThisWeek.getTime() - 1,
-                };
-            }
-            case 'this_month': {
-                const firstDayOfMonth = new Date(now.getFullYear(), now.getMonth(), 1);
-                return {
-                    start: firstDayOfMonth.getTime(),
-                    end: now.getTime(),
-                };
-            }
-            case 'last_month': {
-                const firstDayOfLastMonth = new Date(now.getFullYear(), now.getMonth() - 1, 1);
-                const firstDayOfThisMonth = new Date(now.getFullYear(), now.getMonth(), 1);
-                return {
-                    start: firstDayOfLastMonth.getTime(),
-                    end: firstDayOfThisMonth.getTime() - 1,
-                };
-            }
-            case 'this_year': {
-                const firstDayOfYear = new Date(now.getFullYear(), 0, 1);
-                return {
-                    start: firstDayOfYear.getTime(),
-                    end: now.getTime(),
-                };
-            }
-            case 'last_year': {
-                const firstDayOfLastYear = new Date(now.getFullYear() - 1, 0, 1);
-                const firstDayOfThisYear = new Date(now.getFullYear(), 0, 1);
-                return {
-                    start: firstDayOfLastYear.getTime(),
-                    end: firstDayOfThisYear.getTime() - 1,
-                };
-            }
-            case '12m': {
-                const twelveMonthsAgo = new Date(now);
+                }
+                case 'this_week': {
+                    const firstDayOfWeek = new Date(now.getFullYear(), now.getMonth(), now.getDate() - now.getDay());
+                    return {
+                        start: firstDayOfWeek.getTime(),
+                        end: now.getTime(),
+                    };
+                }
+                case 'last_week': {
+                    const firstDayOfLastWeek = new Date(now.getFullYear(), now.getMonth(), now.getDate() - now.getDay() - 7);
+                    const firstDayOfThisWeek = new Date(now.getFullYear(), now.getMonth(), now.getDate() - now.getDay());
+                    return {
+                        start: firstDayOfLastWeek.getTime(),
+                        end: firstDayOfThisWeek.getTime() - 1,
+                    };
+                }
+                case 'this_month': {
+                    const firstDayOfMonth = new Date(now.getFullYear(), now.getMonth(), 1);
+                    return {
+                        start: firstDayOfMonth.getTime(),
+                        end: now.getTime(),
+                    };
+                }
+                case 'last_month': {
+                    const firstDayOfLastMonth = new Date(now.getFullYear(), now.getMonth() - 1, 1);
+                    const firstDayOfThisMonth = new Date(now.getFullYear(), now.getMonth(), 1);
+                    return {
+                        start: firstDayOfLastMonth.getTime(),
+                        end: firstDayOfThisMonth.getTime() - 1,
+                    };
+                }
+                case 'this_year': {
+                    const firstDayOfYear = new Date(now.getFullYear(), 0, 1);
+                    return {
+                        start: firstDayOfYear.getTime(),
+                        end: now.getTime(),
+                    };
+                }
+                case 'last_year': {
+                    const firstDayOfLastYear = new Date(now.getFullYear() - 1, 0, 1);
+                    const firstDayOfThisYear = new Date(now.getFullYear(), 0, 1);
+                    return {
+                        start: firstDayOfLastYear.getTime(),
+                        end: firstDayOfThisYear.getTime() - 1,
+                    };
+                }
+                case '12m': {
+                    const twelveMonthsAgo = new Date(now);
                 twelveMonthsAgo.setMonth(twelveMonthsAgo.getMonth() - 12);
                 return {
                     start: twelveMonthsAgo.getTime(),
                     end: now.getTime(),
                 };
-            }
-            case 'all':{
-                const start = new Date(app_creation_ts);
-                return {
-                    start: start.getTime(),
-                    end: now.getTime(),
-                };
-            }
-            default:
-                return null;
+                }
+                case 'all':{
+                    const start = new Date(app_creation_ts);
+                    return {
+                        start: start.getTime(),
+                        end: now.getTime(),
+                    };
+                }
+                default:
+                    return null;
             }
         };
 
@@ -796,7 +797,7 @@ class AppInformationService extends BaseService {
             .filter(Boolean)
             .map(ext => AppRedisCacheSpace.associationAppsKey(ext));
         if ( associationKeys.length ) {
-            await redisClient.del(...associationKeys);
+            await deleteRedisKeys(associationKeys);
         }
 
         // remove from recent
@@ -836,29 +837,29 @@ class AppInformationService extends BaseService {
         while ( currentDate <= endDate ) {
             let period;
             switch ( grouping ) {
-            case 'hour':
-                period = `${currentDate.toISOString().slice(0, 13) }:00:00`;
+                case 'hour':
+                    period = `${currentDate.toISOString().slice(0, 13) }:00:00`;
                 currentDate.setHours(currentDate.getHours() + 1);
-                break;
-            case 'day':
-                period = currentDate.toISOString().slice(0, 10);
+                    break;
+                case 'day':
+                    period = currentDate.toISOString().slice(0, 10);
                 currentDate.setDate(currentDate.getDate() + 1);
-                break;
-            case 'week': {
+                    break;
+                case 'week': {
                 // Get the ISO week number
-                const weekNum = String(this.getWeekNumber(currentDate)).padStart(2, '0');
-                period = `${currentDate.getFullYear()}-${weekNum}`;
+                    const weekNum = String(this.getWeekNumber(currentDate)).padStart(2, '0');
+                    period = `${currentDate.getFullYear()}-${weekNum}`;
                 currentDate.setDate(currentDate.getDate() + 7);
                 break;
-            }
-            case 'month':
-                period = currentDate.toISOString().slice(0, 7);
+                }
+                case 'month':
+                    period = currentDate.toISOString().slice(0, 7);
                 currentDate.setMonth(currentDate.getMonth() + 1);
-                break;
-            case 'year':
-                period = currentDate.getFullYear().toString();
+                    break;
+                case 'year':
+                    period = currentDate.getFullYear().toString();
                 currentDate.setFullYear(currentDate.getFullYear() + 1);
-                break;
+                    break;
             }
             periods.push({ period, count: 0 });
         }
@@ -887,23 +888,23 @@ class AppInformationService extends BaseService {
             // For ClickHouse results, convert the timestamp to match the expected format
             if ( item.period instanceof Date ) {
                 switch ( stats_grouping ) {
-                case 'hour':
-                    period = `${item.period.toISOString().slice(0, 13) }:00:00`;
-                    break;
-                case 'day':
-                    period = item.period.toISOString().slice(0, 10);
-                    break;
-                case 'week': {
-                    const weekNum = String(this.getWeekNumber(item.period)).padStart(2, '0');
-                    period = `${item.period.getFullYear()}-${weekNum}`;
-                    break;
-                }
-                case 'month':
-                    period = item.period.toISOString().slice(0, 7);
-                    break;
-                case 'year':
-                    period = item.period.getFullYear().toString();
-                    break;
+                    case 'hour':
+                        period = `${item.period.toISOString().slice(0, 13) }:00:00`;
+                        break;
+                    case 'day':
+                        period = item.period.toISOString().slice(0, 10);
+                        break;
+                    case 'week': {
+                        const weekNum = String(this.getWeekNumber(item.period)).padStart(2, '0');
+                        period = `${item.period.getFullYear()}-${weekNum}`;
+                        break;
+                    }
+                    case 'month':
+                        period = item.period.toISOString().slice(0, 7);
+                        break;
+                    case 'year':
+                        period = item.period.getFullYear().toString();
+                        break;
                 }
             }
             return [period, parseInt(item.count)];

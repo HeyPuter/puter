@@ -1,7 +1,7 @@
 import { v4 as uuidv4 } from 'uuid';
 
 import APIError from '../../api/APIError.js';
-import { redisClient } from '../../clients/redis/redisSingleton.js';
+import { deleteRedisKeys } from '../../clients/redis/deleteRedisKeys.js';
 import config from '../../config.js';
 import { AppRedisCacheSpace } from '../apps/AppRedisCacheSpace.js';
 import { NodeInternalIDSelector } from '../../filesystem/node/selectors.js';
@@ -1166,7 +1166,7 @@ export default class AppService extends BaseService {
         if ( ! normalizedNew.length ) {
             const affectedExtensions = new Set(normalizedOld);
             if ( affectedExtensions.size ) {
-                await redisClient.del(...Array.from(affectedExtensions)
+                await deleteRedisKeys(Array.from(affectedExtensions)
                     .map(ext => AppRedisCacheSpace.associationAppsKey(ext)));
             }
             return;
@@ -1180,7 +1180,7 @@ export default class AppService extends BaseService {
 
         const affectedExtensions = new Set([...normalizedOld, ...normalizedNew]);
         if ( affectedExtensions.size ) {
-            await redisClient.del(...Array.from(affectedExtensions)
+            await deleteRedisKeys(Array.from(affectedExtensions)
                 .map(ext => AppRedisCacheSpace.associationAppsKey(ext)));
         }
     }

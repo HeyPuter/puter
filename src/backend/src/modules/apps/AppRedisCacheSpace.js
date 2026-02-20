@@ -17,6 +17,7 @@
  * along with this program.  If not, see <https://www.gnu.org/licenses/>.
  */
 import { redisClient } from '../../clients/redis/redisSingleton.js';
+import { deleteRedisKeys } from '../../clients/redis/deleteRedisKeys.js';
 
 const appFullNamespace = 'apps';
 const appLiteNamespace = 'apps:lite';
@@ -101,7 +102,7 @@ export const AppRedisCacheSpace = {
             keys.push(...AppRedisCacheSpace.statsKeys(app.uid));
         }
         if ( keys.length ) {
-            await redisClient.del(...keys);
+            await deleteRedisKeys(keys);
         }
     },
     invalidateCachedAppName: async (name, { rawIconVariants = [true, false] } = {}) => {
@@ -111,10 +112,10 @@ export const AppRedisCacheSpace = {
             value: name,
             rawIcon,
         }));
-        await redisClient.del(...keys);
+        await deleteRedisKeys(keys);
     },
     invalidateAppStats: async (uid) => {
         if ( ! uid ) return;
-        await redisClient.del(...AppRedisCacheSpace.statsKeys(uid));
+        await deleteRedisKeys(AppRedisCacheSpace.statsKeys(uid));
     },
 };

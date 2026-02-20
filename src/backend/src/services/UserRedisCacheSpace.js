@@ -17,6 +17,7 @@
  * along with this program.  If not, see <https://www.gnu.org/licenses/>.
  */
 import { redisClient } from '../clients/redis/redisSingleton.js';
+import { deleteRedisKeys } from '../clients/redis/deleteRedisKeys.js';
 
 const userKeyPrefix = 'users';
 const defaultUserIdProperties = ['username', 'uuid', 'email', 'id', 'referral_code'];
@@ -65,7 +66,7 @@ const UserRedisCacheSpace = {
     invalidateUser: async (user, props = defaultUserIdProperties) => {
         const keys = UserRedisCacheSpace.keysForUser(user, props);
         if ( keys.length ) {
-            await redisClient.del(...keys);
+            await deleteRedisKeys(keys);
         }
     },
     invalidateById: async (id, props = defaultUserIdProperties) => {
