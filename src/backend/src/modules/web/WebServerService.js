@@ -76,11 +76,6 @@ class WebServerService extends BaseService {
         });
         await services.emit('install.routes-gui', { app });
 
-        // Register after other services registers theirs: Options for all requests (for CORS)
-        app.options('/*', (_req, res) => {
-            return res.sendStatus(200);
-        });
-
         // Catch-all 404 for unmatched routes (e.g. api subdomain with unknown path)
         // There seem to be some cases (ex: other subdomains) where this doesn't work
         // as intended still, but this is an improvement over the previous behavior.
@@ -482,90 +477,6 @@ class WebServerService extends BaseService {
             return next();
         });
 
-        // Validate host header against allowed domains to prevent host header injection
-        // https://www.owasp.org/index.php/Host_Header_Injection
-        app.use((req, res, next) => {
-            const allowedDomains = [
-                config.domain.toLowerCase(),
-                config.static_hosting_domain.toLowerCase(),
-                `at.${ config.static_hosting_domain.toLowerCase()}`,
-            ];
-
-            if ( config.static_hosting_domain_alt ) {
-                allowedDomains.push(config.static_hosting_domain_alt.toLowerCase());
-            }
-
-            if ( config.allow_nipio_domains ) {
-                allowedDomains.push('nip.io');
-            }
-
-            // Retrieve the Host header and ensure it's in a valid format
-            const hostHeader = req.headers.host;
-
-            if ( !config.allow_no_host_header && !hostHeader ) {
-                return res.status(400).send('Missing Host header.');
-            }
-
-            if ( config.allow_all_host_values ) {
-                next();
-                return;
-            }
-
-            // Parse the Host header to isolate the hostname (strip out port if present)
-            const hostName = hostHeader.split(':')[0].trim().toLowerCase();
-            // Check if the hostname matches any of the allowed domains or is a subdomain of an allowed domain
-            // Exception: allow /healthcheck endpoint on the root domain
-            if (
-                req.path === '/healthcheck' &&
-                hostName === config.domain.toLowerCase()
-            ) {
-                next();
-                return;
-            }
-            if ( allowedDomains.some(allowedDomain => hostName === allowedDomain || hostName.endsWith(`.${ allowedDomain}`)) ) {
-                next(); // Proceed if the host is valid
-                return;
-            } else {
-                if ( ! config.custom_domains_enabled ) {
-                    res.status(400).send('Invalid Host header.');
-                    return;
-                }
-                req.is_custom_domain = true;
-                next();
-                return;
-            }
-        });
-
-        // Validate IP with any IP checkers
-        app.use(async (req, res, next) => {
-            const svc_event = this.services.get('event');
-            const event = {
-                allow: true,
-                ip: req.headers?.['x-forwarded-for'] ||
-                    req.connection?.remoteAddress,
-            };
-
-            if ( ! this.config.disable_ip_validate_event ) {
-                await svc_event.emit('ip.validate', event);
-            }
-
-            // rules that don't apply to notification endpoints
-            const undefined_origin_allowed = config.undefined_origin_allowed || this.allowedRoutesWithUndefinedOrigins.some(rule => {
-                if ( typeof rule === 'string' ) return rule === req.path;
-                return rule.test(req.path);
-            });
-            if ( ! undefined_origin_allowed ) {
-                // check if no origin
-                if ( req.method === 'POST' && req.headers.origin === undefined ) {
-                    event.allow = false;
-                }
-            }
-            if ( ! event.allow ) {
-                return res.status(403).send('Forbidden');
-            }
-            next();
-        });
-
         // Web hooks need a router that occurs before JSON parse middleware
         // so that signatures of the raw JSON can be verified
         this.router_webhooks = express.Router();
@@ -577,47 +488,6 @@ class WebServerService extends BaseService {
             }
             next();
         });
-
-        const rawBodyBuffer = (req, res, buf, encoding) => {
-            req.rawBody = buf.toString(encoding || 'utf8');
-        };
-
-        app.use(express.json({ limit: '50mb', verify: rawBodyBuffer }));
-        app.use((req, res, next) => {
-            if ( req.headers['content-type']?.startsWith('application/json')
-                && req.body
-                && Buffer.isBuffer(req.body)
-            ) {
-                try {
-                    req.rawBody = req.body;
-                    req.body = JSON.parse(req.body.toString('utf8'));
-                } catch {
-                    return res.status(400).send({
-                        error: {
-                            message: 'Invalid JSON body',
-                        },
-                    });
-                }
-            }
-            next();
-        });
-
-        const cookieParser = require('cookie-parser');
-        app.use(cookieParser({ limit: '50mb' }));
-
-        // gzip compression for all requests
-        const compression = require('compression');
-        app.use(compression());
-
-        // Helmet and other security
-        const helmet = require('helmet');
-        app.use(helmet.noSniff());
-        app.use(helmet.hsts());
-        app.use(helmet.ieNoOpen());
-        app.use(helmet.permittedCrossDomainPolicies());
-        app.use(helmet.xssFilter());
-        // app.use(helmet.referrerPolicy());
-        app.disable('x-powered-by');
 
         // remove object and array query parameters
         app.use(function (req, res, next) {
@@ -634,86 +504,6 @@ class WebServerService extends BaseService {
             next();
         });
 
-        const uaParser = require('ua-parser-js');
-        app.use(function (req, res, next) {
-            const ua_header = req.headers['user-agent'];
-            const ua = uaParser(ua_header);
-            req.ua = ua;
-            next();
-        });
-
-        app.use(function (req, res, next) {
-            req.co_isolation_enabled =
-                ['Chrome', 'Edge'].includes(req.ua.browser.name)
-                && (Number(req.ua.browser.major) >= 110);
-            next();
-        });
-
-        app.use(function (req, res, next) {
-            const origin = req.headers.origin;
-
-            const is_site =
-                req.hostname.endsWith(config.static_hosting_domain) ||
-                (config.static_hosting_domain_alt && req.hostname.endsWith(config.static_hosting_domain_alt));
-            req.hostname === 'docs.puter.com'
-            ;
-            const is_popup = !!req.query.embedded_in_popup;
-            const is_parent_co = !!req.query.cross_origin_isolated;
-            const is_app = !!req.query['puter.app_instance_id'];
-
-            const co_isolation_okay =
-                (!is_popup || is_parent_co) &&
-                (is_app || !is_site) &&
-                req.co_isolation_enabled
-                ;
-
-            if ( req.path === '/signup' || req.path === '/login' || req.path.startsWith('/extensions/') || req.path.startsWith('/auth/oidc') ) {
-                res.setHeader('Access-Control-Allow-Origin', origin ?? '*');
-            }
-            // Website(s) to allow to connect
-            if (
-                config.experimental_no_subdomain ||
-                req.subdomains[req.subdomains.length - 1] === 'api' ||
-                req.subdomains[req.subdomains.length - 1] === 'dav'
-            ) {
-                res.setHeader('Access-Control-Allow-Origin', origin ?? '*');
-            }
-
-            // Request methods to allow
-            res.setHeader('Access-Control-Allow-Methods', 'GET, POST, OPTIONS, PUT, PATCH, DELETE, PROPFIND, PROPPATCH, MKCOL, COPY, MOVE, LOCK, UNLOCK');
-
-            const allowed_headers = [
-                'Origin', 'X-Requested-With', 'Content-Type', 'Accept', 'Authorization', 'sentry-trace', 'baggage',
-                'Depth', 'Destination', 'Overwrite', 'If', 'Lock-Token', 'DAV', 'stripe-signature',
-            ];
-
-            // Request headers to allow
-            res.header('Access-Control-Allow-Headers', allowed_headers.join(', '));
-
-            // Set to true if you need the website to include cookies in the requests sent
-            // to the API (e.g. in case you use sessions)
-            // res.setHeader('Access-Control-Allow-Credentials', true);
-
-            // Needed for SharedArrayBuffer
-            // NOTE: This is put behind a configuration flag because we
-            //       need some experimentation to ensure the interface
-            //       between apps and Puter doesn't break.
-            if ( config.cross_origin_isolation && co_isolation_okay ) {
-                res.setHeader('Cross-Origin-Opener-Policy', 'same-origin');
-                res.setHeader('Cross-Origin-Embedder-Policy', 'require-corp');
-            }
-            res.setHeader('Cross-Origin-Resource-Policy', 'cross-origin');
-
-            // Pass to next layer of middleware
-
-            // disable iframes on the main domain
-            if ( req.hostname === config.domain ) {
-                // disable iframes
-                res.setHeader('X-Frame-Options', 'SAMEORIGIN');
-            }
-
-            next();
-        });
     }
 }
 

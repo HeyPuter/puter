@@ -45,6 +45,7 @@ module.exports = function eggspress (route, settings, handler) {
     const router = express.Router();
     const mw = [];
     const afterMW = [];
+    let accessControlParserMW = null;
 
     const _defaultJsonOptions = {};
     if ( settings.jsonCanBeLarge ) {
@@ -61,6 +62,216 @@ module.exports = function eggspress (route, settings, handler) {
             }
             next();
         });
+    }
+
+    const globalMW = {
+        validateHostHeader: true,
+        validateIP: true,
+        cookieParser: true,
+        json: true,
+        compression: true,
+        helmet: true,
+        uaParser: true,
+        accessControlParser: true,
+        ...(settings.webMiddlewares ?? {}),
+    };
+
+    if ( globalMW.validateHostHeader ) {
+        mw.push((req, res, next) => {
+            const allowedDomains = [
+                config.domain.toLowerCase(),
+                config.static_hosting_domain.toLowerCase(),
+                `at.${ config.static_hosting_domain.toLowerCase()}`,
+            ];
+
+            if ( config.static_hosting_domain_alt ) {
+                allowedDomains.push(config.static_hosting_domain_alt.toLowerCase());
+            }
+
+            if ( config.allow_nipio_domains ) {
+                allowedDomains.push('nip.io');
+            }
+
+            const hostHeader = req.headers.host;
+            if ( !config.allow_no_host_header && !hostHeader ) {
+                return res.status(400).send('Missing Host header.');
+            }
+
+            if ( config.allow_all_host_values ) {
+                return next();
+            }
+
+            const hostName = hostHeader.split(':')[0].trim().toLowerCase();
+            if ( req.path === '/healthcheck' && hostName === config.domain.toLowerCase() ) {
+                return next();
+            }
+            if ( allowedDomains.some(allowedDomain => hostName === allowedDomain || hostName.endsWith(`.${ allowedDomain}`)) ) {
+                return next();
+            }
+
+            if ( ! config.custom_domains_enabled ) {
+                return res.status(400).send('Invalid Host header.');
+            }
+            req.is_custom_domain = true;
+            next();
+        });
+    }
+
+    if ( globalMW.validateIP ) {
+        mw.push(async (req, res, next) => {
+            const svc_event = req.services.get('event');
+            const svc_web = req.services.get('web-server');
+            const event = {
+                allow: true,
+                ip: req.headers?.['x-forwarded-for'] || req.connection?.remoteAddress,
+            };
+
+            if ( ! svc_web.config.disable_ip_validate_event ) {
+                await svc_event.emit('ip.validate', event);
+            }
+
+            const undefined_origin_allowed =
+                config.undefined_origin_allowed ||
+                svc_web.allowedRoutesWithUndefinedOrigins.some(rule => {
+                    if ( typeof rule === 'string' ) return rule === req.path;
+                    return rule.test(req.path);
+                });
+
+            if ( ! undefined_origin_allowed ) {
+                if ( req.method === 'POST' && req.headers.origin === undefined ) {
+                    event.allow = false;
+                }
+            }
+
+            if ( ! event.allow ) {
+                return res.status(403).send('Forbidden');
+            }
+
+            next();
+        });
+    }
+
+    if ( globalMW.json ) {
+        const rawBodyBuffer = (req, _res, buf, encoding) => {
+            req.rawBody = buf.toString(encoding || 'utf8');
+        };
+
+        mw.push(express.json({ limit: '50mb', verify: rawBodyBuffer }));
+        mw.push((req, res, next) => {
+            if ( req.headers['content-type']?.startsWith('application/json')
+                && req.body
+                && Buffer.isBuffer(req.body)
+            ) {
+                try {
+                    req.rawBody = req.body;
+                    req.body = JSON.parse(req.body.toString('utf8'));
+                } catch {
+                    return res.status(400).send({
+                        error: {
+                            message: 'Invalid JSON body',
+                        },
+                    });
+                }
+            }
+            next();
+        });
+    }
+
+    if ( globalMW.cookieParser ) {
+        const cookieParser = require('cookie-parser');
+        mw.push(cookieParser({ limit: '50mb' }));
+    }
+
+    if ( globalMW.compression ) {
+        const compression = require('compression');
+        mw.push(compression());
+    }
+
+    if ( globalMW.helmet ) {
+        const helmet = require('helmet');
+        mw.push(helmet.noSniff());
+        mw.push(helmet.hsts());
+        mw.push(helmet.ieNoOpen());
+        mw.push(helmet.permittedCrossDomainPolicies());
+        mw.push(helmet.xssFilter());
+        mw.push((_req, res, next) => {
+            res.removeHeader('X-Powered-By');
+            next();
+        });
+    }
+
+    if ( globalMW.uaParser ) {
+        const uaParser = require('ua-parser-js');
+        mw.push((req, _res, next) => {
+            const ua_header = req.headers['user-agent'];
+            req.ua = uaParser(ua_header);
+            next();
+        });
+
+        mw.push((req, _res, next) => {
+            req.co_isolation_enabled =
+                ['Chrome', 'Edge'].includes(req.ua.browser.name)
+                && (Number(req.ua.browser.major) >= 110);
+            next();
+        });
+    }
+
+    if ( globalMW.accessControlParser ) {
+        accessControlParserMW = (req, res, next) => {
+            const origin = req.headers.origin;
+
+            const is_site =
+                req.hostname.endsWith(config.static_hosting_domain) ||
+                (config.static_hosting_domain_alt && req.hostname.endsWith(config.static_hosting_domain_alt));
+            req.hostname === 'docs.puter.com'
+            ;
+            const is_popup = !!req.query.embedded_in_popup;
+            const is_parent_co = !!req.query.cross_origin_isolated;
+            const is_app = !!req.query['puter.app_instance_id'];
+
+            const co_isolation_okay =
+                (!is_popup || is_parent_co) &&
+                (is_app || !is_site) &&
+                req.co_isolation_enabled
+                ;
+
+            if (
+                req.path === '/signup' ||
+                req.path === '/login' ||
+                req.path.startsWith('/extensions/') ||
+                req.path.startsWith('/auth/oidc')
+            ) {
+                res.setHeader('Access-Control-Allow-Origin', origin ?? '*');
+            }
+            if (
+                config.experimental_no_subdomain ||
+                req.subdomains[req.subdomains.length - 1] === 'api' ||
+                req.subdomains[req.subdomains.length - 1] === 'dav'
+            ) {
+                res.setHeader('Access-Control-Allow-Origin', origin ?? '*');
+            }
+
+            res.setHeader('Access-Control-Allow-Methods', 'GET, POST, OPTIONS, PUT, PATCH, DELETE, PROPFIND, PROPPATCH, MKCOL, COPY, MOVE, LOCK, UNLOCK');
+
+            const allowed_headers = [
+                'Origin', 'X-Requested-With', 'Content-Type', 'Accept', 'Authorization', 'sentry-trace', 'baggage',
+                'Depth', 'Destination', 'Overwrite', 'If', 'Lock-Token', 'DAV', 'stripe-signature',
+            ];
+            res.header('Access-Control-Allow-Headers', allowed_headers.join(', '));
+
+            if ( config.cross_origin_isolation && co_isolation_okay ) {
+                res.setHeader('Cross-Origin-Opener-Policy', 'same-origin');
+                res.setHeader('Cross-Origin-Embedder-Policy', 'require-corp');
+            }
+            res.setHeader('Cross-Origin-Resource-Policy', 'cross-origin');
+
+            if ( req.hostname === config.domain ) {
+                res.setHeader('X-Frame-Options', 'SAMEORIGIN');
+            }
+
+            next();
+        };
+        mw.push(accessControlParserMW);
     }
 
     // These flags enable specific middleware.
@@ -225,6 +436,7 @@ module.exports = function eggspress (route, settings, handler) {
             api_error_handler(e, req, res, next);
         }
     };
+
     if ( settings.allowedMethods.includes('GET') ) {
         router.get(route, ...mw, errorHandledHandler, ...afterMW);
     }
@@ -271,6 +483,13 @@ module.exports = function eggspress (route, settings, handler) {
 
     if ( settings.allowedMethods.includes('UNLOCK') ) {
         router.unlock(route, ...mw, errorHandledHandler, ...afterMW);
+    }
+
+    if ( ! settings.allowedMethods.includes('OPTIONS') ) {
+        const optionsMW = accessControlParserMW ? [accessControlParserMW] : [];
+        router.options(route, ...optionsMW, (_req, res) => {
+            return res.sendStatus(200);
+        });
     }
 
     if ( settings.allowedMethods.includes('OPTIONS') ) {

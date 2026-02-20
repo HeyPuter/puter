@@ -50,6 +50,7 @@ class WebModule extends AdvancedBase {
 
         const APIErrorService = require('./APIErrorService');
         services.registerService('api-error', APIErrorService);
+
     }
 }
 
