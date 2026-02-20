@@ -34,6 +34,7 @@ import { Context } from './util/context.js';
 import { ManagedError } from './util/errorutil.js';
 import { kv } from './util/kvSingleton.js';
 import { spanify } from './util/otelutil.js';
+import { generate_identifier } from './util/identifier.js';
 
 export * from './validation.js';
 
@@ -1485,6 +1486,14 @@ export async function username_exists (username) {
     {
         return true;
     }
+}
+
+export async function generate_random_username () {
+    let username;
+    do {
+        username = generate_identifier();
+    } while ( await username_exists(username) );
+    return username;
 }
 
 export async function app_name_exists (name) {

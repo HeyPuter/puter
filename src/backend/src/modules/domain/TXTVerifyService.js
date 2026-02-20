@@ -3,7 +3,7 @@ const BaseService = require('../../services/BaseService');
 const { atimeout } = require('../../util/asyncutil');
 
 class TXTVerifyService extends BaseService {
-    ['__on_boot.consolidation'] () {
+    '__on_boot.consolidation' () {
         const svc_dns = this.services.get('dns');
         const dns = svc_dns.get_client();
 

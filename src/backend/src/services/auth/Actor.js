@@ -16,12 +16,12 @@
  * You should have received a copy of the GNU Affero General Public License
  * along with this program.  If not, see <https://www.gnu.org/licenses/>.
  */
-import { AdvancedBase } from '../../../../putility/index.js';
-import { Context } from '../../util/context.js';
-import { get_user, get_app } from '../../helpers.js';
-import * as config from '../../config.js';
-import { v5 as uuidv5 } from 'uuid';
 import crypto from 'crypto';
+import { v5 as uuidv5 } from 'uuid';
+import { AdvancedBase } from '../../../../putility/index.js';
+import * as config from '../../config.js';
+import { get_app, get_user } from '../../helpers.js';
+import { Context } from '../../util/context.js';
 // TODO: add these to configuration; production deployments should change these!
 
 const PRIVATE_UID_NAMESPACE = config.private_uid_namespace
@@ -222,6 +222,13 @@ export class Actor extends AdvancedBase {
  * user actors and define how they relate to other types of actors within the system.
  */
 export class UserActorType extends ActorType {
+    constructor (o) {
+        super(o);
+        if ( this.hasHttpOnlyCookie === undefined ) {
+            this.hasHttpOnlyCookie = false;
+        }
+    }
+
     /**
      * Gets the unique identifier for the user actor.
      *

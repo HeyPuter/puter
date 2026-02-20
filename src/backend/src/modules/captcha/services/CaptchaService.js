@@ -60,7 +60,7 @@ class CaptchaService extends BaseService {
         this.endpointsRegistered = false;
     }
 
-    async ['__on_install.middlewares.context-aware'] (_, { app }) {
+    async '__on_install.middlewares.context-aware' (_, { app }) {
         // Add express middleware
         app.use(checkCaptcha({ svc_captcha: this }));
     }

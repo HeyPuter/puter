@@ -22,6 +22,9 @@ const { invalidate_cached_user, invalidate_cached_user_by_id } = require('../hel
 const BaseService = require('./BaseService');
 const { DB_WRITE } = require('./database/consts');
 
+/**
+ * Lorem ipsum dolor sit amet
+ */
 class UserService extends BaseService {
     static MODULES = {
         uuidv4: require('uuid').v4,
@@ -32,7 +35,7 @@ class UserService extends BaseService {
         this.dir_system = null;
     }
 
-    async ['__on_filesystem.ready'] () {
+    async '__on_filesystem.ready' () {
         const svc_fs = this.services.get('filesystem');
         // Ensure system user has a home directory
         const dir_system = await svc_fs.node(new NodeChildSelector(new RootNodeSelector(),
@@ -54,7 +57,9 @@ class UserService extends BaseService {
         return this.dir_system;
     }
 
-    // used to be called: generate_system_fsentries
+    /**
+     * This used to be called `generate_system_fsentries`
+     */
     async generate_default_fsentries ({ user }) {
 
         // Note: The comment below is outdated as we now do parallel writes for

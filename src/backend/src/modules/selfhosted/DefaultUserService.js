@@ -71,7 +71,7 @@ class DefaultUserService extends BaseService {
     async _init () {
         this._register_commands(this.services.get('commands'));
     }
-    async ['__on_ready.webserver'] () {
+    async '__on_ready.webserver' () {
         // check if a user named `admin` exists
         let user = await get_user({ username: USERNAME, cached: false });
         if ( ! user ) {

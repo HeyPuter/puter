@@ -70,7 +70,7 @@ export default class RecommendedAppsService extends BaseService {
         this.app_names = new Set(RecommendedAppsService.APP_NAMES);
     }
 
-    ['__on_boot.consolidation'] () {
+    '__on_boot.consolidation' () {
         const svc_appIcon = this.services.get('app-icon');
         const svc_event = this.services.get('event');
         svc_event.on('apps.invalidate', async (_, { app }) => {

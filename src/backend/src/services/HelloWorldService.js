@@ -28,7 +28,7 @@ const BaseService = require('./BaseService');
 */
 class HelloWorldService extends BaseService {
     static IMPLEMENTS = {
-        ['version']: {
+        'version': {
             /**
             * Returns the current version of the service.
             *
@@ -38,7 +38,7 @@ class HelloWorldService extends BaseService {
                 return 'v1.0.0';
             },
         },
-        ['hello-world']: {
+        'hello-world': {
             /**
             * Greets the user with a customizable message.
             *

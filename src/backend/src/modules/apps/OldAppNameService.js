@@ -29,7 +29,7 @@ class OldAppNameService extends BaseService {
         this.db = this.services.get('database').get(DB_READ, 'old-app-name');
     }
 
-    async ['__on_boot.consolidation'] () {
+    async '__on_boot.consolidation' () {
         const svc_event = this.services.get('event');
         svc_event.on('app.rename', async (_, { app_uid, old_name }) => {
             this.log.info('GOT EVENT', { app_uid, old_name });

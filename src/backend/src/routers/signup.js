@@ -420,11 +420,12 @@ module.exports = eggspress(['/signup'], {
     const [user] = await db.pread('SELECT * FROM `user` WHERE `id` = ? LIMIT 1',
                     [user_id]);
 
-    // create token for login
-    const { token } = await svc_auth.create_session_token(user, {
+    // create token for login: session token for cookie, GUI token for client
+    const { session, token: session_token } = await svc_auth.create_session_token(user, {
         req,
     });
-        // jwt.sign({uuid: user_uuid}, config.jwt_secret);
+    const gui_token = svc_auth.create_gui_token(user, session);
+    // jwt.sign({uuid: user_uuid}, config.jwt_secret);
 
     //-------------------------------------------------------------
     // email confirmation
@@ -456,8 +457,8 @@ module.exports = eggspress(['/signup'], {
     const svc_user = Context.get('services').get('user');
     await svc_user.generate_default_fsentries({ user });
 
-    //set cookie
-    res.cookie(config.cookie_name, token, {
+    // HTTP-only cookie gets session token (cookie-based requests have hasHttpOnlyCookie)
+    res.cookie(config.cookie_name, session_token, {
         sameSite: 'none',
         secure: true,
         httpOnly: true,
@@ -471,7 +472,7 @@ module.exports = eggspress(['/signup'], {
 
     // return results
     return res.send({
-        token: token,
+        token: gui_token,
         user: {
             username: user.username,
             uuid: user.uuid,

@@ -153,7 +153,7 @@ class ExtensionService extends BaseService {
         this.state.extension.emit('preinit');
     }
 
-    async ['__on_boot.consolidation'] (...a) {
+    async '__on_boot.consolidation' (...a) {
         const svc_su = this.services.get('su');
         await svc_su.sudo(async () => {
             await this.state.extension.emit('init', {}, {
@@ -161,7 +161,7 @@ class ExtensionService extends BaseService {
             });
         });
     }
-    async ['__on_boot.activation'] (...a) {
+    async '__on_boot.activation' (...a) {
         const svc_su = this.services.get('su');
         await svc_su.sudo(async () => {
             await this.state.extension.emit('activate', {}, {
@@ -169,7 +169,7 @@ class ExtensionService extends BaseService {
             });
         });
     }
-    async ['__on_boot.ready'] (...a) {
+    async '__on_boot.ready' (...a) {
         const svc_su = this.services.get('su');
         await svc_su.sudo(async () => {
             await this.state.extension.emit('ready', {}, {
@@ -178,7 +178,7 @@ class ExtensionService extends BaseService {
         });
     }
 
-    ['__on_install.routes'] (_, { app }) {
+    '__on_install.routes' (_, { app }) {
         if ( ! this.state ) debugger;
         for ( const thing of this.state.expressThings_ ) {
             if ( thing.type === 'endpoint' ) {

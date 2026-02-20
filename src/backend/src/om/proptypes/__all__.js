@@ -282,7 +282,7 @@ module.exports = {
             return is_valid_uuid4(value);
         },
     },
-    ['puter-uuid']: {
+    'puter-uuid': {
         from: 'string',
         validate (value, { descriptor }) {
             const prefix = `${descriptor.prefix }-`;
@@ -297,7 +297,7 @@ module.exports = {
             return prefix + uuid;
         },
     },
-    ['image-base64']: {
+    'image-base64': {
         from: 'string',
         is_set (value) {
             return typeof value === 'string' && value.trim().length > 0;
@@ -382,7 +382,7 @@ module.exports = {
     datetime: {
         from: 'base',
     },
-    ['puter-node']: {
+    'puter-node': {
         // from: 'base',
         async sql_reference (value) {
             if ( value === null ) return null;

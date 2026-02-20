@@ -32,7 +32,7 @@ class AIInterfaceService extends BaseService {
     * Extends the base service to provide AI-related interface management.
     * Handles registration of OCR, chat completion, image generation, and TTS interfaces.
     */
-    async ['__on_driver.register.interfaces'] () {
+    async '__on_driver.register.interfaces' () {
         const svc_registry = this.services.get('registry');
         const col_interfaces = svc_registry.get('interfaces');
 

@@ -114,7 +114,7 @@ class NotificationService extends BaseService {
         this.notifs_pending_write = {};
     }
 
-    ['__on_install.routes'] (_, { app }) {
+    '__on_install.routes' (_, { app }) {
         const require = this.require;
         const express = require('express');
         const router = express.Router();

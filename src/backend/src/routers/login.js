@@ -26,21 +26,21 @@ const { requireCaptcha } = require('../modules/captcha/middleware/captcha-middle
 
 const complete_ = async ({ req, res, user }) => {
     const svc_auth = req.services.get('auth');
-    const { token } = await svc_auth.create_session_token(user, { req });
+    const { session, token: session_token } = await svc_auth.create_session_token(user, { req });
+    const gui_token = svc_auth.create_gui_token(user, session);
 
-    //set cookie
-    // res.cookie(config.cookie_name, token);
-    res.cookie(config.cookie_name, token, {
+    // HTTP-only cookie gets session token (cookie-based requests have hasHttpOnlyCookie)
+    res.cookie(config.cookie_name, session_token, {
         sameSite: 'none',
         secure: true,
         httpOnly: true,
     });
 
-    // send response
+    // response body: GUI token only (client never gets session token)
     return res.send({
         proceed: true,
         next_step: 'complete',
-        token: token,
+        token: gui_token,
         user: {
             username: user.username,
             uuid: user.uuid,

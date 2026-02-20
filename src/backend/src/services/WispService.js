@@ -22,7 +22,7 @@ const { Endpoint } = require('../util/expressutil');
 const BaseService = require('./BaseService');
 
 class WispService extends BaseService {
-    ['__on_install.routes'] (_, { app }) {
+    '__on_install.routes' (_, { app }) {
         const r_wisp = (() => {
             const require = this.require;
             const express = require('express');

@@ -86,13 +86,13 @@ export class AIChatService extends BaseService {
 
     /** Driver interfaces */
     static IMPLEMENTS = {
-        ['driver-capabilities']: {
+        'driver-capabilities': {
             supports_test_mode (iface: string, method_name: string) {
                 return iface === 'puter-chat-completion' &&
                     method_name === 'complete';
             },
         },
-        ['puter-chat-completion']: {
+        'puter-chat-completion': {
 
             async models () {
                 return await (this as unknown as AIChatService).models();

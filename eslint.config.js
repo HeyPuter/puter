@@ -65,6 +65,7 @@ export const rules = {
     }],
     '@stylistic/array-bracket-spacing': ['error', 'never'],
     '@stylistic/linebreak-style': ['error', 'unix'],
+    'no-useless-computed-key': 'error',
     'no-sequences': [
         'error', {
             allowInParentheses: false,

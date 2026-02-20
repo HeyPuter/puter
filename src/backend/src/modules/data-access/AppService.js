@@ -265,7 +265,7 @@ export default class AppService extends BaseService {
     static WRITE_ALL_OWNER_PERMISSION = 'system:es:write-all-owners';
 
     static IMPLEMENTS = {
-        ['crud-q']: {
+        'crud-q': {
             async create ({ object, options }) {
                 return await this.#create({ object, options });
             },

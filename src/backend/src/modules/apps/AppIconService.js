@@ -17,13 +17,13 @@
  * along with this program.  If not, see <https://www.gnu.org/licenses/>.
  */
 
-import config from '../../config.js';
 import { createRequire } from 'node:module';
+import config from '../../config.js';
+import { APP_ICONS_SUBDOMAIN } from '../../consts/app-icons.js';
 import { HLWrite } from '../../filesystem/hl_operations/hl_write.js';
 import { LLMkdir } from '../../filesystem/ll_operations/ll_mkdir.js';
 import { LLRead } from '../../filesystem/ll_operations/ll_read.js';
 import { NodePathSelector } from '../../filesystem/node/selectors.js';
-import { APP_ICONS_SUBDOMAIN } from '../../consts/app-icons.js';
 import { get_app, get_user } from '../../helpers.js';
 import BaseService from '../../services/BaseService.js';
 import { DB_WRITE } from '../../services/database/consts.js';
@@ -69,7 +69,7 @@ export class AppIconService extends BaseService {
      * endpoints /app-icon/:app_uid and /app-icon/:app_uid/:size
      * which serve the app icon at the requested size.
      */
-    async ['__on_install.routes'] (_, { app }) {
+    async '__on_install.routes' (_, { app }) {
         const handler = async (req, res) => {
             // Validate parameters
             let { app_uid: appUid, size } = req.params;
@@ -686,7 +686,7 @@ export class AppIconService extends BaseService {
      * `/system/app_icons` directory if it does not exist,
      * and then to register the event listener for `app.new-icon`.
      */
-    async ['__on_user.system-user-ready'] () {
+    async '__on_user.system-user-ready' () {
         const svcSu = this.services.get('su');
         const svcUser = this.services.get('user');
 

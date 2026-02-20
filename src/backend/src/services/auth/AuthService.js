@@ -107,6 +107,32 @@ class AuthService extends BaseService {
             const actor_type = new UserActorType({
                 user,
                 session: session.uuid,
+                hasHttpOnlyCookie: true,
+            });
+
+            return new Actor({
+                user_uid: decoded.user_uid,
+                type: actor_type,
+            });
+        }
+
+        if ( decoded.type === 'gui' ) {
+            const session = await this.get_session_(decoded.uuid);
+
+            if ( ! session ) {
+                throw APIError.create('token_auth_failed');
+            }
+
+            const user = await get_user({ uuid: decoded.user_uid });
+
+            if ( ! user ) {
+                throw APIError.create('user_not_found');
+            }
+
+            const actor_type = new UserActorType({
+                user,
+                session: session.uuid,
+                hasHttpOnlyCookie: false,
             });
 
             return new Actor({
@@ -311,6 +337,44 @@ class AuthService extends BaseService {
     }
 
     /**
+     * Creates a GUI token bound to the same session as the given session object.
+     * GUI tokens create a UserActorType with hasHttpOnlyCookie false, so they cannot
+     * access user-protected HTTP endpoints (e.g. change password). The GUI receives
+     * only this token, not the full session token.
+     *
+     * @param {*} user - User object (must have .uuid).
+     * @param {{ uuid: string }} session - Session object (must have .uuid).
+     * @returns {string} JWT GUI token.
+     */
+    create_gui_token (user, session) {
+        return this.modules.jwt.sign({
+            type: 'gui',
+            version: '0.0.0',
+            uuid: session.uuid,
+            user_uid: user.uuid,
+        }, this.global_config.jwt_secret);
+    }
+
+    /**
+     * Creates a session token (hasHttpOnlyCookie) for an existing session.
+     * Used when the client authenticated with a GUI token (e.g. QR login via
+     * ?auth_token=) so we can set the HTTP-only cookie and allow user-protected
+     * endpoints (change password, email, username, etc.) to work.
+     *
+     * @param {*} user - User object (must have .uuid).
+     * @param {string} session_uuid - Existing session UUID.
+     * @returns {string} JWT session token.
+     */
+    create_session_token_for_session (user, session_uuid) {
+        return this.modules.jwt.sign({
+            type: 'session',
+            version: '0.0.0',
+            uuid: session_uuid,
+            user_uid: user.uuid,
+        }, this.global_config.jwt_secret);
+    }
+
+    /**
     * This method checks if the provided session token is valid and returns the associated user and token.
     * If the token is not a valid session token or it does not exist in the database, it returns an empty object.
     *
@@ -323,7 +387,7 @@ class AuthService extends BaseService {
 
         console.log('\x1B[36;1mDECODED SESSION', decoded);
 
-        if ( decoded.type && decoded.type !== 'session' ) {
+        if ( decoded.type && decoded.type !== 'session' && decoded.type !== 'gui' ) {
             return {};
         }
 
@@ -343,19 +407,24 @@ class AuthService extends BaseService {
                 return {};
             }
 
-            // Return the session
-            return { user, token: cur_token };
+            // Return GUI token to client (if they sent session token, exchange for GUI token)
+            const gui_token = decoded.type === 'gui'
+                ? cur_token
+                : this.create_gui_token(user, session);
+            return { user, token: gui_token };
         }
 
         this.log.info('UPGRADING SESSION');
 
         // Upgrade legacy token
         // TODO: phase this out
-        const { session, token } = await this.create_session_token(user, meta);
+        const { session, token: session_token } = await this.create_session_token(user, meta);
+        const gui_token = this.create_gui_token(user, session);
 
         const actor_type = new UserActorType({
             user,
             session,
+            hasHttpOnlyCookie: true,
         });
 
         const actor = new Actor({
@@ -363,7 +432,8 @@ class AuthService extends BaseService {
             type: actor_type,
         });
 
-        return { actor, user, token };
+        // token = GUI token for client (response body); session_token = for HTTP-only cookie
+        return { actor, user, token: gui_token, session_token };
     }
 
     /**
@@ -375,7 +445,7 @@ class AuthService extends BaseService {
     async remove_session_by_token (token) {
         const decoded = this.modules.jwt.verify(token, this.global_config.jwt_secret);
 
-        if ( decoded.type !== 'session' ) {
+        if ( decoded.type !== 'session' && decoded.type !== 'gui' ) {
             return;
         }
 
@@ -469,12 +539,12 @@ class AuthService extends BaseService {
         } else {
             token_uid = tokenOrUuid;
         }
-        /* eslint-disable */
+
         await this.db.write(
             'DELETE FROM `access_token_permissions` WHERE `token_uid` = ?',
             [token_uid],
         );
-        /* eslint-enable */
+
         const svc_permission = this.services.get('permission');
         svc_permission.invalidate_permission_scan_cache_for_access_token(token_uid);
     }
@@ -609,6 +679,69 @@ class AuthService extends BaseService {
             console.error('Invalid URL:', error.message);
             return null;
         }
+    }
+
+    /**
+     * Registers GET /get-gui-token. Must be called from the GUI origin (no api. subdomain)
+     * so the HTTP-only session cookie is sent. Returns the GUI token for use in Authorization headers.
+     */
+    '__on_install.routes' () {
+        const { app } = this.services.get('web-server');
+        const config = require('../../config');
+        const { subdomain } = require('../../helpers');
+        const configurable_auth = require('../../middleware/configurable_auth');
+        const { Endpoint } = require('../../util/expressutil');
+        const svc_auth = this;
+
+        Endpoint({
+            route: '/get-gui-token',
+            methods: ['GET'],
+            mw: [configurable_auth()],
+            handler: async (req, res) => {
+                if ( ! req.user ) {
+                    return res.status(401).json({});
+                }
+
+                const actor = Context.get('actor');
+                if ( ! (actor.type instanceof UserActorType) ) {
+                    return res.status(403).json({});
+                }
+                if ( ! actor.type.session ) {
+                    return res.status(400).json({ error: 'No session bound to this actor' });
+                }
+
+                const gui_token = svc_auth.create_gui_token(actor.type.user, { uuid: actor.type.session });
+                return res.json({ token: gui_token });
+            },
+        }).attach(app);
+
+        // Sync HTTP-only session cookie to the user implied by the request's auth token.
+        // Used when switching users in the UI: client sends Authorization with the new user's
+        // GUI token; we set the session cookie so cookie-based (e.g. user-protected) requests match.
+        Endpoint({
+            route: '/session/sync-cookie',
+            methods: ['GET'],
+            mw: [configurable_auth()],
+            handler: async (req, res) => {
+                if ( ! req.user ) {
+                    return res.status(401).end();
+                }
+                const actor = Context.get('actor');
+                if ( !(actor.type instanceof UserActorType) || !actor.type.session ) {
+                    return res.status(400).end();
+                }
+                const session_token = svc_auth.create_session_token_for_session(
+                    actor.type.user,
+                    actor.type.session,
+                );
+                res.cookie(config.cookie_name, session_token, {
+                    sameSite: 'none',
+                    secure: true,
+                    httpOnly: true,
+                });
+                return res.status(204).end();
+            },
+        }).attach(app);
     }
 }
 

@@ -101,7 +101,7 @@ class RegistryService extends BaseService {
     *
     * @private
     */
-    async ['__on_boot.consolidation'] () {
+    async '__on_boot.consolidation' () {
         const services = this.services;
         await services.emit('registry.collections');
         await services.emit('registry.entries');

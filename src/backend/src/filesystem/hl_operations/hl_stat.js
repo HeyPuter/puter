@@ -24,7 +24,7 @@ const { NodeUIDSelector } = require('../node/selectors');
 
 class HLStat extends HLFilesystemOperation {
     static MODULES = {
-        ['mime-types']: require('mime-types'),
+        'mime-types': require('mime-types'),
     };
 
     async _run () {
