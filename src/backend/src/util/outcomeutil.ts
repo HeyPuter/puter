@@ -45,6 +45,10 @@ export class OutcomeObject<T> {
         this.messages.push({ text, fields });
     }
 
+    get succeeded () {
+        return this.ended && !this.failed;
+    }
+
     /**
      * Records a failure message.
      * Returns the outcome object for chaining with a return statement.
