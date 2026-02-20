@@ -34,7 +34,7 @@ import { Context } from './util/context.js';
 import { ManagedError } from './util/errorutil.js';
 import { kv } from './util/kvSingleton.js';
 import { spanify } from './util/otelutil.js';
-import { generate_identifier } from './util/identifier';
+import { generate_identifier } from './util/identifier.js';
 
 export * from './validation.js';
 
