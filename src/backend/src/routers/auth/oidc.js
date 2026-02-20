@@ -17,10 +17,10 @@
  * along with this program.  If not, see <https://www.gnu.org/licenses/>.
  */
 import express from 'express';
-const router = express.Router();
-import config from '../../config.js';
 import jwt from 'jsonwebtoken';
+import config from '../../config.js';
 import { get_user, subdomain } from '../../helpers.js';
+const router = express.Router();
 
 const REVALIDATION_COOKIE_NAME = 'puter_revalidation';
 const REVALIDATION_EXPIRY_SEC = 300; // 5 minutes
@@ -89,7 +89,7 @@ router.get('/auth/oidc/:provider/start', async (req, res) => {
         return res.status(404).end();
     }
     const svc_edgeRateLimit = req.services.get('edge-rate-limit');
-    if ( ! svc_edgeRateLimit.check('login') ) {
+    if ( ! svc_edgeRateLimit.check('oidc-general') ) {
         return res.status(429).send('Too many requests.');
     }
     const provider = req.params.provider;
@@ -128,7 +128,7 @@ router.get('/auth/oidc/callback/login', async (req, res) => {
         return res.status(404).end();
     }
     const svc_edgeRateLimit = req.services.get('edge-rate-limit');
-    if ( ! svc_edgeRateLimit.check('login') ) {
+    if ( ! svc_edgeRateLimit.check('oidc-general') ) {
         return res.status(429).send('Too many requests.');
     }
     const svc_oidc = req.services.get('oidc');
@@ -161,7 +161,7 @@ router.get('/auth/oidc/callback/signup', async (req, res) => {
         return res.status(404).end();
     }
     const svc_edgeRateLimit = req.services.get('edge-rate-limit');
-    if ( ! svc_edgeRateLimit.check('login') ) {
+    if ( ! svc_edgeRateLimit.check('oidc-general') ) {
         return res.status(429).send('Too many requests.');
     }
     const svc_oidc = req.services.get('oidc');
@@ -196,7 +196,7 @@ router.get('/auth/oidc/callback/revalidate', async (req, res) => {
         return res.status(404).end();
     }
     const svc_edgeRateLimit = req.services.get('edge-rate-limit');
-    if ( ! svc_edgeRateLimit.check('login') ) {
+    if ( ! svc_edgeRateLimit.check('oidc-general') ) {
         return res.status(429).send('Too many requests.');
     }
     const svc_oidc = req.services.get('oidc');

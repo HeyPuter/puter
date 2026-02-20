@@ -44,6 +44,10 @@ class EdgeRateLimitService extends BaseService {
     */
     _construct () {
         this.scopes = {
+            'oidc-general': {
+                limit: 100,
+                window: 15 * MINUTE,
+            },
             'login': {
                 limit: 10,
                 window: 15 * MINUTE,
