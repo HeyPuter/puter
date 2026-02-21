@@ -875,6 +875,40 @@ describe('AppService', () => {
             expect(validate_url).toHaveBeenCalledWith('https://example.com', expect.objectContaining({ key: 'index_url' }));
         });
 
+        it('should reject object icon payloads on create', async () => {
+            setupContextForWrite(createMockUserActor(1));
+            mockDb.read.mockResolvedValue([createMockAppRow()]);
+
+            const crudQ = AppService.IMPLEMENTS['crud-q'];
+            await expect(crudQ.create.call(appService, {
+                object: {
+                    name: 'test-app',
+                    title: 'Test',
+                    index_url: 'https://example.com',
+                    icon: { url: '/app-icon/app-uid-123/64' },
+                },
+            })).rejects.toMatchObject({
+                fields: { code: 'field_invalid', key: 'icon' },
+            });
+        });
+
+        it('should allow empty icon string on create', async () => {
+            setupContextForWrite(createMockUserActor(1));
+            mockDb.read.mockResolvedValue([createMockAppRow()]);
+
+            const crudQ = AppService.IMPLEMENTS['crud-q'];
+            await crudQ.create.call(appService, {
+                object: {
+                    name: 'test-app',
+                    title: 'Test',
+                    index_url: 'https://example.com',
+                    icon: '',
+                },
+            });
+
+            expect(mockEventService.emit).not.toHaveBeenCalledWith('app.new-icon', expect.anything());
+        });
+
         it('should migrate legacy app-icons host URL to app-icon endpoint URL on create', async () => {
             setupContextForWrite(createMockUserActor(1));
             mockDb.read.mockResolvedValue([createMockAppRow()]);
@@ -1244,6 +1278,39 @@ describe('AppService', () => {
                             expect.objectContaining({
                                 app_uid: 'app-uid-123',
                                 data_url: 'https://api.puter.localhost/app-icon/app-uid-123',
+                            }));
+        });
+
+        it('should reject object icon payloads on update', async () => {
+            setupContextForWrite(createMockUserActor(1));
+
+            const crudQ = AppService.IMPLEMENTS['crud-q'];
+            await expect(crudQ.update.call(appService, {
+                object: {
+                    uid: 'app-uid-123',
+                    icon: { url: '/app-icon/app-uid-123/64' },
+                },
+            })).rejects.toMatchObject({
+                fields: { code: 'field_invalid', key: 'icon' },
+            });
+        });
+
+        it('should allow empty icon string on update', async () => {
+            setupContextForWrite(createMockUserActor(1));
+
+            const crudQ = AppService.IMPLEMENTS['crud-q'];
+            await crudQ.update.call(appService, {
+                object: {
+                    uid: 'app-uid-123',
+                    icon: '',
+                },
+            });
+
+            expect(mockEventService.emit).toHaveBeenCalledWith(
+                            'app.new-icon',
+                            expect.objectContaining({
+                                app_uid: 'app-uid-123',
+                                data_url: '',
                             }));
         });
 
