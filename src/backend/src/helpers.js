@@ -63,6 +63,43 @@ const safe_json_parse = (value, fallback) => {
     }
 };
 
+const redisGetJsonMany = async (keys) => {
+    if ( !Array.isArray(keys) || keys.length === 0 ) {
+        return new Map();
+    }
+
+    const uniqueKeys = [...new Set(keys)];
+    let valuesByIndex = null;
+
+    // MGET over Redis Cluster can fail for cross-slot keys; use pipelined GETs there.
+    if ( typeof redisClient.nodes === 'function' ) {
+        const pipeline = redisClient.pipeline();
+        for ( const key of uniqueKeys ) {
+            pipeline.get(key);
+        }
+        const results = await pipeline.exec();
+        if ( Array.isArray(results) ) {
+            valuesByIndex = results.map((item) => {
+                if ( !Array.isArray(item) || item.length < 2 ) return null;
+                const [error, value] = item;
+                return error ? null : value;
+            });
+        }
+    } else if ( typeof redisClient.mget === 'function' ) {
+        valuesByIndex = await redisClient.mget(...uniqueKeys);
+    }
+
+    if ( ! Array.isArray(valuesByIndex) ) {
+        valuesByIndex = await Promise.all(uniqueKeys.map(key => redisClient.get(key)));
+    }
+
+    const valuesByKey = new Map();
+    for ( let i = 0; i < uniqueKeys.length; i++ ) {
+        valuesByKey.set(uniqueKeys[i], safe_json_parse(valuesByIndex[i], null));
+    }
+    return valuesByKey;
+};
+
 const buildAppIconUrl = (app_uid, size = DEFAULT_APP_ICON_SIZE) => {
     if ( ! app_uid ) return null;
     const uid_string = String(app_uid);
@@ -500,44 +537,54 @@ export const get_apps = spanify('get_apps', async (specifiers, options = {}) => 
         }
     };
 
-    for ( const spec of normalized ) {
+    const cacheLookupPlan = normalized.map((spec) => {
         if ( spec.uid ) {
-            const cached = await AppRedisCacheSpace.getCachedApp({
+            return {
                 lookup: 'uid',
                 value: spec.uid,
-                rawIcon: rawIcon,
-            });
-            if ( cached ) {
-                addApp(decorateApp(cached));
-            } else {
-                queueMissing('uid', spec.uid);
-            }
-            continue;
+                cacheKey: AppRedisCacheSpace.key({
+                    lookup: 'uid',
+                    value: spec.uid,
+                    rawIcon,
+                }),
+            };
         }
         if ( spec.name ) {
-            const cached = await AppRedisCacheSpace.getCachedApp({
+            return {
                 lookup: 'name',
                 value: spec.name,
-                rawIcon: rawIcon,
-            });
-            if ( cached ) {
-                addApp(decorateApp(cached));
-            } else {
-                queueMissing('name', spec.name);
-            }
-            continue;
+                cacheKey: AppRedisCacheSpace.key({
+                    lookup: 'name',
+                    value: spec.name,
+                    rawIcon,
+                }),
+            };
         }
         if ( spec.id ) {
-            const cached = await AppRedisCacheSpace.getCachedApp({
+            return {
                 lookup: 'id',
                 value: spec.id,
-                rawIcon: rawIcon,
-            });
-            if ( cached ) {
-                addApp(decorateApp(cached));
-            } else {
-                queueMissing('id', spec.id);
-            }
+                cacheKey: AppRedisCacheSpace.key({
+                    lookup: 'id',
+                    value: spec.id,
+                    rawIcon,
+                }),
+            };
+        }
+        return null;
+    });
+
+    const cachedAppsByKey = await redisGetJsonMany(
+        cacheLookupPlan.filter(Boolean).map(item => item.cacheKey),
+    );
+
+    for ( const plannedLookup of cacheLookupPlan ) {
+        if ( ! plannedLookup ) continue;
+        const cached = cachedAppsByKey.get(plannedLookup.cacheKey);
+        if ( cached ) {
+            addApp(decorateApp(cached));
+        } else {
+            queueMissing(plannedLookup.lookup, plannedLookup.value);
         }
     }
 

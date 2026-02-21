@@ -38,8 +38,8 @@ const DEFAULT_ICON_SIZE = 128;
 const RAW_BASE64_REGEX = /^[A-Za-z0-9+/]+={0,2}$/;
 const LEGACY_ICON_FILENAME = ({ appUid, size }) => `${appUid}-${size}.png`;
 const ORIGINAL_ICON_FILENAME = ({ appUid }) => `${appUid}.png`;
-const REDIRECT_MAX_AGE_SIZE = 30 * 24 * 60 * 60; // 1 month
-const REDIRECT_MAX_AGE_ORIGINAL = 7 * 24 * 60 * 60; // 1 week
+const REDIRECT_MAX_AGE_SIZE = 15 * 60; // 15 min
+const REDIRECT_MAX_AGE_ORIGINAL = 60; // 1 min
 
 /**
  * AppIconService handles icon generation and serving for apps.
@@ -344,8 +344,10 @@ export class AppIconService extends BaseService {
 
     async ensureAppIconsSubdomain ({ dirAppIcons }) {
         const dbSites = this.services.get('database').get(DB_WRITE, 'sites');
-        const existing = await dbSites.read('SELECT * FROM subdomains WHERE subdomain = ? LIMIT 1',
-                        [APP_ICONS_SUBDOMAIN]);
+        const existing = await dbSites.read(
+            'SELECT * FROM subdomains WHERE subdomain = ? LIMIT 1',
+            [APP_ICONS_SUBDOMAIN],
+        );
         if ( existing[0] ) return existing[0];
 
         const systemUser = await get_user({ username: 'system' });
@@ -362,8 +364,10 @@ export class AppIconService extends BaseService {
             `sd-${this.modules.uuidv4()}`,
         ]);
 
-        const rows = await dbSites.read('SELECT * FROM subdomains WHERE subdomain = ? LIMIT 1',
-                        [APP_ICONS_SUBDOMAIN]);
+        const rows = await dbSites.read(
+            'SELECT * FROM subdomains WHERE subdomain = ? LIMIT 1',
+            [APP_ICONS_SUBDOMAIN],
+        );
         return rows[0] ?? null;
     }
 
