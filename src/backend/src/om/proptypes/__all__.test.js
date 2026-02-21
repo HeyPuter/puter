@@ -67,6 +67,10 @@ describe('OM image-base64 proptype', () => {
         expect(validateIcon('not-an-icon')).toBeInstanceOf(Error);
     });
 
+    it('rejects object icon values', () => {
+        expect(validateIcon({ url: '/app-icon/app-uid-123/64' })).toBeInstanceOf(Error);
+    });
+
     it('rejects foreign absolute app-icon endpoint URLs', () => {
         expect(validateIcon('https://evil.example/app-icon/app-uid-123/64')).toBeInstanceOf(Error);
     });

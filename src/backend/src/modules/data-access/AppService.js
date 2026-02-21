@@ -659,11 +659,15 @@ export default class AppService extends BaseService {
                     object.icon = normalizeRawBase64ImageString(object.icon);
                     object.icon = migrateRelativeAppIconEndpointUrl(object.icon);
                 }
-                if ( typeof object.icon === 'string' && object.icon.startsWith('data:') ) {
+                if ( typeof object.icon !== 'string' ) {
+                    throw APIError.create('field_invalid', null, { key: 'icon' });
+                }
+                object.icon = object.icon.trim();
+                if ( ! object.icon ) {
+                    // Empty icon is allowed to clear current icon.
+                } else if ( object.icon.startsWith('data:') ) {
                     validate_image_base64(object.icon, { key: 'icon' });
-                } else if ( isAllowedAppIconEndpointUrl(object.icon) ) {
-                    // Allow existing relative app icon endpoint references.
-                } else {
+                } else if ( ! isAllowedAppIconEndpointUrl(object.icon) ) {
                     throw APIError.create('field_invalid', null, { key: 'icon' });
                 }
             }
@@ -736,7 +740,7 @@ export default class AppService extends BaseService {
                 url: '',
             };
             await svc_event.emit('app.new-icon', event);
-            if ( event.url ) {
+            if ( typeof event.url === 'string' && event.url ) {
                 this.db_write.write('UPDATE apps SET icon = ? WHERE uid = ? LIMIT 1',
                                 [event.url, uid]);
             }
@@ -912,11 +916,15 @@ export default class AppService extends BaseService {
                     object.icon = normalizeRawBase64ImageString(object.icon);
                     object.icon = migrateRelativeAppIconEndpointUrl(object.icon);
                 }
-                if ( typeof object.icon === 'string' && object.icon.startsWith('data:') ) {
+                if ( typeof object.icon !== 'string' ) {
+                    throw APIError.create('field_invalid', null, { key: 'icon' });
+                }
+                object.icon = object.icon.trim();
+                if ( ! object.icon ) {
+                    // Empty icon is allowed to clear current icon.
+                } else if ( object.icon.startsWith('data:') ) {
                     validate_image_base64(object.icon, { key: 'icon' });
-                } else if ( isAllowedAppIconEndpointUrl(object.icon) ) {
-                    // Allow existing relative app icon endpoint references.
-                } else {
+                } else if ( ! isAllowedAppIconEndpointUrl(object.icon) ) {
                     throw APIError.create('field_invalid', null, { key: 'icon' });
                 }
             }
@@ -1200,7 +1208,7 @@ export default class AppService extends BaseService {
                 data_url: object.icon,
             };
             await svc_event.emit('app.new-icon', event);
-            if ( event.url ) {
+            if ( typeof event.url === 'string' && event.url ) {
                 await this.db_write.write('UPDATE apps SET icon = ? WHERE uid = ? LIMIT 1',
                                 [event.url, old_app.uid]);
             }
