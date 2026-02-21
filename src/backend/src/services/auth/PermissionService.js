@@ -236,7 +236,7 @@ class PermissionService extends BaseService {
             value: end_ts - start_ts,
         });
 
-        await redisClient.set(cacheKey, JSON.stringify(reading), 'EX', 20);
+        redisClient.set(cacheKey, JSON.stringify(reading), 'EX', 20);
 
         return reading;
     }
@@ -357,13 +357,15 @@ class PermissionService extends BaseService {
             sqlPermQuery = `(${sqlPermQuery})`;
         }
 
-        const rows = await this.db.read('SELECT * FROM `user_to_user_permissions` ' +
+        const rows = await this.db.read(
+            'SELECT * FROM `user_to_user_permissions` ' +
             `WHERE \`holder_user_id\` = ? AND ${
                 sqlPermQuery}`,
-        [
-            actor.type.user.id,
-            ...permissions,
-        ]);
+            [
+                actor.type.user.id,
+                ...permissions,
+            ],
+        );
 
         const readings = [];
         // Return the first matching permission where the
@@ -439,19 +441,21 @@ class PermissionService extends BaseService {
         const app_id = app.id;
 
         // UPSERT permission
-        await this.db.write('INSERT INTO `user_to_app_permissions` (`user_id`, `app_id`, `permission`, `extra`) ' +
+        await this.db.write(
+            'INSERT INTO `user_to_app_permissions` (`user_id`, `app_id`, `permission`, `extra`) ' +
             `VALUES (?, ?, ?, ?) ${
                 this.db.case({
                     mysql: 'ON DUPLICATE KEY UPDATE `extra` = ?',
                     otherwise: 'ON CONFLICT(`user_id`, `app_id`, `permission`) DO UPDATE SET `extra` = ?',
                 })}`,
-        [
-            actor.type.user.id,
-            app_id,
-            permission,
-            JSON.stringify(extra),
-            JSON.stringify(extra),
-        ]);
+            [
+                actor.type.user.id,
+                app_id,
+                permission,
+                JSON.stringify(extra),
+                JSON.stringify(extra),
+            ],
+        );
 
         // INSERT audit table
         const audit_values = {
@@ -467,12 +471,21 @@ class PermissionService extends BaseService {
         const sql_cols = Object.keys(audit_values).map((key) => `\`${key}\``).join(', ');
         const sql_vals = Object.keys(audit_values).map(() => '?').join(', ');
 
-        this.db.write(`INSERT INTO \`audit_user_to_app_permissions\` (${sql_cols}) ` +
+        this.db.write(
+            `INSERT INTO \`audit_user_to_app_permissions\` (${sql_cols}) ` +
             `VALUES (${sql_vals})`,
-        Object.values(audit_values));
+            Object.values(audit_values),
+        );
 
         // Invalidate permission-scan cache for this app-under-user so the next check sees the grant.
-        await this.invalidate_permission_scan_cache_for_app_under_user(actor.type.user.uuid, app.uid);
+        this.invalidate_permission_scan_cache_for_app_under_user(actor.type.user.uuid, app.uid)
+            .catch((e) => {
+                this.log.error('failed to invalidate permission scan cache', {
+                    actor_uid: actor.type.user.uuid,
+                    app_uid: app.uid,
+                    error: e,
+                });
+            });
     }
 
     /**
@@ -509,19 +522,21 @@ class PermissionService extends BaseService {
         }
 
         // UPSERT permission
-        await this.db.write('INSERT INTO `dev_to_app_permissions` (`user_id`, `app_id`, `permission`, `extra`) ' +
+        await this.db.write(
+            'INSERT INTO `dev_to_app_permissions` (`user_id`, `app_id`, `permission`, `extra`) ' +
             `VALUES (?, ?, ?, ?) ${
                 this.db.case({
                     mysql: 'ON DUPLICATE KEY UPDATE `extra` = ?',
                     otherwise: 'ON CONFLICT(`user_id`, `app_id`, `permission`) DO UPDATE SET `extra` = ?',
                 })}`,
-        [
-            actor.type.user.id,
-            app_id,
-            permission,
-            JSON.stringify(extra),
-            JSON.stringify(extra),
-        ]);
+            [
+                actor.type.user.id,
+                app_id,
+                permission,
+                JSON.stringify(extra),
+                JSON.stringify(extra),
+            ],
+        );
 
         // INSERT audit table
         const audit_values = {
@@ -537,9 +552,11 @@ class PermissionService extends BaseService {
         const sql_cols = Object.keys(audit_values).map((key) => `\`${key}\``).join(', ');
         const sql_vals = Object.keys(audit_values).map(() => '?').join(', ');
 
-        this.db.write(`INSERT INTO \`audit_dev_to_app_permissions\` (${sql_cols}) ` +
+        this.db.write(
+            `INSERT INTO \`audit_dev_to_app_permissions\` (${sql_cols}) ` +
             `VALUES (${sql_vals})`,
-        Object.values(audit_values));
+            Object.values(audit_values),
+        );
     }
     async revoke_dev_app_permission (actor, app_uid, permission, meta) {
         permission = await this._rewrite_permission(permission);
@@ -559,13 +576,15 @@ class PermissionService extends BaseService {
         const app_id = app.id;
 
         // DELETE permission
-        await this.db.write('DELETE FROM `dev_to_app_permissions` ' +
+        await this.db.write(
+            'DELETE FROM `dev_to_app_permissions` ' +
             'WHERE `user_id` = ? AND `app_id` = ? AND `permission` = ?',
-        [
-            actor.type.user.id,
-            app_id,
-            permission,
-        ]);
+            [
+                actor.type.user.id,
+                app_id,
+                permission,
+            ],
+        );
 
         // INSERT audit table
         const audit_values = {
@@ -581,9 +600,11 @@ class PermissionService extends BaseService {
         const sql_cols = Object.keys(audit_values).map((key) => `\`${key}\``).join(', ');
         const sql_vals = Object.keys(audit_values).map(() => '?').join(', ');
 
-        this.db.write(`INSERT INTO \`audit_dev_to_app_permissions\` (${sql_cols}) ` +
+        this.db.write(
+            `INSERT INTO \`audit_dev_to_app_permissions\` (${sql_cols}) ` +
             `VALUES (${sql_vals})`,
-        Object.values(audit_values));
+            Object.values(audit_values),
+        );
     }
     async revoke_dev_app_all (actor, app_uid, meta) {
         // For now, actor MUST be a user
@@ -596,12 +617,14 @@ class PermissionService extends BaseService {
         const app_id = app.id;
 
         // DELETE permissions
-        await this.db.write('DELETE FROM `dev_to_app_permissions` ' +
+        await this.db.write(
+            'DELETE FROM `dev_to_app_permissions` ' +
             'WHERE `user_id` = ? AND `app_id` = ?',
-        [
-            actor.type.user.id,
-            app_id,
-        ]);
+            [
+                actor.type.user.id,
+                app_id,
+            ],
+        );
 
         // INSERT audit table
         const audit_values = {
@@ -617,9 +640,11 @@ class PermissionService extends BaseService {
         const sql_cols = Object.keys(audit_values).map((key) => `\`${key}\``).join(', ');
         const sql_vals = Object.keys(audit_values).map(() => '?').join(', ');
 
-        this.db.write(`INSERT INTO \`audit_dev_to_app_permissions\` (${sql_cols}) ` +
+        this.db.write(
+            `INSERT INTO \`audit_dev_to_app_permissions\` (${sql_cols}) ` +
             `VALUES (${sql_vals})`,
-        Object.values(audit_values));
+            Object.values(audit_values),
+        );
     }
 
     /**
@@ -653,13 +678,15 @@ class PermissionService extends BaseService {
         const app_id = app.id;
 
         // DELETE permission
-        await this.db.write('DELETE FROM `user_to_app_permissions` ' +
+        await this.db.write(
+            'DELETE FROM `user_to_app_permissions` ' +
             'WHERE `user_id` = ? AND `app_id` = ? AND `permission` = ?',
-        [
-            actor.type.user.id,
-            app_id,
-            permission,
-        ]);
+            [
+                actor.type.user.id,
+                app_id,
+                permission,
+            ],
+        );
 
         // INSERT audit table
         const audit_values = {
@@ -675,9 +702,11 @@ class PermissionService extends BaseService {
         const sql_cols = Object.keys(audit_values).map((key) => `\`${key}\``).join(', ');
         const sql_vals = Object.keys(audit_values).map(() => '?').join(', ');
 
-        this.db.write(`INSERT INTO \`audit_user_to_app_permissions\` (${sql_cols}) ` +
+        this.db.write(
+            `INSERT INTO \`audit_user_to_app_permissions\` (${sql_cols}) ` +
             `VALUES (${sql_vals})`,
-        Object.values(audit_values));
+            Object.values(audit_values),
+        );
     }
 
     /**
@@ -699,12 +728,14 @@ class PermissionService extends BaseService {
         const app_id = app.id;
 
         // DELETE permissions
-        await this.db.write('DELETE FROM `user_to_app_permissions` ' +
+        await this.db.write(
+            'DELETE FROM `user_to_app_permissions` ' +
             'WHERE `user_id` = ? AND `app_id` = ?',
-        [
-            actor.type.user.id,
-            app_id,
-        ]);
+            [
+                actor.type.user.id,
+                app_id,
+            ],
+        );
 
         // INSERT audit table
         const audit_values = {
@@ -720,9 +751,11 @@ class PermissionService extends BaseService {
         const sql_cols = Object.keys(audit_values).map((key) => `\`${key}\``).join(', ');
         const sql_vals = Object.keys(audit_values).map(() => '?').join(', ');
 
-        this.db.write(`INSERT INTO \`audit_user_to_app_permissions\` (${sql_cols}) ` +
+        this.db.write(
+            `INSERT INTO \`audit_user_to_app_permissions\` (${sql_cols}) ` +
             `VALUES (${sql_vals})`,
-        Object.values(audit_values));
+            Object.values(audit_values),
+        );
     }
 
     /**
@@ -803,34 +836,38 @@ class PermissionService extends BaseService {
     */
     async #linked_grant_user_user_permission (actor, user, permission, extra = {}, meta) {
         // UPSERT permission
-        await this.db.write('INSERT INTO `user_to_user_permissions` (`holder_user_id`, `issuer_user_id`, `permission`, `extra`) ' +
+        await this.db.write(
+            'INSERT INTO `user_to_user_permissions` (`holder_user_id`, `issuer_user_id`, `permission`, `extra`) ' +
             `VALUES (?, ?, ?, ?) ${
                 this.db.case({
                     mysql: 'ON DUPLICATE KEY UPDATE `extra` = ?',
                     otherwise: 'ON CONFLICT(`holder_user_id`, `issuer_user_id`, `permission`) DO UPDATE SET `extra` = ?',
                 })}`,
-        [
-            user.id,
-            actor.type.user.id,
-            permission,
-            JSON.stringify(extra),
-            JSON.stringify(extra),
-        ]);
+            [
+                user.id,
+                actor.type.user.id,
+                permission,
+                JSON.stringify(extra),
+                JSON.stringify(extra),
+            ],
+        );
 
         // INSERT audit table
-        this.db.write('INSERT INTO `audit_user_to_user_permissions` (' +
+        this.db.write(
+            'INSERT INTO `audit_user_to_user_permissions` (' +
             '`holder_user_id`, `holder_user_id_keep`, `issuer_user_id`, `issuer_user_id_keep`, ' +
             '`permission`, `action`, `reason`) ' +
             'VALUES (?, ?, ?, ?, ?, ?, ?)',
-        [
-            user.id,
-            user.id,
-            actor.type.user.id,
-            actor.type.user.id,
-            permission,
-            'grant',
-            meta?.reason || 'granted via PermissionService',
-        ]);
+            [
+                user.id,
+                user.id,
+                actor.type.user.id,
+                actor.type.user.id,
+                permission,
+                'grant',
+                meta?.reason || 'granted via PermissionService',
+            ],
+        );
     }
 
     /**
@@ -864,34 +901,38 @@ class PermissionService extends BaseService {
             });
         }
 
-        await this.db.write('INSERT INTO `user_to_group_permissions` (`user_id`, `group_id`, `permission`, `extra`) ' +
+        await this.db.write(
+            'INSERT INTO `user_to_group_permissions` (`user_id`, `group_id`, `permission`, `extra`) ' +
             `VALUES (?, ?, ?, ?) ${
                 this.db.case({
                     mysql: 'ON DUPLICATE KEY UPDATE `extra` = ?',
                     otherwise: 'ON CONFLICT(`user_id`, `group_id`, `permission`) DO UPDATE SET `extra` = ?',
                 })}`,
-        [
-            actor.type.user.id,
-            group.id,
-            permission,
-            JSON.stringify(extra),
-            JSON.stringify(extra),
-        ]);
+            [
+                actor.type.user.id,
+                group.id,
+                permission,
+                JSON.stringify(extra),
+                JSON.stringify(extra),
+            ],
+        );
 
         // INSERT audit table
-        this.db.write('INSERT INTO `audit_user_to_group_permissions` (' +
+        this.db.write(
+            'INSERT INTO `audit_user_to_group_permissions` (' +
             '`user_id`, `user_id_keep`, `group_id`, `group_id_keep`, ' +
             '`permission`, `action`, `reason`) ' +
             'VALUES (?, ?, ?, ?, ?, ?, ?)',
-        [
-            actor.type.user.id,
-            actor.type.user.id,
-            group.id,
-            group.id,
-            permission,
-            'grant',
-            meta?.reason || 'granted via PermissionService',
-        ]);
+            [
+                actor.type.user.id,
+                actor.type.user.id,
+                group.id,
+                group.id,
+                permission,
+                'grant',
+                meta?.reason || 'granted via PermissionService',
+            ],
+        );
     }
 
     /**
@@ -964,27 +1005,31 @@ class PermissionService extends BaseService {
         }
 
         // DELETE permission
-        await this.db.write('DELETE FROM `user_to_user_permissions` ' +
+        await this.db.write(
+            'DELETE FROM `user_to_user_permissions` ' +
             'WHERE `holder_user_id` = ? AND `permission` = ?',
-        [
-            user.id,
-            permission,
-        ]);
+            [
+                user.id,
+                permission,
+            ],
+        );
 
         // INSERT audit table
-        this.db.write('INSERT INTO `audit_user_to_user_permissions` (' +
+        this.db.write(
+            'INSERT INTO `audit_user_to_user_permissions` (' +
             '`holder_user_id`, `holder_user_id_keep`, `issuer_user_id`, `issuer_user_id_keep`, ' +
             '`permission`, `action`, `reason`) ' +
             'VALUES (?, ?, ?, ?, ?, ?, ?)',
-        [
-            user.id,
-            user.id,
-            actor.type.user.id,
-            actor.type.user.id,
-            permission,
-            'revoke',
-            meta?.reason || 'revoked via PermissionService',
-        ]);
+            [
+                user.id,
+                user.id,
+                actor.type.user.id,
+                actor.type.user.id,
+                permission,
+                'revoke',
+                meta?.reason || 'revoked via PermissionService',
+            ],
+        );
     }
 
     /**
@@ -1010,28 +1055,32 @@ class PermissionService extends BaseService {
         }
 
         // DELETE permission
-        await this.db.write('DELETE FROM `user_to_group_permissions` ' +
+        await this.db.write(
+            'DELETE FROM `user_to_group_permissions` ' +
             'WHERE `user_id` = ? AND `group_id` = ? AND `permission` = ?',
-        [
-            actor.type.user.id,
-            group.id,
-            permission,
-        ]);
+            [
+                actor.type.user.id,
+                group.id,
+                permission,
+            ],
+        );
 
         // INSERT audit table
-        this.db.write('INSERT INTO `audit_user_to_group_permissions` (' +
+        this.db.write(
+            'INSERT INTO `audit_user_to_group_permissions` (' +
             '`user_id`, `user_id_keep`, `group_id`, `group_id_keep`, ' +
             '`permission`, `action`, `reason`) ' +
             'VALUES (?, ?, ?, ?, ?, ?, ?)',
-        [
-            actor.type.user.id,
-            actor.type.user.id,
-            group.id,
-            group.id,
-            permission,
-            'revoke',
-            meta?.reason || 'revoked via PermissionService',
-        ]);
+            [
+                actor.type.user.id,
+                actor.type.user.id,
+                group.id,
+                group.id,
+                permission,
+                'revoke',
+                meta?.reason || 'revoked via PermissionService',
+            ],
+        );
     }
 
     /**
@@ -1049,9 +1098,11 @@ class PermissionService extends BaseService {
      * @returns {Promise<Array>} A promise that resolves to an array of user objects.
      */
     async list_user_permission_issuers (user) {
-        const rows = await this.db.read('SELECT DISTINCT issuer_user_id FROM `user_to_user_permissions` ' +
+        const rows = await this.db.read(
+            'SELECT DISTINCT issuer_user_id FROM `user_to_user_permissions` ' +
             'WHERE `holder_user_id` = ?',
-        [user.id]);
+            [user.id],
+        );
 
         const users = [];
         for ( const row of rows ) {
@@ -1083,17 +1134,21 @@ class PermissionService extends BaseService {
      * @returns {Object} An object containing arrays of user and app permissions matching the prefix.
      */
     async query_issuer_permissions_by_prefix (issuer, prefix) {
-        const user_perms = await this.db.read('SELECT DISTINCT holder_user_id, permission ' +
+        const user_perms = await this.db.read(
+            'SELECT DISTINCT holder_user_id, permission ' +
             'FROM `user_to_user_permissions` ' +
             'WHERE issuer_user_id = ? ' +
             'AND permission LIKE ?',
-        [issuer.id, `${prefix}%`]);
+            [issuer.id, `${prefix}%`],
+        );
 
-        const app_perms = await this.db.read('SELECT DISTINCT app_id, permission ' +
+        const app_perms = await this.db.read(
+            'SELECT DISTINCT app_id, permission ' +
             'FROM `user_to_app_permissions` ' +
             'WHERE user_id = ? ' +
             'AND permission LIKE ?',
-        [issuer.id, `${prefix}%`]);
+            [issuer.id, `${prefix}%`],
+        );
 
         const retval = { users: [], apps: [] };
 
@@ -1132,12 +1187,14 @@ class PermissionService extends BaseService {
      * @returns {Promise<Array<string>>} An array of permission strings matching the prefix.
      */
     async query_issuer_holder_permissions_by_prefix (issuer, holder, prefix) {
-        const user_perms = await this.db.read('SELECT permission ' +
+        const user_perms = await this.db.read(
+            'SELECT permission ' +
             'FROM `user_to_user_permissions` ' +
             'WHERE issuer_user_id = ? ' +
             'AND holder_user_id = ? ' +
             'AND permission LIKE ?',
-        [issuer.type.user.id, holder.type.user.id, `${prefix}%`]);
+            [issuer.type.user.id, holder.type.user.id, `${prefix}%`],
+        );
 
         return user_perms.map(row => row.permission);
     }

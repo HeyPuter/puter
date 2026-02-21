@@ -162,9 +162,11 @@ class ServerHealthService extends BaseService {
                         return;
                     }
 
-                    svc_alarm.create('health-check-failure',
-                                    `Health check ${name} failed`,
-                                    { error: err });
+                    svc_alarm.create(
+                        'health-check-failure',
+                        `Health check ${name} failed`,
+                        { error: err },
+                    );
                     check_failures.push({ name });
 
                     this.log.error(`Error for healthcheck fail on ${name}: ${ err.stack}`);
@@ -183,9 +185,11 @@ class ServerHealthService extends BaseService {
             this.failures_ = check_failures;
         }, 10 * SECOND, null, {
             onBehindSchedule: (drift) => {
-                svc_alarm.create('health-checks-behind-schedule',
-                                'Health checks are behind schedule',
-                                { drift });
+                svc_alarm.create(
+                    'health-checks-behind-schedule',
+                    'Health checks are behind schedule',
+                    { drift },
+                );
             },
         });
     }
@@ -242,7 +246,7 @@ class ServerHealthService extends BaseService {
         };
 
         // Cache with 5 second TTL
-        await redisClient.set(cacheKey, JSON.stringify(status), 'EX', 5);
+        redisClient.set(cacheKey, JSON.stringify(status), 'EX', 5);
 
         return status;
     }

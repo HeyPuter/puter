@@ -73,9 +73,11 @@ module.exports = eggspress('/auth/configure-2fa/:action', {
         });
 
         // update user
-        await db.write('UPDATE user SET otp_secret = ?, otp_recovery_codes = ? WHERE uuid = ?',
-                        [result.secret, hashed_recovery_codes.join(','), user.uuid]);
-        await invalidate_cached_user_by_id(req.user.id);
+        await db.write(
+            'UPDATE user SET otp_secret = ?, otp_recovery_codes = ? WHERE uuid = ?',
+            [result.secret, hashed_recovery_codes.join(','), user.uuid],
+        );
+        invalidate_cached_user_by_id(req.user.id);
         req.user.otp_secret = result.secret;
         req.user.otp_recovery_codes = hashed_recovery_codes.join(',');
         user.otp_secret = result.secret;
@@ -119,9 +121,11 @@ module.exports = eggspress('/auth/configure-2fa/:action', {
             throw APIError.create('2fa_not_configured');
         }
 
-        await db.write('UPDATE user SET otp_enabled = 1 WHERE uuid = ?',
-                        [user.uuid]);
-        await invalidate_cached_user_by_id(req.user.id);
+        await db.write(
+            'UPDATE user SET otp_enabled = 1 WHERE uuid = ?',
+            [user.uuid],
+        );
+        invalidate_cached_user_by_id(req.user.id);
         // update cached user
         req.user.otp_enabled = 1;
 

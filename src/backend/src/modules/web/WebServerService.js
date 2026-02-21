@@ -514,14 +514,25 @@ class WebServerService extends BaseService {
             // Parse the Host header to isolate the hostname (strip out port if present)
             const hostName = hostHeader.split(':')[0].trim().toLowerCase();
             // Check if the hostname matches any of the allowed domains or is a subdomain of an allowed domain
+            // Exception: allow /healthcheck endpoint on the root domain
+            if (
+                req.path === '/healthcheck' &&
+                hostName === config.domain.toLowerCase()
+            ) {
+                next();
+                return;
+            }
             if ( allowedDomains.some(allowedDomain => hostName === allowedDomain || hostName.endsWith(`.${ allowedDomain}`)) ) {
                 next(); // Proceed if the host is valid
+                return;
             } else {
                 if ( ! config.custom_domains_enabled ) {
-                    return res.status(400).send('Invalid Host header.');
+                    res.status(400).send('Invalid Host header.');
+                    return;
                 }
                 req.is_custom_domain = true;
                 next();
+                return;
             }
         });
 

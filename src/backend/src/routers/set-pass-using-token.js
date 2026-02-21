@@ -77,14 +77,16 @@ router.post('/set-pass-using-token', express.json(), async (req, res, next) => {
     }
 
     try {
-        const info = await db.write('UPDATE user SET password=?, pass_recovery_token=NULL, change_email_confirm_token=NULL WHERE `uuid` = ? AND pass_recovery_token = ?',
-                        [await bcrypt.hash(req.body.password, 8), user_uid, token]);
+        const info = await db.write(
+            'UPDATE user SET password=?, pass_recovery_token=NULL, change_email_confirm_token=NULL WHERE `uuid` = ? AND pass_recovery_token = ?',
+            [await bcrypt.hash(req.body.password, 8), user_uid, token],
+        );
 
         if ( ! info?.anyRowsAffected ) {
             return res.status(400).send(SAFE_NEGATIVE_RESPONSE);
         }
 
-        await invalidate_cached_user_by_id(user.id);
+        invalidate_cached_user_by_id(user.id);
 
         return res.send('Password successfully updated.');
     } catch (e) {

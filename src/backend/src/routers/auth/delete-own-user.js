@@ -55,7 +55,7 @@ module.exports = eggspress('/delete-own-user', {
     res.clearCookie(config.cookie_name);
 
     await deleteUser(req.user.id);
-    await invalidate_cached_user(req.user);
+    invalidate_cached_user(req.user);
 
     return res.send({ success: true });
 });

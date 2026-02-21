@@ -89,17 +89,21 @@ export async function is_empty (dir_uuid) {
 
     if ( typeof dir_uuid === 'object' ) {
         if ( typeof dir_uuid.path === 'string' && dir_uuid.path !== '' ) {
-            rows = await db.read(`SELECT EXISTS(SELECT 1 FROM fsentries WHERE path LIKE ${db.case({
-                sqlite: '? || \'%\'',
-                otherwise: 'CONCAT(?, \'%\')',
-            })} LIMIT 1) AS not_empty`,
-            [`${dir_uuid.path }/`]);
+            rows = await db.read(
+                `SELECT EXISTS(SELECT 1 FROM fsentries WHERE path LIKE ${db.case({
+                    sqlite: '? || \'%\'',
+                    otherwise: 'CONCAT(?, \'%\')',
+                })} LIMIT 1) AS not_empty`,
+                [`${dir_uuid.path }/`],
+            );
         } else dir_uuid = dir_uuid.uid;
     }
 
     if ( typeof dir_uuid === 'string' ) {
-        rows = await db.read('SELECT EXISTS(SELECT 1 FROM fsentries WHERE parent_uid = ? LIMIT 1) AS not_empty',
-                        [dir_uuid]);
+        rows = await db.read(
+            'SELECT EXISTS(SELECT 1 FROM fsentries WHERE parent_uid = ? LIMIT 1) AS not_empty',
+            [dir_uuid],
+        );
     }
 
     return !rows[0].not_empty;
@@ -249,7 +253,7 @@ export async function get_user (options) {
  * @param {User} userID - the user entry to invalidate
  */
 export const invalidate_cached_user = async (user) => {
-    await UserRedisCacheSpace.invalidateUser(user);
+    UserRedisCacheSpace.invalidateUser(user);
 };
 
 /**
@@ -257,7 +261,7 @@ export const invalidate_cached_user = async (user) => {
  * @param {number} id - the id of the user to invalidate
  */
 export const invalidate_cached_user_by_id = async (id) => {
-    await UserRedisCacheSpace.invalidateById(id);
+    UserRedisCacheSpace.invalidateById(id);
 };
 
 export async function refresh_associations_cache () {
@@ -277,7 +281,7 @@ export async function refresh_associations_cache () {
     }
 
     for ( const k in lists ) {
-        await redisClient.set(AppRedisCacheSpace.associationAppsKey(k), JSON.stringify(lists[k]));
+        redisClient.set(AppRedisCacheSpace.associationAppsKey(k), JSON.stringify(lists[k]));
     }
 }
 
@@ -291,7 +295,7 @@ export async function get_app (options) {
 
     const cacheApp = async (app) => {
         if ( ! app ) return;
-        await AppRedisCacheSpace.setCachedApp(app, {
+        AppRedisCacheSpace.setCachedApp(app, {
             rawIcon: true,
             ttlSeconds: 30,
         });
@@ -421,7 +425,7 @@ export const get_apps = spanify('get_apps', async (specifiers, options = {}) => 
     const decorateApp = (app) => (rawIcon ? app : withAppIconUrl(app));
     const cacheApp = async (app) => {
         if ( ! app ) return;
-        await AppRedisCacheSpace.setCachedApp(app, {
+        AppRedisCacheSpace.setCachedApp(app, {
             rawIcon: rawIcon,
             ttlSeconds: 60,
         });
@@ -567,8 +571,7 @@ export const get_apps = spanify('get_apps', async (specifiers, options = {}) => 
         let rows = [];
         const resolvedKeys = new Set();
         try {
-            rows = await db.read(`SELECT * FROM \`apps\` WHERE ${clauses.join(' OR ')}`,
-                            params);
+            rows = await db.read(`SELECT * FROM \`apps\` WHERE ${clauses.join(' OR ')}`, params);
             for ( const app of rows ) {
                 const decorated_app = decorateApp(app);
                 cacheApp(decorated_app);
@@ -671,14 +674,16 @@ export async function change_username (user_id, new_username) {
     // update username
     await db.write('UPDATE `user` SET username = ? WHERE `id` = ? LIMIT 1', [new_username, user_id]);
     // update root directory name for this user
-    await db.write('UPDATE `fsentries` SET `name` = ?, `path` = ? ' +
+    await db.write(
+        'UPDATE `fsentries` SET `name` = ?, `path` = ? ' +
         'WHERE `user_id` = ? AND parent_uid IS NULL LIMIT 1',
-    [new_username, `/${ new_username}`, user_id]);
+        [new_username, `/${ new_username}`, user_id],
+    );
 
     console.log(`User ${old_username} changed username to ${new_username}`);
     await servicesContainer.services.get('filesystem').update_child_paths(`/${old_username}`, `/${new_username}`, user_id);
 
-    await invalidate_cached_user_by_id(user_id);
+    invalidate_cached_user_by_id(user_id);
 }
 
 /**
@@ -694,7 +699,8 @@ export async function uuid2fsentry (uuid, return_thumbnail) {
 
     // todo optim, check if uuid is not exactly 36 characters long, if not it's invalid
     // and we can avoid one unnecessary DB lookup
-    let fsentry = await db.requireRead(`SELECT
+    let fsentry = await db.requireRead(
+        `SELECT
             id,
             associated_app_id,
             uuid,
@@ -718,7 +724,8 @@ export async function uuid2fsentry (uuid, return_thumbnail) {
             accessed,
             size
             FROM fsentries WHERE uuid = ? LIMIT 1`,
-    [uuid]);
+        [uuid],
+    );
 
     if ( ! fsentry[0] )
     {
@@ -742,7 +749,8 @@ export async function id2fsentry (id, return_thumbnail) {
 
     // todo optim, check if uuid is not exactly 36 characters long, if not it's invalid
     // and we can avoid one unnecessary DB lookup
-    let fsentry = await db.requireRead(`SELECT
+    let fsentry = await db.requireRead(
+        `SELECT
             id,
             uuid,
             public_token,
@@ -764,7 +772,8 @@ export async function id2fsentry (id, return_thumbnail) {
             accessed,
             size
             FROM fsentries WHERE id = ? LIMIT 1`,
-    [id]);
+        [id],
+    );
 
     if ( ! fsentry[0] ) {
         return false;
@@ -817,8 +826,10 @@ export async function convert_path_to_fsentry (path) {
     const db = servicesContainer.services.get('database').get(DB_READ, 'filesystem');
 
     // Try stored path first
-    result = await db.read('SELECT * FROM fsentries WHERE path=? LIMIT 1',
-                    [`/${ path}`]);
+    result = await db.read(
+        'SELECT * FROM fsentries WHERE path=? LIMIT 1',
+        [`/${ path}`],
+    );
 
     if ( result[0] ) {
         return result[0];
@@ -826,12 +837,16 @@ export async function convert_path_to_fsentry (path) {
 
     for ( let i = 0; i < fsentry_names.length; i++ ) {
         if ( parent_uid === null ) {
-            result = await db.read('SELECT * FROM fsentries WHERE parent_uid IS NULL AND name=? LIMIT 1',
-                            [fsentry_names[i]]);
+            result = await db.read(
+                'SELECT * FROM fsentries WHERE parent_uid IS NULL AND name=? LIMIT 1',
+                [fsentry_names[i]],
+            );
         }
         else {
-            result = await db.read('SELECT * FROM fsentries WHERE parent_uid = ? AND name=? LIMIT 1',
-                            [parent_uid, fsentry_names[i]]);
+            result = await db.read(
+                'SELECT * FROM fsentries WHERE parent_uid = ? AND name=? LIMIT 1',
+                [parent_uid, fsentry_names[i]],
+            );
         }
 
         if ( result[0] ) {
@@ -989,20 +1004,24 @@ async function getDescendantsHelper (path, user, depth, return_thumbnail = false
     if ( parent === null ) {
         path = '';
         // direct children under root
-        children = await db.read(`SELECT
+        children = await db.read(
+            `SELECT
                 id, uuid, parent_uid, name, metadata, is_dir, bucket, bucket_region,
                 modified, created, immutable, shortcut_to, is_shortcut, sort_by, associated_app_id,
                 ${return_thumbnail ? 'thumbnail, ' : ''}
                 accessed, size
                 FROM fsentries
                 WHERE user_id = ? AND parent_uid IS NULL`,
-        [user.id]);
+            [user.id],
+        );
         // users that have shared files/dirs with this user
-        const sharing_users = await db.read(`SELECT DISTINCT(owner_user_id), user.username
+        const sharing_users = await db.read(
+            `SELECT DISTINCT(owner_user_id), user.username
                 FROM share
                 INNER JOIN user ON user.id = share.owner_user_id
                 WHERE share.recipient_user_id = ?`,
-        [user.id]);
+            [user.id],
+        );
         if ( sharing_users.length > 0 ) {
             for ( let i = 0; i < sharing_users.length; i++ ) {
                 let dir = {};
@@ -1036,7 +1055,8 @@ async function getDescendantsHelper (path, user, depth, return_thumbnail = false
         }
 
         // shared files/dirs with this user
-        const shared_fsentries = await db.read(`SELECT
+        const shared_fsentries = await db.read(
+            `SELECT
                 fsentries.id, fsentries.user_id, fsentries.uuid, fsentries.parent_uid, fsentries.bucket, fsentries.bucket_region,
                 fsentries.name, fsentries.shortcut_to, fsentries.is_shortcut, fsentries.metadata, fsentries.is_dir, fsentries.modified,
                 fsentries.created, fsentries.accessed, fsentries.size, fsentries.sort_by, fsentries.associated_app_id,
@@ -1045,7 +1065,8 @@ async function getDescendantsHelper (path, user, depth, return_thumbnail = false
                 FROM share
                 INNER JOIN fsentries ON fsentries.id = share.fsentry_id
                 WHERE share.recipient_user_id = ? AND owner_user_id = ?`,
-        [user.id, sharing_user.id]);
+            [user.id, sharing_user.id],
+        );
         // merge `children` and `shared_fsentries`
         if ( shared_fsentries.length > 0 ) {
             for ( let i = 0; i < shared_fsentries.length; i++ ) {
@@ -1059,14 +1080,16 @@ async function getDescendantsHelper (path, user, depth, return_thumbnail = false
     // -------------------------------------
     else {
         children = [];
-        let temp_children = await db.read(`SELECT
+        let temp_children = await db.read(
+            `SELECT
                 id, user_id, uuid, parent_uid, name, metadata, is_shortcut,
                 shortcut_to, is_dir, modified, created, accessed, size, sort_by, associated_app_id,
                 is_symlink, symlink_path,
                 immutable ${return_thumbnail ? ', thumbnail' : ''}
                 FROM fsentries
                 WHERE parent_uid = ?`,
-        [parent.uuid]);
+            [parent.uuid],
+        );
         // check if user has access to each file, if yes add it
         if ( temp_children.length > 0 ) {
             for ( let i = 0; i < temp_children.length; i++ ) {
@@ -1085,8 +1108,10 @@ async function getDescendantsHelper (path, user, depth, return_thumbnail = false
     const ids = children.map(child => child.id);
     const qmarks = ids.map(() => '?').join(',');
 
-    let rows = await db.read(`SELECT root_dir_id FROM subdomains WHERE root_dir_id IN (${qmarks}) AND user_id=?`,
-                    [...ids, user.id]);
+    let rows = await db.read(
+        `SELECT root_dir_id FROM subdomains WHERE root_dir_id IN (${qmarks}) AND user_id=?`,
+        [...ids, user.id],
+    );
 
     const websiteMap = {};
     for ( const row of rows ) websiteMap[row.root_dir_id] = true;
@@ -1315,13 +1340,15 @@ export async function gen_public_token (file_uuid) {
 
     // insert into DB
     try {
-        await db.write('UPDATE fsentries SET public_token = ? WHERE id = ?',
-                        [
-                            //token
-                            token,
-                            //fsentry_id
-                            fsentry.id,
-                        ]);
+        await db.write(
+            'UPDATE fsentries SET public_token = ? WHERE id = ?',
+            [
+                //token
+                token,
+                //fsentry_id
+                fsentry.id,
+            ],
+        );
     } catch (e) {
         console.log(e);
         return false;
@@ -1346,8 +1373,10 @@ export async function deleteUser (user_id) {
     // get a list of up to 5000 files owned by this user
     // eslint-disable-next-line no-constant-condition
     for ( let offset = 0; true; offset += 5000 ) {
-        let files = await db.read(`SELECT uuid, bucket, bucket_region FROM fsentries WHERE user_id = ? AND is_dir = 0 LIMIT 5000 OFFSET ${ offset}`,
-                        [user_id]);
+        let files = await db.read(
+            `SELECT uuid, bucket, bucket_region FROM fsentries WHERE user_id = ? AND is_dir = 0 LIMIT 5000 OFFSET ${ offset}`,
+            [user_id],
+        );
 
         if ( !files || files.length == 0 ) break;
 
@@ -1817,9 +1846,11 @@ export async function suggestedAppsForFsEntries (fsentries, options) {
     let any_needs_codeapp = false;
     for ( const batch of batches ) {
         const slice = resolved.slice(batch.offset, batch.offset + batch.count);
-        const { suggested_apps, needs_codeapp } = buildSuggestedAppsFromResolved(slice,
-                        batch.name_count,
-                        options);
+        const { suggested_apps, needs_codeapp } = buildSuggestedAppsFromResolved(
+            slice,
+            batch.name_count,
+            options,
+        );
         batch.suggested_apps = suggested_apps;
         batch.needs_codeapp = needs_codeapp;
         if ( needs_codeapp ) any_needs_codeapp = true;
@@ -1886,12 +1917,14 @@ export async function get_taskbar_items (user, {
             { name: 'camera', type: 'app' },
             { name: 'recorder', type: 'app' },
         ];
-        await db.write('UPDATE user SET taskbar_items = ? WHERE id = ?',
-                        [
-                            JSON.stringify(taskbar_items_from_db),
-                            user.id,
-                        ]);
-        await invalidate_cached_user(user);
+        await db.write(
+            'UPDATE user SET taskbar_items = ? WHERE id = ?',
+            [
+                JSON.stringify(taskbar_items_from_db),
+                user.id,
+            ],
+        );
+        invalidate_cached_user(user);
     }
     // there are items from before
     else {

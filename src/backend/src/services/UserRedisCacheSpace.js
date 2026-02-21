@@ -33,10 +33,10 @@ const safeParseJson = (value, fallback = null) => {
 
 const setKey = async (key, value, { ttlSeconds } = {}) => {
     if ( ttlSeconds ) {
-        await redisClient.set(key, value, 'EX', ttlSeconds);
+        redisClient.set(key, value, 'EX', ttlSeconds);
         return;
     }
-    await redisClient.set(key, value);
+    redisClient.set(key, value);
 };
 
 const userCacheKey = (prop, value) => `${userKeyPrefix}:${prop}:${value}`;
@@ -60,19 +60,19 @@ const UserRedisCacheSpace = {
             writes.push(setKey(userCacheKey(prop, user[prop]), serialized, { ttlSeconds }));
         }
         if ( writes.length ) {
-            await Promise.all(writes);
+            Promise.all(writes);
         }
     },
     invalidateUser: async (user, props = defaultUserIdProperties) => {
         const keys = UserRedisCacheSpace.keysForUser(user, props);
         if ( keys.length ) {
-            await deleteRedisKeys(keys);
+            deleteRedisKeys(keys);
         }
     },
     invalidateById: async (id, props = defaultUserIdProperties) => {
         const user = await UserRedisCacheSpace.getById(id);
         if ( ! user ) return;
-        await UserRedisCacheSpace.invalidateUser(user, props);
+        UserRedisCacheSpace.invalidateUser(user, props);
     },
 };
 

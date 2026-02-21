@@ -161,39 +161,43 @@ router.post('/save_account', auth, express.json(), async (req, res, next) => {
         const email_confirm_token = uuidv4();
 
         if ( pseudo_user === undefined ) {
-            await db.write(`UPDATE user
+            await db.write(
+                `UPDATE user
                 SET
                 username = ?, email = ?, password = ?, email_confirm_code = ?, email_confirm_token = ?${
     referred_by_user ? ', referred_by = ?' : '' }
                 WHERE
                 id = ?`,
-            [
+                [
                 // username
-                req.body.username,
-                // email
-                req.body.email,
-                // password
-                await bcrypt.hash(req.body.password, 8),
-                // email_confirm_code
-                `${ email_confirm_code}`,
-                //email_confirm_token
-                email_confirm_token,
-                // referred_by
-                ...(referred_by_user ? [referred_by_user.id] : []),
-                // id
-                req.user.id,
-            ]);
-            await invalidate_cached_user(req.user);
+                    req.body.username,
+                    // email
+                    req.body.email,
+                    // password
+                    await bcrypt.hash(req.body.password, 8),
+                    // email_confirm_code
+                    `${ email_confirm_code}`,
+                    //email_confirm_token
+                    email_confirm_token,
+                    // referred_by
+                    ...(referred_by_user ? [referred_by_user.id] : []),
+                    // id
+                    req.user.id,
+                ],
+            );
+            invalidate_cached_user(req.user);
 
             // Update root directory name
-            await db.write('UPDATE fsentries SET name = ?, path = ? WHERE user_id = ? and parent_uid IS NULL',
-                            [
-                                // name
-                                req.body.username,
-                                `/${ req.body.username}`,
-                                // id
-                                req.user.id,
-                            ]);
+            await db.write(
+                'UPDATE fsentries SET name = ?, path = ? WHERE user_id = ? and parent_uid IS NULL',
+                [
+                    // name
+                    req.body.username,
+                    `/${ req.body.username}`,
+                    // id
+                    req.user.id,
+                ],
+            );
             const filesystem = req.services.get('filesystem');
             await filesystem.update_child_paths(`/${req.user.username}`, `/${req.body.username}`, req.user.id);
 

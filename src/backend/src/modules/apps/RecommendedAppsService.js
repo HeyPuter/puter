@@ -88,7 +88,7 @@ export default class RecommendedAppsService extends BaseService {
                 const key = RecommendedAppsRedisCacheSpace.key({ iconSize: size });
                 deletions.push(redisClient.del(key));
             }
-            await Promise.all(deletions);
+            Promise.all(deletions);
         });
     }
 
@@ -128,7 +128,7 @@ export default class RecommendedAppsService extends BaseService {
             });
         }
 
-        await redisClient.set(recommendedCacheKey, JSON.stringify(recommended));
+        redisClient.set(recommendedCacheKey, JSON.stringify(recommended));
 
         return recommended;
     }

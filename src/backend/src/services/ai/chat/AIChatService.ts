@@ -66,7 +66,7 @@ export class AIChatService extends BaseService {
     }
 
     get errorService (): ErrorService {
-        return this.services.get('error-service');
+        return this.services.get('error-service') as ErrorService;
     }
 
     get eventService (): EventService {
@@ -74,7 +74,7 @@ export class AIChatService extends BaseService {
     }
 
     get driverService (): DriverService {
-        return this.services.get('driver');
+        return this.services.get('driver') as DriverService;
     }
 
     getProvider (name: string): IChatProvider | undefined {
@@ -204,9 +204,11 @@ export class AIChatService extends BaseService {
             const provider = this.#providers[providerName];
 
             // alias all driver requests to go here to support legacy routing
-            this.driverService.register_service_alias(AIChatService.SERVICE_NAME,
-                            providerName,
-                            { iface: 'puter-chat-completion' });
+            this.driverService.register_service_alias(
+                AIChatService.SERVICE_NAME,
+                providerName,
+                { iface: 'puter-chat-completion' },
+            );
 
             // build model id map
             for ( const model of await provider.models() ) {
@@ -430,9 +432,11 @@ export class AIChatService extends BaseService {
             maxAllowedOutput / outputTokenCost;
 
         if ( maxAllowedOutputTokens ) {
-            parameters.max_tokens = Math.floor(Math.min(parameters.max_tokens ?? Number.POSITIVE_INFINITY,
-                            maxAllowedOutputTokens,
-                            maxTokens - approximateTokenCount));
+            parameters.max_tokens = Math.floor(Math.min(
+                parameters.max_tokens ?? Number.POSITIVE_INFINITY,
+                maxAllowedOutputTokens,
+                maxTokens - approximateTokenCount,
+            ));
             if ( parameters.max_tokens < 1 ) {
                 parameters.max_tokens = undefined;
             }
@@ -715,7 +719,7 @@ export class AIChatService extends BaseService {
                 return !!possibleModelNames.find(possibleName => model.id.toLowerCase() === possibleName);
             }).slice(0, MAX_FALLBACKS);
 
-            await redisClient.set(fallbackModelsKey(modelId), JSON.stringify(potentialMatches));
+            redisClient.set(fallbackModelsKey(modelId), JSON.stringify(potentialMatches));
             potentialFallbacks = potentialMatches;
         }
 

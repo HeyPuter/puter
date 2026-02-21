@@ -98,7 +98,7 @@ class ReferralCodeService extends BaseService {
                 await db.write(`
                     UPDATE user SET referral_code=? WHERE id=?
                 `, [referral_code, user.id]);
-                await invalidate_cached_user_by_id(user.id);
+                invalidate_cached_user_by_id(user.id);
                 return referral_code;
             } catch (e) {
                 last_error = e;
@@ -136,21 +136,25 @@ class ReferralCodeService extends BaseService {
         const svc_size = Context.get('services').get('sizeService');
         /** @type {import('./MeteringService/MeteringService').MeteringService} */
         const meteringService = this.services.get('meteringService');
-        await svc_size.add_storage(user,
-                        this.REFERRAL_INCREASE_RIGHT,
-                        `user ${user.id} used referral code of user ${referred_by.id}`,
-                        {
-                            field_a: referred_by.referral_code,
-                            field_b: 'REFER_R',
-                        });
+        await svc_size.add_storage(
+            user,
+            this.REFERRAL_INCREASE_RIGHT,
+            `user ${user.id} used referral code of user ${referred_by.id}`,
+            {
+                field_a: referred_by.referral_code,
+                field_b: 'REFER_R',
+            },
+        );
         await meteringService.updateAddonCredit(user.uuid, 25 * 1_000_000); // give them 25 cents
-        await svc_size.add_storage(referred_by,
-                        this.REFERRAL_INCREASE_LEFT,
-                        `user ${referred_by.id} referred user ${user.id}`,
-                        {
-                            field_a: referred_by.referral_code,
-                            field_b: 'REFER_L',
-                        });
+        await svc_size.add_storage(
+            referred_by,
+            this.REFERRAL_INCREASE_LEFT,
+            `user ${referred_by.id} referred user ${user.id}`,
+            {
+                field_a: referred_by.referral_code,
+                field_b: 'REFER_L',
+            },
+        );
         await meteringService.updateAddonCredit(referred_by.uuid, 25 * 1_000_000); // give them 25 cents
 
         const svc_email = Context.get('services').get('email');

@@ -72,8 +72,10 @@ router.post('/rao', configurable_auth(), express.json(), async (req, res, next) 
     const db = req.services.get('database').get(DB_WRITE, 'apps');
 
     // insert into db
-    db.write('INSERT INTO app_opens (app_uid, user_id, ts) VALUES (?, ?, ?)',
-                    [app_uid, req.user.id, Math.floor(new Date().getTime() / 1000)]);
+    db.write(
+        'INSERT INTO app_opens (app_uid, user_id, ts) VALUES (?, ?, ?)',
+        [app_uid, req.user.id, Math.floor(new Date().getTime() / 1000)],
+    );
 
     // get app
     const opened_app = await get_app({ uid: app_uid });
@@ -112,17 +114,19 @@ router.post('/rao', configurable_auth(), express.json(), async (req, res, next) 
         recent_apps = recent_apps.slice(0, 10);
 
         // update cache
-        await redisClient.set(RecentAppOpensRedisCacheSpace.key(req.user.id), JSON.stringify(recent_apps));
+        redisClient.set(RecentAppOpensRedisCacheSpace.key(req.user.id), JSON.stringify(recent_apps));
     }
     // Cache is empty, query the db and update the cache
     else {
-        db.read('SELECT DISTINCT app_uid FROM app_opens WHERE user_id = ? GROUP BY app_uid ORDER BY MAX(_id) DESC LIMIT 10',
-                        [req.user.id]).then( ([apps]) => {
-                            // Update cache with the results from the db (if any results were returned)
-                            if ( apps && Array.isArray(apps) && apps.length > 0 ) {
+        db.read(
+            'SELECT DISTINCT app_uid FROM app_opens WHERE user_id = ? GROUP BY app_uid ORDER BY MAX(_id) DESC LIMIT 10',
+            [req.user.id],
+        ).then( ([apps]) => {
+            // Update cache with the results from the db (if any results were returned)
+            if ( apps && Array.isArray(apps) && apps.length > 0 ) {
                 redisClient.set(RecentAppOpensRedisCacheSpace.key(req.user.id), JSON.stringify(apps));
-                            }
-                        });
+            }
+        });
     }
 
     // Update clients

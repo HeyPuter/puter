@@ -97,10 +97,12 @@ class SessionService extends BaseService {
         meta.created = new Date().toISOString();
         meta.created_unix = unix_ts;
         const uuid = this.modules.uuidv4();
-        await this.db.write('INSERT INTO `sessions` ' +
+        await this.db.write(
+            'INSERT INTO `sessions` ' +
             '(`uuid`, `user_id`, `meta`, `last_activity`, `created_at`) ' +
             'VALUES (?, ?, ?, ?, ?)',
-        [uuid, user.id, JSON.stringify(meta), unix_ts, unix_ts]);
+            [uuid, user.id, JSON.stringify(meta), unix_ts, unix_ts],
+        );
         const session = {
             last_touch: Date.now(),
             last_store: Date.now(),
@@ -127,8 +129,10 @@ class SessionService extends BaseService {
             session.last_touch = Date.now();
             return session;
         }
-        ;[session] = await this.db.read('SELECT * FROM `sessions` WHERE `uuid` = ? LIMIT 1',
-                        [uuid]);
+        ;[session] = await this.db.read(
+            'SELECT * FROM `sessions` WHERE `uuid` = ? LIMIT 1',
+            [uuid],
+        );
         if ( ! session ) return;
         session.last_store = Date.now();
         session.meta = this.db.case({
@@ -189,8 +193,10 @@ class SessionService extends BaseService {
     */
     remove_session (uuid) {
         delete this.sessions[uuid];
-        return this.db.write('DELETE FROM `sessions` WHERE `uuid` = ?',
-                        [uuid]);
+        return this.db.write(
+            'DELETE FROM `sessions` WHERE `uuid` = ?',
+            [uuid],
+        );
     }
 
     async _update_sessions () {
@@ -205,10 +211,12 @@ class SessionService extends BaseService {
             if ( now - session.last_store > 5 * MINUTE ) {
                 this.log.debug(`storing session meta: ${ session.uuid}`);
                 const unix_ts = Math.floor(now / 1000);
-                const { anyRowsAffected } = await this.db.write('UPDATE `sessions` ' +
+                const { anyRowsAffected } = await this.db.write(
+                    'UPDATE `sessions` ' +
                     'SET `meta` = ?, `last_activity` = ? ' +
                     'WHERE `uuid` = ?',
-                [JSON.stringify(session.meta), unix_ts, session.uuid]);
+                    [JSON.stringify(session.meta), unix_ts, session.uuid],
+                );
 
                 if ( ! anyRowsAffected ) {
                     delete this.sessions[key];
@@ -231,16 +239,18 @@ class SessionService extends BaseService {
                     date.toTimeString().split(' ')[0]}`
             )(new Date(last_touch));
 
-            await this.db.write('UPDATE `user` ' +
+            await this.db.write(
+                'UPDATE `user` ' +
                 'SET `last_activity_ts` = ? ' +
                 'WHERE `id` = ? LIMIT 1',
-            [sql_ts, user_id]);
+                [sql_ts, user_id],
+            );
             const cachedUser = await redisClient.get(UserRedisCacheSpace.key('id', user_id));
             if ( cachedUser ) {
                 try {
                     const user = JSON.parse(cachedUser);
                     user.last_activity_ts = sql_ts;
-                    await UserRedisCacheSpace.setUser(user);
+                    UserRedisCacheSpace.setUser(user);
                 } catch ( e ) {
                     console.warn(e);
                     // ignore malformed cache entries

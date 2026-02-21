@@ -70,11 +70,13 @@ export default async (req, res) => {
 
     // If cache is empty, query the db and update the cache
     if ( !apps || !Array.isArray(apps) || apps.length === 0 ) {
-        apps = await db.read('SELECT DISTINCT app_uid FROM app_opens WHERE user_id = ? GROUP BY app_uid ORDER BY MAX(_id) DESC LIMIT 10',
-                        [req.user.id]);
+        apps = await db.read(
+            'SELECT DISTINCT app_uid FROM app_opens WHERE user_id = ? GROUP BY app_uid ORDER BY MAX(_id) DESC LIMIT 10',
+            [req.user.id],
+        );
         // Update cache with the results from the db (if any results were returned)
         if ( apps && Array.isArray(apps) && apps.length > 0 ) {
-            await redisClient.set(RecentAppOpensRedisCacheSpace.key(req.user.id), JSON.stringify(apps));
+            redisClient.set(RecentAppOpensRedisCacheSpace.key(req.user.id), JSON.stringify(apps));
         }
     }
 

@@ -55,13 +55,15 @@ router.post('/update-taskbar-items', auth, express.json(), async (req, res, next
     }
 
     // insert into DB
-    await db.write('UPDATE user SET taskbar_items = ? WHERE user.id = ?',
-                    [
-                        req.body.items ?? null,
-                        req.user.id,
-                    ]);
+    await db.write(
+        'UPDATE user SET taskbar_items = ? WHERE user.id = ?',
+        [
+            req.body.items ?? null,
+            req.user.id,
+        ],
+    );
 
-    await invalidate_cached_user(req.user);
+    invalidate_cached_user(req.user);
 
     // send results to client
     return res.send({});

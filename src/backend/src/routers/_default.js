@@ -211,10 +211,12 @@ router.all('*', async function (req, res, next) {
                 }
                 // mark user as confirmed
                 else {
-                    await db.write('UPDATE `user` SET `unsubscribed` = 1 WHERE id = ?',
-                                    [user.id]);
+                    await db.write(
+                        'UPDATE `user` SET `unsubscribed` = 1 WHERE id = ?',
+                        [user.id],
+                    );
 
-                    await invalidate_cached_user(user);
+                    invalidate_cached_user(user);
 
                     // return results
                     h += '<p style="text-align:center; color:green;">Your have successfully unsubscribed from all emails.</p>';
@@ -263,12 +265,14 @@ router.all('*', async function (req, res, next) {
                         const svc_cleanEmail = req.services.get('clean-email');
                         const clean_email = svc_cleanEmail.clean(user.email);
                         // If other users have the same CONFIRMED email, display an error
-                        const maybe_rows = await db.read(`SELECT EXISTS(
+                        const maybe_rows = await db.read(
+                            `SELECT EXISTS(
                                 SELECT 1 FROM user WHERE (email=? OR clean_email=?)
                                 AND email_confirmed=1
                                 AND password IS NOT NULL
                             ) AS email_exists`,
-                        [user.email, clean_email]);
+                            [user.email, clean_email],
+                        );
                         if ( maybe_rows[0]?.email_exists ) {
                             // TODO: maybe display the username of that account
                             h += '<p style="text-align:center; color:red;">' +
@@ -277,13 +281,17 @@ router.all('*', async function (req, res, next) {
                         }
 
                         // If other users have the same unconfirmed email, revoke it
-                        await db.write('UPDATE `user` SET `unconfirmed_change_email` = NULL, `change_email_confirm_token` = NULL WHERE `unconfirmed_change_email` = ?',
-                                        [user.email]);
+                        await db.write(
+                            'UPDATE `user` SET `unconfirmed_change_email` = NULL, `change_email_confirm_token` = NULL WHERE `unconfirmed_change_email` = ?',
+                            [user.email],
+                        );
 
                         // update user
-                        await db.write('UPDATE `user` SET `email_confirmed` = 1, `requires_email_confirmation` = 0 WHERE id = ?',
-                                        [user.id]);
-                        await invalidate_cached_user(user);
+                        await db.write(
+                            'UPDATE `user` SET `email_confirmed` = 1, `requires_email_confirmation` = 0 WHERE id = ?',
+                            [user.id],
+                        );
+                        invalidate_cached_user(user);
 
                         // send realtime success msg to client
                         const svc_socketio = req.services.get('socketio');

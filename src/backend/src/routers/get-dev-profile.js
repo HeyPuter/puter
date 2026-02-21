@@ -44,7 +44,7 @@ router.get('/get-dev-profile', auth, express.json(), async (req, response, next)
     // handle this. The better way would be for different servers to communicate with each other
     // when a developer is approved for the incentive program (or any other change that affects the
     // cache) and update the cache on all servers.
-    await require('../helpers').invalidate_cached_user(req.user);
+    require('../helpers').invalidate_cached_user(req.user);
     const { get_user } = require('../helpers');
 
     let dev = await get_user(req.user);

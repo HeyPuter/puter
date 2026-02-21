@@ -143,9 +143,10 @@ router.post('/login', express.json(), body_parser_error_handler, (req, res, next
         if ( user.username === 'system' && config.allow_system_login !== true ) {
             svc_edgeRateLimit.incr('login');
             return res.status(400).send(
-                            req.body.username
-                                ? 'Username not found.'
-                                : 'Email not found.');
+                req.body.username
+                    ? 'Username not found.'
+                    : 'Email not found.',
+            );
         }
         // is user suspended?
         if ( user.suspended ) {
@@ -308,10 +309,12 @@ router.post('/login/recovery-code', express.json(), body_parser_error_handler, r
 
     // update user
     const db = req.services.get('database').get(DB_WRITE, '2fa');
-    await db.write('UPDATE user SET otp_recovery_codes = ? WHERE uuid = ?',
-                    [codes.join(','), user.uuid]);
+    await db.write(
+        'UPDATE user SET otp_recovery_codes = ? WHERE uuid = ?',
+        [codes.join(','), user.uuid],
+    );
     user.otp_recovery_codes = codes.join(',');
-    await invalidate_cached_user(user);
+    invalidate_cached_user(user);
 
     return await complete_({ req, res, user });
 });
