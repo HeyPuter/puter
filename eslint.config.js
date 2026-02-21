@@ -25,12 +25,9 @@ export const rules = {
     '@stylistic/curly-newline': ['error', 'always'],
     '@stylistic/object-curly-spacing': ['error', 'always'],
     '@stylistic/indent': ['error', 4, {
-        ignoredNodes: [
-            'CallExpression',
-            'NewExpression',
-        ],
+        SwitchCase: 1,
         CallExpression: {
-            arguments: 4,
+            arguments: 1,
         },
     }],
     '@stylistic/indent-binary-ops': ['error', 4],
@@ -38,6 +35,7 @@ export const rules = {
     '@stylistic/semi': ['error', 'always'],
     '@stylistic/quotes': ['error', 'single', { 'avoidEscape': true }],
     '@stylistic/function-call-argument-newline': ['error', 'consistent'],
+    '@stylistic/function-paren-newline': ['error', 'multiline-arguments'],
     '@stylistic/arrow-spacing': ['error', { before: true, after: true }],
     '@stylistic/space-before-function-paren': 'error',
     '@stylistic/key-spacing': ['error', { 'beforeColon': false, 'afterColon': true }],
