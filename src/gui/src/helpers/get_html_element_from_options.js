@@ -39,6 +39,7 @@ const get_html_element_from_options = async function (options) {
     const workers = Array.isArray(options.workers) ? options.workers : [];
     const is_worker = !options.is_dir && workers.length > 0;
     const worker_url = is_worker ? workers[0].address : '';
+    const show_website_badge = !!options.has_website && !is_worker;
 
     let website_url = window.determine_website_url(options.path);
 
@@ -61,7 +62,7 @@ const get_html_element_from_options = async function (options) {
                 data-uid="${options.uid}" 
                 data-is_dir="${options.is_dir ? 1 : 0}" 
                 data-is_trash="${options.is_trash ? 1 : 0}"
-                data-has_website="${options.has_website ? 1 : 0 }" 
+                data-has_website="${show_website_badge ? 1 : 0 }" 
                 data-website_url = "${website_url ? html_encode(website_url) : ''}"
                 data-immutable="${options.immutable}" 
                 data-is_shortcut = "${options.is_shortcut}"
@@ -108,7 +109,7 @@ const get_html_element_from_options = async function (options) {
     h += '<div class="item-badges">';
     // website badge
     h += `<img  class="item-badge item-has-website-badge long-hover" 
-                        style="${options.has_website ? 'display:block;' : ''}" 
+                        style="${show_website_badge ? 'display:block;' : ''}" 
                         src="${html_encode(window.icons['world.svg'])}" 
                         data-item-id="${item_id}"
                     >`;
