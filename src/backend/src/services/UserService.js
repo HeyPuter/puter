@@ -38,8 +38,10 @@ class UserService extends BaseService {
     async '__on_filesystem.ready' () {
         const svc_fs = this.services.get('filesystem');
         // Ensure system user has a home directory
-        const dir_system = await svc_fs.node(new NodeChildSelector(new RootNodeSelector(),
-                        'system'));
+        const dir_system = await svc_fs.node(new NodeChildSelector(
+            new RootNodeSelector(),
+            'system',
+        ));
 
         if ( ! await dir_system.exists() ) {
             const svc_getUser = this.services.get('get-user');
@@ -87,7 +89,8 @@ class UserService extends BaseService {
         let videos_uuid = uuidv4();
         let public_uuid = uuidv4();
 
-        const insert_res = await this.db.write(`INSERT INTO fsentries
+        const insert_res = await this.db.write(
+            `INSERT INTO fsentries
             (uuid, parent_uid, user_id, name, path, is_dir, created, modified, immutable) VALUES
             (   ?,          ?,       ?,    ?,    ?,   true,       ?,        ?,      true),
             (   ?,          ?,       ?,    ?,    ?,   true,       ?,        ?,      true),
@@ -98,24 +101,25 @@ class UserService extends BaseService {
             (   ?,          ?,       ?,    ?,    ?,   true,       ?,        ?,      true),
             (   ?,          ?,       ?,    ?,    ?,   true,       ?,        ?,      true)
             `,
-        [
+            [
             // Home
-            home_uuid, null, user.id, user.username, `/${user.username}`, ts, ts,
-            // Trash
-            trash_uuid, home_uuid, user.id, 'Trash', `/${user.username}/Trash`, ts, ts,
-            // AppData
-            appdata_uuid, home_uuid, user.id, 'AppData', `/${user.username}/AppData`, ts, ts,
-            // Desktop
-            desktop_uuid, home_uuid, user.id, 'Desktop', `/${user.username}/Desktop`, ts, ts,
-            // Documents
-            documents_uuid, home_uuid, user.id, 'Documents', `/${user.username}/Documents`, ts, ts,
-            // Pictures
-            pictures_uuid, home_uuid, user.id, 'Pictures', `/${user.username}/Pictures`, ts, ts,
-            // Videos
-            videos_uuid, home_uuid, user.id, 'Videos', `/${user.username}/Videos`, ts, ts,
-            // Public
-            public_uuid, home_uuid, user.id, 'Public', `/${user.username}/Public`, ts, ts,
-        ]);
+                home_uuid, null, user.id, user.username, `/${user.username}`, ts, ts,
+                // Trash
+                trash_uuid, home_uuid, user.id, 'Trash', `/${user.username}/Trash`, ts, ts,
+                // AppData
+                appdata_uuid, home_uuid, user.id, 'AppData', `/${user.username}/AppData`, ts, ts,
+                // Desktop
+                desktop_uuid, home_uuid, user.id, 'Desktop', `/${user.username}/Desktop`, ts, ts,
+                // Documents
+                documents_uuid, home_uuid, user.id, 'Documents', `/${user.username}/Documents`, ts, ts,
+                // Pictures
+                pictures_uuid, home_uuid, user.id, 'Pictures', `/${user.username}/Pictures`, ts, ts,
+                // Videos
+                videos_uuid, home_uuid, user.id, 'Videos', `/${user.username}/Videos`, ts, ts,
+                // Public
+                public_uuid, home_uuid, user.id, 'Public', `/${user.username}/Public`, ts, ts,
+            ],
+        );
 
         // https://stackoverflow.com/a/50103616
         let trash_id = insert_res.insertId;
@@ -132,16 +136,18 @@ class UserService extends BaseService {
 
         // TODO: pass to IIAFE manager to avoid unhandled promise rejection
         // (IIAFE manager doesn't exist yet, hence this is a TODO)
-        this.db.write(`UPDATE user SET
+        this.db.write(
+            `UPDATE user SET
             trash_uuid=?, appdata_uuid=?, desktop_uuid=?, documents_uuid=?, pictures_uuid=?, videos_uuid=?, public_uuid=?,
             trash_id=?, appdata_id=?, desktop_id=?, documents_id=?, pictures_id=?, videos_id=?, public_id=?
             WHERE id=?`,
-        [
-            trash_uuid, appdata_uuid, desktop_uuid, documents_uuid, pictures_uuid, videos_uuid, public_uuid,
-            trash_id, appdata_id, desktop_id, documents_id, pictures_id, videos_id, public_id,
-            user.id,
-        ]);
-        await invalidate_cached_user(user);
+            [
+                trash_uuid, appdata_uuid, desktop_uuid, documents_uuid, pictures_uuid, videos_uuid, public_uuid,
+                trash_id, appdata_id, desktop_id, documents_id, pictures_id, videos_id, public_id,
+                user.id,
+            ],
+        );
+        invalidate_cached_user(user);
     }
 
     async updateUserMetadata (userId, updatedMetadata) {
@@ -174,7 +180,7 @@ class UserService extends BaseService {
             force: true,
         });
         if ( refreshed_user?.id ) {
-            await invalidate_cached_user_by_id(refreshed_user.id);
+            invalidate_cached_user_by_id(refreshed_user.id);
         }
     }
 }

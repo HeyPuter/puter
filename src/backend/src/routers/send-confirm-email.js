@@ -46,14 +46,16 @@ router.post('/send-confirm-email', auth, express.json(), async (req, res, next) 
         return res.status(401).send({ error: 'Account suspended' });
     }
 
-    await db.write('UPDATE user SET email_confirm_code = ? WHERE id = ?',
-                    [
-                        // email_confirm_code
-                        `${email_confirm_code}`,
-                        // id
-                        req.user.id,
-                    ]);
-    await invalidate_cached_user(req.user);
+    await db.write(
+        'UPDATE user SET email_confirm_code = ? WHERE id = ?',
+        [
+            // email_confirm_code
+            `${email_confirm_code}`,
+            // id
+            req.user.id,
+        ],
+    );
+    invalidate_cached_user(req.user);
 
     // send email verification
     send_email_verification_code(email_confirm_code, req.user.email);

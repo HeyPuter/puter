@@ -301,7 +301,8 @@ module.exports = eggspress(['/signup'], {
     };
 
     if ( pseudo_user === undefined ) {
-        insert_res = await db.write(`INSERT INTO user
+        insert_res = await db.write(
+            `INSERT INTO user
             (
                 username, email, clean_email, password, uuid, referrer, 
                 email_confirm_code, email_confirm_token, free_storage, 
@@ -310,46 +311,49 @@ module.exports = eggspress(['/signup'], {
             ) 
             VALUES 
             (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-        [
+            [
             // username
-            req.body.username,
-            // email
-            req.body.is_temp ? null : req.body.email,
-            // normalized email
-            req.body.is_temp ? null : clean_email,
-            // password
-            req.body.is_temp ? null : await bcrypt.hash(req.body.password, 8),
-            // uuid
-            user_uuid,
-            // referrer
-            req.body.referrer ?? null,
-            // email_confirm_code
-            `${ email_confirm_code}`,
-            // email_confirm_token
-            email_confirm_token,
-            // free_storage
-            config.storage_capacity,
-            // referred_by
-            referred_by_user ? referred_by_user.id : null,
-            // audit_metadata
-            JSON.stringify(audit_metadata),
-            // signup_ip
-            req.connection.remoteAddress ?? null,
-            // signup_ip_fwd
-            req.headers['x-forwarded-for'] ?? null,
-            // signup_user_agent
-            req.headers['user-agent'] ?? null,
-            // signup_origin
-            req.headers['origin'] ?? null,
-            // signup_server
-            config.server_id ?? null,
-            // requires_email_confirmation
-            email_confirmation_required,
-        ]);
+                req.body.username,
+                // email
+                req.body.is_temp ? null : req.body.email,
+                // normalized email
+                req.body.is_temp ? null : clean_email,
+                // password
+                req.body.is_temp ? null : await bcrypt.hash(req.body.password, 8),
+                // uuid
+                user_uuid,
+                // referrer
+                req.body.referrer ?? null,
+                // email_confirm_code
+                `${ email_confirm_code}`,
+                // email_confirm_token
+                email_confirm_token,
+                // free_storage
+                config.storage_capacity,
+                // referred_by
+                referred_by_user ? referred_by_user.id : null,
+                // audit_metadata
+                JSON.stringify(audit_metadata),
+                // signup_ip
+                req.connection.remoteAddress ?? null,
+                // signup_ip_fwd
+                req.headers['x-forwarded-for'] ?? null,
+                // signup_user_agent
+                req.headers['user-agent'] ?? null,
+                // signup_origin
+                req.headers['origin'] ?? null,
+                // signup_server
+                config.server_id ?? null,
+                // requires_email_confirmation
+                email_confirmation_required,
+            ],
+        );
 
         // record activity
-        db.write('UPDATE `user` SET `last_activity_ts` = now() WHERE id=? LIMIT 1',
-                        [insert_res.insertId]);
+        db.write(
+            'UPDATE `user` SET `last_activity_ts` = now() WHERE id=? LIMIT 1',
+            [insert_res.insertId],
+        );
 
         // TODO: cache group id
         const svc_group = req.services.get('group');
@@ -374,28 +378,30 @@ module.exports = eggspress(['/signup'], {
     // Pseudo User converting
     // -----------------------------------
     else {
-        insert_res = await db.write(`UPDATE user SET
+        insert_res = await db.write(
+            `UPDATE user SET
                 username = ?, password = ?, uuid = ?, email_confirm_code = ?, email_confirm_token = ?, email_confirmed = ?, requires_email_confirmation = 1,
                 referred_by = ?
              WHERE id = ?`,
-        [
+            [
             // username
-            req.body.username,
-            // password
-            await bcrypt.hash(req.body.password, 8),
-            // uuid
-            user_uuid,
-            // email_confirm_code
-            `${ email_confirm_code}`,
-            // email_confirm_token
-            email_confirm_token,
-            // email_confirmed
-            !email_confirmation_required,
-            // id
-            pseudo_user.id,
-            // referred_by
-            referred_by_user ? referred_by_user.id : null,
-        ]);
+                req.body.username,
+                // password
+                await bcrypt.hash(req.body.password, 8),
+                // uuid
+                user_uuid,
+                // email_confirm_code
+                `${ email_confirm_code}`,
+                // email_confirm_token
+                email_confirm_token,
+                // email_confirmed
+                !email_confirmation_required,
+                // id
+                pseudo_user.id,
+                // referred_by
+                referred_by_user ? referred_by_user.id : null,
+            ],
+        );
 
         // TODO: cache group ids
         const svc_group = req.services.get('group');
@@ -410,15 +416,17 @@ module.exports = eggspress(['/signup'], {
 
         // record activity
         db.write('UPDATE `user` SET `last_activity_ts` = now() WHERE id=? LIMIT 1', [pseudo_user.id]);
-        await invalidate_cached_user_by_id(pseudo_user.id);
+        invalidate_cached_user_by_id(pseudo_user.id);
     }
 
     // user id
     // todo if pseudo user, assign directly no need to do another DB lookup
     const user_id = (pseudo_user === undefined) ? insert_res.insertId : pseudo_user.id;
 
-    const [user] = await db.pread('SELECT * FROM `user` WHERE `id` = ? LIMIT 1',
-                    [user_id]);
+    const [user] = await db.pread(
+        'SELECT * FROM `user` WHERE `id` = ? LIMIT 1',
+        [user_id],
+    );
 
     // create token for login: session token for cookie, GUI token for client
     const { session, token: session_token } = await svc_auth.create_session_token(user, {

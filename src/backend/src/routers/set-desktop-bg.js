@@ -44,14 +44,16 @@ router.post('/set-desktop-bg', auth, express.json(), async (req, res, next) => {
     const db = req.services.get('database').get(DB_WRITE, 'ui');
 
     // insert into DB
-    await db.write('UPDATE user SET desktop_bg_url = ?, desktop_bg_color = ?, desktop_bg_fit = ? WHERE user.id = ?',
-                    [
-                        req.body.url ?? null,
-                        req.body.color ?? null,
-                        req.body.fit ?? null,
-                        req.user.id,
-                    ]);
-    await invalidate_cached_user(req.user);
+    await db.write(
+        'UPDATE user SET desktop_bg_url = ?, desktop_bg_color = ?, desktop_bg_fit = ? WHERE user.id = ?',
+        [
+            req.body.url ?? null,
+            req.body.color ?? null,
+            req.body.fit ?? null,
+            req.user.id,
+        ],
+    );
+    invalidate_cached_user(req.user);
 
     // send results to client
     return res.send({});

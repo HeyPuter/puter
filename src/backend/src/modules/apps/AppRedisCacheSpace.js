@@ -34,10 +34,10 @@ const safeParseJson = (value, fallback = null) => {
 
 const setKey = async (key, value, { ttlSeconds } = {}) => {
     if ( ttlSeconds ) {
-        await redisClient.set(key, value, 'EX', ttlSeconds);
+        redisClient.set(key, value, 'EX', ttlSeconds);
         return;
     }
-    await redisClient.set(key, value);
+    redisClient.set(key, value);
 };
 
 const appNamespace = ({ rawIcon = true } = {}) => (
@@ -86,10 +86,10 @@ export const AppRedisCacheSpace = {
         const writes = AppRedisCacheSpace.keysForApp(app, { rawIcon })
             .map(key => setKey(key, serialized, { ttlSeconds }));
         if ( writes.length ) {
-            await Promise.all(writes);
+            Promise.all(writes);
         }
     },
-    invalidateCachedApp: async (app, {
+    invalidateCachedApp: (app, {
         rawIconVariants = [true, false],
         includeStats = false,
     } = {}) => {
@@ -102,7 +102,7 @@ export const AppRedisCacheSpace = {
             keys.push(...AppRedisCacheSpace.statsKeys(app.uid));
         }
         if ( keys.length ) {
-            await deleteRedisKeys(keys);
+            deleteRedisKeys(keys);
         }
     },
     invalidateCachedAppName: async (name, { rawIconVariants = [true, false] } = {}) => {
@@ -112,10 +112,10 @@ export const AppRedisCacheSpace = {
             value: name,
             rawIcon,
         }));
-        await deleteRedisKeys(keys);
+        deleteRedisKeys(keys);
     },
     invalidateAppStats: async (uid) => {
         if ( ! uid ) return;
-        await deleteRedisKeys(AppRedisCacheSpace.statsKeys(uid));
+        deleteRedisKeys(AppRedisCacheSpace.statsKeys(uid));
     },
 };

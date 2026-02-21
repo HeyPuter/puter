@@ -112,7 +112,7 @@ class GetUserService extends BaseService {
         await svc_whoami.get_details({ user }, user);
 
         try {
-            await UserRedisCacheSpace.setUser(user, {
+            UserRedisCacheSpace.setUser(user, {
                 props: Array.from(this.id_properties),
             });
         } catch ( e ) {

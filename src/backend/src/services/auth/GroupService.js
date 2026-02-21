@@ -96,13 +96,15 @@ class GroupService extends BaseService {
 
         const uid = uuidv4();
 
-        const [{ n_groups }] = await this.db.read('SELECT COUNT(*) AS n_groups FROM `group` WHERE ' +
+        const [{ n_groups }] = await this.db.read(
+            'SELECT COUNT(*) AS n_groups FROM `group` WHERE ' +
             `owner_user_id=? AND created_at >= ${
                 this.db.case({
                     sqlite: "datetime('now', '-1 hour')",
                     otherwise: 'NOW() - INTERVAL 1 HOUR',
                 })}`,
-        [owner_user_id]);
+            [owner_user_id],
+        );
 
         const svc_anomaly = this.services.get('anomaly');
         const anomaly = await svc_anomaly.note('groups-user-hour', {
@@ -114,14 +116,16 @@ class GroupService extends BaseService {
             throw APIError.create('too_many_requests');
         }
 
-        await this.db.write('INSERT INTO `group` ' +
+        await this.db.write(
+            'INSERT INTO `group` ' +
             '(`uid`, `owner_user_id`, `extra`, `metadata`) ' +
             'VALUES (?, ?, ?, ?)',
-        [
-            uid, owner_user_id,
-            JSON.stringify(extra),
-            JSON.stringify(metadata),
-        ]);
+            [
+                uid, owner_user_id,
+                JSON.stringify(extra),
+                JSON.stringify(metadata),
+            ],
+        );
 
         return uid;
     }
@@ -137,8 +141,10 @@ class GroupService extends BaseService {
     * @returns {Promise<Array<Group>>} A promise that resolves to an array of Group objects representing groups the user is a member of.
     */
     async list_groups_with_owner ({ owner_user_id }) {
-        const groups = await this.db.read('SELECT * FROM `group` WHERE owner_user_id=?',
-                        [owner_user_id]);
+        const groups = await this.db.read(
+            'SELECT * FROM `group` WHERE owner_user_id=?',
+            [owner_user_id],
+        );
         for ( const group of groups ) {
             group.extra = this.db.case({
                 mysql: () => group.extra,
@@ -160,9 +166,11 @@ class GroupService extends BaseService {
     * @returns {Promise<Array>} A promise that resolves to an array of Group objects representing the groups the user is a member of.
     */
     async list_groups_with_member ({ user_id }) {
-        const groups = await this.db.read('SELECT * FROM `group` WHERE id IN (' +
+        const groups = await this.db.read(
+            'SELECT * FROM `group` WHERE id IN (' +
             'SELECT group_id FROM `jct_user_group` WHERE user_id=?)',
-        [user_id]);
+            [user_id],
+        );
         for ( const group of groups ) {
             group.extra = this.db.case({
                 mysql: () => group.extra,
@@ -195,10 +203,12 @@ class GroupService extends BaseService {
             }
         }
 
-        let groups = await this.db.read(`SELECT * FROM \`group\` WHERE uid IN (${
-            public_group_uids.map(() => '?').join(', ')
-        })`,
-        public_group_uids);
+        let groups = await this.db.read(
+            `SELECT * FROM \`group\` WHERE uid IN (${
+                public_group_uids.map(() => '?').join(', ')
+            })`,
+            public_group_uids,
+        );
         for ( const group of groups ) {
             group.extra = this.db.case({
                 mysql: () => group.extra,
@@ -210,7 +220,7 @@ class GroupService extends BaseService {
             })();
         }
         const group_entities = groups.map(g => Group(g));
-        await redisClient.set(cacheKey, JSON.stringify(groups), 'EX', 60);
+        redisClient.set(cacheKey, JSON.stringify(groups), 'EX', 60);
         return group_entities;
     }
 
@@ -222,11 +232,13 @@ class GroupService extends BaseService {
     * @returns {Promise<string[]>} A promise that resolves to an array of usernames of the group members.
     */
     async list_members ({ uid }) {
-        const users = await this.db.read('SELECT u.username FROM user u ' +
+        const users = await this.db.read(
+            'SELECT u.username FROM user u ' +
             'JOIN (SELECT user_id FROM `jct_user_group` WHERE group_id = ' +
             '(SELECT id FROM `group` WHERE uid=?)) ug ' +
             'ON u.id = ug.user_id',
-        [uid]);
+            [uid],
+        );
         return users.map(u => u.username);
     }
 
@@ -242,13 +254,15 @@ class GroupService extends BaseService {
     async add_users ({ uid, users }) {
         const question_marks =
             `(${ Array(users.length).fill('?').join(', ') })`;
-        await this.db.write('INSERT INTO `jct_user_group` ' +
+        await this.db.write(
+            'INSERT INTO `jct_user_group` ' +
             '(user_id, group_id) ' +
             'SELECT u.id, g.id FROM user u ' +
             'JOIN (SELECT id FROM `group` WHERE uid=?) g ON 1=1 ' +
             `WHERE u.username IN ${
                 question_marks}`,
-        [uid, ...users]);
+            [uid, ...users],
+        );
     }
 
     /**
@@ -274,14 +288,16 @@ AND user_id IN (
     WHERE u.username IN ('user_that_shares', 'user_that_gets_shared_to')
 );
         */
-        await this.db.write('DELETE FROM `jct_user_group` ' +
+        await this.db.write(
+            'DELETE FROM `jct_user_group` ' +
             'WHERE group_id = (SELECT id FROM `group` WHERE uid=?) ' +
             'AND user_id IN (' +
             'SELECT u.id FROM user u ' +
             `WHERE u.username IN ${
                 question_marks
             })`,
-        [uid, ...users]);
+            [uid, ...users],
+        );
     }
 }
 

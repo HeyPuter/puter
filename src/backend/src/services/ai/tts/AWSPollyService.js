@@ -212,7 +212,7 @@ class AWSPollyService extends BaseService {
 
         const response = await client.send(command);
 
-        await redisClient.set(PollyRedisCacheKeys.voices, JSON.stringify(response), 'EX', 60 * 10); // 10 minutes
+        redisClient.set(PollyRedisCacheKeys.voices, JSON.stringify(response), 'EX', 60 * 10); // 10 minutes
 
         return response;
     }

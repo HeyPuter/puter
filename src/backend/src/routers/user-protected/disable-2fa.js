@@ -24,9 +24,11 @@ module.exports = {
     methods: ['POST'],
     handler: async (req, res) => {
         const db = req.services.get('database').get(DB_WRITE, '2fa.disable');
-        await db.write('UPDATE user SET otp_enabled = 0, otp_recovery_codes = NULL, otp_secret = NULL WHERE uuid = ?',
-                        [req.user.uuid]);
-        await invalidate_cached_user_by_id(req.user.id);
+        await db.write(
+            'UPDATE user SET otp_enabled = 0, otp_recovery_codes = NULL, otp_secret = NULL WHERE uuid = ?',
+            [req.user.uuid],
+        );
+        invalidate_cached_user_by_id(req.user.id);
         // update cached user
         req.user.otp_enabled = 0;
 
