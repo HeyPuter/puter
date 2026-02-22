@@ -111,9 +111,7 @@ async function UIItem (options) {
     const matching_appendto_count = $(options.appendTo).length;
     if ( matching_appendto_count > 1 ) {
         $(options.appendTo).each(function () {
-            const opts = options;
-            opts.appendTo = this;
-            UIItem(opts);
+            UIItem({ ...options, appendTo: this });
         });
         return;
     } else if ( matching_appendto_count === 0 ) {
