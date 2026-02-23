@@ -237,7 +237,7 @@ export const TOGETHER_IMAGE_GENERATION_MODELS: IImageModel[] = [
         aliases: ['gemini-3-pro-image', 'google/gemini-3-pro-image'],
         name: 'gemini-3-pro-image (Together AI)',
         costs_currency: 'usd-cents',
-        index_cost_key: '1MP',
+        index_cost_key: '1K',
         allowedQualityLevels: ['1K', '2K', '4K'],
         allowedRatios: [
             { w: 1, h: 1 },
@@ -251,7 +251,7 @@ export const TOGETHER_IMAGE_GENERATION_MODELS: IImageModel[] = [
             { w: 16, h: 9 },
             { w: 21, h: 9 },
         ],
-        costs: { '1MP': 13.51 },
+        costs: { '1K': 13.4, '2K': 13.4, '4K': 24 },
     },
     {
         id: 'togetherai:google/imagen-4.0-fast',
@@ -317,3 +317,16 @@ export const TOGETHER_IMAGE_GENERATION_MODELS: IImageModel[] = [
         costs: { '1MP': 7 },
     },
 ];
+
+export const GEMINI_3_IMAGE_RESOLUTION_MAP: Record<string, Record<string, { w: number; h: number }>> = {
+    '1:1': { '1K': { w: 1024, h: 1024 }, '2K': { w: 2048, h: 2048 }, '4K': { w: 4096, h: 4096 } },
+    '2:3': { '1K': { w: 848, h: 1264 }, '2K': { w: 1696, h: 2528 }, '4K': { w: 3392, h: 5096 } },
+    '3:2': { '1K': { w: 1264, h: 848 }, '2K': { w: 2528, h: 1696 }, '4K': { w: 5096, h: 3392 } },
+    '3:4': { '1K': { w: 896, h: 1200 }, '2K': { w: 1792, h: 2400 }, '4K': { w: 3584, h: 4800 } },
+    '4:3': { '1K': { w: 1200, h: 896 }, '2K': { w: 2400, h: 1792 }, '4K': { w: 4800, h: 3584 } },
+    '4:5': { '1K': { w: 928, h: 1152 }, '2K': { w: 1856, h: 2304 }, '4K': { w: 3712, h: 4608 } },
+    '5:4': { '1K': { w: 1152, h: 928 }, '2K': { w: 2304, h: 1856 }, '4K': { w: 4608, h: 3712 } },
+    '9:16': { '1K': { w: 768, h: 1376 }, '2K': { w: 1536, h: 2752 }, '4K': { w: 3072, h: 5504 } },
+    '16:9': { '1K': { w: 1376, h: 768 }, '2K': { w: 2752, h: 1536 }, '4K': { w: 5504, h: 3072 } },
+    '21:9': { '1K': { w: 1584, h: 672 }, '2K': { w: 3168, h: 1344 }, '4K': { w: 6336, h: 2688 } },
+};

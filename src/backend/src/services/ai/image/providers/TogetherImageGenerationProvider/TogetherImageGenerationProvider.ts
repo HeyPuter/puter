@@ -24,7 +24,7 @@ import { Context } from '../../../../../util/context.js';
 import { EventService } from '../../../../EventService.js';
 import { MeteringService } from '../../../../MeteringService/MeteringService.js';
 import { IGenerateParams, IImageModel, IImageProvider } from '../types.js';
-import { TOGETHER_IMAGE_GENERATION_MODELS } from './models.js';
+import { TOGETHER_IMAGE_GENERATION_MODELS, GEMINI_3_IMAGE_RESOLUTION_MAP } from './models.js';
 
 const TOGETHER_DEFAULT_RATIO = { w: 1024, h: 1024 };
 type TogetherGenerateParams = IGenerateParams & {
@@ -101,21 +101,28 @@ export class TogetherImageGenerationProvider implements IImageProvider {
             throw new Error('actor not found in context');
         }
 
-        const priceKey = '1MP';
-        const centsPerMP = selectedModel.costs[priceKey]; // hardcoded for now since all together ai models use this type of pricing
-        if ( centsPerMP === undefined ) {
-            throw new Error(`No pricing configured for model ${selectedModel.id}`);
+        const isGemini3 = selectedModel.id === 'togetherai:google/gemini-3-pro-image';
+
+        let costInMicroCents: number;
+        let usageAmount: number;
+        const qualityCostKey = isGemini3 && quality && selectedModel.costs[quality] !== undefined ? quality : undefined;
+
+        if ( qualityCostKey ) {
+            const centsPerImage = selectedModel.costs[qualityCostKey];
+            costInMicroCents = centsPerImage * 1_000_000;
+            usageAmount = 1;
+        } else {
+            const priceKey = '1MP';
+            const centsPerMP = selectedModel.costs[priceKey];
+            if ( centsPerMP === undefined ) {
+                throw new Error(`No pricing configured for model ${selectedModel.id}`);
+            }
+            const MP = (ratio.h * ratio.w) / 1_000_000;
+            costInMicroCents = centsPerMP * MP * 1_000_000;
+            usageAmount = MP;
         }
 
-        const usageType = `${selectedModel.id}:${priceKey}`;
-
-        let MP = (ratio.h * ratio.w) / 1_000_000;
-        if ( quality ) {
-            // if quality its gemini 3 image, so price based on those K sizes as MP
-            MP = parseInt(quality[0]) ; // convert to microcents
-        }
-
-        const costInMicroCents = centsPerMP * MP * 1_000_000; // cost in microcents
+        const usageType = `${selectedModel.id}:${quality || '1MP'}`;
 
         const usageAllowed = await this.#meteringService.hasEnoughCredits(actor, costInMicroCents);
 
@@ -123,7 +130,17 @@ export class TogetherImageGenerationProvider implements IImageProvider {
             throw APIError.create('insufficient_funds');
         }
 
-        const request = this.#buildRequest(prompt, { ...options, ratio, model: selectedModel.id.replace('togetherai:', '') }) as unknown as Together.Images.ImageGenerateParams;
+        // Resolve abstract aspect ratios to actual pixel dimensions for Gemini 3 Pro
+        let resolvedRatio = ratio;
+        if ( isGemini3 && quality ) {
+            const ratioKey = `${ratio.w}:${ratio.h}`;
+            const resolutionEntry = GEMINI_3_IMAGE_RESOLUTION_MAP[ratioKey]?.[quality];
+            if ( resolutionEntry ) {
+                resolvedRatio = resolutionEntry;
+            }
+        }
+
+        const request = this.#buildRequest(prompt, { ...options, ratio: resolvedRatio, model: selectedModel.id.replace('togetherai:', '') }) as unknown as Together.Images.ImageGenerateParams;
 
         try {
             const response = await this.#client.images.generate(request);
@@ -131,7 +148,7 @@ export class TogetherImageGenerationProvider implements IImageProvider {
                 throw new Error('Together AI response did not include image data');
             }
 
-            this.#meteringService.incrementUsage(actor, usageType, MP, costInMicroCents);
+            this.#meteringService.incrementUsage(actor, usageType, usageAmount, costInMicroCents);
 
             const first = response.data[0] as { url?: string; b64_json?: string };
             const url = first.url || (first.b64_json ? `data:image/png;base64,${ first.b64_json}` : undefined);
