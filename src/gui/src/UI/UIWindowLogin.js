@@ -124,6 +124,9 @@ async function UIWindowLogin (options) {
                 resolve(false);
             },
             onAppend: function (this_window) {
+                if ( options.authError ) {
+                    $(this_window).find('.login-error-msg').html(options.authError).fadeIn();
+                }
                 $(this_window).find('.email_or_username').get(0).focus({ preventScroll: true });
             },
             window_class: 'window-login',
@@ -243,7 +246,7 @@ async function UIWindowLogin (options) {
                                 }),
                                 new CodeEntryView({
                                     _ref: me => code_entry = me,
-                                    async ['property.value'] (value, { component }) {
+                                    async 'property.value' (value, { component }) {
                                         let error_i18n_key = 'something_went_wrong';
                                         if ( ! value ) return;
                                         try {
@@ -293,7 +296,7 @@ async function UIWindowLogin (options) {
                                     },
                                 }),
                             ],
-                            ['event.focus'] () {
+                            'event.focus' () {
                                 code_entry.focus();
                             },
                         });
@@ -311,7 +314,7 @@ async function UIWindowLogin (options) {
                                 }),
                                 new RecoveryCodeEntryView({
                                     _ref: me => recovery_entry = me,
-                                    async ['property.value'] (value, { component }) {
+                                    async 'property.value' (value, { component }) {
                                         let error_i18n_key = 'something_went_wrong';
                                         if ( ! value ) return;
                                         try {

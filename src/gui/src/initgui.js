@@ -494,6 +494,14 @@ window.initgui = async function (options) {
     }
 
     //--------------------------------------------------------------------------------------
+    // Desktop background (early)
+    // Set before action=login/signup so OIDC error redirects show the background behind the form.
+    // -------------------------------------------------------------------------------------
+    if ( !window.is_fullpage_mode && !window.embedded_in_popup ) {
+        window.refresh_desktop_background();
+    }
+
+    //--------------------------------------------------------------------------------------
     // Action: Request Permission
     //--------------------------------------------------------------------------------------
     if ( action === 'request-permission' ) {
@@ -535,13 +543,23 @@ window.initgui = async function (options) {
     // Action: Login
     //--------------------------------------------------------------------------------------
     else if ( action === 'login' ) {
-        await UIWindowLogin();
+        const authError = window.url_query_params.get('message') || null;
+        const opts = window.url_query_params.has('auth_error') ? { authError } : {};
+        if ( ! window.is_auth() ) {
+            opts.window_options = { has_head: false };
+        }
+        await UIWindowLogin(Object.keys(opts).length ? opts : undefined);
     }
     //--------------------------------------------------------------------------------------
     // Action: Signup
     //--------------------------------------------------------------------------------------
     else if ( action === 'signup' ) {
-        await UIWindowSignup();
+        const authError = window.url_query_params.get('message') || null;
+        const opts = window.url_query_params.has('auth_error') ? { authError } : {};
+        if ( ! window.is_auth() ) {
+            opts.window_options = { has_head: false };
+        }
+        await UIWindowSignup(Object.keys(opts).length ? opts : undefined);
     }
     // -------------------------------------------------------------------------------------
     // If in embedded in a popup, it is important to check whether the opener app has a relationship with the user
@@ -867,12 +885,14 @@ window.initgui = async function (options) {
                                     }
                                     // upload
                                     try {
-                                        const res = await puter.fs.write(target_path,
-                                                        file_to_upload,
-                                                        {
-                                                            dedupeName: false,
-                                                            overwrite: overwrite,
-                                                        });
+                                        const res = await puter.fs.write(
+                                            target_path,
+                                            file_to_upload,
+                                            {
+                                                dedupeName: false,
+                                                overwrite: overwrite,
+                                            },
+                                        );
 
                                         let file_signature = await puter.fs.sign(app_uid, { uid: res.uid, action: 'write' });
                                         file_signature = file_signature.items;
@@ -1454,12 +1474,14 @@ window.initgui = async function (options) {
                                 }
                                 // upload
                                 try {
-                                    const res = await puter.fs.write(target_path,
-                                                    file_to_upload,
-                                                    {
-                                                        dedupeName: false,
-                                                        overwrite: overwrite,
-                                                    });
+                                    const res = await puter.fs.write(
+                                        target_path,
+                                        file_to_upload,
+                                        {
+                                            dedupeName: false,
+                                            overwrite: overwrite,
+                                        },
+                                    );
 
                                     let file_signature = await puter.fs.sign(app_uid, { uid: res.uid, action: 'write' });
                                     file_signature = file_signature.items;

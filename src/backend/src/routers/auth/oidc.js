@@ -37,6 +37,32 @@ const OIDC_CALLBACK_ERROR_RESPONSES = {
     [COULD_NOT_GET_USER_INFO]: { status: 401, message: 'Could not get user info.' },
 };
 
+const OIDC_ERROR_REDIRECT_MAP = {
+    login: {
+        account_not_found: 'signup',
+        other: 'login',
+    },
+    signup: {
+        account_already_exists: 'login',
+        other: 'signup',
+    },
+};
+
+/**
+ * The error redirect URL is the origin with a query parameter included to
+ * display an error message on the login or signup page.
+ * @param {string} sourceFlow - 'login' or 'signup'
+ * @param {string} errorCondition - string that identifies the error message
+ * @param {string} message - default error message (before i18n)
+ * @returns {string} URL to redirect to
+ */
+function buildOIDCErrorRedirectUrl (sourceFlow, errorCondition, message) {
+    const targetFlow = OIDC_ERROR_REDIRECT_MAP[sourceFlow]?.[errorCondition] ?? sourceFlow;
+    const origin = (config.origin || '').replace(/\/$/, '') || '/';
+    const params = new URLSearchParams({ action: targetFlow, auth_error: '1', message: message || 'Something went wrong.' });
+    return `${origin}/?${params.toString()}`;
+}
+
 /** Returns { session_token, target } for the caller to set cookie and redirect. */
 const finishOidcSuccess_ = async (req, res, user, stateDecoded) => {
     const svc_auth = req.services.get('auth');
@@ -135,16 +161,16 @@ router.get('/auth/oidc/callback/login', async (req, res) => {
     const callbackRedirectUri = svc_oidc.getCallbackUrlForFlow('login');
     const result = await processOIDCCallbackRequest_(req, callbackRedirectUri);
     if ( result.error ) {
-        const { status, message } = OIDC_CALLBACK_ERROR_RESPONSES[result.error];
-        return res.status(status).send(message);
+        const { message } = OIDC_CALLBACK_ERROR_RESPONSES[result.error];
+        return res.redirect(302, buildOIDCErrorRedirectUrl('login', 'other', message));
     }
     const { provider, userinfo, stateDecoded } = result;
     const user = await svc_oidc.findUserByProviderSub(provider, userinfo.sub);
     if ( ! user ) {
-        return res.status(400).send('No account found. Sign up first.');
+        return res.redirect(302, buildOIDCErrorRedirectUrl('login', 'account_not_found', 'No account found. Sign up first.'));
     }
     if ( user.suspended ) {
-        return res.status(401).send('This account is suspended.');
+        return res.redirect(302, buildOIDCErrorRedirectUrl('login', 'other', 'This account is suspended.'));
     }
     const { session_token, target } = await finishOidcSuccess_(req, res, user, stateDecoded);
     res.cookie(config.cookie_name, session_token, {
@@ -168,17 +194,17 @@ router.get('/auth/oidc/callback/signup', async (req, res) => {
     const callbackRedirectUri = svc_oidc.getCallbackUrlForFlow('signup');
     const result = await processOIDCCallbackRequest_(req, callbackRedirectUri);
     if ( result.error ) {
-        const { status, message } = OIDC_CALLBACK_ERROR_RESPONSES[result.error];
-        return res.status(status).send(message);
+        const { message } = OIDC_CALLBACK_ERROR_RESPONSES[result.error];
+        return res.redirect(302, buildOIDCErrorRedirectUrl('signup', 'other', message));
     }
     const { provider, userinfo, stateDecoded } = result;
     const existingUser = await svc_oidc.findUserByProviderSub(provider, userinfo.sub);
     if ( existingUser ) {
-        return res.status(400).send('Account already exists. Log in instead.');
+        return res.redirect(302, buildOIDCErrorRedirectUrl('signup', 'account_already_exists', 'Account already exists. Log in instead.'));
     }
     const outcome = await svc_oidc.createUserFromOIDC(provider, userinfo);
     if ( outcome.failed ) {
-        return res.status(400).send(outcome.userMessage);
+        return res.redirect(302, buildOIDCErrorRedirectUrl('signup', 'other', outcome.userMessage));
     }
     const user = await get_user({ id: outcome.infoObject.user_id });
     const { session_token, target } = await finishOidcSuccess_(req, res, user, stateDecoded);
@@ -217,9 +243,11 @@ router.get('/auth/oidc/callback/revalidate', async (req, res) => {
     if ( user.id !== stateDecoded.user_id ) {
         return res.status(403).send('Wrong account. Sign in with the account linked to this session.');
     }
-    const token = jwt.sign({ user_id: user.id, purpose: 'revalidate' },
-                    config.jwt_secret,
-                    { expiresIn: REVALIDATION_EXPIRY_SEC });
+    const token = jwt.sign(
+        { user_id: user.id, purpose: 'revalidate' },
+        config.jwt_secret,
+        { expiresIn: REVALIDATION_EXPIRY_SEC },
+    );
     res.cookie(REVALIDATION_COOKIE_NAME, token, {
         sameSite: 'lax',
         secure: true,
