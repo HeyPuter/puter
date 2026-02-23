@@ -46,12 +46,12 @@ class ElevenLabsVoiceChangerService extends BaseService {
     };
 
     static IMPLEMENTS = {
-        ['driver-capabilities']: {
+        'driver-capabilities': {
             supports_test_mode (iface, method_name) {
                 return iface === 'puter-speech2speech' && method_name === 'convert';
             },
         },
-        ['puter-speech2speech']: {
+        'puter-speech2speech': {
             async convert (params) {
                 return this.convert(params);
             },

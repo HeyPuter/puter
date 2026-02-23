@@ -41,7 +41,7 @@ class SizeService extends BaseService {
 
     }
 
-    ['__on_boot.consolidate'] () {
+    '__on_boot.consolidate' () {
         const svc_commands = this.services.get('commands');
         svc_commands.registerCommands('size', [
             {
@@ -78,8 +78,10 @@ class SizeService extends BaseService {
         //     return this.usages[user_id];
         // }
 
-        const fsentry = await this.db.read('SELECT SUM(size) AS total FROM `fsentries` WHERE `user_id` = ? LIMIT 1',
-                        [user_id]);
+        const fsentry = await this.db.read(
+            'SELECT SUM(size) AS total FROM `fsentries` WHERE `user_id` = ? LIMIT 1',
+            [user_id],
+        );
         if ( !fsentry[0] || !fsentry[0].total ) {
             this.usages[user_id] = 0;
         } else {
@@ -158,8 +160,10 @@ class SizeService extends BaseService {
             const values = fields_.map(f => entry[f]);
 
             try {
-                await this.db.write(`INSERT INTO storage_audit (${fields}) VALUES (${placeholders})`,
-                                values);
+                await this.db.write(
+                    `INSERT INTO storage_audit (${fields}) VALUES (${placeholders})`,
+                    values,
+                );
             } catch (e) {
                 this.errors.report('size-service.audit-add-storage', {
                     source: e,
@@ -172,8 +176,10 @@ class SizeService extends BaseService {
         // Storage increase
         {
             try {
-                const res = await this.db.write('UPDATE `user` SET `free_storage` = ? WHERE `id` = ? LIMIT 1',
-                                [capacity + amount_in_bytes, user.id]);
+                const res = await this.db.write(
+                    'UPDATE `user` SET `free_storage` = ? WHERE `id` = ? LIMIT 1',
+                    [capacity + amount_in_bytes, user.id],
+                );
                 if ( ! res.anyRowsAffected ) {
                     throw new Error(`add_storage: failed to update user ${user.id}`);
                 }

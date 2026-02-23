@@ -47,7 +47,6 @@ router.post('/save_account', auth, express.json(), async (req, res, next) => {
     const db = req.services.get('database').get(DB_WRITE, 'auth');
     const validator = require('validator');
     const bcrypt = require('bcrypt');
-    const jwt = require('jsonwebtoken');
     const { v4: uuidv4 } = require('uuid');
 
     // validation
@@ -162,39 +161,43 @@ router.post('/save_account', auth, express.json(), async (req, res, next) => {
         const email_confirm_token = uuidv4();
 
         if ( pseudo_user === undefined ) {
-            await db.write(`UPDATE user
+            await db.write(
+                `UPDATE user
                 SET
                 username = ?, email = ?, password = ?, email_confirm_code = ?, email_confirm_token = ?${
     referred_by_user ? ', referred_by = ?' : '' }
                 WHERE
                 id = ?`,
-            [
+                [
                 // username
-                req.body.username,
-                // email
-                req.body.email,
-                // password
-                await bcrypt.hash(req.body.password, 8),
-                // email_confirm_code
-                `${ email_confirm_code}`,
-                //email_confirm_token
-                email_confirm_token,
-                // referred_by
-                ...(referred_by_user ? [referred_by_user.id] : []),
-                // id
-                req.user.id,
-            ]);
+                    req.body.username,
+                    // email
+                    req.body.email,
+                    // password
+                    await bcrypt.hash(req.body.password, 8),
+                    // email_confirm_code
+                    `${ email_confirm_code}`,
+                    //email_confirm_token
+                    email_confirm_token,
+                    // referred_by
+                    ...(referred_by_user ? [referred_by_user.id] : []),
+                    // id
+                    req.user.id,
+                ],
+            );
             invalidate_cached_user(req.user);
 
             // Update root directory name
-            await db.write('UPDATE fsentries SET name = ?, path = ? WHERE user_id = ? and parent_uid IS NULL',
-                            [
-                                // name
-                                req.body.username,
-                                `/${ req.body.username}`,
-                                // id
-                                req.user.id,
-                            ]);
+            await db.write(
+                'UPDATE fsentries SET name = ?, path = ? WHERE user_id = ? and parent_uid IS NULL',
+                [
+                    // name
+                    req.body.username,
+                    `/${ req.body.username}`,
+                    // id
+                    req.user.id,
+                ],
+            );
             const filesystem = req.services.get('filesystem');
             await filesystem.update_child_paths(`/${req.user.username}`, `/${req.body.username}`, req.user.id);
 
@@ -208,9 +211,10 @@ router.post('/save_account', auth, express.json(), async (req, res, next) => {
             }
         }
 
-        // create token for login
+        // create token for login: session token for cookie, GUI token for client
         const svc_auth = req.services.get('auth');
-        const { token } = await svc_auth.create_session_token(req.user, { req });
+        const { session, token: session_token } = await svc_auth.create_session_token(req.user, { req });
+        const gui_token = svc_auth.create_gui_token(req.user, session);
 
         // user id
         // todo if pseudo user, assign directly no need to do another DB lookup
@@ -220,8 +224,8 @@ router.post('/save_account', auth, express.json(), async (req, res, next) => {
 
         // todo send LINK-based verification email
 
-        //set cookie
-        res.cookie(config.cookie_name, token);
+        // HTTP-only cookie gets session token (cookie-based requests have hasHttpOnlyCookie)
+        res.cookie(config.cookie_name, session_token);
 
         {
             const svc_event = req.services.get('event');
@@ -230,7 +234,7 @@ router.post('/save_account', auth, express.json(), async (req, res, next) => {
 
         // return results
         return res.send({
-            token: token,
+            token: gui_token,
             user: {
                 username: user.username,
                 uuid: user.uuid,

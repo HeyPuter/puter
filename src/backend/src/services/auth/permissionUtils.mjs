@@ -1,6 +1,11 @@
 import { MANAGE_PERM_PREFIX } from './permissionConts.mjs';
 
 /**
+ * De-facto placeholder permission for permission rewrites that do not grant any access.
+ */
+export const PERMISSION_FOR_NOTHING_IN_PARTICULAR = 'permission-for-nothing-in-particular';
+
+/**
 * The PermissionUtil class provides utility methods for handling
 * permission strings and operations, including splitting, joining,
 * escaping, and unescaping permission components. It also includes
@@ -90,6 +95,21 @@ export const PermissionUtil =  {
      */
     permission_scan_cache_pattern_for_access_token (token_uid) {
         return `permission-scan:*${token_uid}:options-list:*`;
+    },
+
+    /**
+     * Exact key prefix for permission-scan cache entries belonging to a given app-under-user actor.
+     * Cache keys are built as join('permission-scan', actor.uid, 'options-list', ...);
+     * for app-under-user, actor.uid is 'app-under-user:{user_uuid}:{app_uid}' (colon-escaped in the key).
+     * Use with Redis SCAN MATCH prefix + '*' to delete only that actor's cache entries.
+     *
+     * @param {string} user_uuid - The user's UUID.
+     * @param {string} app_uid - The app UID.
+     * @returns {string} The exact key prefix for that actor's permission-scan cache keys.
+     */
+    permission_scan_cache_prefix_for_app_under_user (user_uuid, app_uid) {
+        const actor_uid = `app-under-user:${user_uuid}:${app_uid}`;
+        return this.join('permission-scan', actor_uid, 'options-list');
     },
 
     /**

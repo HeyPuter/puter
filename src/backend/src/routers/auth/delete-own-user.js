@@ -25,7 +25,7 @@ module.exports = eggspress('/delete-own-user', {
     subdomain: 'api',
     auth: true,
     allowedMethods: ['POST'],
-}, async (req, res, next) => {
+}, async (req, res) => {
     const bcrypt = require('bcrypt');
 
     const validate_request = async () => {

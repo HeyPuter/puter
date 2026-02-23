@@ -23,7 +23,7 @@ class ServeSingleFileService extends BaseService {
         this.route = args.route;
         this.path = args.path;
     }
-    async ['__on_install.routes'] () {
+    async '__on_install.routes' () {
         const { app } = this.services.get('web-server');
 
         app.get(this.route, (req, res) => {

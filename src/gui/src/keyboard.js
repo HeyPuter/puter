@@ -19,12 +19,23 @@
 
 import UIAlert from './UI/UIAlert.js';
 import UIWindowSearch from './UI/UIWindowSearch.js';
+import UIWindowSettings from './UI/Settings/UIWindowSettings.js';
 import launch_app from './helpers/launch_app.js';
 import open_item from './helpers/open_item.js';
 import determine_active_container_parent from './helpers/determine_active_container_parent.js';
 
 $(document).bind('keydown', async function (e) {
     const focused_el = document.activeElement;
+    //-----------------------------------------------------------------------------
+    // Keyboard Shortcuts help
+    // F1 or Ctrl/Cmd + ? (Ctrl/Cmd + Shift + /)
+    //-----------------------------------------------------------------------------
+    if ( e.which === 112 || ((e.ctrlKey || e.metaKey) && e.shiftKey && e.which === 191) ) {
+        e.preventDefault();
+        e.stopPropagation();
+        UIWindowSettings({ tab: 'keyboard-shortcuts' });
+        return false;
+    }
     //-----------------------------------------------------------------------------
     // Search
     // ctrl/command + f, will open UIWindowSearch

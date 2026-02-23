@@ -18,7 +18,7 @@
  */
 const APIError = require('../../api/APIError');
 const eggspress = require('../../api/eggspress');
-const { get_user } = require('../../helpers');
+const { get_user, invalidate_cached_user_by_id } = require('../../helpers');
 const { UserActorType } = require('../../services/auth/Actor');
 const { DB_WRITE } = require('../../services/database/consts');
 const { Context } = require('../../util/context');
@@ -27,7 +27,7 @@ module.exports = eggspress('/auth/configure-2fa/:action', {
     subdomain: 'api',
     auth2: true,
     allowedMethods: ['POST'],
-}, async (req, res, next) => {
+}, async (req, res) => {
     const action = req.params.action;
     const x = Context.get();
 
@@ -73,8 +73,11 @@ module.exports = eggspress('/auth/configure-2fa/:action', {
         });
 
         // update user
-        await db.write('UPDATE user SET otp_secret = ?, otp_recovery_codes = ? WHERE uuid = ?',
-                        [result.secret, hashed_recovery_codes.join(','), user.uuid]);
+        await db.write(
+            'UPDATE user SET otp_secret = ?, otp_recovery_codes = ? WHERE uuid = ?',
+            [result.secret, hashed_recovery_codes.join(','), user.uuid],
+        );
+        invalidate_cached_user_by_id(req.user.id);
         req.user.otp_secret = result.secret;
         req.user.otp_recovery_codes = hashed_recovery_codes.join(',');
         user.otp_secret = result.secret;
@@ -118,8 +121,11 @@ module.exports = eggspress('/auth/configure-2fa/:action', {
             throw APIError.create('2fa_not_configured');
         }
 
-        await db.write('UPDATE user SET otp_enabled = 1 WHERE uuid = ?',
-                        [user.uuid]);
+        await db.write(
+            'UPDATE user SET otp_enabled = 1 WHERE uuid = ?',
+            [user.uuid],
+        );
+        invalidate_cached_user_by_id(req.user.id);
         // update cached user
         req.user.otp_enabled = 1;
 

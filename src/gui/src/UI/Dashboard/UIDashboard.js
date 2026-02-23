@@ -1,3 +1,5 @@
+/* eslint-disable no-invalid-this */
+/* eslint-disable @stylistic/indent */
 /**
  * Copyright (C) 2024-present Puter Technologies Inc.
  *
@@ -53,13 +55,22 @@ import TabSecurity from './TabSecurity.js';
 const builtinTabs = [
     TabHome,
     // TabApps,
-    // TabFiles,
+    TabFiles,
     TabUsage,
     TabAccount,
     TabSecurity,
 ];
 
+// Dynamically load dashboard CSS if not already loaded
+if ( ! document.querySelector('link[href*="dashboard.css"]') ) {
+    const link = document.createElement('link');
+    link.rel = 'stylesheet';
+    link.href = '/css/dashboard.css';
+    document.head.appendChild(link);
+}
+
 async function UIDashboard (options) {
+    // eslint-disable-next-line no-unused-vars
     options = options ?? {};
 
     // Create mutable tabs array from built-in tabs
@@ -71,12 +82,12 @@ async function UIDashboard (options) {
     let h = '';
 
     h += '<div class="dashboard">';
-    
+
         // Mobile sidebar toggle
         h += '<button class="dashboard-sidebar-toggle">';
             h += '<span></span><span></span><span></span>';
         h += '</button>';
-        
+
         // Sidebar
         h += '<div class="dashboard-sidebar hide-scrollbar">';
             // Navigation items container
@@ -84,20 +95,21 @@ async function UIDashboard (options) {
             for ( let i = 0; i < tabs.length; i++ ) {
                 const tab = tabs[i];
                 const isActive = i === 0 ? ' active' : '';
-                h += `<div class="dashboard-sidebar-item${isActive}" data-section="${tab.id}">`;
+                const isBeta = tab.label === 'Files';
+                h += `<div class="dashboard-sidebar-item${isActive} ${isBeta ? 'beta' : ''}" data-section="${tab.id}">`;
                     h += tab.icon;
                     h += tab.label;
                 h += '</div>';
             }
             h += '</div>';
-            
+
             // User options button at bottom
             h += '<div class="dashboard-user-options hide-scrollbar">';
-                h += `<div class="dashboard-user-btn hide-scrollbar">`;
+                h += '<div class="dashboard-user-btn hide-scrollbar">';
                     h += `<div class="dashboard-user-avatar profile-pic" style="background-image: url(${window.user?.profile?.picture || window.icons['profile.svg']})"></div>`;
-                    h += `<span class="dashboard-user-name">${html_encode(window.user?.username || 'User')}</span>`;
-                    h += `<svg class="dashboard-user-chevron" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="6 9 12 15 18 9"/></svg>`;
-                h += `</div>`;
+                    h += `<span class="dashboard-user-name">${window.html_encode(window.user?.username || 'User')}</span>`;
+                    h += '<svg class="dashboard-user-chevron" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="6 9 12 15 18 9"/></svg>';
+                h += '</div>';
             h += '</div>';
         h += '</div>';
 
@@ -133,6 +145,11 @@ async function UIDashboard (options) {
 
     const $el_window = $(el_window);
 
+    // Set initial file path BEFORE tabs are initialized (so TabFiles.init() can use it)
+    if ( window.dashboard_initial_route?.tab === 'files' && window.dashboard_initial_route?.path ) {
+        window.dashboard_initial_file_path = window.dashboard_initial_route.path;
+    }
+
     // Initialize all tabs
     for ( const tab of tabs ) {
         if ( tab.init ) {
@@ -143,15 +160,225 @@ async function UIDashboard (options) {
     // Dispatch 'dashboard-ready' event for extensions
     window.dispatchEvent(new CustomEvent('dashboard-ready', { detail: { window: $el_window } }));
 
+    // =========================================================================
+    // Socket initialization
+    // In dashboard mode, UIDesktop is never loaded, so we create the socket here.
+    // This runs inside the function (not at module level) to ensure window.gui_origin
+    // and window.auth_token are already set.
+    // =========================================================================
+    window.socket = io(`${window.gui_origin}/`, {
+        auth: {
+            auth_token: window.auth_token,
+        },
+    });
+
+    window.socket.on('error', (error) => {
+        console.error('Dashboard Socket Error:', error);
+    });
+
+    window.socket.on('connect', function () {
+        window.socket.emit('puter_is_actually_open');
+    });
+
+    window.socket.on('reconnect', function () {
+        console.log('Dashboard Socket: Reconnected', window.socket.id);
+    });
+
+    window.socket.on('disconnect', () => {
+        console.log('Dashboard Socket: Disconnected');
+    });
+
+    window.socket.on('reconnect_attempt', (attempt) => {
+        console.log('Dashboard Socket: Reconnection Attempt', attempt);
+    });
+
+    window.socket.on('reconnect_error', (error) => {
+        console.log('Dashboard Socket: Reconnection Error', error);
+    });
+
+    window.socket.on('reconnect_failed', () => {
+        console.log('Dashboard Socket: Reconnection Failed');
+    });
+
+    // Upload/download progress tracking
+    window.socket.on('upload.progress', (msg) => {
+        if ( window.progress_tracker[msg.operation_id] ) {
+            window.progress_tracker[msg.operation_id].cloud_uploaded += msg.loaded_diff;
+            if ( window.progress_tracker[msg.operation_id][msg.item_upload_id] ) {
+                window.progress_tracker[msg.operation_id][msg.item_upload_id].cloud_uploaded = msg.loaded;
+            }
+        }
+    });
+
+    window.socket.on('download.progress', (msg) => {
+        if ( window.progress_tracker[msg.operation_id] ) {
+            if ( window.progress_tracker[msg.operation_id][msg.item_upload_id] ) {
+                window.progress_tracker[msg.operation_id][msg.item_upload_id].downloaded = msg.loaded;
+                window.progress_tracker[msg.operation_id][msg.item_upload_id].total = msg.total;
+            }
+        }
+    });
+
+    // Trash status updates
+    window.socket.on('trash.is_empty', async (msg) => {
+        // Update sidebar Trash icon
+        const trashIcon = msg.is_empty ? window.icons['trash.svg'] : window.icons['trash-full.svg'];
+        $('.directories [data-folder=\'Trash\'] img').attr('src', trashIcon);
+
+        // If currently viewing trash and it's empty, clear the file list
+        const dashboard = window.dashboard_object;
+        if ( msg.is_empty && dashboard && dashboard.currentPath === window.trash_path ) {
+            $('.files-tab .files').empty();
+        }
+    });
+
+    // =========================================================================
+    // Item event handlers
+    // Incremental DOM updates using UIDashboardFileItem for item creation and
+    // direct jQuery manipulation for removals/updates. Mirrors UIDesktop's
+    // approach but adapted for Dashboard's list-view structure.
+    // =========================================================================
+
+    window.socket.on('item.moved', async (resp) => {
+        if ( resp.original_client_socket_id === window.socket.id ) return;
+
+        // Fade out old item from view
+        $(`.item[data-uid='${resp.uid}']`).fadeOut(150, function () {
+            $(this).remove();
+        });
+
+        // Create new item at destination if user is viewing that directory
+        if ( window.UIDashboardFileItem ) {
+            window.UIDashboardFileItem(resp);
+        }
+    });
+
+    window.socket.on('item.removed', async (item) => {
+        if ( item.original_client_socket_id === window.socket.id ) return;
+        if ( item.descendants_only ) return;
+
+        $(`.item[data-path='${html_encode(item.path)}']`).fadeOut(150, function () {
+            $(this).remove();
+        });
+    });
+
+    window.socket.on('item.renamed', async (item) => {
+        if ( item.original_client_socket_id === window.socket.id ) return;
+
+        const $el = $(`.item[data-uid='${item.uid}']`);
+        if ( $el.length === 0 ) return;
+
+        // Update data attributes
+        $el.attr('data-name', html_encode(item.name));
+        $el.attr('data-path', html_encode(item.path));
+
+        // Update displayed name
+        $el.find('.item-name').text(item.name);
+        $el.find('.item-name-editor').val(item.name);
+    });
+
+    window.socket.on('item.updated', async (item) => {
+        if ( item.original_client_socket_id === window.socket.id ) return;
+
+        const $el = $(`.item[data-uid='${item.uid}']`);
+        if ( $el.length === 0 ) return;
+
+        // Update data attributes
+        $el.attr('data-name', html_encode(item.name));
+        $el.attr('data-path', html_encode(item.path));
+        $el.attr('data-size', item.size);
+        $el.attr('data-modified', item.modified);
+        $el.attr('data-type', html_encode(item.type));
+
+        // Update displayed name
+        $el.find('.item-name').text(item.name);
+        $el.find('.item-name-editor').val(item.name);
+    });
+
+    window.socket.on('item.added', async (item) => {
+        if ( _.isEmpty(item) ) return;
+        if ( item.original_client_socket_id === window.socket.id ) return;
+
+        if ( window.UIDashboardFileItem ) {
+            window.UIDashboardFileItem(item);
+        }
+    });
+
+    // Apply initial route from URL - activate the correct tab
+    if ( window.dashboard_initial_route ) {
+        const route = window.dashboard_initial_route;
+
+        // Activate the correct tab if not home
+        if ( route.tab && route.tab !== 'home' ) {
+            const tabId = route.tab;
+            const $targetTab = $el_window.find(`.dashboard-sidebar-item[data-section="${tabId}"]`);
+
+            // Only switch if the tab exists
+            if ( $targetTab.length > 0 ) {
+                $el_window.find('.dashboard-sidebar-item').removeClass('active');
+                $targetTab.addClass('active');
+                $el_window.find('.dashboard-section').removeClass('active');
+                $el_window.find(`.dashboard-section[data-section="${tabId}"]`).addClass('active');
+
+                document.querySelector('.dashboard-content').setAttribute('class', 'dashboard-content');
+                document.querySelector('.dashboard-content').classList.add(tabId);
+
+                // Call onActivate if exists
+                const tab = tabs.find(t => t.id === tabId);
+                if ( tab?.onActivate ) {
+                    tab.onActivate($el_window);
+                }
+            }
+        }
+    }
+
+    // Handle browser back/forward navigation
+    // This handler is called for both hashchange (manual hash changes) and popstate (back/forward)
+    const handleRouteChange = () => {
+        const route = window.parseDashboardRoute();
+        const tab = route.tab;
+        const filePath = route.path;
+
+        // Switch to correct tab
+        const $targetTab = $el_window.find(`.dashboard-sidebar-item[data-section="${tab}"]`);
+        if ( tab === 'home' ) {
+            // Home tab
+            $el_window.find('.dashboard-sidebar-item').removeClass('active');
+            $el_window.find('.dashboard-sidebar-item').first().addClass('active');
+            $el_window.find('.dashboard-section').removeClass('active');
+            $el_window.find('.dashboard-section').first().addClass('active');
+            document.querySelector('.dashboard-content').setAttribute('class', 'dashboard-content');
+        } else if ( $targetTab.length > 0 ) {
+            $el_window.find('.dashboard-sidebar-item').removeClass('active');
+            $targetTab.addClass('active');
+            $el_window.find('.dashboard-section').removeClass('active');
+            $el_window.find(`.dashboard-section[data-section="${tab}"]`).addClass('active');
+            document.querySelector('.dashboard-content').setAttribute('class', 'dashboard-content');
+            document.querySelector('.dashboard-content').classList.add(tab);
+        }
+
+        // If files tab with path, navigate without adding to history
+        if ( tab === 'files' && filePath ) {
+            const filesTab = tabs.find(t => t.id === 'files');
+            if ( filesTab?.renderDirectory ) {
+                filesTab.renderDirectory(filePath, { skipUrlUpdate: true, skipNavHistory: true });
+            }
+        }
+    };
+
+    // Listen for both hashchange and popstate to handle all navigation scenarios
+    window.addEventListener('hashchange', handleRouteChange);
+    window.addEventListener('popstate', handleRouteChange);
+
     // Sidebar item click handler
     $el_window.on('click', '.dashboard-sidebar-item', function () {
         const $this = $(this);
         const section = $this.attr('data-section');
-        
+
         // Update active sidebar item
         $el_window.find('.dashboard-sidebar-item').removeClass('active');
         $this.addClass('active');
-        
+
         // Update active content section
         $el_window.find('.dashboard-section').removeClass('active');
         $el_window.find(`.dashboard-section[data-section="${section}"]`).addClass('active');
@@ -160,6 +387,16 @@ async function UIDashboard (options) {
         const tab = tabs.find(t => t.id === section);
         if ( tab && tab.onActivate ) {
             tab.onActivate($el_window);
+        }
+
+        document.querySelector('.dashboard-content').setAttribute('class', 'dashboard-content');
+        document.querySelector('.dashboard-content').classList.add(section);
+
+        // Update hash to reflect current tab
+        // Note: Files tab updates its own hash with full path via onActivate, so skip it here
+        if ( section !== 'files' ) {
+            const newHash = section === 'home' ? '' : section;
+            history.replaceState(null, '', newHash ? `#${newHash}` : window.location.pathname);
         }
 
         // Close sidebar on mobile after selection
@@ -173,14 +410,24 @@ async function UIDashboard (options) {
         $el_window.find('.dashboard-sidebar').toggleClass('open');
     });
 
+    // Close sidebar when clicking outside
+    $el_window.on('mousedown touchstart', function (e) {
+        if ( !$(e.target).closest('.dashboard-sidebar').length
+            && !$(e.target).closest('.dashboard-sidebar-toggle').length
+            && $el_window.find('.dashboard-sidebar').hasClass('open') ) {
+            $el_window.find('.dashboard-sidebar').removeClass('open');
+            $el_window.find('.dashboard-sidebar-toggle').removeClass('open');
+        }
+    });
+
     // User options button click handler
-    $el_window.on('click', '.dashboard-user-btn', function (e) {
+    $el_window.on('click', '.dashboard-user-btn', function () {
         const $btn = $(this);
         const $chevron = $btn.find('.dashboard-user-chevron');
         const pos = this.getBoundingClientRect();
-        
+
         // Don't open if already open
-        if ($('.context-menu[data-id="dashboard-user-menu"]').length > 0) {
+        if ( $('.context-menu[data-id="dashboard-user-menu"]').length > 0 ) {
             return;
         }
 
@@ -190,10 +437,10 @@ async function UIDashboard (options) {
         let items = [];
 
         // Save Session (if temp user)
-        if (window.user.is_temp) {
+        if ( window.user.is_temp ) {
             items.push({
                 html: i18n('save_session'),
-                icon: '<svg style="margin-bottom: -4px; width: 16px; height: 16px;" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 48 48"><path d="M45.521,39.04L27.527,5.134c-1.021-1.948-3.427-2.699-5.375-1.679-.717,.376-1.303,.961-1.679,1.679L2.479,39.04c-.676,1.264-.635,2.791,.108,4.017,.716,1.207,2.017,1.946,3.42,1.943H41.993c1.403,.003,2.704-.736,3.42-1.943,.743-1.226,.784-2.753,.108-4.017ZM23.032,15h1.937c.565,0,1.017,.467,1,1.031l-.438,14c-.017,.54-.459,.969-1,.969h-1.062c-.54,0-.983-.429-1-.969l-.438-14c-.018-.564,.435-1.031,1-1.031Zm.968,25c-1.657,0-3-1.343-3-3s1.343-3,3-3,3,1.343,3,3-1.343,3-3,3Z" fill="#ffbb00"/></svg>',
+                icon: '<svg style="margin-bottom: -4px; width: 16px; height: 16px;" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 48 48"><path d="M45.521,39.04L27.527,5.134c-1.021-1.948-3.427-2.699-5.375-1.679-.717,.376-1.303,.961-1.679,1.679L2.479,39.04c-.676,1.264-.635,2.791,.108,4.017,.716,1.207,2.017,1.946,3.42,1.943H41.993c1.403,.003,2.704-.736,3.42-1.943,.743-1.226,.784-2.753,.108-4.017ZM23.032,15h1.937c.565,0,1.017,.467,1,1.031l-.438,14c-.017,.54-.459,.969-1,.969h-1.062c-.54,0-.983-.429-1-.969l-.438-14c-.018-.564,.435-1.031,1-1.031Zm.968,25c-1.657,0-3-1.343-3-3s1.343-3,3-3,3,1.343,3,3-1.343,3-3,3Z" fill="var(--dashboard-warning-icon)"/></svg>',
                 onClick: async function () {
                     UIWindowSaveAccount({
                         send_confirmation_code: false,
@@ -212,7 +459,7 @@ async function UIDashboard (options) {
         }
 
         // Logged in users
-        if (window.logged_in_users.length > 0) {
+        if ( window.logged_in_users.length > 0 ) {
             let users_arr = window.logged_in_users;
 
             // bring logged in user's item to top
@@ -226,7 +473,7 @@ async function UIDashboard (options) {
                     html: l_user.username,
                     icon: l_user.username === window.user.username ? '✓' : '',
                     onClick: async function () {
-                        if (l_user.username === window.user.username) {
+                        if ( l_user.username === window.user.username ) {
                             return;
                         }
                         window.update_auth_data(l_user.auth_token, l_user);
@@ -288,7 +535,7 @@ async function UIDashboard (options) {
                 html: i18n('log_out'),
                 onClick: async function () {
                     // Check for open windows
-                    if ($('.window-app').length > 0) {
+                    if ( $('.window-app').length > 0 ) {
                         const alert_resp = await UIAlert({
                             message: `<p>${i18n('confirm_open_apps_log_out')}</p>`,
                             buttons: [
@@ -302,7 +549,7 @@ async function UIDashboard (options) {
                                 },
                             ],
                         });
-                        if (alert_resp === 'close_and_log_out') {
+                        if ( alert_resp === 'close_and_log_out' ) {
                             window.logout();
                         }
                     } else {
@@ -315,15 +562,15 @@ async function UIDashboard (options) {
         UIContextMenu({
             id: 'dashboard-user-menu',
             parent_element: $btn[0],
-            position: { 
+            position: {
                 top: pos.top - 8,
-                left: pos.left
+                left: pos.left,
             },
             items: menuItems,
             onClose: () => {
                 // Rotate chevron back to point downwards
                 $chevron.removeClass('open');
-            }
+            },
         });
     });
 

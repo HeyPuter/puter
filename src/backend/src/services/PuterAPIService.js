@@ -38,8 +38,10 @@ class PuterAPIService extends BaseService {
     * This method registers various API endpoints with the web server.
     * It does not return a value as it configures the server directly.
     */
-    async ['__on_install.routes'] () {
-        const { app } = this.services.get('web-server');
+    async '__on_install.routes' () {
+        const svc_web = this.services.get('web-server');
+        const { app } = svc_web;
+        svc_web.allow_undefined_origin('/healthcheck');
 
         app.use(require('../routers/apps'));
         app.use(require('../routers/query/app'));
@@ -56,7 +58,7 @@ class PuterAPIService extends BaseService {
         app.use(require('../routers/drivers/call'));
         app.use(require('../routers/drivers/list-interfaces'));
         app.use(require('../routers/drivers/usage'));
-        app.use(require('../routers/confirm-email'));
+        app.use(require('../routers/confirmEmail/confirm-email'));
         app.use(require('../routers/down'));
         app.use(require('../routers/contactUs'));
         app.use(require('../routers/delete-site'));
@@ -68,10 +70,11 @@ class PuterAPIService extends BaseService {
         // app.use(require('../routers/get-launch-apps'))
         app.use(require('../routers/itemMetadata'));
         app.use(require('../routers/login'));
+        app.use(require('../routers/auth/oidc').default);
         app.use(require('../routers/logout'));
         app.use(require('../routers/open_item'));
         app.use(require('../routers/passwd'));
-        app.use(require('../routers/rao'));
+        app.use(require('../routers/recentAppOpens/rao'));
         app.use(require('../routers/remove-site-dir'));
         app.use(require('../routers/removeItem'));
         app.use(require('../routers/save_account'));

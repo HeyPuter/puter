@@ -23,6 +23,7 @@ const { TypedValue } = require('../../drivers/meta/Runtime');
 const APIError = require('../../../api/APIError');
 const { Context } = require('../../../util/context');
 const { redisClient } = require('../../../clients/redis/redisSingleton');
+const { PollyRedisCacheKeys } = require('./PollyRedisCacheKeys.js');
 
 // Polly price calculation per engine
 const ENGINE_PRICING = {
@@ -60,12 +61,12 @@ class AWSPollyService extends BaseService {
     }
 
     static IMPLEMENTS = {
-        ['driver-capabilities']: {
+        'driver-capabilities': {
             supports_test_mode (iface, method_name) {
                 return iface === 'puter-tts' && method_name === 'synthesize';
             },
         },
-        ['puter-tts']: {
+        'puter-tts': {
             /**
             * Implements the driver interface methods for text-to-speech functionality
             * Contains methods for listing available voices and synthesizing speech
@@ -190,7 +191,7 @@ class AWSPollyService extends BaseService {
     * Uses KV store for caching to avoid repeated API calls
     */
     async describe_voices () {
-        const cached_voices = await redisClient.get('svc:polly:voices');
+        const cached_voices = await redisClient.get(PollyRedisCacheKeys.voices);
         if ( cached_voices ) {
             try {
                 const voices = JSON.parse(cached_voices);
@@ -211,7 +212,7 @@ class AWSPollyService extends BaseService {
 
         const response = await client.send(command);
 
-        await redisClient.set('svc:polly:voices', JSON.stringify(response), 'EX', 60 * 10); // 10 minutes
+        redisClient.set(PollyRedisCacheKeys.voices, JSON.stringify(response), 'EX', 60 * 10); // 10 minutes
 
         return response;
     }

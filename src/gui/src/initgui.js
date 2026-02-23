@@ -17,11 +17,14 @@
  * along with this program.  If not, see <https://www.gnu.org/licenses/>.
  */
 
+import UIDashboard from './UI/Dashboard/UIDashboard.js';
 import UIAlert from './UI/UIAlert.js';
 import UIComponentWindow from './UI/UIComponentWindow.js';
 import UIDesktop from './UI/UIDesktop.js';
 import UIWindow from './UI/UIWindow.js';
+import UIWindowAuthMe from './UI/UIWindowAuthMe.js';
 import UIWindowChangeUsername from './UI/UIWindowChangeUsername.js';
+import UIWindowCopyToken from './UI/UIWindowCopyToken.js';
 import UIWindowEmailConfirmationRequired from './UI/UIWindowEmailConfirmationRequired.js';
 import UIWindowLogin from './UI/UIWindowLogin.js';
 import UIWindowLoginInProgress from './UI/UIWindowLoginInProgress.js';
@@ -30,8 +33,6 @@ import UIWindowRequestPermission from './UI/UIWindowRequestPermission.js';
 import UIWindowSaveAccount from './UI/UIWindowSaveAccount.js';
 import UIWindowSessionList from './UI/UIWindowSessionList.js';
 import UIWindowSignup from './UI/UIWindowSignup.js';
-import UIWindowCopyToken from './UI/UIWindowCopyToken.js';
-import UIWindowAuthMe from './UI/UIWindowAuthMe.js';
 import { PROCESS_RUNNING } from './definitions.js';
 import item_icon from './helpers/item_icon.js';
 import update_last_touch_coordinates from './helpers/update_last_touch_coordinates.js';
@@ -49,7 +50,6 @@ import { ProcessService } from './services/ProcessService.js';
 import { SettingsService } from './services/SettingsService.js';
 import { ThemeService } from './services/ThemeService.js';
 import { privacy_aware_path } from './util/desktop.js';
-import UIDashboard from './UI/Dashboard/UIDashboard.js';
 
 const launch_services = async function (options) {
     // === Services Data Structures ===
@@ -156,7 +156,30 @@ if ( jQuery ) {
 // are we in dashboard mode?
 if ( window.location.pathname === '/dashboard' || window.location.pathname === '/dashboard/' ) {
     window.is_dashboard_mode = true;
+    window.dashboard_initial_route = parseDashboardRoute();
 }
+
+/**
+ * Parses the dashboard URL hash into a route object.
+ * Hash format: #files/username/Documents or #usage or #account etc.
+ * @returns {{ tab: string, path: string|null }} Route object with tab name and optional file path
+ */
+function parseDashboardRoute () {
+    const hash = decodeURIComponent(window.location.hash.slice(1)); // Remove '#' and decode URL encoding
+    if ( ! hash ) return { tab: 'home', path: null };
+
+    const parts = hash.split('/').filter(Boolean); // ['files', 'username', 'Documents']
+    const tab = parts[0]; // 'files', 'usage', 'account', 'security'
+
+    if ( tab === 'files' && parts.length > 1 ) {
+        const filePath = `/${parts.slice(1).join('/')}`; // /username/Documents
+        return { tab: 'files', path: filePath };
+    }
+    return { tab: tab || 'home', path: null };
+}
+
+// Make parseDashboardRoute available globally for hashchange handler
+window.parseDashboardRoute = parseDashboardRoute;
 
 /**
  * Shows a Turnstile challenge modal for first-time temp user creation
@@ -369,6 +392,21 @@ window.initgui = async function (options) {
 
     // Launch services before any UI is rendered
     await launch_services(options);
+
+    // If no token in storage but we have a session cookie (e.g. after OIDC redirect), fetch GUI token
+    if ( !localStorage.getItem('auth_token') && window.auth_token == null ) {
+        try {
+            const r = await fetch(`${window.gui_origin}/get-gui-token`, { credentials: 'include' });
+            if ( r.ok ) {
+                const { token } = await r.json();
+                window.auth_token = token;
+                localStorage.setItem('auth_token', token);
+                if ( typeof puter !== 'undefined' ) puter.setAuthToken(token, window.api_origin);
+            }
+        } catch (e) {
+            // ignore
+        }
+    }
 
     //--------------------------------------------------------------------------------------
     // Is attempt_temp_user_creation?

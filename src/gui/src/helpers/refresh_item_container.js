@@ -113,8 +113,8 @@ const refresh_item_container = function (el_item_container, options) {
     // remove all existing items
     $(el_item_container).find('.item').removeItems();
 
-    // get items (skip subdomain fetching for faster response)
-    puter.fs.readdir({ path: container_path, consistency: options.consistency ?? 'eventual', no_subdomains: true }).then(async (fsentries) => {
+    // get items with subdomains/workers included to avoid per-item stat calls
+    puter.fs.readdir({ path: container_path, consistency: options.consistency ?? 'eventual' }).then(async (fsentries) => {
         // Check if the same folder is still loading since el_item_container's
         // data-path might have changed by other operations while waiting for the response to this `readdir`.
         if ( $(el_item_container).attr('data-path') !== container_path )
@@ -204,6 +204,7 @@ const refresh_item_container = function (el_item_container, options) {
                         is_shortcut: fsentry.is_shortcut,
                         shortcut_to: fsentry.shortcut_to,
                         shortcut_to_path: fsentry.shortcut_to_path,
+                        workers: fsentry.workers,
                         size: fsentry.size,
                         type: fsentry.type,
                         modified: fsentry.modified,
@@ -241,13 +242,6 @@ const refresh_item_container = function (el_item_container, options) {
             window.sort_items(el_item_container,
                             $(el_item_container).attr('data-sort_by'),
                             $(el_item_container).attr('data-sort_order'));
-
-            // Fetch subdomains separately for directories and update UI
-            // Use the reusable function to update subdomains
-            // Note: This is fire-and-forget - it will update items asynchronously
-            window.updateSubdomainsForItems(fsentries, el_item_container).catch(err => {
-                console.warn('Failed to update subdomains for items:', err);
-            });
 
             if ( options.fadeInItems ) {
                 $(el_item_container).animate({ 'opacity': '1' }, {

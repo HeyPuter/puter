@@ -43,7 +43,7 @@ class PuterVersionService extends BaseService {
      * @async
      * @returns {Promise<void>} Resolves when the routes are successfully registered.
      */
-    async ['__on_install.routes'] () {
+    async '__on_install.routes' () {
         const { app } = this.services.get('web-server');
         app.use(require('../routers/version'));
     }

@@ -97,7 +97,7 @@ class ContextInitService extends BaseService {
             key, async_factory,
         });
     }
-    async ['__on_install.middlewares.context-aware'] (_, { app }) {
+    async '__on_install.middlewares.context-aware' (_, { app }) {
         this.mw.install(app);
         await this.services.emit('install.context-initializers');
     }

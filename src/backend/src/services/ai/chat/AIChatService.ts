@@ -46,6 +46,7 @@ import { OpenRouterProvider } from './providers/OpenRouterProvider/OpenRouterPro
 import { TogetherAIProvider } from './providers/TogetherAiProvider/TogetherAIProvider.js';
 import { IChatModel, IChatProvider, ICompleteArguments } from './providers/types.js';
 import { XAIProvider } from './providers/XAIProvider/XAIProvider.js';
+import { fallbackModelsKey } from './AIChatRedisCacheSpace.js';
 
 // Maximum number of fallback attempts when a model fails, including the first attempt
 const MAX_FALLBACKS = 3 + 1; // includes first attempt
@@ -65,7 +66,7 @@ export class AIChatService extends BaseService {
     }
 
     get errorService (): ErrorService {
-        return this.services.get('error-service');
+        return this.services.get('error-service') as ErrorService;
     }
 
     get eventService (): EventService {
@@ -73,7 +74,7 @@ export class AIChatService extends BaseService {
     }
 
     get driverService (): DriverService {
-        return this.services.get('driver');
+        return this.services.get('driver') as DriverService;
     }
 
     getProvider (name: string): IChatProvider | undefined {
@@ -85,13 +86,13 @@ export class AIChatService extends BaseService {
 
     /** Driver interfaces */
     static IMPLEMENTS = {
-        ['driver-capabilities']: {
+        'driver-capabilities': {
             supports_test_mode (iface: string, method_name: string) {
                 return iface === 'puter-chat-completion' &&
                     method_name === 'complete';
             },
         },
-        ['puter-chat-completion']: {
+        'puter-chat-completion': {
 
             async models () {
                 return await (this as unknown as AIChatService).models();
@@ -203,9 +204,11 @@ export class AIChatService extends BaseService {
             const provider = this.#providers[providerName];
 
             // alias all driver requests to go here to support legacy routing
-            this.driverService.register_service_alias(AIChatService.SERVICE_NAME,
-                            providerName,
-                            { iface: 'puter-chat-completion' });
+            this.driverService.register_service_alias(
+                AIChatService.SERVICE_NAME,
+                providerName,
+                { iface: 'puter-chat-completion' },
+            );
 
             // build model id map
             for ( const model of await provider.models() ) {
@@ -429,9 +432,11 @@ export class AIChatService extends BaseService {
             maxAllowedOutput / outputTokenCost;
 
         if ( maxAllowedOutputTokens ) {
-            parameters.max_tokens = Math.floor(Math.min(parameters.max_tokens ?? Number.POSITIVE_INFINITY,
-                            maxAllowedOutputTokens,
-                            maxTokens - approximateTokenCount));
+            parameters.max_tokens = Math.floor(Math.min(
+                parameters.max_tokens ?? Number.POSITIVE_INFINITY,
+                maxAllowedOutputTokens,
+                maxTokens - approximateTokenCount,
+            ));
             if ( parameters.max_tokens < 1 ) {
                 parameters.max_tokens = undefined;
             }
@@ -686,7 +691,7 @@ export class AIChatService extends BaseService {
 
         // First check KV for the sorted list
         let potentialFallbacks;
-        const cached_fallbacks = await redisClient.get(`aichat:fallbacks:${targetModel.id}`);
+        const cached_fallbacks = await redisClient.get(fallbackModelsKey(targetModel.id));
         if ( cached_fallbacks ) {
             try {
                 potentialFallbacks = JSON.parse(cached_fallbacks);
@@ -714,7 +719,7 @@ export class AIChatService extends BaseService {
                 return !!possibleModelNames.find(possibleName => model.id.toLowerCase() === possibleName);
             }).slice(0, MAX_FALLBACKS);
 
-            await redisClient.set(`aichat:fallbacks:${modelId}`, JSON.stringify(potentialMatches));
+            redisClient.set(fallbackModelsKey(modelId), JSON.stringify(potentialMatches));
             potentialFallbacks = potentialMatches;
         }
 

@@ -25,11 +25,10 @@ const { hideBin } = require('yargs/helpers');
 const { Extension } = require('./Extension');
 const { ExtensionModule } = require('./ExtensionModule');
 const { spawn } = require('node:child_process');
-
 const fs = require('fs');
 const path_ = require('path');
 const { prependToJSFiles } = require('./kernel/modutil');
-
+const { tmp_provide_services } = require('./helpers');
 const uuid = require('uuid');
 const readline = require('node:readline/promises');
 const { RuntimeModuleRegistry } = require('./extension/RuntimeModuleRegistry');
@@ -129,7 +128,7 @@ class Kernel extends AdvancedBase {
             extensionInfo: this.extensionInfo,
             registry: this.registry,
             args,
-            ['runtime-modules']: this.runtimeModuleRegistry,
+            'runtime-modules': this.runtimeModuleRegistry,
         }, 'app');
         globalThis.root_context = root_context;
 
@@ -149,7 +148,7 @@ class Kernel extends AdvancedBase {
             services.registerModule(module_.constructor.name, module_);
             const mod_context = this._create_mod_context(Context.get(), {
                 name: module_.constructor.name,
-                ['module']: module_,
+                'module': module_,
                 external: false,
             });
             await module_.install(mod_context);
@@ -196,7 +195,6 @@ class Kernel extends AdvancedBase {
         services.ready.resolve();
         // provide services to helpers
 
-        const { tmp_provide_services } = require('./helpers');
         tmp_provide_services(services);
     }
 
@@ -437,7 +435,7 @@ class Kernel extends AdvancedBase {
 
         const mod_context = this._create_mod_context(mod_install_root_context, {
             name: mod_name,
-            ['module']: mod,
+            'module': mod,
             external: true,
             mod_path,
         });

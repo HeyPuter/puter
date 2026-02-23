@@ -20,6 +20,7 @@ const APIError = require('../api/APIError');
 const config = require('../config');
 const { LegacyTokenError } = require('../services/auth/AuthService');
 const { Context } = require('../util/context');
+const jwt = require('jsonwebtoken');
 
 // The "/whoami" endpoint is a special case where we want to allow
 // a legacy token to be used for authentication. The "/whoami"
@@ -47,7 +48,7 @@ const configurable_auth = options => async (req, res, next) => {
     const optional = options?.optional;
 
     // Request might already have been authed (PreAuthService)
-    if ( req.actor ) next();
+    if ( req.actor ) return next();
 
     // === Getting the Token ===
     // This step came from jwt_auth in src/helpers.js
@@ -55,15 +56,18 @@ const configurable_auth = options => async (req, res, next) => {
     // auth middleware, it makes more sense to put it here.
 
     let token;
+    let tokenSource;
     // Auth token in body
     if ( req.body && req.body.auth_token )
     {
         token = req.body.auth_token;
+        tokenSource = 'body';
     }
     // HTTML Auth header
     else if ( req.header && req.header('Authorization') && !req.header('Authorization').startsWith('Basic ') && req.header('Authorization') !== 'Bearer' ) { // Bearer with no space is something office does
         token = req.header('Authorization');
         token = token.replace('Bearer ', '').trim();
+        tokenSource = 'header';
         if ( token === 'undefined' ) {
             APIError.create('unexpected_undefined', null, {
                 msg: 'The Authorization token cannot be the string "undefined"',
@@ -74,16 +78,19 @@ const configurable_auth = options => async (req, res, next) => {
     else if ( req.cookies && req.cookies[config.cookie_name] )
     {
         token = req.cookies[config.cookie_name];
+        tokenSource = 'cookie';
     }
     // Auth token in URL
     else if ( req.query && req.query.auth_token )
     {
         token = req.query.auth_token;
+        tokenSource = 'query';
     }
     // Socket
     else if ( req.handshake && req.handshake.query && req.handshake.query.auth_token )
     {
         token = req.handshake.query.auth_token;
+        tokenSource = 'socket';
     }
 
     if ( !token || token.startsWith('Basic ') ) {
@@ -134,7 +141,8 @@ const configurable_auth = options => async (req, res, next) => {
                 throw APIError.create('forbidden');
             }
 
-            res.cookie(config.cookie_name, new_info.token, {
+            // Use session token in cookie so cookie-based requests have hasHttpOnlyCookie; client gets GUI token in response
+            res.cookie(config.cookie_name, new_info.session_token ?? new_info.token, {
                 sameSite: 'none',
                 secure: true,
                 httpOnly: true,

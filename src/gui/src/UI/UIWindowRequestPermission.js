@@ -241,6 +241,16 @@ async function get_permission_description (permission) {
         }
     }
 
+    if ( parts[0] === 'app-root-dir' ) {
+        // Format: app-root-dir:resource_request_code:access
+        if ( parts[2] === 'read' ) {
+            return i18n('perm_app_root_dir_read');
+        }
+        if ( parts[2] === 'write' ) {
+            return i18n('perm_app_root_dir_write');
+        }
+    }
+
     return null;
 }
 

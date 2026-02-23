@@ -107,13 +107,11 @@ const sendSelectionToAIApp = async ($elements) => {
     }, '*');
 };
 
-function UIItem (options) {
+async function UIItem (options) {
     const matching_appendto_count = $(options.appendTo).length;
     if ( matching_appendto_count > 1 ) {
         $(options.appendTo).each(function () {
-            const opts = options;
-            opts.appendTo = this;
-            UIItem(opts);
+            UIItem({ ...options, appendTo: this });
         });
         return;
     } else if ( matching_appendto_count === 0 ) {
@@ -121,7 +119,7 @@ function UIItem (options) {
     }
 
     const item_id = window.global_element_id++;
-    let last_mousedown_ts = 999999999999999;
+    let last_mousedown_ts = Number.MAX_SAFE_INTEGER;
     let rename_cancelled = false;
 
     // set options defaults
@@ -138,7 +136,11 @@ function UIItem (options) {
     options.shortcut_to_path = options.shortcut_to_path ?? '';
     options.immutable = (options.immutable === false || options.immutable === 0 || options.immutable === undefined ? 0 : 1);
     options.sort_container_after_append = (options.sort_container_after_append !== undefined ? options.sort_container_after_append : false);
-    const is_shared_with_me = (options.path && options.path !== `/${window.user.username}` && !options.path.startsWith(`/${window.user.username}/`));
+    const is_shared_with_me = (options.path !== `/${window.user.username}` && !options.path.startsWith(`/${window.user.username}/`));
+    const workers = Array.isArray(options.workers) ? options.workers : [];
+    const is_worker = !options.is_dir && workers.length > 0;
+    const worker_url = is_worker ? workers[0].address : '';
+    const show_website_badge = !!options.has_website && !is_worker;
 
     let website_url = window.determine_website_url(options.path);
 
@@ -161,10 +163,12 @@ function UIItem (options) {
                 data-uid="${options.uid}" 
                 data-is_dir="${options.is_dir ? 1 : 0}" 
                 data-is_trash="${options.is_trash ? 1 : 0}"
-                data-has_website="${options.has_website ? 1 : 0 }" 
+                data-has_website="${show_website_badge ? 1 : 0 }" 
                 data-website_url = "${website_url ? html_encode(website_url) : ''}"
                 data-immutable="${options.immutable}" 
                 data-is_shortcut = "${options.is_shortcut}"
+                data-is_worker = "${is_worker ? 1 : 0}"
+                data-worker_url = "${is_worker ? worker_url : 0}"
                 data-shortcut_to = "${html_encode(options.shortcut_to)}"
                 data-shortcut_to_path = "${html_encode(options.shortcut_to_path)}"
                 data-sortable = "${options.sortable ?? 'true'}"
@@ -206,7 +210,7 @@ function UIItem (options) {
     h += '<div class="item-badges">';
     // website badge
     h += `<img  class="item-badge item-has-website-badge long-hover" 
-                        style="${options.has_website ? 'display:block;' : ''}" 
+                        style="${show_website_badge ? 'display:block;' : ''}" 
                         src="${html_encode(window.icons['world.svg'])}" 
                         data-item-id="${item_id}"
                     >`;
@@ -240,7 +244,12 @@ function UIItem (options) {
                         data-item-id="${item_id}"
                         title="${i18n('item_shortcut')}"
                     >`;
-
+    // worker badge
+    h += `<img  class="item-badge item-is-worker long-hover" 
+                        style="background-color: #ffffff; padding: 2px; ${is_worker ? 'display:block;' : ''}" 
+                        src="${html_encode(window.icons['worker.svg'])}" 
+                        data-item-id="${item_id}"
+                    >`;
     h += '</div>';
 
     // divider
@@ -1876,6 +1885,50 @@ $(document).on('long-hover', '.item-has-website-badge', function (e) {
 });
 
 $(document).on('click', '.website-badge-popover-link', function (e) {
+    // remove the parent popover
+    $(e.target).closest('.popover').remove();
+});
+
+$(document).on('long-hover', '.item-is-worker', function (e) {
+    const worker_url = e.target.parentNode.parentNode.getAttribute('data-worker_url');
+    var box = e.target.getBoundingClientRect();
+
+    var body = document.body;
+    var docEl = document.documentElement;
+
+    var scrollTop = window.pageYOffset || docEl.scrollTop || body.scrollTop;
+    var scrollLeft = window.pageXOffset || docEl.scrollLeft || body.scrollLeft;
+
+    var clientTop = docEl.clientTop || body.clientTop || 0;
+    var clientLeft = docEl.clientLeft || body.clientLeft || 0;
+
+    var top  = box.top + scrollTop - clientTop;
+    var left = box.left + scrollLeft - clientLeft;
+
+    if ( worker_url ) {
+        let h = '<div class="allow-user-select worker-badge-popover-content">';
+        h += `<div class="worker-badge-popover-title">${i18n('worker')}</div>`;
+        h += `
+            <a class="worker-badge-popover-link" href="${worker_url}" style="font-size:13px;" target="_blank">${worker_url.replace('https://', '')}</a>
+            <br>`;
+        h += '</div>';
+
+        // close other worker popovers
+        $('.worker-badge-popover-content').closest('.popover').remove();
+
+        // show a UIPopover with the worker URL
+        UIPopover({
+            target: e.target,
+            content: h,
+            snapToElement: e.target,
+            parent_element: e.target,
+            top: top - 30,
+            left: left + 20,
+        });
+    }
+});
+
+$(document).on('click', '.worker-badge-popover-link', function (e) {
     // remove the parent popover
     $(e.target).closest('.popover').remove();
 });

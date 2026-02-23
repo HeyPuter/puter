@@ -27,7 +27,7 @@ class OTPService extends BaseService {
     static MODULES = {
         otpauth: require('otpauth'),
         crypto: require('crypto'),
-        ['hi-base32']: require('hi-base32'),
+        'hi-base32': require('hi-base32'),
     };
 
     create_secret (label) {

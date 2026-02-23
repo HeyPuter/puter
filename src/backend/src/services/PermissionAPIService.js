@@ -41,7 +41,7 @@ class PermissionAPIService extends BaseService {
     * @param {Express} options.app Express application instance to install routes on
     * @returns {Promise<void>}
     */
-    async ['__on_install.routes'] (_, { app }) {
+    async '__on_install.routes' (_, { app }) {
         app.use(require('../routers/auth/get-user-app-token'));
         app.use(require('../routers/auth/grant-user-app'));
         app.use(require('../routers/auth/revoke-user-app'));
@@ -53,6 +53,7 @@ class PermissionAPIService extends BaseService {
         app.use(require('../routers/auth/revoke-user-group'));
         app.use(require('../routers/auth/list-permissions').default);
         app.use(require('../routers/auth/check-permissions.js'));
+        app.use(require('../routers/auth/request-app-root-dir'));
 
         Endpoint(require('../routers/auth/check-app-acl.endpoint.js')).but({
             route: '/auth/check-app-acl',

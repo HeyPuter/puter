@@ -46,7 +46,7 @@ class WebServerService extends BaseService {
         helmet: require('helmet'),
         cookieParser: require('cookie-parser'),
         compression: require('compression'),
-        ['on-finished']: require('on-finished'),
+        'on-finished': require('on-finished'),
         morgan: require('morgan'),
     };
 
@@ -64,7 +64,7 @@ class WebServerService extends BaseService {
     * @private
     */
     // comment above line 44 in WebServerService.js
-    async ['__on_boot.consolidation'] () {
+    async '__on_boot.consolidation' () {
         const app = this.app;
         const services = this.services;
         await services.emit('install.middlewares.early', { app });
@@ -115,7 +115,7 @@ class WebServerService extends BaseService {
     *
     * @returns {Promise<void>} A promise that resolves once the server is started.
     */
-    async ['__on_boot.activation'] () {
+    async '__on_boot.activation' () {
         const services = this.services;
         await services.emit('start.webserver');
         await services.emit('ready.webserver');
@@ -130,7 +130,7 @@ class WebServerService extends BaseService {
     *
     * @return {Promise} A promise that resolves when the server is up and running.
     */
-    async ['__on_start.webserver'] () {
+    async '__on_start.webserver' () {
         // error handling middleware goes last, as per the
         // expressjs documentation:
         // https://expressjs.com/en/guide/error-handling.html
@@ -337,6 +337,35 @@ class WebServerService extends BaseService {
             next();
         });
 
+        // When the user visits the main origin (not api/dav subdomain) with ?auth_token=<GUI token>
+        // (e.g. QR login), set the HTTP-only session cookie so user-protected endpoints work.
+        app.use(async (req, res, next) => {
+            const has_subdomain = req.hostname.slice(0, -1 * (config.domain.length + 1)) !== '';
+            if ( has_subdomain ) return next();
+
+            const token = req.query?.auth_token;
+            if ( !token || typeof token !== 'string' ) return next();
+
+            try {
+                const svc_auth = req.services.get('auth');
+                const cleanToken = token.replace('Bearer ', '').trim();
+                const actor = await svc_auth.authenticate_from_token(cleanToken);
+                const session_token = svc_auth.create_session_token_for_session(
+                    actor.type.user,
+                    actor.type.session,
+                );
+                res.cookie(config.cookie_name, session_token, {
+                    sameSite: 'none',
+                    secure: true,
+                    httpOnly: true,
+                });
+            } catch ( e ) {
+                console.log('query auth token (QR Code login probably) failed');
+                console.error(e);
+            }
+            next();
+        });
+
         // Measure data transfer amounts
         app.use(measure());
 
@@ -485,14 +514,25 @@ class WebServerService extends BaseService {
             // Parse the Host header to isolate the hostname (strip out port if present)
             const hostName = hostHeader.split(':')[0].trim().toLowerCase();
             // Check if the hostname matches any of the allowed domains or is a subdomain of an allowed domain
+            // Exception: allow /healthcheck endpoint on the root domain
+            if (
+                req.path === '/healthcheck' &&
+                hostName === config.domain.toLowerCase()
+            ) {
+                next();
+                return;
+            }
             if ( allowedDomains.some(allowedDomain => hostName === allowedDomain || hostName.endsWith(`.${ allowedDomain}`)) ) {
                 next(); // Proceed if the host is valid
+                return;
             } else {
                 if ( ! config.custom_domains_enabled ) {
-                    return res.status(400).send('Invalid Host header.');
+                    res.status(400).send('Invalid Host header.');
+                    return;
                 }
                 req.is_custom_domain = true;
                 next();
+                return;
             }
         });
 
@@ -627,7 +667,7 @@ class WebServerService extends BaseService {
                 req.co_isolation_enabled
                 ;
 
-            if ( req.path === '/signup' || req.path === '/login' || req.path.startsWith('/extensions/') ) {
+            if ( req.path === '/signup' || req.path === '/login' || req.path.startsWith('/extensions/') || req.path.startsWith('/auth/oidc') ) {
                 res.setHeader('Access-Control-Allow-Origin', origin ?? '*');
             }
             // Website(s) to allow to connect

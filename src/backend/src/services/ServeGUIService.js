@@ -35,7 +35,7 @@ class ServeGUIService extends BaseService {
     * @async
     * @returns {Promise<void>} Resolves when routing is successfully set up.
     */
-    async ['__on_install.routes-gui'] () {
+    async '__on_install.routes-gui' () {
         const { app } = this.services.get('web-server');
 
         // is this a puter.site domain?

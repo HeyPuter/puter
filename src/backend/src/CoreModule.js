@@ -79,7 +79,7 @@ const install = async ({ context, services, app, useapi, modapi }) => {
         def('core.fs.selectors', require('./filesystem/node/selectors'));
         def('core.util.stream', require('./util/streamutil'));
         def('web', require('./util/expressutil'));
-        def('core.validation', require('./validation'));
+        def('core.validation', require('./validation').default);
 
         def('core.database', require('./services/database/consts.js'));
 
@@ -268,6 +268,12 @@ const install = async ({ context, services, app, useapi, modapi }) => {
 
     const { OTPService } = require('./services/auth/OTPService');
     services.registerService('otp', OTPService);
+
+    const { OIDCService } = require('./services/auth/OIDCService');
+    services.registerService('oidc', OIDCService);
+
+    const { SignupService } = require('./services/auth/SignupService');
+    services.registerService('signup', SignupService);
 
     const { UserProtectedEndpointsService } = require('./services/web/UserProtectedEndpointsService');
     services.registerService('__user-protected-endpoints', UserProtectedEndpointsService);

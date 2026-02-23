@@ -26,21 +26,21 @@ const { requireCaptcha } = require('../modules/captcha/middleware/captcha-middle
 
 const complete_ = async ({ req, res, user }) => {
     const svc_auth = req.services.get('auth');
-    const { token } = await svc_auth.create_session_token(user, { req });
+    const { session, token: session_token } = await svc_auth.create_session_token(user, { req });
+    const gui_token = svc_auth.create_gui_token(user, session);
 
-    //set cookie
-    // res.cookie(config.cookie_name, token);
-    res.cookie(config.cookie_name, token, {
+    // HTTP-only cookie gets session token (cookie-based requests have hasHttpOnlyCookie)
+    res.cookie(config.cookie_name, session_token, {
         sameSite: 'none',
         secure: true,
         httpOnly: true,
     });
 
-    // send response
+    // response body: GUI token only (client never gets session token)
     return res.send({
         proceed: true,
         next_step: 'complete',
-        token: token,
+        token: gui_token,
         user: {
             username: user.username,
             uuid: user.uuid,
@@ -143,9 +143,10 @@ router.post('/login', express.json(), body_parser_error_handler, (req, res, next
         if ( user.username === 'system' && config.allow_system_login !== true ) {
             svc_edgeRateLimit.incr('login');
             return res.status(400).send(
-                            req.body.username
-                                ? 'Username not found.'
-                                : 'Email not found.');
+                req.body.username
+                    ? 'Username not found.'
+                    : 'Email not found.',
+            );
         }
         // is user suspended?
         if ( user.suspended ) {
@@ -308,8 +309,10 @@ router.post('/login/recovery-code', express.json(), body_parser_error_handler, r
 
     // update user
     const db = req.services.get('database').get(DB_WRITE, '2fa');
-    await db.write('UPDATE user SET otp_recovery_codes = ? WHERE uuid = ?',
-                    [codes.join(','), user.uuid]);
+    await db.write(
+        'UPDATE user SET otp_recovery_codes = ? WHERE uuid = ?',
+        [codes.join(','), user.uuid],
+    );
     user.otp_recovery_codes = codes.join(',');
     invalidate_cached_user(user);
 

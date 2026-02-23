@@ -642,7 +642,7 @@ class PuterSiteMiddleware extends AdvancedBase {
 
         res.redirect(`${config.origin}?${e.querystringize({
             ...(req.query['puter.app_instance_id'] ? {
-                ['error_from_within_iframe']: true,
+                'error_from_within_iframe': true,
             } : {}),
         })}`);
     }

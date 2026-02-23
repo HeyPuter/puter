@@ -71,7 +71,7 @@ class DefaultUserService extends BaseService {
     async _init () {
         this._register_commands(this.services.get('commands'));
     }
-    async ['__on_ready.webserver'] () {
+    async '__on_ready.webserver' () {
         // check if a user named `admin` exists
         let user = await get_user({ username: USERNAME, cached: false });
         if ( ! user ) {
@@ -82,8 +82,10 @@ class DefaultUserService extends BaseService {
 
         // check if user named `admin` is using default password
         const tmp_password = await this.get_tmp_password_(user);
-        const is_default_password = await bcrypt.compare(tmp_password,
-                        user.password);
+        const is_default_password = await bcrypt.compare(
+            tmp_password,
+            user.password,
+        );
         if ( ! is_default_password ) return;
 
         // console.log(`password for admin is: ${tmp_password}`);
@@ -100,15 +102,17 @@ class DefaultUserService extends BaseService {
     }
     async create_default_user_ () {
         const db = this.services.get('database').get(DB_WRITE, USERNAME);
-        await db.write(`
+        await db.write(
+            `
                 INSERT INTO user (uuid, username, free_storage)
                 VALUES (?, ?, ?)
             `,
-        [
-            uuidv4(),
-            USERNAME,
-            1024 * 1024 * 1024 * 10, // 10 GB
-        ]);
+            [
+                uuidv4(),
+                USERNAME,
+                1024 * 1024 * 1024 * 10, // 10 GB
+            ],
+        );
         const svc_group = this.services.get('group');
         await svc_group.add_users({
             uid: 'ca342a5e-b13d-4dee-9048-58b11a57cc55', // admin
@@ -118,11 +122,13 @@ class DefaultUserService extends BaseService {
         const actor = Actor.adapt(user);
         const tmp_password = await this.get_tmp_password_(user);
         const password_hashed = await bcrypt.hash(tmp_password, 8);
-        await db.write('UPDATE user SET password = ? WHERE id = ?',
-                        [
-                            password_hashed,
-                            user.id,
-                        ]);
+        await db.write(
+            'UPDATE user SET password = ? WHERE id = ?',
+            [
+                password_hashed,
+                user.id,
+            ],
+        );
         user.password = password_hashed;
         const svc_user = this.services.get('user');
         await svc_user.generate_default_fsentries({ user });
@@ -238,11 +244,13 @@ class DefaultUserService extends BaseService {
                     value: tmp_password,
                 },
             });
-            await db.write('UPDATE user SET password = ? WHERE id = ?',
-                            [
-                                password_hashed,
-                                user.id,
-                            ]);
+            await db.write(
+                'UPDATE user SET password = ? WHERE id = ?',
+                [
+                    password_hashed,
+                    user.id,
+                ],
+            );
             return tmp_password;
         });
     }
@@ -251,7 +259,7 @@ class DefaultUserService extends BaseService {
             {
                 id: 'reset-password',
                 handler: async (args, ctx) => {
-                    const [ username ] = args;
+                    const [username] = args;
                     const user = await get_user({ username });
                     const tmp_pwd = await this.force_tmp_password_(user);
                     ctx.log(`New password for ${quot(username)} is: ${tmp_pwd}`);

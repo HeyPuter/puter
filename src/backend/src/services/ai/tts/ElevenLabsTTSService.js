@@ -47,12 +47,12 @@ class ElevenLabsTTSService extends BaseService {
     }
 
     static IMPLEMENTS = {
-        ['driver-capabilities']: {
+        'driver-capabilities': {
             supports_test_mode (iface, method_name) {
                 return iface === 'puter-tts' && method_name === 'synthesize';
             },
         },
-        ['puter-tts']: {
+        'puter-tts': {
             async list_voices () {
                 return this.listVoices();
             },

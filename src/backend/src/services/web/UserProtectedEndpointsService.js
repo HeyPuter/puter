@@ -24,6 +24,10 @@ const { UserActorType } = require('../auth/Actor');
 const { Endpoint } = require('../../util/expressutil');
 const APIError = require('../../api/APIError.js');
 const configurable_auth = require('../../middleware/configurable_auth.js');
+const config = require('../../config');
+const jwt = require('jsonwebtoken');
+
+const REVALIDATION_COOKIE_NAME = 'puter_revalidation';
 
 /**
 * @class UserProtectedEndpointsService
@@ -41,6 +45,15 @@ class UserProtectedEndpointsService extends BaseService {
         express: require('express'),
     };
 
+    async #revalidateUrlFields (req, user) {
+        const origin = (config.origin || '').replace(/\/$/, '');
+        const svc_oidc = req.services.get('oidc');
+        const providers = await svc_oidc.getEnabledProviderIds();
+        const provider = providers && providers[0];
+        if ( ! provider ) return {};
+        return { revalidate_url: `${origin}/auth/oidc/${provider}/start?flow=revalidate&user_id=${user.id}` };
+    }
+
     /**
     * Sets up and configures routes for user-protected endpoints.
     * This method initializes an Express router, applies middleware for authentication,
@@ -50,7 +63,7 @@ class UserProtectedEndpointsService extends BaseService {
     * @instance
     * @method __on_install.routes
     */
-    ['__on_install.routes'] () {
+    '__on_install.routes' () {
         const router = (() => {
             const require = this.require;
             const express = require('express');
@@ -74,13 +87,16 @@ class UserProtectedEndpointsService extends BaseService {
         // Require authenticated session
         router.use(configurable_auth({ no_options_auth: true }));
 
-        // Only allow user sessions, not API tokens for apps
+        // Only allow user sessions with HTTP powers (session token), not GUI tokens or API tokens
         router.use((req, res, next) => {
             if ( req.method === 'OPTIONS' ) return next();
 
             const actor = Context.get('actor');
             if ( ! (actor.type instanceof UserActorType) ) {
                 return APIError.create('user_tokens_only').write(res);
+            }
+            if ( ! actor.type.hasHttpOnlyCookie ) {
+                return APIError.create('session_required').write(res);
             }
             next();
         });
@@ -97,45 +113,59 @@ class UserProtectedEndpointsService extends BaseService {
         router.use(async (req, res, next) => {
             if ( req.method === 'OPTIONS' ) return next();
 
-            if ( req.user.password === null ) {
+            if ( req.user.password === null && req.user.email === null ) {
                 return APIError.create('temporary_account').write(res);
             }
             next();
         });
 
         /**
-        * Middleware to validate the provided password against the stored user password.
-        *
-        * This method ensures that the user has entered their current password correctly before
-        * allowing changes to critical account settings. It uses bcrypt for password comparison.
-        *
-        * @param {Object} req - Express request object, containing user and password in body.
-        * @param {Object} res - Express response object for sending back the response.
-        * @param {Function} next - Callback to pass control to the next middleware or route handler.
+        * Middleware to validate identity: either password (bcrypt) or a valid OIDC revalidation cookie.
+        * OIDC-only accounts (user.password === null) must use revalidation; password accounts may use either.
         */
         router.use(async (req, res, next) => {
             if ( req.method === 'OPTIONS' ) return next();
 
-            if ( ! req.body.password ) {
-                return (APIError.create('password_required')).write(res);
-            }
-
-            const bcrypt = (() => {
-                const require = this.require;
-                return require('bcrypt');
-            })();
-
             const user = await get_user({ id: req.user.id, force: true });
-            const isMatch = await bcrypt.compare(req.body.password, user.password);
-            if ( ! isMatch ) {
-                return APIError.create('password_mismatch').write(res);
+            const revalidationCookie = req.cookies && req.cookies[REVALIDATION_COOKIE_NAME];
+
+            if ( req.body.password ) {
+                if ( user.password === null ) {
+                    return (APIError.create('oidc_revalidation_required', null, await this.#revalidateUrlFields(req, user))).write(res);
+                }
+                const bcrypt = (() => {
+                    const require = this.require;
+                    return require('bcrypt');
+                })();
+                const isMatch = await bcrypt.compare(req.body.password, user.password);
+                if ( ! isMatch ) {
+                    return APIError.create('password_mismatch').write(res);
+                }
+                return next();
             }
-            next();
+
+            if ( revalidationCookie ) {
+                try {
+                    const payload = jwt.verify(revalidationCookie, config.jwt_secret);
+                    if ( payload.purpose === 'revalidate' && payload.user_id === req.user.id ) {
+                        return next();
+                    }
+                } catch ( e ) {
+                    // invalid or expired
+                }
+            }
+
+            if ( user.password === null ) {
+                return (APIError.create('oidc_revalidation_required', null, await this.#revalidateUrlFields(req, user))).write(res);
+            }
+            return (APIError.create('password_required')).write(res);
         });
 
         Endpoint(require('../../routers/user-protected/change-password.js')).attach(router);
 
         Endpoint(require('../../routers/user-protected/change-email.js')).attach(router);
+
+        Endpoint(require('../../routers/user-protected/change-username.js')).attach(router);
 
         Endpoint(require('../../routers/user-protected/disable-2fa.js')).attach(router);
     }
