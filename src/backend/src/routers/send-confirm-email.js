@@ -55,7 +55,7 @@ router.post('/send-confirm-email', auth, express.json(), async (req, res, next) 
             req.user.id,
         ],
     );
-    invalidate_cached_user(req.user);
+    await invalidate_cached_user(req.user);
 
     // send email verification
     send_email_verification_code(email_confirm_code, req.user.email);

@@ -28,9 +28,9 @@ module.exports = {
             'UPDATE user SET otp_enabled = 0, otp_recovery_codes = NULL, otp_secret = NULL WHERE uuid = ?',
             [req.user.uuid],
         );
-        invalidate_cached_user_by_id(req.user.id);
         // update cached user
         req.user.otp_enabled = 0;
+        invalidate_cached_user_by_id(req.user.id);
 
         const svc_email = req.services.get('email');
         await svc_email.send_email({ email: req.user.email }, 'disabled_2fa', {
