@@ -77,11 +77,11 @@ module.exports = eggspress('/auth/configure-2fa/:action', {
             'UPDATE user SET otp_secret = ?, otp_recovery_codes = ? WHERE uuid = ?',
             [result.secret, hashed_recovery_codes.join(','), user.uuid],
         );
-        invalidate_cached_user_by_id(req.user.id);
         req.user.otp_secret = result.secret;
         req.user.otp_recovery_codes = hashed_recovery_codes.join(',');
         user.otp_secret = result.secret;
         user.otp_recovery_codes = hashed_recovery_codes.join(',');
+        invalidate_cached_user_by_id(req.user.id);
 
         return result;
     };

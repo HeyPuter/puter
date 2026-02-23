@@ -18,8 +18,24 @@
  */
 import { redisClient } from './redisSingleton.js';
 
-export const deleteRedisKeys = async (...keysInput: string[]) => {
-    const keys = keysInput
+type DeleteRedisKeysInput = string | number | null | undefined | DeleteRedisKeysInput[];
+
+const flattenInputs = (inputs: DeleteRedisKeysInput[]): Array<string | number | null | undefined> => {
+    const flattened: Array<string | number | null | undefined> = [];
+
+    for ( const input of inputs ) {
+        if ( Array.isArray(input) ) {
+            flattened.push(...flattenInputs(input));
+            continue;
+        }
+        flattened.push(input);
+    }
+
+    return flattened;
+};
+
+export const deleteRedisKeys = async (...keysInput: DeleteRedisKeysInput[]) => {
+    const keys = flattenInputs(keysInput)
         .map(key => key === null || key === undefined ? '' : String(key))
         .filter(Boolean);
 

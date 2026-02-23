@@ -24,6 +24,7 @@ const { DB_WRITE } = require('../../services/database/consts.js');
 const APIError = require('../../api/APIError.js');
 const { redisClient } = require('../../clients/redis/redisSingleton.js');
 const { ConfirmEmailRedisCacheSpace } = require('./ConfirmEmailRedisCacheSpace.js');
+const { invalidate_cached_user_by_id } = require('../../helpers.js');
 
 // -----------------------------------------------------------------------//
 // POST /confirm-email
@@ -37,7 +38,7 @@ router.post('/confirm-email', auth, express.json(), async (req, res, next) => {
 
     if ( ! req.body.code )
     {
-        req.status(400).send('code is required');
+        return res.status(400).send('code is required');
     }
 
     const svc_edgeRateLimit = req.services.get('edge-rate-limit');
@@ -60,7 +61,15 @@ router.post('/confirm-email', auth, express.json(), async (req, res, next) => {
     // Set expiry for rate limit
     redisClient.expire(rateLimitKey, 60 * 10, 'NX');
 
-    if ( req.body.code !== req.user.email_confirm_code ) {
+    // Force a primary read so confirmation checks do not rely on possibly stale cache entries.
+    const svc_getUser = req.services.get('get-user');
+    const user = await svc_getUser.get_user({ id: req.user.id, force: true });
+    if ( ! user ) {
+        APIError.create('user_not_found').write(res);
+        return;
+    }
+
+    if ( String(req.body.code) !== String(user.email_confirm_code) ) {
         res.send({ email_confirmed: false });
         return;
     }
@@ -68,7 +77,7 @@ router.post('/confirm-email', auth, express.json(), async (req, res, next) => {
     // Scenario: email was confirmed on another account already
     {
         const svc_cleanEmail = req.services.get('clean-email');
-        const clean_email = svc_cleanEmail.clean(req.user.email);
+        const clean_email = svc_cleanEmail.clean(user.email);
 
         if ( ! await svc_cleanEmail.validate(clean_email) ) {
             APIError.create('field_invalid', null, {
@@ -79,7 +88,7 @@ router.post('/confirm-email', auth, express.json(), async (req, res, next) => {
         }
         const rows = await db.read(`SELECT EXISTS(
                 SELECT 1 FROM user WHERE (email=? OR clean_email=?) AND email_confirmed=1 AND password IS NOT NULL
-            ) AS email_exists`, [req.user.email, clean_email]);
+            ) AS email_exists`, [user.email, clean_email]);
         if ( rows[0].email_exists ) {
             APIError.create('email_already_in_use').write(res);
             return;
@@ -87,27 +96,30 @@ router.post('/confirm-email', auth, express.json(), async (req, res, next) => {
     }
 
     // If other users have the same unconfirmed email, revoke it
-    await db.write('UPDATE `user` SET `unconfirmed_change_email` = NULL, `change_email_confirm_token` = NULL WHERE `unconfirmed_change_email` = ?',
-                    [req.user.email]);
+    await db.write(
+        'UPDATE `user` SET `unconfirmed_change_email` = NULL, `change_email_confirm_token` = NULL WHERE `unconfirmed_change_email` = ?',
+        [user.email],
+    );
 
     // Update user record to say email is confirmed
-    await db.write('UPDATE `user` SET `email_confirmed` = 1, `requires_email_confirmation` = 0 WHERE id = ? LIMIT 1',
-                    [req.user.id]);
+    await db.write(
+        'UPDATE `user` SET `email_confirmed` = 1, `requires_email_confirmation` = 0 WHERE id = ? LIMIT 1',
+        [user.id],
+    );
 
     // Invalidate user cache
-    const svc_getUser = req.services.get('get-user');
-    await svc_getUser.get_user({ id: req.user.id, force: true });
+    await invalidate_cached_user_by_id(req.user.id);
 
     // Emit internal event
     const svc_event = req.services.get('event');
     svc_event.emit('user.email-confirmed', {
-        user_uid: req.user.uuid,
-        email: req.user.email,
+        user_uid: user.uuid,
+        email: user.email,
     });
 
     // Emit websocket event (TODO: should come from internal event above)
     const svc_socketio = req.services.get('socketio');
-    svc_socketio.send({ room: req.user.id }, 'user.email_confirmed', {
+    svc_socketio.send({ room: user.id }, 'user.email_confirmed', {
         original_client_socket_id: req.body.original_client_socket_id,
     });
 
