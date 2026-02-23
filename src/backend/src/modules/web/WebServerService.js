@@ -470,7 +470,8 @@ class WebServerService extends BaseService {
             // not setting the header at all. (that's my theory)
             if ( req.hostname === undefined ) {
                 res.status(400).send(
-                                'Please verify your browser is up-to-date.');
+                    'Please verify your browser is up-to-date.',
+                );
                 return;
             }
 

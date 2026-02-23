@@ -26,60 +26,6 @@ let davMethodMap;
 let unsupportedMethodHandler;
 let COOKIE_NAME = null;
 
-const ROOT_WEB_DAV_RESPONSE_XML = `<?xml version="1.0" encoding="utf-8"?>
-<D:multistatus xmlns:D="DAV:">
-  <D:response>
-    <D:href>/</D:href>
-    <D:propstat>
-      <D:prop>
-        <D:displayname>/</D:displayname>
-        <D:getlastmodified>Fri, 03 Jan 2025 10:30:45 GMT</D:getlastmodified>
-        <D:creationdate>2025-01-03T10:30:45Z</D:creationdate>
-        <D:resourcetype><D:collection/></D:resourcetype>
-        <D:getetag>"dav-folder-1735898444"</D:getetag>
-        <D:supportedlock>
-          <D:lockentry>
-            <D:lockscope><D:exclusive/></D:lockscope>
-            <D:locktype><D:write/></D:locktype>
-          </D:lockentry>
-          <D:lockentry>
-            <D:lockscope><D:shared/></D:lockscope>
-            <D:locktype><D:write/></D:locktype>
-          </D:lockentry>
-        </D:supportedlock>
-        <D:lockdiscovery/>
-        <D:ishidden>0</D:ishidden>
-      </D:prop>
-      <D:status>HTTP/1.1 200 OK</D:status>
-    </D:propstat>
-  </D:response>
-  <D:response>
-    <D:href>/</D:href>
-    <D:propstat>
-      <D:prop>
-        <D:displayname>dav</D:displayname>
-        <D:getlastmodified>Fri, 03 Jan 2025 10:30:45 GMT</D:getlastmodified>
-        <D:creationdate>2025-01-03T10:30:45Z</D:creationdate>
-        <D:resourcetype><D:collection/></D:resourcetype>
-        <D:getetag>"dav-folder-1735898445"</D:getetag>
-        <D:supportedlock>
-          <D:lockentry>
-            <D:lockscope><D:exclusive/></D:lockscope>
-            <D:locktype><D:write/></D:locktype>
-          </D:lockentry>
-          <D:lockentry>
-            <D:lockscope><D:shared/></D:lockscope>
-            <D:locktype><D:write/></D:locktype>
-          </D:lockentry>
-        </D:supportedlock>
-        <D:lockdiscovery/>
-        <D:ishidden>0</D:ishidden>
-      </D:prop>
-      <D:status>HTTP/1.1 200 OK</D:status>
-    </D:propstat>
-  </D:response>
-</D:multistatus>`;
-
 class WebDAVService extends BaseService {
     async _construct () {
         davMethodMap = (await import ( './methodHandlers/methodMap.mjs')).davMethodMap;
@@ -127,9 +73,11 @@ class WebDAVService extends BaseService {
             const { token } = await svc_auth.create_session_token(user);
             if ( user.otp_enabled ) {
                 const svc_otp = this.services.get('otp');
-                const ok = svc_otp.verify(user.username,
-                                user.otp_secret,
-                                otpToken);
+                const ok = svc_otp.verify(
+                    user.username,
+                    user.otp_secret,
+                    otpToken,
+                );
                 if ( ! ok ) {
                     return null;
                 }
@@ -155,16 +103,20 @@ class WebDAVService extends BaseService {
             try {
                 // Parse Basic auth credentials
                 const base64Credentials = authHeader.split(' ')[1];
-                const credentials = Buffer.from(base64Credentials,
-                                'base64').toString( 'ascii');
+                const credentials = Buffer.from(
+                    base64Credentials,
+                    'base64',
+                ).toString( 'ascii');
                 let [username, ...password] = credentials.split(':');
                 password = password.join(':');
 
                 // Call user's authentication function
-                actor = await this.authenticateWebDavUser(username,
-                                password,
-                                req,
-                                res);
+                actor = await this.authenticateWebDavUser(
+                    username,
+                    password,
+                    req,
+                    res,
+                );
                 if ( ! actor ) {
                     // Authentication failed
                     res.set({
@@ -218,7 +170,11 @@ class WebDAVService extends BaseService {
         } )();
         r_webdav.use(xmlparser());
 
-        app.use('/', r_webdav);
+        app.use((req, res, next) => {
+            const subdomain = req.subdomains?.[req.subdomains.length - 1];
+            if ( subdomain !== 'dav' ) return next();
+            return r_webdav(req, res, next);
+        });
 
         Endpoint({
             subdomain: 'dav',
