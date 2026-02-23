@@ -4514,6 +4514,60 @@ fieldset[name=number-code] {
     font-weight: 500;
 }
 
+.settings-shortcuts-intro {
+    font-size: 14px;
+    color: #4a4a4a;
+    margin: -8px 0 18px;
+}
+
+.settings-shortcuts-section {
+    margin-bottom: 24px;
+}
+
+.settings-shortcuts-section h2 {
+    font-size: 16px;
+    font-weight: 600;
+    margin: 0 0 10px;
+    color: #2c2c2c;
+}
+
+.settings-shortcuts-table {
+    width: 100%;
+    border-collapse: collapse;
+    font-size: 13px;
+    background: #ffffff;
+    border: 1px solid #ececec;
+    border-radius: 8px;
+    overflow: hidden;
+}
+
+.settings-shortcuts-table thead th {
+    text-align: left;
+    padding: 10px 14px;
+    background: #f6f6f6;
+    font-weight: 600;
+    color: #444;
+}
+
+.settings-shortcuts-table tbody td {
+    padding: 10px 14px;
+    border-top: 1px solid #eeeeee;
+    vertical-align: top;
+}
+
+.settings-shortcuts-keys span {
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+    padding: 3px 8px;
+    border-radius: 6px;
+    background: #f3f3f3;
+    border: 1px solid #e0e0e0;
+    font-family: "SFMono-Regular", "Segoe UI", Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace;
+    font-size: 12px;
+    color: #333;
+}
+
 .settings-content.active {
     display: flex;
     flex-direction: column;
