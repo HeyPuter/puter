@@ -130,6 +130,9 @@ function UIWindowSignup (options) {
             dominant: true,
             center: true,
             onAppend: function (el_window) {
+                if ( options.authError ) {
+                    $(el_window).find('.signup-error-msg').html(options.authError).fadeIn();
+                }
                 $(el_window).find('.username').get(0).focus({ preventScroll: true });
 
                 // Initialize Turnstile widget with callback to capture token
@@ -404,8 +407,9 @@ function UIWindowSignup (options) {
             let isPasswordVisible = inputField.attr('type') === 'text';
             inputField.attr('type', isPasswordVisible ? 'password' : 'text');
             $(this).find('.toggle-show-password-icon').attr(
-                            'src',
-                            isPasswordVisible ? window.icons['eye-open.svg'] : window.icons['eye-closed.svg']);
+                'src',
+                isPasswordVisible ? window.icons['eye-open.svg'] : window.icons['eye-closed.svg'],
+            );
         });
 
         //remove login window
