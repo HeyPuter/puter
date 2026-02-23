@@ -290,7 +290,7 @@ export async function get_user (options) {
  * @param {User} userID - the user entry to invalidate
  */
 export const invalidate_cached_user = async (user) => {
-    UserRedisCacheSpace.invalidateUser(user);
+    await UserRedisCacheSpace.invalidateUser(user);
 };
 
 /**
@@ -298,7 +298,7 @@ export const invalidate_cached_user = async (user) => {
  * @param {number} id - the id of the user to invalidate
  */
 export const invalidate_cached_user_by_id = async (id) => {
-    UserRedisCacheSpace.invalidateById(id);
+    await UserRedisCacheSpace.invalidateById(id);
 };
 
 export async function refresh_associations_cache () {

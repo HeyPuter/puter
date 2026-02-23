@@ -21,6 +21,7 @@ import { deleteRedisKeys } from '../clients/redis/deleteRedisKeys.js';
 
 const userKeyPrefix = 'users';
 const defaultUserIdProperties = ['username', 'uuid', 'email', 'id', 'referral_code'];
+const DEFAULT_USER_CACHE_TTL_SECONDS = 15 * 60;
 
 const safeParseJson = (value, fallback = null) => {
     if ( value === null || value === undefined ) return fallback;
@@ -51,7 +52,10 @@ const UserRedisCacheSpace = {
     },
     getByProperty: async (prop, value) => safeParseJson(await redisClient.get(userCacheKey(prop, value))),
     getById: async (id) => UserRedisCacheSpace.getByProperty('id', id),
-    setUser: async (user, { props = defaultUserIdProperties, ttlSeconds } = {}) => {
+    setUser: async (
+        user,
+        { props = defaultUserIdProperties, ttlSeconds = DEFAULT_USER_CACHE_TTL_SECONDS } = {},
+    ) => {
         if ( ! user ) return;
         const serialized = JSON.stringify(user);
         const writes = [];
@@ -72,7 +76,7 @@ const UserRedisCacheSpace = {
     invalidateById: async (id, props = defaultUserIdProperties) => {
         const user = await UserRedisCacheSpace.getById(id);
         if ( ! user ) return;
-        UserRedisCacheSpace.invalidateUser(user, props);
+        await UserRedisCacheSpace.invalidateUser(user, props);
     },
 };
 
