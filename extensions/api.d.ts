@@ -169,9 +169,9 @@ interface Extension extends RouterMethods {
 
     on<E extends keyof ExtensionEventTypeMap>(
         name: E,
-        listener: (event: ExtensionEventTypeMap[E]) => void | Promise<void>
+        listener: (event: ExtensionEventTypeMap[E], metadata?: { from_outside?: boolean }) => void | Promise<void>
     ): void;
-    on(name: string, listener: (event: unknown) => void | Promise<void>): void
+    on<T>(name: string, listener: (event: T, metadata?: { from_outside?: boolean }) => void | Promise<void>): void
 
     import(module: 'data'): {
         db: BaseDatabaseAccessService;
