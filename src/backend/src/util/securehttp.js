@@ -192,6 +192,14 @@ async function secureAxiosRequest (axios, url, options = {}) {
     };
 
     try {
+        if ( globalThis.global_config.services.secureCorsProxy.url ) {
+            url = globalThis.global_config.services.secureCorsProxy.url + url;
+            if ( ! secureOptions.headers ) {
+                secureOptions.headers = {};
+            }
+            secureOptions.headers['x-cors-proxy-auth-secret'] = globalThis.global_config.services.secureCorsProxy.secret;
+
+        }
         const response = await axios.get(url, secureOptions);
 
         // Check if the response is a redirect (maxRedirects: 0 means axios returns but doesn't follow)
