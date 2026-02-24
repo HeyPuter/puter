@@ -85,7 +85,8 @@ class ExtensionService extends BaseService {
 
         this.state.values.set('services', this.services);
         this.state.values.set('log_context', this.services.get('log-service').create(
-                        this.state.extension.name));
+            this.state.extension.name,
+        ));
 
         // Create database access object for extension
         const db = this.services.get('database').get(DB_WRITE, 'extension');
@@ -153,7 +154,7 @@ class ExtensionService extends BaseService {
         this.state.extension.emit('preinit');
     }
 
-    async '__on_boot.consolidation' (...a) {
+    async '__on_boot.consolidation' () {
         const svc_su = this.services.get('su');
         await svc_su.sudo(async () => {
             await this.state.extension.emit('init', {}, {
@@ -161,7 +162,7 @@ class ExtensionService extends BaseService {
             });
         });
     }
-    async '__on_boot.activation' (...a) {
+    async '__on_boot.activation' () {
         const svc_su = this.services.get('su');
         await svc_su.sudo(async () => {
             await this.state.extension.emit('activate', {}, {
@@ -169,7 +170,7 @@ class ExtensionService extends BaseService {
             });
         });
     }
-    async '__on_boot.ready' (...a) {
+    async '__on_boot.ready' () {
         const svc_su = this.services.get('su');
         await svc_su.sudo(async () => {
             await this.state.extension.emit('ready', {}, {
@@ -179,7 +180,6 @@ class ExtensionService extends BaseService {
     }
 
     '__on_install.routes' (_, { app }) {
-        if ( ! this.state ) debugger;
         for ( const thing of this.state.expressThings_ ) {
             if ( thing.type === 'endpoint' ) {
                 thing.value.attach(app);
