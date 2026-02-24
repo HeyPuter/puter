@@ -56,8 +56,10 @@ class PermissionService extends BaseService {
         this._permission_rewriters = [];
         this._permission_implicators = [];
         this._permission_exploders = [];
-        this._invalidate_app_under_user_debounce = new Map();
-        this._INVALIDATE_DEBOUNCE_MS = 150;
+
+        // Debounce constants and state
+        this._INVALIDATE_DEBOUNCE_MS = 200;
+        this._invalidate_app_under_user_debounce = {};
     }
 
     /**
@@ -288,32 +290,28 @@ class PermissionService extends BaseService {
     }
 
     /**
-     * Schedules a debounced invalidation for (user_uuid, app_uid). Multiple grants
-     * for the same app-under-user within INVALIDATE_DEBOUNCE_MS result in a single
-     * Redis invalidation, avoiding CPU/Redis overload when e.g. opening many files
-     * (open_item) or many get-user-app-token requests fire in a burst.
+     * Invalidates permission-scan cache for (user_uuid, app_uid).
+     * Runs immediately, or skips in a debounce period for this key.
      *
      * @param {string} user_uuid - The user's UUID.
      * @param {string} app_uid - The app UID.
+     * @returns {Promise<void>}
      */
-    _schedule_invalidate_permission_scan_cache_for_app_under_user (user_uuid, app_uid) {
+    async _schedule_invalidate_permission_scan_cache_for_app_under_user (user_uuid, app_uid) {
         const key = `${user_uuid}:${app_uid}`;
-        const existing = this._invalidate_app_under_user_debounce.get(key);
-        if ( existing ) {
-            clearTimeout(existing.timeoutId);
-        }
-        const timeoutId = setTimeout(() => {
-            this._invalidate_app_under_user_debounce.delete(key);
-            this.invalidate_permission_scan_cache_for_app_under_user(user_uuid, app_uid)
-                .catch((e) => {
-                    this.log.error('failed to invalidate permission scan cache', {
-                        actor_uid: user_uuid,
-                        app_uid,
-                        error: e,
-                    });
-                });
+        if ( this._invalidate_app_under_user_debounce[key] ) return;
+        this._invalidate_app_under_user_debounce[key] = setTimeout(() => {
+            delete this._invalidate_app_under_user_debounce[key];
         }, this._INVALIDATE_DEBOUNCE_MS);
-        this._invalidate_app_under_user_debounce.set(key, { timeoutId });
+        try {
+            await this.invalidate_permission_scan_cache_for_app_under_user(user_uuid, app_uid);
+        } catch ( e ) {
+            this.log.error('failed to invalidate permission scan cache', {
+                actor_uid: user_uuid,
+                app_uid,
+                error: e,
+            });
+        }
     }
 
     async validateUserPerms ({ actor, permissions }) {
@@ -475,6 +473,13 @@ class PermissionService extends BaseService {
 
         const app_id = app.id;
 
+        // Skip if already granted (avoids redundant writes and invalidation when e.g. get-user-app-token or open_item is called many times for the same permission).
+        const existing = await this.db.read(
+            'SELECT 1 FROM `user_to_app_permissions` WHERE `user_id` = ? AND `app_id` = ? AND `permission` = ? LIMIT 1',
+            [actor.type.user.id, app_id, permission],
+        );
+        if ( existing && existing.length > 0 ) return;
+
         // UPSERT permission
         await this.db.write(
             'INSERT INTO `user_to_app_permissions` (`user_id`, `app_id`, `permission`, `extra`) ' +
@@ -513,7 +518,7 @@ class PermissionService extends BaseService {
         );
 
         // Invalidate permission-scan cache for this app-under-user so the next check sees the grant.
-        this._schedule_invalidate_permission_scan_cache_for_app_under_user(actor.type.user.uuid, app.uid);
+        await this._schedule_invalidate_permission_scan_cache_for_app_under_user(actor.type.user.uuid, app.uid);
     }
 
     /**
