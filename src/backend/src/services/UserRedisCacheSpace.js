@@ -18,6 +18,7 @@
  */
 import { redisClient } from '../clients/redis/redisSingleton.js';
 import { deleteRedisKeys } from '../clients/redis/deleteRedisKeys.js';
+import { emitOuterCacheUpdate } from '../clients/redis/cacheUpdate.js';
 
 const userKeyPrefix = 'users';
 const defaultUserIdProperties = ['username', 'uuid', 'email', 'id', 'referral_code'];
@@ -59,12 +60,20 @@ const UserRedisCacheSpace = {
         if ( ! user ) return;
         const serialized = JSON.stringify(user);
         const writes = [];
+        const cacheKeys = [];
         for ( const prop of props ) {
             if ( user[prop] === undefined || user[prop] === null || user[prop] === '' ) continue;
-            writes.push(setKey(userCacheKey(prop, user[prop]), serialized, { ttlSeconds }));
+            const key = userCacheKey(prop, user[prop]);
+            cacheKeys.push(key);
+            writes.push(setKey(key, serialized, { ttlSeconds }));
         }
         if ( writes.length ) {
             await Promise.all(writes);
+            await emitOuterCacheUpdate({
+                cacheKey: cacheKeys,
+                data: user,
+                ttlSeconds,
+            });
         }
     },
     invalidateUser: async (user, props = defaultUserIdProperties) => {

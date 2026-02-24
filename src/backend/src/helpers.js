@@ -24,6 +24,7 @@ import { resolve as _resolve, extname } from 'path';
 import { v4 } from 'uuid';
 import APIError from './api/APIError.js';
 import { redisClient } from './clients/redis/redisSingleton.js';
+import { setRedisCacheValue } from './clients/redis/cacheUpdate.js';
 import config from './config.js';
 import { APP_ICONS_SUBDOMAIN } from './consts/app-icons.js';
 import { NodeUIDSelector } from './filesystem/node/selectors.js';
@@ -318,7 +319,11 @@ export async function refresh_associations_cache () {
     }
 
     for ( const k in lists ) {
-        redisClient.set(AppRedisCacheSpace.associationAppsKey(k), JSON.stringify(lists[k]));
+        await setRedisCacheValue(
+            AppRedisCacheSpace.associationAppsKey(k),
+            JSON.stringify(lists[k]),
+            { eventData: lists[k] },
+        );
     }
 }
 

@@ -18,6 +18,7 @@
  */
 'use strict';
 import { redisClient } from '../clients/redis/redisSingleton.js';
+import { setRedisCacheValue } from '../clients/redis/cacheUpdate.js';
 import { get_apps } from '../helpers.js';
 import { RecentAppOpensRedisCacheSpace } from './recentAppOpens/RecentAppOpensRedisCacheSpace.js';
 import { DB_READ } from '../services/database/consts.js';
@@ -76,7 +77,11 @@ export default async (req, res) => {
         );
         // Update cache with the results from the db (if any results were returned)
         if ( apps && Array.isArray(apps) && apps.length > 0 ) {
-            redisClient.set(RecentAppOpensRedisCacheSpace.key(req.user.id), JSON.stringify(apps));
+            await setRedisCacheValue(
+                RecentAppOpensRedisCacheSpace.key(req.user.id),
+                JSON.stringify(apps),
+                { eventData: apps },
+            );
         }
     }
 

@@ -18,6 +18,7 @@
  */
 import { redisClient } from '../../clients/redis/redisSingleton.js';
 import { deleteRedisKeys } from '../../clients/redis/deleteRedisKeys.js';
+import { emitOuterCacheUpdate } from '../../clients/redis/cacheUpdate.js';
 
 const appFullNamespace = 'apps';
 const appLiteNamespace = 'apps:lite';
@@ -34,10 +35,10 @@ const safeParseJson = (value, fallback = null) => {
 
 const setKey = async (key, value, { ttlSeconds } = {}) => {
     if ( ttlSeconds ) {
-        redisClient.set(key, value, 'EX', ttlSeconds);
+        await redisClient.set(key, value, 'EX', ttlSeconds);
         return;
     }
-    redisClient.set(key, value);
+    await redisClient.set(key, value);
 };
 
 const appNamespace = ({ rawIcon = true } = {}) => (
@@ -83,10 +84,16 @@ export const AppRedisCacheSpace = {
     setCachedApp: async (app, { rawIcon = true, ttlSeconds } = {}) => {
         if ( ! app ) return;
         const serialized = JSON.stringify(app);
-        const writes = AppRedisCacheSpace.keysForApp(app, { rawIcon })
+        const cacheKeys = AppRedisCacheSpace.keysForApp(app, { rawIcon });
+        const writes = cacheKeys
             .map(key => setKey(key, serialized, { ttlSeconds }));
         if ( writes.length ) {
-            Promise.all(writes);
+            await Promise.all(writes);
+            await emitOuterCacheUpdate({
+                cacheKey: cacheKeys,
+                data: app,
+                ttlSeconds,
+            });
         }
     },
     invalidateCachedApp: (app, {
@@ -102,7 +109,7 @@ export const AppRedisCacheSpace = {
             keys.push(...AppRedisCacheSpace.statsKeys(app.uid));
         }
         if ( keys.length ) {
-            deleteRedisKeys(keys);
+            return deleteRedisKeys(keys);
         }
     },
     invalidateCachedAppName: async (name, { rawIconVariants = [true, false] } = {}) => {
@@ -112,10 +119,10 @@ export const AppRedisCacheSpace = {
             value: name,
             rawIcon,
         }));
-        deleteRedisKeys(keys);
+        return deleteRedisKeys(keys);
     },
     invalidateAppStats: async (uid) => {
         if ( ! uid ) return;
-        deleteRedisKeys(AppRedisCacheSpace.statsKeys(uid));
+        return deleteRedisKeys(AppRedisCacheSpace.statsKeys(uid));
     },
 };

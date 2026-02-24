@@ -23,6 +23,7 @@ const { TypedValue } = require('../../drivers/meta/Runtime');
 const APIError = require('../../../api/APIError');
 const { Context } = require('../../../util/context');
 const { redisClient } = require('../../../clients/redis/redisSingleton');
+const { setRedisCacheValue } = require('../../../clients/redis/cacheUpdate.js');
 const { PollyRedisCacheKeys } = require('./PollyRedisCacheKeys.js');
 
 // Polly price calculation per engine
@@ -212,7 +213,10 @@ class AWSPollyService extends BaseService {
 
         const response = await client.send(command);
 
-        redisClient.set(PollyRedisCacheKeys.voices, JSON.stringify(response), 'EX', 60 * 10); // 10 minutes
+        await setRedisCacheValue(PollyRedisCacheKeys.voices, JSON.stringify(response), {
+            ttlSeconds: 60 * 10,
+            eventData: response,
+        });
 
         return response;
     }

@@ -170,7 +170,8 @@ export class SignupService extends BaseService {
         {
             const db = this.services.get('database').get(DB_WRITE, 'create-user:main-insert');
 
-            const insert_res = await db.write(`INSERT INTO user
+            const insert_res = await db.write(
+                `INSERT INTO user
                 (
                     username, email, clean_email, password, uuid, referrer, 
                     email_confirm_code, email_confirm_token, email_confirmed, free_storage, 
@@ -179,44 +180,45 @@ export class SignupService extends BaseService {
                 ) 
                 VALUES 
                 (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-            [
+                [
                 // username
-                username,
-                // email
-                temporary ? null : raw_email,
-                // normalized email
-                temporary ? null : email,
-                // password
-                (temporary || oidc_only) ? null : await bcrypt.hash(password, 8),
-                // uuid
-                user_uuid,
-                // referrer
-                req?.body?.referrer ?? null,
-                // email_confirm_code
-                email_confirm_code,
-                // email_confirm_token
-                email_confirm_token,
-                // email_confirmed (1 when assume_email_ownership, else 0)
-                assume_email_ownership ? 1 : 0,
-                // free_storage
-                this.global_config.storage_capacity,
-                // referred_by
-                // TODO: we might remove referalls so I'mm leaving out
-                // the value for the `referred_by` field for now
-                null,
-                // audit_metadata
-                JSON.stringify(audit_metadata),
-                // signup_ip
-                req?.connection?.remoteAddress ?? null,
-                // signup_ip_fwd
-                req?.headers?.['x-forwarded-for'] ?? null,
-                // signup_user_agent
-                req?.headers?.['user-agent'] ?? null,
-                // signup_origin
-                req?.headers?.['origin'] ?? null,
-                // signup_server
-                this.global_config.server_id ?? null,
-            ]);
+                    username,
+                    // email
+                    temporary ? null : raw_email,
+                    // normalized email
+                    temporary ? null : email,
+                    // password
+                    (temporary || oidc_only) ? null : await bcrypt.hash(password, 8),
+                    // uuid
+                    user_uuid,
+                    // referrer
+                    req?.body?.referrer ?? null,
+                    // email_confirm_code
+                    email_confirm_code,
+                    // email_confirm_token
+                    email_confirm_token,
+                    // email_confirmed (1 when assume_email_ownership, else 0)
+                    assume_email_ownership ? 1 : 0,
+                    // free_storage
+                    this.global_config.storage_capacity,
+                    // referred_by
+                    // TODO: we might remove referalls so I'mm leaving out
+                    // the value for the `referred_by` field for now
+                    null,
+                    // audit_metadata
+                    JSON.stringify(audit_metadata),
+                    // signup_ip
+                    req?.connection?.remoteAddress ?? null,
+                    // signup_ip_fwd
+                    req?.headers?.['x-forwarded-for'] ?? null,
+                    // signup_user_agent
+                    req?.headers?.['user-agent'] ?? null,
+                    // signup_origin
+                    req?.headers?.['origin'] ?? null,
+                    // signup_server
+                    this.global_config.server_id ?? null,
+                ],
+            );
 
             // record activity (asynchronously)
             db.write(
@@ -239,7 +241,8 @@ export class SignupService extends BaseService {
 
             const [user] = await db.pread(
                 'SELECT * FROM `user` WHERE `id` = ? LIMIT 1',
-                [user_id]);
+                [user_id],
+            );
 
             // TODO(???): should user login happen here or by caller?
             {

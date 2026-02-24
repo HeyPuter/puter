@@ -21,6 +21,7 @@ const { DB_READ } = require('../../services/database/consts');
 const BaseService = require('../../services/BaseService');
 const { redisClient } = require('../../clients/redis/redisSingleton');
 const { deleteRedisKeys } = require('../../clients/redis/deleteRedisKeys.js');
+const { setRedisCacheValue } = require('../../clients/redis/cacheUpdate.js');
 const { AppRedisCacheSpace } = require('./AppRedisCacheSpace.js');
 
 /**
@@ -116,27 +117,29 @@ class AppInformationService extends BaseService {
         }
 
         if ( resolvedApp ) {
-            AppRedisCacheSpace.invalidateCachedApp(resolvedApp, {
+            await AppRedisCacheSpace.invalidateCachedApp(resolvedApp, {
                 includeStats: true,
             });
         } else if ( appUid ) {
-            Promise.all([
-                redisClient.del(AppRedisCacheSpace.key({
-                    lookup: 'uid',
-                    value: appUid,
-                    rawIcon: true,
-                })),
-                redisClient.del(AppRedisCacheSpace.key({
-                    lookup: 'uid',
-                    value: appUid,
-                    rawIcon: false,
-                })),
+            await Promise.all([
+                deleteRedisKeys([
+                    AppRedisCacheSpace.key({
+                        lookup: 'uid',
+                        value: appUid,
+                        rawIcon: true,
+                    }),
+                    AppRedisCacheSpace.key({
+                        lookup: 'uid',
+                        value: appUid,
+                        rawIcon: false,
+                    }),
+                ]),
                 AppRedisCacheSpace.invalidateAppStats(appUid),
             ]);
         }
 
         if ( oldName ) {
-            AppRedisCacheSpace.invalidateCachedAppName(oldName);
+            await AppRedisCacheSpace.invalidateCachedAppName(oldName);
         }
 
         const svc_event = this.services.get('event');
@@ -497,9 +500,9 @@ class AppInformationService extends BaseService {
             if ( period === 'all' ) {
                 const key_open_count = AppRedisCacheSpace.openCountKey(app_uid);
                 const key_user_count = AppRedisCacheSpace.userCountKey(app_uid);
-                Promise.all([
-                    redisClient.set(key_open_count, results.open_count),
-                    redisClient.set(key_user_count, results.user_count),
+                void Promise.all([
+                    setRedisCacheValue(key_open_count, results.open_count),
+                    setRedisCacheValue(key_user_count, results.user_count),
                 ]);
             }
 
@@ -535,9 +538,9 @@ class AppInformationService extends BaseService {
             if ( period === 'all' ) {
                 const key_open_count = AppRedisCacheSpace.openCountKey(app_uid);
                 const key_user_count = AppRedisCacheSpace.userCountKey(app_uid);
-                Promise.all([
-                    redisClient.set(key_open_count, results.open_count),
-                    redisClient.set(key_user_count, results.user_count),
+                void Promise.all([
+                    setRedisCacheValue(key_open_count, results.open_count),
+                    setRedisCacheValue(key_user_count, results.user_count),
                 ]);
             }
 
@@ -584,9 +587,10 @@ class AppInformationService extends BaseService {
             const key_open_count = AppRedisCacheSpace.openCountKey(app.uid);
             const key_user_count = AppRedisCacheSpace.userCountKey(app.uid);
 
-            Promise.all([
-                redisClient.set(key_open_count, openCountMap.get(app.uid) ?? 0),
-                redisClient.set(key_user_count, userCountMap.get(app.uid) ?? 0),
+            // Background refresh writes should stay local to avoid broadcast churn.
+            void Promise.all([
+                setRedisCacheValue(key_open_count, openCountMap.get(app.uid) ?? 0, { emitEvent: false }),
+                setRedisCacheValue(key_user_count, userCountMap.get(app.uid) ?? 0, { emitEvent: false }),
             ]);
         }
     }
@@ -667,7 +671,8 @@ class AppInformationService extends BaseService {
         for ( const app of validApps ) {
             const key_referral_count = AppRedisCacheSpace.referralCountKey(app.uid);
             const count = referralMap.get(app.uid) || 0;
-            redisClient.set(key_referral_count, count);
+            // Background refresh writes should stay local to avoid broadcast churn.
+            await setRedisCacheValue(key_referral_count, count, { emitEvent: false });
         }
 
         this.log.info('DONE refresh app stat referrals');
@@ -772,7 +777,7 @@ class AppInformationService extends BaseService {
             .filter(Boolean)
             .map(ext => AppRedisCacheSpace.associationAppsKey(ext));
         if ( associationKeys.length ) {
-            deleteRedisKeys(associationKeys);
+            await deleteRedisKeys(associationKeys);
         }
 
         // remove from recent

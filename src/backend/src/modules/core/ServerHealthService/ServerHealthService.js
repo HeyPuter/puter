@@ -17,6 +17,7 @@
  * along with this program.  If not, see <https://www.gnu.org/licenses/>.
  */
 const { redisClient } = require('../../../clients/redis/redisSingleton');
+const { setRedisCacheValue } = require('../../../clients/redis/cacheUpdate.js');
 const { ServerHealthRedisCacheKeys } = require('./ServerHealthRedisCacheKeys.js');
 const BaseService = require('../../../services/BaseService');
 const { promise } = require('@heyputer/putility').libs;
@@ -246,7 +247,10 @@ class ServerHealthService extends BaseService {
         };
 
         // Cache with 5 second TTL
-        redisClient.set(cacheKey, JSON.stringify(status), 'EX', 5);
+        await setRedisCacheValue(cacheKey, JSON.stringify(status), {
+            ttlSeconds: 5,
+            eventData: status,
+        });
 
         return status;
     }
