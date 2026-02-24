@@ -18,6 +18,7 @@
  */
 const APIError = require('../../api/APIError');
 const { redisClient } = require('../../clients/redis/redisSingleton');
+const { setRedisCacheValue } = require('../../clients/redis/cacheUpdate.js');
 const { GroupRedisCacheSpace } = require('./GroupRedisCacheSpace.js');
 const Group = require('../../entities/Group');
 const { DENY_SERVICE_INSTRUCTION } = require('../AnomalyService');
@@ -220,7 +221,10 @@ class GroupService extends BaseService {
             })();
         }
         const group_entities = groups.map(g => Group(g));
-        redisClient.set(cacheKey, JSON.stringify(groups), 'EX', 60);
+        await setRedisCacheValue(cacheKey, JSON.stringify(groups), {
+            ttlSeconds: 60,
+            eventData: groups,
+        });
         return group_entities;
     }
 

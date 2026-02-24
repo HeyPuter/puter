@@ -25,7 +25,7 @@ export class OutcomeObject<T> {
      */
     failed = false;
 
-    messages: Record<string, string>[] = [];
+    messages: Record<string, unknown>[] = [];
     fields = {};
 
     /**
@@ -41,7 +41,7 @@ export class OutcomeObject<T> {
         this.userMessageFields = {};
         this.infoObject = infoObject;
     }
-    log (text, fields) {
+    log (text, fields?: unknown) {
         this.messages.push({ text, fields });
     }
 

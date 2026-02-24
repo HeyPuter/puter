@@ -28,6 +28,7 @@ const configurable_auth = require('../../middleware/configurable_auth.js');
 const { UserActorType, AppUnderUserActorType } = require('../../services/auth/Actor.js');
 const APIError = require('../../api/APIError.js');
 const { redisClient } = require('../../clients/redis/redisSingleton');
+const { setRedisCacheValue } = require('../../clients/redis/cacheUpdate.js');
 const { RecentAppOpensRedisCacheSpace } = require('./RecentAppOpensRedisCacheSpace.js');
 
 // -----------------------------------------------------------------------//
@@ -114,17 +115,25 @@ router.post('/rao', configurable_auth(), express.json(), async (req, res, next) 
         recent_apps = recent_apps.slice(0, 10);
 
         // update cache
-        redisClient.set(RecentAppOpensRedisCacheSpace.key(req.user.id), JSON.stringify(recent_apps));
+        await setRedisCacheValue(
+            RecentAppOpensRedisCacheSpace.key(req.user.id),
+            JSON.stringify(recent_apps),
+            { eventData: recent_apps },
+        );
     }
     // Cache is empty, query the db and update the cache
     else {
         db.read(
             'SELECT DISTINCT app_uid FROM app_opens WHERE user_id = ? GROUP BY app_uid ORDER BY MAX(_id) DESC LIMIT 10',
             [req.user.id],
-        ).then( ([apps]) => {
+        ).then(async ([apps]) => {
             // Update cache with the results from the db (if any results were returned)
             if ( apps && Array.isArray(apps) && apps.length > 0 ) {
-                redisClient.set(RecentAppOpensRedisCacheSpace.key(req.user.id), JSON.stringify(apps));
+                await setRedisCacheValue(
+                    RecentAppOpensRedisCacheSpace.key(req.user.id),
+                    JSON.stringify(apps),
+                    { eventData: apps },
+                );
             }
         });
     }

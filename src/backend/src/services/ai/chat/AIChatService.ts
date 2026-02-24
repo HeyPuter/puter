@@ -21,6 +21,7 @@ import { createId as cuid2 } from '@paralleldrive/cuid2';
 import { PassThrough } from 'stream';
 import { APIError } from '../../../api/APIError.js';
 import { redisClient } from '../../../clients/redis/redisSingleton.js';
+import { setRedisCacheValue } from '../../../clients/redis/cacheUpdate.js';
 import { ErrorService } from '../../../modules/core/ErrorService.js';
 import { Context } from '../../../util/context.js';
 import BaseService from '../../BaseService.js';
@@ -719,7 +720,11 @@ export class AIChatService extends BaseService {
                 return !!possibleModelNames.find(possibleName => model.id.toLowerCase() === possibleName);
             }).slice(0, MAX_FALLBACKS);
 
-            redisClient.set(fallbackModelsKey(modelId), JSON.stringify(potentialMatches));
+            await setRedisCacheValue(
+                fallbackModelsKey(modelId),
+                JSON.stringify(potentialMatches),
+                { eventData: potentialMatches },
+            );
             potentialFallbacks = potentialMatches;
         }
 

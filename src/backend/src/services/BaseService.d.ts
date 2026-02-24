@@ -1,8 +1,8 @@
+import type { ErrorService } from '@heyputer/backend/src/modules/core/ErrorService';
 import { DDBClient } from '../clients/dynamodb/DDBClient';
-import { DynamoKVStore } from '../clients/dynamodb/DynamoKVStore/DynamoKVStore';
 import type { ServerHealthService } from '../modules/core/ServerHealthService/ServerHealthService';
 import { GroupService } from './auth/GroupService';
-import SignupService from './auth/SignupService';
+import { SignupService} from './auth/SignupService';
 import { CleanEmailService } from './CleanEmailService';
 import { SqliteDatabaseAccessService } from './database/SqliteDatabaseAccessService';
 import { EventService } from './EventService';
@@ -10,6 +10,8 @@ import { FeatureFlagService } from './FeatureFlagService';
 import { MeteringServiceWrapper } from './MeteringService/MeteringServiceWrapper.mjs';
 import type { SUService } from './SUService';
 import { UserService } from './UserService';
+import type{ DynamoKVStore } from '@heyputer/backend/src/services/DynamoKVStore/DynamoKVStore';
+import { DriverService } from '@heyputer/backend/src/services/drivers/DriverService';
 
 export interface ServiceResources {
     services: {
@@ -25,6 +27,8 @@ export interface ServiceResources {
         get (name: 'group'): GroupService;
         get (name: 'feature-flag'): FeatureFlagService;
         get (name: 'clean-email'): CleanEmailService;
+        get (name: 'error-service'): ErrorService;
+        get (name: 'driver'): DriverService;
         get (name: string): unknown;
     };
     config: Record<string, any> & { services?: Record<string, any>; server_id?: string };

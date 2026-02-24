@@ -18,6 +18,8 @@
  */
 
 import { redisClient } from '../../clients/redis/redisSingleton.js';
+import { deleteRedisKeys } from '../../clients/redis/deleteRedisKeys.js';
+import { setRedisCacheValue } from '../../clients/redis/cacheUpdate.js';
 import { get_apps } from '../../helpers.js';
 import BaseService from '../../services/BaseService.js';
 import { RecommendedAppsRedisCacheSpace } from './RecommendedAppsRedisCacheSpace.js';
@@ -83,12 +85,12 @@ export default class RecommendedAppsService extends BaseService {
                 if ( ! this.app_names.has(name) ) return;
             }
 
-            const deletions = [redisClient.del(RecommendedAppsRedisCacheSpace.key())];
+            const keys = [RecommendedAppsRedisCacheSpace.key()];
             for ( const size of sizes ) {
                 const key = RecommendedAppsRedisCacheSpace.key({ iconSize: size });
-                deletions.push(redisClient.del(key));
+                keys.push(key);
             }
-            Promise.all(deletions);
+            await deleteRedisKeys(keys);
         });
     }
 
@@ -128,7 +130,9 @@ export default class RecommendedAppsService extends BaseService {
             });
         }
 
-        redisClient.set(recommendedCacheKey, JSON.stringify(recommended));
+        await setRedisCacheValue(recommendedCacheKey, JSON.stringify(recommended), {
+            eventData: recommended,
+        });
 
         return recommended;
     }

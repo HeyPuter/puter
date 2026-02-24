@@ -1,6 +1,6 @@
 import { AsyncLocalStorage } from 'async_hooks';
 import { Actor } from '../services/auth/Actor';
-import { Container } from '../services/Container';
+import type { ServiceResources } from '../services/BaseService';
 
 type AnyRecord = Record<string, unknown>;
 
@@ -19,8 +19,8 @@ interface ContextArunHookPayload {
 
 declare interface IContext {
     get (): Context;
-    get (k: 'actor'): Actor;
-    get (k: 'services'): Container;
+    get (k: 'actor', options?: { allow_fallback?: boolean }): Actor;
+    get (k: 'services', options?: { allow_fallback?: boolean }): ServiceResources['services'];
     get<T = unknown>(k?: string, options?: { allow_fallback?: boolean }): T;
 }
 

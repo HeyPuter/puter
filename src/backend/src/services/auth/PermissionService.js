@@ -29,6 +29,7 @@ const { PERM_KEY_PREFIX, MANAGE_PERM_PREFIX } = require('./permissionConts.mjs')
 const { PermissionUtil, PermissionExploder, PermissionImplicator, PermissionRewriter } = require('./permissionUtils.mjs');
 const { spanify } = require('../../util/otelutil');
 const { deleteRedisKeys } = require('../../clients/redis/deleteRedisKeys.js');
+const { setRedisCacheValue } = require('../../clients/redis/cacheUpdate.js');
 const { redisClient } = require('../../clients/redis/redisSingleton');
 const { PermissionScanRedisCacheSpace } = require('./PermissionScanRedisCacheSpace.js');
 const { Context } = require('../../util/context');
@@ -236,7 +237,10 @@ class PermissionService extends BaseService {
             value: end_ts - start_ts,
         });
 
-        redisClient.set(cacheKey, JSON.stringify(reading), 'EX', 20);
+        await setRedisCacheValue(cacheKey, JSON.stringify(reading), {
+            ttlSeconds: 20,
+            eventData: reading,
+        });
 
         return reading;
     }

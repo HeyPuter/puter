@@ -17,8 +17,24 @@
  * along with this program.  If not, see <https://www.gnu.org/licenses/>.
  */
 import { redisClient } from './redisSingleton.js';
+import { emitOuterCacheUpdate } from './cacheUpdate.js';
+import { EventService } from '../../services/EventService.js';
 
 type DeleteRedisKeysInput = string | number | null | undefined | DeleteRedisKeysInput[];
+interface DeleteRedisKeysOptions {
+    emitEvent?: boolean,
+    eventService?: EventService,
+}
+
+const isDeleteOptions = (value: unknown): value is DeleteRedisKeysOptions => {
+    return !!value
+        && typeof value === 'object'
+        && !Array.isArray(value)
+        && (
+            Object.prototype.hasOwnProperty.call(value, 'emitEvent') ||
+            Object.prototype.hasOwnProperty.call(value, 'eventService')
+        );
+};
 
 const flattenInputs = (inputs: DeleteRedisKeysInput[]): Array<string | number | null | undefined> => {
     const flattened: Array<string | number | null | undefined> = [];
@@ -34,8 +50,14 @@ const flattenInputs = (inputs: DeleteRedisKeysInput[]): Array<string | number | 
     return flattened;
 };
 
-export const deleteRedisKeys = async (...keysInput: DeleteRedisKeysInput[]) => {
-    const keys = flattenInputs(keysInput)
+export const deleteRedisKeys = async (...inputs: (DeleteRedisKeysInput | DeleteRedisKeysOptions)[]) => {
+    let options: DeleteRedisKeysOptions = {};
+    const keysInput = [...inputs];
+    if ( isDeleteOptions(keysInput[keysInput.length - 1]) ) {
+        options = keysInput.pop() as DeleteRedisKeysOptions;
+    }
+
+    const keys = flattenInputs(keysInput as DeleteRedisKeysInput[])
         .map(key => key === null || key === undefined ? '' : String(key))
         .filter(Boolean);
 
@@ -43,9 +65,19 @@ export const deleteRedisKeys = async (...keysInput: DeleteRedisKeysInput[]) => {
         return 0;
     }
 
+    const uniqueKeys = [...new Set(keys)];
+
     let deleted = 0;
-    for ( const key of new Set(keys) ) {
+    for ( const key of uniqueKeys ) {
         deleted += await redisClient.del(key);
     }
+
+    await emitOuterCacheUpdate({
+        cacheKey: uniqueKeys,
+    }, {
+        eventService: options.eventService,
+        emitEvent: options.emitEvent ?? true,
+    });
+
     return deleted;
 };
