@@ -1146,7 +1146,7 @@ window.initgui = async function (options) {
                         resolve();
                     });
 
-                    window.update_auth_data(data.token, data.user);
+                    await window.update_auth_data(data.token, data.user);
 
                     // if this is a popup, hide the spinner, make sure it was visible for at least 2 seconds
                     if(window.embedded_in_popup) await new Promise(async resolve => {
