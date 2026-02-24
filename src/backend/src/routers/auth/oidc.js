@@ -51,8 +51,13 @@ const OIDC_ERROR_REDIRECT_MAP = {
 /**
  * The error redirect URL is the origin with a query parameter included to
  * display an error message on the login or signup page.
- * When stateDecoded contains embedded_in_popup and msg_id (popup flow), redirects
- * to the sign-in action URL so the popup can show the error and stay in popup context.
+ *
+ * In a popup context, `stateDecoded` should contain the query parameters
+ * that reflect the popup state. `stateDecoded` is obtained from a JWT
+ * sent in the querystring of an OIDC callback page, and will decode to
+ * an object representing the query parameters that should go in the popup
+ * page invoked by puter.js
+ *
  * @param {string} sourceFlow - 'login' or 'signup'
  * @param {string} errorCondition - string that identifies the error message
  * @param {string} message - default error message (before i18n)
