@@ -72,7 +72,7 @@ const getEventService = (eventService?: CacheUpdateOptions['eventService']) => {
     return null;
 };
 
-export const emitOuterCacheUpdate = async (
+export const emitOuterCacheUpdate = (
     {
         cacheKey,
         data,
@@ -100,7 +100,7 @@ export const emitOuterCacheUpdate = async (
         payload.ttlSeconds = ttlSeconds;
     }
 
-    await svc_event.emit('outer.cacheUpdate', payload);
+    svc_event.emit('outer.cacheUpdate', payload);
 };
 
 export const setRedisCacheValue = async (
@@ -124,7 +124,7 @@ export const setRedisCacheValue = async (
         await redisClient.set(key, value);
     }
 
-    await emitOuterCacheUpdate({
+    emitOuterCacheUpdate({
         cacheKey: [key],
         data: eventData === undefined ? value : eventData,
         ttlSeconds,

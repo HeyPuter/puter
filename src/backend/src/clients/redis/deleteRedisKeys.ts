@@ -72,7 +72,7 @@ export const deleteRedisKeys = async (...inputs: (DeleteRedisKeysInput | DeleteR
         deleted += await redisClient.del(key);
     }
 
-    await emitOuterCacheUpdate({
+    emitOuterCacheUpdate({
         cacheKey: uniqueKeys,
     }, {
         eventService: options.eventService,

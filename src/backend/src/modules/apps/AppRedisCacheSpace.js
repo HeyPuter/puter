@@ -89,7 +89,7 @@ export const AppRedisCacheSpace = {
             .map(key => setKey(key, serialized, { ttlSeconds }));
         if ( writes.length ) {
             await Promise.all(writes);
-            await emitOuterCacheUpdate({
+            emitOuterCacheUpdate({
                 cacheKey: cacheKeys,
                 data: app,
                 ttlSeconds,

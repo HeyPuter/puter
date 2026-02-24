@@ -69,7 +69,7 @@ const UserRedisCacheSpace = {
         }
         if ( writes.length ) {
             await Promise.all(writes);
-            await emitOuterCacheUpdate({
+            emitOuterCacheUpdate({
                 cacheKey: cacheKeys,
                 data: user,
                 ttlSeconds,
