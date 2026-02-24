@@ -424,11 +424,14 @@ window.initgui = async function (options) {
         window.embedded_in_popup = true;
         $('body').addClass('embedded-in-popup');
 
-        // determine the origin of the opener
-        window.openerOrigin = document.referrer;
-
-        // if no referrer, request it from the opener via messaging
-        if ( ! document.referrer ) {
+        // determine the origin of the opener (preserved across OIDC redirect via URL param, else referrer or messaging)
+        const openerOriginFromUrl = window.url_query_params.get('opener_origin');
+        if ( openerOriginFromUrl ) {
+            window.openerOrigin = openerOriginFromUrl;
+        } else {
+            window.openerOrigin = document.referrer;
+        }
+        if ( ! window.openerOrigin ) {
             try {
                 window.openerOrigin = await requestOpenerOrigin();
             } catch (e) {
@@ -455,6 +458,16 @@ window.initgui = async function (options) {
             }
         }
         else if ( action === 'sign-in' && window.is_auth() && !(window.attempt_temp_user_creation && window.first_visit_ever) ) {
+            // Ensure current user is in logged_in_users (e.g. after OIDC redirect we have token but no user in list)
+            try {
+                const whoami_popup = await puter.os.user({ query: 'icon_size=64' });
+                await window.update_auth_data(whoami_popup.token || window.auth_token, whoami_popup);
+            } catch (e) {
+                // session/auth errors will be handled further ahead;
+                // let's log the error for now in case a change in state occurred.
+                console.error('error in \'sign-in\' flow', e);
+            }
+            // Always show session list so user sees their account(s); after OIDC they will see the one they signed into
             picked_a_user_for_sdk_login = await UIWindowSessionList({
                 reload_on_success: false,
                 draggable_body: false,
@@ -465,7 +478,6 @@ window.initgui = async function (options) {
             if ( picked_a_user_for_sdk_login ) {
                 await window.getUserAppToken(window.openerOrigin);
             }
-
         }
     }
 

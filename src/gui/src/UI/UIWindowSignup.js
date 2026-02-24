@@ -171,7 +171,14 @@ function UIWindowSignup (options) {
                         if ( data.providers && data.providers.includes('google') ) {
                             $(el_window).find('.oidc-providers-wrapper').show();
                             $(el_window).find('.oidc-google-btn').on('click', function () {
-                                window.location.href = `${window.gui_origin}/auth/oidc/google/start?flow=signup`;
+                                let url = `${window.gui_origin}/auth/oidc/google/start?flow=signup`;
+                                if ( window.embedded_in_popup && window.url_query_params?.get('msg_id') ) {
+                                    url += `&embedded_in_popup=true&msg_id=${encodeURIComponent(window.url_query_params.get('msg_id'))}`;
+                                    if ( window.openerOrigin ) {
+                                        url += `&opener_origin=${encodeURIComponent(window.openerOrigin)}`;
+                                    }
+                                }
+                                window.location.href = url;
                             });
                         }
                     } catch (_) {
