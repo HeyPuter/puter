@@ -51,15 +51,31 @@ const OIDC_ERROR_REDIRECT_MAP = {
 /**
  * The error redirect URL is the origin with a query parameter included to
  * display an error message on the login or signup page.
+ * When stateDecoded contains embedded_in_popup and msg_id (popup flow), redirects
+ * to the sign-in action URL so the popup can show the error and stay in popup context.
  * @param {string} sourceFlow - 'login' or 'signup'
  * @param {string} errorCondition - string that identifies the error message
  * @param {string} message - default error message (before i18n)
+ * @param {object} [stateDecoded] - decoded OIDC state (may contain embedded_in_popup, msg_id for popup flow)
  * @returns {string} URL to redirect to
  */
-function buildOIDCErrorRedirectUrl (sourceFlow, errorCondition, message) {
+function buildOIDCErrorRedirectUrl (sourceFlow, errorCondition, message, stateDecoded) {
     const targetFlow = OIDC_ERROR_REDIRECT_MAP[sourceFlow]?.[errorCondition] ?? sourceFlow;
     const origin = (config.origin || '').replace(/\/$/, '') || '/';
     const params = new URLSearchParams({ action: targetFlow, auth_error: '1', message: message || 'Something went wrong.' });
+    if ( stateDecoded?.embedded_in_popup && stateDecoded?.msg_id != null ) {
+        const popupParams = new URLSearchParams({
+            embedded_in_popup: 'true',
+            msg_id: String(stateDecoded.msg_id),
+            auth_error: '1',
+            message: message || 'Something went wrong.',
+            action: targetFlow,
+        });
+        if ( stateDecoded?.opener_origin ) {
+            popupParams.set('opener_origin', stateDecoded.opener_origin);
+        }
+        return `${origin}/?${popupParams.toString()}`;
+    }
     return `${origin}/?${params.toString()}`;
 }
 
@@ -130,8 +146,25 @@ router.get('/auth/oidc/:provider/start', async (req, res) => {
         signup: config.origin || '/',
         revalidate: `${(config.origin || '').replace(/\/$/, '')}/auth/revalidate-done`,
     };
-    const appRedirectUri = (flow && flowRedirects[flow]) ? flowRedirects[flow] : (config.origin || '/');
+    let appRedirectUri = (flow && flowRedirects[flow]) ? flowRedirects[flow] : (config.origin || '/');
+    const embeddedInPopup = req.query.embedded_in_popup === 'true' || req.query.embedded_in_popup === '1';
+    const msgId = req.query.msg_id != null && req.query.msg_id !== '' ? String(req.query.msg_id) : null;
+    const openerOrigin = req.query.opener_origin != null && req.query.opener_origin !== '' ? String(req.query.opener_origin) : null;
+    if ( embeddedInPopup && msgId ) {
+        const origin = (config.origin || '').replace(/\/$/, '');
+        appRedirectUri = `${origin}/action/sign-in?embedded_in_popup=true&msg_id=${encodeURIComponent(msgId)}`;
+        if ( openerOrigin ) {
+            appRedirectUri += `&opener_origin=${encodeURIComponent(openerOrigin)}`;
+        }
+    }
     const statePayload = { provider, redirect_uri: appRedirectUri };
+    if ( embeddedInPopup && msgId ) {
+        statePayload.embedded_in_popup = true;
+        statePayload.msg_id = msgId;
+        if ( openerOrigin ) {
+            statePayload.opener_origin = openerOrigin;
+        }
+    }
     if ( flow === 'revalidate' ) {
         const user_id = req.query.user_id;
         if ( ! user_id ) {
@@ -167,10 +200,10 @@ router.get('/auth/oidc/callback/login', async (req, res) => {
     const { provider, userinfo, stateDecoded } = result;
     const user = await svc_oidc.findUserByProviderSub(provider, userinfo.sub);
     if ( ! user ) {
-        return res.redirect(302, buildOIDCErrorRedirectUrl('login', 'account_not_found', 'No account found. Sign up first.'));
+        return res.redirect(302, buildOIDCErrorRedirectUrl('login', 'account_not_found', 'No account found. Sign up first.', stateDecoded));
     }
     if ( user.suspended ) {
-        return res.redirect(302, buildOIDCErrorRedirectUrl('login', 'other', 'This account is suspended.'));
+        return res.redirect(302, buildOIDCErrorRedirectUrl('login', 'other', 'This account is suspended.', stateDecoded));
     }
     const { session_token, target } = await finishOidcSuccess_(req, res, user, stateDecoded);
     res.cookie(config.cookie_name, session_token, {
@@ -200,11 +233,11 @@ router.get('/auth/oidc/callback/signup', async (req, res) => {
     const { provider, userinfo, stateDecoded } = result;
     const existingUser = await svc_oidc.findUserByProviderSub(provider, userinfo.sub);
     if ( existingUser ) {
-        return res.redirect(302, buildOIDCErrorRedirectUrl('signup', 'account_already_exists', 'Account already exists. Log in instead.'));
+        return res.redirect(302, buildOIDCErrorRedirectUrl('signup', 'account_already_exists', 'Account already exists. Log in instead.', stateDecoded));
     }
     const outcome = await svc_oidc.createUserFromOIDC(provider, userinfo);
     if ( outcome.failed ) {
-        return res.redirect(302, buildOIDCErrorRedirectUrl('signup', 'other', outcome.userMessage));
+        return res.redirect(302, buildOIDCErrorRedirectUrl('signup', 'other', outcome.userMessage, stateDecoded));
     }
     const user = await get_user({ id: outcome.infoObject.user_id });
     const { session_token, target } = await finishOidcSuccess_(req, res, user, stateDecoded);
