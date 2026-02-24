@@ -184,8 +184,10 @@ class Kernel extends AdvancedBase {
                 throw e;
             }
 
-            await svc_systemValidation.mark_invalid('failed to initialize services',
-                            e);
+            await svc_systemValidation.mark_invalid(
+                'failed to initialize services',
+                e,
+            );
         }
 
         for ( const module of this.modules ) {
@@ -243,6 +245,9 @@ class Kernel extends AdvancedBase {
             useapi: this.useapi,
             global_config: require('./config'),
         };
+
+        // Also expose global_config globally
+        globalThis.global_config = require('./config');
 
         // Install the mods...
 
