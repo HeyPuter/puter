@@ -1,5 +1,5 @@
 {
-    "unlimitedUsage": false,
+    "unlimitedUsage": true,
     "unlimitedAllowList": [
         "admin"
     ],

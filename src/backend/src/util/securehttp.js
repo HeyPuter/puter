@@ -192,7 +192,8 @@ async function secureAxiosRequest (axios, url, options = {}) {
     };
 
     try {
-        if ( globalThis.global_config.services.secureCorsProxy.url ) {
+        const parsedUrl = new URL(url);
+        if ( parsedUrl.protocol !== 'data:' && globalThis.global_config.services.secureCorsProxy.url ) {
             url = globalThis.global_config.services.secureCorsProxy.url + url;
             if ( ! secureOptions.headers ) {
                 secureOptions.headers = {};
@@ -212,7 +213,7 @@ async function secureAxiosRequest (axios, url, options = {}) {
         }
 
         // Log different information based on URL type
-        const parsedUrl = new URL(url);
+
         if ( parsedUrl.protocol === 'data:' ) {
             // Extract data format from data URL
             const dataFormat = url.split(',')[0].split(':')[1] || 'unknown format';
