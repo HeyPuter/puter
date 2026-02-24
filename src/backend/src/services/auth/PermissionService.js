@@ -56,6 +56,8 @@ class PermissionService extends BaseService {
         this._permission_rewriters = [];
         this._permission_implicators = [];
         this._permission_exploders = [];
+        this._invalidate_app_under_user_debounce = new Map();
+        this._INVALIDATE_DEBOUNCE_MS = 150;
     }
 
     /**
@@ -285,6 +287,35 @@ class PermissionService extends BaseService {
         if ( toDelete.length ) await deleteRedisKeys(toDelete);
     }
 
+    /**
+     * Schedules a debounced invalidation for (user_uuid, app_uid). Multiple grants
+     * for the same app-under-user within INVALIDATE_DEBOUNCE_MS result in a single
+     * Redis invalidation, avoiding CPU/Redis overload when e.g. opening many files
+     * (open_item) or many get-user-app-token requests fire in a burst.
+     *
+     * @param {string} user_uuid - The user's UUID.
+     * @param {string} app_uid - The app UID.
+     */
+    _schedule_invalidate_permission_scan_cache_for_app_under_user (user_uuid, app_uid) {
+        const key = `${user_uuid}:${app_uid}`;
+        const existing = this._invalidate_app_under_user_debounce.get(key);
+        if ( existing ) {
+            clearTimeout(existing.timeoutId);
+        }
+        const timeoutId = setTimeout(() => {
+            this._invalidate_app_under_user_debounce.delete(key);
+            this.invalidate_permission_scan_cache_for_app_under_user(user_uuid, app_uid)
+                .catch((e) => {
+                    this.log.error('failed to invalidate permission scan cache', {
+                        actor_uid: user_uuid,
+                        app_uid,
+                        error: e,
+                    });
+                });
+        }, this._INVALIDATE_DEBOUNCE_MS);
+        this._invalidate_app_under_user_debounce.set(key, { timeoutId });
+    }
+
     async validateUserPerms ({ actor, permissions }) {
 
         const flatPermsReading = await this.#flat_validateUserPerms({ actor, permissions });
@@ -482,14 +513,7 @@ class PermissionService extends BaseService {
         );
 
         // Invalidate permission-scan cache for this app-under-user so the next check sees the grant.
-        this.invalidate_permission_scan_cache_for_app_under_user(actor.type.user.uuid, app.uid)
-            .catch((e) => {
-                this.log.error('failed to invalidate permission scan cache', {
-                    actor_uid: actor.type.user.uuid,
-                    app_uid: app.uid,
-                    error: e,
-                });
-            });
+        this._schedule_invalidate_permission_scan_cache_for_app_under_user(actor.type.user.uuid, app.uid);
     }
 
     /**
