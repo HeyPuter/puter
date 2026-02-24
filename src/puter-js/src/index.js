@@ -101,7 +101,6 @@ const puterInit = (function () {
 
         #defaultAPIOrigin = 'https://api.puter.com';
         #defaultGUIOrigin = 'https://puter.com';
-        #overrideDefaultGUIOrigin = undefined;
 
         get defaultAPIOrigin () {
             return globalThis.PUTER_API_ORIGIN || globalThis.PUTER_API_ORIGIN_ENV || this.#defaultAPIOrigin;
@@ -111,11 +110,10 @@ const puterInit = (function () {
         }
 
         get defaultGUIOrigin () {
-            return this.#overrideDefaultGUIOrigin || globalThis.PUTER_ORIGIN || globalThis.PUTER_ORIGIN_ENV || this.#defaultGUIOrigin;
+            return globalThis.PUTER_ORIGIN || globalThis.PUTER_ORIGIN_ENV || this.#defaultGUIOrigin;
         }
         set defaultGUIOrigin (v) {
-            // this.#defaultGUIOrigin = v;
-            this.#overrideDefaultGUIOrigin = v;
+            this.#defaultGUIOrigin = v;
         }
 
         // An optional callback when the user is authenticated. This can be set by the app using the SDK.
