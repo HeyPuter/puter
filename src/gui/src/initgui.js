@@ -1230,7 +1230,6 @@ window.initgui = async function (options) {
                     }
                 },
                 complete: function () {
-
                 },
             });
         };
