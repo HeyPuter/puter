@@ -79,7 +79,7 @@ const install = async ({ context, services, app, useapi, modapi }) => {
         def('core.fs.selectors', require('./filesystem/node/selectors'));
         def('core.util.stream', require('./util/streamutil'));
         def('web', require('./util/expressutil'));
-        def('core.validation', require('./validation').default);
+        def('core.validation', require('./validation'));
 
         def('core.database', require('./services/database/consts.js'));
 
