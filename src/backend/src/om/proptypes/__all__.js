@@ -368,9 +368,6 @@ module.exports = {
             return entity;
         },
         async adapt (value, { descriptor }) {
-            if ( descriptor.debug ) {
-                debugger; // eslint-disable-line no-debugger
-            }
             if ( ! descriptor.service ) return value;
             if ( ! value ) return null;
             if ( value instanceof Entity ) return value;
