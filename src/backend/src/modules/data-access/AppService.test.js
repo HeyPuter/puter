@@ -78,6 +78,7 @@ describe('AppService', () => {
         approved_for_opening_items: 1,
         background: 0,
         godmode: 0,
+        is_private: 0,
         maximize_on_start: 0,
         protected: 0,
         owner_user_id: 1,
@@ -253,6 +254,7 @@ describe('AppService', () => {
                 approved_for_opening_items: 0,
                 background: '0',
                 godmode: 1,
+                is_private: '1',
                 maximize_on_start: '1',
                 protected: 0,
             });
@@ -266,6 +268,7 @@ describe('AppService', () => {
             expect(result.approved_for_opening_items).toBe(false);
             expect(result.background).toBe(false);
             expect(result.godmode).toBe(true);
+            expect(result.is_private).toBe(true);
             expect(result.maximize_on_start).toBe(true);
             expect(result.protected).toBe(false);
         });
@@ -829,6 +832,7 @@ describe('AppService', () => {
                     index_url: 'https://example.com',
                     approved_for_listing: true, // read_only field
                     godmode: true, // read_only field
+                    is_private: true, // read_only field
                 },
             });
 
@@ -836,6 +840,7 @@ describe('AppService', () => {
             const writeCall = mockDbWrite.write.mock.calls[0];
             expect(writeCall[0]).not.toContain('approved_for_listing');
             expect(writeCall[0]).not.toContain('godmode');
+            expect(writeCall[0]).not.toContain('is_private');
         });
 
         it('should handle name conflict with dedupe_name option', async () => {
@@ -1253,12 +1258,14 @@ describe('AppService', () => {
                     title: 'Updated',
                     approved_for_listing: true,
                     godmode: true,
+                    is_private: true,
                 },
             });
 
             const writeCall = mockDbWrite.write.mock.calls[0];
             expect(writeCall[0]).not.toContain('approved_for_listing');
             expect(writeCall[0]).not.toContain('godmode');
+            expect(writeCall[0]).not.toContain('is_private');
         });
 
         it('should handle name change with conflict', async () => {

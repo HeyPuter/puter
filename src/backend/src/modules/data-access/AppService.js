@@ -276,6 +276,7 @@ export default class AppService extends BaseService {
         'approved_for_opening_items',
         'approved_for_incentive_program',
         'godmode',
+        'is_private',
     ];
     static WRITE_ALL_OWNER_PERMISSION = 'system:es:write-all-owners';
 
@@ -379,6 +380,7 @@ export default class AppService extends BaseService {
             app.description = row.description;
             app.godmode = as_bool(row.godmode);
             app.icon = row.icon;
+            app.is_private = as_bool(row.is_private);
             app.index_url = row.index_url;
             app.maximize_on_start = as_bool(row.maximize_on_start);
             app.metadata = row.metadata;
@@ -500,6 +502,7 @@ export default class AppService extends BaseService {
         app.description = row.description;
         app.godmode = as_bool(row.godmode);
         app.icon = row.icon;
+        app.is_private = as_bool(row.is_private);
         app.index_url = row.index_url;
         app.maximize_on_start = as_bool(row.maximize_on_start);
         app.metadata = row.metadata;

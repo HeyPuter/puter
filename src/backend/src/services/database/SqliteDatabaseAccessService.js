@@ -173,6 +173,9 @@ class SqliteDatabaseAccessService extends BaseDatabaseAccessService {
             [41, [
                 '0045_user_oidc_providers.sql',
             ]],
+            [42, [
+                '0046_is-private-apps.sql',
+            ]],
         ];
 
         // Database upgrade logic
@@ -218,31 +221,31 @@ class SqliteDatabaseAccessService extends BaseDatabaseAccessService {
                 const basename = path_.basename(filename);
                 const contents = fs.readFileSync(filename, 'utf8');
                 switch ( path_.extname(filename) ) {
-                case '.sql':
-                {
-                    const stmts = contents.split(/;\s*\n/);
-                    for ( let i = 0; i < stmts.length; i++ ) {
-                        if ( stmts[i].trim() === '' ) continue;
-                        const stmt = `${stmts[i] };`;
-                        try {
-                            this.db.exec(stmt);
-                        } catch ( e ) {
-                            throw new CompositeError(`failed to apply: ${basename} at line ${i}`, e);
+                    case '.sql':
+                    {
+                        const stmts = contents.split(/;\s*\n/);
+                        for ( let i = 0; i < stmts.length; i++ ) {
+                            if ( stmts[i].trim() === '' ) continue;
+                            const stmt = `${stmts[i] };`;
+                            try {
+                                this.db.exec(stmt);
+                            } catch ( e ) {
+                                throw new CompositeError(`failed to apply: ${basename} at line ${i}`, e);
+                            }
                         }
+                        break;
                     }
-                    break;
-                }
-                case '.js':
-                    try {
-                        await this.run_js_migration_({
-                            filename, contents,
-                        });
-                    } catch ( e ) {
-                        throw new CompositeError(`failed to apply: ${basename}`, e);
-                    }
-                    break;
-                default:
-                    throw new Error(`unrecognized migration type: ${filename}`);
+                    case '.js':
+                        try {
+                            await this.run_js_migration_({
+                                filename, contents,
+                            });
+                        } catch ( e ) {
+                            throw new CompositeError(`failed to apply: ${basename}`, e);
+                        }
+                        break;
+                    default:
+                        throw new Error(`unrecognized migration type: ${filename}`);
                 }
             }
 
