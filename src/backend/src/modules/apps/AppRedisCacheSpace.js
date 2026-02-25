@@ -18,7 +18,6 @@
  */
 import { redisClient } from '../../clients/redis/redisSingleton.js';
 import { deleteRedisKeys } from '../../clients/redis/deleteRedisKeys.js';
-import { emitOuterCacheUpdate } from '../../clients/redis/cacheUpdate.js';
 
 const appFullNamespace = 'apps';
 const appLiteNamespace = 'apps:lite';
@@ -89,11 +88,6 @@ export const AppRedisCacheSpace = {
             .map(key => setKey(key, serialized, { ttlSeconds }));
         if ( writes.length ) {
             await Promise.all(writes);
-            emitOuterCacheUpdate({
-                cacheKey: cacheKeys,
-                data: app,
-                ttlSeconds,
-            });
         }
     },
     invalidateCachedApp: (app, {

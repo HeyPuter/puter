@@ -16,9 +16,8 @@
  * You should have received a copy of the GNU Affero General Public License
  * along with this program.  If not, see <https://www.gnu.org/licenses/>.
  */
-import { redisClient } from './redisSingleton.js';
-import { emitOuterCacheUpdate } from './cacheUpdate.js';
 import { EventService } from '../../services/EventService.js';
+import { redisClient } from './redisSingleton.js';
 
 type DeleteRedisKeysInput = string | number | null | undefined | DeleteRedisKeysInput[];
 interface DeleteRedisKeysOptions {
@@ -51,10 +50,9 @@ const flattenInputs = (inputs: DeleteRedisKeysInput[]): Array<string | number | 
 };
 
 export const deleteRedisKeys = async (...inputs: (DeleteRedisKeysInput | DeleteRedisKeysOptions)[]) => {
-    let options: DeleteRedisKeysOptions = {};
     const keysInput = [...inputs];
     if ( isDeleteOptions(keysInput[keysInput.length - 1]) ) {
-        options = keysInput.pop() as DeleteRedisKeysOptions;
+        keysInput.pop() as DeleteRedisKeysOptions;
     }
 
     const keys = flattenInputs(keysInput as DeleteRedisKeysInput[])
@@ -71,13 +69,6 @@ export const deleteRedisKeys = async (...inputs: (DeleteRedisKeysInput | DeleteR
     for ( const key of uniqueKeys ) {
         deleted += await redisClient.del(key);
     }
-
-    emitOuterCacheUpdate({
-        cacheKey: uniqueKeys,
-    }, {
-        eventService: options.eventService,
-        emitEvent: options.emitEvent ?? true,
-    });
 
     return deleted;
 };
