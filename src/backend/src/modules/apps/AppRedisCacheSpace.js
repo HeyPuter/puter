@@ -20,7 +20,6 @@ import { redisClient } from '../../clients/redis/redisSingleton.js';
 import { deleteRedisKeys } from '../../clients/redis/deleteRedisKeys.js';
 
 const appFullNamespace = 'apps';
-const appLiteNamespace = 'apps:lite';
 const appLookupKeys = ['uid', 'name', 'id'];
 
 const safeParseJson = (value, fallback = null) => {
@@ -40,27 +39,25 @@ const setKey = async (key, value, { ttlSeconds } = {}) => {
     await redisClient.set(key, value);
 };
 
-const appNamespace = ({ rawIcon = true } = {}) => (
-    rawIcon ? appFullNamespace : appLiteNamespace
-);
+const appNamespace = () => appFullNamespace;
 
-const appCacheKey = ({ lookup, value, rawIcon = true }) => (
-    `${appNamespace({ rawIcon })}:${lookup}:${value}`
+const appCacheKey = ({ lookup, value }) => (
+    `${appNamespace()}:${lookup}:${value}`
 );
 
 export const AppRedisCacheSpace = {
     key: appCacheKey,
     namespace: appNamespace,
-    keysForApp: (app, { rawIcon = true } = {}) => {
+    keysForApp: (app) => {
         if ( ! app ) return [];
         return appLookupKeys
             .filter(lookup => app[lookup] !== undefined && app[lookup] !== null && app[lookup] !== '')
-            .map(lookup => appCacheKey({ lookup, value: app[lookup], rawIcon }));
+            .map(lookup => appCacheKey({ lookup, value: app[lookup] }));
     },
-    uidScanPattern: ({ rawIcon = true } = {}) => `${appNamespace({ rawIcon })}:uid:*`,
-    pendingNamespace: ({ rawIcon = true } = {}) => rawIcon ? 'pending_app' : 'pending_app_lite',
-    pendingKey: ({ lookup, value, rawIcon = true }) => (
-        `${AppRedisCacheSpace.pendingNamespace({ rawIcon })}:${lookup}:${value}`
+    uidScanPattern: () => `${appNamespace()}:uid:*`,
+    pendingNamespace: () => 'pending_app',
+    pendingKey: ({ lookup, value }) => (
+        `${AppRedisCacheSpace.pendingNamespace()}:${lookup}:${value}`
     ),
     openCountKey: uid => `apps:open_count:uid:${uid}`,
     userCountKey: uid => `apps:user_count:uid:${uid}`,
@@ -77,28 +74,21 @@ export const AppRedisCacheSpace = {
             .toLowerCase();
         return `assocs:${ext}:apps`;
     },
-    getCachedApp: async ({ lookup, value, rawIcon = true }) => (
-        safeParseJson(await redisClient.get(appCacheKey({ lookup, value, rawIcon })))
+    getCachedApp: async ({ lookup, value }) => (
+        safeParseJson(await redisClient.get(appCacheKey({ lookup, value })))
     ),
-    setCachedApp: async (app, { rawIcon = true, ttlSeconds } = {}) => {
+    setCachedApp: async (app, { ttlSeconds } = {}) => {
         if ( ! app ) return;
         const serialized = JSON.stringify(app);
-        const cacheKeys = AppRedisCacheSpace.keysForApp(app, { rawIcon });
-        const writes = cacheKeys
+        const writes = AppRedisCacheSpace.keysForApp(app)
             .map(key => setKey(key, serialized, { ttlSeconds }));
         if ( writes.length ) {
             await Promise.all(writes);
         }
     },
-    invalidateCachedApp: (app, {
-        rawIconVariants = [true, false],
-        includeStats = false,
-    } = {}) => {
+    invalidateCachedApp: (app, { includeStats = false } = {}) => {
         if ( ! app ) return;
-        const keys = [];
-        for ( const rawIcon of rawIconVariants ) {
-            keys.push(...AppRedisCacheSpace.keysForApp(app, { rawIcon }));
-        }
+        const keys = [...AppRedisCacheSpace.keysForApp(app)];
         if ( includeStats && app.uid ) {
             keys.push(...AppRedisCacheSpace.statsKeys(app.uid));
         }
@@ -106,13 +96,12 @@ export const AppRedisCacheSpace = {
             return deleteRedisKeys(keys);
         }
     },
-    invalidateCachedAppName: async (name, { rawIconVariants = [true, false] } = {}) => {
+    invalidateCachedAppName: async (name) => {
         if ( ! name ) return;
-        const keys = rawIconVariants.map(rawIcon => appCacheKey({
+        const keys = [appCacheKey({
             lookup: 'name',
             value: name,
-            rawIcon,
-        }));
+        })];
         return deleteRedisKeys(keys);
     },
     invalidateAppStats: async (uid) => {

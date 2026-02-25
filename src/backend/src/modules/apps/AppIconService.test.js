@@ -15,7 +15,7 @@ describe('AppIconService', () => {
     describe('URL helpers', () => {
         it('extracts a puter subdomain from a static hosting URL', () => {
             const service = Object.create(AppIconService.prototype);
-            const domain = config.static_hosting_domain;
+            const domain = 'site.puter.localhost:4100';
 
             const result = service.extractPuterSubdomainFromUrl(`https://dev-center-app-id.${domain}/icon.png`);
 
@@ -68,7 +68,7 @@ describe('AppIconService', () => {
             };
             service.errors = { report: vi.fn() };
             service.ensureAppIconsDirectory = vi.fn().mockResolvedValue(dirAppIcons);
-            service.getOriginalIconUrl = vi.fn().mockReturnValue('https://puter-app-icons.site.puter.localhost/app-abc.png');
+            service.getAppIconEndpointUrl = vi.fn().mockReturnValue('https://api.puter.localhost/app-icon/app-abc');
             service.loadIconSource = vi.fn().mockResolvedValue({
                 metadata: 'data:image/png;base64',
                 input: Buffer.from([1, 2, 3]),
@@ -98,7 +98,30 @@ describe('AppIconService', () => {
                 destination_or_parent: dirAppIcons,
                 filename: 'app-abc-64.png',
             }));
-            expect(data.url).toBe('https://puter-app-icons.site.puter.localhost/app-abc.png');
+            expect(data.url).toBe('https://api.puter.localhost/app-icon/app-abc');
+        });
+
+        it('queueDataUrlIconWrite persists migrated URL to DB when conversion succeeds', async () => {
+            const service = Object.create(AppIconService.prototype);
+            service.errors = { report: vi.fn() };
+            service.createAppIcons = vi.fn(async ({ data }) => {
+                data.url = 'https://api.puter.localhost/app-icon/app-abc';
+            });
+            service.persistConvertedIconUrl = vi.fn().mockResolvedValue(undefined);
+
+            service.queueDataUrlIconWrite({
+                appUid: 'app-abc',
+                dataUrl: 'data:image/png;base64,AA==',
+            });
+
+            await Promise.resolve();
+            await Promise.resolve();
+
+            expect(service.createAppIcons).toHaveBeenCalledTimes(1);
+            expect(service.persistConvertedIconUrl).toHaveBeenCalledWith({
+                appUid: 'app-abc',
+                iconUrl: 'https://api.puter.localhost/app-icon/app-abc',
+            });
         });
     });
 

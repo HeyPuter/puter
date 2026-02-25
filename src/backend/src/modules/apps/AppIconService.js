@@ -25,8 +25,9 @@ import { LLMkdir } from '../../filesystem/ll_operations/ll_mkdir.js';
 import { LLRead } from '../../filesystem/ll_operations/ll_read.js';
 import { NodePathSelector } from '../../filesystem/node/selectors.js';
 import { get_app, get_user } from '../../helpers.js';
+import { AppRedisCacheSpace } from './AppRedisCacheSpace.js';
 import BaseService from '../../services/BaseService.js';
-import { DB_WRITE } from '../../services/database/consts.js';
+import { DB_READ, DB_WRITE } from '../../services/database/consts.js';
 import { Endpoint } from '../../util/expressutil.js';
 import { buffer_to_stream, stream_to_buffer } from '../../util/streamutil.js';
 import DEFAULT_APP_ICON from './default-app-icon.js';
@@ -151,6 +152,20 @@ export class AppIconService extends BaseService {
         }
 
         return `${apiBaseUrl}/app-icon/${normalizedAppUid}/${resolvedSize}`;
+    }
+
+    getAppIconEndpointUrl ({ appUid }) {
+        const normalizedAppUid = this.normalizeAppUid(appUid);
+        if ( typeof normalizedAppUid !== 'string' || !normalizedAppUid ) {
+            return null;
+        }
+
+        const apiBaseUrl = String(config.api_base_url || '').replace(/\/+$/, '');
+        if ( ! apiBaseUrl ) {
+            return null;
+        }
+
+        return `${apiBaseUrl}/app-icon/${normalizedAppUid}`;
     }
 
     normalizeAppUid (appUid) {
@@ -472,6 +487,77 @@ export class AppIconService extends BaseService {
             });
     }
 
+    queueDataUrlIconWrite ({ appUid, dataUrl }) {
+        const normalizedAppUid = this.normalizeAppUid(appUid);
+        if ( typeof normalizedAppUid !== 'string' || !normalizedAppUid ) return;
+        if ( ! this.isDataUrl(dataUrl) ) return;
+
+        if ( ! this.pendingDataUrlIconWrites ) {
+            this.pendingDataUrlIconWrites = new Set();
+        }
+
+        const key = normalizedAppUid;
+        if ( this.pendingDataUrlIconWrites.has(key) ) return;
+
+        this.pendingDataUrlIconWrites.add(key);
+        Promise.resolve()
+            .then(async () => {
+                const data = {
+                    app_uid: normalizedAppUid,
+                    data_url: dataUrl,
+                };
+                await this.createAppIcons({
+                    data,
+                });
+                if ( typeof data.url === 'string' && data.url ) {
+                    await this.persistConvertedIconUrl({
+                        appUid: normalizedAppUid,
+                        iconUrl: data.url,
+                    });
+                }
+            })
+            .catch(error => {
+                this.errors?.report('AppIconService.queueDataUrlIconWrite', {
+                    source: error,
+                    appUid: normalizedAppUid,
+                });
+            })
+            .finally(() => {
+                this.pendingDataUrlIconWrites.delete(key);
+            });
+    }
+
+    async persistConvertedIconUrl ({ appUid, iconUrl }) {
+        const normalizedAppUid = this.normalizeAppUid(appUid);
+        if ( typeof normalizedAppUid !== 'string' || !normalizedAppUid ) return;
+        if ( typeof iconUrl !== 'string' || !iconUrl ) return;
+
+        const svcDb = this.services.get('database');
+        const dbWrite = svcDb.get(DB_WRITE, 'apps');
+        await dbWrite.write(
+            'UPDATE apps SET icon = ? WHERE uid = ? AND icon LIKE \'data:%\' LIMIT 1',
+            [iconUrl, normalizedAppUid],
+        );
+
+        const dbRead = svcDb.get(DB_READ, 'apps');
+        const rows = await dbRead.read(
+            'SELECT id, uid, name FROM apps WHERE uid = ? LIMIT 1',
+            [normalizedAppUid],
+        );
+        const app = rows[0];
+        if ( app ) {
+            AppRedisCacheSpace.invalidateCachedApp(app);
+        } else {
+            AppRedisCacheSpace.invalidateCachedApp({ uid: normalizedAppUid });
+        }
+
+        const svcEvent = this.services.get('event');
+        await svcEvent.emit('app.changed', {
+            app_uid: normalizedAppUid,
+            action: 'icon-migrated',
+        });
+    }
+
     async #getIconStream ({ appIcon, appUid, size, tries = 0, allowRedirect = false }) {
         appUid = this.normalizeAppUid(appUid);
         const appIconOriginal = appIcon;
@@ -506,13 +592,21 @@ export class AppIconService extends BaseService {
         };
 
         const getFallbackIcon = async () => {
-            let fallbackIcon = appIcon || await (async () => {
-                const app = await getAppCached();
-                return app?.icon || DEFAULT_APP_ICON;
-            })();
+            const app = await getAppCached();
+            const dbIcon = this.normalizeRawBase64ImageString(app?.icon);
+
+            let fallbackIcon = appIcon || dbIcon || DEFAULT_APP_ICON;
             if ( ! this.isDataUrl(fallbackIcon) ) {
                 fallbackIcon = DEFAULT_APP_ICON;
             }
+
+            if ( this.isDataUrl(dbIcon) && fallbackIcon === dbIcon ) {
+                this.queueDataUrlIconWrite({
+                    appUid,
+                    dataUrl: dbIcon,
+                });
+            }
+
             const [metadata, base64] = fallbackIcon.split(',');
             const mime = metadata.split(';')[0].split(':')[1];
             const img = Buffer.from(base64, 'base64');
@@ -739,9 +833,9 @@ export class AppIconService extends BaseService {
                     output: originalOutput,
                 });
 
-                const originalUrl = this.getOriginalIconUrl({ appUid });
-                if ( originalUrl ) {
-                    data.url = originalUrl;
+                const endpointUrl = this.getAppIconEndpointUrl({ appUid });
+                if ( endpointUrl ) {
+                    data.url = endpointUrl;
                 }
             }
 

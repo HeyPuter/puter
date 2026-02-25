@@ -33,9 +33,9 @@ import { DB_READ, DB_WRITE } from './services/database/consts.js';
 import { UserRedisCacheSpace } from './services/UserRedisCacheSpace.js';
 import { Context } from './util/context.js';
 import { ManagedError } from './util/errorutil.js';
+import { generate_identifier } from './util/identifier.js';
 import { kv } from './util/kvSingleton.js';
 import { spanify } from './util/otelutil.js';
-import { generate_identifier } from './util/identifier.js';
 
 export * from './validation.js';
 
@@ -54,6 +54,7 @@ const PENDING_QUERY_TTL = 10; // seconds
 const SUGGESTED_APPS_CACHE_MAX = 10000;
 const suggestedAppsCache = new LRUCache({ max: SUGGESTED_APPS_CACHE_MAX });
 const DEFAULT_APP_ICON_SIZE = 256;
+const RAW_BASE64_REGEX = /^[A-Za-z0-9+/]+={0,2}$/;
 
 const safe_json_parse = (value, fallback) => {
     if ( value === null || value === undefined ) return fallback;
@@ -101,10 +102,52 @@ const redisGetJsonMany = async (keys) => {
     return valuesByKey;
 };
 
-const buildAppIconUrl = (app_uid, size = DEFAULT_APP_ICON_SIZE) => {
+const normalizeAppUid = (app_uid) => {
     if ( ! app_uid ) return null;
     const uid_string = String(app_uid);
-    const normalized_uid = uid_string.startsWith('app-') ? uid_string : `app-${uid_string}`;
+    return uid_string.startsWith('app-') ? uid_string : `app-${uid_string}`;
+};
+
+const isRawBase64ImageString = value => {
+    if ( typeof value !== 'string' ) return false;
+    const trimmed = value.trim();
+    if ( !trimmed || trimmed.length < 16 ) return false;
+    if ( ! RAW_BASE64_REGEX.test(trimmed) ) return false;
+    if ( trimmed.length % 4 !== 0 ) return false;
+
+    try {
+        const decoded = Buffer.from(trimmed, 'base64');
+        if ( decoded.length === 0 ) return false;
+        const normalizedInput = trimmed.replace(/=+$/, '');
+        const reencoded = decoded.toString('base64').replace(/=+$/, '');
+        return normalizedInput === reencoded;
+    } catch {
+        return false;
+    }
+};
+
+const isBase64AppIcon = (app) => {
+    if ( !app || typeof app !== 'object' ) return false;
+
+    const flag = app.icon_is_base64;
+    if ( typeof flag === 'boolean' ) return flag;
+    if ( typeof flag === 'number' ) return flag !== 0;
+    if ( typeof flag === 'string' ) {
+        const lowered = flag.toLowerCase();
+        if ( lowered === '1' || lowered === 'true' ) return true;
+        if ( lowered === '0' || lowered === 'false' ) return false;
+    }
+
+    const icon = app.icon;
+    if ( typeof icon !== 'string' ) return false;
+    const trimmed = icon.trim();
+    if ( trimmed.startsWith('data:image/') ) return true;
+    return isRawBase64ImageString(trimmed);
+};
+
+const buildAppIconUrl = (app_uid, size = DEFAULT_APP_ICON_SIZE) => {
+    if ( ! app_uid ) return null;
+    const normalized_uid = normalizeAppUid(app_uid);
     const iconSize = Number.isFinite(Number(size)) ? Number(size) : DEFAULT_APP_ICON_SIZE;
     const static_hosting_domain = config.static_hosting_domain || config.static_hosting_domain_alt;
     if ( ! static_hosting_domain ) return null;
@@ -112,11 +155,35 @@ const buildAppIconUrl = (app_uid, size = DEFAULT_APP_ICON_SIZE) => {
     return `${protocol}://${APP_ICONS_SUBDOMAIN}.${static_hosting_domain}/${normalized_uid}-${iconSize}.png`;
 };
 
+const buildAppIconEndpointUrl = (app_uid, size = DEFAULT_APP_ICON_SIZE) => {
+    if ( ! app_uid ) return null;
+    const normalized_uid = normalizeAppUid(app_uid);
+    const iconSize = Number.isFinite(Number(size)) ? Number(size) : DEFAULT_APP_ICON_SIZE;
+
+    try {
+        const svc_appIcon = servicesContainer.services?.get?.('app-icon');
+        const iconPath = svc_appIcon?.getAppIconPath?.({
+            appUid: normalized_uid,
+            size: iconSize,
+        });
+        if ( iconPath ) return iconPath;
+    } catch {
+        // Fall back to direct URL generation below.
+    }
+
+    const apiBaseUrl = String(config.api_base_url || '').replace(/\/+$/, '');
+    if ( ! apiBaseUrl ) return null;
+    return `${apiBaseUrl}/app-icon/${normalized_uid}/${iconSize}`;
+};
+
 const withAppIconUrl = (app) => {
     if ( ! app ) return app;
-    const icon_url = buildAppIconUrl(app.uid ?? app.uuid);
+    const iconIsBase64 = isBase64AppIcon(app);
+    const icon_url = iconIsBase64
+        ? buildAppIconEndpointUrl(app.uid ?? app.uuid)
+        : buildAppIconUrl(app.uid ?? app.uuid);
     if ( ! icon_url ) return { ...app };
-    return { ...app, icon: icon_url };
+    return { ...app, icon: icon_url, icon_is_base64: iconIsBase64 };
 };
 
 export async function is_empty (dir_uuid) {
@@ -278,7 +345,7 @@ export async function df (user_id) {
  * Pass `cached: false` to options if a cached user entry would not be appropriate;
  * for example: when performing authentication.
  *
- * @param {string} options - `options`
+ * @param {object} options - `options`
  * @returns {Promise}
  */
 export async function get_user (options) {
@@ -330,7 +397,7 @@ export async function refresh_associations_cache () {
 /**
  * Get App by a variety of IDs
  *
- * @param {string} options - `options`
+ * @param {{[key:'name'|'id'|'uid']?:string}} options - `options`
  * @returns {Promise}
  */
 export async function get_app (options) {
@@ -338,10 +405,14 @@ export async function get_app (options) {
     const cacheApp = async (app) => {
         if ( ! app ) return;
         AppRedisCacheSpace.setCachedApp(app, {
-            rawIcon: true,
             ttlSeconds: 30,
         });
     };
+    const isDecoratedAppCacheEntry = (app) => (
+        !!app &&
+        typeof app === 'object' &&
+        Object.prototype.hasOwnProperty.call(app, 'icon_is_base64')
+    );
 
     // This condition should be updated if the code below is re-ordered.
     if ( options.follow_old_names && !options.uid && options.name ) {
@@ -364,21 +435,18 @@ export async function get_app (options) {
         cacheKey = AppRedisCacheSpace.key({
             lookup: 'uid',
             value: options.uid,
-            rawIcon: true,
         });
     } else if ( options.name ) {
         queryKey = `name:${options.name}`;
         cacheKey = AppRedisCacheSpace.key({
             lookup: 'name',
             value: options.name,
-            rawIcon: true,
         });
     } else if ( options.id ) {
         queryKey = `id:${options.id}`;
         cacheKey = AppRedisCacheSpace.key({
             lookup: 'id',
             value: options.id,
-            rawIcon: true,
         });
     } else {
         // No valid lookup parameter
@@ -387,6 +455,10 @@ export async function get_app (options) {
 
     // Check cache first
     let app = safe_json_parse(await redisClient.get(cacheKey), null);
+    if ( isDecoratedAppCacheEntry(app) ) {
+        AppRedisCacheSpace.invalidateCachedApp(app);
+        app = null;
+    }
     if ( app ) {
         // shallow clone because we use the `delete` operator
         // and it corrupts the cache otherwise
@@ -400,7 +472,6 @@ export async function get_app (options) {
     const pendingKey = AppRedisCacheSpace.pendingKey({
         lookup: pendingLookup,
         value: pendingValue,
-        rawIcon: true,
     });
     const pending = kv.get(pendingKey);
     if ( pending ) {
@@ -455,7 +526,6 @@ export async function get_app (options) {
  *
  * @param {Array<{uid?: string, name?: string, id?: string|number}>} specifiers
  * @param {Object} [options]
- * @param {boolean} [options.rawIcon] - When true, include raw icon data.
  * @returns {Promise<Array<object|null>>}
  */
 export const get_apps = spanify('get_apps', async (specifiers, options = {}) => {
@@ -463,12 +533,21 @@ export const get_apps = spanify('get_apps', async (specifiers, options = {}) => 
         specifiers = [specifiers];
     }
 
-    const rawIcon = Boolean(options.rawIcon);
-    const decorateApp = (app) => (rawIcon ? app : withAppIconUrl(app));
+    const decorateApp = (app) => (withAppIconUrl(app));
+    const normalizeAppForCache = (app) => {
+        if ( ! app ) return app;
+        const normalized = { ...app };
+        delete normalized.icon_is_base64;
+        return normalized;
+    };
+    const isDecoratedAppCacheEntry = (app) => (
+        !!app &&
+        typeof app === 'object' &&
+        Object.prototype.hasOwnProperty.call(app, 'icon_is_base64')
+    );
     const cacheApp = async (app) => {
         if ( ! app ) return;
         AppRedisCacheSpace.setCachedApp(app, {
-            rawIcon: rawIcon,
             ttlSeconds: 60,
         });
     };
@@ -516,7 +595,6 @@ export const get_apps = spanify('get_apps', async (specifiers, options = {}) => 
         const pendingKey = AppRedisCacheSpace.pendingKey({
             lookup,
             value,
-            rawIcon: rawIcon,
         });
         const pending = kv.get(pendingKey);
         if ( pending ) {
@@ -550,7 +628,6 @@ export const get_apps = spanify('get_apps', async (specifiers, options = {}) => 
                 cacheKey: AppRedisCacheSpace.key({
                     lookup: 'uid',
                     value: spec.uid,
-                    rawIcon,
                 }),
             };
         }
@@ -561,7 +638,6 @@ export const get_apps = spanify('get_apps', async (specifiers, options = {}) => 
                 cacheKey: AppRedisCacheSpace.key({
                     lookup: 'name',
                     value: spec.name,
-                    rawIcon,
                 }),
             };
         }
@@ -572,7 +648,6 @@ export const get_apps = spanify('get_apps', async (specifiers, options = {}) => 
                 cacheKey: AppRedisCacheSpace.key({
                     lookup: 'id',
                     value: spec.id,
-                    rawIcon,
                 }),
             };
         }
@@ -585,7 +660,11 @@ export const get_apps = spanify('get_apps', async (specifiers, options = {}) => 
 
     for ( const plannedLookup of cacheLookupPlan ) {
         if ( ! plannedLookup ) continue;
-        const cached = cachedAppsByKey.get(plannedLookup.cacheKey);
+        let cached = cachedAppsByKey.get(plannedLookup.cacheKey);
+        if ( isDecoratedAppCacheEntry(cached) ) {
+            AppRedisCacheSpace.invalidateCachedApp(cached);
+            cached = null;
+        }
         if ( cached ) {
             addApp(decorateApp(cached));
         } else {
@@ -623,26 +702,30 @@ export const get_apps = spanify('get_apps', async (specifiers, options = {}) => 
         let rows = [];
         const resolvedKeys = new Set();
         try {
-            rows = await db.read(`SELECT * FROM \`apps\` WHERE ${clauses.join(' OR ')}`, params);
+            rows = await db.read(
+                `SELECT *, CASE WHEN icon LIKE 'data:%' THEN 1 ELSE 0 END AS icon_is_base64 FROM \`apps\` WHERE ${clauses.join(' OR ')}`,
+                params,
+            );
             for ( const app of rows ) {
-                const decorated_app = decorateApp(app);
-                cacheApp(decorated_app);
+                const appForCache = normalizeAppForCache(app);
+                cacheApp(appForCache);
+                const decorated_app = decorateApp(appForCache);
                 addApp(decorated_app);
 
-                const uidKey = `uid:${decorated_app.uid}`;
-                const nameKey = `name:${decorated_app.name}`;
-                const idKey = `id:${decorated_app.id}`;
+                const uidKey = `uid:${appForCache.uid}`;
+                const nameKey = `name:${appForCache.name}`;
+                const idKey = `id:${appForCache.id}`;
 
                 if ( pendingToResolve.has(uidKey) ) {
-                    pendingToResolve.get(uidKey).resolveQuery(decorated_app);
+                    pendingToResolve.get(uidKey).resolveQuery(appForCache);
                     resolvedKeys.add(uidKey);
                 }
                 if ( pendingToResolve.has(nameKey) ) {
-                    pendingToResolve.get(nameKey).resolveQuery(decorated_app);
+                    pendingToResolve.get(nameKey).resolveQuery(appForCache);
                     resolvedKeys.add(nameKey);
                 }
                 if ( pendingToResolve.has(idKey) ) {
-                    pendingToResolve.get(idKey).resolveQuery(decorated_app);
+                    pendingToResolve.get(idKey).resolveQuery(appForCache);
                     resolvedKeys.add(idKey);
                 }
             }
@@ -679,7 +762,10 @@ export const get_apps = spanify('get_apps', async (specifiers, options = {}) => 
         } else if ( spec.id ) {
             app = appById.get(spec.id);
         }
-        return app ? { ...app } : null;
+        if ( ! app ) return null;
+        const result = { ...app };
+        delete result.icon_is_base64;
+        return result;
     });
 
 });
@@ -2002,7 +2088,7 @@ export async function get_taskbar_items (user, {
         return {};
     });
 
-    const taskbar_apps = await get_apps(app_specifiers, { rawIcon: !no_icons });
+    const taskbar_apps = await get_apps(app_specifiers);
 
     // get apps that these taskbar items represent
     let taskbar_items = [];

@@ -105,7 +105,6 @@ class AppInformationService extends BaseService {
             resolvedApp = await AppRedisCacheSpace.getCachedApp({
                 lookup: 'uid',
                 value: appUid,
-                rawIcon: true,
             });
         }
         if ( !resolvedApp && appUid ) {
@@ -696,7 +695,7 @@ class AppInformationService extends BaseService {
             const [next_cursor, keys] = await redisClient.scan(
                 cursor,
                 'MATCH',
-                AppRedisCacheSpace.uidScanPattern({ rawIcon: true }),
+                AppRedisCacheSpace.uidScanPattern(),
                 'COUNT',
                 1000,
             );
@@ -744,7 +743,6 @@ class AppInformationService extends BaseService {
             app = await AppRedisCacheSpace.getCachedApp({
                 lookup: 'uid',
                 value: app_uid,
-                rawIcon: true,
             });
         }
         if ( ! app ) {
