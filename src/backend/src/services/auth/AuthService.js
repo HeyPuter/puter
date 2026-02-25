@@ -26,6 +26,8 @@ const { UUIDFPE } = require('../../util/uuidfpe');
 
 // This constant defines the namespace used for generating app UUIDs from their origins
 const APP_ORIGIN_UUID_NAMESPACE = '33de3768-8ee0-43e9-9e73-db192b97a5d8';
+const DEFAULT_PRIVATE_APP_ASSET_TOKEN_TTL_SECONDS = 60 * 60;
+const DEFAULT_PRIVATE_APP_ASSET_COOKIE_NAME = 'puter.private.asset.token';
 
 const LegacyTokenError = class extends Error {
 };
@@ -84,10 +86,12 @@ class AuthService extends BaseService {
     * @returns {Promise<Actor>} The authenticated user or app actor.
     */
     async authenticate_from_token (token) {
-        const decoded = this.modules.jwt.verify(token,
-                        this.global_config.jwt_secret);
+        const decoded = this.modules.jwt.verify(
+            token,
+            this.global_config.jwt_secret,
+        );
 
-        if ( ! decoded.hasOwnProperty('type') ) {
+        if ( ! Object.prototype.hasOwnProperty.call(decoded, 'type') ) {
             throw new LegacyTokenError();
         }
 
@@ -232,28 +236,169 @@ class AuthService extends BaseService {
             user_uid: actor_type.user.uuid,
         });
 
-        const token = this.modules.jwt.sign({
-            type: 'app-under-user',
-            version: '0.0.0',
-            user_uid: actor_type.user.uuid,
-            app_uid,
-            ...(actor_type.session ? { session: this.uuid_fpe.encrypt(actor_type.session) } : {}),
-        },
-        this.global_config.jwt_secret);
+        const token = this.modules.jwt.sign(
+            {
+                type: 'app-under-user',
+                version: '0.0.0',
+                user_uid: actor_type.user.uuid,
+                app_uid,
+                ...(actor_type.session ? { session: this.uuid_fpe.encrypt(actor_type.session) } : {}),
+            },
+            this.global_config.jwt_secret,
+        );
 
         return token;
     }
 
     get_site_app_token ({ site_uid }) {
-        const token = this.modules.jwt.sign({
-            type: 'actor-site',
-            version: '0.0.0',
-            site_uid,
-        },
-        this.global_config.jwt_secret,
-        { expiresIn: '1h' });
+        const token = this.modules.jwt.sign(
+            {
+                type: 'actor-site',
+                version: '0.0.0',
+                site_uid,
+            },
+            this.global_config.jwt_secret,
+            { expiresIn: '1h' },
+        );
 
         return token;
+    }
+
+    resolvePositiveInteger (value, fallback) {
+        const parsed = Number(value);
+        if ( !Number.isFinite(parsed) || parsed <= 0 ) {
+            return fallback;
+        }
+        return Math.floor(parsed);
+    }
+
+    getPrivateAssetTokenTtlSeconds () {
+        return this.resolvePositiveInteger(
+            this.global_config.private_app_asset_token_ttl_seconds,
+            DEFAULT_PRIVATE_APP_ASSET_TOKEN_TTL_SECONDS,
+        );
+    }
+
+    getPrivateAssetCookieName () {
+        const configuredCookieName = this.global_config.private_app_asset_cookie_name;
+        if ( typeof configuredCookieName === 'string' && configuredCookieName.trim() ) {
+            return configuredCookieName.trim();
+        }
+        return DEFAULT_PRIVATE_APP_ASSET_COOKIE_NAME;
+    }
+
+    getPrivateAssetCookieOptions ({ ttlSeconds } = {}) {
+        const effectiveTtlSeconds = this.resolvePositiveInteger(
+            ttlSeconds,
+            this.getPrivateAssetTokenTtlSeconds(),
+        );
+
+        const cookieOptions = {
+            sameSite: 'none',
+            secure: true,
+            httpOnly: true,
+            path: '/',
+            maxAge: effectiveTtlSeconds * 1000,
+        };
+
+        const privateHostingDomain = `${this.global_config.private_app_hosting_domain ?? ''}`
+            .trim()
+            .toLowerCase()
+            .replace(/^\./, '');
+        if (
+            privateHostingDomain &&
+            privateHostingDomain !== 'localhost' &&
+            !privateHostingDomain.endsWith('.localhost') &&
+            !privateHostingDomain.includes(':')
+        ) {
+            cookieOptions.domain = `.${privateHostingDomain}`;
+        }
+
+        return cookieOptions;
+    }
+
+    createPrivateAssetToken ({ appUid, userUid, sessionUuid, ttlSeconds } = {}) {
+        if ( typeof appUid !== 'string' || !appUid.trim() ) {
+            throw new Error('appUid is required to create private asset token.');
+        }
+        if ( typeof userUid !== 'string' || !userUid.trim() ) {
+            throw new Error('userUid is required to create private asset token.');
+        }
+        if ( sessionUuid !== undefined && (typeof sessionUuid !== 'string' || !sessionUuid.trim()) ) {
+            throw new Error('sessionUuid must be a non-empty string when provided.');
+        }
+
+        const effectiveTtlSeconds = this.resolvePositiveInteger(
+            ttlSeconds,
+            this.getPrivateAssetTokenTtlSeconds(),
+        );
+
+        const payload = {
+            type: 'app-private-asset',
+            version: '0.0.0',
+            app_uid: appUid.trim(),
+            user_uid: userUid.trim(),
+            ...(sessionUuid ? { session: this.uuid_fpe.encrypt(sessionUuid) } : {}),
+        };
+
+        return this.modules.jwt.sign(payload, this.global_config.jwt_secret, {
+            expiresIn: effectiveTtlSeconds,
+        });
+    }
+
+    verifyPrivateAssetToken (
+        token,
+        { expectedAppUid, expectedUserUid, expectedSessionUuid } = {},
+    ) {
+        let decoded;
+        try {
+            decoded = this.modules.jwt.verify(token, this.global_config.jwt_secret);
+        } catch (e) {
+            throw APIError.create('token_auth_failed');
+        }
+
+        if (
+            !decoded ||
+            decoded.type !== 'app-private-asset' ||
+            typeof decoded.app_uid !== 'string' ||
+            !decoded.app_uid ||
+            typeof decoded.user_uid !== 'string' ||
+            !decoded.user_uid
+        ) {
+            throw APIError.create('token_auth_failed');
+        }
+
+        let sessionUuid;
+        if ( decoded.session !== undefined ) {
+            if ( typeof decoded.session !== 'string' || !decoded.session ) {
+                throw APIError.create('token_auth_failed');
+            }
+            try {
+                sessionUuid = this.uuid_fpe.decrypt(decoded.session);
+            } catch (e) {
+                throw APIError.create('token_auth_failed');
+            }
+        }
+
+        if ( expectedAppUid && decoded.app_uid !== expectedAppUid ) {
+            throw APIError.create('token_auth_failed');
+        }
+        if ( expectedUserUid && decoded.user_uid !== expectedUserUid ) {
+            throw APIError.create('token_auth_failed');
+        }
+        if ( expectedSessionUuid ) {
+            if ( !sessionUuid || sessionUuid !== expectedSessionUuid ) {
+                throw APIError.create('token_auth_failed');
+            }
+        }
+
+        return {
+            appUid: decoded.app_uid,
+            userUid: decoded.user_uid,
+            sessionUuid,
+            exp: decoded.exp,
+            iat: decoded.iat,
+        };
     }
 
     /**
@@ -508,10 +653,12 @@ class AuthService extends BaseService {
                 extra: JSON.stringify(extra ?? {}),
             };
             const cols = Object.keys(insert_object).join(', ');
-            const vals = Object.values(insert_object).map(v => '?').join(', ');
-            await this.db.write('INSERT INTO `access_token_permissions` ' +
+            const vals = Object.values(insert_object).map(() => '?').join(', ');
+            await this.db.write(
+                'INSERT INTO `access_token_permissions` ' +
                 `(${cols}) VALUES (${vals})`,
-            Object.values(insert_object));
+                Object.values(insert_object),
+            );
         }
 
         console.log('token uuid?', uuid);
@@ -570,8 +717,10 @@ class AuthService extends BaseService {
 
         // We won't take the cached sessions here because it's
         // possible the user has sessions on other servers
-        const db_sessions = await this.db.read('SELECT uuid, meta FROM `sessions` WHERE `user_id` = ?',
-                        [actor.type.user.id]);
+        const db_sessions = await this.db.read(
+            'SELECT uuid, meta FROM `sessions` WHERE `user_id` = ?',
+            [actor.type.user.id],
+        );
 
         for ( const session of db_sessions ) {
             if ( seen.has(session.uuid) ) {
@@ -623,8 +772,10 @@ class AuthService extends BaseService {
         const app_uid = await this._app_uid_from_origin(origin);
 
         // Determine if the app exists
-        const apps = await this.db.read('SELECT * FROM `apps` WHERE `uid` = ? LIMIT 1',
-                        [app_uid]);
+        const apps = await this.db.read(
+            'SELECT * FROM `apps` WHERE `uid` = ? LIMIT 1',
+            [app_uid],
+        );
 
         if ( apps[0] ) {
             return this.get_user_app_token(app_uid);
@@ -639,10 +790,12 @@ class AuthService extends BaseService {
         const owner_user_id = null;
 
         // Create the app
-        await this.db.write('INSERT INTO `apps` ' +
+        await this.db.write(
+            'INSERT INTO `apps` ' +
             '(`uid`, `name`, `title`, `description`, `index_url`, `owner_user_id`) ' +
             'VALUES (?, ?, ?, ?, ?, ?)',
-        [app_uid, name, title, description, index_url, owner_user_id]);
+            [app_uid, name, title, description, index_url, owner_user_id],
+        );
 
         return this.get_user_app_token(app_uid);
     }
@@ -688,7 +841,6 @@ class AuthService extends BaseService {
     '__on_install.routes' () {
         const { app } = this.services.get('web-server');
         const config = require('../../config');
-        const { subdomain } = require('../../helpers');
         const configurable_auth = require('../../middleware/configurable_auth');
         const { Endpoint } = require('../../util/expressutil');
         const svc_auth = this;
