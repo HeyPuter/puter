@@ -121,6 +121,10 @@ module.exports = {
         protected: {
             type: 'flag',
         },
+        is_private: {
+            type: 'flag',
+            read_only: true,
+        },
 
         // OPERATIONS
         last_review: {
