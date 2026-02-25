@@ -3,7 +3,6 @@ import { v4 as uuidv4 } from 'uuid';
 import APIError from '../../api/APIError.js';
 import { deleteRedisKeys } from '../../clients/redis/deleteRedisKeys.js';
 import config from '../../config.js';
-import { AppRedisCacheSpace } from '../apps/AppRedisCacheSpace.js';
 import { NodeInternalIDSelector } from '../../filesystem/node/selectors.js';
 import { app_name_exists, get_app } from '../../helpers.js';
 import { AppUnderUserActorType, UserActorType } from '../../services/auth/Actor.js';
@@ -11,6 +10,7 @@ import { PERMISSION_FOR_NOTHING_IN_PARTICULAR, PermissionRewriter, PermissionUti
 import BaseService from '../../services/BaseService.js';
 import { DB_READ, DB_WRITE } from '../../services/database/consts.js';
 import { Context } from '../../util/context.js';
+import { AppRedisCacheSpace } from '../apps/AppRedisCacheSpace.js';
 import AppRepository from './AppRepository.js';
 import { as_bool } from './lib/coercion.js';
 import { user_to_client } from './lib/filter.js';
@@ -22,10 +22,10 @@ import {
     validate_string,
     validate_url,
 } from './lib/validation.js';
+import { APP_ICONS_SUBDOMAIN } from '../../consts/app-icons.js';
 
 const APP_ICON_ENDPOINT_PATH_REGEX = /^\/app-icon\/([^/?#]+)(?:\/(\d+))?\/?$/;
 const LEGACY_APP_ICON_FILE_PATH_REGEX = /^\/(app-[^/?#]+?)(?:-(\d+))?\.png$/;
-const APP_ICONS_SUBDOMAIN = 'puter-app-icons';
 const ABSOLUTE_URL_REGEX = /^[a-zA-Z][a-zA-Z\d+\-.]*:/;
 const RAW_BASE64_REGEX = /^[A-Za-z0-9+/]+={0,2}$/;
 const isAbsoluteUrl = value => ABSOLUTE_URL_REGEX.test(value) || value.startsWith('//');
@@ -53,6 +53,21 @@ const normalizeRawBase64ImageString = value => {
     const trimmed = value.trim();
     if ( ! isRawBase64ImageString(trimmed) ) return value;
     return `data:image/png;base64,${trimmed}`;
+};
+
+const isStoredBase64AppIcon = ({ icon, icon_is_base64: iconIsBase64 }) => {
+    if ( typeof iconIsBase64 === 'boolean' ) return iconIsBase64;
+    if ( typeof iconIsBase64 === 'number' ) return iconIsBase64 !== 0;
+    if ( typeof iconIsBase64 === 'string' ) {
+        const normalized = iconIsBase64.toLowerCase();
+        if ( normalized === '1' || normalized === 'true' ) return true;
+        if ( normalized === '0' || normalized === 'false' ) return false;
+    }
+
+    if ( typeof icon !== 'string' ) return false;
+    const trimmed = icon.trim();
+    if ( trimmed.startsWith('data:image/') ) return true;
+    return isRawBase64ImageString(trimmed);
 };
 
 const getCanonicalAppIconBaseUrl = () => {
@@ -323,6 +338,7 @@ export default class AppService extends BaseService {
         const userCanEditOnly = Array.prototype.includes.call(predicate, 'user-can-edit');
 
         const stmt = 'SELECT apps.*, ' +
+            'CASE WHEN apps.icon LIKE \'data:%\' THEN 1 ELSE 0 END AS icon_is_base64, ' +
             'owner_user.username AS owner_user_username, ' +
             'owner_user.uuid AS owner_user_uuid, ' +
             'app_owner.uid AS app_owner_uid ' +
@@ -339,10 +355,13 @@ export default class AppService extends BaseService {
             ? await this.#getFiletypeAssociationsByAppIds(rows.map(row => row.id))
             : new Map();
 
-        const svc_appIcon = params.icon_size
+        const iconSize = params.icon_size;
+        const shouldResolveIconPath = Boolean(iconSize)
+            || rows.some(row => isStoredBase64AppIcon(row));
+        const svc_appIcon = shouldResolveIconPath
             ? this.context.get('services').get('app-icon')
             : null;
-        const svc_error = params.icon_size
+        const svc_error = shouldResolveIconPath
             ? this.context.get('services').get('error-service')
             : null;
 
@@ -395,8 +414,7 @@ export default class AppService extends BaseService {
 
             // REFINED BY OTHER DATA
             // app.icon;
-            if ( params.icon_size && svc_appIcon ) {
-                const iconSize = params.icon_size;
+            if ( svc_appIcon && (iconSize || isStoredBase64AppIcon(row)) ) {
                 try {
                     const iconPath = svc_appIcon.getAppIconPath({
                         appUid: row.uid,
@@ -452,6 +470,7 @@ export default class AppService extends BaseService {
         }
 
         const stmt = 'SELECT apps.*, ' +
+            'CASE WHEN apps.icon LIKE \'data:%\' THEN 1 ELSE 0 END AS icon_is_base64, ' +
             'owner_user.username AS owner_user_username, ' +
             'owner_user.uuid AS owner_user_uuid, ' +
             'app_owner.uid AS app_owner_uid ' +
@@ -524,20 +543,22 @@ export default class AppService extends BaseService {
             });
         }
 
-        if ( params.icon_size ) {
-            const iconSize = params.icon_size;
+        const iconSize = params.icon_size;
+        if ( iconSize || isStoredBase64AppIcon(row) ) {
             const svc_appIcon = this.context.get('services').get('app-icon');
-            try {
-                const iconPath = svc_appIcon.getAppIconPath({
-                    appUid: row.uid,
-                    size: iconSize,
-                });
-                if ( iconPath ) {
-                    app.icon = iconPath;
+            if ( svc_appIcon ) {
+                try {
+                    const iconPath = svc_appIcon.getAppIconPath({
+                        appUid: row.uid,
+                        size: iconSize,
+                    });
+                    if ( iconPath ) {
+                        app.icon = iconPath;
+                    }
+                } catch (e) {
+                    const svc_error = this.context.get('services').get('error-service');
+                    svc_error.report('AppES:read_transform', { source: e });
                 }
-            } catch (e) {
-                const svc_error = this.context.get('services').get('error-service');
-                svc_error.report('AppES:read_transform', { source: e });
             }
         }
 
@@ -551,8 +572,10 @@ export default class AppService extends BaseService {
     async #getFiletypeAssociationsByAppId (appId) {
         if ( appId === undefined || appId === null ) return [];
 
-        const rows = await this.db.read('SELECT type FROM app_filetype_association WHERE app_id = ?',
-                        [appId]);
+        const rows = await this.db.read(
+            'SELECT type FROM app_filetype_association WHERE app_id = ?',
+            [appId],
+        );
         return rows
             .map(row => row.type)
             .filter(type => typeof type === 'string' || type === null);
@@ -588,8 +611,10 @@ export default class AppService extends BaseService {
         for ( let i = 0 ; i < appIds.length ; i += chunkSize ) {
             const chunk = appIds.slice(i, i + chunkSize);
             const placeholders = chunk.map(() => '?').join(', ');
-            const rows = await this.db.read(`SELECT app_id, type FROM app_filetype_association WHERE app_id IN (${placeholders})`,
-                            chunk);
+            const rows = await this.db.read(
+                `SELECT app_id, type FROM app_filetype_association WHERE app_id IN (${placeholders})`,
+                chunk,
+            );
             for ( const row of rows ) {
                 if ( ! filetypesByAppId.has(row.app_id) ) {
                     filetypesByAppId.set(row.app_id, []);
@@ -741,8 +766,10 @@ export default class AppService extends BaseService {
             };
             await svc_event.emit('app.new-icon', event);
             if ( typeof event.url === 'string' && event.url ) {
-                this.db_write.write('UPDATE apps SET icon = ? WHERE uid = ? LIMIT 1',
-                                [event.url, uid]);
+                this.db_write.write(
+                    'UPDATE apps SET icon = ? WHERE uid = ? LIMIT 1',
+                    [event.url, uid],
+                );
             }
         }
 
@@ -991,8 +1018,10 @@ export default class AppService extends BaseService {
         // Check if user has system-wide write permission
         {
             // We need to fix eslint rule for multi-line calls
-            const has_permission_to_write_all = await svc_permission.check(actor,
-                            this.constructor.WRITE_ALL_OWNER_PERMISSION);
+            const has_permission_to_write_all = await svc_permission.check(
+                actor,
+                this.constructor.WRITE_ALL_OWNER_PERMISSION,
+            );
 
             if ( has_permission_to_write_all ) {
                 return;
@@ -1149,8 +1178,10 @@ export default class AppService extends BaseService {
         }
 
         // Fetch the internal ID
-        const rows = await this.db.read('SELECT id FROM apps WHERE uid = ?',
-                        [old_app.uid]);
+        const rows = await this.db.read(
+            'SELECT id FROM apps WHERE uid = ?',
+            [old_app.uid],
+        );
         return { insert_id: rows[0]?.id };
     }
 
@@ -1167,8 +1198,10 @@ export default class AppService extends BaseService {
             .filter(Boolean);
 
         // Remove old file associations
-        await this.db_write.write('DELETE FROM app_filetype_association WHERE app_id = ?',
-                        [app_id]);
+        await this.db_write.write(
+            'DELETE FROM app_filetype_association WHERE app_id = ?',
+            [app_id],
+        );
 
         // Add new file associations
         if ( ! normalizedNew.length ) {
@@ -1209,8 +1242,10 @@ export default class AppService extends BaseService {
             };
             await svc_event.emit('app.new-icon', event);
             if ( typeof event.url === 'string' && event.url ) {
-                await this.db_write.write('UPDATE apps SET icon = ? WHERE uid = ? LIMIT 1',
-                                [event.url, old_app.uid]);
+                await this.db_write.write(
+                    'UPDATE apps SET icon = ? WHERE uid = ? LIMIT 1',
+                    [event.url, old_app.uid],
+                );
             }
         }
 
@@ -1306,11 +1341,9 @@ export default class AppService extends BaseService {
         const app_uid = app.uid;
         const svc_permission = services.get('permission');
         const permission_to_check = `app:uid#${app_uid}:access`;
-        const reading = await svc_permission.scan(actor, permission_to_check);
-        const options = PermissionUtil.reading_to_options(reading);
 
         // If they have permission, allow it
-        if ( options.length > 0 ) {
+        if ( await svc_permission.check(actor, permission_to_check) ) {
             return false;
         }
 

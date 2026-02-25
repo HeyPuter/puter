@@ -25,10 +25,10 @@ const { Context } = require('../../util/context');
 const { is_valid_path } = require('../../filesystem/validation');
 const FSNodeContext = require('../../filesystem/FSNodeContext');
 const { Entity } = require('../entitystorage/Entity');
+const { APP_ICONS_SUBDOMAIN } = require('../../consts/app-icons');
 const NULL = Symbol('NULL');
 const APP_ICON_ENDPOINT_PATH_REGEX = /^\/app-icon\/([^/?#]+)(?:\/(\d+))?\/?$/;
 const LEGACY_APP_ICON_FILE_PATH_REGEX = /^\/(app-[^/?#]+?)(?:-(\d+))?\.png$/;
-const APP_ICONS_SUBDOMAIN = 'puter-app-icons';
 const ABSOLUTE_URL_REGEX = /^[a-zA-Z][a-zA-Z\d+\-.]*:/;
 const RAW_BASE64_REGEX = /^[A-Za-z0-9+/]+={0,2}$/;
 const isAbsoluteUrl = value => ABSOLUTE_URL_REGEX.test(value) || value.startsWith('//');
@@ -56,6 +56,21 @@ const normalizeRawBase64ImageString = value => {
     const trimmed = value.trim();
     if ( ! isRawBase64ImageString(trimmed) ) return value;
     return `data:image/png;base64,${trimmed}`;
+};
+
+const isStoredBase64AppIcon = ({ icon, icon_is_base64: iconIsBase64 }) => {
+    if ( typeof iconIsBase64 === 'boolean' ) return iconIsBase64;
+    if ( typeof iconIsBase64 === 'number' ) return iconIsBase64 !== 0;
+    if ( typeof iconIsBase64 === 'string' ) {
+        const normalized = iconIsBase64.toLowerCase();
+        if ( normalized === '1' || normalized === 'true' ) return true;
+        if ( normalized === '0' || normalized === 'false' ) return false;
+    }
+
+    if ( typeof icon !== 'string' ) return false;
+    const trimmed = icon.trim();
+    if ( trimmed.startsWith('data:image/') ) return true;
+    return isRawBase64ImageString(trimmed);
 };
 
 const getCanonicalAppIconBaseUrl = () => {
@@ -308,7 +323,11 @@ module.exports = {
             if ( typeof value !== 'string' ) {
                 throw new OMTypeError({ expected: 'string', got: typeof value });
             }
-            return migrateRelativeAppIconEndpointUrl(normalizeRawBase64ImageString(value));
+            value = normalizeRawBase64ImageString(value);
+            if ( isStoredBase64AppIcon({ icon: value }) ) {
+                return value;
+            }
+            return migrateRelativeAppIconEndpointUrl(value);
         },
         validate (value) {
             if ( typeof value !== 'string' ) {
@@ -320,16 +339,12 @@ module.exports = {
                 return true;
             }
 
-            if ( trimmed.startsWith('data:image/') ) {
+            if ( isStoredBase64AppIcon({ icon: trimmed }) ) {
                 // XSS characters
                 const chars = ['<', '>', '&', '"', "'", '`'];
                 if ( chars.some(char => trimmed.includes(char)) ) {
                     return new Error('icon is not an image');
                 }
-                return true;
-            }
-
-            if ( isRawBase64ImageString(trimmed) ) {
                 return true;
             }
 

@@ -72,7 +72,6 @@ config.monitor = {
 
 config.max_subdomains_per_user = 2000;
 config.storage_capacity = 1 * 1024 * 1024 * 1024;
-config.static_hosting_domain = 'site.puter.localhost';
 config.static_hosting_base_domain_redirect = 'https://developer.puter.com/static-hosting/';
 
 // Storage limiting is set to false by default
@@ -169,6 +168,10 @@ const computed_defaults = {
         ? config.origin
         : `${config.protocol }://api.${ config.domain }${maybe_port(config)}`,
     social_card: config => `${config.origin}/assets/img/screenshot.png`,
+    static_hosting_domain: config => `site.puter.localhost${ maybe_port(config)}`,
+    // Hostname-only fallback helps host matching code paths that compare against req.hostname.
+    static_hosting_domain_alt: () => 'site.puter.localhost',
+
 };
 
 // We're going to export a config object that's decorated
@@ -210,7 +213,7 @@ const config_pointer = {};
         return undefined;
     };
     config_to_export = new Proxy(config_to_export, {
-        get: (target, prop, receiver) => {
+        get: (target, prop, _receiver) => {
             if ( prop in target ) {
                 return target[prop];
             } else {
@@ -250,12 +253,14 @@ const config_pointer = {};
     // These can be difficult to find and cause painful
     // confusing issues, so we log any time this happens
     config_to_export = new Proxy(config_to_export, {
-        set: (target, prop, value, receiver) => {
+        set: (target, prop, value, _receiver) => {
             const logger = Context.get('logger', { allow_fallback: true });
             // If no logger, just give up
             if ( logger ) {
-                logger.debug('\x1B[36;1mCONFIGURATION MUTATED AT RUNTIME\x1B[0m',
-                                { prop, value });
+                logger.debug(
+                    '\x1B[36;1mCONFIGURATION MUTATED AT RUNTIME\x1B[0m',
+                    { prop, value },
+                );
             }
             target[prop] = value;
             return true;
