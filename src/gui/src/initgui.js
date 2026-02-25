@@ -632,7 +632,7 @@ window.initgui = async function (options) {
             // show login progress window
             UIWindowLoginInProgress({ user_info: whoami });
             // update auth data
-            window.update_auth_data(query_param_auth_token, whoami, api_origin);
+            await window.update_auth_data(query_param_auth_token, whoami, api_origin);
         }
         // remove auth_token from URL
         window.history.pushState(null, document.title, '/');
@@ -693,7 +693,7 @@ window.initgui = async function (options) {
                 }
                 while ( !is_verified );
             }
-            window.update_auth_data(whoami.token || window.auth_token, whoami);
+            await window.update_auth_data(whoami.token || window.auth_token, whoami);
 
             // -------------------------------------------------------------------------------------
             // Action: AuthMe — redirect to a third-party URL with the user's auth token
