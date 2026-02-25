@@ -158,7 +158,7 @@ async function UIWindowSaveAccount (options) {
                 success: async function (data) {
                     window.dispatchEvent(new CustomEvent('account-saved', { detail: { data: data } }));
 
-                    window.update_auth_data(data.token, data.user);
+                    await window.update_auth_data(data.token, data.user);
 
                     //close this window
                     if ( data.user.email_confirmation_required ) {

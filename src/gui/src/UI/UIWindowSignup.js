@@ -332,7 +332,7 @@ function UIWindowSignup (options) {
                 contentType: 'application/json',
                 data: JSON.stringify(requestData),
                 success: async function (data) {
-                    window.update_auth_data(data.token, data.user);
+                    await window.update_auth_data(data.token, data.user);
 
                     //send out the login event
                     if ( options.reload_on_success ) {

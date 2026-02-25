@@ -147,7 +147,7 @@ async function UIWindowSessionList (options) {
         $(el_window).find('.session-entry').on('click', function (e) {
             $(el_window).find('.loading').css({ display: 'flex' });
 
-            setTimeout(() => {
+            setTimeout(async () => {
                 let selected_uuid = $(this).attr('data-uuid');
                 let selected_user;
                 for ( let index = 0; index < window.logged_in_users.length; index++ ) {
@@ -158,7 +158,7 @@ async function UIWindowSessionList (options) {
                 }
 
                 // new logged in user
-                window.update_auth_data(selected_user.auth_token, selected_user);
+                await window.update_auth_data(selected_user.auth_token, selected_user);
                 if ( options.reload_on_success ) {
                     // disable native browser exit confirmation
                     window.onbeforeunload = null;

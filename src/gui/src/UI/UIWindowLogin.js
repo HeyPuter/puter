@@ -395,7 +395,7 @@ async function UIWindowLogin (options) {
 
                     await p;
 
-                    window.update_auth_data(data.token, data.user);
+                    await window.update_auth_data(data.token, data.user);
 
                     if ( options.reload_on_success ) {
                         window.onbeforeunload = null;

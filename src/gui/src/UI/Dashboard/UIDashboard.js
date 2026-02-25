@@ -476,7 +476,7 @@ async function UIDashboard (options) {
                         if ( l_user.username === window.user.username ) {
                             return;
                         }
-                        window.update_auth_data(l_user.auth_token, l_user);
+                        await window.update_auth_data(l_user.auth_token, l_user);
                         location.reload();
                     },
                 });

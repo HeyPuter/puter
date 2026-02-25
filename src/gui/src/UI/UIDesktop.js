@@ -2195,7 +2195,7 @@ $(document).on('click', '.user-options-menu-btn', async function (e) {
                         return;
                     }
                     // update auth data
-                    window.update_auth_data(l_user.auth_token, l_user);
+                    await window.update_auth_data(l_user.auth_token, l_user);
                     // refresh
                     location.reload();
                 },
