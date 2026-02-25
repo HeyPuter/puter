@@ -18,7 +18,6 @@
  */
 import { redisClient } from '../clients/redis/redisSingleton.js';
 import { deleteRedisKeys } from '../clients/redis/deleteRedisKeys.js';
-import { emitOuterCacheUpdate } from '../clients/redis/cacheUpdate.js';
 
 const userKeyPrefix = 'users';
 const defaultUserIdProperties = ['username', 'uuid', 'email', 'id', 'referral_code'];
@@ -69,11 +68,6 @@ const UserRedisCacheSpace = {
         }
         if ( writes.length ) {
             await Promise.all(writes);
-            emitOuterCacheUpdate({
-                cacheKey: cacheKeys,
-                data: user,
-                ttlSeconds,
-            });
         }
     },
     invalidateUser: async (user, props = defaultUserIdProperties) => {

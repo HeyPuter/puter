@@ -100,7 +100,7 @@ export const emitOuterCacheUpdate = (
         payload.ttlSeconds = ttlSeconds;
     }
 
-    // TODO DS: find a way to invalidate through broadcast nicely
+    svc_event.emit('outer.cacheUpdate', payload);
 };
 
 export const setRedisCacheValue = async (
@@ -108,9 +108,6 @@ export const setRedisCacheValue = async (
     value: string | number,
     {
         ttlSeconds,
-        eventData,
-        eventService,
-        emitEvent = true,
     }: {
         ttlSeconds?: number,
         eventData?: unknown,
@@ -123,13 +120,4 @@ export const setRedisCacheValue = async (
     } else {
         await redisClient.set(key, value);
     }
-
-    emitOuterCacheUpdate({
-        cacheKey: [key],
-        data: eventData === undefined ? value : eventData,
-        ttlSeconds,
-    }, {
-        eventService,
-        emitEvent,
-    });
 };
