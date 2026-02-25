@@ -56,6 +56,10 @@ class PermissionService extends BaseService {
         this._permission_rewriters = [];
         this._permission_implicators = [];
         this._permission_exploders = [];
+
+        // Debounce constants and state
+        this._INVALIDATE_DEBOUNCE_MS = 200;
+        this._invalidate_app_under_user_debounce = {};
     }
 
     /**
@@ -285,6 +289,31 @@ class PermissionService extends BaseService {
         if ( toDelete.length ) await deleteRedisKeys(toDelete);
     }
 
+    /**
+     * Invalidates permission-scan cache for (user_uuid, app_uid).
+     * Runs immediately, or skips in a debounce period for this key.
+     *
+     * @param {string} user_uuid - The user's UUID.
+     * @param {string} app_uid - The app UID.
+     * @returns {Promise<void>}
+     */
+    async _schedule_invalidate_permission_scan_cache_for_app_under_user (user_uuid, app_uid) {
+        const key = `${user_uuid}:${app_uid}`;
+        if ( this._invalidate_app_under_user_debounce[key] ) return;
+        this._invalidate_app_under_user_debounce[key] = setTimeout(() => {
+            delete this._invalidate_app_under_user_debounce[key];
+        }, this._INVALIDATE_DEBOUNCE_MS);
+        try {
+            await this.invalidate_permission_scan_cache_for_app_under_user(user_uuid, app_uid);
+        } catch ( e ) {
+            this.log.error('failed to invalidate permission scan cache', {
+                actor_uid: user_uuid,
+                app_uid,
+                error: e,
+            });
+        }
+    }
+
     async validateUserPerms ({ actor, permissions }) {
 
         const flatPermsReading = await this.#flat_validateUserPerms({ actor, permissions });
@@ -444,6 +473,13 @@ class PermissionService extends BaseService {
 
         const app_id = app.id;
 
+        // Skip if already granted (avoids redundant writes and invalidation when e.g. get-user-app-token or open_item is called many times for the same permission).
+        const existing = await this.db.read(
+            'SELECT 1 FROM `user_to_app_permissions` WHERE `user_id` = ? AND `app_id` = ? AND `permission` = ? LIMIT 1',
+            [actor.type.user.id, app_id, permission],
+        );
+        if ( existing && existing.length > 0 ) return;
+
         // UPSERT permission
         await this.db.write(
             'INSERT INTO `user_to_app_permissions` (`user_id`, `app_id`, `permission`, `extra`) ' +
@@ -482,14 +518,7 @@ class PermissionService extends BaseService {
         );
 
         // Invalidate permission-scan cache for this app-under-user so the next check sees the grant.
-        this.invalidate_permission_scan_cache_for_app_under_user(actor.type.user.uuid, app.uid)
-            .catch((e) => {
-                this.log.error('failed to invalidate permission scan cache', {
-                    actor_uid: actor.type.user.uuid,
-                    app_uid: app.uid,
-                    error: e,
-                });
-            });
+        await this._schedule_invalidate_permission_scan_cache_for_app_under_user(actor.type.user.uuid, app.uid);
     }
 
     /**
