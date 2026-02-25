@@ -100,7 +100,7 @@ export const emitOuterCacheUpdate = (
         payload.ttlSeconds = ttlSeconds;
     }
 
-    svc_event.emit('outer.cacheUpdate', payload);
+    // TODO DS: find a way to invalidate through broadcast nicely
 };
 
 export const setRedisCacheValue = async (
