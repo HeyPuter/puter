@@ -17,7 +17,7 @@
  * along with this program.  If not, see <https://www.gnu.org/licenses/>.
  */
 import { createHmac, timingSafeEqual } from 'crypto';
-import * as socketio from 'socket.io';
+import { Server as SocketIoServer } from 'socket.io';
 import { BaseService } from '../../services/BaseService.js';
 import { Context } from '../../util/context.js';
 import { Endpoint } from '../../util/expressutil.js';
@@ -364,7 +364,7 @@ export class BroadcastService extends BaseService {
 
         const server = svc_webServer.get_server();
 
-        const io = socketio(server, {
+        const io = new SocketIoServer(server, {
             cors: { origin: '*' },
             path: '/wssinternal',
         });
