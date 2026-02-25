@@ -1077,7 +1077,7 @@ window.initgui = async function (options) {
             });
         }
         if ( !reload_on_success && window.is_auth() ) {
-            document.dispatchEvent(new Event('login', { bubbles: true }));
+            window.__login_completed = true;
         }
     }
 
@@ -1576,6 +1576,11 @@ window.initgui = async function (options) {
         }
 
     });
+
+    if ( window.__login_completed ) {
+        document.dispatchEvent(new Event('login', { bubbles: true }));
+        window.__login_completed = false;
+    }
 
     $('.popover, .context-menu').on('remove', function () {
         $('.window-active .window-app-iframe').css('pointer-events', 'all');
