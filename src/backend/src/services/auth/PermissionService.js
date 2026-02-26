@@ -518,7 +518,7 @@ class PermissionService extends BaseService {
         );
 
         // Invalidate permission-scan cache for this app-under-user so the next check sees the grant.
-        await this._schedule_invalidate_permission_scan_cache_for_app_under_user(actor.type.user.uuid, app.uid);
+        this._schedule_invalidate_permission_scan_cache_for_app_under_user(actor.type.user.uuid, app.uid);
     }
 
     /**
