@@ -35,7 +35,6 @@ export class BroadcastService extends BaseService {
     #outboundEventsByDedupKey = new Map();
     #outboundFlushTimer = null;
     #outboundIsFlushing = false;
-    #incomingEmitChain = Promise.resolve();
     #dedupFallbackCounter = 0;
     #webhookReplayWindowSeconds = 300;
     #outboundFlushMs = 5000;
@@ -188,18 +187,6 @@ export class BroadcastService extends BaseService {
         };
     }
 
-    #enqueueIncomingEvents (events) {
-        const emitPromise = this.#incomingEmitChain.then(
-            () => this.#emitIncomingEventsSequentially(events),
-        );
-
-        this.#incomingEmitChain = emitPromise.catch(error => {
-            console.warn('inbound broadcast emit failed', { error });
-        });
-
-        return emitPromise;
-    }
-
     async #emitIncomingEventsSequentially (events) {
         const svcEvent = this.services.get('event');
         const context = Context.get(undefined, { allow_fallback: true });
@@ -318,7 +305,7 @@ export class BroadcastService extends BaseService {
 
         this.#incomingLastNonceByPeer.set(peerId, nonce);
 
-        await this.#enqueueIncomingEvents(incomingEvents);
+        this.#emitIncomingEventsSequentially(incomingEvents);
 
         res.status(200).send({ ok: true });
     }
@@ -375,16 +362,18 @@ export class BroadcastService extends BaseService {
             });
             this.#connections.push(conn);
 
-            conn.channels.message.on(message => {
+            conn.channels.message.on(async message => {
                 const incomingEvents = this.#normalizeIncomingPayload(message);
                 if ( ! incomingEvents ) {
                     console.warn('invalid ws broadcast payload');
                     return;
                 }
 
-                this.#enqueueIncomingEvents(incomingEvents).catch(error => {
+                try {
+                    await this.#emitIncomingEventsSequentially(incomingEvents);
+                } catch ( error ) {
                     console.warn('ws broadcast receive error', { error });
-                });
+                }
             });
         });
     }
